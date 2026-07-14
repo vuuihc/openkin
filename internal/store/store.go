@@ -220,21 +220,24 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 
 // TaskPatch is a partial update applied by the engine.
 type TaskPatch struct {
-	Status     *string
-	SessionRef *string
-	ExitCode   *int
-	TokensIn   *int
-	TokensOut  *int
-	CostUSD    *float64
-	StartedAt  *int64
-	FinishedAt *int64
+	Status          *string
+	SessionRef      *string
+	Prompt          *string
+	ExitCode        *int
+	ClearExitCode   bool
+	TokensIn        *int
+	TokensOut       *int
+	CostUSD         *float64
+	StartedAt       *int64
+	FinishedAt      *int64
+	ClearFinishedAt bool
 }
 
 // UpdateTask applies a patch to a task row.
 func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 	// Build dynamic SET; always require at least one field.
-	sets := make([]string, 0, 8)
-	args := make([]any, 0, 9)
+	sets := make([]string, 0, 12)
+	args := make([]any, 0, 13)
 	if p.Status != nil {
 		sets = append(sets, "status = ?")
 		args = append(args, *p.Status)
@@ -243,7 +246,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 		sets = append(sets, "session_ref = ?")
 		args = append(args, *p.SessionRef)
 	}
-	if p.ExitCode != nil {
+	if p.Prompt != nil {
+		sets = append(sets, "prompt = ?")
+		args = append(args, *p.Prompt)
+	}
+	if p.ClearExitCode {
+		sets = append(sets, "exit_code = NULL")
+	} else if p.ExitCode != nil {
 		sets = append(sets, "exit_code = ?")
 		args = append(args, *p.ExitCode)
 	}
@@ -263,7 +272,9 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 		sets = append(sets, "started_at = ?")
 		args = append(args, *p.StartedAt)
 	}
-	if p.FinishedAt != nil {
+	if p.ClearFinishedAt {
+		sets = append(sets, "finished_at = NULL")
+	} else if p.FinishedAt != nil {
 		sets = append(sets, "finished_at = ?")
 		args = append(args, *p.FinishedAt)
 	}
