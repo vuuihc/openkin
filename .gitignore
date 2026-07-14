@@ -1,0 +1,49 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies & build
+node_modules/
+dist/
+build/
+out/
+target/
+.turbo/
+.next/
+.cache/
+*.tsbuildinfo
+
+# Logs & local data
+*.log
+logs/
+.data/
+data/local/
+*.sqlite
+*.sqlite3
+*.db
+
+# Agent / tool local state
+.kin/
+.claude/
+.cursor/
+
+# Maintainer working notes (not for public tree)
+docs/working/
+
+# Coverage & test
+coverage/
+.nyc_output/
