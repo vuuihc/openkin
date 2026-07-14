@@ -1,0 +1,30 @@
+[
+  {
+    "type": "message",
+    "payload": {
+      "content": [
+        {
+          "text": "Repo contains docs, sdk, and examples directories.",
+          "type": "text"
+        }
+      ],
+      "item_id": "item_3",
+      "partial": false,
+      "role": "assistant"
+    }
+  },
+  {
+    "type": "message",
+    "payload": {
+      "content": [
+        {
+          "text": "**Scanning docs for exec JSON schema**",
+          "type": "text"
+        }
+      ],
+      "item_id": "item_0",
+      "partial": false,
+      "role": "reasoning"
+    }
+  }
+]

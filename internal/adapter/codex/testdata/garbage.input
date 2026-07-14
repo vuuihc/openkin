@@ -1,0 +1,3 @@
+this is not json at all
+{"type":"unknown_future_event","foo":true}
+{"no_type":true}

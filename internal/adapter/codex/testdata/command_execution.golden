@@ -1,0 +1,34 @@
+[
+  {
+    "type": "tool_use",
+    "payload": {
+      "item": {
+        "aggregated_output": "",
+        "command": "bash -lc ls",
+        "exit_code": null,
+        "id": "item_1",
+        "status": "in_progress",
+        "type": "command_execution"
+      },
+      "item_id": "item_1",
+      "name": "command_execution",
+      "phase": "started"
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "item": {
+        "aggregated_output": "docs\nsrc\n",
+        "command": "bash -lc ls",
+        "exit_code": 0,
+        "id": "item_1",
+        "status": "completed",
+        "type": "command_execution"
+      },
+      "item_id": "item_1",
+      "name": "command_execution",
+      "phase": "completed"
+    }
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "type": "raw_output",
+    "payload": {
+      "line": "this is not json at all"
+    }
+  },
+  {
+    "type": "raw_output",
+    "payload": {
+      "line": "{\"no_type\":true}"
+    }
+  }
+]

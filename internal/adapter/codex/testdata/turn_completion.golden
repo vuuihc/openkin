@@ -1,0 +1,30 @@
+[
+  {
+    "type": "usage",
+    "payload": {
+      "tokens_in": 24763,
+      "tokens_out": 122,
+      "usage": {
+        "cached_input_tokens": 24448,
+        "input_tokens": 24763,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0
+      }
+    }
+  },
+  {
+    "type": "result",
+    "payload": {
+      "is_error": false,
+      "subtype": "turn.completed",
+      "tokens_in": 24763,
+      "tokens_out": 122,
+      "usage": {
+        "cached_input_tokens": 24448,
+        "input_tokens": 24763,
+        "output_tokens": 122,
+        "reasoning_output_tokens": 0
+      }
+    }
+  }
+]
