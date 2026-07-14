@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -31,6 +32,16 @@ type Payload struct {
 	Body  string
 	// URL is the deep link opened when the user taps the notification.
 	URL string
+}
+
+// ChannelResult is the outcome of delivering to one configured channel.
+type ChannelResult struct {
+	Channel string `json:"channel"`
+	OK      bool   `json:"ok"`
+	// Status is a short success token (e.g. "ok") when OK is true.
+	Status string `json:"status,omitempty"`
+	// Error is set when OK is false.
+	Error string `json:"error,omitempty"`
 }
 
 // Sender posts notifications to configured Bark / ntfy endpoints.
@@ -105,53 +116,61 @@ func (s *Sender) Send(ctx context.Context, p Payload) {
 	if s == nil || s.Store == nil {
 		return
 	}
-	bark, _ := s.Store.GetSetting(ctx, KeyBarkURL)
-	ntfy, _ := s.Store.GetSetting(ctx, KeyNtfyTopic)
-	bark = strings.TrimSpace(bark)
-	ntfy = strings.TrimSpace(ntfy)
-	if bark == "" && ntfy == "" {
-		return
-	}
 	// Detach from request cancellation; keep a short deadline.
 	go func() {
 		cctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if bark != "" {
-			_ = s.postWithRetry(cctx, func() *http.Request {
-				return barkRequest(cctx, bark, p)
-			})
-		}
-		if ntfy != "" {
-			_ = s.postWithRetry(cctx, func() *http.Request {
-				return ntfyRequest(cctx, ntfy, p)
-			})
-		}
+		_ = s.Deliver(cctx, p)
 	}()
 }
 
-// SendSync is like Send but waits (for tests).
-func (s *Sender) SendSync(ctx context.Context, p Payload) error {
+// Deliver posts synchronously to every configured channel and returns per-channel results.
+// Each attempt is logged (channel + outcome). Empty settings yield an empty slice.
+func (s *Sender) Deliver(ctx context.Context, p Payload) []ChannelResult {
 	if s == nil || s.Store == nil {
 		return nil
 	}
 	bark, _ := s.Store.GetSetting(ctx, KeyBarkURL)
 	ntfy, _ := s.Store.GetSetting(ctx, KeyNtfyTopic)
-	var first error
-	if b := strings.TrimSpace(bark); b != "" {
-		if err := s.postWithRetry(ctx, func() *http.Request {
-			return barkRequest(ctx, b, p)
-		}); err != nil && first == nil {
-			first = err
+	bark = strings.TrimSpace(bark)
+	ntfy = strings.TrimSpace(ntfy)
+
+	var results []ChannelResult
+	if bark != "" {
+		results = append(results, s.deliverOne(ctx, "bark", func() *http.Request {
+			return barkRequest(ctx, bark, p)
+		}))
+	}
+	if ntfy != "" {
+		results = append(results, s.deliverOne(ctx, "ntfy", func() *http.Request {
+			return ntfyRequest(ctx, ntfy, p)
+		}))
+	}
+	return results
+}
+
+// SendSync is like Deliver but returns the first channel error (for tests / callers that want err).
+func (s *Sender) SendSync(ctx context.Context, p Payload) error {
+	results := s.Deliver(ctx, p)
+	for _, r := range results {
+		if !r.OK {
+			if r.Error != "" {
+				return fmt.Errorf("%s: %s", r.Channel, r.Error)
+			}
+			return fmt.Errorf("%s: failed", r.Channel)
 		}
 	}
-	if n := strings.TrimSpace(ntfy); n != "" {
-		if err := s.postWithRetry(ctx, func() *http.Request {
-			return ntfyRequest(ctx, n, p)
-		}); err != nil && first == nil {
-			first = err
-		}
+	return nil
+}
+
+func (s *Sender) deliverOne(ctx context.Context, channel string, build func() *http.Request) ChannelResult {
+	err := s.postWithRetry(ctx, build)
+	if err != nil {
+		log.Printf("notify: %s failed: %v", channel, err)
+		return ChannelResult{Channel: channel, OK: false, Error: err.Error()}
 	}
-	return first
+	log.Printf("notify: %s ok", channel)
+	return ChannelResult{Channel: channel, OK: true, Status: "ok"}
 }
 
 func (s *Sender) postWithRetry(ctx context.Context, build func() *http.Request) error {
@@ -183,15 +202,11 @@ func (s *Sender) postWithRetry(ctx context.Context, build func() *http.Request) 
 	return last
 }
 
-// barkRequest POSTs JSON {title, body, url} to the Bark server URL.
-// bark_url may be a base like https://api.day.app/DEVICEKEY or a full endpoint.
+// barkRequest POSTs JSON {title, body, url} to the configured Bark device URL as-is.
+// bark_url is typically https://api.day.app/DEVICEKEY — do not append /push (that form
+// expects device_key in the JSON body when POSTing to the server root).
 func barkRequest(ctx context.Context, barkURL string, p Payload) *http.Request {
 	endpoint := strings.TrimRight(barkURL, "/")
-	// If it does not look like it already ends with /push, append path style
-	// compatible with Bark open API: POST {base}/push with JSON body.
-	if !strings.HasSuffix(endpoint, "/push") {
-		endpoint = endpoint + "/push"
-	}
 	body, _ := json.Marshal(map[string]string{
 		"title": p.Title,
 		"body":  p.Body,

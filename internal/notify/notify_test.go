@@ -79,12 +79,61 @@ func TestNotifyNtfyPayloadAndRetry(t *testing.T) {
 	}
 }
 
+// TestNotifyBarkBaseURLPath asserts Bark form (a): POST JSON to the device URL
+// as-is (https://host/DEVICEKEY), not …/DEVICEKEY/push.
+func TestNotifyBarkBaseURLPath(t *testing.T) {
+	var gotPath string
+	var gotMethod string
+	var gotCT string
+	var got map[string]string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		gotCT = r.Header.Get("Content-Type")
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"code":200,"message":"success"}`))
+	}))
+	defer srv.Close()
+
+	// Base-style bark URL: https://host/DEVICEKEY (no /push suffix).
+	deviceURL := srv.URL + "/DEVICEKEY"
+	s := &Sender{
+		Store: memSettings{
+			KeyBarkURL: deviceURL,
+			KeyBaseURL: "http://phone.local",
+		},
+		Client: &http.Client{Timeout: 2 * time.Second},
+	}
+	results := s.Deliver(context.Background(), Payload{
+		Title: "t", Body: "b", URL: "http://phone.local/tasks/1",
+	})
+	if len(results) != 1 {
+		t.Fatalf("results = %#v", results)
+	}
+	if !results[0].OK || results[0].Channel != "bark" {
+		t.Fatalf("result = %#v", results[0])
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method = %s", gotMethod)
+	}
+	if gotPath != "/DEVICEKEY" {
+		t.Fatalf("path = %q, want /DEVICEKEY (must not append /push)", gotPath)
+	}
+	if gotCT != "application/json" {
+		t.Fatalf("content-type = %q", gotCT)
+	}
+	if got["title"] != "t" || got["body"] != "b" || got["url"] != "http://phone.local/tasks/1" {
+		t.Fatalf("payload = %#v", got)
+	}
+}
+
 func TestNotifyBarkPayload(t *testing.T) {
 	var got map[string]string
+	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/devicekey/push" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
+		gotPath = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&got)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -102,8 +151,44 @@ func TestNotifyBarkPayload(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if gotPath != "/devicekey" {
+		t.Fatalf("path = %q, want /devicekey", gotPath)
+	}
 	if got["title"] != "t" || got["body"] != "b" || got["url"] != "http://phone.local/tasks/1" {
 		t.Fatalf("payload = %#v", got)
+	}
+}
+
+func TestDeliverLogsAndResultsBothChannels(t *testing.T) {
+	barkOK := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer barkOK.Close()
+	ntfyFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer ntfyFail.Close()
+
+	s := &Sender{
+		Store: memSettings{
+			KeyBarkURL:   barkOK.URL + "/key",
+			KeyNtfyTopic: ntfyFail.URL + "/topic",
+		},
+		Client: &http.Client{Timeout: 2 * time.Second},
+	}
+	results := s.Deliver(context.Background(), Payload{Title: "a", Body: "b"})
+	if len(results) != 2 {
+		t.Fatalf("len(results)=%d", len(results))
+	}
+	byCh := map[string]ChannelResult{}
+	for _, r := range results {
+		byCh[r.Channel] = r
+	}
+	if !byCh["bark"].OK {
+		t.Fatalf("bark: %#v", byCh["bark"])
+	}
+	if byCh["ntfy"].OK || byCh["ntfy"].Error == "" {
+		t.Fatalf("ntfy: %#v", byCh["ntfy"])
 	}
 }
 
@@ -130,7 +215,7 @@ func TestNotifyApprovalUsesDeepLink(t *testing.T) {
 		},
 		Client: &http.Client{Timeout: 2 * time.Second},
 	}
-	// Use SendSync path via NotifyApproval's Send — wait briefly.
+	// Use Send path via NotifyApproval — wait briefly.
 	s.NotifyApproval(context.Background(), "appr1", "task1", "Approval needed")
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
