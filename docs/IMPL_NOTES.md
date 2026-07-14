@@ -85,3 +85,50 @@ Handlers remain hand-written. Surface is now larger (tasks CRUD-ish, events, can
 ### UI markdown
 
 No markdown dependency added (not in §2). Task detail uses a small in-house renderer (paragraphs, headings, fenced code, inline code, bold).
+
+## M2
+
+### Approval bridge (no MCP SDK)
+
+§2 lists no MCP SDK. `kin approve-mcp` is a hand-rolled JSON-RPC 2.0 server over **newline-delimited JSON** on stdio (not Content-Length framing). Claude Code's stdio transport matches this.
+
+Handled methods: `initialize` (echoes `protocolVersion`, `capabilities.tools`, `serverInfo`), `notifications/initialized` (no-op), `tools/list` (single tool `approve` with open object schema), `tools/call` for `approve`, and `ping`. Protocol logs go to **stderr only**.
+
+### Permission tool return shape
+
+On allow, tool result text is exactly:
+`{"behavior":"allow","updatedInput":<input>}` where `updatedInput` is the `input` field of the tool arguments when present (Claude Code permission shape `{tool_name, input, ...}`), else the whole arguments object. Deny/expiry: `{"behavior":"deny","message":"denied via Kin console"}`.
+
+### Adapter launch line (M2)
+
+```bash
+claude -p "<prompt>" \
+  --output-format stream-json --verbose --include-partial-messages \
+  --mcp-config <temp kin-mcp-*.json> \
+  --permission-prompt-tool mcp__kin__approve \
+  [--resume <session_ref>] [--model <model>]
+```
+
+Per-task MCP config is written under the system temp dir and removed when the process exits. Binary path from `os.Executable()` (+ `EvalSymlinks` when possible). **Never** `--dangerously-skip-permissions`.
+
+If `DaemonURL`/`Token` are empty on the adapter (unit tests without the bridge), MCP flags are omitted so fake agents keep working.
+
+### Internal routes + loopback
+
+`POST /internal/approvals` and `GET /internal/approvals/{id}/wait` require Bearer token **and** a loopback `RemoteAddr` middleware (in addition to the daemon binding 127.0.0.1). Long-poll default/max is 30s; still-pending returns the pending row so the MCP client re-polls.
+
+### Expiry
+
+Pending approvals older than **1 hour** become `decision=expired`, `decided_via=timeout` (deny behavior for MCP). Enforced in `WaitApproval` and a 1-minute periodic `ExpireStale` sweep. Engine clock + TTL are injectable for unit tests.
+
+### Follow-up prompts
+
+`POST /api/tasks/{id}/prompt` reuses the **same** task row: requires terminal status + non-empty `session_ref` (else 409). Clears `finished_at`/`exit_code`, sets `queued`, appends a user `message` event, re-launches with `--resume`. Tokens and `cost_usd` accumulate additively across runs; event `seq` continues.
+
+### WS
+
+`approval_update` messages are broadcast alongside `task_update` / `event`. UI nav badge and Approvals page subscribe for live pending count.
+
+### OpenAPI still deferred
+
+Approval and follow-up handlers are hand-written like the rest of M0–M2.
