@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"nhooyr.io/websocket"
 
+	"github.com/vuuihc/kin/internal/notify"
 	"github.com/vuuihc/kin/internal/remote"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
@@ -62,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/settings", s.handleGetSettings)
 		r.Put("/api/settings", s.handlePutSettings)
+		r.Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/ws", s.handleWS)
 	})
@@ -421,6 +423,35 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Return updated snapshot.
 	s.handleGetSettings(w, r)
+}
+
+// notifyTestResponse is POST /api/notify/test.
+type notifyTestResponse struct {
+	OK      bool                   `json:"ok"`
+	Results []notify.ChannelResult `json:"results"`
+}
+
+func (s *Server) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
+	sender := &notify.Sender{Store: s.Store}
+	payload := notify.Payload{
+		Title: "Kin test",
+		Body:  "Notification test from kin",
+		URL:   sender.DeepLink(r.Context(), "/settings"),
+	}
+	results := sender.Deliver(r.Context(), payload)
+	if results == nil {
+		results = []notify.ChannelResult{}
+	}
+	anyOK := false
+	for _, res := range results {
+		if res.OK {
+			anyOK = true
+			break
+		}
+	}
+	// ok is true only when at least one channel succeeded.
+	// Empty configuration returns ok=false with an empty results list.
+	writeJSON(w, http.StatusOK, notifyTestResponse{OK: anyOK, Results: results})
 }
 
 func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {

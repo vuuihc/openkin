@@ -219,6 +219,25 @@ export function updateSettings(
   });
 }
 
+export type NotifyChannelResult = {
+  channel: string;
+  ok: boolean;
+  status?: string;
+  error?: string;
+};
+
+export type NotifyTestResponse = {
+  ok: boolean;
+  results: NotifyChannelResult[];
+};
+
+/** POST /api/notify/test — send a test push via all configured channels. */
+export function testNotify(): Promise<NotifyTestResponse> {
+  return apiFetch<NotifyTestResponse>("/api/notify/test", {
+    method: "POST",
+  });
+}
+
 export type UsageRow = {
   date: string;
   agent: string;

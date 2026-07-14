@@ -3,9 +3,12 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/vuuihc/kin/internal/notify"
 )
 
 func TestSettingsGetPut(t *testing.T) {
@@ -70,5 +73,54 @@ func TestSettingsGetPut(t *testing.T) {
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("no auth: %d", rr.Code)
+	}
+}
+
+func TestNotifyTestEndpoint(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	// Fake ntfy that accepts POSTs.
+	var hit bool
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer fake.Close()
+
+	if err := s.Store.SetSetting(t.Context(), notify.KeyNtfyTopic, fake.URL+"/kin"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Auth required
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/notify/test", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("no auth: %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/notify/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("notify test: %d %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		OK      bool `json:"ok"`
+		Results []struct {
+			Channel string `json:"channel"`
+			OK      bool   `json:"ok"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || len(body.Results) != 1 || body.Results[0].Channel != "ntfy" || !body.Results[0].OK {
+		t.Fatalf("body = %#v", body)
+	}
+	if !hit {
+		t.Fatal("expected fake ntfy to be hit")
 	}
 }

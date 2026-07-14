@@ -3,6 +3,7 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   ApiError,
   getSettings,
+  testNotify,
   updateSettings,
   type Settings,
 } from "../api/client";
@@ -20,7 +21,9 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint(!settings && !error);
 
   const load = useCallback(async () => {
@@ -89,6 +92,26 @@ export default function SettingsPage() {
       await navigator.clipboard.writeText(text);
     } catch {
       // ignore
+    }
+  };
+
+  const sendTest = async () => {
+    setTesting(true);
+    try {
+      const res = await testNotify();
+      if (!res.results?.length) {
+        pushToast("No notification channels configured", "error");
+        return;
+      }
+      const parts = res.results.map((r) =>
+        r.ok ? `${r.channel}: ok` : `${r.channel}: ${r.error || "failed"}`,
+      );
+      pushToast(parts.join(" · "), res.ok ? "info" : "error");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return;
+      pushToast(e instanceof ApiError ? e.message : String(e), "error");
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -240,7 +263,7 @@ export default function SettingsPage() {
             tunnels.
           </span>
         </label>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             disabled={busy}
@@ -248,6 +271,14 @@ export default function SettingsPage() {
             className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black hover:bg-accent-muted disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            disabled={testing || busy}
+            onClick={() => void sendTest()}
+            className="min-h-[44px] rounded-lg border border-surface-border px-4 py-2 text-sm font-medium text-zinc-200 hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            {testing ? "Sending…" : "Send test notification"}
           </button>
           {saved && <span className="text-xs text-accent">Saved</span>}
           {error && <span className="text-xs text-red-400">{error}</span>}
