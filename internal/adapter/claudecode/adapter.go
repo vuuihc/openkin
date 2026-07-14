@@ -30,7 +30,11 @@ type Adapter struct {
 	// Required for the approval bridge; if empty, MCP config is omitted (tests).
 	DaemonURL string
 	// Token is the KIN auth token injected into the MCP server env.
+	// Prefer TokenFunc when the daemon may rotate tokens while running.
 	Token string
+	// TokenFunc, if set, is called at Start to resolve the current token
+	// (e.g. re-read ~/.kin/token after `kin token rotate`).
+	TokenFunc func() string
 }
 
 // New returns a Claude Code adapter using the "claude" binary on PATH.
@@ -66,8 +70,15 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	}
 	// NEVER --dangerously-skip-permissions (spec §0 / M2).
 
+	token := a.Token
+	if a.TokenFunc != nil {
+		if t := a.TokenFunc(); t != "" {
+			token = t
+		}
+	}
+
 	var mcpPath string
-	if a.DaemonURL != "" && a.Token != "" {
+	if a.DaemonURL != "" && token != "" {
 		kinBin := a.KinBinary
 		if kinBin == "" {
 			kinBin, err = os.Executable()
@@ -80,7 +91,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 				kinBin, _ = os.Executable()
 			}
 		}
-		mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, a.Token)
+		mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token)
 		if err != nil {
 			return nil, fmt.Errorf("mcp config: %w", err)
 		}
