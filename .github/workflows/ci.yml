@@ -12,7 +12,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22.x"
+          # tsnet (M3) requires Go ≥ 1.23.1
+          go-version: "1.23.x"
 
       - uses: actions/setup-node@v4
         with:

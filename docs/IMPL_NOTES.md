@@ -132,3 +132,51 @@ Pending approvals older than **1 hour** become `decision=expired`, `decided_via=
 ### OpenAPI still deferred
 
 Approval and follow-up handlers are hand-written like the rest of M0–M2.
+
+## M3
+
+### Go version
+
+`tailscale.com/tsnet` v1.80.3 requires **Go ≥ 1.23.1**. `go.mod` and CI use 1.23.x (spec allows ≥ 1.22).
+
+### Token reload (not file watch)
+
+`remote.NewFileAuth` **re-reads `~/.kin/token` on every request** (no fsnotify watcher). `kin token rotate` rewrites the file; a running daemon accepts the new token and rejects the old one immediately. Documented in `docs/REMOTE_ACCESS.md`.
+
+MCP approve-mcp children started before rotate still carry the old `KIN_TOKEN` in their env until the task restarts; new tasks resolve the token via `TokenFunc` at adapter `Start`.
+
+### Transport / serve flags
+
+- Default: `loopback` (`127.0.0.1`).
+- `--lan`: `0.0.0.0` (covers loopback for MCP).
+- `--tailscale`: additional tsnet listener (node hostname `kin`, state `~/.kin/tsnet/`).
+- `--funnel`: requires `--tailscale`; uses `ListenFunnel` on `:443`. Incompatible with `--ts-control-url` (error before listen).
+- Same `http.Handler` is `Serve`d on all active listeners; Ctrl-C → graceful `Shutdown`.
+
+### Import boundary
+
+`tailscale.com/*` only under `internal/remote/tsnet/`. Enforced by `TestTailscaleImportBoundary` in `internal/remote` (runs in CI via `go test ./...`).
+
+### Notifications
+
+`internal/notify`: settings `notify.bark_url`, `notify.ntfy_topic`, `ui.base_url`. On `approval_requested` and task terminal status, fire-and-forget POST (5s client timeout, one retry after 200ms). ntfy: `Title` + `Click` headers; Bark: JSON `{title,body,url}` to `{bark_url}/push`.
+
+`ui.base_url` is set at serve start to the most-public active listener URL (https/funnel > tsnet > lan > loopback) and is overridable via `PUT /api/settings`.
+
+### Settings API
+
+`GET/PUT /api/settings` (auth required). PUT accepts only `notify.bark_url`, `notify.ntfy_topic`, `ui.base_url`. GET also returns `network_mode`, `connect_url` (QR target with token), and `token`.
+
+### UI
+
+Settings page: connection QR (`qrcode.react`), network mode, token reveal/copy, Bark/ntfy/base URL fields.
+
+### Dependencies added (M3)
+
+- `tailscale.com` (tsnet) — only imported from `internal/remote/tsnet`
+- `github.com/skip2/go-qrcode` — terminal QR
+- UI: `qrcode.react`
+
+### Live verification limits
+
+Automated/agent verification covers loopback, LAN bind + QR print, funnel+control-url error path, token rotate, and notify against a local httptest. Real Tailscale login, Funnel enablement, and phone QR scan require the maintainer’s account/device.
