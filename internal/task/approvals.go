@@ -90,6 +90,14 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 	e.bus.PublishEvent(ev)
 	e.bus.PublishApproval(a)
 
+	if e.notify != nil {
+		title := "Approval needed"
+		if t.Title != "" {
+			title = t.Title
+		}
+		e.notify.NotifyApproval(ctx, a.ID, a.TaskID, title)
+	}
+
 	return a, nil
 }
 

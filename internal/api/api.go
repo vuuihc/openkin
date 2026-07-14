@@ -27,6 +27,13 @@ type Server struct {
 	Version string
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
+
+	// M3 connection metadata for Settings (set by server.Serve).
+	NetworkMode string
+	BaseURL     string // ui.base_url without token
+	ConnectURL  string // full URL with ?token= for QR
+	Token       string // initial token; prefer TokenFn
+	TokenFn     func() string
 }
 
 // Handler returns the root chi router.
@@ -51,6 +58,8 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
+		r.Get("/api/settings", s.handleGetSettings)
+		r.Put("/api/settings", s.handlePutSettings)
 		r.Get("/api/ws", s.handleWS)
 	})
 
@@ -313,6 +322,83 @@ func (s *Server) handleRecentCwds(w http.ResponseWriter, r *http.Request) {
 		cwds = []string{}
 	}
 	writeJSON(w, http.StatusOK, cwds)
+}
+
+// settingsResponse is GET /api/settings (spec §8 / §9 page 4).
+type settingsResponse struct {
+	NotifyBarkURL   string `json:"notify.bark_url"`
+	NotifyNtfyTopic string `json:"notify.ntfy_topic"`
+	UIBaseURL       string `json:"ui.base_url"`
+	NetworkMode     string `json:"network_mode"`
+	ConnectURL      string `json:"connect_url"`
+	Token           string `json:"token"`
+}
+
+// Allowed settings keys for PUT (subset of store keys).
+var puttableSettings = map[string]bool{
+	"notify.bark_url":   true,
+	"notify.ntfy_topic": true,
+	"ui.base_url":       true,
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	get := func(key string) string {
+		v, err := s.Store.GetSetting(ctx, key)
+		if err != nil {
+			return ""
+		}
+		return v
+	}
+	tok := s.Token
+	if s.TokenFn != nil {
+		if t := s.TokenFn(); t != "" {
+			tok = t
+		}
+	}
+	base := get("ui.base_url")
+	if base == "" {
+		base = s.BaseURL
+	}
+	// Always rebuild connect URL with the current token so rotate stays correct.
+	connect := ""
+	if base != "" && tok != "" {
+		connect = strings.TrimRight(base, "/") + "/?token=" + tok
+	} else if s.ConnectURL != "" {
+		connect = s.ConnectURL
+	}
+	writeJSON(w, http.StatusOK, settingsResponse{
+		NotifyBarkURL:   get("notify.bark_url"),
+		NotifyNtfyTopic: get("notify.ntfy_topic"),
+		UIBaseURL:       base,
+		NetworkMode:     s.NetworkMode,
+		ConnectURL:      connect,
+		Token:           tok,
+	})
+}
+
+func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
+	var body map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	ctx := r.Context()
+	for k, v := range body {
+		if !puttableSettings[k] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown or read-only setting: " + k})
+			return
+		}
+		if err := s.Store.SetSetting(ctx, k, v); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if k == "ui.base_url" {
+			s.BaseURL = strings.TrimRight(strings.TrimSpace(v), "/")
+		}
+	}
+	// Return updated snapshot.
+	s.handleGetSettings(w, r)
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {

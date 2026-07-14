@@ -39,11 +39,18 @@ type CreateRequest struct {
 	Title  *string `json:"title,omitempty"`
 }
 
+// Notifier is optional fire-and-forget push for approvals / task finish (M3).
+type Notifier interface {
+	NotifyApproval(ctx context.Context, approvalID, taskID, title string)
+	NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string)
+}
+
 // Engine owns task lifecycle. Status transitions only happen here (spec §3).
 type Engine struct {
 	store    *store.Store
 	adapters map[string]adapter.Adapter
 	bus      *Bus
+	notify   Notifier
 
 	mu            sync.Mutex
 	maxConcurrent int
@@ -96,6 +103,9 @@ func (e *Engine) SetClock(fn func() time.Time) { e.clock = fn }
 
 // SetApprovalTTL overrides the 1h default (tests).
 func (e *Engine) SetApprovalTTL(d time.Duration) { e.approvalTTL = d }
+
+// SetNotifier wires Bark/ntfy notifications (M3). Optional.
+func (e *Engine) SetNotifier(n Notifier) { e.notify = n }
 
 // Bus returns the WebSocket bus.
 func (e *Engine) Bus() *Bus { return e.bus }
@@ -496,6 +506,10 @@ func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, c
 		return store.Task{}, err
 	}
 	e.bus.PublishTask(t)
+	// Terminal statuses: succeeded | failed | canceled (spec §8).
+	if e.notify != nil && (status == StatusSucceeded || status == StatusFailed || status == StatusCanceled) {
+		e.notify.NotifyTaskTerminal(ctx, t.ID, t.Title, status)
+	}
 	return t, nil
 }
 
