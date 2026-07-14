@@ -137,7 +137,7 @@ Approval and follow-up handlers are hand-written like the rest of M0–M2.
 
 ### Go version
 
-`tailscale.com/tsnet` v1.80.3 requires **Go ≥ 1.23.1**. `go.mod` and CI use 1.23.x (spec allows ≥ 1.22).
+`tailscale.com` (tsnet; currently v1.100.0 in `go.mod`) requires **Go ≥ 1.23.1**. `go.mod` and CI use 1.23.x (spec allows ≥ 1.22).
 
 ### Token reload (not file watch)
 
