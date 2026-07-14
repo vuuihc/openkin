@@ -4,6 +4,7 @@ import {
   ApiError,
   cancelTask,
   connectWS,
+  followUpPrompt,
   formatCost,
   formatElapsed,
   getTask,
@@ -23,6 +24,8 @@ export default function TaskDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
+  const [followUp, setFollowUp] = useState("");
+  const [sending, setSending] = useState(false);
   const [now, setNow] = useState(Date.now());
   const maxSeq = useRef(0);
 
@@ -109,6 +112,23 @@ export default function TaskDetailPage() {
     }
   }
 
+  async function onFollowUp(e: React.FormEvent) {
+    e.preventDefault();
+    const prompt = followUp.trim();
+    if (!prompt) return;
+    setSending(true);
+    try {
+      const t = await followUpPrompt(id, prompt);
+      setTask(t);
+      setFollowUp("");
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Follow-up failed");
+    } finally {
+      setSending(false);
+    }
+  }
+
   if (loading) {
     return (
       <p className="text-sm text-zinc-400" role="status">
@@ -133,6 +153,7 @@ export default function TaskDetailPage() {
   if (!task) return null;
 
   const terminal = isTerminal(task.status);
+  const canFollowUp = terminal && !!task.session_ref;
 
   return (
     <div className="space-y-4">
@@ -185,6 +206,31 @@ export default function TaskDetailPage() {
         <h2 className="mb-3 text-sm font-medium text-zinc-400">Transcript</h2>
         <Transcript events={events} />
       </section>
+
+      {canFollowUp && (
+        <section className="rounded-xl border border-surface-border bg-surface-raised p-4 space-y-3">
+          <h2 className="text-sm font-medium text-zinc-300">Follow-up</h2>
+          <p className="text-xs text-zinc-500">
+            Continues the same agent session (<span className="font-mono">--resume</span>).
+          </p>
+          <form onSubmit={onFollowUp} className="space-y-3">
+            <textarea
+              value={followUp}
+              onChange={(e) => setFollowUp(e.target.value)}
+              rows={3}
+              placeholder="Send another prompt to this session…"
+              className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+            <button
+              type="submit"
+              disabled={sending || !followUp.trim()}
+              className="min-h-[44px] w-full sm:w-auto rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-50 hover:brightness-110"
+            >
+              {sending ? "Sending…" : "Send follow-up"}
+            </button>
+          </form>
+        </section>
+      )}
     </div>
   );
 }

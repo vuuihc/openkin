@@ -82,6 +82,19 @@ export type TaskEvent = {
   payload: unknown;
 };
 
+export type Approval = {
+  id: string;
+  task_id: string;
+  kind: string;
+  payload: unknown;
+  decision: string;
+  decided_via?: string | null;
+  created_at: number;
+  decided_at?: number | null;
+  task_title?: string;
+  task_agent?: string;
+};
+
 export type CreateTaskBody = {
   agent: string;
   cwd: string;
@@ -92,7 +105,8 @@ export type CreateTaskBody = {
 
 export type WSMessage =
   | { kind: "task_update"; data: Task }
-  | { kind: "event"; data: TaskEvent };
+  | { kind: "event"; data: TaskEvent }
+  | { kind: "approval_update"; data: Approval };
 
 export function listTasks(params?: {
   status?: string;
@@ -125,9 +139,33 @@ export function cancelTask(id: string): Promise<Task> {
   });
 }
 
+export function followUpPrompt(id: string, prompt: string): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/prompt`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+}
+
 export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
   const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
   return apiFetch<TaskEvent[]>(`/api/tasks/${encodeURIComponent(id)}/events${q}`);
+}
+
+export function listApprovals(status?: string): Promise<Approval[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiFetch<Approval[]>(`/api/approvals${q}`);
+}
+
+export function decideApproval(
+  id: string,
+  decision: "approved" | "denied",
+): Promise<Approval> {
+  return apiFetch<Approval>(`/api/approvals/${encodeURIComponent(id)}/decision`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
 }
 
 export function recentCwds(): Promise<string[]> {
@@ -194,4 +232,24 @@ export function formatElapsed(task: Task, now = Date.now()): string {
 
 export function isTerminal(status: string): boolean {
   return status === "succeeded" || status === "failed" || status === "canceled";
+}
+
+/** Extract tool name + input from an approval payload (Claude permission shape). */
+export function parseApprovalPayload(payload: unknown): {
+  toolName: string;
+  input: Record<string, unknown>;
+} {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const toolName = String(
+    p.tool_name ?? p.toolName ?? p.name ?? p.tool ?? "tool",
+  );
+  let input: Record<string, unknown> = {};
+  if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+    input = p.input as Record<string, unknown>;
+  } else {
+    // Whole payload is the input (minus known meta keys).
+    const { tool_name: _a, toolName: _b, name: _c, tool: _d, tool_use_id: _e, ...rest } = p;
+    input = rest;
+  }
+  return { toolName, input };
 }

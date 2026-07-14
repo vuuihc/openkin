@@ -12,7 +12,9 @@ type Row =
   | { kind: "raw"; line: string; key: string }
   | { kind: "error"; message: string; key: string }
   | { kind: "result"; payload: Record<string, unknown>; key: string }
-  | { kind: "meta"; label: string; key: string };
+  | { kind: "meta"; label: string; key: string }
+  | { kind: "approval_req"; tool: string; approvalId: string; key: string }
+  | { kind: "approval_dec"; decision: string; via: string; key: string };
 
 export default function Transcript({ events }: Props) {
   const rows = useMemo(() => buildRows(events), [events]);
@@ -84,6 +86,42 @@ export default function Transcript({ events }: Props) {
                 {row.label}
               </p>
             );
+          case "approval_req":
+            return (
+              <div
+                key={row.key}
+                className="rounded-xl border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm"
+              >
+                <span className="text-amber-300 font-medium">Approval requested</span>
+                <span className="text-zinc-400">
+                  {" "}
+                  · {row.tool || "tool"}
+                  {row.approvalId ? (
+                    <span className="font-mono text-xs text-zinc-500"> · {row.approvalId.slice(0, 10)}…</span>
+                  ) : null}
+                </span>
+              </div>
+            );
+          case "approval_dec": {
+            const ok = row.decision === "approved";
+            const cls = ok
+              ? "border-emerald-900/50 bg-emerald-950/30 text-emerald-300"
+              : "border-red-900/50 bg-red-950/30 text-red-300";
+            return (
+              <div key={row.key} className={`rounded-xl border px-4 py-3 text-sm ${cls}`}>
+                <span className="font-medium">
+                  {row.decision === "expired"
+                    ? "Approval expired"
+                    : ok
+                      ? "Approved"
+                      : "Denied"}
+                </span>
+                {row.via ? (
+                  <span className="text-zinc-500 text-xs"> · via {row.via}</span>
+                ) : null}
+              </div>
+            );
+          }
         }
       })}
     </div>
@@ -192,6 +230,32 @@ function buildRows(events: TaskEvent[]): Row[] {
       case "result":
         flushStream();
         rows.push({ kind: "result", payload: p, key: `res-${ev.seq}` });
+        break;
+      case "approval_requested": {
+        flushStream();
+        const payload = (p.payload ?? p) as Record<string, unknown>;
+        const tool =
+          String(
+            (payload as { tool_name?: string }).tool_name ??
+              (payload as { name?: string }).name ??
+              "",
+          ) || "tool";
+        rows.push({
+          kind: "approval_req",
+          tool,
+          approvalId: String(p.approval_id ?? ""),
+          key: `ar-${ev.seq}`,
+        });
+        break;
+      }
+      case "approval_decided":
+        flushStream();
+        rows.push({
+          kind: "approval_dec",
+          decision: String(p.decision ?? ""),
+          via: String(p.decided_via ?? ""),
+          key: `ad-${ev.seq}`,
+        });
         break;
       default:
         break;
