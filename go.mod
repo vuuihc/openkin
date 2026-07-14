@@ -4,7 +4,9 @@ go 1.22
 
 require (
 	github.com/go-chi/chi/v5 v5.2.1
+	github.com/oklog/ulid/v2 v2.1.0
 	modernc.org/sqlite v1.34.5
+	nhooyr.io/websocket v1.8.17
 )
 
 require (
