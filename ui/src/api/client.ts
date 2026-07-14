@@ -1,3 +1,5 @@
+import { useAppStore } from "../store/appStore";
+
 const TOKEN_KEY = "kin_token";
 
 /** Read token from localStorage (set via ?token= capture). */
@@ -11,6 +13,14 @@ export function getToken(): string | null {
 
 export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -35,6 +45,11 @@ export class ApiError extends Error {
   }
 }
 
+function notifyUnauthorized(): void {
+  // Funnel every API-layer 401 into the global connect screen.
+  useAppStore.getState().requireToken("unauthorized");
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const token = getToken();
@@ -47,6 +62,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
+    if (res.status === 401) {
+      notifyUnauthorized();
+    }
     const text = await res.text().catch(() => "");
     throw new ApiError(res.status, text || res.statusText);
   }
@@ -214,31 +232,73 @@ export function getUsageSummary(days = 30): Promise<UsageRow[]> {
   return apiFetch<UsageRow[]>(`/api/usage/summary?days=${days}`);
 }
 
-/** Open the global WS bus. Uses ?token= (browser WS cannot set Authorization easily). */
-export function connectWS(onMessage: (msg: WSMessage) => void): () => void {
+export type ConnectWSOptions = {
+  onMessage: (msg: WSMessage) => void;
+  /** Fired after a successful (re)open — pages re-fetch lists / since_seq. */
+  onOpen?: () => void;
+  onStatus?: (status: "connecting" | "connected" | "disconnected") => void;
+};
+
+/**
+ * Open the global WS bus. Uses ?token= (browser WS cannot set Authorization easily).
+ * Automatic retry with exponential backoff (capped). Surfaces connection status.
+ */
+export function connectWS(
+  onMessageOrOpts: ((msg: WSMessage) => void) | ConnectWSOptions,
+): () => void {
+  const opts: ConnectWSOptions =
+    typeof onMessageOrOpts === "function"
+      ? { onMessage: onMessageOrOpts }
+      : onMessageOrOpts;
+
   const token = getToken();
-  if (!token) return () => undefined;
+  if (!token) {
+    opts.onStatus?.("disconnected");
+    return () => undefined;
+  }
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${proto}//${window.location.host}/api/ws?token=${encodeURIComponent(token)}`;
   let ws: WebSocket | null = null;
   let closed = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
+  let attempt = 0;
+  let everOpened = false;
+
+  const setStatus = (s: "connecting" | "connected" | "disconnected") => {
+    opts.onStatus?.(s);
+    useAppStore.getState().setWSStatus(s);
+  };
 
   const connect = () => {
     if (closed) return;
+    setStatus("connecting");
     ws = new WebSocket(url);
+    ws.onopen = () => {
+      attempt = 0;
+      setStatus("connected");
+      if (everOpened) {
+        // Reconnect: bump gen so list pages self-heal without manual refresh.
+        useAppStore.getState().noteReconnect();
+      }
+      everOpened = true;
+      opts.onOpen?.();
+    };
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(String(ev.data)) as WSMessage;
-        onMessage(msg);
+        opts.onMessage(msg);
       } catch {
         // ignore malformed
       }
     };
     ws.onclose = () => {
       if (closed) return;
-      retry = setTimeout(connect, 1500);
+      setStatus("disconnected");
+      // Exponential backoff: 1s, 2s, 4s … cap 15s (high-latency Funnel).
+      const delay = Math.min(15_000, 1000 * 2 ** Math.min(attempt, 4));
+      attempt += 1;
+      retry = setTimeout(connect, delay);
     };
     ws.onerror = () => {
       ws?.close();
@@ -294,4 +354,30 @@ export function parseApprovalPayload(payload: unknown): {
     input = rest;
   }
   return { toolName, input };
+}
+
+/** Build a temporary optimistic task row for New Task UX. */
+export function optimisticTask(partial: {
+  id: string;
+  agent: string;
+  cwd: string;
+  prompt: string;
+  title?: string;
+}): Task {
+  const now = Date.now();
+  const title =
+    partial.title ||
+    (partial.prompt.length > 80 ? partial.prompt.slice(0, 80) : partial.prompt) ||
+    "New task";
+  return {
+    id: partial.id,
+    title,
+    agent: partial.agent,
+    cwd: partial.cwd,
+    prompt: partial.prompt,
+    status: "queued",
+    tokens_in: 0,
+    tokens_out: 0,
+    created_at: now,
+  };
 }
