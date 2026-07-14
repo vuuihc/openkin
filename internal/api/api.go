@@ -60,6 +60,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/settings", s.handleGetSettings)
 		r.Put("/api/settings", s.handlePutSettings)
+		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/ws", s.handleWS)
 	})
 
@@ -329,6 +330,7 @@ type settingsResponse struct {
 	NotifyBarkURL   string `json:"notify.bark_url"`
 	NotifyNtfyTopic string `json:"notify.ntfy_topic"`
 	UIBaseURL       string `json:"ui.base_url"`
+	PriceTable      string `json:"price_table"`
 	NetworkMode     string `json:"network_mode"`
 	ConnectURL      string `json:"connect_url"`
 	Token           string `json:"token"`
@@ -339,6 +341,7 @@ var puttableSettings = map[string]bool{
 	"notify.bark_url":   true,
 	"notify.ntfy_topic": true,
 	"ui.base_url":       true,
+	"price_table":       true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -367,10 +370,15 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	} else if s.ConnectURL != "" {
 		connect = s.ConnectURL
 	}
+	priceTable := get(store.KeyPriceTable)
+	if strings.TrimSpace(priceTable) == "" {
+		priceTable = store.DefaultPriceTableJSON
+	}
 	writeJSON(w, http.StatusOK, settingsResponse{
 		NotifyBarkURL:   get("notify.bark_url"),
 		NotifyNtfyTopic: get("notify.ntfy_topic"),
 		UIBaseURL:       base,
+		PriceTable:      priceTable,
 		NetworkMode:     s.NetworkMode,
 		ConnectURL:      connect,
 		Token:           tok,
@@ -389,6 +397,18 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown or read-only setting: " + k})
 			return
 		}
+		if k == store.KeyPriceTable {
+			if _, err := store.ParsePriceTable(v); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			// Canonical compact form for storage.
+			if t, err := store.ParsePriceTable(v); err == nil {
+				if b, err := json.Marshal(t); err == nil {
+					v = string(b)
+				}
+			}
+		}
 		if err := s.Store.SetSetting(ctx, k, v); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -399,6 +419,27 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Return updated snapshot.
 	s.handleGetSettings(w, r)
+}
+
+func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
+	days := 30
+	if d := r.URL.Query().Get("days"); d != "" {
+		n, err := strconv.Atoi(d)
+		if err != nil || n < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid days"})
+			return
+		}
+		days = n
+	}
+	rows, err := s.Store.UsageSummary(r.Context(), days)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if rows == nil {
+		rows = []store.UsageRow{}
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {

@@ -18,6 +18,8 @@ import (
 
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/adapter/claudecode"
+	"github.com/vuuihc/kin/internal/adapter/codex"
+	"github.com/vuuihc/kin/internal/adapter/rawpty"
 	"github.com/vuuihc/kin/internal/api"
 	"github.com/vuuihc/kin/internal/notify"
 	"github.com/vuuihc/kin/internal/remote"
@@ -134,8 +136,16 @@ func ServeWith(version string, flags ServeFlags) error {
 	if bin := os.Getenv("KIN_CLAUDE_BIN"); bin != "" {
 		claudeAd.Binary = bin
 	}
+
+	codexAd := codex.New()
+	if bin := os.Getenv("KIN_CODEX_BIN"); bin != "" {
+		codexAd.Binary = bin
+	}
+
 	adapters := map[string]adapter.Adapter{
 		"claude-code": claudeAd,
+		"codex":       codexAd,
+		"rawpty":      rawpty.New(),
 	}
 
 	eng := task.NewEngine(st, adapters, task.NewBus(), task.DefaultMaxConcurrent)

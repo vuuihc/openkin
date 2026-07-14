@@ -14,6 +14,7 @@ import (
 
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/adapter/claudecode"
+	"github.com/vuuihc/kin/internal/adapter/codex"
 	"github.com/vuuihc/kin/internal/store"
 )
 
@@ -403,7 +404,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 
 		switch ev.Type {
 		case "task_started":
-			if sid := claudecode.ExtractSessionID(ev.Payload); sid != "" {
+			sid := claudecode.ExtractSessionID(ev.Payload)
+			if sid == "" {
+				sid = codex.ExtractSessionID(ev.Payload)
+			}
+			if sid != "" {
 				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 				if t, err := e.store.GetTask(ctx, id); err == nil {
 					e.bus.PublishTask(t)
@@ -419,6 +424,27 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 				newIn := cur.TokensIn + tin
 				newOut := cur.TokensOut + tout
 				p := store.TaskPatch{TokensIn: &newIn, TokensOut: &newOut}
+
+				// Claude: cost from result total_cost_usd (do not change that path).
+				// Codex: cost not in CLI output — compute from price_table at result time.
+				if cost == nil && cur.Agent == "codex" && (tin > 0 || tout > 0) {
+					model := codex.DefaultModel
+					if cur.Model != nil && *cur.Model != "" {
+						model = *cur.Model
+					}
+					table := e.store.LoadPriceTable(ctx)
+					if c, found := table.ComputeCost(model, tin, tout); found {
+						cost = &c
+					} else {
+						note, _ := json.Marshal(map[string]string{
+							"line": fmt.Sprintf("price_table has no entry for model %q; cost_usd left null", model),
+						})
+						if nev, err := e.store.AppendEvent(ctx, id, "raw_output", note); err == nil {
+							e.bus.PublishEvent(nev)
+						}
+					}
+				}
+
 				if cost != nil {
 					total := *cost
 					if cur.CostUSD != nil {
@@ -431,7 +457,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 					e.bus.PublishTask(t)
 				}
 			}
-			if sid := claudecode.ExtractSessionID(ev.Payload); sid != "" {
+			sid := claudecode.ExtractSessionID(ev.Payload)
+			if sid == "" {
+				sid = codex.ExtractSessionID(ev.Payload)
+			}
+			if sid != "" {
 				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 			}
 		}

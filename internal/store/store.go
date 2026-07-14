@@ -453,5 +453,78 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 	return err
 }
 
+// UsageRow is one day × agent aggregate for GET /api/usage/summary (M4).
+type UsageRow struct {
+	Date       string   `json:"date"` // YYYY-MM-DD (UTC)
+	Agent      string   `json:"agent"`
+	Tasks      int      `json:"tasks"`
+	TokensIn   int64    `json:"tokens_in"`
+	TokensOut  int64    `json:"tokens_out"`
+	CostUSD    *float64 `json:"cost_usd"` // nil if all costs null
+}
+
+// UsageSummary returns per-day, per-agent aggregates over the last `days` days (UTC).
+// days defaults to 30 when <= 0; capped at 366.
+func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) {
+	if days <= 0 {
+		days = 30
+	}
+	if days > 366 {
+		days = 366
+	}
+	// Inclusive window: start of (today - (days-1)) UTC in unix ms.
+	now := time.Now().UTC()
+	startDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
+		AddDate(0, 0, -(days - 1))
+	startMS := startDay.UnixMilli()
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day,
+			agent,
+			COUNT(*) AS tasks,
+			COALESCE(SUM(tokens_in), 0) AS tokens_in,
+			COALESCE(SUM(tokens_out), 0) AS tokens_out,
+			SUM(cost_usd) AS cost_usd,
+			SUM(CASE WHEN cost_usd IS NOT NULL THEN 1 ELSE 0 END) AS cost_n
+		FROM tasks
+		WHERE created_at >= ?
+		GROUP BY day, agent
+		ORDER BY day DESC, agent ASC`, startMS)
+	if err != nil {
+		return nil, fmt.Errorf("usage summary: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]UsageRow, 0)
+	for rows.Next() {
+		var r UsageRow
+		var cost sql.NullFloat64
+		var costN int
+		if err := rows.Scan(&r.Date, &r.Agent, &r.Tasks, &r.TokensIn, &r.TokensOut, &cost, &costN); err != nil {
+			return nil, fmt.Errorf("scan usage: %w", err)
+		}
+		if cost.Valid && costN > 0 {
+			v := cost.Float64
+			r.CostUSD = &v
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// LoadPriceTable returns the configured price table, or the default if unset/invalid.
+func (s *Store) LoadPriceTable(ctx context.Context) PriceTable {
+	raw, err := s.GetSetting(ctx, KeyPriceTable)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return DefaultPriceTable()
+	}
+	t, err := ParsePriceTable(raw)
+	if err != nil {
+		return DefaultPriceTable()
+	}
+	return t
+}
+
 // NowMilli is a testable clock helper.
 func NowMilli() int64 { return time.Now().UnixMilli() }
