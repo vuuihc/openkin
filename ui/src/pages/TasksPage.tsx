@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
-  connectWS,
   formatCost,
   formatElapsed,
   getToken,
@@ -11,7 +10,11 @@ import {
   type Task,
 } from "../api/client";
 import NewTaskModal from "../components/NewTaskModal";
+import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
 import StatusBadge from "../components/StatusBadge";
+import Truncated from "../components/Truncated";
+import { useSlowHint } from "../hooks/useSlowHint";
+import { subscribeWS, useAppStore } from "../store/appStore";
 
 type State =
   | { status: "loading" }
@@ -22,53 +25,66 @@ export default function TasksPage() {
   const [state, setState] = useState<State>({ status: "loading" });
   const [modalOpen, setModalOpen] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const slow = useSlowHint(state.status === "loading");
 
   const upsert = useCallback((task: Task) => {
     setState((prev) => {
-      if (prev.status !== "ready") return prev;
-      const rest = prev.tasks.filter((t) => t.id !== task.id);
-      return { status: "ready", tasks: [task, ...rest].sort((a, b) => b.id.localeCompare(a.id)) };
+      if (prev.status !== "ready") {
+        return { status: "ready", tasks: [task] };
+      }
+      // Replace optimistic temp ids (opt_*) when server task matches by content heuristics,
+      // or when ids match.
+      let rest = prev.tasks.filter((t) => t.id !== task.id);
+      if (!task.id.startsWith("opt_")) {
+        rest = rest.filter(
+          (t) =>
+            !(
+              t.id.startsWith("opt_") &&
+              t.prompt === task.prompt &&
+              t.cwd === task.cwd &&
+              t.agent === task.agent
+            ),
+        );
+      }
+      return {
+        status: "ready",
+        tasks: [task, ...rest].sort((a, b) => b.id.localeCompare(a.id)),
+      };
     });
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!getToken()) {
-        if (!cancelled) {
-          setState({
-            status: "error",
-            message: "No auth token. Open the URL printed by `kin serve` (includes ?token=).",
-          });
-        }
+  const load = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const tasks = await listTasks({ limit: 100 });
+      setState({ status: "ready", tasks });
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        // Global connect screen handles 401.
         return;
       }
-      try {
-        const tasks = await listTasks({ limit: 100 });
-        if (!cancelled) setState({ status: "ready", tasks });
-      } catch (e) {
-        if (cancelled) return;
-        if (e instanceof ApiError && e.status === 401) {
-          setState({
-            status: "error",
-            message: "Unauthorized. Re-open with the token from ~/.kin/token.",
-          });
-          return;
-        }
-        setState({
-          status: "error",
-          message: e instanceof Error ? e.message : "Failed to load tasks",
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      setState({
+        status: "error",
+        message: e instanceof Error ? e.message : "Failed to load tasks",
+      });
+    }
   }, []);
 
   useEffect(() => {
-    return connectWS((msg) => {
-      if (msg.kind === "task_update") upsert(msg.data);
+    setState({ status: "loading" });
+    void load();
+  }, [load]);
+
+  // Self-heal after WS reconnect without manual refresh.
+  useEffect(() => {
+    if (reconnectGen === 0) return;
+    void load();
+  }, [reconnectGen, load]);
+
+  useEffect(() => {
+    return subscribeWS((msg) => {
+      if (msg.kind === "task_update") upsert(msg.data as Task);
     });
   }, [upsert]);
 
@@ -84,16 +100,17 @@ export default function TasksPage() {
         <button
           type="button"
           onClick={() => setModalOpen(true)}
-          className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-accent-muted"
+          className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-accent-muted"
         >
           New task
         </button>
       </div>
 
       {state.status === "loading" && (
-        <p className="text-sm text-zinc-400" role="status">
-          Loading tasks…
-        </p>
+        <div className="space-y-3">
+          <SlowConnectHint show={slow} />
+          <TaskListSkeleton />
+        </div>
       )}
 
       {state.status === "error" && (
@@ -114,7 +131,7 @@ export default function TasksPage() {
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="mt-4 rounded-lg border border-surface-border px-3 py-2 text-sm text-zinc-200 hover:bg-surface-raised"
+            className="mt-4 min-h-[44px] rounded-lg border border-surface-border px-4 py-2 text-sm text-zinc-200 hover:bg-surface-raised"
           >
             New task
           </button>
@@ -126,18 +143,23 @@ export default function TasksPage() {
           {state.tasks.map((t) => (
             <li key={t.id}>
               <Link
-                to={`/tasks/${t.id}`}
-                className="block rounded-xl border border-surface-border bg-surface-raised px-4 py-3 hover:border-accent/40 transition-colors"
+                to={t.id.startsWith("opt_") ? "#" : `/tasks/${t.id}`}
+                onClick={(e) => {
+                  if (t.id.startsWith("opt_")) e.preventDefault();
+                }}
+                className="block rounded-xl border border-surface-border bg-surface-raised px-4 py-3 hover:border-accent/40 transition-colors min-h-[44px]"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-zinc-100 truncate">{t.title}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5 truncate">
-                      <span className="rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-zinc-100 truncate" title={t.title}>
+                      {t.title}
+                    </p>
+                    <p className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5 min-w-0">
+                      <span className="rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 shrink-0">
                         {t.agent}
                       </span>
-                      <span className="mx-1.5">·</span>
-                      <span className="font-mono">{t.cwd}</span>
+                      <span className="shrink-0">·</span>
+                      <Truncated text={t.cwd} className="font-mono" />
                     </p>
                   </div>
                   <StatusBadge status={t.status} />
@@ -147,6 +169,9 @@ export default function TasksPage() {
                   <span>{formatCost(t.cost_usd)}</span>
                   {!isTerminal(t.status) && t.status === "running" && (
                     <span className="text-sky-400">live</span>
+                  )}
+                  {t.id.startsWith("opt_") && (
+                    <span className="text-zinc-400">dispatching…</span>
                   )}
                 </div>
               </Link>
@@ -159,6 +184,16 @@ export default function TasksPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onCreated={upsert}
+        onOptimistic={(task) => upsert(task)}
+        onOptimisticFail={(tempId) => {
+          setState((prev) => {
+            if (prev.status !== "ready") return prev;
+            return {
+              status: "ready",
+              tasks: prev.tasks.filter((t) => t.id !== tempId),
+            };
+          });
+        }}
       />
     </div>
   );

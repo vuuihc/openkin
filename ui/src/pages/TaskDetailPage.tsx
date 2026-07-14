@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import {
   ApiError,
   cancelTask,
-  connectWS,
   followUpPrompt,
   formatCost,
   formatElapsed,
@@ -14,8 +13,12 @@ import {
   type Task,
   type TaskEvent,
 } from "../api/client";
+import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import StatusBadge from "../components/StatusBadge";
 import Transcript from "../components/Transcript";
+import Truncated from "../components/Truncated";
+import { useSlowHint } from "../hooks/useSlowHint";
+import { subscribeWS, useAppStore } from "../store/appStore";
 
 export default function TaskDetailPage() {
   const { id = "" } = useParams();
@@ -28,13 +31,12 @@ export default function TaskDetailPage() {
   const [sending, setSending] = useState(false);
   const [now, setNow] = useState(Date.now());
   const maxSeq = useRef(0);
+  const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const pushToast = useAppStore((s) => s.pushToast);
+  const slow = useSlowHint(loading);
 
   const load = useCallback(async () => {
-    if (!getToken()) {
-      setError("No auth token. Open the URL printed by `kin serve`.");
-      setLoading(false);
-      return;
-    }
+    if (!getToken()) return;
     try {
       const [t, evs] = await Promise.all([
         getTask(id),
@@ -47,10 +49,9 @@ export default function TaskDetailPage() {
       }
       setError(null);
     } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return;
       if (e instanceof ApiError && e.status === 404) {
         setError("Task not found");
-      } else if (e instanceof ApiError && e.status === 401) {
-        setError("Unauthorized");
       } else {
         setError(e instanceof Error ? e.message : "Failed to load");
       }
@@ -66,34 +67,37 @@ export default function TaskDetailPage() {
     void load();
   }, [load]);
 
+  // Resync events via since_seq after WS reconnect.
   useEffect(() => {
-    return connectWS((msg) => {
-      if (msg.kind === "task_update" && msg.data.id === id) {
-        setTask(msg.data);
-      }
-      if (msg.kind === "event" && msg.data.task_id === id) {
-        setEvents((prev) => {
-          const next = mergeEvents(prev, [msg.data]);
-          maxSeq.current = Math.max(maxSeq.current, msg.data.seq);
-          return next;
-        });
-      }
-    });
-  }, [id]);
-
-  // Re-sync via since_seq on reconnect: poll lightly when running.
-  useEffect(() => {
-    if (!task || isTerminal(task.status)) return;
-    const t = setInterval(() => {
-      void listEvents(id, maxSeq.current).then((evs) => {
+    if (reconnectGen === 0) return;
+    void listEvents(id, maxSeq.current)
+      .then((evs) => {
         if (!evs.length) return;
         setEvents((prev) => mergeEvents(prev, evs));
         maxSeq.current = Math.max(maxSeq.current, ...evs.map((e) => e.seq));
-      });
-      void getTask(id).then(setTask).catch(() => undefined);
-    }, 3000);
-    return () => clearInterval(t);
-  }, [id, task?.status]);
+      })
+      .catch(() => undefined);
+    void getTask(id).then(setTask).catch(() => undefined);
+  }, [reconnectGen, id]);
+
+  useEffect(() => {
+    return subscribeWS((msg) => {
+      if (msg.kind === "task_update") {
+        const t = msg.data as Task;
+        if (t.id === id) setTask(t);
+      }
+      if (msg.kind === "event") {
+        const ev = msg.data as TaskEvent;
+        if (ev.task_id === id) {
+          setEvents((prev) => {
+            const next = mergeEvents(prev, [ev]);
+            maxSeq.current = Math.max(maxSeq.current, ev.seq);
+            return next;
+          });
+        }
+      }
+    });
+  }, [id]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -106,7 +110,8 @@ export default function TaskDetailPage() {
       const t = await cancelTask(id);
       setTask(t);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Cancel failed");
+      const msg = e instanceof Error ? e.message : "Cancel failed";
+      pushToast(msg, "error");
     } finally {
       setCanceling(false);
     }
@@ -123,7 +128,8 @@ export default function TaskDetailPage() {
       setFollowUp("");
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Follow-up failed");
+      const msg = err instanceof Error ? err.message : "Follow-up failed";
+      pushToast(msg, "error");
     } finally {
       setSending(false);
     }
@@ -131,19 +137,33 @@ export default function TaskDetailPage() {
 
   if (loading) {
     return (
-      <p className="text-sm text-zinc-400" role="status">
-        Loading task…
-      </p>
+      <div className="space-y-4">
+        <SkeletonLine className="h-4 w-16" />
+        <SkeletonLine className="h-7 w-2/3" />
+        <SkeletonLine className="h-4 w-1/2" />
+        <SkeletonLine className="h-16 w-full rounded-xl" />
+        <SlowConnectHint show={slow} />
+        <div className="space-y-2">
+          <SkeletonLine className="h-20 w-full rounded-xl" />
+          <SkeletonLine className="h-20 w-full rounded-xl" />
+        </div>
+      </div>
     );
   }
 
   if (error && !task) {
     return (
       <div className="space-y-3">
-        <Link to="/" className="text-sm text-zinc-400 hover:text-accent">
+        <Link
+          to="/"
+          className="inline-flex min-h-[44px] items-center text-sm text-zinc-400 hover:text-accent"
+        >
           ← Tasks
         </Link>
-        <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200" role="alert">
+        <div
+          className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+          role="alert"
+        >
           {error}
         </div>
       </div>
@@ -157,14 +177,21 @@ export default function TaskDetailPage() {
 
   return (
     <div className="space-y-4">
-      <Link to="/" className="text-sm text-zinc-400 hover:text-accent">
+      <Link
+        to="/"
+        className="inline-flex min-h-[44px] items-center text-sm text-zinc-400 hover:text-accent"
+      >
         ← Tasks
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-xl font-semibold text-zinc-50 break-words">{task.title}</h1>
-          <p className="text-xs text-zinc-500 font-mono break-all">{task.cwd}</p>
+        <div className="min-w-0 flex-1 space-y-1">
+          <h1 className="text-xl font-semibold text-zinc-50 break-words" title={task.title}>
+            {task.title}
+          </h1>
+          <p className="text-xs text-zinc-500 font-mono min-w-0">
+            <Truncated text={task.cwd} expand className="block w-full" />
+          </p>
         </div>
         <StatusBadge status={task.status} />
       </div>
@@ -189,7 +216,7 @@ export default function TaskDetailPage() {
             type="button"
             onClick={onCancel}
             disabled={canceling}
-            className="ml-auto rounded-lg border border-red-800/60 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50"
+            className="ml-auto min-h-[44px] rounded-lg border border-red-800/60 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50"
           >
             {canceling ? "Canceling…" : "Cancel"}
           </button>
@@ -197,7 +224,10 @@ export default function TaskDetailPage() {
       </div>
 
       {error && (
-        <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200" role="alert">
+        <div
+          className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+          role="alert"
+        >
           {error}
         </div>
       )}

@@ -6,6 +6,9 @@ import {
   updateSettings,
   type Settings,
 } from "../api/client";
+import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { useSlowHint } from "../hooks/useSlowHint";
+import { useAppStore } from "../store/appStore";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -17,6 +20,8 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const slow = useSlowHint(!settings && !error);
 
   const load = useCallback(async () => {
     setError(null);
@@ -32,6 +37,7 @@ export default function SettingsPage() {
         setPriceTable(s.price_table ?? "");
       }
     } catch (e) {
+      if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof ApiError ? e.message : String(e));
     }
   }, []);
@@ -39,6 +45,11 @@ export default function SettingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (reconnectGen === 0) return;
+    void load();
+  }, [reconnectGen, load]);
 
   const save = async () => {
     setBusy(true);
@@ -85,7 +96,9 @@ export default function SettingsPage() {
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-semibold text-zinc-50">Settings</h1>
-        <p className="text-sm text-red-400">{error}</p>
+        <p className="text-sm text-red-400" role="alert">
+          {error}
+        </p>
       </div>
     );
   }
@@ -94,7 +107,12 @@ export default function SettingsPage() {
     return (
       <div className="space-y-4">
         <h1 className="text-xl font-semibold text-zinc-50">Settings</h1>
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <SlowConnectHint show={slow} />
+        <div className="rounded-xl border border-surface-border p-4 space-y-3">
+          <SkeletonLine className="h-40 w-40" />
+          <SkeletonLine className="h-4 w-1/2" />
+          <SkeletonLine className="h-4 w-2/3" />
+        </div>
       </div>
     );
   }
@@ -141,7 +159,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => void copy(connectURL)}
-                  className="mt-1 text-xs text-accent hover:underline"
+                  className="mt-1 min-h-[44px] text-xs text-accent hover:underline"
                 >
                   Copy URL
                 </button>
@@ -156,7 +174,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setReveal((v) => !v)}
-                  className="text-xs text-accent hover:underline"
+                  className="min-h-[44px] text-xs text-accent hover:underline"
                 >
                   {reveal ? "Hide" : "Reveal"}
                 </button>
@@ -164,7 +182,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => void copy(token)}
-                    className="text-xs text-accent hover:underline"
+                    className="min-h-[44px] text-xs text-accent hover:underline"
                   >
                     Copy
                   </button>
@@ -195,7 +213,7 @@ export default function SettingsPage() {
             value={bark}
             onChange={(e) => setBark(e.target.value)}
             placeholder="https://api.day.app/DEVICE_KEY"
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
+            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
           />
         </label>
         <label className="block space-y-1">
@@ -205,7 +223,7 @@ export default function SettingsPage() {
             value={ntfy}
             onChange={(e) => setNtfy(e.target.value)}
             placeholder="my-kin-topic or https://ntfy.sh/my-kin-topic"
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
+            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
           />
         </label>
         <label className="block space-y-1">
@@ -215,7 +233,7 @@ export default function SettingsPage() {
             value={baseURL}
             onChange={(e) => setBaseURL(e.target.value)}
             placeholder="http://192.168.x.x:7777"
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
+            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none"
           />
           <span className="text-xs text-zinc-500">
             Set automatically from the most-public listener at serve start; override for
@@ -227,7 +245,7 @@ export default function SettingsPage() {
             type="button"
             disabled={busy}
             onClick={() => void save()}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black hover:bg-accent-muted disabled:opacity-50"
+            className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black hover:bg-accent-muted disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save"}
           </button>
@@ -261,7 +279,7 @@ export default function SettingsPage() {
             type="button"
             disabled={busy}
             onClick={() => void save()}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black hover:bg-accent-muted disabled:opacity-50"
+            className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black hover:bg-accent-muted disabled:opacity-50"
           >
             {busy ? "Saving…" : "Save price table"}
           </button>

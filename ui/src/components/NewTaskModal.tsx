@@ -1,10 +1,20 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ApiError, createTask, recentCwds, type Task } from "../api/client";
+import {
+  ApiError,
+  createTask,
+  optimisticTask,
+  recentCwds,
+  type Task,
+} from "../api/client";
+import { useAppStore } from "../store/appStore";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onCreated: (task: Task) => void;
+  /** Called immediately with a local queued row before the network returns. */
+  onOptimistic?: (task: Task) => void;
+  onOptimisticFail?: (tempId: string) => void;
 };
 
 const AGENTS = [
@@ -13,7 +23,16 @@ const AGENTS = [
   { value: "rawpty", label: "Command (raw)" },
 ] as const;
 
-export default function NewTaskModal({ open, onClose, onCreated }: Props) {
+let optSeq = 0;
+
+export default function NewTaskModal({
+  open,
+  onClose,
+  onCreated,
+  onOptimistic,
+  onOptimisticFail,
+}: Props) {
+  const pushToast = useAppStore((s) => s.pushToast);
   const [agent, setAgent] = useState<string>("claude-code");
   const [cwd, setCwd] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -31,32 +50,42 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
 
   if (!open) return null;
 
-  async function onSubmit(e: FormEvent) {
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!cwd.trim() || !prompt.trim()) {
       setError("cwd and prompt are required");
       return;
     }
-    setSubmitting(true);
-    try {
-      const task = await createTask({
-        agent,
-        cwd: cwd.trim(),
-        prompt: prompt.trim(),
-      });
-      setPrompt("");
-      onCreated(task);
-      onClose();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to create task");
+    const body = {
+      agent,
+      cwd: cwd.trim(),
+      prompt: prompt.trim(),
+    };
+    const tempId = `opt_${Date.now()}_${++optSeq}`;
+    const optimistic = optimisticTask({ id: tempId, ...body });
+
+    // Optimistic: close modal immediately, show queued row.
+    setPrompt("");
+    onOptimistic?.(optimistic);
+    onClose();
+    setSubmitting(false);
+
+    void (async () => {
+      try {
+        const task = await createTask(body);
+        onCreated(task);
+      } catch (err) {
+        onOptimisticFail?.(tempId);
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Failed to create task";
+        pushToast(msg, "error");
       }
-    } finally {
-      setSubmitting(false);
-    }
+    })();
   }
 
   const promptPlaceholder =
@@ -66,7 +95,7 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
       role="dialog"
       aria-modal="true"
       aria-label="New task"
@@ -76,14 +105,14 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
     >
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-raised shadow-xl p-5 space-y-4"
+        className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-raised shadow-xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto"
       >
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-zinc-50">New task</h2>
           <button
             type="button"
             onClick={onClose}
-            className="text-sm text-zinc-400 hover:text-zinc-100"
+            className="min-h-[44px] min-w-[44px] text-sm text-zinc-400 hover:text-zinc-100"
           >
             Close
           </button>
@@ -94,7 +123,7 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
           <select
             value={agent}
             onChange={(e) => setAgent(e.target.value)}
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100"
+            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100"
           >
             {AGENTS.map((a) => (
               <option key={a.value} value={a.value}>
@@ -111,7 +140,7 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             placeholder="/path/to/repo"
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
+            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
             autoComplete="off"
           />
           <datalist id="recent-cwds">
@@ -144,16 +173,16 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm text-zinc-300 hover:bg-surface"
+            className="min-h-[44px] rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-surface"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-accent-muted disabled:opacity-50"
+            className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-accent-muted disabled:opacity-50"
           >
-            {submitting ? "Dispatching…" : "Dispatch"}
+            Dispatch
           </button>
         </div>
       </form>

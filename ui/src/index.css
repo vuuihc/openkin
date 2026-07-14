@@ -6,8 +6,18 @@ html,
 body,
 #root {
   min-height: 100%;
+  min-height: 100dvh;
 }
 
 body {
   margin: 0;
+  /* Prevent rubber-band horizontal scroll on mobile. */
+  overflow-x: hidden;
+}
+
+/* Safe-area padding utility for notched phones (add-to-home-screen). */
+.safe-pad {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
 }
