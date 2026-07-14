@@ -33,7 +33,7 @@ kin/
 │   ├── task/                 # task engine: state machine, event log
 │   ├── store/                # SQLite persistence
 │   ├── api/                  # HTTP + WS handlers (generated skeleton + glue)
-│   ├── remote/               # LAN / tsnet / funnel listeners, auth
+│   ├── remote/               # Transport interface; loopback/lan/tsnet impls, auth
 │   └── notify/               # Bark / ntfy webhooks (M3)
 ├── api/openapi.yaml          # single source of truth for the API
 ├── ui/                       # Vite + React + TS + Tailwind
@@ -208,8 +208,30 @@ WS: server pushes `{kind: task_update|event|approval_update, data}` for all task
 | LAN | `kin serve --lan` | 0.0.0.0:7777; prints terminal QR of `http://<lan-ip>:7777/?token=…` |
 | Tailnet | `kin serve --tailscale` | tsnet node `kin`; prints login URL on first run; QR of tailnet URL |
 | Funnel | `kin serve --tailscale --funnel` | adds public HTTPS via Funnel; QR of public URL |
+| Bring-your-own | `kin serve --lan` behind any tunnel | frp / Cloudflare Tunnel / reverse proxy; see §7.3 |
 
 Flags stack sensibly; `--port` overrides. Token auth applies on **every** rung.
+
+### 7.1 Transport abstraction (anti-lock-in)
+
+Tailscale must stay a plugin, not a foundation. `internal/remote` defines:
+
+```go
+type Transport interface {
+    Name() string
+    Listen(ctx context.Context, cfg Config) (net.Listener, error)
+}
+```
+
+Implementations: `loopback`, `lan`, `tsnet` (with a funnel option). The daemon serves the same `http.Handler` on whatever listeners are active. **MUST:** `tailscale.com/*` imports are allowed only under `internal/remote/tsnet/`; add a CI check (depguard, or a test that greps import lists) that fails on violation. Nothing in the data model, API, or UI may reference Tailscale concepts.
+
+### 7.2 Headscale support
+
+Flag `--ts-control-url <url>` (setting `tailscale.control_url`) is passed to `tsnet.Server.ControlURL`, so the tailnet rung works against a self-hosted Headscale control server. Funnel is a Tailscale-only feature: `--funnel` combined with a custom control URL MUST exit with a clear error.
+
+### 7.3 Bring-your-own tunnel (docs deliverable, M3)
+
+Ship `docs/REMOTE_ACCESS.md` with tested walkthroughs for **frp** (the recommended path where Tailscale is unreachable or unreliable, e.g. mainland China) and **Cloudflare Tunnel**. Key points to cover: Kin is a plain HTTP port, so any tunnel works unmodified; token auth still protects every request; a public tunnel endpoint makes the token the only barrier — treat it as a secret and rotate via `kin token rotate` (implement this subcommand: regenerates `~/.kin/token`, invalidates old sessions).
 
 ## 8. Notifications (M3)
 
@@ -234,7 +256,7 @@ Empty/error/loading states for every page. Approval decisions must be a single t
 
 **M2 — Approve.** Task "create hello.txt with contents hi" pauses; approval appears in inbox; Approve → file exists, task succeeds; Deny (fresh task) → no file, transcript shows denial; every decision visible in task detail (audit). Follow-up prompt on a finished task resumes the same session (`--resume`). Timeout path unit-tested.
 
-**M3 — Reach.** `--lan`: phone on same WiFi scans QR and approves M2's scenario end-to-end. `--tailscale --funnel`: phone on cellular does the same via public URL; Bark or ntfy notification arrives on approval request and task completion; tapping it deep-links to the approval.
+**M3 — Reach.** `--lan`: phone on same WiFi scans QR and approves M2's scenario end-to-end. `--tailscale --funnel`: phone on cellular does the same via public URL; Bark or ntfy notification arrives on approval request and task completion; tapping it deep-links to the approval. `--ts-control-url` is plumbed through to tsnet (unit test); `--funnel` + custom control URL errors out. `docs/REMOTE_ACCESS.md` ships with frp and Cloudflare Tunnel walkthroughs; `kin token rotate` works; the import-boundary CI check (§7.1) passes.
 
 **M4 — Track + Codex.** Codex adapter passes the M1 scenario; usage summary shows ≥2 agents' spend over the period; price table editable; rawpty adapter runs an arbitrary command with live output.
 

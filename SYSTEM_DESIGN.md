@@ -112,7 +112,7 @@ Networking is bought, not built. Each rung is optional; the floor works with zer
 | Remote, private | Tailscale app on phone | Pure tailnet, no public endpoint |
 | Bring-your-own | Advanced | Any reverse proxy / VPN in front of the daemon |
 
-**Vendor-account note:** the Funnel rung uses an optional Tailscale account — theirs, not ours, remote-only, and replaceable by the rungs above and below it. The no-account floor (LAN, BYO) always remains.
+**Vendor-account note:** the Funnel rung uses an optional Tailscale account — theirs, not ours, remote-only, and replaceable by the rungs above and below it. The no-account floor (LAN, BYO) always remains. The tailnet rungs also work against a self-hosted Headscale control server; where Tailscale is unreliable (e.g. mainland China), the bring-your-own rung (frp, Cloudflare Tunnel) is the documented path.
 
 Public endpoints demand hard auth from day one: single-use long random token in the QR URL, session cookies, rate limiting.
 
