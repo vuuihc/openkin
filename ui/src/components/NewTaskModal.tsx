@@ -7,8 +7,14 @@ type Props = {
   onCreated: (task: Task) => void;
 };
 
+const AGENTS = [
+  { value: "claude-code", label: "claude-code" },
+  { value: "codex", label: "codex" },
+  { value: "rawpty", label: "Command (raw)" },
+] as const;
+
 export default function NewTaskModal({ open, onClose, onCreated }: Props) {
-  const [agent] = useState("claude-code");
+  const [agent, setAgent] = useState<string>("claude-code");
   const [cwd, setCwd] = useState("");
   const [prompt, setPrompt] = useState("");
   const [dirs, setDirs] = useState<string[]>([]);
@@ -53,6 +59,11 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
     }
   }
 
+  const promptPlaceholder =
+    agent === "rawpty"
+      ? "Shell command, e.g. printf 'hello\\n'  (runs via /bin/sh -c)"
+      : "What should the agent do?";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4"
@@ -82,10 +93,14 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
           <span className="text-xs font-medium text-zinc-400">Agent</span>
           <select
             value={agent}
-            disabled
+            onChange={(e) => setAgent(e.target.value)}
             className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100"
           >
-            <option value="claude-code">claude-code</option>
+            {AGENTS.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.label}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -107,12 +122,14 @@ export default function NewTaskModal({ open, onClose, onCreated }: Props) {
         </label>
 
         <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Prompt</span>
+          <span className="text-xs font-medium text-zinc-400">
+            {agent === "rawpty" ? "Command" : "Prompt"}
+          </span>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={5}
-            placeholder="What should the agent do?"
+            placeholder={promptPlaceholder}
             className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-y"
           />
         </label>

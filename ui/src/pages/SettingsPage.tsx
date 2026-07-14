@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const [bark, setBark] = useState("");
   const [ntfy, setNtfy] = useState("");
   const [baseURL, setBaseURL] = useState("");
+  const [priceTable, setPriceTable] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
@@ -25,6 +26,11 @@ export default function SettingsPage() {
       setBark(s["notify.bark_url"] ?? "");
       setNtfy(s["notify.ntfy_topic"] ?? "");
       setBaseURL(s["ui.base_url"] ?? "");
+      try {
+        setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
+      } catch {
+        setPriceTable(s.price_table ?? "");
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -38,13 +44,27 @@ export default function SettingsPage() {
     setBusy(true);
     setSaved(false);
     setError(null);
+    // Validate price table JSON client-side for faster feedback.
+    try {
+      JSON.parse(priceTable);
+    } catch {
+      setError("price_table must be valid JSON");
+      setBusy(false);
+      return;
+    }
     try {
       const s = await updateSettings({
         "notify.bark_url": bark.trim(),
         "notify.ntfy_topic": ntfy.trim(),
         "ui.base_url": baseURL.trim(),
+        price_table: priceTable,
       });
       setSettings(s);
+      try {
+        setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
+      } catch {
+        setPriceTable(s.price_table ?? "");
+      }
       setSaved(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -88,7 +108,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-xl font-semibold text-zinc-50">Settings</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Connection, token, and push notifications.
+          Connection, token, notifications, and price table.
         </p>
       </div>
 
@@ -213,6 +233,38 @@ export default function SettingsPage() {
           </button>
           {saved && <span className="text-xs text-accent">Saved</span>}
           {error && <span className="text-xs text-red-400">{error}</span>}
+        </div>
+      </section>
+
+      {/* Price table (M4) */}
+      <section className="rounded-xl border border-surface-border bg-surface-raised/50 p-4 space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
+          Price table
+        </h2>
+        <p className="text-xs text-zinc-500">
+          USD per 1M tokens for Codex cost math. Claude Code uses{" "}
+          <code className="text-zinc-400">total_cost_usd</code> from the CLI and ignores
+          this table. Shape:{" "}
+          <code className="text-zinc-400">
+            {`{"model": {"in": 1.25, "out": 10.0}}`}
+          </code>
+        </p>
+        <textarea
+          value={priceTable}
+          onChange={(e) => setPriceTable(e.target.value)}
+          rows={10}
+          spellCheck={false}
+          className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 font-mono text-xs text-zinc-100 placeholder:text-zinc-600 focus:border-accent focus:outline-none resize-y"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black hover:bg-accent-muted disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save price table"}
+          </button>
         </div>
       </section>
     </div>

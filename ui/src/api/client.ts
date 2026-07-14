@@ -176,6 +176,7 @@ export type Settings = {
   "notify.bark_url": string;
   "notify.ntfy_topic": string;
   "ui.base_url": string;
+  price_table: string;
   network_mode: string;
   connect_url: string;
   token: string;
@@ -186,13 +187,31 @@ export function getSettings(): Promise<Settings> {
 }
 
 export function updateSettings(
-  body: Partial<Pick<Settings, "notify.bark_url" | "notify.ntfy_topic" | "ui.base_url">>,
+  body: Partial<
+    Pick<
+      Settings,
+      "notify.bark_url" | "notify.ntfy_topic" | "ui.base_url" | "price_table"
+    >
+  >,
 ): Promise<Settings> {
   return apiFetch<Settings>("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export type UsageRow = {
+  date: string;
+  agent: string;
+  tasks: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd?: number | null;
+};
+
+export function getUsageSummary(days = 30): Promise<UsageRow[]> {
+  return apiFetch<UsageRow[]>(`/api/usage/summary?days=${days}`);
 }
 
 /** Open the global WS bus. Uses ?token= (browser WS cannot set Authorization easily). */

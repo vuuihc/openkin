@@ -10,6 +10,7 @@ import ApprovalsPage from "./pages/ApprovalsPage";
 import SettingsPage from "./pages/SettingsPage";
 import TaskDetailPage from "./pages/TaskDetailPage";
 import TasksPage from "./pages/TasksPage";
+import UsagePage from "./pages/UsagePage";
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   [
@@ -70,6 +71,9 @@ export default function App() {
                 </span>
               )}
             </NavLink>
+            <NavLink to="/usage" className={navClass}>
+              Usage
+            </NavLink>
             <NavLink to="/settings" className={navClass}>
               Settings
             </NavLink>
@@ -82,6 +86,7 @@ export default function App() {
           <Route path="/" element={<TasksPage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
+          <Route path="/usage" element={<UsagePage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>

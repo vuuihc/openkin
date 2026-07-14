@@ -202,11 +202,15 @@ function buildRows(events: TaskEvent[]): Row[] {
       }
       case "tool_use": {
         flushStream();
+        // Claude: payload.content is the tool_use block; Codex: name + item.
         const content = p.content as Record<string, unknown> | undefined;
+        const name = String(
+          content?.name ?? p.name ?? (p.item as { type?: string } | undefined)?.type ?? "tool",
+        );
         rows.push({
           kind: "tool",
-          name: String(content?.name ?? "tool"),
-          input: content?.input ?? content,
+          name,
+          input: content?.input ?? content ?? p.item ?? p,
           key: `tool-${ev.seq}`,
         });
         break;
@@ -215,7 +219,8 @@ function buildRows(events: TaskEvent[]): Row[] {
         flushStream();
         rows.push({
           kind: "raw",
-          line: String(p.line ?? ""),
+          // Claude/codex stderr uses `line`; rawpty coalesced chunks use `chunk`.
+          line: String(p.line ?? p.chunk ?? ""),
           key: `raw-${ev.seq}`,
         });
         break;
