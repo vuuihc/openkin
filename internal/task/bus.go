@@ -9,7 +9,7 @@ import (
 
 // WSMessage is pushed on the global bus (spec §6).
 type WSMessage struct {
-	Kind string `json:"kind"` // task_update | event
+	Kind string `json:"kind"` // task_update | event | approval_update
 	Data any    `json:"data"`
 }
 
@@ -68,6 +68,11 @@ func (b *Bus) PublishTask(t store.Task) {
 // PublishEvent broadcasts an event envelope with task_id.
 func (b *Bus) PublishEvent(e store.Event) {
 	b.Publish(WSMessage{Kind: "event", Data: e})
+}
+
+// PublishApproval broadcasts an approval_update.
+func (b *Bus) PublishApproval(a store.Approval) {
+	b.Publish(WSMessage{Kind: "approval_update", Data: a})
 }
 
 // Marshal is a helper for tests.

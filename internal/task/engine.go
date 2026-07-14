@@ -19,11 +19,12 @@ import (
 
 // Status values (spec §3 / §5).
 const (
-	StatusQueued    = "queued"
-	StatusRunning   = "running"
-	StatusSucceeded = "succeeded"
-	StatusFailed    = "failed"
-	StatusCanceled  = "canceled"
+	StatusQueued           = "queued"
+	StatusRunning          = "running"
+	StatusWaitingApproval  = "waiting_approval"
+	StatusSucceeded        = "succeeded"
+	StatusFailed           = "failed"
+	StatusCanceled         = "canceled"
 )
 
 // DefaultMaxConcurrent is the FIFO concurrency limit (spec §5).
@@ -53,6 +54,12 @@ type Engine struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	entropy       ioReader
+
+	// Approval long-poll waiters (approval id → channels).
+	approvalWaiters map[string][]chan store.Approval
+	// clock and approvalTTL are injectable for tests.
+	clock       func() time.Time
+	approvalTTL time.Duration
 }
 
 // tiny interface so tests can inject ULID entropy if needed.
@@ -70,17 +77,25 @@ func NewEngine(st *store.Store, adapters map[string]adapter.Adapter, bus *Bus, m
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
-		store:         st,
-		adapters:      adapters,
-		bus:           bus,
-		maxConcurrent: maxConcurrent,
-		handles:       make(map[string]adapter.RunHandle),
-		canceled:      make(map[string]bool),
-		ctx:           ctx,
-		cancel:        cancel,
-		entropy:       rand.Reader,
+		store:           st,
+		adapters:        adapters,
+		bus:             bus,
+		maxConcurrent:   maxConcurrent,
+		handles:         make(map[string]adapter.RunHandle),
+		canceled:        make(map[string]bool),
+		ctx:             ctx,
+		cancel:          cancel,
+		entropy:         rand.Reader,
+		approvalWaiters: make(map[string][]chan store.Approval),
+		approvalTTL:     store.DefaultApprovalTTL,
 	}
 }
+
+// SetClock injects a clock for tests (approval expiry).
+func (e *Engine) SetClock(fn func() time.Time) { e.clock = fn }
+
+// SetApprovalTTL overrides the 1h default (tests).
+func (e *Engine) SetApprovalTTL(d time.Duration) { e.approvalTTL = d }
 
 // Bus returns the WebSocket bus.
 func (e *Engine) Bus() *Bus { return e.bus }
@@ -139,7 +154,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		}
 	}
 
-	now := store.NowMilli()
+	now := e.nowMilli()
 	t := store.Task{
 		ID:        id,
 		Title:     title,
@@ -164,7 +179,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	return e.store.GetTask(ctx, id)
 }
 
-// Cancel requests cancellation. Queued → canceled; running → SIGTERM/SIGKILL.
+// Cancel requests cancellation. Queued → canceled; running/waiting_approval → SIGTERM/SIGKILL.
 func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
@@ -173,6 +188,13 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	switch t.Status {
 	case StatusSucceeded, StatusFailed, StatusCanceled:
 		return t, fmt.Errorf("task already terminal (%s)", t.Status)
+	}
+
+	// Deny any pending approvals so MCP waiters unblock.
+	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
+		for _, a := range pending {
+			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "web")
+		}
 	}
 
 	e.mu.Lock()
@@ -193,7 +215,7 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 		// Status becomes canceled when the run loop observes channel close,
 		// or immediately if we prefer snappy UI — do both: mark canceled now
 		// and let run loop no-op if already terminal.
-		now := store.NowMilli()
+		now := e.nowMilli()
 		status := StatusCanceled
 		if err := e.store.UpdateTask(ctx, id, store.TaskPatch{
 			Status:     &status,
@@ -237,7 +259,7 @@ func (e *Engine) RecentCwds(ctx context.Context, limit int) ([]string, error) {
 }
 
 func (e *Engine) newID() (string, error) {
-	ms := ulid.Timestamp(time.Now())
+	ms := ulid.Timestamp(e.now())
 	id, err := ulid.New(ms, e.entropy)
 	if err != nil {
 		return "", err
@@ -288,12 +310,14 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 
-	now := store.NowMilli()
+	now := e.nowMilli()
 	status := StatusRunning
-	if err := e.store.UpdateTask(ctx, id, store.TaskPatch{
-		Status:    &status,
-		StartedAt: &now,
-	}); err != nil {
+	// On follow-up, keep original started_at if already set.
+	patch := store.TaskPatch{Status: &status}
+	if t.StartedAt == nil {
+		patch.StartedAt = &now
+	}
+	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
 		e.mu.Lock()
 		e.active--
 		e.mu.Unlock()
@@ -380,9 +404,17 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 			cost, tin, tout, isErr, ok := claudecode.ExtractUsage(ev.Payload)
 			resultIsError = isErr
 			if ok {
-				p := store.TaskPatch{TokensIn: &tin, TokensOut: &tout}
+				// Accumulate tokens/cost across follow-ups (spec §6 M2).
+				cur, _ := e.store.GetTask(ctx, id)
+				newIn := cur.TokensIn + tin
+				newOut := cur.TokensOut + tout
+				p := store.TaskPatch{TokensIn: &newIn, TokensOut: &newOut}
 				if cost != nil {
-					p.CostUSD = cost
+					total := *cost
+					if cur.CostUSD != nil {
+						total = *cur.CostUSD + *cost
+					}
+					p.CostUSD = &total
 				}
 				_ = e.store.UpdateTask(ctx, id, p)
 				if t, err := e.store.GetTask(ctx, id); err == nil {
@@ -445,7 +477,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 }
 
 func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, cost *float64) (store.Task, error) {
-	now := store.NowMilli()
+	now := e.nowMilli()
 	p := store.TaskPatch{
 		Status:     &status,
 		FinishedAt: &now,
