@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +23,14 @@ type Adapter struct {
 	Binary string
 	// LookPath, if set, is used instead of exec.LookPath (tests).
 	LookPath func(file string) (string, error)
+	// KinBinary is the absolute path to the kin binary for approve-mcp.
+	// Empty → os.Executable().
+	KinBinary string
+	// DaemonURL is the base URL for the daemon (e.g. http://127.0.0.1:7777).
+	// Required for the approval bridge; if empty, MCP config is omitted (tests).
+	DaemonURL string
+	// Token is the KIN auth token injected into the MCP server env.
+	Token string
 }
 
 // New returns a Claude Code adapter using the "claude" binary on PATH.
@@ -30,9 +39,11 @@ func New() *Adapter {
 }
 
 // Start implements adapter.Adapter.
-// Launch (M1 — no MCP / permission bridge):
+// Launch (M2 — with approval bridge):
 //
 //	claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages
+//	  --mcp-config <file> --permission-prompt-tool mcp__kin__approve
+//	  [--resume <session_ref>] [--model <model>]
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	bin := a.Binary
 	if bin == "" {
@@ -53,7 +64,32 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		"--verbose",
 		"--include-partial-messages",
 	}
-	// M2: --resume, --mcp-config, --permission-prompt-tool.
+	// NEVER --dangerously-skip-permissions (spec §0 / M2).
+
+	var mcpPath string
+	if a.DaemonURL != "" && a.Token != "" {
+		kinBin := a.KinBinary
+		if kinBin == "" {
+			kinBin, err = os.Executable()
+			if err != nil {
+				return nil, fmt.Errorf("resolve kin binary: %w", err)
+			}
+			kinBin, err = filepath.EvalSymlinks(kinBin)
+			if err != nil {
+				// Non-fatal: use unresolved path.
+				kinBin, _ = os.Executable()
+			}
+		}
+		mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, a.Token)
+		if err != nil {
+			return nil, fmt.Errorf("mcp config: %w", err)
+		}
+		args = append(args,
+			"--mcp-config", mcpPath,
+			"--permission-prompt-tool", "mcp__kin__approve",
+		)
+	}
+
 	if spec.SessionRef != "" {
 		args = append(args, "--resume", spec.SessionRef)
 	}
@@ -70,22 +106,26 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cleanupMCP(mcpPath)
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		cleanupMCP(mcpPath)
 		return nil, fmt.Errorf("stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		cleanupMCP(mcpPath)
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
 
 	ch := make(chan adapter.Event, 64)
 	h := &handle{
-		cmd:  cmd,
-		ch:   ch,
-		done: make(chan struct{}),
+		cmd:     cmd,
+		ch:      ch,
+		done:    make(chan struct{}),
+		mcpPath: mcpPath,
 	}
 
 	var wg sync.WaitGroup
@@ -126,11 +166,54 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			h.exitCode = &code
 		}
 		h.mu.Unlock()
+		cleanupMCP(mcpPath)
 		close(ch)
 		close(h.done)
 	}()
 
 	return h, nil
+}
+
+// writeMCPConfig writes a per-task MCP config JSON and returns its path.
+func writeMCPConfig(kinBin, taskID, daemonURL, token string) (string, error) {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"kin": map[string]any{
+				"command": kinBin,
+				"args":    []string{"approve-mcp"},
+				"env": map[string]string{
+					"KIN_TASK_ID": taskID,
+					"KIN_DAEMON":  daemonURL,
+					"KIN_TOKEN":   token,
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp("", "kin-mcp-*.json")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func cleanupMCP(path string) {
+	if path != "" {
+		_ = os.Remove(path)
+	}
 }
 
 func scanLines(r io.Reader, ch chan<- adapter.Event) {
@@ -151,14 +234,15 @@ func scanLines(r io.Reader, ch chan<- adapter.Event) {
 }
 
 type handle struct {
-	cmd      *exec.Cmd
-	ch       chan adapter.Event
-	done     chan struct{}
+	cmd        *exec.Cmd
+	ch         chan adapter.Event
+	done       chan struct{}
 	cancelOnce sync.Once
-	mu       sync.Mutex
-	waitErr  error
-	exitCode *int
-	canceled bool
+	mu         sync.Mutex
+	waitErr    error
+	exitCode   *int
+	canceled   bool
+	mcpPath    string
 }
 
 func (h *handle) Events() <-chan adapter.Event { return h.ch }

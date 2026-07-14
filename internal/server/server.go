@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/adapter/claudecode"
@@ -42,12 +43,21 @@ func Serve(version string) error {
 	}
 	defer st.Close()
 
-	adapters := map[string]adapter.Adapter{
-		"claude-code": claudecode.New(),
+	port := defaultPort
+	if p := os.Getenv("KIN_PORT"); p != "" {
+		port = p
 	}
+	daemonURL := "http://127.0.0.1:" + port
+
+	claudeAd := claudecode.New()
+	claudeAd.DaemonURL = daemonURL
+	claudeAd.Token = token
 	// Optional override for integration tests / local fake agents.
 	if bin := os.Getenv("KIN_CLAUDE_BIN"); bin != "" {
-		adapters["claude-code"] = &claudecode.Adapter{Binary: bin}
+		claudeAd.Binary = bin
+	}
+	adapters := map[string]adapter.Adapter{
+		"claude-code": claudeAd,
 	}
 
 	eng := task.NewEngine(st, adapters, task.NewBus(), task.DefaultMaxConcurrent)
@@ -55,6 +65,7 @@ func Serve(version string) error {
 	if err := eng.Recover(context.Background()); err != nil {
 		return err
 	}
+	eng.StartExpiryLoop(context.Background(), time.Minute)
 
 	static, err := uiHandler()
 	if err != nil {
@@ -69,10 +80,7 @@ func Serve(version string) error {
 		Static:  static,
 	}
 
-	addr := "127.0.0.1:" + defaultPort
-	if p := os.Getenv("KIN_PORT"); p != "" {
-		addr = "127.0.0.1:" + p
-	}
+	addr := "127.0.0.1:" + port
 	fmt.Printf("kin listening on http://%s\n", addr)
 	fmt.Printf("  token file: %s\n", filepath.Join(stateDir, "token"))
 	fmt.Printf("  open: http://%s/?token=%s\n", addr, token)

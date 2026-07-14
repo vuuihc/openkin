@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -37,6 +39,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/version", s.handleVersion)
 
+	// Public API (token auth).
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware)
 		r.Get("/api/tasks", s.handleListTasks)
@@ -44,8 +47,19 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
+		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
+		r.Get("/api/approvals", s.handleListApprovals)
+		r.Post("/api/approvals/{id}/decision", s.handleDecision)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/ws", s.handleWS)
+	})
+
+	// Internal approval bridge: loopback + token (spec §6).
+	r.Group(func(r chi.Router) {
+		r.Use(loopbackOnly)
+		r.Use(s.Auth.Middleware)
+		r.Post("/internal/approvals", s.handleInternalCreateApproval)
+		r.Get("/internal/approvals/{id}/wait", s.handleInternalWaitApproval)
 	})
 
 	if s.Static != nil {
@@ -53,6 +67,21 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	return r
+}
+
+func loopbackOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "loopback only"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +183,124 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	t, err := s.Engine.FollowUp(r.Context(), id, body.Prompt)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request) {
+	opts := store.ListApprovalsOpts{
+		Status: r.URL.Query().Get("status"),
+	}
+	list, err := s.Engine.ListApprovals(r.Context(), opts)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if list == nil {
+		list = []store.Approval{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body task.DecisionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	decision := strings.TrimSpace(body.Decision)
+	switch decision {
+	case store.DecisionApproved, store.DecisionDenied:
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "decision must be approved or denied"})
+		return
+	}
+	a, err := s.Engine.Decide(r.Context(), id, decision, "web")
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrAlreadyDecided) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "already decided"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) handleInternalCreateApproval(w http.ResponseWriter, r *http.Request) {
+	var req task.CreateApprovalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	a, err := s.Engine.RequestApproval(r.Context(), req)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+		return
+	}
+	if errors.Is(err, task.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, a)
+}
+
+func (s *Server) handleInternalWaitApproval(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	timeout := 30 * time.Second
+	if v := r.URL.Query().Get("timeout"); v != "" {
+		sec, err := strconv.Atoi(v)
+		if err != nil || sec < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid timeout"})
+			return
+		}
+		if sec > 30 {
+			sec = 30
+		}
+		timeout = time.Duration(sec) * time.Second
+	}
+	a, err := s.Engine.WaitApproval(r.Context(), id, timeout)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 func (s *Server) handleRecentCwds(w http.ResponseWriter, r *http.Request) {

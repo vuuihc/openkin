@@ -99,6 +99,110 @@ func TestHealthAndTasks(t *testing.T) {
 	}
 }
 
+func TestApprovalsAPI(t *testing.T) {
+	s, token := newTestServer(t)
+	// Use a holding adapter so we can request approval while running.
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ad := &holdAPIAdapter{}
+	eng := task.NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	t.Cleanup(eng.Close)
+	_ = eng.Recover(context.Background())
+	s = &Server{Store: st, Auth: remote.NewAuth(token), Engine: eng, Version: "test"}
+	h := s.Handler()
+
+	// Create task.
+	body := `{"agent":"claude-code","cwd":"/tmp","prompt":"hold"}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var created store.Task
+	_ = json.Unmarshal(rr.Body.Bytes(), &created)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tt, _ := eng.Get(context.Background(), created.ID)
+		if tt.Status == "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Internal create approval.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/internal/approvals",
+		bytes.NewBufferString(`{"task_id":"`+created.ID+`","kind":"tool_use","payload":{"tool_name":"Write","input":{"file_path":"a"}}}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("internal create: %d %s", rr.Code, rr.Body.String())
+	}
+	var appr store.Approval
+	_ = json.Unmarshal(rr.Body.Bytes(), &appr)
+
+	// List pending.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/approvals?status=pending", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: %d", rr.Code)
+	}
+	var list []store.Approval
+	_ = json.Unmarshal(rr.Body.Bytes(), &list)
+	if len(list) != 1 || list[0].ID != appr.ID {
+		t.Fatalf("list=%v", list)
+	}
+	if list[0].TaskTitle == "" {
+		t.Fatal("expected task_title join")
+	}
+
+	// Decide approved.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/approvals/"+appr.ID+"/decision",
+		bytes.NewBufferString(`{"decision":"approved"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("decide: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Follow-up 409 while running.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/tasks/"+created.ID+"/prompt",
+		bytes.NewBufferString(`{"prompt":"more"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("follow-up while running: %d", rr.Code)
+	}
+}
+
+type holdAPIAdapter struct{}
+
+func (a *holdAPIAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
+	ch := make(chan adapter.Event, 4)
+	go func() {
+		defer close(ch)
+		ch <- adapter.Event{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s","subtype":"init"}`)}
+		<-ctx.Done()
+	}()
+	return &testHandle{ch: ch}, nil
+}
+
 func TestCreateAndGetTask(t *testing.T) {
 	s, token := newTestServer(t)
 	h := s.Handler()
