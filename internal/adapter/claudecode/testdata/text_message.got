@@ -1,0 +1,15 @@
+[
+  {
+    "payload": {
+      "content": [
+        {
+          "text": "Hello from Claude",
+          "type": "text"
+        }
+      ],
+      "partial": false,
+      "role": "assistant"
+    },
+    "type": "message"
+  }
+]

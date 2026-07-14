@@ -1,0 +1,20 @@
+[
+  {
+    "payload": {
+      "cost_usd": 0.01234,
+      "is_error": false,
+      "result": "Hello from Claude",
+      "session_id": "sess-abc-123",
+      "subtype": "success",
+      "tokens_in": 1500,
+      "tokens_out": 42,
+      "total_cost_usd": 0.01234,
+      "usage": {
+        "cache_read_input_tokens": 0,
+        "input_tokens": 1500,
+        "output_tokens": 42
+      }
+    },
+    "type": "result"
+  }
+]

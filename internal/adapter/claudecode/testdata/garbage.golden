@@ -1,0 +1,27 @@
+[
+  {
+    "type": "raw_output",
+    "payload": {
+      "line": "not valid json at all"
+    }
+  },
+  {
+    "type": "message",
+    "payload": {
+      "content": [
+        {
+          "text": "ok",
+          "type": "text"
+        }
+      ],
+      "partial": false,
+      "role": "assistant"
+    }
+  },
+  {
+    "type": "raw_output",
+    "payload": {
+      "line": "{this is also garbage}"
+    }
+  }
+]

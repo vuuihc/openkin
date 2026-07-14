@@ -1,0 +1,3 @@
+not valid json at all
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}
+{this is also garbage}

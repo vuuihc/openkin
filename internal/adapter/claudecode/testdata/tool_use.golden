@@ -1,0 +1,30 @@
+[
+  {
+    "type": "tool_use",
+    "payload": {
+      "content": {
+        "id": "toolu_01",
+        "input": {
+          "file_path": "/tmp/repo/README.md"
+        },
+        "name": "Read",
+        "type": "tool_use"
+      },
+      "role": "assistant"
+    }
+  },
+  {
+    "type": "message",
+    "payload": {
+      "content": [
+        {
+          "content": "# Kin\n",
+          "tool_use_id": "toolu_01",
+          "type": "tool_result"
+        }
+      ],
+      "partial": false,
+      "role": "user"
+    }
+  }
+]

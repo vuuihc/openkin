@@ -1,0 +1,9 @@
+[
+  {
+    "type": "task_started",
+    "payload": {
+      "session_id": "sess-abc-123",
+      "subtype": "init"
+    }
+  }
+]

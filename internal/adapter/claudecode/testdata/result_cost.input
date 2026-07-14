@@ -1,0 +1,1 @@
+{"type":"result","subtype":"success","is_error":false,"duration_ms":1200,"num_turns":1,"result":"Hello from Claude","session_id":"sess-abc-123","total_cost_usd":0.01234,"usage":{"input_tokens":1500,"output_tokens":42,"cache_read_input_tokens":0},"uuid":"u8"}

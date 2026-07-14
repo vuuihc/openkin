@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"id":"msg_2","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"/tmp/repo/README.md"}}]},"session_id":"sess-1","uuid":"u6"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"# Kin\n"}]},"session_id":"sess-1","uuid":"u7"}

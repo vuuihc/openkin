@@ -1,0 +1,30 @@
+[
+  {
+    "payload": {
+      "content": [
+        {
+          "text": "Hel",
+          "type": "text"
+        }
+      ],
+      "index": 0,
+      "partial": true,
+      "role": "assistant"
+    },
+    "type": "message"
+  },
+  {
+    "payload": {
+      "content": [
+        {
+          "text": "lo",
+          "type": "text"
+        }
+      ],
+      "index": 0,
+      "partial": true,
+      "role": "assistant"
+    },
+    "type": "message"
+  }
+]
