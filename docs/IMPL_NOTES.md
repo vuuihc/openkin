@@ -180,3 +180,75 @@ Settings page: connection QR (`qrcode.react`), network mode, token reveal/copy, 
 ### Live verification limits
 
 Automated/agent verification covers loopback, LAN bind + QR print, funnel+control-url error path, token rotate, and notify against a local httptest. Real Tailscale login, Funnel enablement, and phone QR scan require the maintainer’s account/device.
+
+## M4
+
+### Codex CLI event shapes (`codex exec --json`)
+
+Parser coded against documented JSONL thread events (OpenAI non-interactive docs + community cheatsheets). Real `codex` on this machine was **broken** (npm wrapper ENOENT for native binary) during implementation — adapter verified with golden fixtures + fake binary only.
+
+| Event `type` | Kin mapping |
+|---|---|
+| `thread.started` + `thread_id` | `task_started` (`session_id` = `thread_id` → `tasks.session_ref`) |
+| `turn.started` | ignored |
+| `turn.completed` + `usage.{input,output,cached,reasoning}_tokens` | `usage` + `result` with `tokens_in`/`tokens_out` (`is_error: false`) |
+| `turn.failed` + `error.message` | `result` with `is_error: true` |
+| `error` + `message` | `error` event; messages starting with `Reconnecting` → `raw_output` (non-fatal) |
+| `item.completed` / `agent_message` or `reasoning` | `message` (role `assistant` / `reasoning`) |
+| `item.*` / `command_execution`, `mcp_tool_call`, `file_change`, `web_search`, `todo_list` | `tool_use` (`phase`, `name`, `item`) |
+| non-JSON / missing `type` | `raw_output` |
+| unknown JSON `type` | dropped (never crash) |
+
+Example lines:
+
+```json
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"..."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","status":"in_progress"}}
+{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}
+```
+
+### Codex launch line
+
+```bash
+codex exec --json "<prompt>" [--model <model>]
+# follow-up:
+codex exec resume <session_ref> --json "<prompt>"
+```
+
+Binary override: env `KIN_CODEX_BIN` (same pattern as `KIN_CLAUDE_BIN`). Follow-up without `session_ref` is rejected by the engine (`409` / no session_ref) before the adapter runs.
+
+### Cost accounting
+
+- **claude-code:** unchanged — `total_cost_usd` / `cost_usd` from CLI `result` events.
+- **codex:** CLI has no cost field. At `result` time the engine multiplies tokens × `settings.price_table` for the task model (default model name `gpt-5-codex` when unset). Missing model → `cost_usd` left null + `raw_output` note.
+- **rawpty:** no tokens/cost.
+
+Default `price_table` (USD per 1M tokens), returned by GET settings when unset:
+
+```json
+{"gpt-5-codex":{"in":1.25,"out":10.0},"gpt-5.1-codex":{"in":1.25,"out":10.0},"gpt-5.1-codex-max":{"in":1.25,"out":10.0},"o3":{"in":2.0,"out":8.0},"o4-mini":{"in":1.1,"out":4.4}}
+```
+
+PUT validates JSON shape (`model → {in, out}` with non-negative numbers). Editable as raw JSON on Settings.
+
+### Raw PTY adapter
+
+- Prompt = shell command: `/bin/sh -c "<prompt>"` under `creack/pty`.
+- Output: coalesced `raw_output` events with `{"chunk":"..."}` every ≥100ms.
+- Exit code → `result` (`is_error` if non-zero).
+- Cancel: SIGTERM to process group (`-pid`; session leader from pty `Setsid`), SIGKILL after 5s.
+- **macOS note:** do not set `SysProcAttr.Setpgid` before `pty.Start` — it conflicts with creack/pty’s `Setsid` and fails with `operation not permitted`. Session leader pgid == pid, so `Kill(-pid, …)` still works.
+
+### Usage summary
+
+`GET /api/usage/summary?days=30` → SQL aggregates over `tasks` grouped by UTC date + agent: `{date, agent, tasks, tokens_in, tokens_out, cost_usd}`. UI: Usage page (nav) with per-agent totals and per-day table.
+
+### Dependencies added (M4)
+
+- `github.com/creack/pty` (whitelisted; rawpty only)
+
+### Human-verify items
+
+1. **Real codex run** — when the machine’s Codex CLI is fixed/authenticated: dispatch agent=`codex` with a real prompt; confirm transcript, `session_ref`, tokens, and price-table cost. Follow-up prompt should call `codex exec resume <thread_id> --json`.
+2. Confirm current Codex model names/prices in the default price table match the operator’s plan (edit in Settings if needed).
