@@ -288,3 +288,20 @@ Single app-wide WebSocket (pages subscribe via `subscribeWS` fan-out). Nav shows
 ### Dependencies
 
 None new. `zustand` (already whitelisted) used for auth/WS/toasts. Chi Compress is part of `go-chi/chi/v5`.
+
+## Notify (Bark path fix)
+
+### Root cause
+
+`internal/notify.barkRequest` POSTed JSON `{title, body, url}` to `<bark_url>/push` (e.g. `https://api.day.app/DEVICEKEY/push`). Bark's HTTP API accepts:
+
+1. **Device URL (form a):** POST JSON directly to the configured device URL `https://api.day.app/DEVICEKEY` (no extra path).
+2. **Server root `/push` (form b):** POST to `https://api.day.app/push` with `device_key` in the JSON body.
+
+Appending `/push` to a device-key URL is neither form — day.app returns a non-2xx and the push never arrives. Failures were also silent: fire-and-forget discarded `postWithRetry` errors with no log line.
+
+### Fix
+
+- POST JSON to `notify.bark_url` **as-is** (trim trailing slash only). Do not append `/push`.
+- Single synchronous `Sender.Deliver` returns `[]ChannelResult` per channel (`channel`, `ok`, `status`/`error`); logs one line per attempt (`notify: bark ok` / `notify: bark failed: …`). `Send` still fire-and-forgets by calling `Deliver` in a goroutine.
+- Operator tooling: `kin notify test` (reads `~/.kin/kin.db` without the daemon), `POST /api/notify/test` (auth), and a Settings "Send test notification" button with toast results.
