@@ -16,12 +16,17 @@ import (
 
 const tokenBytes = 32
 
+// TokenFile returns the path of the daemon auth token.
+func TokenFile(stateDir string) string {
+	return filepath.Join(stateDir, "token")
+}
+
 // EnsureToken loads ~/.kin/token or generates a new 32-byte hex token on first run.
 func EnsureToken(stateDir string) (string, error) {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return "", fmt.Errorf("create state dir: %w", err)
 	}
-	path := filepath.Join(stateDir, "token")
+	path := TokenFile(stateDir)
 	data, err := os.ReadFile(path)
 	if err == nil {
 		tok := strings.TrimSpace(string(data))
@@ -32,6 +37,29 @@ func EnsureToken(stateDir string) (string, error) {
 		return "", fmt.Errorf("read token: %w", err)
 	}
 
+	return writeNewToken(path)
+}
+
+// RotateToken regenerates ~/.kin/token (spec §7.3). Returns the new token.
+// A running daemon that re-reads the token file per request picks this up
+// without restart; the previous token stops working immediately.
+func RotateToken(stateDir string) (string, error) {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return "", fmt.Errorf("create state dir: %w", err)
+	}
+	return writeNewToken(TokenFile(stateDir))
+}
+
+// ReadToken reads the current token from stateDir (empty string if missing).
+func ReadToken(stateDir string) (string, error) {
+	data, err := os.ReadFile(TokenFile(stateDir))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func writeNewToken(path string) (string, error) {
 	raw := make([]byte, tokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("generate token: %w", err)
@@ -45,17 +73,46 @@ func EnsureToken(stateDir string) (string, error) {
 
 // Auth protects handlers with Bearer / ?token= auth (spec §6).
 // Constant-time compare; 20 failed auth attempts per IP per minute.
+//
+// When constructed with NewFileAuth, the token is re-read from disk on every
+// request so `kin token rotate` takes effect without restarting the daemon
+// (see docs/IMPL_NOTES.md).
 type Auth struct {
-	token string
-	fail  *failLimiter
+	// staticToken is used when tokenPath is empty (tests / fixed token).
+	staticToken string
+	// tokenPath, when non-empty, is read on each request.
+	tokenPath string
+
+	fail *failLimiter
 }
 
-// NewAuth returns middleware-capable auth for the given token.
+// NewAuth returns middleware-capable auth for a fixed token (tests).
 func NewAuth(token string) *Auth {
 	return &Auth{
-		token: token,
-		fail:  newFailLimiter(20, time.Minute),
+		staticToken: token,
+		fail:        newFailLimiter(20, time.Minute),
 	}
+}
+
+// NewFileAuth returns auth that re-reads the token file per request.
+func NewFileAuth(tokenPath string) *Auth {
+	return &Auth{
+		tokenPath: tokenPath,
+		fail:      newFailLimiter(20, time.Minute),
+	}
+}
+
+// Token returns the currently accepted token (from file or static).
+func (a *Auth) Token() string {
+	if a.tokenPath != "" {
+		data, err := os.ReadFile(a.tokenPath)
+		if err == nil {
+			if tok := strings.TrimSpace(string(data)); tok != "" {
+				return tok
+			}
+		}
+	}
+	return a.staticToken
 }
 
 // Middleware rejects unauthenticated requests with 401.
@@ -67,7 +124,8 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		got := extractToken(r)
-		if !secureEqual(got, a.token) {
+		want := a.Token()
+		if !secureEqual(got, want) {
 			a.fail.record(ip)
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
