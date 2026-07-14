@@ -172,6 +172,29 @@ export function recentCwds(): Promise<string[]> {
   return apiFetch<string[]>("/api/recent-cwds");
 }
 
+export type Settings = {
+  "notify.bark_url": string;
+  "notify.ntfy_topic": string;
+  "ui.base_url": string;
+  network_mode: string;
+  connect_url: string;
+  token: string;
+};
+
+export function getSettings(): Promise<Settings> {
+  return apiFetch<Settings>("/api/settings");
+}
+
+export function updateSettings(
+  body: Partial<Pick<Settings, "notify.bark_url" | "notify.ntfy_topic" | "ui.base_url">>,
+): Promise<Settings> {
+  return apiFetch<Settings>("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 /** Open the global WS bus. Uses ?token= (browser WS cannot set Authorization easily). */
 export function connectWS(onMessage: (msg: WSMessage) => void): () => void {
   const token = getToken();
