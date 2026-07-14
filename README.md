@@ -2,12 +2,12 @@
 
 [中文](./README.zh.md)
 
-> Your agent. Your memory. Any model.
+> One console for all your coding agents. Self-hosted. Any device.
 
-An open-source, local-first personal agent that keeps your memory, habits, tools, and identity independent from any model provider.
+Dispatch, watch, and approve agent tasks — Claude Code, Codex, any CLI — from your phone or any device, over your own network. No vendor relay, no Kin account. Growing into a local-first personal agent whose memory you own.
 
 ```text
-One Kin. Every device. Any model.
+Your agent. Your memory. Any model.
 ```
 
 ## Docs
@@ -20,14 +20,16 @@ One Kin. Every device. Any model.
 
 ## Status
 
-Early design stage. Implementation has not started. Public docs describe **direction**; implementation details land with code.
+Design stage; building the MVP (the agent console) is next. Public docs describe **direction**; implementation details land with code.
 
 ## In short
 
-- **User-owned** — local-first; no required vendor account; export and leave
-- **Model-agnostic** — Claude / GPT / local models are swappable cognition backends
+- **Cross-agent console** — dispatch / monitor / approve Claude Code, Codex, or any CLI agent from one place
+- **Self-hosted remote** — LAN → tailnet / Funnel ladder; traffic never routed through an agent vendor's cloud
+- **Cost transparency** — tokens and spend per task, per provider
+- **User-owned** — local-first; no Kin account; export and leave
+- **Memory, next (v2)** — governed memory that travels across agents and models
 - **Small by default** — do not multiply entities without necessity; grow from real pain ([PRINCIPLE §5.11](./PRINCIPLE.md))
-- **Governed memory & legible authority** — remember accurately, act with confirmation, show what happened
 
 ## License
 

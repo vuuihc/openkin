@@ -370,35 +370,33 @@ Companionship is fine; addictive dependence is not.
 
 ## 12. MVP scope
 
-Not a full digital twin—a personal agent client people want daily.
+The MVP is the **agent console**: dispatch, watch, and approve external agent tasks from any device—self-hosted, cross-agent, no vendor relay. Not a full digital twin—the first slice worth using every day.
 
 ### Must-have
 
-1. Stable desktop client  
-2. Kin Core shared by client and CLI  
-3. Multi-model provider interface  
-4. At least: one OpenAI-compatible endpoint, Anthropic, one local entry  
-5. Streaming chat and structured tool calling  
-6. Local conversation and task storage  
-7. Explicit, editable user profile  
-8. Basic long-term memory: user save, Kin propose, confirm/reject, view/delete  
-9. Tool permission and execution confirmation  
-10. MCP or equivalent open tools  
-11. Task execution record and audit UI  
-12. Full import/export  
-13. Core use without official login  
+1. Kin daemon (Core) shared by desktop shell and CLI
+2. Agent adapters: Claude Code and Codex first-class; generic PTY fallback for any CLI
+3. Task lifecycle: dispatch, streaming progress, cancel, history
+4. Approval inbox on desktop and phone; every decision audited
+5. Cost visibility: tokens and spend per task and provider
+6. Remote access ladder: LAN -> embedded tailnet / Funnel -> full tailnet; never a Kin cloud
+7. Local task storage; full import/export
+8. Stable desktop client (shell) + any-device web console
+9. Core use without any Kin account
 
 ### Priority
 
 ```text
-P1  Conversation · provider switch · local memory · tools · confirm · audit
-P2  CLI · skills · pause/resume · cost/perf stats · basic device sync
-P3  Full mobile · long-lived routines · multi-device co-execution · auto routing · sub-agents
+P1  Adapters | dispatch | watch | approve | audit | LAN access
+P2  Remote ladder | cost stats | push notifications | more adapters | CLI polish
+P3  Governed memory + profile (the v2 story) | native mobile app | long-lived routines | auto routing | sub-agents
 ```
 
 First version serves the creators. Live in it before expanding.
 
 When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map.
+
+*Revised 2026-07: the console ships before conversation/memory. Conversation already happens inside the agents Kin supervises; the unmet need is cross-agent supervision without a vendor in the middle. Governed memory remains the v2 differentiator.*
 
 ---
 
@@ -406,9 +404,9 @@ When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map.
 
 Platform-neutral core from day one; clients by real value.
 
-**Phase 1 — Desktop & CLI:** core daily use—chat, local tools, provider/memory/permission models.  
-**Phase 2 — Companion clients:** lighter clients for chat, status, confirmations, and capture (share/voice/media) when the desktop core is solid.  
-**Phase 3 — Deeper multi-device:** only after single-machine Kin is excellent—continue work across devices under explicit authority.
+**Phase 1 — Desktop daemon + console:** wrap agents; watch and approve locally and on the LAN.  
+**Phase 2 — Remote reach:** the access ladder (tailnet / Funnel), phone web console, push notifications.  
+**Phase 3 — Native companion & deeper multi-device:** a native mobile client on the same API; identity and memory continuing across devices under explicit authority (v2).
 
 ---
 
