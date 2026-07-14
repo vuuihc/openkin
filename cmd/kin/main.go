@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
+	"github.com/vuuihc/kin/internal/approvemcp"
 	"github.com/vuuihc/kin/internal/server"
 )
 
@@ -21,6 +25,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "kin serve: %v\n", err)
 			os.Exit(1)
 		}
+	case "approve-mcp":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := approvemcp.Run(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "kin approve-mcp: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -35,9 +46,10 @@ func usage(code int) {
 	fmt.Fprintf(os.Stderr, `kin — self-hosted agent console
 
 Usage:
-  kin serve     start the daemon (127.0.0.1:7777)
-  kin version   print version
-  kin help      show this help
+  kin serve         start the daemon (127.0.0.1:7777)
+  kin approve-mcp   stdio MCP server for Claude Code permission prompts
+  kin version       print version
+  kin help          show this help
 `)
 	os.Exit(code)
 }
