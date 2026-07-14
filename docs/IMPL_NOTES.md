@@ -252,3 +252,39 @@ PUT validates JSON shape (`model → {in, out}` with non-negative numbers). Edit
 
 1. **Real codex run** — when the machine’s Codex CLI is fixed/authenticated: dispatch agent=`codex` with a real prompt; confirm transcript, `session_ref`, tokens, and price-table cost. Follow-up prompt should call `codex exec resume <thread_id> --json`.
 2. Confirm current Codex model names/prices in the default price table match the operator’s plan (edit in Settings if needed).
+
+## M5 (UI/UX polish)
+
+Dogfooding on a phone over high-latency Funnel drove this milestone. No new product features; no adapter/engine/auth-semantics changes. API shape unchanged except additive response headers (`Cache-Control`, `Content-Encoding` via chi Compress).
+
+### Auth recovery (401 funnel)
+
+Any `apiFetch` 401 calls `requireToken("unauthorized")` on the global zustand store. `App` swaps the whole tree for `ConnectScreen` (paste token → `localStorage` → reload). Missing token at boot uses the same screen (`reason: "missing"`). Pages no longer render raw “no auth token” / “Unauthorized” dead-ends for 401.
+
+### Instant shell + skeletons + slow hint
+
+Nav/header always paint first. List/detail pages show skeleton placeholders while loading. `useSlowHint` (10s) surfaces “Still connecting — your link may be slow.”
+
+### Optimistic updates
+
+- **Approvals:** Approve/Deny keep the card with `Approving…` / `Denying…`; success drops the card; failure restores via re-fetch + error toast.
+- **New task:** Modal closes immediately; a temp `opt_*` row appears as `queued`; server create reconciles (or rolls back + toast on failure).
+
+### Connection status + self-heal
+
+Single app-wide WebSocket (pages subscribe via `subscribeWS` fan-out). Nav shows a status dot; slim “reconnecting…” banner when not connected. Exponential reconnect backoff (1s…15s). On re-open, `reconnectGen` bumps and list/detail pages re-fetch (task detail uses `since_seq` for events).
+
+### Asset caching + compression
+
+- `middleware.Compress(5)` on the chi root (gzip for JSON + HTML/text when `Accept-Encoding: gzip`).
+- Static handler: `/assets/*` → `Cache-Control: public, max-age=31536000, immutable`; `index.html` / SPA shell / manifest → `no-cache`.
+- PWA `manifest.webmanifest` + hand-made monochrome “K” icons (`ui/public/icons/`, dark `#0f1115` / accent `#6ee7b7`).
+- **No service worker** (optional in the polish brief). Update strategy if added later: cache-first hashed `/assets/*` only; never API; bump SW version on each UI release so `index.html` revalidation picks new hashes.
+
+### Mobile ergonomics
+
+`viewport-fit=cover`, safe-area CSS, ≥44px tap targets on Approvals/task actions/nav, `overflow-x: hidden`, long cwd/prompts truncate with `title` / expand (`Truncated`).
+
+### Dependencies
+
+None new. `zustand` (already whitelisted) used for auth/WS/toasts. Chi Compress is part of `go-chi/chi/v5`.
