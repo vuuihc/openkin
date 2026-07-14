@@ -42,6 +42,8 @@ func (s *Server) Handler() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	// Gzip/deflate for API JSON and HTML/static text (M5 polish).
+	r.Use(middleware.Compress(5))
 
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/version", s.handleVersion)

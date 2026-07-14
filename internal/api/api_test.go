@@ -265,3 +265,20 @@ func TestCreateAndGetTask(t *testing.T) {
 		t.Fatalf("events=%d", len(evs))
 	}
 }
+
+func TestGzipOnTasks(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", got)
+	}
+}

@@ -413,13 +413,25 @@ func uiHandler() (http.Handler, error) {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// SPA fallback: serve index.html for non-file client routes.
 		path := r.URL.Path
+		serveIndex := path == "/" || path == "/index.html"
 		if path != "/" && !strings.Contains(path, ".") {
 			if f, err := sub.Open(strings.TrimPrefix(path, "/")); err == nil {
 				_ = f.Close()
 			} else {
 				r = r.Clone(r.Context())
 				r.URL.Path = "/"
+				serveIndex = true
 			}
+		}
+		// Hashed Vite assets are content-addressed → long-lived immutable cache.
+		// index.html (and SPA shell routes) must revalidate so clients pick up new hashes.
+		if strings.HasPrefix(path, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if serveIndex || path == "/manifest.webmanifest" {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		if path == "/manifest.webmanifest" {
+			w.Header().Set("Content-Type", "application/manifest+json")
 		}
 		fileServer.ServeHTTP(w, r)
 	}), nil
