@@ -62,13 +62,136 @@ export type Task = {
   agent: string;
   cwd: string;
   prompt: string;
+  model?: string | null;
+  session_ref?: string | null;
   status: string;
+  exit_code?: number | null;
   tokens_in: number;
   tokens_out: number;
   cost_usd?: number | null;
   created_at: number;
+  started_at?: number | null;
+  finished_at?: number | null;
 };
 
-export function listTasks(): Promise<Task[]> {
-  return apiFetch<Task[]>("/api/tasks");
+export type TaskEvent = {
+  task_id: string;
+  seq: number;
+  ts: number;
+  type: string;
+  payload: unknown;
+};
+
+export type CreateTaskBody = {
+  agent: string;
+  cwd: string;
+  prompt: string;
+  model?: string;
+  title?: string;
+};
+
+export type WSMessage =
+  | { kind: "task_update"; data: Task }
+  | { kind: "event"; data: TaskEvent };
+
+export function listTasks(params?: {
+  status?: string;
+  limit?: number;
+  before?: string;
+}): Promise<Task[]> {
+  const q = new URLSearchParams();
+  if (params?.status) q.set("status", params.status);
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.before) q.set("before", params.before);
+  const qs = q.toString();
+  return apiFetch<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
+}
+
+export function getTask(id: string): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}`);
+}
+
+export function createTask(body: CreateTaskBody): Promise<Task> {
+  return apiFetch<Task>("/api/tasks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function cancelTask(id: string): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
+  const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
+  return apiFetch<TaskEvent[]>(`/api/tasks/${encodeURIComponent(id)}/events${q}`);
+}
+
+export function recentCwds(): Promise<string[]> {
+  return apiFetch<string[]>("/api/recent-cwds");
+}
+
+/** Open the global WS bus. Uses ?token= (browser WS cannot set Authorization easily). */
+export function connectWS(onMessage: (msg: WSMessage) => void): () => void {
+  const token = getToken();
+  if (!token) return () => undefined;
+
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${window.location.host}/api/ws?token=${encodeURIComponent(token)}`;
+  let ws: WebSocket | null = null;
+  let closed = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+
+  const connect = () => {
+    if (closed) return;
+    ws = new WebSocket(url);
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data)) as WSMessage;
+        onMessage(msg);
+      } catch {
+        // ignore malformed
+      }
+    };
+    ws.onclose = () => {
+      if (closed) return;
+      retry = setTimeout(connect, 1500);
+    };
+    ws.onerror = () => {
+      ws?.close();
+    };
+  };
+  connect();
+
+  return () => {
+    closed = true;
+    if (retry) clearTimeout(retry);
+    ws?.close();
+  };
+}
+
+export function formatCost(cost?: number | null): string {
+  if (cost == null) return "—";
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(3)}`;
+}
+
+export function formatElapsed(task: Task, now = Date.now()): string {
+  const start = task.started_at ?? task.created_at;
+  const end = task.finished_at ?? now;
+  const ms = Math.max(0, end - start);
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 60) return `${m}m ${rem}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+export function isTerminal(status: string): boolean {
+  return status === "succeeded" || status === "failed" || status === "canceled";
 }

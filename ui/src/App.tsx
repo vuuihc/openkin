@@ -1,6 +1,7 @@
 import { NavLink, Route, Routes } from "react-router-dom";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import SettingsPage from "./pages/SettingsPage";
+import TaskDetailPage from "./pages/TaskDetailPage";
 import TasksPage from "./pages/TasksPage";
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -37,6 +38,7 @@ export default function App() {
       <main className="flex-1 mx-auto w-full max-w-3xl px-4 py-6">
         <Routes>
           <Route path="/" element={<TasksPage />} />
+          <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
