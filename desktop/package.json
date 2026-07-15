@@ -1,0 +1,66 @@
+{
+  "name": "kin-desktop",
+  "version": "0.0.0-dev",
+  "private": true,
+  "description": "Kin menu-bar shell (Electron) — supervises the local kin daemon",
+  "main": "dist/main.js",
+  "author": "Kin",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "dev": "node scripts/build.mjs && node scripts/run-electron.mjs",
+    "dist": "node scripts/build.mjs && electron-builder --mac --arm64",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "dev.kin.app",
+    "productName": "Kin",
+    "copyright": "Copyright © Kin contributors",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/kin",
+        "to": "kin"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "darkModeSupport": true,
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "LSUIElement": false
+      }
+    },
+    "dmg": {
+      "title": "Kin"
+    },
+    "asar": true
+  }
+}
