@@ -20,7 +20,7 @@ Your agent. Your memory. Any model.
 
 ## Status
 
-Design stage; building the MVP (the agent console) is next. Public docs describe **direction**; implementation details land with code.
+MVP agent console (daemon + web UI) is implemented. A macOS menu-bar **desktop shell** lives in `desktop/` (Electron). Public docs describe **direction**; implementation notes are in [docs/IMPL_NOTES.md](./docs/IMPL_NOTES.md).
 
 ## In short
 
@@ -30,6 +30,22 @@ Design stage; building the MVP (the agent console) is next. Public docs describe
 - **User-owned** — local-first; no Kin account; export and leave
 - **Memory, next (v2)** — governed memory that travels across agents and models
 - **Small by default** — do not multiply entities without necessity; grow from real pain ([PRINCIPLE §5.11](./PRINCIPLE.md))
+
+## Desktop app
+
+macOS menu-bar shell (darwin-arm64). Supervises the local `kin` daemon as a sidecar, hosts the embedded web console in a BrowserWindow, and surfaces approvals as native notifications.
+
+```bash
+# Dev: builds ./kin, launches Electron (uses repo-root binary)
+make desktop-dev
+
+# Packaged unsigned .dmg under desktop/dist-electron/
+make desktop-dist
+```
+
+**Unsigned builds:** after installing the `.dmg`, macOS Gatekeeper may block open. Right-click the app → **Open** the first time (or remove quarantine: `xattr -cr /Applications/Kin.app`). Code signing is not configured yet.
+
+Architecture and decisions: [docs/IMPL_NOTES.md](./docs/IMPL_NOTES.md) § Desktop shell.
 
 ## License
 

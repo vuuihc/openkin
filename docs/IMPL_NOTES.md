@@ -305,3 +305,60 @@ Appending `/push` to a device-key URL is neither form — day.app returns a non-
 - POST JSON to `notify.bark_url` **as-is** (trim trailing slash only). Do not append `/push`.
 - Single synchronous `Sender.Deliver` returns `[]ChannelResult` per channel (`channel`, `ok`, `status`/`error`); logs one line per attempt (`notify: bark ok` / `notify: bark failed: …`). `Send` still fire-and-forgets by calling `Deliver` in a goroutine.
 - Operator tooling: `kin notify test` (reads `~/.kin/kin.db` without the daemon), `POST /api/notify/test` (auth), and a Settings "Send test notification" button with toast results.
+
+## Desktop shell (Electron)
+
+**Scope:** `desktop/` only — menu-bar app that supervises the Go daemon as a sidecar and loads the existing web console. No Go/UI changes; uses existing `GET /api/health`, `GET /api/version`, `GET /api/approvals?status=pending`, `POST /api/approvals/{id}/decision`, and `GET /api/ws?token=`.
+
+### Architecture
+
+```text
+Electron main process
+  ├── Sidecar      spawn/attach `kin serve`; stop on quit only if we started it
+  ├── Tray         template icon + pending count title; menu
+  ├── MainWindow   BrowserWindow → http://127.0.0.1:7777/?token=…
+  ├── DaemonWS     main-process WS (?token=); drives tray + notifications
+  └── Notifier     native Notification on approval / terminal task status
+```
+
+- **Dev binary:** repo-root `./kin` (resolved from `desktop/` cwd).
+- **Packaged binary:** `extraResources` → `Contents/Resources/kin`.
+- **Token:** read from `~/.kin/token` (same file the daemon writes on first serve).
+- **Version match:** on launch, probe health + version; if a daemon is already up, attach (even on mismatch — do not kill foreign processes; log a warning). If down, spawn our binary.
+- **Window:** 1100×760 default; bounds persisted under Electron `userData`; close hides to tray; dock hidden while no visible window (menu-bar behavior).
+- **Security:** `contextIsolation: true`, `nodeIntegration: false`, no preload (SPA talks to the daemon itself). `will-navigate` / `setWindowOpenHandler` allow only `127.0.0.1|localhost:7777`.
+- **WS auth:** reuses query `?token=` — `internal/remote/auth.go` `extractToken` accepts Bearer or `?token=` for all auth-gated routes including `/api/ws`.
+- **WS client:** Electron's Node (20.x) has no global `WebSocket`, and the shell forbids extra runtime deps. Main process uses a minimal RFC6455 client over `net` (text frames + ping/pong).
+- **Dev launcher:** `scripts/run-electron.mjs` clears `ELECTRON_RUN_AS_NODE` / `ELECTRON_FORCE_IS_PACKAGED` so IDE agent shells do not break `require("electron")`.
+
+### Notification actions (decision)
+
+Electron `Notification` supports `actions` on macOS (`Approve` / `Deny`). We attach them and, when the `action` event fires, call `POST /api/approvals/{id}/decision` from the main process with the Bearer token.
+
+**Caveat:** action buttons are not reliable across macOS focus/banner styles (sometimes only the click-to-open path works). **Primary UX:** clicking the notification opens the window at `/approvals?focus=<id>`. Terminal task notifications are silent (`silent: true`) with no actions.
+
+### Build / dist
+
+| Target | What |
+|--------|------|
+| `make desktop-dev` | `go-build` + icons + `electron .` |
+| `make desktop-dist` | full `make build`, copy `kin` → `desktop/resources/kin`, electron-builder **dmg** darwin-arm64 → `desktop/dist-electron/` |
+
+- Runtime deps in `desktop/`: **none** (only Electron/electron-builder/esbuild/typescript as devDependencies).
+- No code signing (`identity: null`). First open: right-click → Open, or `xattr -cr /Applications/Kin.app`.
+- Desktop packaging is **not** on CI (explicit product choice).
+
+### Headless limits
+
+Cannot verify tray clicks or Notification UI without a human. Programmatic checks: typecheck, `make desktop-dist` produces a `.dmg`, and a short `desktop-dev` run logs tray setup + daemon detect/spawn lines.
+
+### Manual verification checklist
+
+1. Tray icon appears; pending count updates when an approval is created.
+2. Approval → native notification; click opens the approvals view.
+3. Approve/Deny action buttons (if shown) decide without opening the window.
+4. Task terminal status → quieter notification.
+5. Close window → app stays in tray; dock icon hides; Open Kin restores window + dock.
+6. Start/Stop daemon from menu (Stop only when this app spawned the daemon).
+7. Launch at Login toggle.
+8. Install `.dmg`; unsigned open caveat as above.
