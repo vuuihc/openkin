@@ -20,7 +20,7 @@ type hangAd struct{}
 type hangH struct{ ch chan adapter.Event }
 
 func (h *hangH) Events() <-chan adapter.Event { return h.ch }
-func (h *hangH) Cancel() error                 { return nil }
+func (h *hangH) Cancel() error                { return nil }
 func (a *hangAd) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	ch := make(chan adapter.Event)
 	go func() { <-ctx.Done(); close(ch) }()

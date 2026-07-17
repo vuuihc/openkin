@@ -71,10 +71,10 @@ func parseThreadStarted(raw map[string]json.RawMessage) []adapter.Event {
 
 func parseTurnCompleted(raw map[string]json.RawMessage, line string) []adapter.Event {
 	var usage struct {
-		InputTokens         float64 `json:"input_tokens"`
-		CachedInputTokens   float64 `json:"cached_input_tokens"`
-		OutputTokens        float64 `json:"output_tokens"`
-		ReasoningOutTokens  float64 `json:"reasoning_output_tokens"`
+		InputTokens        float64 `json:"input_tokens"`
+		CachedInputTokens  float64 `json:"cached_input_tokens"`
+		OutputTokens       float64 `json:"output_tokens"`
+		ReasoningOutTokens float64 `json:"reasoning_output_tokens"`
 	}
 	_ = json.Unmarshal(raw["usage"], &usage)
 
@@ -86,10 +86,10 @@ func parseTurnCompleted(raw map[string]json.RawMessage, line string) []adapter.E
 	}
 
 	result := map[string]any{
-		"subtype":     "turn.completed",
-		"is_error":    false,
-		"tokens_in":   tokensIn,
-		"tokens_out":  tokensOut,
+		"subtype":    "turn.completed",
+		"is_error":   false,
+		"tokens_in":  tokensIn,
+		"tokens_out": tokensOut,
 		"usage": map[string]any{
 			"input_tokens":            usage.InputTokens,
 			"cached_input_tokens":     usage.CachedInputTokens,

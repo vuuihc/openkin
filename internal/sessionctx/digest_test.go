@@ -87,7 +87,6 @@ func TestToolDigestListAndGlob(t *testing.T) {
 	}
 }
 
-
 func TestToolDigestWriteFile(t *testing.T) {
 	d := ToolDigest("write_file", `{"path":"a.go"}`, "wrote 12 bytes to a.go", true)
 	if !strings.Contains(d, "write_file [ok]") || !strings.Contains(d, "wrote 12") {

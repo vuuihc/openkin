@@ -21,7 +21,7 @@ type RunHandle interface {
 
 // Event is a structured update from an agent run.
 type Event struct {
-	Type    string          // task_started | message | tool_use | approval_requested | usage | result | raw_output | error
+	Type    string // task_started | message | tool_use | approval_requested | usage | result | raw_output | error
 	Payload json.RawMessage
 }
 

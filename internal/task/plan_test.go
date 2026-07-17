@@ -87,7 +87,6 @@ func TestPlanWaves_mentionPriorAgent(t *testing.T) {
 	}
 }
 
-
 func TestUserTurnPrompt_stripsHandoffWrapper(t *testing.T) {
 	raw := "Continue this Kin task.\n\n--- prior context ---\nassistant: 收到。我作为主 agent 编排；@claude 做实验\n--- end context ---\n\nUser request:\n只修 UI 文案，不要委派"
 	got := UserTurnPrompt(raw)

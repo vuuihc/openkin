@@ -143,10 +143,10 @@ func (f *fakeServer) ListenFunnel(network, addr string) (net.Listener, error) {
 	}
 	return &stubListener{}, nil
 }
-func (f *fakeServer) TailnetURL() string  { return f.url }
-func (f *fakeServer) FunnelURL() string   { return "" }
-func (f *fakeServer) Close() error        { f.closed = true; return nil }
-func (f *fakeServer) ControlURL() string  { return f.control }
+func (f *fakeServer) TailnetURL() string { return f.url }
+func (f *fakeServer) FunnelURL() string  { return "" }
+func (f *fakeServer) Close() error       { f.closed = true; return nil }
+func (f *fakeServer) ControlURL() string { return f.control }
 
 type stubListener struct{}
 

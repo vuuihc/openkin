@@ -11,21 +11,21 @@ import (
 
 // Info describes one known agent backend.
 type Info struct {
-	ID        string `json:"id"`         // kin agent key, e.g. "claude-code"
-	Name      string `json:"name"`       // display name
-	Binary    string `json:"binary"`     // resolved path when installed
-	Installed bool   `json:"installed"`  // binary found on PATH
-	Available bool   `json:"available"`  // ready to run (installed for now)
-	Default   bool   `json:"default"`    // selected as default when agent omitted
+	ID        string `json:"id"`        // kin agent key, e.g. "claude-code"
+	Name      string `json:"name"`      // display name
+	Binary    string `json:"binary"`    // resolved path when installed
+	Installed bool   `json:"installed"` // binary found on PATH
+	Available bool   `json:"available"` // ready to run (installed for now)
+	Default   bool   `json:"default"`   // selected as default when agent omitted
 	Reason    string `json:"reason,omitempty"`
 }
 
 // Spec is a known agent that Kin can drive if installed.
 type Spec struct {
-	ID      string
-	Name    string
-	Bins    []string // candidate binary names / env overrides
-	EnvBin  string   // e.g. KIN_CLAUDE_BIN
+	ID     string
+	Name   string
+	Bins   []string // candidate binary names / env overrides
+	EnvBin string   // e.g. KIN_CLAUDE_BIN
 	// Priority: lower = preferred when picking default (0 = highest).
 	Priority int
 }

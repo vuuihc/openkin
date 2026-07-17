@@ -322,7 +322,6 @@ func TestEventsBeforeBroadcast(t *testing.T) {
 	}
 }
 
-
 func TestAsyncTitleSummarize(t *testing.T) {
 	ad := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, ad)

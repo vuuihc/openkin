@@ -50,9 +50,10 @@ func New() *Adapter {
 //	  [--permission-mode <mode>] [--resume <session_ref>] [--model <model>]
 //
 // PermissionMode mapping:
-//   default       → MCP approve bridge (when DaemonURL/Token set)
-//   accept_edits  → --permission-mode acceptEdits (+ MCP for other tools)
-//   yolo          → --dangerously-skip-permissions (no MCP)
+//
+//	default       → MCP approve bridge (when DaemonURL/Token set)
+//	accept_edits  → --permission-mode acceptEdits (+ MCP for other tools)
+//	yolo          → --dangerously-skip-permissions (no MCP)
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	bin := a.Binary
 	if bin == "" {

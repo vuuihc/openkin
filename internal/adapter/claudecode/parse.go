@@ -182,9 +182,9 @@ func parseResult(raw map[string]json.RawMessage, line string) []adapter.Event {
 	}
 
 	out := map[string]any{
-		"subtype": full["subtype"],
-		"result":  full["result"],
-		"is_error": full["is_error"],
+		"subtype":    full["subtype"],
+		"result":     full["result"],
+		"is_error":   full["is_error"],
 		"session_id": full["session_id"],
 	}
 	if v, ok := full["total_cost_usd"]; ok {
