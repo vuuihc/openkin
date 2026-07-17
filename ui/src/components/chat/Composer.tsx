@@ -34,7 +34,7 @@ type Attachment = Upload & {
 
 /**
  * Chat composer: @agent menu for multi-agent delegation.
- * Enter inserts a newline; ⌘/Ctrl+Enter sends.
+ * Enter sends; Shift/⌘/Ctrl+Enter inserts a newline.
  * Arrow keys navigate the @mention menu; Enter selects; Esc closes.
  */
 export default function Composer({
@@ -289,8 +289,22 @@ export default function Composer({
       }
     }
 
-    // Enter → newline (default). ⌘/Ctrl+Enter → send.
+    // Enter → send. Shift+Enter → newline (textarea default).
+    // ⌘/Ctrl+Enter → newline (inserted manually; textareas don't by default).
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      const el = e.currentTarget;
+      const { selectionStart, selectionEnd } = el;
+      const next =
+        value.slice(0, selectionStart) + "\n" + value.slice(selectionEnd);
+      onChange(next, selectionStart + 1);
+      requestAnimationFrame(() => {
+        el.selectionStart = el.selectionEnd = selectionStart + 1;
+        adjustTextareaHeight();
+      });
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void submit();
     }

@@ -1,16 +1,28 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Link, useParams } from "react-router-dom";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
   cancelTask,
+  createArtifact,
   decideApproval,
+  deriveArtifactTitle,
+  detectArtifactKind,
   followUpPrompt,
+  forkTask,
   getTask,
   getToken,
   isTerminal,
   listAgents,
   listApprovals,
   listEvents,
+  retryTask,
   type AgentInfo,
   type Approval,
   type Task,
@@ -21,14 +33,17 @@ import ChatStream from "../components/chat/ChatStream";
 import Composer from "../components/chat/Composer";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
-import { IconBack } from "../components/icons";
+import { IconBack, IconPanel } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
+import WorkspacePanel from "../components/workspace/WorkspacePanel";
+import { extractChangedFiles } from "../lib/changedFiles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { parseAgentDirective } from "../lib/agentMention";
+import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { normalizePermissionMode } from "../lib/permissionMode";
-import { projectLabel } from "../lib/paths";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
 /**
@@ -37,6 +52,7 @@ import { subscribeWS, useAppStore } from "../store/appStore";
  */
 export default function TaskDetailPage() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -44,9 +60,13 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
   const [focusIdx, setFocusIdx] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
+  const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -83,6 +103,9 @@ export default function TaskDetailPage() {
     maxSeq.current = 0;
     setEvents([]);
     setLoading(true);
+    setFilesOpen(false);
+    setWorkspaceOpenPath(null);
+    setWorkspaceOpenNonce(0);
     void load();
     listAgents()
       .then(setAgents)
@@ -182,8 +205,8 @@ export default function TaskDetailPage() {
       const availableIds = agents.filter((a) => a.available).map((a) => a.id);
       const plan = parseAgentDirective(text, availableIds);
       const mainAgent =
-        (availableIds.includes("kin") && "kin") ||
         agents.find((a) => a.available && a.default)?.id ||
+        (availableIds.includes("kin") && "kin") ||
         availableIds[0];
 
       // Multi-@ → host on main agent (Kin or fallback CLI). Backend orchestrates.
@@ -223,6 +246,85 @@ export default function TaskDetailPage() {
     }
   }
 
+
+  async function onRetry(fromSeq: number) {
+    if (!task || !isTerminal(task.status) || actionBusy) return;
+    setActionBusy(true);
+    try {
+      const t = await retryTask(task.id, { from_seq: fromSeq });
+      setTask(t);
+      // Reload events after server truncated + re-seeded.
+      const evs = await listEvents(task.id);
+      setEvents(evs);
+      maxSeq.current = evs.reduce((m, e) => Math.max(m, e.seq), 0);
+      pushToast(tr("task.retryDone"), "info");
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : tr("task.retryFailed"), "error");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function onFork(fromSeq: number) {
+    if (!task || actionBusy) return;
+    setActionBusy(true);
+    try {
+      // Snapshot branch at this user message (no auto-run). User continues in the new session.
+      const t = await forkTask(task.id, { from_seq: fromSeq });
+      pushToast(tr("task.forkDone"), "info");
+      navigate(`/tasks/${t.id}`);
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : tr("task.forkFailed"), "error");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function onSaveArtifact(text: string) {
+    if (!task || actionBusy) return;
+    const content = text.trim();
+    if (!content) return;
+    setActionBusy(true);
+    try {
+      const art = await createArtifact({
+        title: deriveArtifactTitle(content, task.title || "Untitled"),
+        kind: detectArtifactKind(content),
+        content,
+        source_task_id: task.id,
+        status: "saved",
+      });
+      pushToast(tr("task.saveArtifactDone"), "info");
+      navigate(`/artifacts/${art.id}`);
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : tr("task.saveArtifactFailed"),
+        "error",
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  function onOpenWorkspacePath(filePath: string) {
+    if (!task) return;
+    const next = toWorkspaceRelativePath(task.cwd, filePath);
+    if (!next) {
+      pushToast(tr("workspace.outsideWorkspace"), "error");
+      return;
+    }
+    setFilesOpen(true);
+    setWorkspaceOpenPath(next);
+    // Bump the nonce so re-clicking the same path re-loads/focuses it.
+    setWorkspaceOpenNonce((n) => n + 1);
+  }
+
+  const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
+
+  function openFilesPanel() {
+    setFilesOpen(true);
+  }
+
+
   if (loading) {
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
@@ -261,109 +363,165 @@ export default function TaskDetailPage() {
   const degraded = wsStatus !== "connected" && !terminal;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0 kin-surface-chat">
-      <div
-        className="h-11 flex-none flex items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
-        style={{ WebkitAppRegion: "drag" } as CSSProperties}
-      >
-        <Link
-          to="/"
-          className="md:hidden mr-2 text-kin-blue min-w-[36px] min-h-[36px] flex items-center justify-center"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+    <div className="flex-1 min-w-0 min-h-0 flex relative">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
+        <div
+          className="h-11 flex-none flex items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
+          style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
-          <IconBack size={18} strokeWidth={2} />
-        </Link>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] font-semibold text-kin-text truncate">
-            {task.title || task.prompt}
+          <Link
+            to="/"
+            className="md:hidden mr-2 text-kin-blue min-w-[36px] min-h-[36px] flex items-center justify-center"
+            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+          >
+            <IconBack size={18} strokeWidth={2} />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13.5px] font-semibold text-kin-text truncate">
+              {task.title || task.prompt}
+            </div>
+          </div>
+          <div
+            className="ml-2 flex items-center gap-2 text-[12px] text-kin-muted flex-none"
+            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+          >
+            <button
+              type="button"
+              onClick={() => setFilesOpen((open) => !open)}
+              className={[
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+                filesOpen
+                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
+              ].join(" ")}
+              title={tr("workspace.toggle")}
+            >
+              <IconPanel size={13} />
+              <span>{tr("workspace.title")}</span>
+            </button>
+            <span>{project}</span>
+            {!terminal && (
+              <>
+                <span className="text-kin-blue tabular-nums">
+                  {degraded ? tr("task.reconnect") : tr("task.running")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void onStop()}
+                  disabled={stopping}
+                  className="text-[12px] font-semibold text-[#ff8a80] hover:text-[#ffb4ad] disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-[rgba(255,69,58,.3)] bg-[rgba(255,69,58,.08)]"
+                >
+                  {stopping ? tr("task.stopping") : tr("composer.stop")}
+                </button>
+              </>
+            )}
           </div>
         </div>
-        <div
-          className="ml-2 flex items-center gap-2 text-[12px] text-kin-muted flex-none"
-          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-        >
-          <span>{project}</span>
-          {!terminal && (
-            <>
-              <span className="text-kin-blue tabular-nums">
-                {degraded ? tr("task.reconnect") : tr("task.running")}
-              </span>
-              <button
-                type="button"
-                onClick={() => void onStop()}
-                disabled={stopping}
-                className="text-[12px] font-semibold text-[#ff8a80] hover:text-[#ffb4ad] disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-[rgba(255,69,58,.3)] bg-[rgba(255,69,58,.08)]"
-              >
-                {stopping ? tr("task.stopping") : tr("composer.stop")}
-              </button>
-            </>
-          )}
+
+        <ChangedFilesBar
+          files={changedFiles}
+          onOpenPath={onOpenWorkspacePath}
+          onOpenPanel={openFilesPanel}
+        />
+
+        <div className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0">
+          <ChatStream
+            events={events}
+            onOpenPath={onOpenWorkspacePath}
+            fallbackUserPrompt={task.prompt}
+            loading={!terminal}
+            loadingSpeaker={task.agent || "kin"}
+            hostSpeaker={task.agent || "kin"}
+            showMessageActions={terminal}
+            actionsBusy={actionBusy}
+            onRetry={(seq) => void onRetry(seq)}
+            onFork={(seq) => void onFork(seq)}
+            onSaveArtifact={(text) => void onSaveArtifact(text)}
+            trailing={
+              <>
+                {approvals.map((a, i) => (
+                  <div key={a.id} className="mt-1">
+                    <ApprovalCard
+                      approval={a}
+                      focused={i === focusIdx && approvals.length > 0}
+                      busy={busy[a.id] ?? null}
+                      onApprove={() => void onDecide(a.id, "approved")}
+                      onDeny={() => void onDecide(a.id, "denied")}
+                      onOpenPath={onOpenWorkspacePath}
+                    />
+                  </div>
+                ))}
+                {approvals.length > 0 && (
+                  <p className="text-center text-[11.5px] text-kin-muted mt-2">
+                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                      A
+                    </kbd>{" "}
+                    {tr("chat.approve")} ·{" "}
+                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                      D
+                    </kbd>{" "}
+                    {tr("chat.deny")}
+                  </p>
+                )}
+                <div ref={bottomRef} />
+              </>
+            }
+          />
+        </div>
+
+        <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
+          <div className="max-w-[720px] mx-auto space-y-2">
+            <Composer
+              agents={agents}
+              busy={sending}
+              running={!terminal}
+              stopping={stopping}
+              disabled={sending || stopping}
+              placeholder={
+                !terminal
+                  ? tr("composer.guideWhileRunning")
+                  : tr("composer.followUpPlaceholder")
+              }
+              onSubmit={onComposer}
+              onStop={onStop}
+            />
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">
+              <PermissionModePicker
+                value={normalizePermissionMode(task.permission_mode)}
+                locked
+                onChange={() => undefined}
+              />
+            </div>
+            <CwdPicker cwd={task.cwd} locked onChange={() => undefined} />
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0">
-        <ChatStream
-          events={events}
-          fallbackUserPrompt={task.prompt}
-          loading={!terminal}
-          loadingSpeaker={task.agent || "kin"}
-          trailing={
-            <>
-              {approvals.map((a, i) => (
-                <div key={a.id} className="mt-1">
-                  <ApprovalCard
-                    approval={a}
-                    focused={i === focusIdx && approvals.length > 0}
-                    busy={busy[a.id] ?? null}
-                    onApprove={() => void onDecide(a.id, "approved")}
-                    onDeny={() => void onDecide(a.id, "denied")}
-                  />
-                </div>
-              ))}
-              {approvals.length > 0 && (
-                <p className="text-center text-[11.5px] text-kin-muted mt-2">
-                  <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                    A
-                  </kbd>{" "}
-                  {tr("chat.approve")} ·{" "}
-                  <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                    D
-                  </kbd>{" "}
-                  {tr("chat.deny")}
-                </p>
-              )}
-              <div ref={bottomRef} />
-            </>
-          }
-        />
-      </div>
-
-      <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
-        <div className="max-w-[720px] mx-auto space-y-2">
-          <Composer
-            agents={agents}
-            busy={sending}
-            running={!terminal}
-            stopping={stopping}
-            disabled={sending || stopping}
-            placeholder={
-              !terminal
-                ? tr("composer.guideWhileRunning")
-                : tr("composer.followUpPlaceholder")
-            }
-            onSubmit={onComposer}
-            onStop={onStop}
+      {filesOpen && (
+        <div className="hidden md:flex w-[min(50vw,720px)] min-w-[360px] max-w-[50%] border-l border-[var(--kin-hairline)]">
+          <WorkspacePanel
+            taskId={task.id}
+            cwd={task.cwd}
+            openPath={workspaceOpenPath}
+            openNonce={workspaceOpenNonce}
+            onClose={() => setFilesOpen(false)}
           />
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">
-            <PermissionModePicker
-              value={normalizePermissionMode(task.permission_mode)}
-              locked
-              onChange={() => undefined}
+        </div>
+      )}
+
+      {filesOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-[rgba(14,14,16,.7)] backdrop-blur-[2px]">
+          <div className="absolute inset-x-0 top-0 bottom-0 bg-[var(--kin-inspector)] safe-pad">
+            <WorkspacePanel
+              taskId={task.id}
+              cwd={task.cwd}
+              openPath={workspaceOpenPath}
+              openNonce={workspaceOpenNonce}
+              onClose={() => setFilesOpen(false)}
             />
           </div>
-          <CwdPicker cwd={task.cwd} locked onChange={() => undefined} />
         </div>
-      </div>
+      )}
     </div>
   );
 }

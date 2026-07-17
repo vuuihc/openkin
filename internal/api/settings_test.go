@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -80,16 +79,23 @@ func TestNotifyTestEndpoint(t *testing.T) {
 	s, token := newTestServer(t)
 	h := s.Handler()
 
-	// Fake ntfy that accepts POSTs.
 	var hit bool
-	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	oldTransport := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		hit = true
-		_, _ = io.Copy(io.Discard, r.Body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer fake.Close()
+		if got := r.URL.String(); got != "https://notify.test/kin" {
+			t.Fatalf("url = %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    r,
+		}, nil
+	})
+	defer func() { http.DefaultTransport = oldTransport }()
 
-	if err := s.Store.SetSetting(t.Context(), notify.KeyNtfyTopic, fake.URL+"/kin"); err != nil {
+	if err := s.Store.SetSetting(t.Context(), notify.KeyNtfyTopic, "https://notify.test/kin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,4 +129,10 @@ func TestNotifyTestEndpoint(t *testing.T) {
 	if !hit {
 		t.Fatal("expected fake ntfy to be hit")
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

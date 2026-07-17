@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -41,6 +42,8 @@ type Server struct {
 	Static http.Handler
 	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
 	UploadsDir string
+	// ArtifactsDir is where artifact file bodies are stored. Empty disables artifacts.
+	ArtifactsDir string
 
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
@@ -85,8 +88,12 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
+		r.Get("/api/tasks/{id}/workspace/list", s.handleListTaskWorkspace)
+		r.Get("/api/tasks/{id}/workspace/file", s.handleReadTaskWorkspaceFile)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
+		r.Post("/api/tasks/{id}/retry", s.handleRetry)
+		r.Post("/api/tasks/{id}/fork", s.handleFork)
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
@@ -96,6 +103,11 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Post("/api/uploads", s.handleUpload)
 		r.Get("/api/uploads/{name}", s.handleServeUpload)
+		r.Get("/api/artifacts", s.handleListArtifacts)
+		r.Post("/api/artifacts", s.handleCreateArtifact)
+		r.Get("/api/artifacts/{id}", s.handleGetArtifact)
+		r.Get("/api/artifacts/{id}/content", s.handleGetArtifactContent)
+		r.Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
 		r.Get("/api/ws", s.handleWS)
 	})
 
@@ -291,6 +303,60 @@ func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body task.RetryRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	t, err := s.Engine.Retry(r.Context(), id, body)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrNotTerminal) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "task is not terminal"})
+		return
+	}
+	if errors.Is(err, task.ErrInvalidSeq) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_seq"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleFork(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body task.ForkRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	t, err := s.Engine.Fork(r.Context(), id, body)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrInvalidSeq) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_seq"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
 }
 
 func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request) {

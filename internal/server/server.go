@@ -24,8 +24,8 @@ import (
 	"github.com/vuuihc/kin/internal/adapter/kinagent"
 	"github.com/vuuihc/kin/internal/adapter/rawpty"
 	"github.com/vuuihc/kin/internal/api"
-	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/notify"
+	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/remote"
 	remotetsnet "github.com/vuuihc/kin/internal/remote/tsnet"
 	"github.com/vuuihc/kin/internal/store"
@@ -37,12 +37,12 @@ const defaultPort = 7777
 
 // ServeFlags are CLI options for `kin serve` (spec §7).
 type ServeFlags struct {
-	Port          int
-	LAN           bool
-	Tailscale     bool
-	Funnel        bool
-	TSControlURL  string
-	Args          []string // remaining args after command name
+	Port         int
+	LAN          bool
+	Tailscale    bool
+	Funnel       bool
+	TSControlURL string
+	Args         []string // remaining args after command name
 }
 
 // ParseServeFlags parses flags from args (typically os.Args[2:]).
@@ -253,13 +253,14 @@ func ServeWith(version string, flags ServeFlags) error {
 	mode := networkMode(flags)
 	agentCache := detect.NewCache(5 * time.Second)
 	srvAPI := &api.Server{
-		Store:       st,
-		Auth:        auth,
-		Engine:      eng,
-		Version:     version,
-		Static:      static,
-		UploadsDir:  filepath.Join(stateDir, "uploads"),
-		NetworkMode: mode,
+		Store:        st,
+		Auth:         auth,
+		Engine:       eng,
+		Version:      version,
+		Static:       static,
+		UploadsDir:   filepath.Join(stateDir, "uploads"),
+		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
+		NetworkMode:  mode,
 		ListAgents: func() []api.AgentInfo {
 			pref, _ := st.GetSetting(context.Background(), "agent.default")
 			list := agentCache.Get(pref)

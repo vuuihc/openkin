@@ -55,6 +55,16 @@ export function IconTasks(p: IconProps) {
     </>,
   );
 }
+export function IconArtifacts(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+      <path d="M8 7h8M8 11h6" />
+    </>,
+  );
+}
 export function IconUsage(p: IconProps) {
   return base(
     p,
@@ -115,6 +125,15 @@ export function IconFile(p: IconProps) {
     <>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <path d="M14 2v6h6" />
+    </>,
+  );
+}
+export function IconFolder(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5z" />
+      <path d="M3 9h18" />
     </>,
   );
 }

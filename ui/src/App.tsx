@@ -10,6 +10,8 @@ import ConnectScreen from "./components/ConnectScreen";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
 import ApprovalsPage from "./pages/ApprovalsPage";
+import ArtifactDetailPage from "./pages/ArtifactDetailPage";
+import ArtifactsPage from "./pages/ArtifactsPage";
 import NewChatPage from "./pages/NewChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import TaskDetailPage from "./pages/TaskDetailPage";
@@ -107,6 +109,8 @@ export default function App() {
           <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
+          <Route path="/artifacts" element={<ArtifactsPage />} />
+          <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/new" replace />} />

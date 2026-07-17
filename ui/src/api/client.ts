@@ -162,6 +162,50 @@ export function getTask(id: string): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}`);
 }
 
+export type TaskWorkspaceEntry = {
+  name: string;
+  path: string;
+  type: "dir" | "file";
+  size?: number;
+};
+
+export type TaskWorkspaceListResponse = {
+  root: string;
+  path: string;
+  entries: TaskWorkspaceEntry[];
+  truncated?: boolean;
+};
+
+export type TaskWorkspaceFileResponse = {
+  root: string;
+  path: string;
+  size: number;
+  truncated: boolean;
+  content: string;
+};
+
+export function listTaskWorkspace(
+  taskId: string,
+  path?: string,
+): Promise<TaskWorkspaceListResponse> {
+  const q = new URLSearchParams();
+  if (path && path !== ".") q.set("path", path);
+  const qs = q.toString();
+  return apiFetch<TaskWorkspaceListResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspace/list${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function readTaskWorkspaceFile(
+  taskId: string,
+  path: string,
+): Promise<TaskWorkspaceFileResponse> {
+  const q = new URLSearchParams({ path });
+  return apiFetch<TaskWorkspaceFileResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspace/file?${q.toString()}`,
+  );
+}
+
 export function createTask(body: CreateTaskBody): Promise<Task> {
   return apiFetch<Task>("/api/tasks", {
     method: "POST",
@@ -191,6 +235,37 @@ export function followUpPrompt(
   });
 }
 
+/** Rewind a terminal task to a user turn and re-run (same task id). */
+export function retryTask(
+  id: string,
+  opts?: { from_seq?: number },
+): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...(opts?.from_seq != null ? { from_seq: opts.from_seq } : {}),
+    }),
+  });
+}
+
+/** Branch a new task from a transcript prefix (optionally continue with prompt). */
+export function forkTask(
+  id: string,
+  opts?: { from_seq?: number; prompt?: string; agent?: string },
+): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/fork`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...(opts?.from_seq != null ? { from_seq: opts.from_seq } : {}),
+      ...(opts?.prompt ? { prompt: opts.prompt } : {}),
+      ...(opts?.agent ? { agent: opts.agent } : {}),
+    }),
+  });
+}
+
+
 export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
   const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
   return apiFetch<TaskEvent[]>(`/api/tasks/${encodeURIComponent(id)}/events${q}`);
@@ -199,6 +274,89 @@ export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
 export function listApprovals(status?: string): Promise<Approval[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
   return apiFetch<Approval[]>(`/api/approvals${q}`);
+}
+
+export type Artifact = {
+  id: string;
+  title: string;
+  kind: "markdown" | "html" | "text";
+  size: number;
+  status: "proposed" | "saved" | "archived";
+  source_task_id?: string;
+  source_task_title?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export function listArtifacts(status?: string): Promise<Artifact[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiFetch<Artifact[]>(`/api/artifacts${q}`);
+}
+
+export function getArtifact(id: string): Promise<Artifact> {
+  return apiFetch<Artifact>(`/api/artifacts/${encodeURIComponent(id)}`);
+}
+
+/** Fetch artifact body as plain text (never JSON). */
+export async function getArtifactContent(id: string): Promise<string> {
+  const headers = new Headers({ Accept: "text/plain" });
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`/api/artifacts/${encodeURIComponent(id)}/content`, {
+    headers,
+  });
+  if (!res.ok) {
+    if (res.status === 401) notifyUnauthorized();
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, text || res.statusText);
+  }
+  return res.text();
+}
+
+export function createArtifact(body: {
+  title: string;
+  kind: string;
+  content: string;
+  source_task_id?: string;
+  status?: string;
+}): Promise<Artifact> {
+  return apiFetch<Artifact>("/api/artifacts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function setArtifactStatus(
+  id: string,
+  status: string,
+): Promise<Artifact> {
+  return apiFetch<Artifact>(`/api/artifacts/${encodeURIComponent(id)}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
+/** Infer artifact kind from content (P0: trivial heuristic). */
+export function detectArtifactKind(
+  content: string,
+): "markdown" | "html" | "text" {
+  const head = content.slice(0, 512).toLowerCase();
+  if (head.includes("<!doctype html") || head.includes("<html")) return "html";
+  return "markdown";
+}
+
+/** Derive a short title from content or fall back. */
+export function deriveArtifactTitle(content: string, fallback: string): string {
+  const md = content.match(/^\s*#\s+(.+)$/m);
+  if (md?.[1]) return md[1].trim().slice(0, 120);
+  const line = content
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (line) return line.replace(/^#+\s*/, "").slice(0, 120);
+  return fallback || "Untitled";
 }
 
 export function decideApproval(

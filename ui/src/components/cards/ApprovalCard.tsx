@@ -11,6 +11,7 @@ type Props = {
   busy?: "approved" | "denied" | null;
   onApprove: () => void;
   onDeny: () => void;
+  onOpenPath?: (path: string) => void;
   /** Optional path/diff snippet lines. */
   previewLines?: { type: "add" | "del" | "ctx"; text: string }[];
 };
@@ -21,6 +22,7 @@ export default function ApprovalCard({
   busy,
   onApprove,
   onDeny,
+  onOpenPath,
   previewLines,
 }: Props) {
   const { toolName, input } = parseApprovalPayload(approval.payload);
@@ -70,9 +72,20 @@ export default function ApprovalCard({
             <IconFile size={13} />
             {toolName}
           </span>
-          <span className="font-mono text-kin-secondary truncate">
-            {filePath ? shortPath(filePath, 48) : command ? shortPath(command, 48) : ""}
-          </span>
+          {filePath ? (
+            <button
+              type="button"
+              onClick={() => onOpenPath?.(filePath)}
+              className="font-mono text-kin-blue truncate hover:underline text-left"
+              title={filePath}
+            >
+              {shortPath(filePath, 48)}
+            </button>
+          ) : (
+            <span className="font-mono text-kin-secondary truncate">
+              {command ? shortPath(command, 48) : ""}
+            </span>
+          )}
         </div>
 
         {previewLines && previewLines.length > 0 && (

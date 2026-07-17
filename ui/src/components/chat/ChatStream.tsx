@@ -5,6 +5,8 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TaskEvent } from "../../api/client";
+import { extractPrimaryToolPath } from "../../lib/changedFiles";
+import { shortPath } from "../../lib/paths";
 import { t } from "../../i18n";
 import { useLocale, useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
@@ -23,6 +25,22 @@ type Props = {
   loading?: boolean;
   /** Avatar speaker for the loading row (default: kin). */
   loadingSpeaker?: string;
+  /**
+   * The task's main/host agent (task.agent). Used as the progress-box host and
+   * the fallback speaker so a non-Kin main agent (e.g. Claude Code) is attributed
+   * to itself instead of Kin. Defaults to "kin".
+   */
+  hostSpeaker?: string;
+  /** When true, show Retry / Fork on user messages (terminal tasks). */
+  showMessageActions?: boolean;
+  /** Busy flag while retry/fork request is in flight. */
+  actionsBusy?: boolean;
+  onRetry?: (fromSeq: number) => void;
+  onFork?: (fromSeq: number) => void;
+  /** Save assistant message body as an artifact. */
+  onSaveArtifact?: (text: string) => void;
+  /** Open a workspace path in the Files panel (from tool rows). */
+  onOpenPath?: (path: string) => void;
 };
 
 type ToolStep = {
@@ -61,6 +79,8 @@ type ChatItem =
       speaker: string;
       text: string;
       partial?: boolean;
+      /** Source event seq (for retry/fork). */
+      seq?: number;
     }
   | ProgressItem
   | { kind: "error"; key: string; message: string }
@@ -86,11 +106,24 @@ export default function ChatStream({
   trailing,
   loading = false,
   loadingSpeaker = "kin",
+  hostSpeaker = "kin",
+  showMessageActions = false,
+  actionsBusy = false,
+  onRetry,
+  onFork,
+  onSaveArtifact,
+  onOpenPath,
 }: Props) {
   const { locale } = useLocale();
   // Rebuild when locale changes (tool summaries use t()).
-  const items = useMemo(() => buildChatItems(events), [events, locale]);
-  const turns = useMemo(() => groupIntoTurns(items), [items]);
+  const items = useMemo(
+    () => buildChatItems(events, hostSpeaker),
+    [events, locale, hostSpeaker],
+  );
+  const turns = useMemo(
+    () => groupIntoTurns(items, hostSpeaker),
+    [items, hostSpeaker],
+  );
   const hasUserMsg = items.some(
     (i) => i.kind === "message" && i.speaker === "user",
   );
@@ -152,6 +185,12 @@ export default function ChatStream({
                 lastItemIdx={lastIdx}
                 allItems={items}
                 showThinking={withThinking}
+                showMessageActions={showMessageActions}
+                actionsBusy={actionsBusy}
+                onRetry={onRetry}
+                onFork={onFork}
+                onSaveArtifact={onSaveArtifact}
+                onOpenPath={onOpenPath}
               />
             );
           }
@@ -171,7 +210,7 @@ export default function ChatStream({
  * - consecutive agent content (messages + progress + errors/meta) after a
  *   user message share one left avatar column
  */
-function groupIntoTurns(items: ChatItem[]): Turn[] {
+function groupIntoTurns(items: ChatItem[], hostSpeaker = "kin"): Turn[] {
   const turns: Turn[] = [];
   for (const item of items) {
     if (item.kind === "message" && item.speaker === "user") {
@@ -194,7 +233,9 @@ function groupIntoTurns(items: ChatItem[]): Turn[] {
       continue;
     }
     const speaker =
-      item.kind === "message" ? item.speaker : item.speaker || "kin";
+      item.kind === "message"
+        ? item.speaker
+        : item.speaker || hostSpeaker;
     turns.push({ kind: "agent", speaker, items: [item] });
   }
   return turns;
@@ -208,6 +249,12 @@ function AgentTurn({
   lastItemIdx,
   allItems,
   showThinking,
+  showMessageActions = false,
+  actionsBusy = false,
+  onRetry,
+  onFork,
+  onSaveArtifact,
+  onOpenPath,
 }: {
   speaker: string;
   items: ChatItem[];
@@ -215,6 +262,12 @@ function AgentTurn({
   lastItemIdx: number;
   allItems: ChatItem[];
   showThinking: boolean;
+  showMessageActions?: boolean;
+  actionsBusy?: boolean;
+  onRetry?: (fromSeq: number) => void;
+  onFork?: (fromSeq: number) => void;
+  onSaveArtifact?: (text: string) => void;
+  onOpenPath?: (path: string) => void;
 }) {
   const tr = useT();
   const meta = agentAvatarMeta(speaker);
@@ -249,14 +302,65 @@ function AgentTurn({
 
         {items.map((item) => {
           switch (item.kind) {
-            case "message":
+            case "message": {
+              const canSave =
+                !!onSaveArtifact &&
+                !item.partial &&
+                item.text.trim().length > 0;
+              const canRetryFork =
+                showMessageActions &&
+                !item.partial &&
+                typeof item.seq === "number";
               return (
-                <MessageBody
-                  key={item.key}
-                  text={item.text}
-                  partial={item.partial}
-                />
+                <div key={item.key} className="group/msg space-y-1">
+                  <MessageBody
+                    text={item.text}
+                    partial={item.partial}
+                  />
+                  {(canRetryFork || canSave) && (
+                    <div
+                      className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100 transition-opacity"
+                      role="group"
+                      aria-label={tr("task.actions")}
+                    >
+                      {canRetryFork && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={actionsBusy}
+                            title={tr("task.retryTitle")}
+                            onClick={() => onRetry?.(item.seq!)}
+                            className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                          >
+                            {tr("task.retry")}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={actionsBusy}
+                            title={tr("task.forkTitle")}
+                            onClick={() => onFork?.(item.seq!)}
+                            className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                          >
+                            {tr("task.fork")}
+                          </button>
+                        </>
+                      )}
+                      {canSave && (
+                        <button
+                          type="button"
+                          disabled={actionsBusy}
+                          title={tr("task.saveArtifactTitle")}
+                          onClick={() => onSaveArtifact?.(item.text)}
+                          className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                        >
+                          {tr("task.saveArtifact")}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               );
+            }
             case "progress": {
               const globalIdx = allItems.indexOf(item);
               const stepRunning = item.steps.some(
@@ -268,6 +372,7 @@ function AgentTurn({
                   key={item.key}
                   item={item}
                   running={stepRunning || live}
+                  onOpenPath={onOpenPath}
                 />
               );
             }
@@ -367,9 +472,11 @@ function ThinkingDots() {
 function ProgressCard({
   item,
   running,
+  onOpenPath,
 }: {
   item: ProgressItem;
   running: boolean;
+  onOpenPath?: (path: string) => void;
 }) {
   const tr = useT();
   const steps = item.steps;
@@ -495,6 +602,7 @@ function ProgressCard({
                   tool={step}
                   index={idx + 1}
                   open={openStep === step.key}
+                  onOpenPath={onOpenPath}
                   onToggle={() =>
                     setOpenStep((cur) =>
                       cur === step.key ? null : step.key,
@@ -606,13 +714,16 @@ function ToolStepRow({
   index,
   open,
   onToggle,
+  onOpenPath,
 }: {
   tool: ToolStep;
   index: number;
   open: boolean;
   onToggle: () => void;
+  onOpenPath?: (path: string) => void;
 }) {
   const tr = useT();
+  const filePath = extractPrimaryToolPath(tool.name, tool.input);
   const hasDetail =
     (tool.output && tool.output.trim().length > 0) || tool.input != null;
 
@@ -656,6 +767,19 @@ function ToolStepRow({
         <span className="flex-1 min-w-0 truncate text-kin-secondary">
           {tool.summary}
         </span>
+        {filePath && onOpenPath && (
+          <button
+            type="button"
+            className="flex-none max-w-[40%] truncate font-mono text-[10.5px] text-kin-blue hover:underline pt-0.5"
+            title={filePath}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenPath(filePath);
+            }}
+          >
+            {shortPath(filePath, 28)}
+          </button>
+        )}
         {hasDetail && (
           <span className="flex-none text-[10.5px] text-kin-muted pt-0.5">
             {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
@@ -664,6 +788,16 @@ function ToolStepRow({
       </button>
       {open && hasDetail && (
         <div className="px-3 pb-2 pl-10 space-y-1.5">
+          {filePath && onOpenPath && (
+            <button
+              type="button"
+              onClick={() => onOpenPath(filePath)}
+              className="text-[11.5px] text-kin-blue hover:underline font-mono"
+              title={filePath}
+            >
+              {tr("workspace.openFile")} · {shortPath(filePath, 48)}
+            </button>
+          )}
           {tool.input != null && (
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
@@ -811,10 +945,13 @@ function MessageRow({
   );
 }
 
-function buildChatItems(events: TaskEvent[]): ChatItem[] {
+function buildChatItems(
+  events: TaskEvent[],
+  hostSpeaker = "kin",
+): ChatItem[] {
   const items: ChatItem[] = [];
   let streamBuf = "";
-  let streamSpeaker = "kin";
+  let streamSpeaker = hostSpeaker;
   let streamKey = "stream";
   let streamProgress = false;
 
@@ -853,6 +990,7 @@ function buildChatItems(events: TaskEvent[]): ChatItem[] {
         speaker: streamSpeaker,
         text: streamBuf,
         partial: true,
+        // streamKey is `s-${ev.seq}` — not stable for actions; omit seq while partial.
       });
     }
     streamBuf = "";
@@ -878,7 +1016,7 @@ function buildChatItems(events: TaskEvent[]): ChatItem[] {
     key: string,
     status: NoteStep["status"],
   ) => {
-    const prog = ensureProgress("kin");
+    const prog = ensureProgress(hostSpeaker);
     // Coalesce consecutive partial updates onto the same note.
     const last = prog.steps[prog.steps.length - 1];
     if (
@@ -931,12 +1069,12 @@ function buildChatItems(events: TaskEvent[]): ChatItem[] {
       output: patch.output,
     };
     toolById.set(id, item);
-    ensureProgress("kin").steps.push(item);
+    ensureProgress(hostSpeaker).steps.push(item);
   };
 
   for (const ev of events) {
     const p = (ev.payload ?? {}) as Record<string, unknown>;
-    const speaker = resolveSpeaker(p);
+    const speaker = resolveSpeaker(p, hostSpeaker);
 
     switch (ev.type) {
       case "message": {
@@ -952,7 +1090,7 @@ function buildChatItems(events: TaskEvent[]): ChatItem[] {
           streamNoteKey = null;
           const legacy = parseLegacyToolDump(text, sp, `legacy-${ev.seq}`);
           if (legacy) {
-            ensureProgress("kin").steps.push(legacy);
+            ensureProgress(hostSpeaker).steps.push(legacy);
             toolById.set(legacy.key, legacy);
           }
           break;
@@ -1007,14 +1145,15 @@ function buildChatItems(events: TaskEvent[]): ChatItem[] {
               key: `t-${ev.seq}`,
               speaker: sp,
               text,
+              seq: ev.seq,
             });
           }
         }
         break;
       }
       case "tool_use": {
-        // Worker tools are task-only; only Kin's own tools show in the chat column.
-        if (speaker !== "kin" && speaker !== "user") {
+        // Worker tools are task-only; the host agent's own tools show in chat.
+        if (!isUserFacingEvent(p, speaker)) {
           break;
         }
         flushStream();
@@ -1042,7 +1181,7 @@ function buildChatItems(events: TaskEvent[]): ChatItem[] {
         break;
       }
       case "tool_result": {
-        if (speaker !== "kin" && speaker !== "user") {
+        if (!isUserFacingEvent(p, speaker)) {
           break;
         }
         flushStream();
@@ -1145,7 +1284,10 @@ function countLines(s: string): number {
   return t.split("\n").length;
 }
 
-function resolveSpeaker(p: Record<string, unknown>): string {
+function resolveSpeaker(
+  p: Record<string, unknown>,
+  hostSpeaker = "kin",
+): string {
   const s = p.speaker ?? p.agent ?? p.source;
   if (
     typeof s === "string" &&
@@ -1170,7 +1312,23 @@ function resolveSpeaker(p: Record<string, unknown>): string {
   }
   if (p.role === "user") return "user";
   if (p.source === "orchestrator" || p.source === "delegate") return "kin";
-  return "kin";
+  return hostSpeaker;
+}
+
+/**
+ * Whether an event is user-facing (shown in the main chat column) vs a
+ * task-only worker step. Prefers the backend's explicit visibility flag; falls
+ * back to the Kin-only assumption for legacy events without visibility.
+ */
+function isUserFacingEvent(
+  p: Record<string, unknown>,
+  speaker: string,
+): boolean {
+  const source = String(p.source ?? "");
+  if (source === "orchestrator" || source === "delegate") return true;
+  const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
+  if (v && typeof v.user === "boolean") return v.user;
+  return speaker === "kin" || speaker === "user";
 }
 
 /**
@@ -1208,9 +1366,11 @@ function isTaskOnly(p: Record<string, unknown>, speaker: string): boolean {
   const source = String(p.source ?? "");
   if (source === "orchestrator" || source === "delegate") return false;
   const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
-  if (v) {
-    if (v.user && !v.task) return false;
-    if (v.task && !v.user) return true;
+  if (v && (typeof v.user === "boolean" || typeof v.task === "boolean")) {
+    // A user-facing event (main/single host agent) is never task-only, even
+    // when it is also task-visible. Only user:false steps are worker chatter.
+    if (v.user) return false;
+    if (v.task) return true;
   }
   return speaker !== "kin" && speaker !== "user";
 }

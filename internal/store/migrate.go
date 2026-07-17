@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 3
+const schemaVersion = 4
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -59,6 +59,19 @@ CREATE TABLE kin_messages (
   tool_calls TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (task_id, idx)
 );
+
+CREATE TABLE artifacts (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  rel_path    TEXT NOT NULL,
+  size        INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'proposed',
+  source_task_id TEXT REFERENCES tasks(id),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX idx_artifacts_status ON artifacts(status, created_at DESC);
 `
 
 const migration002 = `
@@ -78,6 +91,20 @@ CREATE TABLE kin_messages (
 );
 `
 
+const migration004 = `
+CREATE TABLE artifacts (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  rel_path    TEXT NOT NULL,
+  size        INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'proposed',
+  source_task_id TEXT REFERENCES tasks(id),
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX idx_artifacts_status ON artifacts(status, created_at DESC);
+`
 
 func (s *Store) migrate() error {
 	var v int
@@ -96,7 +123,7 @@ func (s *Store) migrate() error {
 			_ = tx.Rollback()
 			return fmt.Errorf("apply migration 001: %w", err)
 		}
-		// Fresh install lands at current schema (includes permission_mode).
+		// Fresh install lands at current schema (includes permission_mode and artifacts).
 		if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("set user_version: %w", err)
@@ -139,6 +166,24 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 003: %w", err)
+		}
+		v = 3
+	}
+	if v == 3 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 004: %w", err)
+		}
+		if _, err := tx.Exec(migration004); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration 004: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 4`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 004: %w", err)
 		}
 	}
 	return nil

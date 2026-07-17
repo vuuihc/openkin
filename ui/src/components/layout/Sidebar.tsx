@@ -5,6 +5,7 @@ import { useT } from "../../i18n/react";
 import { getDraftCwd, subscribeDraft } from "../../lib/draftChat";
 import { projectLabel } from "../../lib/paths";
 import {
+  IconArtifacts,
   IconInbox,
   IconPlus,
   IconSettings,
@@ -214,6 +215,16 @@ export default function Sidebar({
           <IconTasks size={14} />
           {tr("nav.tasks")}
           <span className="ml-auto text-kin-muted tabular-nums">{tasks.length}</span>
+        </NavLink>
+        <NavLink
+          to="/artifacts"
+          onClick={onCloseMobile}
+          className={({ isActive }) =>
+            `${footLink} ${isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""}`
+          }
+        >
+          <IconArtifacts size={14} />
+          {tr("nav.artifacts")}
         </NavLink>
         <NavLink
           to="/usage"

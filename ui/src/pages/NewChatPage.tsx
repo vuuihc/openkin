@@ -102,14 +102,14 @@ export default function NewChatPage() {
 
     const plan = parseAgentDirective(raw, availableIds);
 
-    // Main agent (user-facing host):
-    //   1) Kin when provider ready
-    //   2) else default CLI (claude-code / codex / grok)
+    // Main agent (user-facing host): honor the configured default (Settings
+    // agent.default → Kin when provider ready → first CLI). The backend marks
+    // that choice with `default`, surfaced here as defaultAgent.
     // Multi-@ always hosts on main agent; workers run via orchestrator.
     // Bare prompt: prefer main agent, not a random @worker alone.
     const mainAgent =
-      (availableIds.includes("kin") && "kin") ||
       defaultAgent?.id ||
+      (availableIds.includes("kin") && "kin") ||
       availableIds[0];
 
     let agent: string = mainAgent;

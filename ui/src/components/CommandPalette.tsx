@@ -108,6 +108,15 @@ export default function CommandPalette({ open, onClose, onNewChat }: Props) {
         },
         {
           kind: "action" as const,
+          id: "artifacts",
+          label: tr("palette.openArtifacts"),
+          run: () => {
+            onClose();
+            navigate("/artifacts");
+          },
+        },
+        {
+          kind: "action" as const,
           id: "usage",
           label: tr("palette.openUsage"),
           run: () => {
