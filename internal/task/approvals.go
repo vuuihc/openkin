@@ -472,16 +472,6 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	targetAgent := t.Agent
 	handoff := false
 
-	// Multi-@ is decided from the *current* user message only. Prior transcript
-	// @mentions must not force orchestration on a plain follow-up (mixed modes).
-	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
-	orchestrate := plan.HasSubAgents()
-	if orchestrate {
-		if main := e.MainAgent(); main != "" {
-			req.Agent = main
-		}
-	}
-
 	if req.Agent != "" && req.Agent != t.Agent {
 		if _, ok := e.adapters[req.Agent]; !ok {
 			return store.Task{}, fmt.Errorf("unknown or unavailable agent %q", req.Agent)
@@ -489,6 +479,12 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 		targetAgent = req.Agent
 		handoff = true
 	}
+
+	// Multi-@ is decided from the *current* user message only. Prior transcript
+	// @mentions must not force orchestration on a plain follow-up (mixed modes),
+	// and mentioning the selected host is not self-delegation.
+	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
+	orchestrate := plan.HasWorkersOtherThan(targetAgent)
 
 	// Cross-turn context strategy (ADR 0002 Policy K):
 	//   - same-agent kin with durable transcript → append-only live user prompt
@@ -529,9 +525,6 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	// Fresh worker sessions for multi-@ orchestrated turns.
 	if orchestrate {
 		patch.ClearSessionRef = true
-		if main := e.MainAgent(); main != "" {
-			patch.Agent = &main
-		}
 	}
 	// Interrupt always starts a clean turn (CLI may have left a half-finished session).
 	if interrupted {
@@ -570,7 +563,7 @@ func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Ta
 		targetAgent = req.Agent
 	}
 	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
-	orchestrate := plan.HasSubAgents()
+	orchestrate := plan.HasWorkersOtherThan(targetAgent)
 
 	meta := map[string]any{
 		"role":    "user",

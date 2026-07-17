@@ -53,8 +53,14 @@ type DelegatePlan struct {
 
 // HasSubAgents is true when at least one non-kin worker is assigned.
 func (p DelegatePlan) HasSubAgents() bool {
+	return p.HasWorkersOtherThan("")
+}
+
+// HasWorkersOtherThan reports whether the plan assigns at least one worker
+// that is not the selected session host.
+func (p DelegatePlan) HasWorkersOtherThan(host string) bool {
 	for _, s := range p.Steps {
-		if s.Agent != "" && s.Agent != "kin" {
+		if s.Agent != "" && s.Agent != "kin" && s.Agent != host {
 			return true
 		}
 	}

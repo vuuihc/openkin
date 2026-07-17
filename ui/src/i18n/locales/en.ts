@@ -35,7 +35,7 @@ const en: MessageTree = {
     roleMain: "main",
     roleWorker: "worker",
     tip: "Tip: {hints} to delegate · use @agent[model] to select a model",
-    placeholder: "Message Kin… or @codex / @claude-code to delegate",
+    placeholder: "Message the main agent… or @codex / @claude-code to delegate",
     chooseCwd: "Choose a working directory first",
     noAgents: "No agents available — configure provider or install a CLI",
     noAgentInstall: "No agent available — install a CLI or configure Provider",
@@ -58,7 +58,7 @@ const en: MessageTree = {
     roleWorker: "worker",
     busyRound: "Current round still running…",
     guideWhileRunning: "Insert guidance, or stop to interrupt this round…",
-    followUpPlaceholder: "Talk to Kin, or @claude / @codex to delegate…",
+    followUpPlaceholder: "Talk to the current main agent, or @claude / @codex to delegate…",
     stop: "Stop",
     sendGuide: "Insert guidance & interrupt",
     attachImage: "Attach file",
@@ -240,7 +240,7 @@ const en: MessageTree = {
       unavailable: " — unavailable",
       currentDefault: " — current default",
       defaultAgentHint:
-        "Bare prompts use this agent. Prefix with @codex / @claude-code / @grok to route a single message. Prefer Kin + Provider for orchestration.",
+        "This agent hosts plain and multi-agent turns. @codex / @claude-code / @grok select workers without switching the host.",
       save: "Save provider & default agent",
     },
     appearance: {

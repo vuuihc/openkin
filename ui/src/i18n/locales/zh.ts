@@ -32,7 +32,7 @@ const zh = {
     roleMain: "主",
     roleWorker: "worker",
     tip: "提示：{hints} 委派 · 用 @agent[模型] 指定模型",
-    placeholder: "跟 Kin 说… 或 @codex / @claude-code 委派",
+    placeholder: "跟主 agent 说… 或 @codex / @claude-code 委派",
     chooseCwd: "请先选择工作目录",
     noAgents: "没有可用 agent — 请配置 Provider 或安装 CLI",
     noAgentInstall: "没有可用 agent — 请安装 CLI 或配置 Provider",
@@ -55,7 +55,7 @@ const zh = {
     roleWorker: "worker",
     busyRound: "当前轮次执行中…",
     guideWhileRunning: "插入引导，或点停止打断当前轮次…",
-    followUpPlaceholder: "跟 Kin 说，或 @claude / @codex 委派任务…",
+    followUpPlaceholder: "跟当前主 agent 说，或 @claude / @codex 委派任务…",
     stop: "停止",
     sendGuide: "插入引导并打断",
     attachImage: "添加附件",
@@ -235,7 +235,7 @@ const zh = {
       unavailable: " — 不可用",
       currentDefault: " — 当前默认",
       defaultAgentHint:
-        "普通消息使用此 agent。以 @codex / @claude-code / @grok 前缀可为单条消息指定路由。建议用 Kin + Provider 做编排。",
+        "普通消息和多 agent 编排都由此 agent 主持；@codex / @claude-code / @grok 只指定 worker，不会切换主 agent。",
       save: "保存 Provider 与默认 agent",
     },
     appearance: {

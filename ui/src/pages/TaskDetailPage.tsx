@@ -41,13 +41,12 @@ import { extractChangedFiles } from "../lib/changedFiles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
-import { parseAgentDirective } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { normalizePermissionMode } from "../lib/permissionMode";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
 /**
- * Single-column chat: user talks to Kin; @agents are delegated as task workers.
+ * Single-column chat: user talks to the session host; @agents are task workers.
  * Full event stream in the main column (no inspector three-pane).
  */
 export default function TaskDetailPage() {
@@ -202,25 +201,8 @@ export default function TaskDetailPage() {
     if (!task) return;
     setSending(true);
     try {
-      const availableIds = agents.filter((a) => a.available).map((a) => a.id);
-      const plan = parseAgentDirective(text, availableIds);
-      const mainAgent =
-        agents.find((a) => a.available && a.default)?.id ||
-        (availableIds.includes("kin") && "kin") ||
-        availableIds[0];
-
-      // Multi-@ → host on main agent (Kin or fallback CLI). Backend orchestrates.
-      let agent: string | undefined;
-      if (plan.multi && mainAgent) {
-        agent = mainAgent;
-      }
-
       // Non-terminal: backend interrupts the current turn then re-queues with this guide.
-      const t = await followUpPrompt(
-        task.id,
-        text,
-        agent && agent !== task.agent ? { agent } : undefined,
-      );
+      const t = await followUpPrompt(task.id, text);
       setTask(t);
       if (!isTerminal(task.status)) {
         pushToast(tr("task.interruptedGuide"), "info");

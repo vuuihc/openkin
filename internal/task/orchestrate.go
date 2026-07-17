@@ -25,9 +25,14 @@ func (e *Engine) shouldOrchestrate(t store.Task) (DelegatePlan, bool) {
 	// handoff wrapper so historical @mentions in prior context cannot fan out again.
 	userTurn := UserTurnPrompt(t.Prompt)
 	plan := ParseDelegatePlan(userTurn, avail)
-	if plan.HasSubAgents() {
+	if plan.HasWorkersOtherThan(t.Agent) {
 		var steps []DelegateStep
 		for _, s := range plan.SubSteps() {
+			// Mentioning the current host is redundant routing, not a request to
+			// launch a second copy of that same agent as a worker.
+			if s.Agent == t.Agent {
+				continue
+			}
 			if _, ok := e.adapters[s.Agent]; ok {
 				steps = append(steps, s)
 			}
@@ -44,30 +49,6 @@ func (e *Engine) shouldOrchestrate(t store.Task) (DelegatePlan, bool) {
 	return DelegatePlan{}, false
 }
 
-// isChatHost is true for agents that do not themselves provide a full coding
-// agent loop (today: kin). Coding CLIs are not chat hosts for this purpose.
-func (e *Engine) isChatHost(agentID string) bool {
-	if agentID == "kin" {
-		return true
-	}
-	// Unknown / empty treated as host only if no coding adapter matches.
-	for _, id := range codingAgentOrder {
-		if agentID == id {
-			return false
-		}
-	}
-	return agentID == "" || agentID == "kin"
-}
-
-// MainAgent is the user-facing host for orchestration and default chat.
-// Prefer Kin when the cognition provider is registered; otherwise first default CLI.
-func (e *Engine) MainAgent() string {
-	if e.HasAgent("kin") {
-		return "kin"
-	}
-	return e.DefaultAgent()
-}
-
 // runOrchestrated keeps a user-facing main agent, runs workers (parallel when
 // independent), and stamps events with speaker/agent for the chat UI.
 // Sub-agents only receive task briefs — they are not conversational peers.
@@ -75,10 +56,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	ctx := e.ctx
 	main := t.Agent
 	if main == "" {
-		main = e.MainAgent()
-	}
-	if main == "" {
-		main = "kin"
+		main = e.DefaultAgent()
 	}
 
 	waves := PlanWaves(plan.Steps)
@@ -205,7 +183,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					e.mu.Unlock()
 					if !canceled {
 						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", displayAgentName(gagent, gmodel))
-						e.emitSpeakerMessage(ctx, id, "kin", "assistant", retryNote, "orchestrator")
+						e.emitSpeakerMessage(ctx, id, main, "assistant", retryNote, "orchestrator")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
 						// Keep assignment identity stable for approvals.
 						spec := adapter.TaskSpec{
@@ -468,7 +446,7 @@ func (e *Engine) appendEventLocked(ctx context.Context, taskID, typ string, payl
 
 func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agent, role, text, source string) {
 	// Main-agent turns are user-facing; workers are task-only (see stampSpeaker).
-	userFacing := source == "orchestrator" || source == "delegate" || agent == "kin"
+	userFacing := source == "orchestrator" || source == "delegate"
 	payload, _ := json.Marshal(map[string]any{
 		"role":    role,
 		"content": []map[string]string{{"type": "text", "text": text}},

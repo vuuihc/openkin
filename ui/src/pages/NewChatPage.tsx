@@ -31,7 +31,7 @@ import {
 import { useAppStore } from "../store/appStore";
 
 /**
- * New session: user talks to Kin (main agent).
+ * New session: user talks to the configured main agent.
  * Multi-@ prompts are orchestrated by the daemon (sub-agents = task workers only).
  */
 export default function NewChatPage() {
@@ -102,11 +102,8 @@ export default function NewChatPage() {
 
     const plan = parseAgentDirective(raw, availableIds);
 
-    // Main agent (user-facing host): honor the configured default (Settings
-    // agent.default → Kin when provider ready → first CLI). The backend marks
-    // that choice with `default`, surfaced here as defaultAgent.
-    // Multi-@ always hosts on main agent; workers run via orchestrator.
-    // Bare prompt: prefer main agent, not a random @worker alone.
+    // Main agent (user-facing host): honor the configured default. Worker
+    // mentions never replace this session host.
     const mainAgent =
       defaultAgent?.id ||
       (availableIds.includes("kin") && "kin") ||
@@ -161,7 +158,6 @@ export default function NewChatPage() {
         {defaultAgent && (
           <div className="ml-2 text-[12px] text-kin-muted">
             {tr("newChat.mainAgent", { name: defaultAgent.name })}
-            {defaultAgent.id === "kin" ? "" : tr("newChat.mainAgentHint")}
           </div>
         )}
       </div>
@@ -185,7 +181,7 @@ export default function NewChatPage() {
                 className={[
                   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] border",
                   a.available
-                    ? a.id === "kin"
+                    ? a.id === defaultAgent?.id
                       ? "border-kin-blue/50 bg-kin-blue-soft text-kin-blue"
                       : "border-kin-blue/30 bg-kin-blue-soft/60 text-kin-blue"
                     : "border-[var(--kin-hairline)] text-kin-muted",
@@ -198,7 +194,7 @@ export default function NewChatPage() {
                   ].join(" ")}
                 />
                 {a.name}
-                {a.id === "kin"
+                {a.id === defaultAgent?.id
                   ? ` · ${tr("newChat.roleMain")}`
                   : ` · ${tr("newChat.roleWorker")}`}
               </span>

@@ -237,13 +237,6 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 			return store.Task{}, fmt.Errorf("no agents available: install claude, codex, or grok CLI")
 		}
 	}
-	// Multi-@ plans run under the user-facing main agent (Kin if available, else default CLI).
-	// Parse the live user turn only (ignore any accidental handoff wrapper).
-	if plan := ParseDelegatePlan(UserTurnPrompt(req.Prompt), AvailableSet(e.AgentIDs())); plan.HasSubAgents() {
-		if main := e.MainAgent(); main != "" {
-			req.Agent = main
-		}
-	}
 	if _, ok := e.adapters[req.Agent]; !ok {
 		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q (available: %v)", req.Agent, e.AgentIDs())
 	}
@@ -486,7 +479,7 @@ func (e *Engine) startOne(id string) {
 	t, _ = e.store.GetTask(ctx, id)
 	e.bus.PublishTask(t)
 
-	// Multi-@ under Kin: main agent talks to user; sub-agents run as task workers.
+	// Multi-@ keeps the selected session host; mentioned agents run as workers.
 	if plan, ok := e.shouldOrchestrate(t); ok {
 		e.runOrchestrated(id, t, plan)
 		return
