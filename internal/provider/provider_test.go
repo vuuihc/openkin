@@ -21,7 +21,10 @@ func TestOpenAICompatChat(t *testing.T) {
 			"choices": []map[string]any{
 				{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": "hello kin"}},
 			},
-			"usage": map[string]int{"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+			"usage": map[string]any{
+				"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13,
+				"prompt_tokens_details": map[string]int{"cached_tokens": 7},
+			},
 		})
 	}))
 	defer srv.Close()
@@ -46,6 +49,9 @@ func TestOpenAICompatChat(t *testing.T) {
 	}
 	if resp.Usage.PromptTokens != 10 {
 		t.Fatalf("tokens %+v", resp.Usage)
+	}
+	if resp.Usage.CachedTokens != 7 {
+		t.Fatalf("cached_tokens %+v", resp.Usage)
 	}
 }
 

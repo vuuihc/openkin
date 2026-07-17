@@ -2,7 +2,7 @@
 
 **Status:** Accepted (v1 — re-reviewed)  
 **Date:** 2026-07-16 (v0)  
-**Revised:** 2026-07-17 (v1 re-review — P0/P1a/P1b shipped)  
+**Revised:** 2026-07-17 (v1.1 — P1b metrics + P1.5 durable transcript + P2 session_search)  
 **Related:** ADR 0001 (Provider + Kin agent), multi-agent orchestration
 
 ## Context
@@ -133,7 +133,7 @@ Motivating debt from the v0 review. Status column reflects the v1 re-review (P1a
 | Behavior | File | Cache impact | v1 status |
 |----------|------|----------------|-----------|
 | Full tool output appended; later `pruneLoopMessages` rewrites older `RoleTool` content | `kinagent/loop.go` | Invalidates prefix at first rewritten tool message every N steps | **Fixed (P1a/P1b):** `ToolDigest` before append (loop.go:145); proactive prune removed — `pruneLoopMessages` is now a thin alias of `overflowCompactMessages`, called only on provider overflow (loop.go:82) |
-| Every follow-up rebuilds `formatHandoffPrompt(…, contextBlock, user)` as a **new single user string** with a re-selected pack | `approvals.go` | Almost no cross-turn prefix reuse for Kin (no real session messages array) | **Partial:** pack now has fixed-order sealed slots (below); true durable messages array is **P1.5** (still open) |
+| Every follow-up rebuilds `formatHandoffPrompt(…, contextBlock, user)` as a **new single user string** with a re-selected pack | `approvals.go` / `kin_messages` | Almost no cross-turn prefix reuse for Kin (no real session messages array) | **Fixed (P1.5) for same-agent Kin:** durable `kin_messages` + live user turn. Handoff/interrupt/orchestrate still use sealed pack (by design) |
 | `BuildPack` newest-first drops different older lines each time budget fills | `sessionctx/pack.go` | Pack body churns even when recent turns stable | **Fixed (P1b):** `BuildSealedPack` seals overflow into `[Sealed summary]`+`[Session index]` instead of dropping; deterministic seal (re-derived per follow-up until P1.5) |
 | `buildMainSummary` injects large worker text into main chat, then handoff re-truncates differently | `orchestrate.go` | Large volatile blocks in the only “history” Kin sees next turn | **Fixed (P1a):** `WorkerDigest` (≤1.8k runes, extractive) before main context (orchestrate.go:556) |
 
@@ -220,17 +220,18 @@ Workers still get briefs + prior digests; process traces stay task-only.
 2. Overflow path: retry strategy documented for cache (prefer not rewriting entire history). ✅  
 3. Stable system prompt; fixed tool defs. ✅  
 4. Handoff pack: fixed section headers; sealed summary slot; reduce full re-pack churn. ✅ — `sessionctx.BuildSealedPack` emits `[Session index] / [Pinned] / [Sealed summary] / [Recent turns]` in fixed order; overflow is sealed (extractive + keyword index), not dropped. `[Pinned]` is caller-supplied (empty until P1.5); seal is deterministic but re-derived per follow-up (true persistence = P1.5).  
-5. Metrics (debug): prompt chars, optional `cached_tokens` from provider usage when present. _(open)_
+5. Metrics (debug): prompt chars, optional `cached_tokens` from provider usage when present. ✅ — `provider.Usage.CachedTokens` + kinagent `usage` events / log lines.
 
-### P1.5 — Durable Kin transcript (real multi-turn messages)
+### P1.5 — Durable Kin transcript (real multi-turn messages) ✅
 
-1. Persist Kin `messages` (or equivalent turns) per task for same-agent follow-up instead of only `formatHandoffPrompt` blob.  
-2. Follow-up = append user turn to frozen prefix (maximum cache hits).  
-3. Handoff / agent switch still builds a pack (cold prefix).
+1. Persist Kin `messages` per task in `kin_messages` (model path; system re-bound each Start).  
+2. Same-agent follow-up = append live user turn only; `kinagent` reloads prior messages.  
+3. Handoff / interrupt / orchestrate / agent switch clear transcript and rebuild a sealed pack (cold prefix).
 
 ### P2 — `session_search` + optional JSONL mirror
 
-Unchanged intent; digests may include “search keys” to encourage retrieval.
+1. ✅ `session_search` tool over SQLite `events` (task-scoped keyword + snippet).  
+2. Optional JSONL mirror for `rg` still deferred; SQLite remains SoT.
 
 ### P3 — Optional LLM micro-summarize for sealed segments only
 
@@ -277,7 +278,7 @@ v1 re-review verdicts (2026-07-17):
 
 - [x] Does a new tool result enter main `messages` only as a digest? — **Yes.** `ToolDigest` at `loop.go:145` before `RoleTool` append; raw stdout capped at 80k for events/UI only.
 - [x] Does any routine path rewrite a non-tail message already sent to the model? — **No routine path.** Only `overflowCompactMessages` on provider overflow (one retry), documented as last resort.
-- [~] Does each follow-up rebuild a wholly new history blob when a durable transcript would suffice? — **Still true for Kin follow-ups** (`formatHandoffPrompt` blob); accepted as debt until **P1.5** durable messages.
+- [x] Does each follow-up rebuild a wholly new history blob when a durable transcript would suffice? — **No for same-agent Kin** (durable `kin_messages` + live user turn). Handoff / interrupt / orchestrate still use sealed pack by design.
 - [x] Are sub-agent process traces absent from the main hot pack? — **Yes.** `WorkerDigest` only (`orchestrate.go:556`); worker CLI text/tools stay task-only.
 - [x] Is full fidelity still in SQLite for UI/audit? — **Yes.** `events` remains SoT; model path ≠ UI path.
 

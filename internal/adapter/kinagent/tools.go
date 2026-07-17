@@ -21,10 +21,19 @@ const (
 	bashTimeout     = 120 * time.Second
 )
 
+// SessionSearcher looks up archived events for the session_search tool (ADR 0002 P2).
+type SessionSearcher interface {
+	Search(ctx context.Context, taskID, query string, limit int) (string, error)
+}
+
 // toolEnv is the sandboxed workspace for tool execution.
 type toolEnv struct {
 	// Root is the absolute resolved cwd (task working directory).
 	Root string
+	// TaskID scopes session_search when set.
+	TaskID string
+	// Search optional archive retrieval.
+	Search SessionSearcher
 }
 
 func newToolEnv(cwd string) (*toolEnv, error) {
@@ -78,8 +87,8 @@ func (e *toolEnv) resolvePath(p string) (string, error) {
 	return abs, nil
 }
 
-func agentTools() []provider.ToolDef {
-	return []provider.ToolDef{
+func agentTools(withSearch bool) []provider.ToolDef {
+	tools := []provider.ToolDef{
 		provider.FunctionTool("bash",
 			"Run a shell command in the task working directory. Prefer non-interactive commands. Output is truncated if very large.",
 			map[string]any{
@@ -137,6 +146,26 @@ func agentTools() []provider.ToolDef {
 			},
 		),
 	}
+	if withSearch {
+		tools = append(tools, provider.FunctionTool("session_search",
+			"Search this task's archived events (full tool outputs, prior messages) by keyword. Use when digests omitted detail you need.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Keyword or phrase to find in the event archive",
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "Max hits (default 10, max 50)",
+					},
+				},
+				"required": []string{"query"},
+			},
+		))
+	}
+	return tools
 }
 
 func (e *toolEnv) runTool(ctx context.Context, name, argsJSON string) (string, error) {
@@ -169,9 +198,36 @@ func (e *toolEnv) runTool(ctx context.Context, name, argsJSON string) (string, e
 	case "glob":
 		pat, _ := args["pattern"].(string)
 		return e.glob(pat)
+	case "session_search":
+		q, _ := args["query"].(string)
+		limit := 10
+		switch v := args["limit"].(type) {
+		case float64:
+			limit = int(v)
+		case int:
+			limit = v
+		}
+		return e.sessionSearch(ctx, q, limit)
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
+}
+
+func (e *toolEnv) sessionSearch(ctx context.Context, query string, limit int) (string, error) {
+	if e.Search == nil {
+		return "", fmt.Errorf("session_search not available")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	return e.Search.Search(ctx, e.TaskID, query, limit)
 }
 
 func (e *toolEnv) bash(ctx context.Context, command string) (string, error) {

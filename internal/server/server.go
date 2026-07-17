@@ -172,7 +172,9 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	// Built-in Kin agent = Kin + cognition Provider (always registered).
 	// Available for runs when provider.base_url + provider.model are set.
-	adapters[kinagent.AgentID] = kinagent.New(func(c context.Context) (provider.Client, provider.Config, error) {
+	// Durable multi-turn transcript + session_search over events (ADR 0002 P1.5/P2).
+	kinBridge := kinagent.StoreTranscript{Store: st}
+	kinAd := kinagent.New(func(c context.Context) (provider.Client, provider.Config, error) {
 		cfg, err := provider.LoadConfig(c, st)
 		if err != nil {
 			return nil, cfg, err
@@ -183,6 +185,9 @@ func ServeWith(version string, flags ServeFlags) error {
 		cli, err := provider.NewClient(cfg)
 		return cli, cfg, err
 	})
+	kinAd.Transcript = kinBridge
+	kinAd.Search = kinBridge
+	adapters[kinagent.AgentID] = kinAd
 	if cfg, err := provider.LoadConfig(ctx, st); err == nil && cfg.Configured() {
 		fmt.Printf("agent kin: provider %s model=%s\n", cfg.BaseURL, cfg.Model)
 	} else {

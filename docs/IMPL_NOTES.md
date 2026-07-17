@@ -416,11 +416,16 @@ Design: [docs/adr/0002-context-management.md](./adr/0002-context-management.md) 
   - Overflow safety net only: `overflowCompactMessages` (prefer newest giant tool first) + single retry.
   - Tool defs / system prompt unchanged across calls in a turn.
 
+### Shipped next (P1b metrics + P1.5 + P2 search)
+
+- **P1b metrics:** `provider.Usage.CachedTokens` parsed from OpenAI `prompt_tokens_details.cached_tokens` (and flat/proxy aliases). Kin loop logs `prompt_chars` / `prompt_tokens` / `cached_tokens` per turn and emits `usage` events.
+- **P1.5 durable Kin transcript:** `kin_messages` table stores model-path messages (no system). Same-agent Kin follow-up appends only the live user turn; `kinagent` reloads prior messages (Policy K). Handoff / interrupt / orchestrate / agent switch clear the table and fall back to sealed Context Pack.
+- **P2 `session_search`:** tool over SQLite `events` (task-scoped LIKE + snippet). Optional JSONL mirror still deferred.
+
 ### Still open
 
 | Item | Notes |
 |------|--------|
-| **P1b metrics** (debug) | Prompt-char / `cached_tokens` instrumentation not yet wired (P1b item 5). No `cached_tokens` read from `provider.Usage` today; only `PromptTokens`/`CompletionTokens` are accumulated |
-| **P1.5** durable Kin multi-turn `messages` | Follow-ups still rebuild `formatHandoffPrompt` blob (cold-ish prefix). Also unlocks auto-derived `[Pinned]` (goals/decisions) and true cross-turn seal persistence (seal is re-derived per follow-up today) |
-| **P2** | `session_search` + optional JSONL mirror; SQLite remains SoT. Sealed pack already emits a `[Session index]` keyword line as the retrieval hint |
+| **P1.5 auto-`[Pinned]`** | Goals/decisions still caller-empty; could derive from durable transcript later |
+| **P2 JSONL mirror** | Optional `rg`-friendly mirror; SQLite remains SoT |
 | **P3** | Optional LLM micro-summarize at seal boundaries only (current seal is extractive/deterministic) |

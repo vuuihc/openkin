@@ -490,17 +490,28 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 		handoff = true
 	}
 
-	// Always inject a short prior-context block for follow-ups that cannot truly
-	// resume a multi-turn CLI session. Orchestrated turns still store the user
-	// request under "User request:" so UserTurnPrompt / shouldOrchestrate only
-	// see the live @mentions — but workers get the transcript via buildWorkerBrief.
+	// Cross-turn context strategy (ADR 0002 Policy K):
+	//   - same-agent kin with durable transcript → append-only live user prompt
+	//   - handoff / interrupt / orchestrate / no-session CLI → sealed Context Pack blob
+	// Orchestrated turns still store the user request under "User request:" so
+	// UserTurnPrompt / shouldOrchestrate only see the live @mentions.
 	runPrompt := prompt
-	ctxBlock := e.handoffContext(ctx, id)
-	needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || targetAgent == "kin" || interrupted || orchestrate
-	if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate) {
-		runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
-		if interrupted {
-			runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
+	sameKinResume := !handoff && !interrupted && !orchestrate && targetAgent == "kin"
+	if sameKinResume {
+		// Live user turn only; kinagent loads prior messages from kin_messages.
+		runPrompt = prompt
+	} else {
+		ctxBlock := e.handoffContext(ctx, id)
+		needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || targetAgent == "kin" || interrupted || orchestrate
+		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate) {
+			runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
+			if interrupted {
+				runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
+			}
+		}
+		// Cold prefix: drop durable Kin transcript so we don't mix packs with resume.
+		if handoff || interrupted || orchestrate || targetAgent != "kin" {
+			_ = e.store.ClearKinMessages(ctx, id)
 		}
 	}
 

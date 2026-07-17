@@ -39,6 +39,10 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	// CachedTokens is prompt-cache hits when the provider reports them
+	// (OpenAI prompt_tokens_details.cached_tokens, Anthropic cache_read, etc.).
+	// Zero means "unknown / not reported", not necessarily "no cache".
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 // ChatResponse is a completed assistant turn (may include tool_calls).

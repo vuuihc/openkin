@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/vuuihc/kin/internal/adapter"
@@ -17,6 +18,9 @@ import (
 //	until finish_reason=stop (no tools), cancel, or error.
 //
 // Events are pushed to ch (message, tool_use, error, result).
+// prior is an optional durable transcript (system stripped); when non-empty the
+// live userPrompt is appended as a new user turn (ADR 0002 P1.5 / Policy K).
+// Returns the final messages array (including system) for persistence.
 func runAgentLoop(
 	ctx context.Context,
 	client provider.Client,
@@ -24,23 +28,25 @@ func runAgentLoop(
 	system string,
 	userPrompt string,
 	cwd string,
+	taskID string,
+	searcher SessionSearcher,
+	prior []provider.Message,
 	ch chan<- adapter.Event,
 	cancel <-chan struct{},
-) {
+) []provider.Message {
 	env, err := newToolEnv(cwd)
 	if err != nil {
 		emitErr(ch, fmt.Sprintf("workspace: %v", err))
-		emitResult(ch, true, model, 0, 0)
-		return
+		emitResult(ch, true, model, 0, 0, 0)
+		return nil
 	}
+	env.TaskID = taskID
+	env.Search = searcher
 
-	messages := []provider.Message{
-		{Role: provider.RoleSystem, Content: system},
-		{Role: provider.RoleUser, Content: userPrompt},
-	}
-	tools := agentTools()
+	messages := buildInitialMessages(system, userPrompt, prior)
+	tools := agentTools(searcher != nil)
 
-	var totalIn, totalOut int
+	var totalIn, totalOut, totalCached int
 	lastModel := model
 	turn := 0
 
@@ -52,12 +58,13 @@ func runAgentLoop(
 	for {
 		if aborted(ctx, cancel) {
 			emitErr(ch, "canceled")
-			emitResult(ch, true, lastModel, totalIn, totalOut)
-			return
+			emitResult(ch, true, lastModel, totalIn, totalOut, totalCached)
+			return messages
 		}
 
 		// No proactive prune: digests are final at append (Policy C + K).
 
+		promptChars := estimateMessagesChars(messages)
 		resp, err := client.Chat(ctx, provider.ChatRequest{
 			Model:      model,
 			Messages:   messages,
@@ -72,7 +79,7 @@ func runAgentLoop(
 					err,
 				))
 				runChatOnly(ctx, client, model, system, userPrompt, ch, cancel)
-				return
+				return messages
 			}
 			// Overflow safety net only (not the design center): prefer collapsing the
 			// newest giant tool body first to preserve a longer cached prefix, then
@@ -84,14 +91,20 @@ func runAgentLoop(
 				continue
 			}
 			emitErr(ch, err.Error())
-			emitResult(ch, true, lastModel, totalIn, totalOut)
-			return
+			emitResult(ch, true, lastModel, totalIn, totalOut, totalCached)
+			return messages
 		}
 
 		turn++
 		lastModel = firstNonEmpty(resp.Model, model)
 		totalIn += resp.Usage.PromptTokens
 		totalOut += resp.Usage.CompletionTokens
+		totalCached += resp.Usage.CachedTokens
+
+		// P1b metrics (debug): prompt size + optional provider cache hits.
+		log.Printf("kinagent: turn=%d prompt_chars=%d prompt_tokens=%d cached_tokens=%d completion_tokens=%d",
+			turn, promptChars, resp.Usage.PromptTokens, resp.Usage.CachedTokens, resp.Usage.CompletionTokens)
+		emitUsage(ch, promptChars, resp.Usage)
 
 		// Assistant text (may accompany tool calls).
 		if strings.TrimSpace(resp.Content) != "" {
@@ -103,8 +116,15 @@ func runAgentLoop(
 			if strings.TrimSpace(resp.Content) == "" {
 				emitMsg(ch, "kin", "(agent finished with no message)")
 			}
-			emitResult(ch, false, lastModel, totalIn, totalOut)
-			return
+			// Append final assistant text so follow-ups see it in the durable prefix.
+			if strings.TrimSpace(resp.Content) != "" || len(resp.ToolCalls) == 0 {
+				messages = append(messages, provider.Message{
+					Role:    provider.RoleAssistant,
+					Content: resp.Content,
+				})
+			}
+			emitResult(ch, false, lastModel, totalIn, totalOut, totalCached)
+			return messages
 		}
 
 		// Record assistant tool_calls turn.
@@ -118,8 +138,8 @@ func runAgentLoop(
 		for _, tc := range resp.ToolCalls {
 			if aborted(ctx, cancel) {
 				emitErr(ch, "canceled")
-				emitResult(ch, true, lastModel, totalIn, totalOut)
-				return
+				emitResult(ch, true, lastModel, totalIn, totalOut, totalCached)
+				return messages
 			}
 			name := tc.Function.Name
 			args := tc.Function.Arguments
@@ -153,6 +173,29 @@ func runAgentLoop(
 	}
 }
 
+// buildInitialMessages freezes the system prompt and either resumes a durable
+// transcript (append live user turn) or cold-starts from a single user blob.
+func buildInitialMessages(system, userPrompt string, prior []provider.Message) []provider.Message {
+	// Always re-bind system so tool policy stays current; body of prior system is dropped.
+	out := make([]provider.Message, 0, len(prior)+2)
+	out = append(out, provider.Message{Role: provider.RoleSystem, Content: system})
+	if len(prior) == 0 {
+		out = append(out, provider.Message{Role: provider.RoleUser, Content: userPrompt})
+		return out
+	}
+	for _, m := range prior {
+		if m.Role == provider.RoleSystem {
+			continue
+		}
+		out = append(out, m)
+	}
+	// Append the live user turn only — do not rebuild the whole history blob.
+	if strings.TrimSpace(userPrompt) != "" {
+		out = append(out, provider.Message{Role: provider.RoleUser, Content: userPrompt})
+	}
+	return out
+}
+
 func runChatOnly(
 	ctx context.Context,
 	client provider.Client,
@@ -162,25 +205,30 @@ func runChatOnly(
 ) {
 	if aborted(ctx, cancel) {
 		emitErr(ch, "canceled")
-		emitResult(ch, true, model, 0, 0)
+		emitResult(ch, true, model, 0, 0, 0)
 		return
 	}
+	msgs := []provider.Message{
+		{Role: provider.RoleSystem, Content: system},
+		{Role: provider.RoleUser, Content: userPrompt},
+	}
+	promptChars := estimateMessagesChars(msgs)
 	resp, err := client.Chat(ctx, provider.ChatRequest{
-		Model: model,
-		Messages: []provider.Message{
-			{Role: provider.RoleSystem, Content: system},
-			{Role: provider.RoleUser, Content: userPrompt},
-		},
+		Model:    model,
+		Messages: msgs,
 	})
 	if err != nil {
 		emitErr(ch, err.Error())
-		emitResult(ch, true, model, 0, 0)
+		emitResult(ch, true, model, 0, 0, 0)
 		return
 	}
+	log.Printf("kinagent: chat-only prompt_chars=%d prompt_tokens=%d cached_tokens=%d",
+		promptChars, resp.Usage.PromptTokens, resp.Usage.CachedTokens)
+	emitUsage(ch, promptChars, resp.Usage)
 	if strings.TrimSpace(resp.Content) != "" {
 		emitMsg(ch, "kin", resp.Content)
 	}
-	emitResult(ch, false, firstNonEmpty(resp.Model, model), resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	emitResult(ch, false, firstNonEmpty(resp.Model, model), resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.CachedTokens)
 }
 
 func looksLikeToolsUnsupported(err error) bool {
@@ -265,6 +313,18 @@ func emitToolResult(ch chan<- adapter.Event, name, argsJSON, output string, ok b
 		"visibility":  map[string]bool{"user": true, "task": true},
 	})
 	ch <- adapter.Event{Type: "tool_result", Payload: payload}
+}
+
+func emitUsage(ch chan<- adapter.Event, promptChars int, u provider.Usage) {
+	payload, _ := json.Marshal(map[string]any{
+		"prompt_chars":      promptChars,
+		"prompt_tokens":     u.PromptTokens,
+		"completion_tokens": u.CompletionTokens,
+		"cached_tokens":     u.CachedTokens,
+		"total_tokens":      u.TotalTokens,
+		"source":            "kin",
+	})
+	ch <- adapter.Event{Type: "usage", Payload: payload}
 }
 
 func toolRunningSummary(name, argsJSON string) string {
@@ -365,18 +425,18 @@ func emitErr(ch chan<- adapter.Event, msg string) {
 	ch <- adapter.Event{Type: "error", Payload: payload}
 }
 
-func emitResult(ch chan<- adapter.Event, isErr bool, model string, tin, tout int) {
+func emitResult(ch chan<- adapter.Event, isErr bool, model string, tin, tout, cached int) {
 	payload, _ := json.Marshal(map[string]any{
-		"source":     "kin",
-		"is_error":   isErr,
-		"model":      model,
-		"tokens_in":  tin,
-		"tokens_out": tout,
-		"session_id": "kin-loop",
+		"source":        "kin",
+		"is_error":      isErr,
+		"model":         model,
+		"tokens_in":     tin,
+		"tokens_out":    tout,
+		"cached_tokens": cached,
+		"session_id":    "kin-loop",
 	})
 	ch <- adapter.Event{Type: "result", Payload: payload}
 }
-
 
 func looksLikeContextOverflow(err error) bool {
 	if err == nil {

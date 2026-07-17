@@ -61,6 +61,13 @@ type oaiChatResp struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
+		// OpenAI-style nested detail (may be absent).
+		PromptTokensDetails *struct {
+			CachedTokens int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+		// Alternate flat / Anthropic-compatible fields some proxies expose.
+		CachedTokens       int `json:"cached_tokens"`
+		CacheReadInputTokens int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -147,6 +154,13 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 	if msg.Content != nil {
 		content = *msg.Content
 	}
+	cached := parsed.Usage.CachedTokens
+	if cached == 0 && parsed.Usage.PromptTokensDetails != nil {
+		cached = parsed.Usage.PromptTokensDetails.CachedTokens
+	}
+	if cached == 0 && parsed.Usage.CacheReadInputTokens > 0 {
+		cached = parsed.Usage.CacheReadInputTokens
+	}
 	return &ChatResponse{
 		Content: content,
 		Model:   firstNonEmpty(parsed.Model, model),
@@ -154,6 +168,7 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 			PromptTokens:     parsed.Usage.PromptTokens,
 			CompletionTokens: parsed.Usage.CompletionTokens,
 			TotalTokens:      parsed.Usage.TotalTokens,
+			CachedTokens:     cached,
 		},
 		FinishReason: parsed.Choices[0].FinishReason,
 		ToolCalls:    msg.ToolCalls,

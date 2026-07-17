@@ -19,11 +19,22 @@ const AgentID = "kin"
 // Resolver loads a provider client for each run (settings can change without restart).
 type Resolver func(ctx context.Context) (provider.Client, provider.Config, error)
 
+// TranscriptStore loads/saves the durable Kin multi-turn messages array (ADR 0002 P1.5).
+// When unset, each Start rebuilds from a single user prompt (cold pack / handoff path).
+type TranscriptStore interface {
+	LoadKinMessages(ctx context.Context, taskID string) ([]provider.Message, error)
+	SaveKinMessages(ctx context.Context, taskID string, msgs []provider.Message) error
+}
+
 // Adapter implements adapter.Adapter for agent "kin".
 type Adapter struct {
 	Resolve Resolver
 	// SystemPrompt optional override.
 	SystemPrompt string
+	// Transcript optional durable multi-turn store.
+	Transcript TranscriptStore
+	// Search optional event archive search for session_search tool.
+	Search SessionSearcher
 }
 
 // New returns a Kin agent adapter.
@@ -59,14 +70,28 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	go func() {
 		defer close(ch)
 
+		// Prefer durable multi-turn transcript when present (same-agent follow-up).
+		// Otherwise cold-start from the (possibly handoff-packed) user prompt.
+		var prior []provider.Message
+		if a.Transcript != nil && spec.ID != "" {
+			if loaded, err := a.Transcript.LoadKinMessages(ctx, spec.ID); err == nil && len(loaded) > 0 {
+				prior = loaded
+			}
+		}
+
+		sessionID := "kin:" + spec.ID
+		if sessionID == "kin:" {
+			sessionID = "kin-loop"
+		}
 		sidPayload, _ := json.Marshal(map[string]any{
-			"session_id": "kin:" + spec.ID,
+			"session_id": sessionID,
 			"subtype":    "init",
 			"source":     "kin",
 			"model":      model,
 			"provider":   client.Kind(),
 			"mode":       "agent_loop",
 			"cwd":        spec.Cwd,
+			"resume":     len(prior) > 0,
 		})
 		select {
 		case <-h.cancel:
@@ -84,9 +109,11 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			}
 		}()
 
-		// Inject session id into result via wrapper channel is awkward; set in loop emitResult.
-		// Patch: run loop then fix session on result events is skippable — UI uses speaker.
-		runAgentLoop(runCtx, client, model, sys, spec.Prompt, spec.Cwd, ch, h.cancel)
+		finalMsgs := runAgentLoop(runCtx, client, model, sys, spec.Prompt, spec.Cwd, spec.ID, a.Search, prior, ch, h.cancel)
+		if a.Transcript != nil && spec.ID != "" && len(finalMsgs) > 0 {
+			// Persist full model-path transcript for next same-agent follow-up (Policy K).
+			_ = a.Transcript.SaveKinMessages(context.Background(), spec.ID, finalMsgs)
+		}
 	}()
 
 	return h, nil
@@ -101,6 +128,7 @@ Workspace:
 Tools:
 - bash: run shell commands (tests, git status, builds). Non-interactive only.
 - read_file / write_file / list_dir / glob: inspect and edit files.
+- session_search: keyword search over this task's archived events when digests omitted detail.
 
 Behavior:
 - For programming work: explore with tools, make changes, run checks, then summarize for the user.

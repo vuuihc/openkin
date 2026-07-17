@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 2
+const schemaVersion = 3
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -48,10 +48,34 @@ CREATE TABLE approvals (
 );
 
 CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
+
+CREATE TABLE kin_messages (
+  task_id  TEXT NOT NULL REFERENCES tasks(id),
+  idx      INTEGER NOT NULL,
+  role     TEXT NOT NULL,
+  content  TEXT NOT NULL DEFAULT '',
+  name     TEXT NOT NULL DEFAULT '',
+  tool_call_id TEXT NOT NULL DEFAULT '',
+  tool_calls TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (task_id, idx)
+);
 `
 
 const migration002 = `
 ALTER TABLE tasks ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';
+`
+
+const migration003 = `
+CREATE TABLE kin_messages (
+  task_id  TEXT NOT NULL REFERENCES tasks(id),
+  idx      INTEGER NOT NULL,
+  role     TEXT NOT NULL,
+  content  TEXT NOT NULL DEFAULT '',
+  name     TEXT NOT NULL DEFAULT '',
+  tool_call_id TEXT NOT NULL DEFAULT '',
+  tool_calls TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (task_id, idx)
+);
 `
 
 
@@ -97,6 +121,24 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 002: %w", err)
+		}
+		v = 2
+	}
+	if v == 2 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 003: %w", err)
+		}
+		if _, err := tx.Exec(migration003); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration 003: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 3`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 003: %w", err)
 		}
 	}
 	return nil
