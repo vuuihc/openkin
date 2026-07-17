@@ -28,7 +28,8 @@ Your agent. Your memory. Any model.
 - **Self-hosted 远程** —— 局域网 → tailnet / Funnel 梯子；流量不经过任何 agent 厂商的云
 - **费用透明** —— 按任务、按 Provider 的 token 与花费
 - **用户拥有** —— 本地优先；无需 Kin 账户；可导出、可离开
-- **记忆随后（v2）** —— 跨 agent、跨模型延续的可治理记忆
+- **产物随后（Artifacts）** —— 会话学习资料 / 长文入库与阅读器；见 [docs/TODO.md](./docs/TODO.md)
+- **记忆更后（v2）** —— 跨 agent、跨模型延续的可治理记忆
 - **小而美** —— 如无必要勿增实体；痛感驱动长大（见 [PRINCIPLE §5.11](./PRINCIPLE.zh.md)）
 
 ## 许可证

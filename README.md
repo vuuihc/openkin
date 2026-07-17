@@ -28,7 +28,8 @@ MVP agent console (daemon + web UI) is implemented. A macOS menu-bar **desktop s
 - **Self-hosted remote** — LAN → tailnet / Funnel ladder; traffic never routed through an agent vendor's cloud
 - **Cost transparency** — tokens and spend per task, per provider
 - **User-owned** — local-first; no Kin account; export and leave
-- **Memory, next (v2)** — governed memory that travels across agents and models
+- **Artifacts, next** — keep readable session deliverables (study notes, HTML) in a local library with a reader; see [docs/TODO.md](./docs/TODO.md)
+- **Memory, later (v2)** — governed memory that travels across agents and models
 - **Small by default** — do not multiply entities without necessity; grow from real pain ([PRINCIPLE §5.11](./PRINCIPLE.md))
 
 ## Desktop app

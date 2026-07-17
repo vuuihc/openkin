@@ -2,9 +2,9 @@
 
 [中文](./PRINCIPLE.zh.md)
 
-**Status:** Draft v0.1  
-**Nature:** Open-source, local-first, cross-device, model-agnostic personal agent  
-**Name:** Kin  
+**Status:** Draft v0.1
+**Nature:** Open-source, local-first, cross-device, model-agnostic personal agent
+**Name:** Kin
 **Promise:**
 
 > Your agent. Your memory. Any model.
@@ -32,9 +32,9 @@ Kin
 └── Embodiments    macOS, iOS, Android, Web, CLI, …
 ```
 
-The model is a replaceable “brain.”  
-Clients are “bodies” on different devices.  
-Tools are “hands” on the real world.  
+The model is a replaceable “brain.”
+Clients are “bodies” on different devices.
+Tools are “hands” on the real world.
 **Memory, identity, and the user relationship** are the continuous subject.
 
 ---
@@ -45,12 +45,12 @@ Kin’s long-term goal is not a chat client with more features. It is personal i
 
 A mature Kin should:
 
-1. Avoid forcing the user to re-explain themselves every session.  
-2. Feel like the same Kin after a device change.  
-3. Keep identity and long-term memory when model vendors change.  
-4. Learn the user’s language, workflow, and judgment standards.  
-5. Act inside clear permission boundaries—not only answer questions.  
-6. Let the user inspect, correct, export, and delete personal data.  
+1. Avoid forcing the user to re-explain themselves every session.
+2. Feel like the same Kin after a device change.
+3. Keep identity and long-term memory when model vendors change.
+4. Learn the user’s language, workflow, and judgment standards.
+5. Act inside clear permission boundaries—not only answer questions.
+6. Let the user inspect, correct, export, and delete personal data.
 7. Extend the user’s capability without taking control of important decisions.
 
 Long term:
@@ -93,13 +93,13 @@ Kin aims for:
 
 Kin first serves people willing to configure and own a long-lived agent:
 
-- Developers and engineers  
-- Indie builders  
-- Researchers  
-- Knowledge workers  
-- Privacy- and sovereignty-conscious power users  
-- Multi-model, multi-device users  
-- People building personal automation over time  
+- Developers and engineers
+- Indie builders
+- Researchers
+- Knowledge workers
+- Privacy- and sovereignty-conscious power users
+- Multi-model, multi-device users
+- People building personal automation over time
 
 Early Kin is **not** primarily for zero-configuration mass consumers. Some technical bar is acceptable if concepts are clear, defaults are solid, and daily use stays simple.
 
@@ -121,12 +121,12 @@ The user’s device is the primary home of data—not a cache of the cloud.
 
 Local-first does not forbid cloud. It means:
 
-- Local is the first copy  
-- Offline access to what is already on device  
-- Cloud only for explicitly enabled sync, backup, or remote execution  
-- Visibility into what left the device  
-- Sensitive credentials not synced by default  
-- Cloud components replaceable or self-hostable  
+- Local is the first copy
+- Offline access to what is already on device
+- Cloud only for explicitly enabled sync, backup, or remote execution
+- Visibility into what left the device
+- Sensitive credentials not synced by default
+- Cloud components replaceable or self-hostable
 
 ### 5.3 Model-agnostic
 
@@ -155,7 +155,9 @@ Device capabilities differ (macOS files/clipboard/menu bar; mobile share/voice/n
 
 Internals may be complex; daily UX must not be.
 
-Stable entrances: **Ask · Plan · Do · Remember · Review · Routine**.
+Stable entrances: **Ask · Plan · Do · Read/Artifacts · Remember · Review · Routine**.
+
+**Artifacts** cover readable session deliverables (study primers, HTML notes, long-form outputs)—capture, library, reader, provenance. **Remember** covers governed long-term memory (optionally extracted from Artifacts). Do not merge them into one concept.
 
 Advanced concepts (many agents, workflows, skills, nodes, providers) expose gradually. Users may own a complex system without managing it every day.
 
@@ -205,19 +207,19 @@ In an era of exploding model and agent surface area, what ships fastest is usual
 
 #### Discipline
 
-1. **Nail the main path first:** worth opening daily on one machine—accurate memory, real work, legible history.  
-2. **Do not prepay distant architecture:** implement multi-device and orchestration stories when friction is real.  
-3. **External executors are Tools, not a second Kin:** third-party coding agents or harnesses may be invoked; they are not a second identity or runtime.  
-4. **Do not center the product on networking infrastructure** Kin does not need to own; prefer user-chosen or existing connectivity when remote access is needed later.  
-5. **One fewer concept the user must learn is a win:** complexity may live inside; default UX stays short-path.  
+1. **Nail the main path first:** worth opening daily on one machine—accurate memory, real work, legible history.
+2. **Do not prepay distant architecture:** implement multi-device and orchestration stories when friction is real.
+3. **External executors are Tools, not a second Kin:** third-party coding agents or harnesses may be invoked; they are not a second identity or runtime.
+4. **Do not center the product on networking infrastructure** Kin does not need to own; prefer user-chosen or existing connectivity when remote access is needed later.
+5. **One fewer concept the user must learn is a win:** complexity may live inside; default UX stays short-path.
 
 #### Three questions before adding an entity
 
 For every new module, daemon, sync surface, device abstraction, or product noun:
 
-1. **Does today’s main path still work without it?**  
-2. **Does it fix repeated friction, or prepay a future story?**  
-3. **Must the user learn another concept for daily use?**  
+1. **Does today’s main path still work without it?**
+2. **Does it fix repeated friction, or prepay a future story?**
+3. **Must the user learn another concept for daily use?**
 
 If (1) is “yes” and (2) is “prepay”—default **do not add**.
 
@@ -225,12 +227,12 @@ If (1) is “yes” and (2) is “prepay”—default **do not add**.
 
 Fine as long-term vision; **not default v1 surface** unless real use demands it:
 
-- Multi-device orchestration as a product center  
-- Full sync stacks before single-machine excellence  
-- Desktop control / computer-use as a default capability  
-- User-facing multi-agent casts  
-- Plugin marketplaces and routing platforms  
-- Official cloud as the only path for identity, memory, or execution  
+- Multi-device orchestration as a product center
+- Full sync stacks before single-machine excellence
+- Desktop control / computer-use as a default capability
+- User-facing multi-agent casts
+- Plugin marketplaces and routing platforms
+- Official cloud as the only path for identity, memory, or execution
 
 Until a capability is needed repeatedly in daily use, prefer the simpler path: the same Kin on the machine that already has the tools.
 
@@ -265,6 +267,16 @@ Extract, store, retrieve, update, merge, conflict, expire, delete, import/export
 
 Separate: raw records, user-stated facts, model summaries, model inferences, user-corrected conclusions.
 
+### 6.2.1 Kin Artifacts (session deliverables, near-term)
+
+Artifacts are **readable deliverables** produced in agent sessions (topic study Markdown, HTML primers, long write-ups)—not vector memory and not a bookmark drawer.
+
+Responsibilities: capture or user-save from sessions; file-backed truth plus searchable index; provenance to source task/session; library + reader in the console; later, document-scoped companion reading; optional **propose** extract into Memory/Wiki (user confirms by default).
+
+Constraints: propose/confirm for high-impact saves; sandbox untrusted HTML; multi-device via the remote ladder to **the same daemon**, not a Kin content cloud; included in export/leave.
+
+Checklist: [docs/TODO.md](./docs/TODO.md). Decision: [docs/adr/0003-artifacts-and-reader.md](./docs/adr/0003-artifacts-and-reader.md).
+
 ### 6.3 Kin Runtime
 
 Context assembly, model calls, tool calls, agent loop, plans, pause/resume/retry, human confirmation, execution traces.
@@ -277,7 +289,7 @@ Pluggable providers, configurable endpoints, user-controlled API keys, local mod
 
 ### 6.5 Tool and Skill Layer
 
-**Tool:** atomic capability (read file, search mail, create event).  
+**Tool:** atomic capability (read file, search mail, create event).
 **Skill:** reusable method (prep a meeting, summarize a day, tidy downloads).
 
 Clear I/O, permission declarations, risk level, testability, versioning, logs, disable/uninstall, clear failure semantics.
@@ -308,9 +320,9 @@ Security is not a late bolt-on.
 
 Not chat-only: **Converse · Plan · Act · Review · Routine**.
 
-Plans include steps, deps, risks, permissions, tools, open questions.  
-Act names effects, tools, confirmations, outbound data.  
-Review covers outcomes, failures, Kin decisions, new memories, fix/undo.  
+Plans include steps, deps, risks, permissions, tools, open questions.
+Act names effects, tools, confirmations, outbound data.
+Review covers outcomes, failures, Kin decisions, new memories, fix/undo.
 Routines need triggers, bounds, permissions, last status, history, pause/delete.
 
 ---
@@ -327,16 +339,16 @@ User-adjustable structured prefs: length, style, proactivity, risk appetite, adv
 
 ## 9. Privacy and safety floor
 
-1. No private data upload without user awareness.  
-2. No default use of long-term memory for model training.  
-3. No plaintext secrets in logs.  
-4. Credentials not exposed raw to the model.  
-5. Device-level keys not synced by default.  
-6. Plugins cannot bypass the unified permission system.  
-7. Agents cannot hide external actions already taken.  
-8. No send/pay/publish/delete without clear authority.  
-9. Deletes state scope and residual backup policy clearly.  
-10. Full export and exit must be possible.  
+1. No private data upload without user awareness.
+2. No default use of long-term memory for model training.
+3. No plaintext secrets in logs.
+4. Credentials not exposed raw to the model.
+5. Device-level keys not synced by default.
+6. Plugins cannot bypass the unified permission system.
+7. Agents cannot hide external actions already taken.
+8. No send/pay/publish/delete without clear authority.
+9. Deletes state scope and residual backup policy clearly.
+10. Full export and exit must be possible.
 
 High-risk actions use deterministic policy and tool constraints—not model politeness alone.
 
@@ -362,8 +374,8 @@ See [docs/OPEN_DEVELOPMENT.md](./docs/OPEN_DEVELOPMENT.md) for what we publish a
 
 Not trying to be: multi-tenant enterprise agent platform; large-scale agent cluster scheduler; a new foundation model; a full OS; a social network; avatar/VTuber platform; dependency-driven companion bot; default full device control; universal low-code SaaS replacement; a thin chat skin for one vendor.
 
-Multi-agent tech is fine; showing many agents is not the goal.  
-Cloud run is fine; cloud-hosted is not the center.  
+Multi-agent tech is fine; showing many agents is not the goal.
+Cloud run is fine; cloud-hosted is not the center.
 Companionship is fine; addictive dependence is not.
 
 ---
@@ -389,14 +401,18 @@ The MVP is the **agent console**: dispatch, watch, and approve external agent ta
 ```text
 P1  Adapters | dispatch | watch | approve | audit | LAN access
 P2  Remote ladder | cost stats | push notifications | more adapters | CLI polish
-P3  Governed memory + profile (the v2 story) | native mobile app | long-lived routines | auto routing | sub-agents
+P2b Artifacts library P0 (capture, local store, reader, source-task link)
+    Artifacts companion P1 (sidebar, doc-scoped thread, tags/search)
+    (see docs/TODO.md · ADR 0003)
+P3  Governed memory + profile (v2; may extract from Artifacts) | native mobile app | long-lived routines | auto routing | sub-agents
 ```
 
 First version serves the creators. Live in it before expanding.
 
-When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map.
+When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map. Artifacts land before full Wiki/Memory because “keep deliverables readable across devices with session provenance” is a sharper pain and does not require full memory governance first.
 
 *Revised 2026-07: the console ships before conversation/memory. Conversation already happens inside the agents Kin supervises; the unmet need is cross-agent supervision without a vendor in the middle. Governed memory remains the v2 differentiator.*
+*Revised 2026-07-17: explicit near-term Artifacts theme (library + reader/companion) between console polish and Remember; do not conflate Artifacts with Memory.*
 
 ---
 
@@ -404,8 +420,8 @@ When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map.
 
 Platform-neutral core from day one; clients by real value.
 
-**Phase 1 — Desktop daemon + console:** wrap agents; watch and approve locally and on the LAN.  
-**Phase 2 — Remote reach:** the access ladder (tailnet / Funnel), phone web console, push notifications.  
+**Phase 1 — Desktop daemon + console:** wrap agents; watch and approve locally and on the LAN.
+**Phase 2 — Remote reach:** the access ladder (tailnet / Funnel), phone web console, push notifications.
 **Phase 3 — Native companion & deeper multi-device:** a native mobile client on the same API; identity and memory continuing across devices under explicit authority (v2).
 
 ---
@@ -414,12 +430,12 @@ Platform-neutral core from day one; clients by real value.
 
 Every major feature/architecture answers:
 
-- **Ownership:** vendor lock-in? export/migrate? works without official servers?  
-- **Continuity:** works after model change? same Kin after device change? upgrade keeps history?  
-- **Simplicity:** must users understand it? hideable by defaults? harming primary UX for niche power?  
-- **Explainability:** why this action? what info used? can wrong state be fixed?  
-- **Safety:** worst failure? undo? least privilege? unnecessary data to the model?  
-- **Openness:** third-party replaceable parts? clear specs? hidden private deps?  
+- **Ownership:** vendor lock-in? export/migrate? works without official servers?
+- **Continuity:** works after model change? same Kin after device change? upgrade keeps history?
+- **Simplicity:** must users understand it? hideable by defaults? harming primary UX for niche power?
+- **Explainability:** why this action? what info used? can wrong state be fixed?
+- **Safety:** worst failure? undo? least privilege? unnecessary data to the model?
+- **Openness:** third-party replaceable parts? clear specs? hidden private deps?
 
 Violate several → does not enter Kin Core.
 
@@ -429,15 +445,16 @@ Violate several → does not enter Kin Core.
 
 Not only downloads, messages, or tokens.
 
-- Real work, sustained use  
-- Model switch without rebuilding personal context  
-- Habits becoming skills/routines  
-- Less re-explaining after memory  
-- Declining memory correction rate over time  
-- Tool success and recovery after failure  
-- Users understand execution traces  
-- Long-term use without official cloud  
-- Community providers/tools/skills/clients  
+- Real work, sustained use
+- Model switch without rebuilding personal context
+- Habits becoming skills/routines
+- Less re-explaining after memory
+- Declining memory correction rate over time
+- Study materials / long-form agent outputs stay out of the Downloads folder, remain readable multi-device, and keep a link to the source session
+- Tool success and recovery after failure
+- Users understand execution traces
+- Long-term use without official cloud
+- Community providers/tools/skills/clients
 
 Ultimate check:
 
@@ -461,11 +478,11 @@ Repo blurb:
 
 ## 17. Manifesto
 
-Kin does not belong to a model.  
-Kin does not belong to a cloud.  
-Kin does not restart because the device changed.  
-Kin does not form uncorrectable memory out of sight.  
-Kin does not confuse more permission with more intelligence.  
+Kin does not belong to a model.
+Kin does not belong to a cloud.
+Kin does not restart because the device changed.
+Kin does not form uncorrectable memory out of sight.
+Kin does not confuse more permission with more intelligence.
 Kin may know the user better over time; the user keeps interpretation, correction, and final say.
 
 Kin’s value is not seeming human—it is being a long-term, reliable, controllable part of the user’s capability.
