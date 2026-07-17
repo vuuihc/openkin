@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/provider"
@@ -65,7 +66,8 @@ func runAgentLoop(
 		// No proactive prune: digests are final at append (Policy C + K).
 
 		promptChars := estimateMessagesChars(messages)
-		resp, err := client.Chat(ctx, provider.ChatRequest{
+		chatCtx := withProviderRetryHints(ctx, ch)
+		resp, err := client.Chat(chatCtx, provider.ChatRequest{
 			Model:      model,
 			Messages:   messages,
 			Tools:      tools,
@@ -213,7 +215,8 @@ func runChatOnly(
 		{Role: provider.RoleUser, Content: userPrompt},
 	}
 	promptChars := estimateMessagesChars(msgs)
-	resp, err := client.Chat(ctx, provider.ChatRequest{
+	chatCtx := withProviderRetryHints(ctx, ch)
+	resp, err := client.Chat(chatCtx, provider.ChatRequest{
 		Model:    model,
 		Messages: msgs,
 	})
@@ -231,17 +234,108 @@ func runChatOnly(
 	emitResult(ch, false, firstNonEmpty(resp.Model, model), resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.CachedTokens)
 }
 
+// withProviderRetryHints surfaces transient provider reconnect attempts in the chat UI.
+func withProviderRetryHints(ctx context.Context, ch chan<- adapter.Event) context.Context {
+	return provider.WithRetryNotify(ctx, func(attempt, max int, wait time.Duration, err error) {
+		reason := "temporary error"
+		if err != nil {
+			reason = summarizeProviderRetryReason(err)
+		}
+		emitMsg(ch, "kin", fmt.Sprintf(
+			"_Provider %s — reconnecting %d/%d in %s…_",
+			reason, attempt, max, wait.Round(time.Millisecond),
+		))
+	})
+}
+
+func summarizeProviderRetryReason(err error) string {
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "http 524"):
+		return "gateway timeout (HTTP 524)"
+	case strings.Contains(s, "http 504"):
+		return "gateway timeout (HTTP 504)"
+	case strings.Contains(s, "http 503"):
+		return "service unavailable (HTTP 503)"
+	case strings.Contains(s, "http 502"):
+		return "bad gateway (HTTP 502)"
+	case strings.Contains(s, "http 429"):
+		return "rate limited (HTTP 429)"
+	case strings.Contains(s, "http 500"):
+		return "upstream error (HTTP 500)"
+	case strings.Contains(s, "timeout"):
+		return "timeout"
+	case strings.Contains(s, "connection reset"):
+		return "connection reset"
+	case strings.Contains(s, "connection refused"):
+		return "connection refused"
+	default:
+		// Keep short for chat noise control.
+		msg := err.Error()
+		if len(msg) > 120 {
+			msg = msg[:120] + "…"
+		}
+		return msg
+	}
+}
+
 func looksLikeToolsUnsupported(err error) bool {
 	if err == nil {
 		return false
 	}
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "tool") &&
-		(strings.Contains(s, "not support") ||
-			strings.Contains(s, "unsupported") ||
-			strings.Contains(s, "unknown") ||
-			strings.Contains(s, "invalid") ||
-			strings.Contains(s, "400"))
+	// Transport / gateway / parse failures are not "tools unsupported".
+	// Also: provider URLs like aipool.aitoolbox.fyi contain the substring "tool",
+	// so never match on bare "tool" + "invalid" (JSON decode errors).
+	for _, k := range []string{
+		"http 5", // 5xx incl. Cloudflare 52x
+		"timeout", "timed out", "deadline exceeded",
+		"connection reset", "connection refused", "no such host",
+		"decode ", "looking for beginning of value",
+		"tls:", "x509:", "i/o timeout",
+		"failed after", "reconnecting", "gateway timeout",
+		"bad gateway", "service unavailable", "rate limited",
+	} {
+		if strings.Contains(s, k) {
+			return false
+		}
+	}
+	// Prefer explicit phrases over loose substring pairs.
+	phrases := []string{
+		"tools are not supported",
+		"tool use is not supported",
+		"tool calling is not supported",
+		"tool_calls is not supported",
+		"does not support tools",
+		"does not support tool",
+		"does not support function",
+		"unsupported tool",
+		"unknown tool",
+		"invalid tools",
+		"invalid tool",
+		"tools parameter is not supported",
+		"tool_choice is not supported",
+		"function calling is not supported",
+		"functions are not supported",
+		"unknown field \"tools\"",
+		"unknown field 'tools'",
+		"unexpected field \"tools\"",
+		"unexpected argument \"tools\"",
+	}
+	for _, p := range phrases {
+		if strings.Contains(s, p) {
+			return true
+		}
+	}
+	// 400 + tools/function wording + clear rejection.
+	if strings.Contains(s, "400") &&
+		(strings.Contains(s, "tools") || strings.Contains(s, "tool_choice") || strings.Contains(s, "function")) &&
+		(strings.Contains(s, "not support") || strings.Contains(s, "unsupported") ||
+			strings.Contains(s, "unknown") || strings.Contains(s, "unexpected") ||
+			strings.Contains(s, "invalid")) {
+		return true
+	}
+	return false
 }
 
 func aborted(ctx context.Context, cancel <-chan struct{}) bool {
