@@ -46,6 +46,10 @@ data/local/
 .kin/
 .claude/
 .cursor/
+.playwright-mcp/
+
+# Repository-local temporary build caches
+.tmp/
 
 # Maintainer working notes (not for public tree)
 docs/working/
