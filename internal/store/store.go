@@ -395,6 +395,76 @@ func (s *Store) ListEvents(ctx context.Context, taskID string, sinceSeq int) ([]
 	return out, nil
 }
 
+// TruncateEventsFrom deletes events with seq >= fromSeq for a task.
+// Used by retry (drop a turn and re-run) and similar rewinds.
+func (s *Store) TruncateEventsFrom(ctx context.Context, taskID string, fromSeq int) error {
+	if fromSeq < 1 {
+		return fmt.Errorf("fromSeq must be >= 1")
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE task_id = ? AND seq >= ?`, taskID, fromSeq)
+	if err != nil {
+		return fmt.Errorf("truncate events: %w", err)
+	}
+	return nil
+}
+
+// CopyEventsToTask copies events with seq <= maxSeq from src to dst, renumbering from 1.
+// Returns the number of events copied.
+func (s *Store) CopyEventsToTask(ctx context.Context, srcID, dstID string, maxSeq int) (int, error) {
+	if maxSeq < 1 {
+		return 0, fmt.Errorf("maxSeq must be >= 1")
+	}
+	// Load fully first so we do not hold a query connection open across BeginTx
+	// (SQLite single-connection pools would otherwise deadlock).
+	type row struct {
+		ts      int64
+		typ     string
+		payload string
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ts, type, payload
+		FROM events
+		WHERE task_id = ? AND seq <= ?
+		ORDER BY seq ASC`, srcID, maxSeq)
+	if err != nil {
+		return 0, fmt.Errorf("list events for copy: %w", err)
+	}
+	var batch []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.ts, &r.typ, &r.payload); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan event for copy: %w", err)
+		}
+		batch = append(batch, r)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin copy events: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	for i, r := range batch {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO events (task_id, seq, ts, type, payload)
+			VALUES (?, ?, ?, ?, ?)`,
+			dstID, i+1, r.ts, r.typ, r.payload,
+		); err != nil {
+			return 0, fmt.Errorf("insert copied event: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit copy events: %w", err)
+	}
+	return len(batch), nil
+}
+
 // FailOrphaned marks queued/running tasks as failed after a daemon restart.
 // Returns the IDs that were failed so the caller can append error events.
 func (s *Store) FailOrphaned(ctx context.Context) ([]string, error) {
@@ -484,12 +554,12 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 
 // UsageRow is one day × agent aggregate for GET /api/usage/summary (M4).
 type UsageRow struct {
-	Date       string   `json:"date"` // YYYY-MM-DD (UTC)
-	Agent      string   `json:"agent"`
-	Tasks      int      `json:"tasks"`
-	TokensIn   int64    `json:"tokens_in"`
-	TokensOut  int64    `json:"tokens_out"`
-	CostUSD    *float64 `json:"cost_usd"` // nil if all costs null
+	Date      string   `json:"date"` // YYYY-MM-DD (UTC)
+	Agent     string   `json:"agent"`
+	Tasks     int      `json:"tasks"`
+	TokensIn  int64    `json:"tokens_in"`
+	TokensOut int64    `json:"tokens_out"`
+	CostUSD   *float64 `json:"cost_usd"` // nil if all costs null
 }
 
 // UsageSummary returns per-day, per-agent aggregates over the last `days` days (UTC).

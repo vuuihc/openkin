@@ -598,9 +598,401 @@ func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Ta
 	}
 }
 
+// RetryRequest is the body for POST /api/tasks/{id}/retry.
+// FromSeq may be a user message or an assistant reply; the engine rewinds to the
+// nearest user turn at or before FromSeq and re-runs from there.
+// When FromSeq is 0, the last user turn is used.
+type RetryRequest struct {
+	FromSeq int `json:"from_seq,omitempty"`
+}
+
+// ForkRequest is the body for POST /api/tasks/{id}/fork.
+// FromSeq is the last event seq to keep (inclusive) — typically an assistant reply
+// so the branch includes that answer and everything before it. When 0, copies the full transcript.
+// Prompt optional: when set, appends a new user message and runs it on the forked task.
+type ForkRequest struct {
+	FromSeq int    `json:"from_seq,omitempty"`
+	Prompt  string `json:"prompt,omitempty"`
+	Agent   string `json:"agent,omitempty"`
+}
+
+// ErrNotTerminal is returned when retry/fork requires a finished task.
+var ErrNotTerminal = errors.New("task is not terminal")
+
+// ErrInvalidSeq is returned when from_seq does not point at a usable user turn.
+var ErrInvalidSeq = errors.New("invalid from_seq")
+
+// Retry rewinds a terminal task to a user turn and re-runs from there (same task id).
+// Events with seq >= fromSeq are dropped; the user message is re-seeded and the task re-queued.
+func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.Task, error) {
+	t, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if !isTerminalStatus(t.Status) {
+		return store.Task{}, ErrNotTerminal
+	}
+
+	evs, err := e.store.ListEvents(ctx, id, 0)
+	if err != nil {
+		return store.Task{}, err
+	}
+	fromSeq, userText, err := resolveUserTurn(evs, req.FromSeq, t.Prompt)
+	if err != nil {
+		return store.Task{}, err
+	}
+
+	// Capture prior context BEFORE truncate (events with seq < fromSeq).
+	priorCtx := e.handoffContextUpTo(ctx, id, fromSeq-1)
+
+	// Drop events from the chosen user message onward.
+	if err := e.store.TruncateEventsFrom(ctx, id, fromSeq); err != nil {
+		return store.Task{}, err
+	}
+
+	// Best-effort: drop durable kin transcript so the next turn rebuilds from remaining events / handoff context.
+	_ = e.store.ClearKinMessages(ctx, id)
+
+	// Re-seed the user message (same text) for the UI timeline.
+	userPayload, _ := json.Marshal(map[string]any{
+		"role":           "user",
+		"content":        []map[string]string{{"type": "text", "text": userText}},
+		"partial":        false,
+		"agent":          "user",
+		"speaker":        "user",
+		"source":         "retry",
+		"retry_from_seq": fromSeq,
+	})
+	if ev, err := e.store.AppendEvent(ctx, id, "message", userPayload); err == nil {
+		e.bus.PublishEvent(ev)
+	}
+
+	// Build run prompt: inject prior transcript when rewinding past the first turn
+	// (mirrors applyFollowUpPrepared needContext path).
+	runPrompt := userText
+	if priorCtx != "" {
+		runPrompt = priorCtx + "\n\n---\n\n" + userText
+	}
+
+	// Clear session so CLI agents do not resume past the rewind point.
+	status := StatusQueued
+	patch := store.TaskPatch{
+		Status:          &status,
+		Prompt:          &runPrompt,
+		ClearExitCode:   true,
+		ClearFinishedAt: true,
+		ClearSessionRef: true,
+	}
+	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
+		return store.Task{}, err
+	}
+	t, err = e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	e.bus.PublishTask(t)
+
+	e.mu.Lock()
+	e.queue = append(e.queue, id)
+	e.mu.Unlock()
+	e.pump()
+
+	return e.store.GetTask(ctx, id)
+}
+
+// Fork creates a new task that shares the transcript prefix up to fromSeq, then optionally continues with prompt.
+func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Task, error) {
+	src, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	// Fork is allowed while running (branch from a past point) or terminal.
+	// We only copy events; we never mutate the source task.
+
+	evs, err := e.store.ListEvents(ctx, id, 0)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if len(evs) == 0 {
+		return store.Task{}, ErrInvalidSeq
+	}
+
+	maxSeq := req.FromSeq
+	if maxSeq <= 0 {
+		// Default: last event (full branch) — or last user message if we want branch-from-message UX.
+		// Prefer last user message so forking from the latest prompt is natural.
+		_, _, err := resolveUserTurn(evs, 0, src.Prompt)
+		if err != nil {
+			maxSeq = evs[len(evs)-1].Seq
+		} else {
+			// resolveUserTurn returns the user msg seq; for fork we keep through that user msg only
+			// when branching "from this message" — caller should pass the user message seq.
+			// Default when 0: copy everything.
+			maxSeq = evs[len(evs)-1].Seq
+		}
+	}
+
+	// Validate maxSeq exists.
+	found := false
+	for _, ev := range evs {
+		if ev.Seq == maxSeq {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return store.Task{}, ErrInvalidSeq
+	}
+
+	newID, err := e.newID()
+	if err != nil {
+		return store.Task{}, err
+	}
+
+	agent := src.Agent
+	if a := strings.TrimSpace(req.Agent); a != "" {
+		if !e.HasAgent(a) {
+			return store.Task{}, fmt.Errorf("unknown agent %q", a)
+		}
+		agent = a
+	}
+
+	// Prompt for the new task: optional new prompt, else last user text in the prefix.
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		if _, userText, err := resolveUserTurn(evs, 0, src.Prompt); err == nil {
+			// Prefer last user message that is within the prefix.
+			if ut, ok := lastUserTextUpTo(evs, maxSeq); ok {
+				prompt = ut
+			} else {
+				prompt = userText
+			}
+		} else if ut, ok := lastUserTextUpTo(evs, maxSeq); ok {
+			prompt = ut
+		} else {
+			prompt = src.Prompt
+		}
+	}
+
+	title := TruncateTitle(src.Title, TitleMaxRunes)
+	if title == "" {
+		title = TruncateTitle(prompt, TitleMaxRunes)
+	}
+	// Mark forked sessions in title lightly if not already.
+	if !strings.HasPrefix(title, "Fork · ") && !strings.HasPrefix(title, "Fork: ") {
+		title = TruncateTitle("Fork · "+title, TitleMaxRunes)
+	}
+
+	now := e.nowMilli()
+	// If caller supplied a new prompt, we will append it and queue; otherwise leave as succeeded snapshot?
+	// Product: fork always creates a branch ready to continue. If prompt provided → queue; else → succeeded copy for browsing + follow-up.
+	status := StatusSucceeded
+	runNow := strings.TrimSpace(req.Prompt) != ""
+	if runNow {
+		status = StatusQueued
+	}
+
+	dst := store.Task{
+		ID:             newID,
+		Title:          title,
+		Agent:          agent,
+		Cwd:            src.Cwd,
+		Prompt:         prompt,
+		Model:          src.Model,
+		PermissionMode: src.PermissionMode,
+		Status:         status,
+		CreatedAt:      now,
+	}
+	if status == StatusSucceeded {
+		dst.FinishedAt = &now
+	}
+	// Context from source prefix (before copy); dst seqs are renumbered.
+	priorCtx := e.handoffContextUpTo(ctx, id, maxSeq)
+
+	if err := e.store.InsertTask(ctx, dst); err != nil {
+		return store.Task{}, err
+	}
+
+	if _, err := e.store.CopyEventsToTask(ctx, id, newID, maxSeq); err != nil {
+		return store.Task{}, err
+	}
+
+	// Optional new user turn on top of the prefix.
+	if runNow {
+		userPayload, _ := json.Marshal(map[string]any{
+			"role":          "user",
+			"content":       []map[string]string{{"type": "text", "text": prompt}},
+			"partial":       false,
+			"agent":         "user",
+			"speaker":       "user",
+			"source":        "fork",
+			"forked_from":   id,
+			"fork_from_seq": maxSeq,
+		})
+		if ev, err := e.store.AppendEvent(ctx, newID, "message", userPayload); err == nil {
+			e.bus.PublishEvent(ev)
+		}
+		runPrompt := prompt
+		if priorCtx != "" {
+			runPrompt = priorCtx + "\n\n---\n\n" + prompt
+		}
+		if err := e.store.UpdateTask(ctx, newID, store.TaskPatch{Prompt: &runPrompt}); err != nil {
+			return store.Task{}, err
+		}
+	} else {
+		// Annotate fork origin as meta so UI can show lineage if desired.
+		meta, _ := json.Marshal(map[string]any{
+			"message":       "forked from " + id,
+			"forked_from":   id,
+			"fork_from_seq": maxSeq,
+		})
+		if ev, err := e.store.AppendEvent(ctx, newID, "meta", meta); err == nil {
+			e.bus.PublishEvent(ev)
+		}
+	}
+
+	t, err := e.store.GetTask(ctx, newID)
+	if err != nil {
+		return store.Task{}, err
+	}
+	e.bus.PublishTask(t)
+
+	if runNow {
+		e.mu.Lock()
+		e.queue = append(e.queue, newID)
+		e.mu.Unlock()
+		e.pump()
+		return e.store.GetTask(ctx, newID)
+	}
+	return t, nil
+}
+
+func isTerminalStatus(status string) bool {
+	switch status {
+	case StatusSucceeded, StatusFailed, StatusCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveUserTurn finds the user message event to retry from.
+// fromSeq 0 → last user message; otherwise must be a user message seq (or we walk back to nearest user ≤ fromSeq).
+func resolveUserTurn(evs []store.Event, fromSeq int, fallbackPrompt string) (seq int, text string, err error) {
+	type hit struct {
+		seq  int
+		text string
+	}
+	var users []hit
+	for _, ev := range evs {
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal(ev.Payload, &m) != nil {
+			continue
+		}
+		role, _ := m["role"].(string)
+		speaker, _ := m["speaker"].(string)
+		if role != "user" && speaker != "user" {
+			continue
+		}
+		tx := extractMessageText(m)
+		if tx == "" {
+			continue
+		}
+		users = append(users, hit{seq: ev.Seq, text: tx})
+	}
+	if len(users) == 0 {
+		// No user events — use fallback prompt as synthetic turn at seq 1 if any events exist.
+		if strings.TrimSpace(fallbackPrompt) == "" {
+			return 0, "", ErrInvalidSeq
+		}
+		if fromSeq > 0 {
+			return fromSeq, fallbackPrompt, nil
+		}
+		// Retry whole task from the beginning: drop all events (from seq 1).
+		return 1, fallbackPrompt, nil
+	}
+	if fromSeq <= 0 {
+		u := users[len(users)-1]
+		return u.seq, u.text, nil
+	}
+	// Exact match preferred.
+	for i := len(users) - 1; i >= 0; i-- {
+		if users[i].seq == fromSeq {
+			return users[i].seq, users[i].text, nil
+		}
+	}
+	// Allow fromSeq pointing into an assistant turn: rewind to nearest user at or before fromSeq.
+	for i := len(users) - 1; i >= 0; i-- {
+		if users[i].seq <= fromSeq {
+			return users[i].seq, users[i].text, nil
+		}
+	}
+	return 0, "", ErrInvalidSeq
+}
+
+func lastUserTextUpTo(evs []store.Event, maxSeq int) (string, bool) {
+	for i := len(evs) - 1; i >= 0; i-- {
+		ev := evs[i]
+		if ev.Seq > maxSeq || ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal(ev.Payload, &m) != nil {
+			continue
+		}
+		role, _ := m["role"].(string)
+		speaker, _ := m["speaker"].(string)
+		if role != "user" && speaker != "user" {
+			continue
+		}
+		tx := extractMessageText(m)
+		if tx != "" {
+			return tx, true
+		}
+	}
+	return "", false
+}
+
 // handoffContext builds a short transcript excerpt for cross-agent (or no-session) continues.
 // Packing is newest-first (see sessionctx.BuildPack / ADR 0002) so adjacent recent turns
 // are not dropped when older verbose lines exhaust the char budget.
+// handoffContextUpTo is like handoffContext but only considers events with seq <= maxSeq.
+// maxSeq < 1 means no prior events.
+func (e *Engine) handoffContextUpTo(ctx context.Context, taskID string, maxSeq int) string {
+	if maxSeq < 1 {
+		return ""
+	}
+	evs, err := e.store.ListEvents(ctx, taskID, 0)
+	if err != nil || len(evs) == 0 {
+		return ""
+	}
+	var lines []sessionctx.Line
+	for _, ev := range evs {
+		if ev.Seq > maxSeq {
+			continue
+		}
+		switch ev.Type {
+		case "message", "error":
+		default:
+			continue
+		}
+		s := summarizeEvent(ev)
+		if s == "" {
+			continue
+		}
+		lines = append(lines, sessionctx.Line{Text: s, Seq: ev.Seq})
+	}
+	pack := sessionctx.BuildSealedPack(lines, sessionctx.PackOptions{
+		MaxChars:     sessionctx.DefaultMaxChars,
+		MaxLines:     sessionctx.DefaultMaxLines,
+		LineMaxChars: sessionctx.DefaultLineMaxChars,
+	}, "")
+	return pack.Render()
+}
+
 func (e *Engine) handoffContext(ctx context.Context, taskID string) string {
 	evs, err := e.store.ListEvents(ctx, taskID, 0)
 	if err != nil || len(evs) == 0 {

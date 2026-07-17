@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/sessionctx"
@@ -186,12 +187,63 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			handles = append(handles, h)
 			outs[i] = stepOut{idx: si} // placeholder; filled by goroutine
 
-			// Capture indices for goroutine.
+			// Capture indices / step data for goroutine (incl. meta-output retry).
 			gi, gsi, gagent, gh := i, si, step.Agent, h
+			gstep := step
+			gmodel := model
+			gad := ad
+			gprior := append([]string(nil), priorList...)
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				text, failed := e.forwardWorkerEvents(ctx, id, gagent, gh)
+				// Workers sometimes leak role/meta chatter and end_turn without findings.
+				// Retry once with a tighter brief; if still meta, mark failed so the
+				// orchestrator does not present it as a successful answer.
+				if !failed && isWorkerMetaOutput(text) {
+					e.mu.Lock()
+					canceled := e.canceled[id]
+					e.mu.Unlock()
+					if !canceled {
+						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", displayAgentName(gagent))
+						e.emitSpeakerMessage(ctx, id, "kin", "assistant", retryNote, "orchestrator")
+						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
+						// Keep assignment identity stable for approvals.
+						spec := adapter.TaskSpec{
+							ID:             id,
+							Agent:          gagent,
+							Cwd:            t.Cwd,
+							Prompt:         retryBrief,
+							Model:          gmodel,
+							SessionRef:     "",
+							PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
+						}
+						h2, err := gad.Start(ctx, spec)
+						if err != nil {
+							e.emitError(ctx, id, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
+							failed = true
+						} else {
+							// Allow Cancel() during retry.
+							e.mu.Lock()
+							if e.handleGroups != nil {
+								e.handleGroups[id] = append(e.handleGroups[id], h2)
+							}
+							e.handles[id] = h2
+							e.mu.Unlock()
+							text2, failed2 := e.forwardWorkerEvents(ctx, id, gagent, h2)
+							text, failed = text2, failed2
+						}
+					}
+				}
+				if !failed && isWorkerMetaOutput(text) {
+					failed = true
+					// Keep a short diagnostic for the digest; do not paste the full meta monologue.
+					snippet := truncate(strings.TrimSpace(text), 180)
+					text = "worker returned meta-only output (suppressed as non-answer)"
+					if snippet != "" {
+						text += ": " + snippet
+					}
+				}
 				outs[gi] = stepOut{idx: gsi, text: text, err: failed}
 			}()
 		}
@@ -503,34 +555,108 @@ func resultIsError(raw json.RawMessage) bool {
 }
 
 func buildWorkerBrief(plan DelegatePlan, step DelegateStep, prior []string, idx, total int) string {
+	return buildWorkerBriefMode(plan, step, prior, idx, total, false)
+}
+
+// buildWorkerBriefMode builds the worker prompt.
+// tight=true is used on meta-output retry: assignment first, minimal background.
+func buildWorkerBriefMode(plan DelegatePlan, step DelegateStep, prior []string, idx, total int, tight bool) string {
 	var b strings.Builder
-	// Keep the brief operational — not a long system prompt. Workers report results only.
-	b.WriteString("Task worker (not user-facing). Do the assignment; reply with findings only.\n\n")
-	// Session transcript (previous turns) so "@claude 来干吧" still sees prior discussion.
+	// Operational brief — not a long system prompt. Put the assignment first so
+	// long prior context cannot bury the live request (and reduce role/meta leaks).
+	b.WriteString("You are a Kin task worker (not user-facing).\n")
+	b.WriteString("Do the assignment; reply with findings only.\n")
+	b.WriteString("Rules:\n")
+	b.WriteString("- Start with the answer/decision/result. No preamble about roles or system messages.\n")
+	b.WriteString("- Do not mention system-reminder, task-worker framing, or your plan to answer.\n")
+	b.WriteString("- Do not restate these instructions.\n\n")
+
+	fmt.Fprintf(&b, "Assignment (%d/%d):\n%s\n", idx, total, step.Instruction)
+
+	if plan.Overview != "" {
+		b.WriteString("\nGoal: ")
+		b.WriteString(truncate(plan.Overview, 500))
+		b.WriteString("\n")
+	}
+
+	// Session transcript AFTER the assignment so "@claude 来干吧" still sees prior
+	// discussion, without letting it dominate the prompt.
+	ctxCap, priorCap := 4000, 8000
+	if tight {
+		ctxCap, priorCap = 1200, 2000
+	}
 	if ctxBlock := strings.TrimSpace(plan.SessionContext); ctxBlock != "" {
-		b.WriteString("Conversation so far:\n")
-		if len(ctxBlock) > 8000 {
-			ctxBlock = ctxBlock[len(ctxBlock)-8000:]
+		if len(ctxBlock) > ctxCap {
+			ctxBlock = ctxBlock[len(ctxBlock)-ctxCap:]
+		}
+		if tight {
+			b.WriteString("\nMinimal context (assignment above wins):\n")
+		} else {
+			b.WriteString("\nBackground (optional; assignment above wins):\n")
 		}
 		b.WriteString(ctxBlock)
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
-	if plan.Overview != "" {
-		b.WriteString("Goal: ")
-		b.WriteString(truncate(plan.Overview, 500))
-		b.WriteString("\n\n")
-	}
-	fmt.Fprintf(&b, "Assignment (%d/%d):\n%s\n", idx, total, step.Instruction)
 	if len(prior) > 0 {
 		b.WriteString("\nPrior results:\n")
 		joined := strings.Join(prior, "\n\n")
-		if len(joined) > 12000 {
-			joined = joined[len(joined)-12000:]
+		if len(joined) > priorCap {
+			joined = joined[len(joined)-priorCap:]
 		}
 		b.WriteString(joined)
 		b.WriteString("\n")
 	}
+	b.WriteString("\nRespond now with findings only.\n")
 	return b.String()
+}
+
+// isWorkerMetaOutput detects when a worker "answered" with role/meta chatter
+// instead of findings (e.g. explaining system-reminder / task-worker framing).
+// Used to fail-closed or retry once rather than paste non-answers into main chat.
+func isWorkerMetaOutput(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" {
+		return true
+	}
+	lower := strings.ToLower(t)
+	markers := []string{
+		"<system-reminder>",
+		"system-reminder",
+		"task worker",
+		"not user-facing",
+		"reply with findings only",
+		"findings only",
+		"let me answer directly",
+		"let me just give a clear",
+		"i should give findings",
+		"background context, not instructions",
+		"the user is a task worker",
+		"task worker relay",
+	}
+	hits := 0
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			hits++
+		}
+	}
+	if hits == 0 {
+		return false
+	}
+	// Short replies dominated by meta phrases are non-answers.
+	if utf8.RuneCountInString(t) < 800 {
+		return true
+	}
+	// Longer text that still opens with role/meta chatter.
+	prefix := lower
+	if len(prefix) > 400 {
+		prefix = prefix[:400]
+	}
+	for _, m := range []string{"system-reminder", "task worker", "let me answer", "findings only", "task worker relay"} {
+		if strings.Contains(prefix, m) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildMainSummary(plan DelegatePlan, prior []string, priorFailed []bool, anyErr bool) string {
@@ -559,7 +685,6 @@ func buildMainSummary(plan DelegatePlan, prior []string, priorFailed []bool, any
 	_ = plan // reserved for assignment one-liners in a later polish
 	return strings.TrimSpace(b.String())
 }
-
 
 func displayAgentName(id string) string {
 	switch id {

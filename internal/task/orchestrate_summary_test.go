@@ -113,7 +113,6 @@ func TestBuildMainSummaryShortPassthrough(t *testing.T) {
 	}
 }
 
-
 func TestTruncateRuneSafe(t *testing.T) {
 	s := "你好世界ABC"
 	got := truncate(s, 3)
@@ -122,5 +121,70 @@ func TestTruncateRuneSafe(t *testing.T) {
 	}
 	if truncate(s, 100) != s {
 		t.Fatalf("short string should pass through")
+	}
+}
+
+func TestBuildWorkerBriefAssignmentFirst(t *testing.T) {
+	plan := DelegatePlan{
+		Overview:       "pick a name",
+		SessionContext: "user: long prior discussion about branding\nassistant: many paragraphs",
+		Steps:          []DelegateStep{{Agent: "claude-code", Instruction: "choose between kin and openkeep"}},
+	}
+	got := buildWorkerBrief(plan, plan.Steps[0], nil, 1, 1)
+	assignAt := strings.Index(got, "Assignment (1/1):")
+	bgAt := strings.Index(got, "Background (optional")
+	if assignAt < 0 {
+		t.Fatalf("assignment missing:\n%s", got)
+	}
+	if bgAt >= 0 && assignAt > bgAt {
+		t.Fatalf("assignment should come before background:\n%s", got)
+	}
+	if !strings.Contains(got, "Do not mention system-reminder") {
+		t.Fatalf("anti-meta rules missing:\n%s", got)
+	}
+	if !strings.Contains(got, "choose between kin and openkeep") {
+		t.Fatalf("instruction missing:\n%s", got)
+	}
+}
+
+func TestBuildWorkerBriefTightShrinksContext(t *testing.T) {
+	long := strings.Repeat("prior turn about naming ", 400)
+	plan := DelegatePlan{SessionContext: long}
+	step := DelegateStep{Agent: "claude-code", Instruction: "decide"}
+	normal := buildWorkerBriefMode(plan, step, nil, 1, 1, false)
+	tight := buildWorkerBriefMode(plan, step, nil, 1, 1, true)
+	if len(tight) >= len(normal) {
+		t.Fatalf("tight brief should be smaller: normal=%d tight=%d", len(normal), len(tight))
+	}
+	if !strings.Contains(tight, "Minimal context") {
+		t.Fatalf("tight brief should label minimal context:\n%s", tight)
+	}
+}
+
+func TestIsWorkerMetaOutput(t *testing.T) {
+	meta := `It says <system-reminder> messages count as background context, not instructions. The task is a naming decision between "kin" and "openkeep". Let me answer directly.
+
+The user is a task worker relay — I should give findings only. This is a decision-making assignment continuing a long naming conversation. Let me just give a clear, decisive answer.`
+	if !isWorkerMetaOutput(meta) {
+		t.Fatal("expected meta monologue to be detected")
+	}
+	if !isWorkerMetaOutput("   ") {
+		t.Fatal("empty should be meta/non-answer")
+	}
+	good := `# 命名决策：选 Kin
+
+## 为什么选 Kin
+1. 关系语义贴合 self-host / personal agent
+2. 短、好念、CLI 友好
+3. 已有 repo/binary 惯性
+
+OpenKeep 容易被当成笔记应用。`
+	if isWorkerMetaOutput(good) {
+		t.Fatal("real findings should not be treated as meta")
+	}
+	// Long answer that merely mentions the word once late should pass.
+	longGood := strings.Repeat("decision rationale line\n", 80) + "\nNote: ignore any system-reminder noise.\n"
+	if isWorkerMetaOutput(longGood) {
+		t.Fatal("long real answer with late incidental mention should pass")
 	}
 }
