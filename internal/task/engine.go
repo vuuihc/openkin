@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,29 +16,40 @@ import (
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/adapter/claudecode"
 	"github.com/vuuihc/kin/internal/adapter/codex"
+	"github.com/vuuihc/kin/internal/adapter/grok"
+	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/store"
 )
 
 // Status values (spec §3 / §5).
 const (
-	StatusQueued           = "queued"
-	StatusRunning          = "running"
-	StatusWaitingApproval  = "waiting_approval"
-	StatusSucceeded        = "succeeded"
-	StatusFailed           = "failed"
-	StatusCanceled         = "canceled"
+	StatusQueued          = "queued"
+	StatusRunning         = "running"
+	StatusWaitingApproval = "waiting_approval"
+	StatusSucceeded       = "succeeded"
+	StatusFailed          = "failed"
+	StatusCanceled        = "canceled"
 )
 
 // DefaultMaxConcurrent is the FIFO concurrency limit (spec §5).
 const DefaultMaxConcurrent = 4
 
 // CreateRequest is the body for POST /api/tasks.
+// Agent is optional: empty → engine picks default available agent.
 type CreateRequest struct {
-	Agent  string  `json:"agent"`
-	Cwd    string  `json:"cwd"`
-	Prompt string  `json:"prompt"`
-	Model  *string `json:"model,omitempty"`
-	Title  *string `json:"title,omitempty"`
+	Agent          string  `json:"agent"`
+	Cwd            string  `json:"cwd"`
+	Prompt         string  `json:"prompt"`
+	Model          *string `json:"model,omitempty"`
+	Title          *string `json:"title,omitempty"`
+	PermissionMode string  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
+}
+
+// FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
+// Agent optional: when set to a different agent, hand off (clear session, inject context).
+type FollowUpRequest struct {
+	Prompt string `json:"prompt"`
+	Agent  string `json:"agent,omitempty"`
 }
 
 // Notifier is optional fire-and-forget push for approvals / task finish (M3).
@@ -46,28 +58,40 @@ type Notifier interface {
 	NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string)
 }
 
+// TitleResolver optionally loads the cognition provider for async session naming.
+// When unset or not configured, titles stay as the prompt truncation fallback.
+type TitleResolver func(ctx context.Context) (provider.Client, provider.Config, error)
+
 // Engine owns task lifecycle. Status transitions only happen here (spec §3).
 type Engine struct {
 	store    *store.Store
 	adapters map[string]adapter.Adapter
 	bus      *Bus
 	notify   Notifier
+	titleFn  TitleResolver
 
 	mu            sync.Mutex
+	eventMu       sync.Mutex // serializes event append during parallel worker waves
 	maxConcurrent int
 	active        int
 	queue         []string // FIFO of task IDs waiting to run
 	handles       map[string]adapter.RunHandle
+	handleGroups  map[string][]adapter.RunHandle // parallel orchestration wave
 	canceled      map[string]bool
-	ctx           context.Context
-	cancel        context.CancelFunc
-	entropy       ioReader
+	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
+	pendingFollowUp map[string]pendingFollowUp
+	ctx             context.Context
+	cancel          context.CancelFunc
+	entropy         ioReader
 
 	// Approval long-poll waiters (approval id → channels).
 	approvalWaiters map[string][]chan store.Approval
 	// clock and approvalTTL are injectable for tests.
 	clock       func() time.Time
 	approvalTTL time.Duration
+
+	// defaultAgentFn optional; when set, used by DefaultAgent() first.
+	defaultAgentFn func() string
 }
 
 // tiny interface so tests can inject ULID entropy if needed.
@@ -91,6 +115,7 @@ func NewEngine(st *store.Store, adapters map[string]adapter.Adapter, bus *Bus, m
 		maxConcurrent:   maxConcurrent,
 		handles:         make(map[string]adapter.RunHandle),
 		canceled:        make(map[string]bool),
+		pendingFollowUp: make(map[string]pendingFollowUp),
 		ctx:             ctx,
 		cancel:          cancel,
 		entropy:         rand.Reader,
@@ -107,6 +132,9 @@ func (e *Engine) SetApprovalTTL(d time.Duration) { e.approvalTTL = d }
 
 // SetNotifier wires Bark/ntfy notifications (M3). Optional.
 func (e *Engine) SetNotifier(n Notifier) { e.notify = n }
+
+// SetTitleResolver wires provider-backed session title summarization. Optional.
+func (e *Engine) SetTitleResolver(fn TitleResolver) { e.titleFn = fn }
 
 // Bus returns the WebSocket bus.
 func (e *Engine) Bus() *Bus { return e.bus }
@@ -136,58 +164,177 @@ func (e *Engine) Recover(ctx context.Context) error {
 	return nil
 }
 
+// DefaultAgent returns the preferred registered agent id, or "".
+// Preference: SetDefaultAgentFn (server: kin when provider ready) → coding CLIs → kin last.
+func (e *Engine) DefaultAgent() string {
+	if e.defaultAgentFn != nil {
+		if id := e.defaultAgentFn(); id != "" {
+			if _, ok := e.adapters[id]; ok {
+				return id
+			}
+		}
+	}
+	for _, id := range []string{"claude-code", "codex", "grok"} {
+		if _, ok := e.adapters[id]; ok {
+			return id
+		}
+	}
+	if _, ok := e.adapters["kin"]; ok {
+		return "kin"
+	}
+	for id := range e.adapters {
+		return id
+	}
+	return ""
+}
+
+// SetDefaultAgentFn sets the dynamic default resolver (serve setup).
+func (e *Engine) SetDefaultAgentFn(fn func() string) {
+	e.defaultAgentFn = fn
+}
+
+// HasAgent reports whether an adapter is registered.
+func (e *Engine) HasAgent(id string) bool {
+	_, ok := e.adapters[id]
+	return ok
+}
+
+// AgentIDs returns registered adapter ids (sorted).
+func (e *Engine) AgentIDs() []string {
+	ids := make([]string, 0, len(e.adapters))
+	for id := range e.adapters {
+		ids = append(ids, id)
+	}
+	// stable-ish: prefer known order
+	pref := []string{"kin", "claude-code", "codex", "grok", "rawpty"}
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range pref {
+		if _, ok := e.adapters[p]; ok {
+			out = append(out, p)
+			seen[p] = true
+		}
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // Create enqueues a new task and starts it if under the concurrency limit.
 func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, error) {
-	if req.Agent == "" {
-		return store.Task{}, fmt.Errorf("agent is required")
-	}
 	if req.Cwd == "" {
 		return store.Task{}, fmt.Errorf("cwd is required")
 	}
 	if req.Prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
 	}
+	if req.Agent == "" {
+		req.Agent = e.DefaultAgent()
+		if req.Agent == "" {
+			return store.Task{}, fmt.Errorf("no agents available: install claude, codex, or grok CLI")
+		}
+	}
+	// Multi-@ plans run under the user-facing main agent (Kin if available, else default CLI).
+	// Parse the live user turn only (ignore any accidental handoff wrapper).
+	if plan := ParseDelegatePlan(UserTurnPrompt(req.Prompt), AvailableSet(e.AgentIDs())); plan.HasSubAgents() {
+		if main := e.MainAgent(); main != "" {
+			req.Agent = main
+		}
+	}
 	if _, ok := e.adapters[req.Agent]; !ok {
-		return store.Task{}, fmt.Errorf("unknown agent %q", req.Agent)
+		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q (available: %v)", req.Agent, e.AgentIDs())
 	}
 
 	id, err := e.newID()
 	if err != nil {
 		return store.Task{}, err
 	}
+	explicitTitle := req.Title != nil && strings.TrimSpace(*req.Title) != ""
 	title := ""
-	if req.Title != nil && *req.Title != "" {
-		title = *req.Title
+	if explicitTitle {
+		title = TruncateTitle(*req.Title, TitleMaxRunes)
 	} else {
-		title = req.Prompt
-		if len(title) > 80 {
-			title = title[:80]
-		}
+		// Immediate fallback so the sidebar has something; may be replaced async.
+		title = TruncateTitle(req.Prompt, TitleMaxRunes)
 	}
+
+	perm := adapter.NormalizePermissionMode(req.PermissionMode)
 
 	now := e.nowMilli()
 	t := store.Task{
-		ID:        id,
-		Title:     title,
-		Agent:     req.Agent,
-		Cwd:       req.Cwd,
-		Prompt:    req.Prompt,
-		Model:     req.Model,
-		Status:    StatusQueued,
-		CreatedAt: now,
+		ID:             id,
+		Title:          title,
+		Agent:          req.Agent,
+		Cwd:            req.Cwd,
+		Prompt:         req.Prompt,
+		Model:          req.Model,
+		PermissionMode: perm,
+		Status:         StatusQueued,
+		CreatedAt:      now,
 	}
 	if err := e.store.InsertTask(ctx, t); err != nil {
 		return store.Task{}, err
 	}
 	e.bus.PublishTask(t)
 
+	// Seed chat timeline with the user's message (speaker = user).
+	userPayload, _ := json.Marshal(map[string]any{
+		"role":    "user",
+		"content": []map[string]string{{"type": "text", "text": req.Prompt}},
+		"partial": false,
+		"agent":   "user",
+		"speaker": "user",
+		"source":  "create",
+	})
+	if ev, err := e.store.AppendEvent(ctx, id, "message", userPayload); err == nil {
+		e.bus.PublishEvent(ev)
+	}
+
+	// Async LLM title when the user did not supply one and a provider is available.
+	if !explicitTitle {
+		e.maybeSummarizeTitle(id, req.Prompt, title)
+	}
+
 	e.mu.Lock()
 	e.queue = append(e.queue, id)
 	e.mu.Unlock()
 	e.pump()
 
-	// Re-read in case pump already advanced status.
+	// Re-read in case pump already advanced status / title.
 	return e.store.GetTask(ctx, id)
+}
+
+// maybeSummarizeTitle fires a best-effort provider call to replace the fallback title.
+// Never blocks Create; failures leave the truncation fallback in place.
+func (e *Engine) maybeSummarizeTitle(taskID, prompt, fallback string) {
+	if e.titleFn == nil {
+		return
+	}
+	// Skip very short prompts — truncation already is the title.
+	if len([]rune(strings.TrimSpace(prompt))) <= 12 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(e.ctx, 12*time.Second)
+		defer cancel()
+		client, cfg, err := e.titleFn(ctx)
+		if err != nil || client == nil || !cfg.Configured() {
+			return
+		}
+		title, err := SummarizeTitle(ctx, client, cfg.Model, prompt)
+		if err != nil || title == "" || title == fallback {
+			return
+		}
+		if err := e.store.UpdateTask(ctx, taskID, store.TaskPatch{Title: &title}); err != nil {
+			return
+		}
+		if t, err := e.store.GetTask(ctx, taskID); err == nil {
+			e.bus.PublishTask(t)
+		}
+	}()
 }
 
 // Cancel requests cancellation. Queued → canceled; running/waiting_approval → SIGTERM/SIGKILL.
@@ -218,11 +365,18 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 		}
 	}
 	h := e.handles[id]
+	group := e.handleGroups[id]
 	e.canceled[id] = true
+	delete(e.pendingFollowUp, id) // pure cancel must not re-queue a steerable follow-up
 	e.mu.Unlock()
 
-	if h != nil {
-		_ = h.Cancel()
+	if h != nil || len(group) > 0 {
+		if h != nil {
+			_ = h.Cancel()
+		}
+		for _, gh := range group {
+			_ = gh.Cancel()
+		}
 		// Status becomes canceled when the run loop observes channel close,
 		// or immediately if we prefer snappy UI — do both: mark canceled now
 		// and let run loop no-op if already terminal.
@@ -315,12 +469,6 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 
-	ad, ok := e.adapters[t.Agent]
-	if !ok {
-		_, _ = e.failStart(ctx, id, fmt.Sprintf("unknown agent %q", t.Agent))
-		return
-	}
-
 	now := e.nowMilli()
 	status := StatusRunning
 	// On follow-up, keep original started_at if already set.
@@ -338,6 +486,18 @@ func (e *Engine) startOne(id string) {
 	t, _ = e.store.GetTask(ctx, id)
 	e.bus.PublishTask(t)
 
+	// Multi-@ under Kin: main agent talks to user; sub-agents run as task workers.
+	if plan, ok := e.shouldOrchestrate(t); ok {
+		e.runOrchestrated(id, t, plan)
+		return
+	}
+
+	ad, ok := e.adapters[t.Agent]
+	if !ok {
+		_, _ = e.failStart(ctx, id, fmt.Sprintf("unknown agent %q", t.Agent))
+		return
+	}
+
 	model := ""
 	if t.Model != nil {
 		model = *t.Model
@@ -347,12 +507,13 @@ func (e *Engine) startOne(id string) {
 		sessionRef = *t.SessionRef
 	}
 	spec := adapter.TaskSpec{
-		ID:         t.ID,
-		Agent:      t.Agent,
-		Cwd:        t.Cwd,
-		Prompt:     t.Prompt,
-		Model:      model,
-		SessionRef: sessionRef,
+		ID:             t.ID,
+		Agent:          t.Agent,
+		Cwd:            t.Cwd,
+		Prompt:         t.Prompt,
+		Model:          model,
+		SessionRef:     sessionRef,
+		PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 	}
 
 	h, err := ad.Start(ctx, spec)
@@ -371,7 +532,7 @@ func (e *Engine) startOne(id string) {
 		e.mu.Unlock()
 	}
 
-	e.runLoop(id, h)
+	e.runLoop(id, h, t.Agent)
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
@@ -389,14 +550,18 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 	return t, err
 }
 
-func (e *Engine) runLoop(id string, h adapter.RunHandle) {
+func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker string) {
 	ctx := context.Background()
 	var sawResult bool
 	var resultIsError bool
+	if speaker == "" {
+		speaker = "assistant"
+	}
 
 	for ev := range h.Events() {
-		// Persist first, then broadcast (spec §3).
-		stored, err := e.store.AppendEvent(ctx, id, ev.Type, ev.Payload)
+		// Persist first, then broadcast (spec §3). Stamp speaker for chat UI.
+		payload := stampSpeaker(ev.Payload, speaker)
+		stored, err := e.store.AppendEvent(ctx, id, ev.Type, payload)
 		if err != nil {
 			continue
 		}
@@ -408,6 +573,9 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 			if sid == "" {
 				sid = codex.ExtractSessionID(ev.Payload)
 			}
+			if sid == "" {
+				sid = grok.ExtractSessionID(ev.Payload)
+			}
 			if sid != "" {
 				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 				if t, err := e.store.GetTask(ctx, id); err == nil {
@@ -417,6 +585,19 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 		case "result":
 			sawResult = true
 			cost, tin, tout, isErr, ok := claudecode.ExtractUsage(ev.Payload)
+			if !ok {
+				// Grok / other adapters.
+				var gTin, gTout int
+				var gErr, gOK bool
+				cost, gTin, gTout, gErr, gOK = grok.ExtractUsage(ev.Payload)
+				if gOK {
+					tin, tout, isErr, ok = gTin, gTout, gErr, true
+				}
+			}
+			// Capture grok session id from result if not already set.
+			if sid := grok.ExtractSessionID(ev.Payload); sid != "" {
+				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
+			}
 			resultIsError = isErr
 			if ok {
 				// Accumulate tokens/cost across follow-ups (spec §6 M2).
@@ -470,10 +651,25 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle) {
 	// Process exited.
 	e.mu.Lock()
 	wasCanceled := e.canceled[id]
+	pf, hasFollowUp := e.pendingFollowUp[id]
 	delete(e.handles, id)
 	delete(e.canceled, id)
+	delete(e.pendingFollowUp, id)
 	e.active--
 	e.mu.Unlock()
+
+	// Interrupted with a steerable follow-up: re-queue instead of staying canceled.
+	if hasFollowUp {
+		if _, err := e.applyPendingFollowUp(ctx, id, pf); err != nil {
+			payload, _ := json.Marshal(map[string]string{"message": "follow-up after interrupt failed: " + err.Error()})
+			if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
+				e.bus.PublishEvent(ev)
+			}
+			_, _ = e.finish(ctx, id, StatusFailed, nil, nil)
+		}
+		e.pump()
+		return
+	}
 
 	// Re-read status: Cancel may have already set canceled.
 	t, err := e.store.GetTask(ctx, id)

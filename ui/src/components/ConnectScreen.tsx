@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { setToken } from "../api/client";
+import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -9,6 +10,7 @@ import { useAppStore } from "../store/appStore";
  */
 export default function ConnectScreen({ reason }: { reason: "missing" | "unauthorized" }) {
   const setAuthOk = useAppStore((s) => s.setAuthOk);
+  const tr = useT();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +18,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
     e.preventDefault();
     const token = value.trim();
     if (!token) {
-      setError("Paste a token to continue.");
+      setError(tr("connect.pasteToContinue"));
       return;
     }
     setToken(token);
@@ -27,16 +29,16 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
 
   const title =
     reason === "unauthorized"
-      ? "Session no longer authorized"
-      : "Connect to your Kin daemon";
+      ? tr("connect.unauthorizedTitle")
+      : tr("connect.missingTitle");
 
   const blurb =
     reason === "unauthorized"
-      ? "The token stored in this browser is invalid or was rotated. Paste a fresh token to reconnect."
-      : "This browser has no auth token. Paste the daemon token to open the console.";
+      ? tr("connect.unauthorizedBlurb")
+      : tr("connect.missingBlurb");
 
   return (
-    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-10 safe-pad bg-surface">
+    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-10 safe-pad bg-[var(--kin-page)] text-kin-text">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-surface-border bg-surface-raised text-2xl font-bold text-accent">
@@ -51,7 +53,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
           className="rounded-2xl border border-surface-border bg-surface-raised p-5 space-y-4 shadow-xl shadow-black/30"
         >
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-400">Auth token</span>
+            <span className="text-xs font-medium text-zinc-400">{tr("connect.tokenLabel")}</span>
             <input
               type="text"
               autoComplete="off"
@@ -62,7 +64,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
                 setValue(e.target.value);
                 setError(null);
               }}
-              placeholder="Paste token…"
+              placeholder={tr("connect.pasteToken")}
               className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </label>
@@ -77,24 +79,24 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
             type="submit"
             className="w-full min-h-[48px] rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition"
           >
-            Connect
+            {tr("connect.connect")}
           </button>
         </form>
 
         <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-xs text-zinc-500 space-y-2 leading-relaxed">
-          <p className="font-medium text-zinc-400">Where to find the token</p>
+          <p className="font-medium text-zinc-400">{tr("connect.whereTitle")}</p>
           <ul className="list-disc pl-4 space-y-1">
             <li>
-              On the host:{" "}
+              {tr("connect.whereHost")}{" "}
               <code className="text-zinc-300">~/.kin/token</code>
             </li>
             <li>
-              From an authorized device:{" "}
-              <span className="text-zinc-300">Settings → connection QR</span>{" "}
-              (or reveal/copy token there)
+              {tr("connect.whereDevice")}{" "}
+              <span className="text-zinc-300">{tr("connect.whereSettings")}</span>{" "}
+              {tr("connect.whereSettingsHint")}
             </li>
             <li>
-              From the terminal: the open URL printed by{" "}
+              {tr("connect.whereTerminal")} {tr("connect.whereServe")}{" "}
               <code className="text-zinc-300">kin serve</code> includes{" "}
               <code className="text-zinc-300">?token=</code>
             </li>

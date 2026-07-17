@@ -12,8 +12,10 @@ export const DAEMON_WS = `ws://${DAEMON_HOST}:${DAEMON_PORT}/api/ws`;
 export const STATE_DIR = join(homedir(), ".kin");
 export const TOKEN_PATH = join(STATE_DIR, "token");
 
-/** True when running from `electron .` / `npm run dev` (not packaged). */
+/** True when running from `electron .` / `npm run dev` (not a release build). */
 export function isDev(): boolean {
+  // Branded macOS Kin.app clone can make app.isPackaged flip true; env wins.
+  if (process.env.KIN_DESKTOP_DEV === "1") return true;
   return !app.isPackaged;
 }
 
@@ -23,7 +25,7 @@ export function isDev(): boolean {
  * - Packaged: extraResources `kin` next to the app.
  */
 export function kinBinaryPath(): string {
-  if (app.isPackaged) {
+  if (!isDev()) {
     // process.resourcesPath → …/Kin.app/Contents/Resources
     return join(process.resourcesPath, "kin");
   }
@@ -45,6 +47,27 @@ export function trayIconPath(): string {
   const fromApp = join(app.getAppPath(), "assets", "trayTemplate.png");
   if (existsSync(fromApp)) return fromApp;
   return join(__dirname, "..", "assets", "trayTemplate.png");
+}
+
+/**
+ * App / Dock / window icon.
+ * Dev: desktop/assets/icon.png. Packaged: electron-builder embeds icns;
+ * PNG under app path is still fine for BrowserWindow / dock.setIcon.
+ */
+export function appIconPath(): string {
+  const candidates = [
+    join(app.getAppPath(), "assets", "icon.png"),
+    join(app.getAppPath(), "assets", "icon.icns"),
+    join(__dirname, "..", "assets", "icon.png"),
+    join(__dirname, "..", "assets", "icon.icns"),
+  ];
+  if (!isDev()) {
+    candidates.unshift(join(process.resourcesPath, "icon.icns"));
+  }
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return candidates[candidates.length - 1]!;
 }
 
 /** electron-store-free bounds key path under userData. */

@@ -202,14 +202,16 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) rpcRespons
 	if err != nil {
 		s.logf("post approval: %v", err)
 		// Fail closed: deny so the agent does not hang forever.
-		return toolResult(req.ID, denyJSON())
+		// Distinct message from a human deny so operators can tell
+		// "bridge/task_id broken" from "user tapped Deny".
+		return toolResult(req.ID, denyJSONMsg("approval request failed: "+err.Error()))
 	}
 
 	// Long-poll until decided.
 	decision, err := s.waitDecision(ctx, approvalID)
 	if err != nil {
 		s.logf("wait decision: %v", err)
-		return toolResult(req.ID, denyJSON())
+		return toolResult(req.ID, denyJSONMsg("approval wait failed: "+err.Error()))
 	}
 
 	switch decision {
@@ -350,9 +352,16 @@ func allowJSON(arguments json.RawMessage) string {
 }
 
 func denyJSON() string {
+	return denyJSONMsg("denied via Kin console")
+}
+
+func denyJSONMsg(message string) string {
+	if message == "" {
+		message = "denied via Kin console"
+	}
 	b, _ := json.Marshal(map[string]any{
 		"behavior": "deny",
-		"message":  "denied via Kin console",
+		"message":  message,
 	})
 	return string(b)
 }
@@ -362,9 +371,15 @@ func extractUpdatedInput(arguments json.RawMessage) any {
 	if err := json.Unmarshal(arguments, &m); err != nil {
 		return json.RawMessage(arguments)
 	}
-	// Claude Code permission tool passes {tool_name, input, ...}; updatedInput is the tool input.
-	if inp, ok := m["input"]; ok {
-		return inp
+	// Claude Code permission tool shapes observed:
+	//   {tool_name, input, tool_use_id}
+	//   {tool_name, tool_input}
+	//   {input: {...}}
+	// updatedInput must be the tool's own input object.
+	for _, key := range []string{"input", "tool_input", "toolInput", "arguments"} {
+		if inp, ok := m[key]; ok {
+			return inp
+		}
 	}
 	return m
 }

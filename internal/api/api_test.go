@@ -21,11 +21,22 @@ type testAdapter struct {
 }
 
 type testHandle struct {
-	ch chan adapter.Event
+	ch       chan adapter.Event
+	cancelCh chan struct{}
+	canceled bool
 }
 
 func (h *testHandle) Events() <-chan adapter.Event { return h.ch }
-func (h *testHandle) Cancel() error                { return nil }
+func (h *testHandle) Cancel() error {
+	if h.cancelCh == nil {
+		return nil
+	}
+	if !h.canceled {
+		h.canceled = true
+		close(h.cancelCh)
+	}
+	return nil
+}
 
 func (a *testAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	ch := make(chan adapter.Event, 8)
@@ -35,7 +46,7 @@ func (a *testAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter
 			ch <- ev
 		}
 	}()
-	return &testHandle{ch: ch}, nil
+	return &testHandle{ch: ch, cancelCh: make(chan struct{})}, nil
 }
 
 func newTestServer(t *testing.T) (*Server, string) {
@@ -179,15 +190,15 @@ func TestApprovalsAPI(t *testing.T) {
 		t.Fatalf("decide: %d %s", rr.Code, rr.Body.String())
 	}
 
-	// Follow-up 409 while running.
+	// Follow-up while running interrupts and accepts the new guide prompt.
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/tasks/"+created.ID+"/prompt",
 		bytes.NewBufferString(`{"prompt":"more"}`))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("follow-up while running: %d", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("follow-up while running: %d %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -195,12 +206,16 @@ type holdAPIAdapter struct{}
 
 func (a *holdAPIAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	ch := make(chan adapter.Event, 4)
+	h := &testHandle{ch: ch, cancelCh: make(chan struct{})}
 	go func() {
 		defer close(ch)
 		ch <- adapter.Event{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s","subtype":"init"}`)}
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-h.cancelCh:
+		}
 	}()
-	return &testHandle{ch: ch}, nil
+	return h, nil
 }
 
 func TestCreateAndGetTask(t *testing.T) {

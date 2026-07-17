@@ -7,16 +7,27 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const outdir = join(root, "dist");
 mkdirSync(outdir, { recursive: true });
 
-await esbuild.build({
-  entryPoints: [join(root, "src/main.ts")],
+const common = {
   bundle: true,
   platform: "node",
   target: "node20",
   format: "cjs",
-  outfile: join(outdir, "main.js"),
   external: ["electron"],
   sourcemap: true,
   logLevel: "info",
+};
+
+await esbuild.build({
+  ...common,
+  entryPoints: [join(root, "src/main.ts")],
+  outfile: join(outdir, "main.js"),
 });
 
-console.log("desktop: bundled → dist/main.js");
+// Preload must be a separate file (loaded into the renderer sandbox).
+await esbuild.build({
+  ...common,
+  entryPoints: [join(root, "src/preload.ts")],
+  outfile: join(outdir, "preload.js"),
+});
+
+console.log("desktop: bundled → dist/main.js + dist/preload.js");

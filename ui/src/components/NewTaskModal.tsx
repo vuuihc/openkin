@@ -2,8 +2,10 @@ import { FormEvent, useEffect, useState } from "react";
 import {
   ApiError,
   createTask,
+  listAgents,
   optimisticTask,
   recentCwds,
+  type AgentInfo,
   type Task,
 } from "../api/client";
 import { useAppStore } from "../store/appStore";
@@ -12,43 +14,61 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onCreated: (task: Task) => void;
-  /** Called immediately with a local queued row before the network returns. */
   onOptimistic?: (task: Task) => void;
   onOptimisticFail?: (tempId: string) => void;
+  initialPrompt?: string;
 };
-
-const AGENTS = [
-  { value: "claude-code", label: "claude-code" },
-  { value: "codex", label: "codex" },
-  { value: "rawpty", label: "Command (raw)" },
-] as const;
 
 let optSeq = 0;
 
+/**
+ * New chat: cwd + prompt only. Agent is auto-picked from installed CLIs
+ * (GET /api/agents). Optional override still allowed via advanced select.
+ */
 export default function NewTaskModal({
   open,
   onClose,
   onCreated,
   onOptimistic,
   onOptimisticFail,
+  initialPrompt,
 }: Props) {
   const pushToast = useAppStore((s) => s.pushToast);
-  const [agent, setAgent] = useState<string>("claude-code");
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agent, setAgent] = useState<string>(""); // empty = auto
   const [cwd, setCwd] = useState("");
   const [prompt, setPrompt] = useState("");
   const [dirs, setDirs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showAgent, setShowAgent] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    if (initialPrompt) setPrompt(initialPrompt);
     recentCwds()
-      .then(setDirs)
+      .then((d) => {
+        setDirs(d);
+        setCwd((c) => c || d[0] || "");
+      })
       .catch(() => setDirs([]));
-  }, [open]);
+    listAgents()
+      .then((list) => {
+        setAgents(list);
+        // Keep agent empty (auto) unless previously chosen unavailable.
+        setAgent((prev) => {
+          if (!prev) return "";
+          return list.some((a) => a.id === prev && a.available) ? prev : "";
+        });
+      })
+      .catch(() => setAgents([]));
+  }, [open, initialPrompt]);
 
   if (!open) return null;
+
+  const available = agents.filter((a) => a.available);
+  const defaultAgent = available.find((a) => a.default) ?? available[0];
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -57,15 +77,23 @@ export default function NewTaskModal({
       setError("cwd and prompt are required");
       return;
     }
+    if (available.length === 0) {
+      setError("No agents installed — install claude, codex, or grok CLI");
+      return;
+    }
     const body = {
-      agent,
+      ...(agent ? { agent } : {}),
       cwd: cwd.trim(),
       prompt: prompt.trim(),
     };
     const tempId = `opt_${Date.now()}_${++optSeq}`;
-    const optimistic = optimisticTask({ id: tempId, ...body });
+    const optimistic = optimisticTask({
+      id: tempId,
+      agent: agent || defaultAgent?.id || "auto",
+      cwd: body.cwd,
+      prompt: body.prompt,
+    });
 
-    // Optimistic: close modal immediately, show queued row.
     setPrompt("");
     onOptimistic?.(optimistic);
     onClose();
@@ -88,59 +116,99 @@ export default function NewTaskModal({
     })();
   }
 
-  const promptPlaceholder =
-    agent === "rawpty"
-      ? "Shell command, e.g. printf 'hello\\n'  (runs via /bin/sh -c)"
-      : "What should the agent do?";
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
       role="dialog"
       aria-modal="true"
-      aria-label="New task"
+      aria-label="New chat"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-lg rounded-2xl border border-surface-border bg-surface-raised shadow-xl p-5 space-y-4 max-h-[90dvh] overflow-y-auto"
+        className="w-full max-w-lg rounded-2xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-window p-5 space-y-4 max-h-[90dvh] overflow-y-auto"
       >
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-zinc-50">New task</h2>
+          <h2 className="text-lg font-semibold text-kin-text">New chat</h2>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[44px] min-w-[44px] text-sm text-zinc-400 hover:text-zinc-100"
+            className="min-h-[44px] min-w-[44px] text-sm text-kin-tertiary hover:text-kin-text"
           >
             Close
           </button>
         </div>
 
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Agent</span>
-          <select
-            value={agent}
-            onChange={(e) => setAgent(e.target.value)}
-            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100"
-          >
-            {AGENTS.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
+        <div className="rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            Agents
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {agents.length === 0 && (
+              <span className="text-[12.5px] text-kin-muted">Detecting…</span>
+            )}
+            {agents.map((a) => (
+              <span
+                key={a.id}
+                className={[
+                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium border",
+                  a.available
+                    ? "border-kin-blue/30 bg-kin-blue-soft text-kin-blue"
+                    : "border-[var(--kin-hairline)] text-kin-muted",
+                ].join(" ")}
+                title={a.available ? a.binary : a.reason || "not installed"}
+              >
+                <span
+                  className={[
+                    "w-1.5 h-1.5 rounded-full",
+                    a.available ? "bg-kin-green" : "bg-kin-muted",
+                  ].join(" ")}
+                />
+                {a.name}
+                {a.default && a.available ? " · default" : ""}
+              </span>
             ))}
-          </select>
-        </label>
+          </div>
+          <p className="mt-2 text-[12px] text-kin-secondary">
+            新建任务不强制选 agent — 默认用{" "}
+            <b className="text-kin-text font-semibold">
+              {defaultAgent?.name ?? "—"}
+            </b>
+            。同一 task 里可以随时 handoff 到别的 agent。
+          </p>
+          <button
+            type="button"
+            className="mt-1 text-[12px] text-kin-blue hover:underline"
+            onClick={() => setShowAgent((v) => !v)}
+          >
+            {showAgent ? "Hide override" : "Override default agent…"}
+          </button>
+          {showAgent && (
+            <select
+              value={agent}
+              onChange={(e) => setAgent(e.target.value)}
+              className="kin-input min-h-[40px] mt-2"
+            >
+              <option value="">Auto ({defaultAgent?.id ?? "none"})</option>
+              {available.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.id})
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
         <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Working directory (cwd)</span>
+          <span className="text-xs font-medium text-kin-secondary">Working directory (cwd)</span>
           <input
             list="recent-cwds"
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             placeholder="/path/to/repo"
-            className="w-full min-h-[44px] rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600"
+            className="kin-input min-h-[44px]"
             autoComplete="off"
           />
           <datalist id="recent-cwds">
@@ -151,20 +219,18 @@ export default function NewTaskModal({
         </label>
 
         <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">
-            {agent === "rawpty" ? "Command" : "Prompt"}
-          </span>
+          <span className="text-xs font-medium text-kin-secondary">Prompt</span>
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={5}
-            placeholder={promptPlaceholder}
-            className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 resize-y"
+            placeholder="What should Kin do?"
+            className="kin-input resize-y"
           />
         </label>
 
         {error && (
-          <p className="text-sm text-red-300" role="alert">
+          <p className="text-sm text-kin-red" role="alert">
             {error}
           </p>
         )}
@@ -173,14 +239,14 @@ export default function NewTaskModal({
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[44px] rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-surface"
+            className="kin-btn-secondary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting}
-            className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-accent-muted disabled:opacity-50"
+            className="kin-btn-primary disabled:opacity-50"
           >
             Dispatch
           </button>

@@ -1,60 +1,79 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ApiError,
   cancelTask,
+  decideApproval,
   followUpPrompt,
-  formatCost,
-  formatElapsed,
   getTask,
   getToken,
   isTerminal,
+  listAgents,
+  listApprovals,
   listEvents,
+  type AgentInfo,
+  type Approval,
   type Task,
   type TaskEvent,
 } from "../api/client";
+import ApprovalCard from "../components/cards/ApprovalCard";
+import ChatStream from "../components/chat/ChatStream";
+import Composer from "../components/chat/Composer";
+import CwdPicker from "../components/chat/CwdPicker";
+import PermissionModePicker from "../components/chat/PermissionModePicker";
+import { IconBack } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
-import StatusBadge from "../components/StatusBadge";
-import Transcript from "../components/Transcript";
-import Truncated from "../components/Truncated";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { t } from "../i18n";
+import { useT } from "../i18n/react";
+import { parseAgentDirective } from "../lib/agentMention";
+import { normalizePermissionMode } from "../lib/permissionMode";
+import { projectLabel } from "../lib/paths";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
+/**
+ * Single-column chat: user talks to Kin; @agents are delegated as task workers.
+ * Full event stream in the main column (no inspector three-pane).
+ */
 export default function TaskDetailPage() {
   const { id = "" } = useParams();
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [approvals, setApprovals] = useState<Approval[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [canceling, setCanceling] = useState(false);
-  const [followUp, setFollowUp] = useState("");
   const [sending, setSending] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  const [stopping, setStopping] = useState(false);
+  const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
+  const [focusIdx, setFocusIdx] = useState(0);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const maxSeq = useRef(0);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
+  const wsStatus = useAppStore((s) => s.wsStatus);
   const slow = useSlowHint(loading);
+  const tr = useT();
 
   const load = useCallback(async () => {
     if (!getToken()) return;
     try {
-      const [t, evs] = await Promise.all([
+      const [t, evs, apps] = await Promise.all([
         getTask(id),
         listEvents(id, maxSeq.current),
+        listApprovals("pending"),
       ]);
       setTask(t);
       if (evs.length) {
         setEvents((prev) => mergeEvents(prev, evs));
         maxSeq.current = Math.max(maxSeq.current, ...evs.map((e) => e.seq));
       }
+      setApprovals(apps.filter((a) => a.task_id === id));
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
-      if (e instanceof ApiError && e.status === 404) {
-        setError("Task not found");
-      } else {
-        setError(e instanceof Error ? e.message : "Failed to load");
-      }
+      if (e instanceof ApiError && e.status === 404) setError(t("task.notFound"));
+      else setError(e instanceof Error ? e.message : t("task.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -65,9 +84,11 @@ export default function TaskDetailPage() {
     setEvents([]);
     setLoading(true);
     void load();
+    listAgents()
+      .then(setAgents)
+      .catch(() => setAgents([]));
   }, [load]);
 
-  // Resync events via since_seq after WS reconnect.
   useEffect(() => {
     if (reconnectGen === 0) return;
     void listEvents(id, maxSeq.current)
@@ -78,6 +99,9 @@ export default function TaskDetailPage() {
       })
       .catch(() => undefined);
     void getTask(id).then(setTask).catch(() => undefined);
+    void listApprovals("pending")
+      .then((apps) => setApprovals(apps.filter((a) => a.task_id === id)))
+      .catch(() => undefined);
   }, [reconnectGen, id]);
 
   useEffect(() => {
@@ -96,56 +120,119 @@ export default function TaskDetailPage() {
           });
         }
       }
+      if (msg.kind === "approval_update") {
+        const a = msg.data as Approval;
+        if (a.task_id !== id) return;
+        setApprovals((prev) => {
+          if (a.decision !== "pending") return prev.filter((x) => x.id !== a.id);
+          const rest = prev.filter((x) => x.id !== a.id);
+          return [a, ...rest];
+        });
+      }
     });
   }, [id]);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [events, approvals, sending]);
 
-  async function onCancel() {
-    setCanceling(true);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      const list = approvals;
+      if (!list.length) return;
+      if (e.key === "j" || e.key === "J") {
+        setFocusIdx((i) => Math.min(list.length - 1, i + 1));
+      } else if (e.key === "k" || e.key === "K") {
+        setFocusIdx((i) => Math.max(0, i - 1));
+      } else if (e.key === "a" || e.key === "A") {
+        const a = list[focusIdx] ?? list[0];
+        if (a) void onDecide(a.id, "approved");
+      } else if (e.key === "d" || e.key === "D") {
+        const a = list[focusIdx] ?? list[0];
+        if (a) void onDecide(a.id, "denied");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [approvals, focusIdx]);
+
+  async function onDecide(approvalId: string, decision: "approved" | "denied") {
+    setBusy((b) => ({ ...b, [approvalId]: decision }));
     try {
-      const t = await cancelTask(id);
-      setTask(t);
+      await decideApproval(approvalId, decision);
+      setApprovals((prev) => prev.filter((x) => x.id !== approvalId));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Cancel failed";
-      pushToast(msg, "error");
+      pushToast(e instanceof Error ? e.message : tr("task.decisionFailed"), "error");
     } finally {
-      setCanceling(false);
+      setBusy((b) => {
+        const next = { ...b };
+        delete next[approvalId];
+        return next;
+      });
     }
   }
 
-  async function onFollowUp(e: React.FormEvent) {
-    e.preventDefault();
-    const prompt = followUp.trim();
-    if (!prompt) return;
+  async function onComposer(text: string) {
+    if (!task) return;
     setSending(true);
     try {
-      const t = await followUpPrompt(id, prompt);
+      const availableIds = agents.filter((a) => a.available).map((a) => a.id);
+      const plan = parseAgentDirective(text, availableIds);
+      const mainAgent =
+        (availableIds.includes("kin") && "kin") ||
+        agents.find((a) => a.available && a.default)?.id ||
+        availableIds[0];
+
+      // Multi-@ → host on main agent (Kin or fallback CLI). Backend orchestrates.
+      let agent: string | undefined;
+      if (plan.multi && mainAgent) {
+        agent = mainAgent;
+      }
+
+      // Non-terminal: backend interrupts the current turn then re-queues with this guide.
+      const t = await followUpPrompt(
+        task.id,
+        text,
+        agent && agent !== task.agent ? { agent } : undefined,
+      );
       setTask(t);
-      setFollowUp("");
-      setError(null);
+      if (!isTerminal(task.status)) {
+        pushToast(tr("task.interruptedGuide"), "info");
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Follow-up failed";
-      pushToast(msg, "error");
+      pushToast(err instanceof Error ? err.message : tr("task.sendFailed"), "error");
     } finally {
       setSending(false);
     }
   }
 
+  async function onStop() {
+    if (!task || isTerminal(task.status)) return;
+    setStopping(true);
+    try {
+      const t = await cancelTask(task.id);
+      setTask(t);
+      pushToast(tr("task.stopped"), "info");
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : tr("task.stopFailed"), "error");
+    } finally {
+      setStopping(false);
+    }
+  }
+
   if (loading) {
     return (
-      <div className="space-y-4">
-        <SkeletonLine className="h-4 w-16" />
-        <SkeletonLine className="h-7 w-2/3" />
-        <SkeletonLine className="h-4 w-1/2" />
-        <SkeletonLine className="h-16 w-full rounded-xl" />
-        <SlowConnectHint show={slow} />
-        <div className="space-y-2">
-          <SkeletonLine className="h-20 w-full rounded-xl" />
-          <SkeletonLine className="h-20 w-full rounded-xl" />
+      <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
+        <div className="h-11 flex-none border-b border-[var(--kin-hairline)] px-5 flex items-center">
+          <SkeletonLine className="h-4 w-40" />
+        </div>
+        <div className="flex-1 p-6 space-y-3 max-w-[720px] mx-auto w-full">
+          <SkeletonLine className="h-16 w-3/4 ml-auto rounded-2xl" />
+          <SkeletonLine className="h-12 w-2/3 rounded-xl" />
+          <SlowConnectHint show={slow} />
         </div>
       </div>
     );
@@ -153,15 +240,12 @@ export default function TaskDetailPage() {
 
   if (error && !task) {
     return (
-      <div className="space-y-3">
-        <Link
-          to="/"
-          className="inline-flex min-h-[44px] items-center text-sm text-zinc-400 hover:text-accent"
-        >
-          ← Tasks
+      <div className="flex-1 p-6 space-y-3">
+        <Link to="/" className="text-sm text-kin-blue">
+          {tr("task.home")}
         </Link>
         <div
-          className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+          className="rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]"
           role="alert"
         >
           {error}
@@ -173,94 +257,113 @@ export default function TaskDetailPage() {
   if (!task) return null;
 
   const terminal = isTerminal(task.status);
-  const canFollowUp = terminal && !!task.session_ref;
+  const project = projectLabel(task.cwd);
+  const degraded = wsStatus !== "connected" && !terminal;
 
   return (
-    <div className="space-y-4">
-      <Link
-        to="/"
-        className="inline-flex min-h-[44px] items-center text-sm text-zinc-400 hover:text-accent"
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 kin-surface-chat">
+      <div
+        className="h-11 flex-none flex items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
+        style={{ WebkitAppRegion: "drag" } as CSSProperties}
       >
-        ← Tasks
-      </Link>
-
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
-          <h1 className="text-xl font-semibold text-zinc-50 break-words" title={task.title}>
-            {task.title}
-          </h1>
-          <p className="text-xs text-zinc-500 font-mono min-w-0">
-            <Truncated text={task.cwd} expand className="block w-full" />
-          </p>
-        </div>
-        <StatusBadge status={task.status} />
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-raised px-4 py-3 text-sm">
-        <span className="text-zinc-400">
-          Cost <span className="text-zinc-100">{formatCost(task.cost_usd)}</span>
-        </span>
-        <span className="text-zinc-600">·</span>
-        <span className="text-zinc-400">
-          Tokens{" "}
-          <span className="text-zinc-100">
-            {task.tokens_in} in / {task.tokens_out} out
-          </span>
-        </span>
-        <span className="text-zinc-600">·</span>
-        <span className="text-zinc-400">
-          Elapsed <span className="text-zinc-100">{formatElapsed(task, now)}</span>
-        </span>
-        {!terminal && (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={canceling}
-            className="ml-auto min-h-[44px] rounded-lg border border-red-800/60 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50"
-          >
-            {canceling ? "Canceling…" : "Cancel"}
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <div
-          className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
-          role="alert"
+        <Link
+          to="/"
+          className="md:hidden mr-2 text-kin-blue min-w-[36px] min-h-[36px] flex items-center justify-center"
+          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
         >
-          {error}
+          <IconBack size={18} strokeWidth={2} />
+        </Link>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-semibold text-kin-text truncate">
+            {task.title || task.prompt}
+          </div>
         </div>
-      )}
+        <div
+          className="ml-2 flex items-center gap-2 text-[12px] text-kin-muted flex-none"
+          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+        >
+          <span>{project}</span>
+          {!terminal && (
+            <>
+              <span className="text-kin-blue tabular-nums">
+                {degraded ? tr("task.reconnect") : tr("task.running")}
+              </span>
+              <button
+                type="button"
+                onClick={() => void onStop()}
+                disabled={stopping}
+                className="text-[12px] font-semibold text-[#ff8a80] hover:text-[#ffb4ad] disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-[rgba(255,69,58,.3)] bg-[rgba(255,69,58,.08)]"
+              >
+                {stopping ? tr("task.stopping") : tr("composer.stop")}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
-      <section>
-        <h2 className="mb-3 text-sm font-medium text-zinc-400">Transcript</h2>
-        <Transcript events={events} />
-      </section>
+      <div className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0">
+        <ChatStream
+          events={events}
+          fallbackUserPrompt={task.prompt}
+          loading={!terminal}
+          loadingSpeaker={task.agent || "kin"}
+          trailing={
+            <>
+              {approvals.map((a, i) => (
+                <div key={a.id} className="mt-1">
+                  <ApprovalCard
+                    approval={a}
+                    focused={i === focusIdx && approvals.length > 0}
+                    busy={busy[a.id] ?? null}
+                    onApprove={() => void onDecide(a.id, "approved")}
+                    onDeny={() => void onDecide(a.id, "denied")}
+                  />
+                </div>
+              ))}
+              {approvals.length > 0 && (
+                <p className="text-center text-[11.5px] text-kin-muted mt-2">
+                  <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                    A
+                  </kbd>{" "}
+                  {tr("chat.approve")} ·{" "}
+                  <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
+                    D
+                  </kbd>{" "}
+                  {tr("chat.deny")}
+                </p>
+              )}
+              <div ref={bottomRef} />
+            </>
+          }
+        />
+      </div>
 
-      {canFollowUp && (
-        <section className="rounded-xl border border-surface-border bg-surface-raised p-4 space-y-3">
-          <h2 className="text-sm font-medium text-zinc-300">Follow-up</h2>
-          <p className="text-xs text-zinc-500">
-            Continues the same agent session (<span className="font-mono">--resume</span>).
-          </p>
-          <form onSubmit={onFollowUp} className="space-y-3">
-            <textarea
-              value={followUp}
-              onChange={(e) => setFollowUp(e.target.value)}
-              rows={3}
-              placeholder="Send another prompt to this session…"
-              className="w-full rounded-lg border border-surface-border bg-black/30 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+      <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
+        <div className="max-w-[720px] mx-auto space-y-2">
+          <Composer
+            agents={agents}
+            busy={sending}
+            running={!terminal}
+            stopping={stopping}
+            disabled={sending || stopping}
+            placeholder={
+              !terminal
+                ? tr("composer.guideWhileRunning")
+                : tr("composer.followUpPlaceholder")
+            }
+            onSubmit={onComposer}
+            onStop={onStop}
+          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">
+            <PermissionModePicker
+              value={normalizePermissionMode(task.permission_mode)}
+              locked
+              onChange={() => undefined}
             />
-            <button
-              type="submit"
-              disabled={sending || !followUp.trim()}
-              className="min-h-[44px] w-full sm:w-auto rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-50 hover:brightness-110"
-            >
-              {sending ? "Sending…" : "Send follow-up"}
-            </button>
-          </form>
-        </section>
-      )}
+          </div>
+          <CwdPicker cwd={task.cwd} locked onChange={() => undefined} />
+        </div>
+      </div>
     </div>
   );
 }

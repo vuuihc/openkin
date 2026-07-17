@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/vuuihc/kin/internal/sessionctx"
 	"github.com/vuuihc/kin/internal/store"
 )
 
@@ -315,46 +317,229 @@ func (e *Engine) notifyApprovalWaiters(id string, a store.Approval) {
 	}
 }
 
-// FollowUp re-queues a terminal task with session_ref for a new prompt (spec §6 M2).
+// pendingFollowUp is applied after an in-flight turn is interrupted so the user
+// can stop the current agent and immediately inject a new guiding prompt.
+type pendingFollowUp struct {
+	req       FollowUpRequest
+	fromAgent string
+	// interrupted marks that the previous turn was cut short.
+	interrupted bool
+}
+
+// FollowUp re-queues a terminal task for a new prompt (spec §6 M2).
+// When the task is still running / waiting_approval, the current turn is interrupted first
+// and the new prompt is applied once the process exits (steer / insert guide).
 func (e *Engine) FollowUp(ctx context.Context, id, prompt string) (store.Task, error) {
+	return e.FollowUpWith(ctx, id, FollowUpRequest{Prompt: prompt})
+}
+
+// FollowUpWith supports same-agent resume, cross-agent handoff, and interrupt-then-guide.
+//
+//   - agent empty or same: resume via session_ref when present; otherwise inject recent transcript.
+//   - agent different: clear session_ref, switch task.agent, inject handoff context into prompt.
+//   - task running / waiting_approval: interrupt current session, then re-queue with the new prompt.
+func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpRequest) (store.Task, error) {
+	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
+	}
+	req.Prompt = prompt
+
+	t, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+
+	switch t.Status {
+	case StatusSucceeded, StatusFailed, StatusCanceled:
+		return e.applyFollowUp(ctx, id, t, req, false /*interrupted*/)
+	case StatusRunning, StatusWaitingApproval, StatusQueued:
+		return e.interruptAndFollowUp(ctx, id, t, req)
+	default:
+		return store.Task{}, fmt.Errorf("%w: task status %s cannot accept prompt", ErrConflict, t.Status)
+	}
+}
+
+// interruptAndFollowUp stops the in-flight turn and schedules req to run next.
+func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Task, req FollowUpRequest) (store.Task, error) {
+	// Validate agent early so we do not cancel then fail.
+	if req.Agent != "" && req.Agent != t.Agent {
+		if _, ok := e.adapters[req.Agent]; !ok {
+			return store.Task{}, fmt.Errorf("unknown or unavailable agent %q", req.Agent)
+		}
+	}
+
+	// Deny pending approvals so MCP waiters unblock before we kill the process.
+	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
+		for _, a := range pending {
+			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "web")
+		}
+	}
+
+	e.mu.Lock()
+	// If still only queued (not started), drop from queue and apply immediately.
+	for i, qid := range e.queue {
+		if qid == id {
+			e.queue = append(e.queue[:i], e.queue[i+1:]...)
+			e.mu.Unlock()
+			// Still non-terminal; force a clean re-queue path via applyFollowUp.
+			// Mark as canceled-equivalent by finishing then applying, but simpler:
+			// applyFollowUp requires terminal — so finish as canceled then apply.
+			if _, err := e.finish(ctx, id, StatusCanceled, nil, nil); err != nil {
+				return store.Task{}, err
+			}
+			t2, err := e.store.GetTask(ctx, id)
+			if err != nil {
+				return store.Task{}, err
+			}
+			return e.applyFollowUp(ctx, id, t2, req, true /*interrupted*/)
+		}
+	}
+
+	h := e.handles[id]
+	group := e.handleGroups[id]
+	e.canceled[id] = true
+	e.pendingFollowUp[id] = pendingFollowUp{
+		req:         req,
+		fromAgent:   t.Agent,
+		interrupted: true,
+	}
+	e.mu.Unlock()
+
+	// Surface the user guide immediately so the chat is not locked waiting for process death.
+	e.appendUserGuideEvent(ctx, id, t, req, true /*interrupted*/)
+
+	if h != nil {
+		_ = h.Cancel()
+	}
+	for _, gh := range group {
+		_ = gh.Cancel()
+	}
+
+	// If nothing was running (race), apply now.
+	if h == nil && len(group) == 0 {
+		e.mu.Lock()
+		pf, ok := e.pendingFollowUp[id]
+		delete(e.pendingFollowUp, id)
+		delete(e.canceled, id)
+		e.mu.Unlock()
+		if ok {
+			if _, err := e.finish(ctx, id, StatusCanceled, nil, nil); err != nil {
+				return store.Task{}, err
+			}
+			t2, err := e.store.GetTask(ctx, id)
+			if err != nil {
+				return store.Task{}, err
+			}
+			// User event already appended above — apply without duplicating.
+			return e.applyFollowUpPrepared(ctx, id, t2, pf.req, true /*interrupted*/, false /*emitUser*/)
+		}
+	}
+
+	// Keep task in a non-terminal visual state while the process winds down.
+	// Cancel() path may have already stamped canceled; re-read and publish.
+	if t2, err := e.store.GetTask(ctx, id); err == nil {
+		e.bus.PublishTask(t2)
+		return t2, nil
+	}
+	return t, nil
+}
+
+// applyPendingFollowUp is invoked from runLoop / finishOrchestrated after interrupt.
+func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pendingFollowUp) (store.Task, error) {
+	t, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	// Re-queue directly (StatusQueued). Avoid a canceled → queued flash when possible.
+	// User guide event was already appended at interrupt time.
+	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, false /*emitUser*/)
+}
+
+func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool) (store.Task, error) {
+	return e.applyFollowUpPrepared(ctx, id, t, req, interrupted, true /*emitUser*/)
+}
+
+// applyFollowUpPrepared patches the task prompt/agent and re-queues. When emitUser
+// is false the caller already published the user message (interrupt path).
+func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted, emitUser bool) (store.Task, error) {
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		return store.Task{}, fmt.Errorf("prompt is required")
+	}
+
+	fromAgent := t.Agent
+	targetAgent := t.Agent
+	handoff := false
+
+	// Multi-@ is decided from the *current* user message only. Prior transcript
+	// @mentions must not force orchestration on a plain follow-up (mixed modes).
+	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
+	orchestrate := plan.HasSubAgents()
+	if orchestrate {
+		if main := e.MainAgent(); main != "" {
+			req.Agent = main
+		}
+	}
+
+	if req.Agent != "" && req.Agent != t.Agent {
+		if _, ok := e.adapters[req.Agent]; !ok {
+			return store.Task{}, fmt.Errorf("unknown or unavailable agent %q", req.Agent)
+		}
+		targetAgent = req.Agent
+		handoff = true
+	}
+
+	// Always inject a short prior-context block for follow-ups that cannot truly
+	// resume a multi-turn CLI session. Orchestrated turns still store the user
+	// request under "User request:" so UserTurnPrompt / shouldOrchestrate only
+	// see the live @mentions — but workers get the transcript via buildWorkerBrief.
+	runPrompt := prompt
+	ctxBlock := e.handoffContext(ctx, id)
+	needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || targetAgent == "kin" || interrupted || orchestrate
+	if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate) {
+		runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
+		if interrupted {
+			runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
+		}
+	}
+
+	status := StatusQueued
+	patch := store.TaskPatch{
+		Status:          &status,
+		Prompt:          &runPrompt,
+		ClearExitCode:   true,
+		ClearFinishedAt: true,
+	}
+	if handoff {
+		patch.Agent = &targetAgent
+		patch.ClearSessionRef = true
+	}
+	// Fresh worker sessions for multi-@ orchestrated turns.
+	if orchestrate {
+		patch.ClearSessionRef = true
+		if main := e.MainAgent(); main != "" {
+			patch.Agent = &main
+		}
+	}
+	// Interrupt always starts a clean turn (CLI may have left a half-finished session).
+	if interrupted {
+		// Keep session_ref only when same agent and not orchestrating — resume is best-effort.
+		if handoff || orchestrate {
+			patch.ClearSessionRef = true
+		}
+	}
+	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
+		return store.Task{}, err
 	}
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
 	}
-	if t.Status != StatusSucceeded && t.Status != StatusFailed && t.Status != StatusCanceled {
-		return store.Task{}, fmt.Errorf("%w: task is not terminal (%s)", ErrConflict, t.Status)
-	}
-	if t.SessionRef == nil || *t.SessionRef == "" {
-		return store.Task{}, fmt.Errorf("%w: task has no session_ref", ErrConflict)
-	}
-
-	status := StatusQueued
-	if err := e.store.UpdateTask(ctx, id, store.TaskPatch{
-		Status:          &status,
-		Prompt:          &prompt,
-		ClearExitCode:   true,
-		ClearFinishedAt: true,
-	}); err != nil {
-		return store.Task{}, err
-	}
-	t, err = e.store.GetTask(ctx, id)
-	if err != nil {
-		return store.Task{}, err
-	}
 	e.bus.PublishTask(t)
 
-	// Append a user message event for the audit trail.
-	evPayload, _ := json.Marshal(map[string]any{
-		"role":    "user",
-		"content": []map[string]string{{"type": "text", "text": prompt}},
-		"partial": false,
-		"source":  "follow_up",
-	})
-	if ev, err := e.store.AppendEvent(ctx, id, "message", evPayload); err == nil {
-		e.bus.PublishEvent(ev)
+	if emitUser {
+		e.appendUserGuideEvent(ctx, id, t, req, interrupted)
 	}
 
 	e.mu.Lock()
@@ -363,6 +548,173 @@ func (e *Engine) FollowUp(ctx context.Context, id, prompt string) (store.Task, e
 	e.pump()
 
 	return e.store.GetTask(ctx, id)
+}
+
+func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool) {
+	prompt := req.Prompt
+	fromAgent := t.Agent
+	targetAgent := t.Agent
+	handoff := req.Agent != "" && req.Agent != t.Agent
+	if handoff {
+		targetAgent = req.Agent
+	}
+	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
+	orchestrate := plan.HasSubAgents()
+
+	meta := map[string]any{
+		"role":    "user",
+		"content": []map[string]string{{"type": "text", "text": prompt}},
+		"partial": false,
+		"source":  "follow_up",
+		"agent":   "user",
+		"speaker": "user",
+	}
+	if interrupted {
+		meta["source"] = "interrupt"
+		meta["interrupted"] = true
+	}
+	if handoff {
+		meta["source"] = "handoff"
+		meta["from_agent"] = fromAgent
+		meta["to_agent"] = targetAgent
+	}
+	if orchestrate {
+		meta["source"] = "orchestrate"
+	}
+	evPayload, _ := json.Marshal(meta)
+	if ev, err := e.store.AppendEvent(ctx, id, "message", evPayload); err == nil {
+		e.bus.PublishEvent(ev)
+	}
+}
+
+// handoffContext builds a short transcript excerpt for cross-agent (or no-session) continues.
+// Packing is newest-first (see sessionctx.BuildPack / ADR 0002) so adjacent recent turns
+// are not dropped when older verbose lines exhaust the char budget.
+func (e *Engine) handoffContext(ctx context.Context, taskID string) string {
+	evs, err := e.store.ListEvents(ctx, taskID, 0)
+	if err != nil || len(evs) == 0 {
+		return ""
+	}
+	var lines []sessionctx.Line
+	for _, ev := range evs {
+		switch ev.Type {
+		case "message", "error":
+			// Prefer high-signal types. Skip raw_output noise and generic "result: task turn finished".
+		default:
+			continue
+		}
+		s := summarizeEvent(ev)
+		if s == "" {
+			continue
+		}
+		lines = append(lines, sessionctx.Line{Text: s, Seq: ev.Seq})
+	}
+	// Newest turns stay verbatim under [Recent turns]; older overflow is sealed
+	// into [Sealed summary] + [Session index] rather than dropped (ADR 0002 P1b).
+	// Fixed section order keeps the cross-turn prefix stable (Policy K).
+	pack := sessionctx.BuildSealedPack(lines, sessionctx.PackOptions{
+		MaxChars:     sessionctx.DefaultMaxChars,
+		MaxLines:     sessionctx.DefaultMaxLines,
+		LineMaxChars: sessionctx.DefaultLineMaxChars,
+	}, "" /* pinned: auto-derivation deferred to P1.5 */)
+	return pack.Render()
+}
+
+func summarizeEvent(ev store.Event) string {
+	var m map[string]any
+	_ = json.Unmarshal(ev.Payload, &m)
+	switch ev.Type {
+	case "message":
+		role, _ := m["role"].(string)
+		if role == "" {
+			role = "assistant"
+		}
+		// Skip "→ worker" delegate chrome, but keep orchestrator plan/summary
+		// so a later @worker follow-up still sees what happened last turn.
+		if src, _ := m["source"].(string); src == "delegate" {
+			return ""
+		}
+		if role != "user" {
+			if src, _ := m["source"].(string); src != "orchestrator" {
+				if v, ok := m["visibility"].(map[string]any); ok {
+					if user, _ := v["user"].(bool); !user {
+						return ""
+					}
+				}
+			}
+		}
+		text := extractMessageText(m)
+		if text == "" {
+			return ""
+		}
+		// Never re-inject full system-ish prompts into context.
+		if strings.Contains(text, "You are a task worker agent") ||
+			strings.Contains(text, "You are Kin — a local coding agent") {
+			return ""
+		}
+		// Rune-safe soft cap; orchestrator summaries may carry worker findings.
+		capN := 800
+		if src, _ := m["source"].(string); src == "orchestrator" {
+			capN = 1600
+		}
+		text = sessionctx.TruncateRunes(text, capN)
+		return role + ": " + text
+	case "error":
+		if msg, ok := m["message"].(string); ok {
+			return "error: " + msg
+		}
+	case "result":
+		return "result: task turn finished"
+	case "raw_output":
+		// Keep handoff context small — skip CLI noise.
+		return ""
+	}
+	return ""
+}
+
+func extractMessageText(m map[string]any) string {
+	// content: [{type:text,text:…}] or string
+	switch c := m["content"].(type) {
+	case string:
+		return c
+	case []any:
+		var b string
+		for _, part := range c {
+			pm, ok := part.(map[string]any)
+			if !ok {
+				continue
+			}
+			if t, ok := pm["text"].(string); ok {
+				b += t
+			}
+		}
+		return b
+	}
+	if t, ok := m["text"].(string); ok {
+		return t
+	}
+	return ""
+}
+
+func formatHandoffPrompt(fromAgent, toAgent, contextBlock, userPrompt string) string {
+	var b strings.Builder
+	if fromAgent != toAgent {
+		b.WriteString("You are taking over this Kin task from agent ")
+		b.WriteString(fromAgent)
+		b.WriteString(" as ")
+		b.WriteString(toAgent)
+		b.WriteString(".\n")
+	} else {
+		b.WriteString("Continue this Kin task.\n")
+	}
+	if contextBlock != "" {
+		b.WriteString("\n--- prior context ---\n")
+		b.WriteString(contextBlock)
+		b.WriteString("\n--- end context ---\n\n")
+	}
+	b.WriteString("User request:\n")
+	b.WriteString(userPrompt)
+	return b.String()
 }
 
 func (e *Engine) now() time.Time {
@@ -375,5 +727,3 @@ func (e *Engine) now() time.Time {
 func (e *Engine) nowMilli() int64 {
 	return e.now().UnixMilli()
 }
-
-

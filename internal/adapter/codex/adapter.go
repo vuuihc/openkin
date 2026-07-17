@@ -62,6 +62,14 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			args = append(args, "--model", spec.Model)
 		}
 	}
+	// Session permission mode (applies to new + resume).
+	switch adapter.NormalizePermissionMode(spec.PermissionMode) {
+	case adapter.PermissionYOLO:
+		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+	case adapter.PermissionAcceptEdits:
+		// Auto-write inside workspace; still sandboxed.
+		args = append(args, "--sandbox", "workspace-write")
+	}
 
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = spec.Cwd

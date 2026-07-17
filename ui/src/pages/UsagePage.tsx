@@ -9,9 +9,14 @@ import {
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
+import { useT } from "../i18n/react";
 
+/**
+ * Usage / cost page (design 3b).
+ */
 export default function UsagePage() {
-  const [days, setDays] = useState(30);
+  const tr = useT();
+  const [days, setDays] = useState(7);
   const [rows, setRows] = useState<UsageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -39,155 +44,152 @@ export default function UsagePage() {
     void load();
   }, [reconnectGen, load]);
 
-  const agentTotals = useMemo(() => {
-    const m = new Map<
-      string,
-      { tasks: number; tokens_in: number; tokens_out: number; cost: number }
-    >();
+  const totals = useMemo(() => {
+    let cost = 0;
+    let tokens = 0;
+    let tasks = 0;
     for (const r of rows ?? []) {
-      const cur = m.get(r.agent) ?? {
-        tasks: 0,
-        tokens_in: 0,
-        tokens_out: 0,
-        cost: 0,
-      };
-      cur.tasks += r.tasks;
-      cur.tokens_in += r.tokens_in;
-      cur.tokens_out += r.tokens_out;
-      cur.cost += r.cost_usd ?? 0;
-      m.set(r.agent, cur);
+      cost += r.cost_usd ?? 0;
+      tokens += r.tokens_in + r.tokens_out;
+      tasks += r.tasks;
+    }
+    return { cost, tokens, tasks };
+  }, [rows]);
+
+  const byDay = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows ?? []) {
+      m.set(r.date, (m.get(r.date) ?? 0) + (r.cost_usd ?? 0));
     }
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [rows]);
 
+  const maxDay = Math.max(0.001, ...byDay.map(([, c]) => c));
+
+  const agentTotals = useMemo(() => {
+    const m = new Map<string, { tasks: number; cost: number; tokens: number }>();
+    for (const r of rows ?? []) {
+      const cur = m.get(r.agent) ?? { tasks: 0, cost: 0, tokens: 0 };
+      cur.tasks += r.tasks;
+      cur.cost += r.cost_usd ?? 0;
+      cur.tokens += r.tokens_in + r.tokens_out;
+      m.set(r.agent, cur);
+    }
+    return [...m.entries()].sort((a, b) => b[1].cost - a[1].cost);
+  }, [rows]);
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-zinc-50">Usage</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Per-day, per-agent tokens and cost (from task records).
-          </p>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-zinc-400 min-h-[44px]">
-          Days
+    <div className="flex-1 overflow-y-auto kin-scroll">
+      <div className="max-w-[720px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h1 className="text-[22px] font-semibold tracking-tight">{tr("usage.title")}</h1>
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            className="min-h-[44px] rounded-lg border border-surface-border bg-surface px-2 py-1.5 text-sm text-zinc-100"
+            className="kin-input w-auto min-h-[40px]"
           >
-            <option value={7}>7</option>
-            <option value={30}>30</option>
-            <option value={90}>90</option>
+            <option value={7}>This week</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
           </select>
-        </label>
-      </div>
-
-      {error && !rows && (
-        <p className="text-sm text-red-400" role="alert">
-          {error}
-        </p>
-      )}
-
-      {rows === null && !error && (
-        <div className="space-y-4">
-          <SlowConnectHint show={slow} />
-          <section className="rounded-xl border border-surface-border bg-surface-raised/50 p-4 space-y-3">
-            <SkeletonLine className="h-4 w-32" />
-            <SkeletonLine className="h-8 w-full" />
-            <SkeletonLine className="h-8 w-full" />
-          </section>
-          <section className="rounded-xl border border-surface-border bg-surface-raised/50 p-4 space-y-3">
-            <SkeletonLine className="h-4 w-24" />
-            <SkeletonLine className="h-8 w-full" />
-            <SkeletonLine className="h-8 w-full" />
-            <SkeletonLine className="h-8 w-full" />
-          </section>
         </div>
-      )}
 
-      {rows && (
-        <>
-          {error && <p className="text-sm text-red-400">{error}</p>}
+        {rows === null && !error && (
+          <div className="mt-6 space-y-3">
+            <SlowConnectHint show={slow} />
+            <SkeletonLine className="h-24 w-full rounded-xl" />
+          </div>
+        )}
 
-          <section className="rounded-xl border border-surface-border bg-surface-raised/50 p-4 space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-              Totals by agent
-            </h2>
-            {agentTotals.length === 0 ? (
-              <p className="text-sm text-zinc-500">No tasks in this period.</p>
-            ) : (
-              <div className="overflow-x-auto -mx-1 px-1">
-                <table className="w-full min-w-[20rem] text-left text-sm">
-                  <thead>
-                    <tr className="text-xs text-zinc-500 border-b border-surface-border">
-                      <th className="py-2 pr-3 font-medium">Agent</th>
-                      <th className="py-2 pr-3 font-medium">Tasks</th>
-                      <th className="py-2 pr-3 font-medium">In</th>
-                      <th className="py-2 pr-3 font-medium">Out</th>
-                      <th className="py-2 font-medium">Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agentTotals.map(([agent, t]) => (
-                      <tr key={agent} className="border-b border-surface-border/60">
-                        <td className="py-2 pr-3 font-mono text-xs text-accent">{agent}</td>
-                        <td className="py-2 pr-3 text-zinc-200">{t.tasks}</td>
-                        <td className="py-2 pr-3 text-zinc-300">{t.tokens_in}</td>
-                        <td className="py-2 pr-3 text-zinc-300">{t.tokens_out}</td>
-                        <td className="py-2 text-zinc-200">{formatCost(t.cost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        {error && (
+          <div
+            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
+
+        {rows && (
+          <>
+            <div className="mt-6 grid grid-cols-3 gap-3">
+              {[
+                { label: "Spend", value: formatCost(totals.cost) },
+                {
+                  label: "Tokens",
+                  value:
+                    totals.tokens >= 1_000_000
+                      ? `${(totals.tokens / 1_000_000).toFixed(2)}M`
+                      : totals.tokens >= 1000
+                        ? `${(totals.tokens / 1000).toFixed(1)}k`
+                        : String(totals.tokens),
+                },
+                { label: tr("nav.tasks"), value: String(totals.tasks) },
+              ].map((c) => (
+                <div
+                  key={c.label}
+                  className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
+                >
+                  <div className="text-[11px] text-kin-muted font-semibold uppercase tracking-wide">
+                    {c.label}
+                  </div>
+                  <div className="mt-1 text-[22px] font-semibold tabular-nums tracking-tight">
+                    {c.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+                Daily spend
               </div>
-            )}
-          </section>
-
-          <section className="rounded-xl border border-surface-border bg-surface-raised/50 p-4 space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">
-              Per day
-            </h2>
-            {rows.length === 0 ? (
-              <p className="text-sm text-zinc-500">No usage rows yet.</p>
-            ) : (
-              <div className="overflow-x-auto -mx-1 px-1">
-                <table className="w-full min-w-[24rem] text-left text-sm">
-                  <thead>
-                    <tr className="text-xs text-zinc-500 border-b border-surface-border">
-                      <th className="py-2 pr-3 font-medium">Date</th>
-                      <th className="py-2 pr-3 font-medium">Agent</th>
-                      <th className="py-2 pr-3 font-medium">Tasks</th>
-                      <th className="py-2 pr-3 font-medium">In</th>
-                      <th className="py-2 pr-3 font-medium">Out</th>
-                      <th className="py-2 font-medium">Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr
-                        key={`${r.date}:${r.agent}`}
-                        className="border-b border-surface-border/60"
-                      >
-                        <td className="py-2 pr-3 font-mono text-xs text-zinc-300">
-                          {r.date}
-                        </td>
-                        <td className="py-2 pr-3 font-mono text-xs text-accent">
-                          {r.agent}
-                        </td>
-                        <td className="py-2 pr-3 text-zinc-200">{r.tasks}</td>
-                        <td className="py-2 pr-3 text-zinc-300">{r.tokens_in}</td>
-                        <td className="py-2 pr-3 text-zinc-300">{r.tokens_out}</td>
-                        <td className="py-2 text-zinc-200">{formatCost(r.cost_usd)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-end gap-1.5 h-28">
+                {byDay.length === 0 && (
+                  <p className="text-sm text-kin-muted">No data for this range.</p>
+                )}
+                {byDay.map(([date, cost]) => (
+                  <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                    <div
+                      className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
+                      style={{ height: `${Math.max(4, (cost / maxDay) * 100)}%` }}
+                      title={`${date}: ${formatCost(cost)}`}
+                    />
+                    <span className="text-[10px] text-kin-muted truncate w-full text-center">
+                      {date.slice(5)}
+                    </span>
+                  </div>
+                ))}
               </div>
-            )}
-          </section>
-        </>
-      )}
+            </div>
+
+            <div className="mt-8">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+                By agent
+              </div>
+              <div className="rounded-xl border border-[var(--kin-hairline)] overflow-hidden">
+                {agentTotals.map(([agent, v]) => (
+                  <div
+                    key={agent}
+                    className="flex items-center gap-3 px-4 py-3 border-b border-[var(--kin-hairline)] last:border-0"
+                  >
+                    <span className="font-medium flex-1">{agent}</span>
+                    <span className="text-kin-secondary text-[12.5px] tabular-nums">
+                      {v.tasks} tasks
+                    </span>
+                    <span className="font-semibold tabular-nums w-20 text-right">
+                      {formatCost(v.cost)}
+                    </span>
+                  </div>
+                ))}
+                {agentTotals.length === 0 && (
+                  <p className="px-4 py-6 text-sm text-kin-muted">No agent usage yet.</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

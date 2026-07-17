@@ -12,6 +12,8 @@ import type { Approval } from "./daemon-api";
 export type TrayHandlers = {
   openKin: () => void;
   openApproval: (id: string) => void;
+  /** Left-click / primary: open design popover under the tray icon. */
+  togglePopover: (bounds: Electron.Rectangle) => void;
   startDaemon: () => void;
   stopDaemon: () => void;
   quit: () => void;
@@ -24,6 +26,7 @@ export class AppTray {
   private handlers: TrayHandlers;
   private pending: Approval[] = [];
   private loginEnabled = false;
+  private menu: Menu | null = null;
 
   constructor(handlers: TrayHandlers) {
     this.handlers = handlers;
@@ -38,12 +41,30 @@ export class AppTray {
     this.tray.setToolTip("Kin");
     this.loginEnabled = app.getLoginItemSettings().openAtLogin;
     this.rebuildMenu();
-    this.tray.on("click", () => {
-      // macOS: left click often opens menu already; still allow open.
-      if (process.platform === "darwin") return;
+
+    // Left-click → design popover (2a). Do NOT setContextMenu on macOS —
+    // that would steal left-click for the native menu.
+    this.tray.on("click", (_event, bounds) => {
+      const b = bounds?.width ? bounds : this.tray?.getBounds();
+      if (b) this.handlers.togglePopover(b);
+      else this.handlers.openKin();
+    });
+
+    this.tray.on("right-click", (_event, bounds) => {
+      if (!this.tray || !this.menu) return;
+      this.tray.popUpContextMenu(this.menu, bounds);
+    });
+
+    // Double-click opens main window
+    this.tray.on("double-click", () => {
       this.handlers.openKin();
     });
+
     console.log("[kin-desktop] tray setup complete");
+  }
+
+  getBounds(): Electron.Rectangle | null {
+    return this.tray?.getBounds() ?? null;
   }
 
   setPending(approvals: Approval[]): void {
@@ -66,11 +87,12 @@ export class AppTray {
   private updateBadge(): void {
     if (!this.tray) return;
     const n = this.pending.length;
-    // macOS menu bar: setTitle draws text next to the template icon.
     if (process.platform === "darwin") {
       this.tray.setTitle(n > 0 ? String(n) : "");
     }
-    this.tray.setToolTip(n > 0 ? `Kin — ${n} pending approval${n === 1 ? "" : "s"}` : "Kin");
+    this.tray.setToolTip(
+      n > 0 ? `Kin — ${n} pending approval${n === 1 ? "" : "s"}` : "Kin",
+    );
   }
 
   private rebuildMenu(): void {
@@ -94,6 +116,13 @@ export class AppTray {
       {
         label: "Open Kin",
         click: () => this.handlers.openKin(),
+      },
+      {
+        label: "Show Popover",
+        click: () => {
+          const b = this.tray?.getBounds();
+          if (b) this.handlers.togglePopover(b);
+        },
       },
       { type: "separator" },
       {
@@ -127,9 +156,7 @@ export class AppTray {
         click: (item) => {
           this.loginEnabled = item.checked;
           app.setLoginItemSettings({ openAtLogin: item.checked });
-          console.log(
-            `[kin-desktop] launch at login → ${item.checked}`,
-          );
+          console.log(`[kin-desktop] launch at login → ${item.checked}`);
         },
       },
       { type: "separator" },
@@ -139,7 +166,12 @@ export class AppTray {
       },
     ];
 
-    this.tray.setContextMenu(Menu.buildFromTemplate(template));
+    this.menu = Menu.buildFromTemplate(template);
+    // Non-macOS: attach as default context menu (right-click).
+    // macOS uses right-click → popUpContextMenu so left-click can open the popover.
+    if (process.platform !== "darwin") {
+      this.tray.setContextMenu(this.menu);
+    }
   }
 }
 
@@ -147,13 +179,11 @@ function loadTrayIcon(): Electron.NativeImage {
   const p = trayIconPath();
   if (existsSync(p)) {
     const img = nativeImage.createFromPath(p);
-    // Template image: macOS tints to menu-bar style.
     if (process.platform === "darwin") {
       img.setTemplateImage(true);
     }
     if (!img.isEmpty()) return img;
   }
-  // 16×16 black "dot" fallback so the tray still appears.
   console.warn("[kin-desktop] tray icon missing at", p, "— using fallback");
   const fallback = nativeImage.createFromDataURL(
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAFUlEQVR42mP8z8BQz0BFwEDFwMDAwAAA8A4B2q1oWQAAAABJRU5ErkJggg==",

@@ -37,11 +37,11 @@ export default function Transcript({ events }: Props) {
                 key={row.key}
                 className={`rounded-xl border px-4 py-3 ${
                   row.role === "user"
-                    ? "border-surface-border bg-surface/60"
-                    : "border-surface-border bg-surface-raised"
+                    ? "border-[var(--kin-hairline)] bg-[var(--kin-fill)]"
+                    : "border-[var(--kin-hairline)] bg-kin-elevated"
                 }`}
               >
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                <div className="mb-1 text-[10px] uppercase tracking-wide text-kin-muted">
                   {row.role}
                   {row.partial ? " · streaming" : ""}
                 </div>
@@ -54,7 +54,7 @@ export default function Transcript({ events }: Props) {
             return (
               <pre
                 key={row.key}
-                className="overflow-x-auto rounded-lg bg-black/30 border border-surface-border p-2 text-[11px] font-mono text-zinc-500"
+                className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-2 text-[11px] font-mono text-kin-secondary"
               >
                 {row.line}
               </pre>
@@ -63,7 +63,7 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200"
+                className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-kin-red"
               >
                 {row.message}
               </div>
@@ -72,7 +72,7 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-4 py-3 text-xs text-zinc-400"
+                className="rounded-xl border border-kin-green/30 bg-[rgba(48,209,88,.08)] px-4 py-3 text-xs text-kin-secondary"
               >
                 Result · cost{" "}
                 {typeof row.payload.cost_usd === "number"

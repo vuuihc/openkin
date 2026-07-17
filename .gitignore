@@ -54,3 +54,6 @@ docs/working/
 coverage/
 .nyc_output/
 .gstack/
+
+# Dev stack local binary
+.kin-dev/

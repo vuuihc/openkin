@@ -19,8 +19,12 @@ import (
 	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/adapter/claudecode"
 	"github.com/vuuihc/kin/internal/adapter/codex"
+	"github.com/vuuihc/kin/internal/adapter/detect"
+	"github.com/vuuihc/kin/internal/adapter/grok"
+	"github.com/vuuihc/kin/internal/adapter/kinagent"
 	"github.com/vuuihc/kin/internal/adapter/rawpty"
 	"github.com/vuuihc/kin/internal/api"
+	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/notify"
 	"github.com/vuuihc/kin/internal/remote"
 	remotetsnet "github.com/vuuihc/kin/internal/remote/tsnet"
@@ -123,33 +127,98 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	daemonURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	claudeAd := claudecode.New()
-	claudeAd.DaemonURL = daemonURL
-	claudeAd.Token = token
-	claudeAd.TokenFunc = func() string {
-		t, err := remote.ReadToken(stateDir)
-		if err != nil || t == "" {
-			return token
+	// Discover installed agent CLIs and only register those present on PATH.
+	// Optional preference: settings key agent.default.
+	defaultPref, _ := st.GetSetting(ctx, "agent.default")
+	found := detect.Scan(defaultPref)
+	adapters := map[string]adapter.Adapter{}
+	for _, info := range found {
+		if !info.Available {
+			fmt.Printf("agent %s: not installed (%s)\n", info.ID, info.Reason)
+			continue
 		}
-		return t
+		switch info.ID {
+		case "claude-code":
+			claudeAd := claudecode.New()
+			claudeAd.Binary = info.Binary
+			claudeAd.DaemonURL = daemonURL
+			claudeAd.Token = token
+			claudeAd.TokenFunc = func() string {
+				t, err := remote.ReadToken(stateDir)
+				if err != nil || t == "" {
+					return token
+				}
+				return t
+			}
+			adapters["claude-code"] = claudeAd
+			fmt.Printf("agent claude-code: %s\n", info.Binary)
+		case "codex":
+			codexAd := codex.New()
+			codexAd.Binary = info.Binary
+			adapters["codex"] = codexAd
+			fmt.Printf("agent codex: %s\n", info.Binary)
+		case "grok":
+			grokAd := grok.New()
+			grokAd.Binary = info.Binary
+			adapters["grok"] = grokAd
+			fmt.Printf("agent grok: %s\n", info.Binary)
+		}
 	}
-	if bin := os.Getenv("KIN_CLAUDE_BIN"); bin != "" {
-		claudeAd.Binary = bin
+	// rawpty is opt-in (not auto-discovered as a coding agent).
+	if os.Getenv("KIN_ENABLE_RAWPTY") == "1" {
+		adapters["rawpty"] = rawpty.New()
+		fmt.Println("agent rawpty: enabled (KIN_ENABLE_RAWPTY=1)")
 	}
 
-	codexAd := codex.New()
-	if bin := os.Getenv("KIN_CODEX_BIN"); bin != "" {
-		codexAd.Binary = bin
+	// Built-in Kin agent = Kin + cognition Provider (always registered).
+	// Available for runs when provider.base_url + provider.model are set.
+	adapters[kinagent.AgentID] = kinagent.New(func(c context.Context) (provider.Client, provider.Config, error) {
+		cfg, err := provider.LoadConfig(c, st)
+		if err != nil {
+			return nil, cfg, err
+		}
+		if !cfg.Configured() {
+			return nil, cfg, fmt.Errorf("provider not configured (Settings → Cognition)")
+		}
+		cli, err := provider.NewClient(cfg)
+		return cli, cfg, err
+	})
+	if cfg, err := provider.LoadConfig(ctx, st); err == nil && cfg.Configured() {
+		fmt.Printf("agent kin: provider %s model=%s\n", cfg.BaseURL, cfg.Model)
+	} else {
+		fmt.Println("agent kin: registered (configure provider in Settings to enable)")
 	}
 
-	adapters := map[string]adapter.Adapter{
-		"claude-code": claudeAd,
-		"codex":       codexAd,
-		"rawpty":      rawpty.New(),
+	if len(adapters) == 0 {
+		return fmt.Errorf("no agents available")
 	}
 
 	eng := task.NewEngine(st, adapters, task.NewBus(), task.DefaultMaxConcurrent)
 	defer eng.Close()
+	// Default agent: agent.default setting if available; else kin when provider ready; else first CLI.
+	eng.SetDefaultAgentFn(func() string {
+		pref, _ := st.GetSetting(context.Background(), "agent.default")
+		pref = strings.TrimSpace(pref)
+		pcfg, _ := provider.LoadConfig(context.Background(), st)
+		kinReady := pcfg.Configured() && eng.HasAgent(kinagent.AgentID)
+		if pref != "" {
+			if pref == kinagent.AgentID && kinReady {
+				return kinagent.AgentID
+			}
+			if pref != kinagent.AgentID && eng.HasAgent(pref) {
+				return pref
+			}
+		}
+		if kinReady {
+			return kinagent.AgentID
+		}
+		for _, id := range []string{"claude-code", "codex", "grok"} {
+			if eng.HasAgent(id) {
+				return id
+			}
+		}
+		return ""
+	})
 	if err := eng.Recover(context.Background()); err != nil {
 		return err
 	}
@@ -157,6 +226,18 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	notifier := &notify.Sender{Store: st}
 	eng.SetNotifier(notifier)
+	// Session titles: truncate immediately, then replace via cognition provider when configured.
+	eng.SetTitleResolver(func(c context.Context) (provider.Client, provider.Config, error) {
+		cfg, err := provider.LoadConfig(c, st)
+		if err != nil {
+			return nil, cfg, err
+		}
+		if !cfg.Configured() {
+			return nil, cfg, fmt.Errorf("provider not configured")
+		}
+		cli, err := provider.NewClient(cfg)
+		return cli, cfg, err
+	})
 
 	static, err := uiHandler()
 	if err != nil {
@@ -165,13 +246,52 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	auth := remote.NewFileAuth(tokenPath)
 	mode := networkMode(flags)
+	agentCache := detect.NewCache(5 * time.Second)
 	srvAPI := &api.Server{
 		Store:       st,
 		Auth:        auth,
 		Engine:      eng,
 		Version:     version,
 		Static:      static,
+		UploadsDir:  filepath.Join(stateDir, "uploads"),
 		NetworkMode: mode,
+		ListAgents: func() []api.AgentInfo {
+			pref, _ := st.GetSetting(context.Background(), "agent.default")
+			list := agentCache.Get(pref)
+			out := make([]api.AgentInfo, 0, len(list)+1)
+
+			// Kin + Provider first-class agent.
+			pcfg, _ := provider.LoadConfig(context.Background(), st)
+			kinOK := pcfg.Configured() && eng.HasAgent(kinagent.AgentID)
+			kinInfo := api.AgentInfo{
+				ID:        kinagent.AgentID,
+				Name:      "Kin",
+				Installed: true,
+				Available: kinOK,
+				Binary:    pcfg.BaseURL,
+			}
+			if !kinOK {
+				kinInfo.Reason = "configure provider.base_url + provider.model in Settings"
+			}
+			out = append(out, kinInfo)
+
+			for _, i := range list {
+				reg := eng.HasAgent(i.ID)
+				out = append(out, api.AgentInfo{
+					ID:        i.ID,
+					Name:      i.Name,
+					Binary:    i.Binary,
+					Installed: i.Installed,
+					Available: reg,
+					Reason:    i.Reason,
+				})
+			}
+			def := eng.DefaultAgent()
+			for i := range out {
+				out[i].Default = out[i].ID == def && out[i].Available
+			}
+			return out
+		},
 	}
 
 	handler := srvAPI.Handler()

@@ -82,6 +82,8 @@ export type Task = {
   prompt: string;
   model?: string | null;
   session_ref?: string | null;
+  /** Session default for all agents: default | accept_edits | yolo */
+  permission_mode?: string | null;
   status: string;
   exit_code?: number | null;
   tokens_in: number;
@@ -114,12 +116,29 @@ export type Approval = {
 };
 
 export type CreateTaskBody = {
-  agent: string;
+  /** Optional — daemon picks default available agent when omitted. */
+  agent?: string;
   cwd: string;
   prompt: string;
   model?: string;
   title?: string;
+  /** Session permission mode applied to every agent (default | accept_edits | yolo). */
+  permission_mode?: string;
 };
+
+export type AgentInfo = {
+  id: string;
+  name: string;
+  binary?: string;
+  installed: boolean;
+  available: boolean;
+  default: boolean;
+  reason?: string;
+};
+
+export function listAgents(): Promise<AgentInfo[]> {
+  return apiFetch<AgentInfo[]>("/api/agents");
+}
 
 export type WSMessage =
   | { kind: "task_update"; data: Task }
@@ -157,11 +176,18 @@ export function cancelTask(id: string): Promise<Task> {
   });
 }
 
-export function followUpPrompt(id: string, prompt: string): Promise<Task> {
+export function followUpPrompt(
+  id: string,
+  prompt: string,
+  opts?: { agent?: string },
+): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({
+      prompt,
+      ...(opts?.agent ? { agent: opts.agent } : {}),
+    }),
   });
 }
 
@@ -190,28 +216,107 @@ export function recentCwds(): Promise<string[]> {
   return apiFetch<string[]>("/api/recent-cwds");
 }
 
+/** Max single attachment size (must match server maxUploadBytes). */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MiB
+
+export type Upload = {
+  /** Stored filename (used in the URL). */
+  id: string;
+  /** Original client filename. */
+  name: string;
+  mime: string;
+  size: number;
+  /** GET path to preview/download the file. */
+  url: string;
+  /** Absolute on-disk path — agents read files by path. */
+  path: string;
+};
+
+/** Attach Bearer token as ?token= so <img src> / <a href> can load private uploads. */
+export function authenticatedURL(path: string): string {
+  if (!path) return path;
+  if (/^https?:\/\//i.test(path) || path.startsWith("blob:") || path.startsWith("data:")) {
+    return path;
+  }
+  const token = getToken();
+  if (!token) return path;
+  const join = path.includes("?") ? "&" : "?";
+  return `${path}${join}token=${encodeURIComponent(token)}`;
+}
+
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+export function isImageMime(mime: string | undefined | null): boolean {
+  return !!mime && mime.startsWith("image/");
+}
+
+/** POST /api/uploads — upload a single attachment (multipart). */
+export async function uploadFile(file: File): Promise<Upload> {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new ApiError(
+      413,
+      `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`,
+    );
+  }
+  const form = new FormData();
+  form.append("file", file);
+  const headers = new Headers();
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch("/api/uploads", { method: "POST", body: form, headers });
+  if (!res.ok) {
+    if (res.status === 401) useAppStore.getState().requireToken("unauthorized");
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, text || res.statusText);
+  }
+  return (await res.json()) as Upload;
+}
+
+/** @deprecated use uploadFile */
+export const uploadImage = uploadFile;
+
 export type Settings = {
   "notify.bark_url": string;
   "notify.ntfy_topic": string;
   "ui.base_url": string;
   price_table: string;
+  "provider.kind": string;
+  "provider.base_url": string;
+  "provider.api_key": string;
+  "provider.model": string;
+  "agent.default": string;
   network_mode: string;
   connect_url: string;
   token: string;
+};
+
+export type SettingsUpdate = Partial<
+  Pick<
+    Settings,
+    | "notify.bark_url"
+    | "notify.ntfy_topic"
+    | "ui.base_url"
+    | "price_table"
+    | "provider.kind"
+    | "provider.base_url"
+    | "provider.api_key"
+    | "provider.model"
+    | "agent.default"
+  >
+> & {
+  "provider.clear_api_key"?: string;
 };
 
 export function getSettings(): Promise<Settings> {
   return apiFetch<Settings>("/api/settings");
 }
 
-export function updateSettings(
-  body: Partial<
-    Pick<
-      Settings,
-      "notify.bark_url" | "notify.ntfy_topic" | "ui.base_url" | "price_table"
-    >
-  >,
-): Promise<Settings> {
+export function updateSettings(body: SettingsUpdate): Promise<Settings> {
   return apiFetch<Settings>("/api/settings", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -378,7 +483,7 @@ export function parseApprovalPayload(payload: unknown): {
 /** Build a temporary optimistic task row for New Task UX. */
 export function optimisticTask(partial: {
   id: string;
-  agent: string;
+  agent?: string;
   cwd: string;
   prompt: string;
   title?: string;
@@ -391,7 +496,7 @@ export function optimisticTask(partial: {
   return {
     id: partial.id,
     title,
-    agent: partial.agent,
+    agent: partial.agent || "auto",
     cwd: partial.cwd,
     prompt: partial.prompt,
     status: "queued",

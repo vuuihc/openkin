@@ -72,7 +72,7 @@ Apply as migration 001 via `PRAGMA user_version`.
 ```sql
 CREATE TABLE tasks (
   id          TEXT PRIMARY KEY,          -- ULID
-  title       TEXT NOT NULL,             -- first 80 chars of prompt if not given
+  title       TEXT NOT NULL,             -- short session name (prompt fallback; LLM summary when provider configured)
   agent       TEXT NOT NULL,             -- 'claude-code' | 'codex' | 'rawpty'
   cwd         TEXT NOT NULL,
   prompt      TEXT NOT NULL,

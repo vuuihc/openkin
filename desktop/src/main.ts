@@ -1,28 +1,78 @@
 /**
  * Kin desktop shell — Electron main process.
  *
- * Responsibilities: tray, sidecar lifecycle, main window (loads daemon UI),
- * native notifications driven by the daemon WebSocket. No business logic.
+ * Responsibilities: tray + design popover, sidecar lifecycle, main window
+ * (loads daemon UI), native notifications driven by the daemon WebSocket.
  */
-import { app } from "electron";
+import { app, nativeImage } from "electron";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { Sidecar } from "./sidecar";
 import { MainWindow } from "./window";
 import { AppTray } from "./tray";
+import { TrayPopover } from "./tray-popover";
 import { DaemonWS } from "./ws-client";
 import { Notifier } from "./notifications";
+import { registerIpcHandlers } from "./ipc";
+import { appIconPath, isDev } from "./config";
 import {
   listPendingApprovals,
   type Approval,
   type WSMessage,
 } from "./daemon-api";
 
+// Branding before ready: unpackaged `electron .` otherwise shows "Electron"
+// in the menu bar / About / some process lists. productName only applies when packaged.
+const APP_NAME = "Kin";
+app.setName(APP_NAME);
+process.title = APP_NAME;
+
+// Dev: isolate userData so singleton lock doesn't collide with a packaged
+// /Applications/Kin.app (or a zombie from a previous npm run dev).
+// Must run before requestSingleInstanceLock().
+if (process.env.KIN_DESKTOP_DEV === "1") {
+  app.setPath("userData", join(app.getPath("appData"), "Kin-dev"));
+}
+
 const sidecar = new Sidecar();
 const mainWindow = new MainWindow();
+// Always read the live token file — tray can open the window before ensureRunning
+// finishes and writes/refreshes ~/.kin/token.
+mainWindow.setTokenSource(() => sidecar.readToken());
+
 let tray: AppTray | null = null;
+let popover: TrayPopover | null = null;
 let ws: DaemonWS | null = null;
 let notifier: Notifier | null = null;
 let pending: Approval[] = [];
 let quitting = false;
+
+function applyAppBranding(): void {
+  app.setAboutPanelOptions({
+    applicationName: APP_NAME,
+    applicationVersion: app.getVersion(),
+    copyright: "Copyright © Kin contributors",
+  });
+
+  const iconPath = appIconPath();
+  if (!existsSync(iconPath)) {
+    console.warn("[kin-desktop] app icon missing:", iconPath);
+    return;
+  }
+  const image = nativeImage.createFromPath(iconPath);
+  if (image.isEmpty()) {
+    console.warn("[kin-desktop] app icon failed to load:", iconPath);
+    return;
+  }
+  // Dev dock uses Electron's default binary icon unless we override.
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(image);
+  }
+  console.log("[kin-desktop] branding applied", {
+    name: app.getName(),
+    iconPath,
+  });
+}
 
 async function refreshPending(): Promise<Approval[]> {
   const token = sidecar.readToken();
@@ -44,7 +94,6 @@ async function refreshPending(): Promise<Approval[]> {
 function handleWSMessage(msg: WSMessage): void {
   if (msg.kind === "approval_update") {
     if (msg.data.decision === "pending") {
-      // List endpoint joins task_title; WS payload often lacks it.
       void refreshPending().then((list) => {
         const full = list.find((x) => x.id === msg.data.id) ?? msg.data;
         notifier?.onApproval(full);
@@ -57,8 +106,6 @@ function handleWSMessage(msg: WSMessage): void {
   }
 
   if (msg.kind === "event") {
-    // Daemon also emits type=approval_requested as kind=event.
-    // Tray/badge already handled via approval_update; no second notification.
     if (msg.data.type === "approval_requested") {
       void refreshPending();
     }
@@ -94,14 +141,34 @@ function connectWS(): void {
 }
 
 function setupTray(): void {
+  popover = new TrayPopover({
+    openMain: (path) => {
+      popover?.hide();
+      mainWindow.show(path || "/");
+    },
+    getToken: () => sidecar.readToken(),
+  });
+
   tray = new AppTray({
-    openKin: () => mainWindow.show("/"),
-    openApproval: (id) => mainWindow.openApproval(id),
+    openKin: () => {
+      popover?.hide();
+      mainWindow.show("/");
+    },
+    openApproval: (id) => {
+      popover?.hide();
+      mainWindow.openApproval(id);
+    },
+    togglePopover: (bounds) => {
+      popover?.toggle(bounds);
+    },
     startDaemon: () => {
       void (async () => {
         await sidecar.startFromMenu();
         connectWS();
         await refreshPending();
+        // Recover any window that opened while the daemon was down.
+        mainWindow.reloadWhenReady();
+        popover?.reloadWhenReady();
         tray?.refresh();
       })();
     },
@@ -130,6 +197,7 @@ async function quitApp(): Promise<void> {
   mainWindow.prepareQuit();
   ws?.disconnect();
   await sidecar.stopIfOwned();
+  popover?.destroy();
   tray?.destroy();
   app.quit();
 }
@@ -138,14 +206,21 @@ console.log("[kin-desktop] main process starting", {
   electron: process.versions.electron,
   node: process.versions.node,
   packaged: app.isPackaged,
+  dev: isDev(),
 });
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
-  console.log("[kin-desktop] another instance holds the lock; exiting");
-  app.quit();
+  // Primary is still alive (or lock not cleared yet). It will get second-instance
+  // and should focus the window. This process must exit — not a crash.
+  console.error(
+    "[kin-desktop] another Kin desktop instance is already running — exiting.\n" +
+      "  Tip: quit the menu-bar Kin first, or re-run `npm run dev` (dev launcher kills prior instances).",
+  );
+  app.exit(0);
 } else {
   app.on("second-instance", () => {
+    // Re-launch / second npm run: bring UI forward instead of looking dead.
     mainWindow.show("/");
   });
 
@@ -153,9 +228,12 @@ if (!gotLock) {
     .whenReady()
     .then(async () => {
       console.log("[kin-desktop] app ready");
+      applyAppBranding();
+      registerIpcHandlers();
 
-      // Menu-bar default: hide dock until the window is shown.
-      if (process.platform === "darwin" && app.dock) {
+      // Production: menu-bar app, hide Dock until a window is shown.
+      // Dev: keep Dock + open the window so launch doesn't look like a crash.
+      if (process.platform === "darwin" && app.dock && !isDev()) {
         app.dock.hide();
       }
 
@@ -164,6 +242,10 @@ if (!gotLock) {
           "[kin-desktop] only macOS (darwin-arm64) is supported for now; continuing best-effort",
         );
       }
+
+      // Seed token early so a tray open during ensureRunning still has a shot
+      // when ~/.kin/token already exists from a previous serve.
+      mainWindow.setToken(sidecar.readToken());
 
       setupTray();
 
@@ -182,6 +264,10 @@ if (!gotLock) {
       if (status.state !== "unavailable") {
         connectWS();
         await refreshPending();
+        // If the user already opened the window while the daemon was booting,
+        // the first loadURL may have failed — force a clean reload now.
+        mainWindow.reloadWhenReady();
+        popover?.reloadWhenReady();
       } else {
         console.error(
           "[kin-desktop] daemon unavailable:",
@@ -189,10 +275,14 @@ if (!gotLock) {
         );
       }
 
-      // Stay in the menu bar; user opens the window via the tray.
-      console.log(
-        "[kin-desktop] tray setup complete — idle in menu bar (window hidden)",
-      );
+      if (isDev()) {
+        mainWindow.show("/");
+        console.log("[kin-desktop] dev: main window opened");
+      } else {
+        console.log(
+          "[kin-desktop] tray setup complete — idle in menu bar (window hidden)",
+        );
+      }
     })
     .catch((err) => {
       console.error("[kin-desktop] startup failed", err);
@@ -202,7 +292,6 @@ if (!gotLock) {
     mainWindow.show("/");
   });
 
-  // Keep running in the tray when all windows are closed (all platforms).
   app.on("window-all-closed", () => {
     /* intentionally empty — do not app.quit() */
   });

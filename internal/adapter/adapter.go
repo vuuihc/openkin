@@ -28,10 +28,11 @@ type Event struct {
 // TaskSpec describes a task to start. Fields mirror the tasks table / API.
 // Populated fully in M1+; defined here so the interface type-checks.
 type TaskSpec struct {
-	ID         string
-	Agent      string
-	Cwd        string
-	Prompt     string
-	Model      string
-	SessionRef string // non-empty → resume
+	ID             string
+	Agent          string
+	Cwd            string
+	Prompt         string
+	Model          string
+	SessionRef     string // non-empty → resume
+	PermissionMode string // default | accept_edits | yolo (see Permission* constants)
 }

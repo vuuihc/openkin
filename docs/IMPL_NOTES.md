@@ -325,7 +325,7 @@ Electron main process
 - **Packaged binary:** `extraResources` → `Contents/Resources/kin`.
 - **Token:** read from `~/.kin/token` (same file the daemon writes on first serve).
 - **Version match:** on launch, probe health + version; if a daemon is already up, attach (even on mismatch — do not kill foreign processes; log a warning). If down, spawn our binary.
-- **Window:** 1100×760 default; bounds persisted under Electron `userData`; close hides to tray; dock hidden while no visible window (menu-bar behavior).
+- **Window:** 1100×760 default; bounds persisted under Electron `userData`; close hides to tray; dock hidden while no visible window (menu-bar behavior). `backgroundColor: #0e0e10` matches SPA page so first paint is never a white flash. Token is resolved live from `~/.kin/token` on every navigate (tray can open before `ensureRunning` finishes). `did-fail-load` retries with backoff; after the sidecar is healthy, open windows get `reloadWhenReady()` so a boot race does not leave a blank error page until the user closes/reopens.
 - **Security:** `contextIsolation: true`, `nodeIntegration: false`, no preload (SPA talks to the daemon itself). `will-navigate` / `setWindowOpenHandler` allow only `127.0.0.1|localhost:7777`.
 - **WS auth:** reuses query `?token=` — `internal/remote/auth.go` `extractToken` accepts Bearer or `?token=` for all auth-gated routes including `/api/ws`.
 - **WS client:** Electron's Node (20.x) has no global `WebSocket`, and the shell forbids extra runtime deps. Main process uses a minimal RFC6455 client over `net` (text frames + ping/pong).
@@ -362,3 +362,65 @@ Cannot verify tray clicks or Notification UI without a human. Programmatic check
 6. Start/Stop daemon from menu (Stop only when this app spawned the daemon).
 7. Launch at Login toggle.
 8. Install `.dmg`; unsigned open caveat as above.
+
+
+## Multi-agent orchestration (mixed mode)
+
+- **Trigger:** only explicit `@worker` tokens in the *current user message* (`UserTurnPrompt`). Prior transcript / handoff wrappers must not re-fan-out.
+- **Mixed modes:** round N can `@claude` + `@codex`; round N+1 with no `@` stays on the main agent (Kin) alone.
+- **Main chat UI:** orchestrator/delegate lines + Kin messages are user-facing; worker CLI text/tools are task-only (hidden from the main column).
+- **Approvals:** `/internal/*` loopback check uses the TCP peer captured *before* `RealIP`, so `X-Forwarded-For` cannot break the MCP approve bridge. Permission allow path also accepts `tool_input` / `arguments` keys.
+
+
+
+## Session permission mode (all agents)
+
+Session-scoped default applied to every agent run in a task (main + multi-@ workers).
+
+| Mode | Meaning | Claude Code | Codex | Grok |
+|------|---------|-------------|-------|------|
+| `default` | Ask before risky tools | MCP approve bridge | CLI defaults | CLI defaults |
+| `accept_edits` | Auto-accept file edits | `--permission-mode acceptEdits` (+ MCP for other tools) | `--sandbox workspace-write` | `--always-approve` |
+| `yolo` | Skip permission prompts | `--dangerously-skip-permissions` (no MCP) | `--dangerously-bypass-approvals-and-sandbox` | `--always-approve` |
+
+- Stored on `tasks.permission_mode` (default `default`). Set once at create; UI locks it for the session.
+- Composer footer picker (New chat + task detail). Draft choice remembered in `localStorage` (`kin_permission_mode`).
+- Engine passes `TaskSpec.PermissionMode` to single-agent runs and to every orchestrated worker (same mode for all agents).
+- Aliases normalized: `acceptEdits`/`accept-edits` → `accept_edits`; `bypass`/`bypassPermissions` → `yolo`.
+
+## Session title summarization
+
+Task titles used to be `prompt[:80]` (byte-sliced). Create now:
+
+1. Immediate fallback: first line of the prompt, rune-truncated to ~48 chars (`TruncateTitle`).
+2. If the user did not pass `title` and a cognition provider is configured, the engine asynchronously asks the provider for a 3–8 word session name and patches `tasks.title`, broadcasting a `task_update` so the sidebar refreshes.
+
+Failures / missing provider leave the fallback in place. Explicit `title` in `POST /api/tasks` is never overwritten.
+
+
+## Context management (ADR 0002 v1)
+
+Design: [docs/adr/0002-context-management.md](./adr/0002-context-management.md) — **compress-at-entry + KV-cache-first**.
+
+### Shipped (P0 + P1a + P1b)
+
+- Cross-turn: **newest-first Context Pack** (`sessionctx.BuildPack` via `handoffContext` → `formatHandoffPrompt`) so recent turns are not dropped.
+- **Sealed pack** (`sessionctx.BuildSealedPack` / `PackSections.Render`): the pack now emits the full fixed-order template — `[Session index]`, `[Pinned]`, `[Sealed summary]`, `[Recent turns]` — with byte-stable headers (Policy K). On overflow, older turns are **compressed into an extractive sealed summary + keyword index** instead of being silently dropped (Layer 1 / Layer 4 retrieval hint). Seal is derived deterministically (identical inputs → identical output); the `[Pinned]` slot is caller-supplied and currently passed empty (auto-derivation deferred to P1.5). `FormatPackSections` is retained as the recent-only shortcut and now delegates to `PackSections.Render`.
+- Full fidelity in SQLite `events`; model path ≠ UI path.
+- **Policy C — compact-on-entry:**
+  - `sessionctx.ToolDigest` (per-tool rules: bash tail, read_file excerpt, list/glob first-N, …) applied in `kinagent` **before** `RoleTool` append.
+  - `sessionctx.WorkerDigest` (≤~1.8k runes, extractive) in `buildMainSummary` so main chat does not paste multi-k worker dumps.
+  - Raw tool stdout still hard-capped at 80k for archive/UI safety; digests are few-k.
+- **Policy K — KV hygiene (intra-turn):**
+  - Removed **proactive** mid-loop `pruneLoopMessages` rewrite.
+  - Overflow safety net only: `overflowCompactMessages` (prefer newest giant tool first) + single retry.
+  - Tool defs / system prompt unchanged across calls in a turn.
+
+### Still open
+
+| Item | Notes |
+|------|--------|
+| **P1b metrics** (debug) | Prompt-char / `cached_tokens` instrumentation not yet wired (P1b item 5). No `cached_tokens` read from `provider.Usage` today; only `PromptTokens`/`CompletionTokens` are accumulated |
+| **P1.5** durable Kin multi-turn `messages` | Follow-ups still rebuild `formatHandoffPrompt` blob (cold-ish prefix). Also unlocks auto-derived `[Pinned]` (goals/decisions) and true cross-turn seal persistence (seal is re-derived per follow-up today) |
+| **P2** | `session_search` + optional JSONL mirror; SQLite remains SoT. Sealed pack already emits a `[Session index]` keyword line as the retrieval hint |
+| **P3** | Optional LLM micro-summarize at seal boundaries only (current seal is extractive/deterministic) |

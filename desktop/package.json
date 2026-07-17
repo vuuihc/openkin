@@ -1,5 +1,6 @@
 {
-  "name": "kin-desktop",
+  "name": "kin",
+  "productName": "Kin",
   "version": "0.0.0-dev",
   "private": true,
   "description": "Kin menu-bar shell (Electron) — supervises the local kin daemon",
@@ -49,7 +50,7 @@
           ]
         }
       ],
-      "icon": "assets/icon.png",
+      "icon": "assets/icon.icns",
       "darkModeSupport": true,
       "identity": null,
       "hardenedRuntime": false,

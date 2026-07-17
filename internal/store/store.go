@@ -61,21 +61,22 @@ func (s *Store) DB() *sql.DB { return s.db }
 
 // Task is a row in the tasks table.
 type Task struct {
-	ID         string   `json:"id"`
-	Title      string   `json:"title"`
-	Agent      string   `json:"agent"`
-	Cwd        string   `json:"cwd"`
-	Prompt     string   `json:"prompt"`
-	Model      *string  `json:"model,omitempty"`
-	SessionRef *string  `json:"session_ref,omitempty"`
-	Status     string   `json:"status"`
-	ExitCode   *int     `json:"exit_code,omitempty"`
-	TokensIn   int      `json:"tokens_in"`
-	TokensOut  int      `json:"tokens_out"`
-	CostUSD    *float64 `json:"cost_usd,omitempty"`
-	CreatedAt  int64    `json:"created_at"`
-	StartedAt  *int64   `json:"started_at,omitempty"`
-	FinishedAt *int64   `json:"finished_at,omitempty"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Agent          string   `json:"agent"`
+	Cwd            string   `json:"cwd"`
+	Prompt         string   `json:"prompt"`
+	Model          *string  `json:"model,omitempty"`
+	SessionRef     *string  `json:"session_ref,omitempty"`
+	PermissionMode string   `json:"permission_mode,omitempty"`
+	Status         string   `json:"status"`
+	ExitCode       *int     `json:"exit_code,omitempty"`
+	TokensIn       int      `json:"tokens_in"`
+	TokensOut      int      `json:"tokens_out"`
+	CostUSD        *float64 `json:"cost_usd,omitempty"`
+	CreatedAt      int64    `json:"created_at"`
+	StartedAt      *int64   `json:"started_at,omitempty"`
+	FinishedAt     *int64   `json:"finished_at,omitempty"`
 }
 
 // Event is a row in the events table (append-only).
@@ -102,13 +103,19 @@ func scanTask(scanner interface {
 	var exitCode sql.NullInt64
 	var costUSD sql.NullFloat64
 	var startedAt, finishedAt sql.NullInt64
+	var permissionMode sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
-		&model, &sessionRef, &t.Status,
+		&model, &sessionRef, &permissionMode, &t.Status,
 		&exitCode, &t.TokensIn, &t.TokensOut, &costUSD,
 		&t.CreatedAt, &startedAt, &finishedAt,
 	); err != nil {
 		return Task{}, err
+	}
+	if permissionMode.Valid && permissionMode.String != "" {
+		t.PermissionMode = permissionMode.String
+	} else {
+		t.PermissionMode = "default"
 	}
 	if model.Valid {
 		t.Model = &model.String
@@ -132,7 +139,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, status,
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
 		       exit_code, tokens_in, tokens_out, cost_usd,
 		       created_at, started_at, finished_at`
 
@@ -202,13 +209,17 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if t.SessionRef != nil {
 		sessionRef = *t.SessionRef
 	}
+	perm := t.PermissionMode
+	if perm == "" {
+		perm = "default"
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, title, agent, cwd, prompt, model, session_ref, status,
+			id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
 			exit_code, tokens_in, tokens_out, cost_usd,
 			created_at, started_at, finished_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, t.Status,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
 		t.CreatedAt, t.StartedAt, t.FinishedAt,
 	)
@@ -221,8 +232,12 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 // TaskPatch is a partial update applied by the engine.
 type TaskPatch struct {
 	Status          *string
+	Title           *string
+	Agent           *string
 	SessionRef      *string
+	ClearSessionRef bool // sets session_ref NULL (handoff across agents)
 	Prompt          *string
+	PermissionMode  *string
 	ExitCode        *int
 	ClearExitCode   bool
 	TokensIn        *int
@@ -242,13 +257,27 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 		sets = append(sets, "status = ?")
 		args = append(args, *p.Status)
 	}
-	if p.SessionRef != nil {
+	if p.Title != nil {
+		sets = append(sets, "title = ?")
+		args = append(args, *p.Title)
+	}
+	if p.Agent != nil {
+		sets = append(sets, "agent = ?")
+		args = append(args, *p.Agent)
+	}
+	if p.ClearSessionRef {
+		sets = append(sets, "session_ref = NULL")
+	} else if p.SessionRef != nil {
 		sets = append(sets, "session_ref = ?")
 		args = append(args, *p.SessionRef)
 	}
 	if p.Prompt != nil {
 		sets = append(sets, "prompt = ?")
 		args = append(args, *p.Prompt)
+	}
+	if p.PermissionMode != nil {
+		sets = append(sets, "permission_mode = ?")
+		args = append(args, *p.PermissionMode)
 	}
 	if p.ClearExitCode {
 		sets = append(sets, "exit_code = NULL")

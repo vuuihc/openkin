@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const apiPort = process.env.KIN_PORT || "7777";
+const apiTarget = `http://127.0.0.1:${apiPort}`;
+
 // Build output lands in web/dist so go:embed (web/embed.go) can pick it up
 // without wiping embed.go via emptyOutDir.
 export default defineConfig({
@@ -15,8 +18,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:7777",
+        target: apiTarget,
         changeOrigin: true,
+        // Live events over /api/ws
+        ws: true,
       },
     },
   },

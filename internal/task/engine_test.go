@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/store"
 )
 
@@ -22,6 +23,9 @@ type fakeAdapter struct {
 	events []adapter.Event
 	// block Start until released
 	gate chan struct{}
+	// lastSpec / specs record TaskSpec for permission-mode / orchestration tests
+	lastSpec adapter.TaskSpec
+	specs    []adapter.TaskSpec
 }
 
 type fakeHandle struct {
@@ -45,6 +49,8 @@ func (h *fakeHandle) Cancel() error {
 func (a *fakeAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	a.mu.Lock()
 	a.started++
+	a.lastSpec = spec
+	a.specs = append(a.specs, spec)
 	a.mu.Unlock()
 	if a.gate != nil {
 		select {
@@ -315,3 +321,66 @@ func TestEventsBeforeBroadcast(t *testing.T) {
 		t.Fatalf("db events=%d", len(dbEvs))
 	}
 }
+
+
+func TestAsyncTitleSummarize(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	e.SetTitleResolver(func(ctx context.Context) (provider.Client, provider.Config, error) {
+		return &titleStubClient{content: "Summarize project structure"}, provider.Config{
+			Kind: "openai-compatible", BaseURL: "http://example.invalid/v1", Model: "m",
+		}, nil
+	})
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp",
+		Prompt: "请帮我总结一下这个仓库的整体结构，并指出主要模块",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fallback is immediate (Chinese prompt truncated or full).
+	if task.Title == "" {
+		t.Fatal("expected fallback title")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		got, _ := e.Get(context.Background(), task.ID)
+		if got.Title == "Summarize project structure" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got, _ := e.Get(context.Background(), task.ID)
+	t.Fatalf("title not summarized: %q", got.Title)
+}
+
+func TestExplicitTitleNotOverwritten(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	e.SetTitleResolver(func(ctx context.Context) (provider.Client, provider.Config, error) {
+		return &titleStubClient{content: "SHOULD NOT APPLY"}, provider.Config{
+			Kind: "openai-compatible", BaseURL: "http://example.invalid/v1", Model: "m",
+		}, nil
+	})
+	title := "My custom title"
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "long enough prompt to trigger summarize path",
+		Title: &title,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	got, _ := e.Get(context.Background(), task.ID)
+	if got.Title != "My custom title" {
+		t.Fatalf("title=%q", got.Title)
+	}
+}
+
+type titleStubClient struct{ content string }
+
+func (s *titleStubClient) Chat(ctx context.Context, req provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{Content: s.content, Model: "stub"}, nil
+}
+func (s *titleStubClient) Kind() string         { return "stub" }
+func (s *titleStubClient) ModelDefault() string { return "stub" }

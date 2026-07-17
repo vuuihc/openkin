@@ -47,7 +47,12 @@ func New() *Adapter {
 //
 //	claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages
 //	  --mcp-config <file> --permission-prompt-tool mcp__kin__approve
-//	  [--resume <session_ref>] [--model <model>]
+//	  [--permission-mode <mode>] [--resume <session_ref>] [--model <model>]
+//
+// PermissionMode mapping:
+//   default       → MCP approve bridge (when DaemonURL/Token set)
+//   accept_edits  → --permission-mode acceptEdits (+ MCP for other tools)
+//   yolo          → --dangerously-skip-permissions (no MCP)
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	bin := a.Binary
 	if bin == "" {
@@ -68,7 +73,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		"--verbose",
 		"--include-partial-messages",
 	}
-	// NEVER --dangerously-skip-permissions (spec §0 / M2).
+	perm := adapter.NormalizePermissionMode(spec.PermissionMode)
 
 	token := a.Token
 	if a.TokenFunc != nil {
@@ -78,7 +83,16 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	}
 
 	var mcpPath string
-	if a.DaemonURL != "" && token != "" {
+	// YOLO: skip Kin MCP bridge and bypass Claude permission checks.
+	// Operator opted in via session permission mode.
+	if perm == adapter.PermissionYOLO {
+		// --allow-… unlocks the flag on newer Claude Code builds; both are safe.
+		args = append(args,
+			"--allow-dangerously-skip-permissions",
+			"--dangerously-skip-permissions",
+			"--permission-mode", "bypassPermissions",
+		)
+	} else if a.DaemonURL != "" && token != "" {
 		kinBin := a.KinBinary
 		if kinBin == "" {
 			kinBin, err = os.Executable()
@@ -99,6 +113,12 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			"--mcp-config", mcpPath,
 			"--permission-prompt-tool", "mcp__kin__approve",
 		)
+		if perm == adapter.PermissionAcceptEdits {
+			args = append(args, "--permission-mode", "acceptEdits")
+		}
+	} else if perm == adapter.PermissionAcceptEdits {
+		// No MCP bridge (tests / misconfig): still pass Claude permission mode.
+		args = append(args, "--permission-mode", "acceptEdits")
 	}
 
 	if spec.SessionRef != "" {

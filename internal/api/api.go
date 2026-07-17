@@ -20,6 +20,17 @@ import (
 	"github.com/vuuihc/kin/internal/task"
 )
 
+// AgentInfo is one discovered agent for GET /api/agents.
+type AgentInfo struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Binary    string `json:"binary,omitempty"`
+	Installed bool   `json:"installed"`
+	Available bool   `json:"available"`
+	Default   bool   `json:"default"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 // Server holds HTTP handlers and dependencies for the Kin API.
 type Server struct {
 	Store   *store.Store
@@ -28,6 +39,11 @@ type Server struct {
 	Version string
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
+	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
+	UploadsDir string
+
+	// ListAgents returns live agent discovery status (set by server.Serve).
+	ListAgents func() []AgentInfo
 
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
@@ -37,10 +53,22 @@ type Server struct {
 	TokenFn     func() string
 }
 
+// peerAddrKey stores the TCP peer before RealIP rewrites RemoteAddr.
+// Internal approval routes must authorize the real connection, not X-Forwarded-For.
+type peerAddrKey struct{}
+
 // Handler returns the root chi router.
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	// Capture true peer before RealIP so /internal/* can enforce loopback safely.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, peerAddrKey{}, req.RemoteAddr)
+			next.ServeHTTP(w, req.WithContext(ctx))
+		})
+	})
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
 	// Gzip/deflate for API JSON and HTML/static text (M5 polish).
@@ -52,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	// Public API (token auth).
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware)
+		r.Get("/api/agents", s.handleListAgents)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
@@ -65,6 +94,8 @@ func (s *Server) Handler() http.Handler {
 		r.Put("/api/settings", s.handlePutSettings)
 		r.Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
+		r.Post("/api/uploads", s.handleUpload)
+		r.Get("/api/uploads/{name}", s.handleServeUpload)
 		r.Get("/api/ws", s.handleWS)
 	})
 
@@ -85,17 +116,27 @@ func (s *Server) Handler() http.Handler {
 
 func loopbackOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
+		// Prefer the TCP peer captured before RealIP (X-Forwarded-For must not
+		// unlock or block the local MCP approve bridge).
+		addr := r.RemoteAddr
+		if v, ok := r.Context().Value(peerAddrKey{}).(string); ok && v != "" {
+			addr = v
 		}
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
+		if !isLoopbackRemote(addr) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "loopback only"})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isLoopbackRemote(remote string) bool {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +170,36 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		tasks = []store.Task{}
 	}
 	writeJSON(w, http.StatusOK, tasks)
+}
+
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if s.ListAgents != nil {
+		list := s.ListAgents()
+		if list == nil {
+			list = []AgentInfo{}
+		}
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
+	// Tests without discovery: mirror engine adapters.
+	var list []AgentInfo
+	def := ""
+	if s.Engine != nil {
+		def = s.Engine.DefaultAgent()
+		for _, id := range s.Engine.AgentIDs() {
+			list = append(list, AgentInfo{
+				ID:        id,
+				Name:      id,
+				Installed: true,
+				Available: true,
+				Default:   id == def,
+			})
+		}
+	}
+	if list == nil {
+		list = []AgentInfo{}
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -201,14 +272,12 @@ func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var body struct {
-		Prompt string `json:"prompt"`
-	}
+	var body task.FollowUpRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	t, err := s.Engine.FollowUp(r.Context(), id, body.Prompt)
+	t, err := s.Engine.FollowUpWith(r.Context(), id, body)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -335,6 +404,12 @@ type settingsResponse struct {
 	NotifyNtfyTopic string `json:"notify.ntfy_topic"`
 	UIBaseURL       string `json:"ui.base_url"`
 	PriceTable      string `json:"price_table"`
+	// Cognition provider (OpenAI-compatible). api_key is masked on GET.
+	ProviderKind    string `json:"provider.kind"`
+	ProviderBaseURL string `json:"provider.base_url"`
+	ProviderAPIKey  string `json:"provider.api_key"`
+	ProviderModel   string `json:"provider.model"`
+	AgentDefault    string `json:"agent.default"`
 	NetworkMode     string `json:"network_mode"`
 	ConnectURL      string `json:"connect_url"`
 	Token           string `json:"token"`
@@ -346,6 +421,11 @@ var puttableSettings = map[string]bool{
 	"notify.ntfy_topic": true,
 	"ui.base_url":       true,
 	"price_table":       true,
+	"provider.kind":     true,
+	"provider.base_url": true,
+	"provider.api_key":  true,
+	"provider.model":    true,
+	"agent.default":     true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -378,15 +458,39 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(priceTable) == "" {
 		priceTable = store.DefaultPriceTableJSON
 	}
+	apiKey := get("provider.api_key")
 	writeJSON(w, http.StatusOK, settingsResponse{
 		NotifyBarkURL:   get("notify.bark_url"),
 		NotifyNtfyTopic: get("notify.ntfy_topic"),
 		UIBaseURL:       base,
 		PriceTable:      priceTable,
+		ProviderKind:    firstNonEmpty(get("provider.kind"), "openai-compatible"),
+		ProviderBaseURL: get("provider.base_url"),
+		ProviderAPIKey:  maskSettingSecret(apiKey),
+		ProviderModel:   get("provider.model"),
+		AgentDefault:    get("agent.default"),
 		NetworkMode:     s.NetworkMode,
 		ConnectURL:      connect,
 		Token:           tok,
 	})
+}
+
+func maskSettingSecret(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	if len(key) <= 8 {
+		return "••••••••"
+	}
+	return key[:3] + "…" + key[len(key)-4:]
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }
 
 func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
@@ -396,10 +500,26 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+
+	// Provider clear flag (not stored as a real setting).
+	if body["provider.clear_api_key"] == "1" || body["provider.clear_api_key"] == "true" {
+		_ = s.Store.SetSetting(ctx, "provider.api_key", "")
+		delete(body, "provider.clear_api_key")
+	}
+	delete(body, "provider.clear_api_key")
+
+	// Validate provider fields together when any present.
+	if _, ok := body["provider.base_url"]; ok || body["provider.model"] != "" || body["provider.kind"] != "" {
+		// Allow partial save of empty base_url to disable provider.
+	}
+
 	for k, v := range body {
 		if !puttableSettings[k] {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown or read-only setting: " + k})
 			return
+		}
+		if k == "provider.clear_api_key" {
+			continue
 		}
 		if k == store.KeyPriceTable {
 			if _, err := store.ParsePriceTable(v); err != nil {
@@ -412,6 +532,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 					v = string(b)
 				}
 			}
+		}
+		// Ignore masked api_key round-trips from GET.
+		if k == "provider.api_key" && (v == "" || strings.Contains(v, "…") || strings.Contains(v, "••••")) {
+			continue
 		}
 		if err := s.Store.SetSetting(ctx, k, v); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})

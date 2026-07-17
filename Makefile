@@ -1,4 +1,4 @@
-.PHONY: build test clean ui go-build desktop-dev desktop-dist desktop-icons
+.PHONY: build test clean ui go-build desktop-dev desktop-dist desktop-icons desktop-rebuild dev
 
 # Single binary with embedded UI (spec §10 M0).
 build: ui go-build
@@ -9,6 +9,12 @@ ui:
 go-build:
 	go build -o kin ./cmd/kin
 
+# Full-stack local dev: Vite HMR + Go rebuild/restart on change.
+# Open http://127.0.0.1:5173  (API proxied to :7777)
+# Extra serve flags: make dev ARGS='--lan'   or  KIN_SERVE_ARGS='--lan' make dev
+dev:
+	./scripts/dev.sh $(ARGS)
+
 test:
 	go test ./...
 	go vet ./...
@@ -18,6 +24,11 @@ test:
 # Dev: uses repo-root ./kin as sidecar. Does not package.
 desktop-dev: go-build desktop-icons
 	cd desktop && npm install && npm run dev
+
+# Full rebuild + restart desktop: UI embed + kin + kill :7777 + Electron.
+# Use this when you changed frontend or need a clean daemon restart.
+desktop-rebuild:
+	./scripts/desktop-rebuild.sh
 
 # Packaged .dmg under desktop/dist-electron/ (unsigned).
 # Bundles a freshly built kin binary via extraResources.
@@ -32,6 +43,7 @@ desktop-icons:
 
 clean:
 	rm -f kin
+	rm -rf .kin-dev
 	rm -rf web/dist
 	mkdir -p web/dist
 	printf '%s\n' '<!doctype html><title>Kin</title><p>UI not built. Run make build.</p>' > web/dist/index.html
