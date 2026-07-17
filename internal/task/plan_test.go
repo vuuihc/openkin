@@ -26,6 +26,24 @@ func TestParseDelegatePlan_multi(t *testing.T) {
 	}
 }
 
+func TestParseDelegatePlan_models(t *testing.T) {
+	avail := map[string]bool{"claude-code": true, "codex": true}
+	raw := "@claude[opus] 实现功能 @codex[openai/gpt-5.5] 验收"
+	plan := ParseDelegatePlan(raw, avail)
+	if len(plan.Steps) != 2 {
+		t.Fatalf("steps=%d want 2: %+v", len(plan.Steps), plan.Steps)
+	}
+	if got := plan.Steps[0].Model; got != "opus" {
+		t.Fatalf("step0 model=%q want opus", got)
+	}
+	if got := plan.Steps[1].Model; got != "openai/gpt-5.5" {
+		t.Fatalf("step1 model=%q want openai/gpt-5.5", got)
+	}
+	if strings.Contains(plan.Steps[0].Instruction, "[opus]") || strings.Contains(plan.Steps[1].Instruction, "[openai/gpt-5.5]") {
+		t.Fatalf("model suffix leaked into instructions: %+v", plan.Steps)
+	}
+}
+
 func TestParseDelegatePlan_none(t *testing.T) {
 	avail := map[string]bool{"kin": true, "codex": true}
 	plan := ParseDelegatePlan("just chat with me", avail)

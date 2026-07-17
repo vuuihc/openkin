@@ -153,3 +153,67 @@ func TestOrchestratedWorkersAcceptEditsMode(t *testing.T) {
 		t.Fatalf("PermissionMode=%q want accept_edits", claudeAd.lastSpec.PermissionMode)
 	}
 }
+
+func TestOrchestratedWorkersReceivePerStepModels(t *testing.T) {
+	ctx := context.Background()
+	kinAd := &fakeAdapter{events: successEvents()}
+	claudeAd := &fakeAdapter{events: successEvents()}
+	codexAd := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, kinAd)
+	e.adapters["kin"] = kinAd
+	e.adapters["claude-code"] = claudeAd
+	e.adapters["codex"] = codexAd
+	e.SetDefaultAgentFn(func() string { return "kin" })
+
+	fallback := "task-default"
+	t1, err := e.Create(ctx, CreateRequest{
+		Agent:  "kin",
+		Cwd:    "/tmp",
+		Prompt: "@claude[opus] implement it @codex[gpt-5.5] review it",
+		Model:  &fallback,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusSucceeded, 3*time.Second)
+
+	claudeAd.mu.Lock()
+	claudeModel := claudeAd.lastSpec.Model
+	claudeAd.mu.Unlock()
+	if claudeModel != "opus" {
+		t.Fatalf("claude model=%q want opus", claudeModel)
+	}
+
+	codexAd.mu.Lock()
+	codexModel := codexAd.lastSpec.Model
+	codexAd.mu.Unlock()
+	if codexModel != "gpt-5.5" {
+		t.Fatalf("codex model=%q want gpt-5.5", codexModel)
+	}
+}
+
+func TestOrchestratedWorkerModelFallsBackToTaskModel(t *testing.T) {
+	ctx := context.Background()
+	kinAd := &fakeAdapter{events: successEvents()}
+	codexAd := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, kinAd)
+	e.adapters["kin"] = kinAd
+	e.adapters["codex"] = codexAd
+	e.SetDefaultAgentFn(func() string { return "kin" })
+
+	fallback := "gpt-fallback"
+	t1, err := e.Create(ctx, CreateRequest{
+		Agent: "kin", Cwd: "/tmp", Prompt: "@codex review it", Model: &fallback,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusSucceeded, 3*time.Second)
+
+	codexAd.mu.Lock()
+	got := codexAd.lastSpec.Model
+	codexAd.mu.Unlock()
+	if got != fallback {
+		t.Fatalf("codex model=%q want fallback %q", got, fallback)
+	}
+}

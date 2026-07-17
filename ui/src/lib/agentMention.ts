@@ -20,10 +20,12 @@ const ALIASES: Record<string, string> = {
 };
 
 /** Ordered mention patterns (longer first). */
-const MENTION_RE = /@([a-zA-Z][a-zA-Z0-9_-]*)/g;
+const MENTION_RE =
+  /@([a-zA-Z][a-zA-Z0-9_-]*)(?:\[([a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,127})\])?/g;
 
 export type DelegateStep = {
   agent: string;
+  model?: string;
   instruction: string;
   mention: string;
 };
@@ -49,8 +51,13 @@ export function parseAgentDirective(
 ): AgentDirective {
   const avail = new Set(availableIds);
   const text = raw;
-  const hits: { start: number; end: number; agent: string; mention: string }[] =
-    [];
+  const hits: {
+    start: number;
+    end: number;
+    agent: string;
+    model?: string;
+    mention: string;
+  }[] = [];
 
   MENTION_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
@@ -63,6 +70,7 @@ export function parseAgentDirective(
       start: m.index,
       end: m.index + m[0].length,
       agent: id,
+      model: m[2] || undefined,
       mention: tok,
     });
   }
@@ -84,7 +92,12 @@ export function parseAgentDirective(
       instruction =
         overview || "Complete the assigned work for this session.";
     }
-    return { agent: h.agent, instruction, mention: h.mention };
+    return {
+      agent: h.agent,
+      model: h.model,
+      instruction,
+      mention: h.mention,
+    };
   });
 
   const workers = steps.filter((s) => s.agent !== "kin");

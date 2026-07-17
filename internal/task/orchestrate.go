@@ -96,7 +96,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		if i > 0 {
 			b.WriteString(" · ")
 		}
-		fmt.Fprintf(&b, "**%s**", displayAgentName(s.Agent))
+		fmt.Fprintf(&b, "**%s**", displayAgentName(s.Agent, effectiveStepModel(t, s)))
 	}
 	if parallelN > 0 {
 		fmt.Fprintf(&b, "（%d 波次，可并行）", len(waves))
@@ -105,7 +105,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	}
 	b.WriteString("\n")
 	for i, s := range plan.Steps {
-		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, displayAgentName(s.Agent), truncate(s.Instruction, 160))
+		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, displayAgentName(s.Agent, effectiveStepModel(t, s)), truncate(s.Instruction, 160))
 	}
 	e.emitSpeakerMessage(ctx, id, main, "assistant", strings.TrimSpace(b.String()), "orchestrator")
 
@@ -119,7 +119,8 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		var priorList []string
 		for si, txt := range priorByStep {
 			if strings.TrimSpace(txt) != "" {
-				priorList = append(priorList, fmt.Sprintf("[%s]\n%s", displayAgentName(plan.Steps[si].Agent), txt))
+				step := plan.Steps[si]
+				priorList = append(priorList, fmt.Sprintf("[%s]\n%s", displayAgentName(step.Agent, effectiveStepModel(t, step)), txt))
 			}
 		}
 
@@ -128,12 +129,13 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			si := wave[0]
 			step := plan.Steps[si]
 			announce := fmt.Sprintf("→ **%s**（%d/%d）",
-				displayAgentName(step.Agent), si+1, len(plan.Steps))
+				displayAgentName(step.Agent, effectiveStepModel(t, step)), si+1, len(plan.Steps))
 			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate")
 		} else {
 			names := make([]string, 0, len(wave))
 			for _, si := range wave {
-				names = append(names, displayAgentName(plan.Steps[si].Agent))
+				step := plan.Steps[si]
+				names = append(names, displayAgentName(step.Agent, effectiveStepModel(t, step)))
 			}
 			announce := fmt.Sprintf("→ 并行 **%s**（波次 %d/%d）",
 				strings.Join(names, " + "), wi+1, len(waves))
@@ -160,10 +162,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 				continue
 			}
 			brief := buildWorkerBrief(plan, step, priorList, si+1, len(plan.Steps))
-			model := ""
-			if t.Model != nil {
-				model = *t.Model
-			}
+			model := effectiveStepModel(t, step)
 			// ID must be the real parent task id: Claude Code's approve-mcp
 			// posts KIN_TASK_ID to POST /internal/approvals, which looks up
 			// the tasks row. A synthetic "parent:agent:idx" id fails that
@@ -205,7 +204,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					canceled := e.canceled[id]
 					e.mu.Unlock()
 					if !canceled {
-						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", displayAgentName(gagent))
+						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", displayAgentName(gagent, gmodel))
 						e.emitSpeakerMessage(ctx, id, "kin", "assistant", retryNote, "orchestrator")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
 						// Keep assignment identity stable for approvals.
@@ -299,7 +298,8 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		if strings.TrimSpace(txt) == "" && !failedByStep[si] {
 			continue
 		}
-		label := displayAgentName(plan.Steps[si].Agent)
+		step := plan.Steps[si]
+		label := displayAgentName(step.Agent, effectiveStepModel(t, step))
 		priorResults = append(priorResults, fmt.Sprintf("[%s]\n%s", label, txt))
 		priorFailed = append(priorFailed, failedByStep[si])
 	}
@@ -686,19 +686,32 @@ func buildMainSummary(plan DelegatePlan, prior []string, priorFailed []bool, any
 	return strings.TrimSpace(b.String())
 }
 
-func displayAgentName(id string) string {
+func effectiveStepModel(t store.Task, step DelegateStep) string {
+	if step.Model != "" {
+		return step.Model
+	}
+	if t.Model != nil {
+		return *t.Model
+	}
+	return ""
+}
+
+func displayAgentName(id, model string) string {
+	name := id
 	switch id {
 	case "claude-code":
-		return "Claude Code"
+		name = "Claude Code"
 	case "codex":
-		return "Codex"
+		name = "Codex"
 	case "grok":
-		return "Grok"
+		name = "Grok"
 	case "kin":
-		return "Kin"
-	default:
-		return id
+		name = "Kin"
 	}
+	if model != "" {
+		return name + "[" + model + "]"
+	}
+	return name
 }
 
 func truncate(s string, n int) string {

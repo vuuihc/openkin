@@ -18,7 +18,10 @@ var agentAliases = map[string]string{
 	"xai":         "grok",
 }
 
-var mentionRE = regexp.MustCompile(`@([a-zA-Z][a-zA-Z0-9_-]*)`)
+// A model may be selected per worker with @agent[model]. Model IDs are kept
+// deliberately provider-agnostic while excluding whitespace and bracket
+// delimiters; adapters receive the value as one argv element.
+var mentionRE = regexp.MustCompile(`@([a-zA-Z][a-zA-Z0-9_-]*)(?:\[([a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,127})\])?`)
 
 // Generic dependency language: step likely needs prior worker output.
 var genericDepRE = regexp.MustCompile(`(?i)(根据|基于|依赖|参考|承接|验收|总结|汇总|based\s+on|depends?\s+on|after\s+(the\s+)?|using\s+(the\s+)?(previous|prior|above)|from\s+(the\s+)?result|实验结果|上一步|前述)`)
@@ -26,6 +29,7 @@ var genericDepRE = regexp.MustCompile(`(?i)(根据|基于|依赖|参考|承接|�
 // DelegateStep is one sub-agent assignment parsed from a user prompt.
 type DelegateStep struct {
 	Agent       string // resolved agent id
+	Model       string // optional model id from @agent[model]
 	Instruction string // text after the @mention until the next one
 	Mention     string // raw token as typed
 }
@@ -79,6 +83,7 @@ func ParseDelegatePlan(raw string, available map[string]bool) DelegatePlan {
 	type hit struct {
 		start, end int
 		agent      string
+		model      string
 		mention    string
 	}
 	var hits []hit
@@ -96,10 +101,15 @@ func ParseDelegatePlan(raw string, available map[string]bool) DelegatePlan {
 		if id == "kin" {
 			continue
 		}
+		model := ""
+		if len(m) >= 6 && m[4] >= 0 {
+			model = raw[m[4]:m[5]]
+		}
 		hits = append(hits, hit{
 			start:   m[0],
 			end:     m[1],
 			agent:   id,
+			model:   model,
 			mention: tok,
 		})
 	}
@@ -125,6 +135,7 @@ func ParseDelegatePlan(raw string, available map[string]bool) DelegatePlan {
 		}
 		plan.Steps = append(plan.Steps, DelegateStep{
 			Agent:       h.agent,
+			Model:       h.model,
 			Instruction: instr,
 			Mention:     h.mention,
 		})
