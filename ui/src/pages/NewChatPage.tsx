@@ -10,9 +10,10 @@ import {
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
-import { IconKin } from "../components/icons";
 import { useT } from "../i18n/react";
 import {
+  agentAvatarMeta,
+  agentDisplayName,
   mentionHints,
   parseAgentDirective,
 } from "../lib/agentMention";
@@ -86,6 +87,9 @@ export default function NewChatPage() {
     available.find((a) => a.default) ??
     available.find((a) => a.id === "kin") ??
     available[0];
+  const mainAgentId = defaultAgent?.id ?? "kin";
+  const mainAgentName = defaultAgent?.name ?? agentDisplayName(mainAgentId);
+  const mainAgentAvatar = agentAvatarMeta(mainAgentId);
   const hints = mentionHints(availableIds);
 
   async function onSubmit(text: string) {
@@ -163,14 +167,22 @@ export default function NewChatPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto kin-scroll flex flex-col items-center justify-center px-6 py-10">
-        <div className="w-[26px] h-[26px] rounded-[7px] bg-gradient-to-br from-[#5e5ce6] to-[#3a3a8c] flex items-center justify-center mb-4">
-          <IconKin size={14} className="text-white" />
+        <div
+          className={`w-8 h-8 rounded-[9px] flex items-center justify-center mb-4 text-[12px] font-semibold ${mainAgentAvatar.className}`}
+          aria-label={mainAgentAvatar.label}
+        >
+          {mainAgentAvatar.initials}
         </div>
         <h1 className="text-[22px] font-semibold tracking-tight text-center max-w-md">
-          {tr("home.slogan")}
+          {tr("newChat.heroTitle", { name: mainAgentName })}
         </h1>
         <p className="mt-2 text-[14px] text-kin-secondary text-center max-w-md">
-          {tr("home.subtitle")}
+          {tr(
+            mainAgentId === "kin"
+              ? "newChat.heroSubtitleKin"
+              : "newChat.heroSubtitleExternal",
+            { name: mainAgentName },
+          )}
         </p>
 
         {agents.length > 0 && (
@@ -231,7 +243,7 @@ export default function NewChatPage() {
             busy={sending}
             disabled={sending}
             initialValue={initialValue}
-            placeholder={tr("newChat.placeholder")}
+            placeholder={tr("newChat.placeholder", { name: mainAgentName })}
             onSubmit={onSubmit}
           />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">

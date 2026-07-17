@@ -41,6 +41,7 @@ import { extractChangedFiles } from "../lib/changedFiles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
+import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { normalizePermissionMode } from "../lib/permissionMode";
 import { subscribeWS, useAppStore } from "../store/appStore";
@@ -343,6 +344,10 @@ export default function TaskDetailPage() {
   const terminal = isTerminal(task.status);
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
+  const hostAgentName =
+    agents.find((agent) => agent.id === task.agent)?.name ??
+    agentDisplayName(task.agent || "kin");
+  const hostAgentAvatar = agentAvatarMeta(task.agent || "kin");
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex relative">
@@ -367,6 +372,19 @@ export default function TaskDetailPage() {
             className="ml-2 flex items-center gap-2 text-[12px] text-kin-muted flex-none"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
+            <span
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1"
+              title={tr("newChat.mainAgent", { name: hostAgentName })}
+            >
+              <span
+                className={`w-4 h-4 rounded-[5px] inline-flex items-center justify-center text-[8px] font-semibold ${hostAgentAvatar.className}`}
+              >
+                {hostAgentAvatar.initials}
+              </span>
+              <span className="hidden sm:inline">
+                {tr("newChat.mainAgent", { name: hostAgentName })}
+              </span>
+            </span>
             <button
               type="button"
               onClick={() => setFilesOpen((open) => !open)}
@@ -462,7 +480,7 @@ export default function TaskDetailPage() {
               placeholder={
                 !terminal
                   ? tr("composer.guideWhileRunning")
-                  : tr("composer.followUpPlaceholder")
+                  : tr("composer.followUpPlaceholder", { name: hostAgentName })
               }
               onSubmit={onComposer}
               onStop={onStop}
