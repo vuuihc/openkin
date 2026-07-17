@@ -150,6 +150,7 @@ Artifacts 的多端阅读走同一梯子：**手机打开的是你的 daemon 上
 |----|------|
 | Daemon | Go，单静态二进制；纯 Go SQLite（无 CGO）；内嵌 Web 控制台；内建 tsnet |
 | 桌面壳 | Electron；daemon 作为受管 sidecar；托盘、原生通知批确认、自动更新 |
+| 本地终端 | 仅 Electron 主窗口；临时 PTY 会话使用同时校验 Kin token 与真实 loopback TCP 对端的 HTTP/WebSocket 路由，绝不经局域网、Tailnet 或 Funnel 暴露 |
 | UI | React + Tailwind 一套代码，Electron 窗口与手机 Web 共用 |
 | API 契约 | OpenAPI 单一来源；代码生成 Go handler 与 TS 类型 |
 | 分发 | 桌面 .dmg / .exe 双击；headless 机器 `curl \| sh` 或 brew |
