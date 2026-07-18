@@ -618,6 +618,58 @@ export function isTerminal(status: string): boolean {
   return status === "succeeded" || status === "failed" || status === "canceled";
 }
 
+export type TerminalProfile = {
+  id: string;
+  name: string;
+  executable: string;
+  default: boolean;
+};
+
+export type TerminalSession = {
+  id: string;
+  profile_id: string;
+  name: string;
+  cwd: string;
+  status: "running" | "exited" | "closing";
+  exit_code?: number | null;
+  created_at: number;
+};
+
+export type CreateTerminalSessionBody = {
+  profile_id: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+};
+
+export function listTerminalProfiles(): Promise<{
+  profiles: TerminalProfile[];
+  default_profile_id: string;
+}> {
+  return apiFetch<{
+    profiles: TerminalProfile[];
+    default_profile_id: string;
+  }>("/api/terminal/profiles");
+}
+
+export function listTerminalSessions(): Promise<TerminalSession[]> {
+  return apiFetch<TerminalSession[]>("/api/terminal/sessions");
+}
+
+export function createTerminalSession(body: CreateTerminalSessionBody): Promise<TerminalSession> {
+  return apiFetch<TerminalSession>("/api/terminal/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteTerminalSession(id: string): Promise<void> {
+  return apiFetch<void>(`/api/terminal/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 /** Extract tool name + input from an approval payload (Claude permission shape). */
 export function parseApprovalPayload(payload: unknown): {
   toolName: string;
