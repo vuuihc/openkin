@@ -505,10 +505,39 @@ export type UsageRow = {
   date: string;
   agent: string;
   tasks: number;
+} & UsageTotals;
+
+export type UsageTotals = {
   tokens_in: number;
   tokens_out: number;
   cost_usd?: number | null;
+  request_count: number;
+  reasoning_output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cache_eligible_input_tokens: number;
+  cache_hit_rate?: number | null;
+  cache_coverage?: number | null;
+  cache_status: "reported" | "unknown" | "unsupported" | "mixed";
 };
+
+export type UsageModelSubtotal = {
+  model: string;
+} & UsageTotals;
+
+export type UsageCostSourceSubtotal = {
+  cost_source: string;
+} & UsageTotals;
+
+export type TaskUsage = {
+  task_id: string;
+  model_subtotals: UsageModelSubtotal[];
+  cost_source_subtotals: UsageCostSourceSubtotal[];
+} & UsageTotals;
+
+export function getTaskUsage(id: string): Promise<TaskUsage> {
+  return apiFetch<TaskUsage>(`/api/tasks/${encodeURIComponent(id)}/usage`);
+}
 
 export function getUsageSummary(days = 30): Promise<UsageRow[]> {
   return apiFetch<UsageRow[]>(`/api/usage/summary?days=${days}`);

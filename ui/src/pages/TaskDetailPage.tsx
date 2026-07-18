@@ -17,6 +17,7 @@ import {
   followUpPrompt,
   forkTask,
   getTask,
+  getTaskUsage,
   getToken,
   isTerminal,
   listAgents,
@@ -27,6 +28,7 @@ import {
   type Approval,
   type Task,
   type TaskEvent,
+  type TaskUsage,
 } from "../api/client";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import ChatStream from "../components/chat/ChatStream";
@@ -37,6 +39,7 @@ import { IconBack, IconPanel } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
+import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
@@ -54,6 +57,8 @@ export default function TaskDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [task, setTask] = useState<Task | null>(null);
+  const [usage, setUsage] = useState<TaskUsage | null>(null);
+  const [usageLoading, setUsageLoading] = useState(true);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +104,18 @@ export default function TaskDetailPage() {
     }
   }, [id]);
 
+  const loadUsage = useCallback(async () => {
+    if (!getToken()) return;
+    setUsageLoading(true);
+    try {
+      setUsage(await getTaskUsage(id));
+    } catch {
+      setUsage(null);
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     maxSeq.current = 0;
     setEvents([]);
@@ -107,10 +124,11 @@ export default function TaskDetailPage() {
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
     void load();
+    void loadUsage();
     listAgents()
       .then(setAgents)
       .catch(() => setAgents([]));
-  }, [load]);
+  }, [load, loadUsage]);
 
   useEffect(() => {
     if (reconnectGen === 0) return;
@@ -122,16 +140,20 @@ export default function TaskDetailPage() {
       })
       .catch(() => undefined);
     void getTask(id).then(setTask).catch(() => undefined);
+    void loadUsage();
     void listApprovals("pending")
       .then((apps) => setApprovals(apps.filter((a) => a.task_id === id)))
       .catch(() => undefined);
-  }, [reconnectGen, id]);
+  }, [reconnectGen, id, loadUsage]);
 
   useEffect(() => {
     return subscribeWS((msg) => {
       if (msg.kind === "task_update") {
         const t = msg.data as Task;
-        if (t.id === id) setTask(t);
+        if (t.id === id) {
+          setTask(t);
+          void loadUsage();
+        }
       }
       if (msg.kind === "event") {
         const ev = msg.data as TaskEvent;
@@ -153,7 +175,7 @@ export default function TaskDetailPage() {
         });
       }
     });
-  }, [id]);
+  }, [id, loadUsage]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -417,6 +439,8 @@ export default function TaskDetailPage() {
             )}
           </div>
         </div>
+
+        <TaskUsageSummary usage={usage} loading={usageLoading} />
 
         <ChangedFilesBar
           files={changedFiles}

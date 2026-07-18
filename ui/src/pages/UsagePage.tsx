@@ -10,6 +10,13 @@ import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
+import {
+  cacheCoverageLabel,
+  cacheRateLabel,
+  cacheState,
+  formatTokenCount,
+  type CacheStatus,
+} from "../lib/usage";
 
 /**
  * Usage / cost page (design 3b).
@@ -48,12 +55,21 @@ export default function UsagePage() {
     let cost = 0;
     let tokens = 0;
     let tasks = 0;
+    let cacheRead = 0;
+    let cacheEligible = 0;
+    let input = 0;
+    const statuses = new Set<string>();
     for (const r of rows ?? []) {
       cost += r.cost_usd ?? 0;
       tokens += r.tokens_in + r.tokens_out;
       tasks += r.tasks;
+      cacheRead += r.cache_read_tokens;
+      cacheEligible += r.cache_eligible_input_tokens;
+      input += r.tokens_in;
+      statuses.add(r.cache_status);
     }
-    return { cost, tokens, tasks };
+    const status = aggregateCacheStatus(statuses);
+    return { cost, tokens, tasks, cacheRead, cacheEligible, input, status };
   }, [rows]);
 
   const byDay = useMemo(() => {
@@ -67,12 +83,35 @@ export default function UsagePage() {
   const maxDay = Math.max(0.001, ...byDay.map(([, c]) => c));
 
   const agentTotals = useMemo(() => {
-    const m = new Map<string, { tasks: number; cost: number; tokens: number }>();
+    const m = new Map<
+      string,
+      {
+        tasks: number;
+        cost: number;
+        tokens: number;
+        cacheRead: number;
+        cacheEligible: number;
+        input: number;
+        statuses: Set<string>;
+      }
+    >();
     for (const r of rows ?? []) {
-      const cur = m.get(r.agent) ?? { tasks: 0, cost: 0, tokens: 0 };
+      const cur = m.get(r.agent) ?? {
+        tasks: 0,
+        cost: 0,
+        tokens: 0,
+        cacheRead: 0,
+        cacheEligible: 0,
+        input: 0,
+        statuses: new Set<string>(),
+      };
       cur.tasks += r.tasks;
       cur.cost += r.cost_usd ?? 0;
       cur.tokens += r.tokens_in + r.tokens_out;
+      cur.cacheRead += r.cache_read_tokens;
+      cur.cacheEligible += r.cache_eligible_input_tokens;
+      cur.input += r.tokens_in;
+      cur.statuses.add(r.cache_status);
       m.set(r.agent, cur);
     }
     return [...m.entries()].sort((a, b) => b[1].cost - a[1].cost);
@@ -88,9 +127,9 @@ export default function UsagePage() {
             onChange={(e) => setDays(Number(e.target.value))}
             className="kin-input w-auto min-h-[40px]"
           >
-            <option value={7}>This week</option>
-            <option value={30}>30 days</option>
-            <option value={90}>90 days</option>
+            <option value={7}>{tr("usage.thisWeek")}</option>
+            <option value={30}>{tr("usage.days30")}</option>
+            <option value={90}>{tr("usage.days90")}</option>
           </select>
         </div>
 
@@ -112,19 +151,20 @@ export default function UsagePage() {
 
         {rows && (
           <>
-            <div className="mt-6 grid grid-cols-3 gap-3">
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { label: "Spend", value: formatCost(totals.cost) },
+                { label: tr("usage.spend"), value: formatCost(totals.cost) },
+                { label: tr("usage.tokens"), value: formatTokenCount(totals.tokens) },
                 {
-                  label: "Tokens",
-                  value:
-                    totals.tokens >= 1_000_000
-                      ? `${(totals.tokens / 1_000_000).toFixed(2)}M`
-                      : totals.tokens >= 1000
-                        ? `${(totals.tokens / 1000).toFixed(1)}k`
-                        : String(totals.tokens),
+                  label: tr("usage.cacheHitRate"),
+                  value: cacheRateLabel(
+                    totals.status,
+                    totals.cacheEligible > 0
+                      ? totals.cacheRead / totals.cacheEligible
+                      : null,
+                  ),
                 },
-                { label: tr("nav.tasks"), value: String(totals.tasks) },
+                { label: tr("usage.tasks"), value: String(totals.tasks) },
               ].map((c) => (
                 <div
                   key={c.label}
@@ -142,11 +182,11 @@ export default function UsagePage() {
 
             <div className="mt-8">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
-                Daily spend
+                {tr("usage.dailySpend")}
               </div>
               <div className="flex items-end gap-1.5 h-28">
                 {byDay.length === 0 && (
-                  <p className="text-sm text-kin-muted">No data for this range.</p>
+                  <p className="text-sm text-kin-muted">{tr("usage.noData")}</p>
                 )}
                 {byDay.map(([date, cost]) => (
                   <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
@@ -165,25 +205,44 @@ export default function UsagePage() {
 
             <div className="mt-8">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
-                By agent
+                {tr("usage.byAgent")}
               </div>
               <div className="rounded-xl border border-[var(--kin-hairline)] overflow-hidden">
-                {agentTotals.map(([agent, v]) => (
-                  <div
-                    key={agent}
-                    className="flex items-center gap-3 px-4 py-3 border-b border-[var(--kin-hairline)] last:border-0"
-                  >
-                    <span className="font-medium flex-1">{agent}</span>
-                    <span className="text-kin-secondary text-[12.5px] tabular-nums">
-                      {v.tasks} tasks
-                    </span>
-                    <span className="font-semibold tabular-nums w-20 text-right">
-                      {formatCost(v.cost)}
-                    </span>
-                  </div>
-                ))}
+                {agentTotals.map(([agent, v]) => {
+                  const status = aggregateCacheStatus(v.statuses);
+                  const rate = v.cacheEligible > 0 ? v.cacheRead / v.cacheEligible : null;
+                  const coverage = cacheCoverageLabel(v.input > 0 ? v.cacheEligible / v.input : null);
+                  const cacheDescription =
+                    status === "unknown"
+                      ? tr("usage.cacheUnknownShort")
+                      : status === "unsupported"
+                        ? tr("usage.cacheUnsupportedShort")
+                        : `${tr("usage.perAgentCache", {
+                            rate: cacheRateLabel(status, rate),
+                            tokens: formatTokenCount(v.cacheRead),
+                          })}${coverage ? ` · ${tr("usage.coverage", { coverage })}` : ""}`;
+                  return (
+                    <div
+                      key={agent}
+                      className="flex items-center gap-3 border-b border-[var(--kin-hairline)] px-4 py-3 last:border-0"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{agent}</span>
+                        <span className="block truncate text-[11px] text-kin-muted">
+                          {cacheDescription}
+                        </span>
+                      </span>
+                      <span className="text-kin-secondary text-[12.5px] tabular-nums">
+                        {tr("usage.taskCount", { count: v.tasks })}
+                      </span>
+                      <span className="w-20 text-right font-semibold tabular-nums">
+                        {formatCost(v.cost)}
+                      </span>
+                    </div>
+                  );
+                })}
                 {agentTotals.length === 0 && (
-                  <p className="px-4 py-6 text-sm text-kin-muted">No agent usage yet.</p>
+                  <p className="px-4 py-6 text-sm text-kin-muted">{tr("usage.noAgentUsage")}</p>
                 )}
               </div>
             </div>
@@ -192,4 +251,10 @@ export default function UsagePage() {
       </div>
     </div>
   );
+}
+
+function aggregateCacheStatus(statuses: Set<string>): CacheStatus {
+  if (statuses.size === 0) return "unknown";
+  if (statuses.size > 1) return "mixed";
+  return cacheState(statuses.values().next().value, null);
 }
