@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 4
+const schemaVersion = 5
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -72,6 +72,27 @@ CREATE TABLE artifacts (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX idx_artifacts_status ON artifacts(status, created_at DESC);
+
+CREATE TABLE usage_records (
+  task_id                 TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_seq               INTEGER NOT NULL,
+  occurred_at             INTEGER NOT NULL,
+  agent                   TEXT NOT NULL,
+  provider                TEXT,
+  model                   TEXT,
+  input_tokens            INTEGER,
+  output_tokens           INTEGER,
+  reasoning_output_tokens INTEGER,
+  cache_read_tokens       INTEGER,
+  cache_write_tokens      INTEGER,
+  cost_usd                REAL,
+  cost_source             TEXT NOT NULL,
+  cache_status            TEXT NOT NULL,
+  input_semantics         TEXT NOT NULL,
+  PRIMARY KEY (task_id, event_seq)
+);
+CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
+CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_seq);
 `
 
 const migration002 = `
@@ -104,6 +125,29 @@ CREATE TABLE artifacts (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX idx_artifacts_status ON artifacts(status, created_at DESC);
+`
+
+const migration005 = `
+CREATE TABLE usage_records (
+  task_id                 TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_seq               INTEGER NOT NULL,
+  occurred_at             INTEGER NOT NULL,
+  agent                   TEXT NOT NULL,
+  provider                TEXT,
+  model                   TEXT,
+  input_tokens            INTEGER,
+  output_tokens           INTEGER,
+  reasoning_output_tokens INTEGER,
+  cache_read_tokens       INTEGER,
+  cache_write_tokens      INTEGER,
+  cost_usd                REAL,
+  cost_source             TEXT NOT NULL,
+  cache_status            TEXT NOT NULL,
+  input_semantics         TEXT NOT NULL,
+  PRIMARY KEY (task_id, event_seq)
+);
+CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
+CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_seq);
 `
 
 func (s *Store) migrate() error {
@@ -184,6 +228,24 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 004: %w", err)
+		}
+		v = 4
+	}
+	if v == 4 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 005: %w", err)
+		}
+		if _, err := tx.Exec(migration005); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration 005: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 5`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 005: %w", err)
 		}
 	}
 	return nil

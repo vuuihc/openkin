@@ -25,7 +25,7 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 
 	// Tables exist.
-	for _, table := range []string{"tasks", "events", "approvals", "settings", "kin_messages"} {
+	for _, table := range []string{"tasks", "events", "approvals", "settings", "kin_messages", "usage_records"} {
 		var name string
 		err := s.db.QueryRow(
 			`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table,

@@ -88,6 +88,104 @@ type Event struct {
 	Payload json.RawMessage `json:"payload"`
 }
 
+const (
+	// CacheStatusReported means the provider explicitly supplied cache token data.
+	CacheStatusReported = "reported"
+	// CacheStatusUnknown means the provider response did not establish cache state.
+	CacheStatusUnknown = "unknown"
+	// CacheStatusUnsupported means the provider cannot report cache token data.
+	CacheStatusUnsupported = "unsupported"
+)
+
+const (
+	// InputSemanticsTotalIncludesCache means input_tokens includes cache reads.
+	InputSemanticsTotalIncludesCache = "total_includes_cache"
+	// InputSemanticsUncachedOnly means input_tokens excludes cache reads/writes.
+	InputSemanticsUncachedOnly = "uncached_only"
+	// InputSemanticsUnknown means the adapter could not establish input semantics.
+	InputSemanticsUnknown = "unknown"
+)
+
+const (
+	// CostSourceProvider is a provider-reported cost.
+	CostSourceProvider = "provider"
+	// CostSourcePriceTable is a local price-table estimate.
+	CostSourcePriceTable = "price_table"
+	// CostSourceUnknown means cost was not available.
+	CostSourceUnknown = "unknown"
+)
+
+// UsageRecord is one provider or agent usage observation keyed to its task event.
+// Nil token and cost fields represent values the source did not report.
+type UsageRecord struct {
+	TaskID                string   `json:"task_id"`
+	EventSeq              int      `json:"event_seq"`
+	OccurredAt            int64    `json:"occurred_at"`
+	Agent                 string   `json:"agent"`
+	Provider              *string  `json:"provider,omitempty"`
+	Model                 *string  `json:"model,omitempty"`
+	InputTokens           *int     `json:"input_tokens,omitempty"`
+	OutputTokens          *int     `json:"output_tokens,omitempty"`
+	ReasoningOutputTokens *int     `json:"reasoning_output_tokens,omitempty"`
+	CacheReadTokens       *int     `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens      *int     `json:"cache_write_tokens,omitempty"`
+	CostUSD               *float64 `json:"cost_usd,omitempty"`
+	CostSource            string   `json:"cost_source"`
+	CacheStatus           string   `json:"cache_status"`
+	InputSemantics        string   `json:"input_semantics"`
+}
+
+func (r UsageRecord) validate() error {
+	if strings.TrimSpace(r.TaskID) == "" {
+		return fmt.Errorf("usage record task_id is required")
+	}
+	if r.EventSeq < 1 {
+		return fmt.Errorf("usage record event_seq must be >= 1")
+	}
+	if r.OccurredAt <= 0 {
+		return fmt.Errorf("usage record occurred_at must be > 0")
+	}
+	if strings.TrimSpace(r.Agent) == "" {
+		return fmt.Errorf("usage record agent is required")
+	}
+	for _, field := range []struct {
+		name  string
+		value *int
+	}{
+		{"input_tokens", r.InputTokens},
+		{"output_tokens", r.OutputTokens},
+		{"reasoning_output_tokens", r.ReasoningOutputTokens},
+		{"cache_read_tokens", r.CacheReadTokens},
+		{"cache_write_tokens", r.CacheWriteTokens},
+	} {
+		if field.value != nil && *field.value < 0 {
+			return fmt.Errorf("usage record %s must be >= 0", field.name)
+		}
+	}
+	if r.CostUSD != nil && *r.CostUSD < 0 {
+		return fmt.Errorf("usage record cost_usd must be >= 0")
+	}
+	if !validUsageEnum(r.CostSource, CostSourceProvider, CostSourcePriceTable, CostSourceUnknown) {
+		return fmt.Errorf("invalid usage record cost_source %q", r.CostSource)
+	}
+	if !validUsageEnum(r.CacheStatus, CacheStatusReported, CacheStatusUnknown, CacheStatusUnsupported) {
+		return fmt.Errorf("invalid usage record cache_status %q", r.CacheStatus)
+	}
+	if !validUsageEnum(r.InputSemantics, InputSemanticsTotalIncludesCache, InputSemanticsUncachedOnly, InputSemanticsUnknown) {
+		return fmt.Errorf("invalid usage record input_semantics %q", r.InputSemantics)
+	}
+	return nil
+}
+
+func validUsageEnum(value string, values ...string) bool {
+	for _, candidate := range values {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 // ListTasksOpts filters for ListTasks.
 type ListTasksOpts struct {
 	Status string // empty = all
@@ -365,6 +463,89 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 		Type:    typ,
 		Payload: payload,
 	}, nil
+}
+
+// InsertUsageRecord persists one normalized usage observation. The task event
+// identified by (task_id, event_seq) is its stable idempotency key.
+func (s *Store) InsertUsageRecord(ctx context.Context, r UsageRecord) error {
+	if err := r.validate(); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO usage_records (
+			task_id, event_seq, occurred_at, agent, provider, model,
+			input_tokens, output_tokens, reasoning_output_tokens,
+			cache_read_tokens, cache_write_tokens, cost_usd,
+			cost_source, cache_status, input_semantics
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.TaskID, r.EventSeq, r.OccurredAt, r.Agent, r.Provider, r.Model,
+		r.InputTokens, r.OutputTokens, r.ReasoningOutputTokens,
+		r.CacheReadTokens, r.CacheWriteTokens, r.CostUSD,
+		r.CostSource, r.CacheStatus, r.InputSemantics,
+	)
+	if err != nil {
+		return fmt.Errorf("insert usage record: %w", err)
+	}
+	return nil
+}
+
+// ListUsageRecords returns task usage observations in event order.
+func (s *Store) ListUsageRecords(ctx context.Context, taskID string) ([]UsageRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT task_id, event_seq, occurred_at, agent, provider, model,
+		       input_tokens, output_tokens, reasoning_output_tokens,
+		       cache_read_tokens, cache_write_tokens, cost_usd,
+		       cost_source, cache_status, input_semantics
+		FROM usage_records
+		WHERE task_id = ?
+		ORDER BY event_seq ASC`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list usage records: %w", err)
+	}
+	defer rows.Close()
+
+	records := make([]UsageRecord, 0)
+	for rows.Next() {
+		var r UsageRecord
+		var provider, model sql.NullString
+		var input, output, reasoning, cacheRead, cacheWrite sql.NullInt64
+		var cost sql.NullFloat64
+		if err := rows.Scan(
+			&r.TaskID, &r.EventSeq, &r.OccurredAt, &r.Agent, &provider, &model,
+			&input, &output, &reasoning, &cacheRead, &cacheWrite, &cost,
+			&r.CostSource, &r.CacheStatus, &r.InputSemantics,
+		); err != nil {
+			return nil, fmt.Errorf("scan usage record: %w", err)
+		}
+		if provider.Valid {
+			r.Provider = &provider.String
+		}
+		if model.Valid {
+			r.Model = &model.String
+		}
+		r.InputTokens = nullableInt(input)
+		r.OutputTokens = nullableInt(output)
+		r.ReasoningOutputTokens = nullableInt(reasoning)
+		r.CacheReadTokens = nullableInt(cacheRead)
+		r.CacheWriteTokens = nullableInt(cacheWrite)
+		if cost.Valid {
+			v := cost.Float64
+			r.CostUSD = &v
+		}
+		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func nullableInt(v sql.NullInt64) *int {
+	if !v.Valid {
+		return nil
+	}
+	i := int(v.Int64)
+	return &i
 }
 
 // ListEvents returns events for a task with seq > sinceSeq, ordered by seq asc.
