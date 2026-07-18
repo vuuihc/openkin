@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 )
@@ -160,5 +161,56 @@ func TestUsageRecordsCascadeWhenTaskDeleted(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("usage records remain after task delete: %d", count)
+	}
+}
+
+func TestAppendUsageEventIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	task := Task{
+		ID: "01USAGEATOMIC00000000000001", Title: "usage", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "running", CreatedAt: NowMilli(),
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	input, output, cached := 100, 10, 80
+	record := UsageRecord{
+		Agent: "codex", InputTokens: &input, OutputTokens: &output,
+		CacheReadTokens: &cached, CacheStatus: CacheStatusReported,
+		InputSemantics: InputSemanticsTotalIncludesCache, CostSource: CostSourceUnknown,
+	}
+	event, gotTask, err := s.AppendUsageEvent(ctx, task.ID, "usage", json.RawMessage(`{"input_tokens":100}`), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Type != "usage" || event.Seq != 1 {
+		t.Fatalf("event = %+v", event)
+	}
+	if gotTask.TokensIn != 100 || gotTask.TokensOut != 10 {
+		t.Fatalf("task tokens = %d/%d", gotTask.TokensIn, gotTask.TokensOut)
+	}
+	records, err := s.ListUsageRecords(ctx, task.ID)
+	if err != nil || len(records) != 1 || records[0].EventSeq != event.Seq {
+		t.Fatalf("records = %+v err=%v", records, err)
+	}
+
+	bad := record
+	negative := -1
+	bad.InputTokens = &negative
+	if _, _, err := s.AppendUsageEvent(ctx, task.ID, "usage", json.RawMessage(`{"input_tokens":-1}`), bad); err == nil {
+		t.Fatal("invalid usage accepted")
+	}
+	events, err := s.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("failed transaction left %d events", len(events))
 	}
 }

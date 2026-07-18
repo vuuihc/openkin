@@ -160,6 +160,59 @@ func TestHappyPath(t *testing.T) {
 	}
 }
 
+func TestUsageEventDoesNotDoubleCountResult(t *testing.T) {
+	ad := &fakeAdapter{events: []adapter.Event{
+		{Type: "usage", Payload: json.RawMessage(`{"source":"codex","input_tokens":100,"output_tokens":10,"cache_read_tokens":80,"cache_read_reported":true,"input_semantics":"total_includes_cache"}`)},
+		{Type: "result", Payload: json.RawMessage(`{"tokens_in":100,"tokens_out":10,"is_error":false}`)},
+	}}
+	e, st := testEngine(t, 4, ad)
+
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "measure",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
+	if final.TokensIn != 100 || final.TokensOut != 10 {
+		t.Fatalf("tokens = %d/%d, want 100/10", final.TokensIn, final.TokensOut)
+	}
+	records, err := st.ListUsageRecords(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("usage records = %d, want 1", len(records))
+	}
+}
+
+func TestMultipleUsageEventsIgnoreCumulativeResult(t *testing.T) {
+	ad := &fakeAdapter{events: []adapter.Event{
+		{Type: "usage", Payload: json.RawMessage(`{"source":"kin","prompt_tokens":50,"completion_tokens":5,"cached_tokens":20,"cache_read_reported":true}`)},
+		{Type: "usage", Payload: json.RawMessage(`{"source":"kin","prompt_tokens":60,"completion_tokens":6,"cached_tokens":30,"cache_read_reported":true}`)},
+		{Type: "result", Payload: json.RawMessage(`{"tokens_in":110,"tokens_out":11,"cached_tokens":50,"is_error":false}`)},
+	}}
+	e, st := testEngine(t, 4, ad)
+
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "two rounds",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
+	if final.TokensIn != 110 || final.TokensOut != 11 {
+		t.Fatalf("tokens = %d/%d, want 110/11", final.TokensIn, final.TokensOut)
+	}
+	records, err := st.ListUsageRecords(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("usage records = %d, want 2", len(records))
+	}
+}
+
 func TestCancelRunning(t *testing.T) {
 	ad := &fakeAdapter{
 		events: []adapter.Event{

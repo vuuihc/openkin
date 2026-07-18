@@ -435,15 +435,9 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var maxSeq sql.NullInt64
-	if err := tx.QueryRowContext(ctx,
-		`SELECT MAX(seq) FROM events WHERE task_id = ?`, taskID,
-	).Scan(&maxSeq); err != nil {
-		return Event{}, fmt.Errorf("max seq: %w", err)
-	}
-	seq := 1
-	if maxSeq.Valid {
-		seq = int(maxSeq.Int64) + 1
+	seq, err := nextEventSeq(ctx, tx, taskID)
+	if err != nil {
+		return Event{}, err
 	}
 
 	if _, err := tx.ExecContext(ctx, `
@@ -465,13 +459,118 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 	}, nil
 }
 
+// AppendUsageEvent persists a usage event, its normalized ledger row, and the
+// compatible task token/cost summary in one transaction.
+func (s *Store) AppendUsageEvent(ctx context.Context, taskID, typ string, payload json.RawMessage, record UsageRecord) (Event, Task, error) {
+	if payload == nil {
+		payload = json.RawMessage(`{}`)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Event{}, Task{}, fmt.Errorf("begin usage event tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	seq, err := nextEventSeq(ctx, tx, taskID)
+	if err != nil {
+		return Event{}, Task{}, err
+	}
+	ts := time.Now().UnixMilli()
+	record.TaskID = taskID
+	record.EventSeq = seq
+	record.OccurredAt = ts
+	if err := record.validate(); err != nil {
+		return Event{}, Task{}, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO events (task_id, seq, ts, type, payload)
+		VALUES (?, ?, ?, ?, ?)`,
+		taskID, seq, ts, typ, string(payload),
+	); err != nil {
+		return Event{}, Task{}, fmt.Errorf("insert usage event: %w", err)
+	}
+	if err := insertUsageRecord(ctx, tx, record); err != nil {
+		return Event{}, Task{}, err
+	}
+
+	input := logicalUsageInput(record)
+	output := intValueOrZero(record.OutputTokens)
+	result, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET tokens_in = tokens_in + ?,
+		    tokens_out = tokens_out + ?,
+		    cost_usd = CASE
+		      WHEN ? IS NULL THEN cost_usd
+		      ELSE COALESCE(cost_usd, 0) + ?
+		    END
+		WHERE id = ?`,
+		input, output, record.CostUSD, record.CostUSD, taskID,
+	)
+	if err != nil {
+		return Event{}, Task{}, fmt.Errorf("update task usage summary: %w", err)
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return Event{}, Task{}, ErrNotFound
+	}
+
+	task, err := scanTask(tx.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE id = ?`, taskID))
+	if err != nil {
+		return Event{}, Task{}, fmt.Errorf("read task usage summary: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Event{}, Task{}, fmt.Errorf("commit usage event: %w", err)
+	}
+	event := Event{TaskID: taskID, Seq: seq, TS: ts, Type: typ, Payload: payload}
+	return event, task, nil
+}
+
+func nextEventSeq(ctx context.Context, tx *sql.Tx, taskID string) (int, error) {
+	var maxSeq sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT MAX(seq) FROM (
+			SELECT seq FROM events WHERE task_id = ?
+			UNION ALL
+			SELECT event_seq AS seq FROM usage_records WHERE task_id = ?
+		)`, taskID, taskID).Scan(&maxSeq); err != nil {
+		return 0, fmt.Errorf("max seq: %w", err)
+	}
+	if !maxSeq.Valid {
+		return 1, nil
+	}
+	return int(maxSeq.Int64) + 1, nil
+}
+
+func logicalUsageInput(record UsageRecord) int {
+	input := intValueOrZero(record.InputTokens)
+	if record.InputSemantics == InputSemanticsUncachedOnly {
+		input += intValueOrZero(record.CacheReadTokens) + intValueOrZero(record.CacheWriteTokens)
+	}
+	return input
+}
+
+func intValueOrZero(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
 // InsertUsageRecord persists one normalized usage observation. The task event
 // identified by (task_id, event_seq) is its stable idempotency key.
 func (s *Store) InsertUsageRecord(ctx context.Context, r UsageRecord) error {
 	if err := r.validate(); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	return insertUsageRecord(ctx, s.db, r)
+}
+
+type usageRecordExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertUsageRecord(ctx context.Context, exec usageRecordExecer, r UsageRecord) error {
+	_, err := exec.ExecContext(ctx, `
 		INSERT INTO usage_records (
 			task_id, event_seq, occurred_at, agent, provider, model,
 			input_tokens, output_tokens, reasoning_output_tokens,

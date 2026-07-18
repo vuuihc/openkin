@@ -546,6 +546,7 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) {
 	ctx := context.Background()
 	var sawResult bool
+	var sawUsage bool
 	var resultIsError bool
 	if speaker == "" {
 		speaker = "assistant"
@@ -554,11 +555,53 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 	for ev := range h.Events() {
 		// Persist first, then broadcast (spec §3). Stamp speaker for chat UI.
 		payload := stampSpeaker(ev.Payload, speaker, model)
-		stored, err := e.store.AppendEvent(ctx, id, ev.Type, payload)
-		if err != nil {
+		var (
+			stored            store.Event
+			updatedTask       *store.Task
+			missingPriceModel string
+			accountingFailed  bool
+		)
+		// Canonical usage events are incremental. A result is only an accounting
+		// fallback for legacy adapters that emitted no usage event in this run.
+		shouldAccount := ev.Type == "usage" || (ev.Type == "result" && !sawUsage)
+		if shouldAccount {
+			record, usageErr := NormalizeUsage(speaker, model, payload)
+			if usageErr == nil {
+				missingPriceModel = e.populateEstimatedUsageCost(ctx, &record)
+				usageEvent, taskAfterUsage, appendErr := e.store.AppendUsageEvent(ctx, id, ev.Type, payload, record)
+				if appendErr != nil {
+					accountingFailed = true
+				} else {
+					stored = usageEvent
+					updatedTask = &taskAfterUsage
+					if ev.Type == "usage" {
+						sawUsage = true
+					}
+				}
+			}
+		}
+		if accountingFailed {
 			continue
 		}
+		if stored.TaskID == "" {
+			var err error
+			stored, err = e.store.AppendEvent(ctx, id, ev.Type, payload)
+			if err != nil {
+				continue
+			}
+		}
 		e.bus.PublishEvent(stored)
+		if updatedTask != nil {
+			e.bus.PublishTask(*updatedTask)
+		}
+		if missingPriceModel != "" {
+			note, _ := json.Marshal(map[string]string{
+				"line": fmt.Sprintf("price_table has no entry for model %q; cost_usd left null", missingPriceModel),
+			})
+			if diagnostic, err := e.store.AppendEvent(ctx, id, "raw_output", note); err == nil {
+				e.bus.PublishEvent(diagnostic)
+			}
+		}
 
 		switch ev.Type {
 		case "task_started":
@@ -577,60 +620,15 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 			}
 		case "result":
 			sawResult = true
-			cost, tin, tout, isErr, ok := claudecode.ExtractUsage(ev.Payload)
-			if !ok {
-				// Grok / other adapters.
-				var gTin, gTout int
-				var gErr, gOK bool
-				cost, gTin, gTout, gErr, gOK = grok.ExtractUsage(ev.Payload)
-				if gOK {
-					tin, tout, isErr, ok = gTin, gTout, gErr, true
-				}
+			var resultMeta struct {
+				IsError bool `json:"is_error"`
 			}
+			_ = json.Unmarshal(ev.Payload, &resultMeta)
 			// Capture grok session id from result if not already set.
 			if sid := grok.ExtractSessionID(ev.Payload); sid != "" {
 				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 			}
-			resultIsError = isErr
-			if ok {
-				// Accumulate tokens/cost across follow-ups (spec §6 M2).
-				cur, _ := e.store.GetTask(ctx, id)
-				newIn := cur.TokensIn + tin
-				newOut := cur.TokensOut + tout
-				p := store.TaskPatch{TokensIn: &newIn, TokensOut: &newOut}
-
-				// Claude: cost from result total_cost_usd (do not change that path).
-				// Codex: cost not in CLI output — compute from price_table at result time.
-				if cost == nil && cur.Agent == "codex" && (tin > 0 || tout > 0) {
-					model := codex.DefaultModel
-					if cur.Model != nil && *cur.Model != "" {
-						model = *cur.Model
-					}
-					table := e.store.LoadPriceTable(ctx)
-					if c, found := table.ComputeCost(model, tin, tout); found {
-						cost = &c
-					} else {
-						note, _ := json.Marshal(map[string]string{
-							"line": fmt.Sprintf("price_table has no entry for model %q; cost_usd left null", model),
-						})
-						if nev, err := e.store.AppendEvent(ctx, id, "raw_output", note); err == nil {
-							e.bus.PublishEvent(nev)
-						}
-					}
-				}
-
-				if cost != nil {
-					total := *cost
-					if cur.CostUSD != nil {
-						total = *cur.CostUSD + *cost
-					}
-					p.CostUSD = &total
-				}
-				_ = e.store.UpdateTask(ctx, id, p)
-				if t, err := e.store.GetTask(ctx, id); err == nil {
-					e.bus.PublishTask(t)
-				}
-			}
+			resultIsError = resultMeta.IsError
 			sid := claudecode.ExtractSessionID(ev.Payload)
 			if sid == "" {
 				sid = codex.ExtractSessionID(ev.Payload)
@@ -703,6 +701,33 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 	}
 	_, _ = e.finish(ctx, id, final, exitCode, nil)
 	e.pump()
+}
+
+func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.UsageRecord) string {
+	if record == nil || record.CostUSD != nil || record.Agent != "codex" {
+		return ""
+	}
+	input := 0
+	if record.InputTokens != nil {
+		input = *record.InputTokens
+	}
+	output := 0
+	if record.OutputTokens != nil {
+		output = *record.OutputTokens
+	}
+	if input == 0 && output == 0 {
+		return ""
+	}
+	model := codex.DefaultModel
+	if record.Model != nil && strings.TrimSpace(*record.Model) != "" {
+		model = strings.TrimSpace(*record.Model)
+	}
+	if cost, found := e.store.LoadPriceTable(ctx).ComputeCost(model, input, output); found {
+		record.CostUSD = &cost
+		record.CostSource = store.CostSourcePriceTable
+		return ""
+	}
+	return model
 }
 
 func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, cost *float64) (store.Task, error) {
