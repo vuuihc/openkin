@@ -61,6 +61,14 @@ describe("isTerminalToggle", () => {
     });
     expect(isTerminalToggle(e as KeyboardEvent)).toBe(true);
   });
+
+  it("rejects repeated key events", () => {
+    const e = makeKeyboardEvent("Backquote", {
+      ctrlKey: true,
+      repeat: true,
+    });
+    expect(isTerminalToggle(e as KeyboardEvent)).toBe(false);
+  });
 });
 
 describe("parseTerminalHeight", () => {

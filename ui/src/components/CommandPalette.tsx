@@ -22,6 +22,8 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onNewChat: () => void;
+  onToggleTerminal?: () => void;
+  terminalAvailable?: boolean;
 };
 
 type Item =
@@ -45,7 +47,13 @@ function highlight(text: string, q: string): ReactNode {
  * ⌘K / Ctrl+K command palette (design 2b).
  * Sections: Actions · Chats (tasks) · Navigation.
  */
-export default function CommandPalette({ open, onClose, onNewChat }: Props) {
+export default function CommandPalette({
+  open,
+  onClose,
+  onNewChat,
+  onToggleTerminal,
+  terminalAvailable,
+}: Props) {
   const navigate = useNavigate();
   const tr = useT();
   const [query, setQuery] = useState("");
@@ -75,66 +83,80 @@ export default function CommandPalette({ open, onClose, onNewChat }: Props) {
     const q = query.trim().toLowerCase();
     const match = (s: string) => !q || s.toLowerCase().includes(q);
 
-    const actions: Item[] = (
-      [
-        {
-          kind: "action" as const,
-          id: "new",
-          label: tr("palette.newChat"),
-          hint: "⌘N",
-          run: () => {
-            onClose();
-            onNewChat();
-            navigate("/new");
-          },
+    const baseActions = [
+      {
+        kind: "action" as const,
+        id: "new",
+        label: tr("palette.newChat"),
+        hint: "⌘N",
+        run: () => {
+          onClose();
+          onNewChat();
+          navigate("/new");
         },
-        {
-          kind: "action" as const,
-          id: "inbox",
-          label: tr("palette.openInbox"),
-          run: () => {
-            onClose();
-            navigate("/inbox");
-          },
+      },
+      {
+        kind: "action" as const,
+        id: "inbox",
+        label: tr("palette.openInbox"),
+        run: () => {
+          onClose();
+          navigate("/inbox");
         },
-        {
-          kind: "action" as const,
-          id: "tasks",
-          label: tr("palette.openTasks"),
-          run: () => {
-            onClose();
-            navigate("/tasks");
-          },
+      },
+      {
+        kind: "action" as const,
+        id: "tasks",
+        label: tr("palette.openTasks"),
+        run: () => {
+          onClose();
+          navigate("/tasks");
         },
-        {
-          kind: "action" as const,
-          id: "artifacts",
-          label: tr("palette.openArtifacts"),
-          run: () => {
-            onClose();
-            navigate("/artifacts");
-          },
+      },
+      {
+        kind: "action" as const,
+        id: "artifacts",
+        label: tr("palette.openArtifacts"),
+        run: () => {
+          onClose();
+          navigate("/artifacts");
         },
-        {
-          kind: "action" as const,
-          id: "usage",
-          label: tr("palette.openUsage"),
-          run: () => {
-            onClose();
-            navigate("/usage");
-          },
+      },
+      {
+        kind: "action" as const,
+        id: "usage",
+        label: tr("palette.openUsage"),
+        run: () => {
+          onClose();
+          navigate("/usage");
         },
-        {
-          kind: "action" as const,
-          id: "settings",
-          label: tr("palette.openSettings"),
-          run: () => {
-            onClose();
-            navigate("/settings");
-          },
+      },
+      {
+        kind: "action" as const,
+        id: "settings",
+        label: tr("palette.openSettings"),
+        run: () => {
+          onClose();
+          navigate("/settings");
         },
-      ] satisfies Item[]
-    ).filter((a) => match(a.label));
+      },
+      ...(terminalAvailable
+        ? [
+            {
+              kind: "action" as const,
+              id: "terminal",
+              label: tr("terminal.toggle"),
+              hint: "Ctrl+`",
+              run: () => {
+                onClose();
+                onToggleTerminal?.();
+              },
+            },
+          ]
+        : []),
+    ] satisfies Item[];
+
+    const actions: Item[] = baseActions.filter((a) => match(a.label));
 
     const chats: Item[] = tasks
       .filter((t) => {

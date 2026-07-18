@@ -11,11 +11,14 @@ import {
   listTasks,
   type Task,
 } from "../../api/client";
-import { DRAFT_PATH, setDraftCwd } from "../../lib/draftChat";
+import { DRAFT_PATH, setDraftCwd, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
 import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { subscribeWS, useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
+import TerminalPanel from "../terminal/TerminalPanel";
+import { isKinDesktop } from "../../lib/desktop";
+import { isTerminalToggle } from "../../lib/terminal";
 
 type Props = {
   children: ReactNode;
@@ -42,6 +45,8 @@ export default function AppShell({ children, pendingCount }: Props) {
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const wsStatus = useAppStore((s) => s.wsStatus);
 
@@ -101,8 +106,20 @@ export default function AppShell({ children, pendingCount }: Props) {
     });
   }, []);
 
-  // ⌘N new chat · ⌘K command palette
+  // Subscribe to draft cwd changes
   useEffect(() => {
+    // Get initial cwd
+    setDraftCwdLocal(getDraftCwd());
+    // Subscribe to changes
+    return subscribeDraft(() => {
+      setDraftCwdLocal(getDraftCwd());
+    });
+  }, []);
+
+  // ⌘N new chat · ⌘K command palette · Ctrl+Backquote toggle terminal
+  useEffect(() => {
+    const desktop = isKinDesktop();
+
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -111,6 +128,11 @@ export default function AppShell({ children, pendingCount }: Props) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((v) => !v);
+      }
+      if (desktop && isTerminalToggle(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setTerminalOpen((value) => !value);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -187,12 +209,29 @@ export default function AppShell({ children, pendingCount }: Props) {
         <main className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {children}
         </main>
+
+        {/* Terminal panel — desktop only */}
+        {isKinDesktop() && (
+          <TerminalPanel
+            open={terminalOpen}
+            cwd={
+              selectedTaskId
+                ? tasks.find((t) => t.id === selectedTaskId)?.cwd ?? (draftActive ? draftCwdLocal : "")
+                : draftActive
+                  ? draftCwdLocal
+                  : ""
+            }
+            onClose={() => setTerminalOpen(false)}
+          />
+        )}
       </div>
 
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         onNewChat={openNewChat}
+        onToggleTerminal={() => setTerminalOpen((v) => !v)}
+        terminalAvailable={isKinDesktop()}
       />
     </div>
   );
