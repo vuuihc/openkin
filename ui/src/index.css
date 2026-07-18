@@ -1,3 +1,5 @@
+@import "@xterm/xterm/css/xterm.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -169,6 +171,12 @@ body {
     transform: translateY(-3px);
     opacity: 1;
   }
+}
+
+/* xterm minimal overrides */
+.kin-terminal {
+  display: flex;
+  flex-direction: column;
 }
 
 @layer components {
