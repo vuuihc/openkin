@@ -2,14 +2,17 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/kin/internal/remote"
 	"github.com/vuuihc/kin/internal/terminal"
+	"nhooyr.io/websocket"
 )
 
 const terminalTestToken = "terminal-test-token"
@@ -230,5 +233,172 @@ func TestTerminalRESTStartupFailureIsInternalError(t *testing.T) {
 	server.Handler().ServeHTTP(rr, terminalRequest(http.MethodPost, "/api/terminal/sessions", string(body), "127.0.0.1:1234", true))
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d; body = %s", rr.Code, http.StatusInternalServerError, rr.Body.String())
+	}
+}
+
+func TestTerminalWebSocket(t *testing.T) {
+	server := newTerminalTestServer(t, []terminal.Profile{{ID: "sh", Name: "sh", Executable: "/bin/sh", Default: true}})
+	httpServer := httptest.NewServer(server.Handler())
+	t.Cleanup(httpServer.Close)
+
+	created := createTerminalSessionHTTP(t, httpServer, t.TempDir())
+	wsURL := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/api/terminal/sessions/" + created.ID + "/ws?token=" + terminalTestToken
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	first, response, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
+		t.Fatalf("Dial() error = %v, HTTP status = %d", err, status)
+	}
+	defer first.CloseNow()
+	assertTerminalReady(t, ctx, first, created.ID)
+
+	second, response, err := websocket.Dial(ctx, wsURL, nil)
+	if second != nil {
+		second.CloseNow()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusConflict {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+		}
+		t.Fatalf("second Dial() error = %v, status = %d, want HTTP 409", err, status)
+	}
+
+	if err := first.Write(ctx, websocket.MessageBinary, []byte("printf 'KIN_WS_OK\\n'\n")); err != nil {
+		t.Fatalf("binary Write() error = %v", err)
+	}
+	readTerminalBinaryUntil(t, ctx, first, []byte("KIN_WS_OK"))
+
+	if err := first.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","cols":103,"rows":39}`)); err != nil {
+		t.Fatalf("resize Write() error = %v", err)
+	}
+	if err := first.Write(ctx, websocket.MessageBinary, []byte("stty size\n")); err != nil {
+		t.Fatalf("stty Write() error = %v", err)
+	}
+	readTerminalBinaryUntil(t, ctx, first, []byte("39 103"))
+
+	if err := first.Close(websocket.StatusNormalClosure, "reload"); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	reconnected := dialTerminalUntilSuccess(t, ctx, wsURL)
+	defer reconnected.CloseNow()
+	assertTerminalReady(t, ctx, reconnected, created.ID)
+	readTerminalBinaryUntil(t, ctx, reconnected, []byte("KIN_WS_OK"))
+
+	if err := reconnected.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","cols":0,"rows":20}`)); err != nil {
+		t.Fatalf("malformed resize Write() error = %v", err)
+	}
+	_, _, err = reconnected.Read(ctx)
+	status := websocket.CloseStatus(err)
+	if status != websocket.StatusUnsupportedData && status != websocket.StatusPolicyViolation {
+		t.Fatalf("malformed resize close status = %v, want unsupported data or policy violation; error = %v", status, err)
+	}
+}
+
+func TestTerminalOriginAllowed(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   bool
+	}{
+		{"", true},
+		{"http://localhost:5173", true},
+		{"https://127.0.0.1", true},
+		{"http://[::1]:8080", true},
+		{"https://example.com", false},
+		{"not a url", false},
+		{"file://localhost", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.origin, func(t *testing.T) {
+			if got := terminalOriginAllowed(tt.origin); got != tt.want {
+				t.Fatalf("terminalOriginAllowed(%q) = %v, want %v", tt.origin, got, tt.want)
+			}
+		})
+	}
+}
+
+func createTerminalSessionHTTP(t *testing.T, server *httptest.Server, cwd string) terminal.SessionInfo {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"profile_id": "sh", "cwd": cwd, "cols": 80, "rows": 24})
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/api/terminal/sessions", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+terminalTestToken)
+	response, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", response.StatusCode)
+	}
+	var created terminal.SessionInfo
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	return created
+}
+
+func assertTerminalReady(t *testing.T, ctx context.Context, conn *websocket.Conn, sessionID string) {
+	t.Helper()
+	messageType, payload, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatalf("read ready error = %v", err)
+	}
+	if messageType != websocket.MessageText {
+		t.Fatalf("ready message type = %v, want text", messageType)
+	}
+	var ready struct {
+		Type    string               `json:"type"`
+		Session terminal.SessionInfo `json:"session"`
+	}
+	if err := json.Unmarshal(payload, &ready); err != nil {
+		t.Fatalf("decode ready: %v; payload = %s", err, payload)
+	}
+	if ready.Type != "ready" || ready.Session.ID != sessionID {
+		t.Fatalf("ready = %+v, want session %s", ready, sessionID)
+	}
+}
+
+func readTerminalBinaryUntil(t *testing.T, ctx context.Context, conn *websocket.Conn, marker []byte) []byte {
+	t.Helper()
+	var output []byte
+	for {
+		messageType, payload, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read binary marker %q error = %v; output = %q", marker, err, output)
+		}
+		if messageType != websocket.MessageBinary {
+			continue
+		}
+		output = append(output, payload...)
+		if bytes.Contains(output, marker) {
+			return output
+		}
+	}
+}
+
+func dialTerminalUntilSuccess(t *testing.T, ctx context.Context, wsURL string) *websocket.Conn {
+	t.Helper()
+	for {
+		conn, response, err := websocket.Dial(ctx, wsURL, nil)
+		if err == nil {
+			return conn
+		}
+		if response == nil || response.StatusCode != http.StatusConflict {
+			t.Fatalf("reconnect error = %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
