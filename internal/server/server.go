@@ -30,6 +30,7 @@ import (
 	remotetsnet "github.com/vuuihc/kin/internal/remote/tsnet"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
+	"github.com/vuuihc/kin/internal/terminal"
 	"github.com/vuuihc/kin/web"
 )
 
@@ -252,10 +253,13 @@ func ServeWith(version string, flags ServeFlags) error {
 	auth := remote.NewFileAuth(tokenPath)
 	mode := networkMode(flags)
 	agentCache := detect.NewCache(5 * time.Second)
+	terminals := newTerminalManager(terminal.DetectProfiles)
+	defer terminals.Close()
 	srvAPI := &api.Server{
 		Store:        st,
 		Auth:         auth,
 		Engine:       eng,
+		Terminals:    terminals,
 		Version:      version,
 		Static:       static,
 		UploadsDir:   filepath.Join(stateDir, "uploads"),
@@ -455,6 +459,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 	wg.Wait()
 	return nil
+}
+
+func newTerminalManager(detectProfiles func() []terminal.Profile) *terminal.Manager {
+	return terminal.NewManager(detectProfiles())
 }
 
 func networkMode(f ServeFlags) string {
