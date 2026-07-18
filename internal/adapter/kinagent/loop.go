@@ -411,12 +411,13 @@ func emitToolResult(ch chan<- adapter.Event, name, argsJSON, output string, ok b
 
 func emitUsage(ch chan<- adapter.Event, promptChars int, u provider.Usage) {
 	payload, _ := json.Marshal(map[string]any{
-		"prompt_chars":      promptChars,
-		"prompt_tokens":     u.PromptTokens,
-		"completion_tokens": u.CompletionTokens,
-		"cached_tokens":     u.CachedTokens,
-		"total_tokens":      u.TotalTokens,
-		"source":            "kin",
+		"prompt_chars":        promptChars,
+		"prompt_tokens":       u.PromptTokens,
+		"completion_tokens":   u.CompletionTokens,
+		"cached_tokens":       u.CachedTokens,
+		"cache_read_reported": u.CacheReadReported,
+		"total_tokens":        u.TotalTokens,
+		"source":              "kin",
 	})
 	ch <- adapter.Event{Type: "usage", Payload: payload}
 }

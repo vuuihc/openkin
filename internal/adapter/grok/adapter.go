@@ -233,6 +233,17 @@ func scanStream(r io.Reader, ch chan<- adapter.Event) {
 				if end.Usage.OutputTokens > 0 {
 					result["tokens_out"] = end.Usage.OutputTokens
 				}
+				usagePayload, _ := json.Marshal(map[string]any{
+					"source":              "grok",
+					"input_tokens":        end.Usage.InputTokens,
+					"output_tokens":       end.Usage.OutputTokens,
+					"total_tokens":        end.Usage.TotalTokens,
+					"cache_read_reported": false,
+					"cache_status":        "unsupported",
+					"input_semantics":     "unknown",
+					"usage":               end.Usage,
+				})
+				ch <- adapter.Event{Type: "usage", Payload: usagePayload}
 			}
 			payload, _ := json.Marshal(result)
 			ch <- adapter.Event{Type: "result", Payload: payload}

@@ -70,13 +70,13 @@ type oaiChatResp struct {
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens         int `json:"prompt_tokens"`
-		CompletionTokens     int `json:"completion_tokens"`
-		TotalTokens          int `json:"total_tokens"`
-		CachedTokens         int `json:"cached_tokens"`
-		CacheReadInputTokens int `json:"cache_read_input_tokens"`
+		PromptTokens         int  `json:"prompt_tokens"`
+		CompletionTokens     int  `json:"completion_tokens"`
+		TotalTokens          int  `json:"total_tokens"`
+		CachedTokens         *int `json:"cached_tokens"`
+		CacheReadInputTokens *int `json:"cache_read_input_tokens"`
 		PromptTokensDetails  *struct {
-			CachedTokens int `json:"cached_tokens"`
+			CachedTokens *int `json:"cached_tokens"`
 		} `json:"prompt_tokens_details"`
 	} `json:"usage"`
 	Error *struct {
@@ -212,21 +212,27 @@ func (c *openAICompat) chatOnce(ctx context.Context, url string, raw []byte, mod
 	if msg.Content != nil {
 		content = *msg.Content
 	}
-	cached := parsed.Usage.CachedTokens
-	if cached == 0 && parsed.Usage.PromptTokensDetails != nil {
-		cached = parsed.Usage.PromptTokensDetails.CachedTokens
-	}
-	if cached == 0 && parsed.Usage.CacheReadInputTokens > 0 {
-		cached = parsed.Usage.CacheReadInputTokens
+	cached := 0
+	cacheReadReported := false
+	if parsed.Usage.CachedTokens != nil {
+		cached = *parsed.Usage.CachedTokens
+		cacheReadReported = true
+	} else if parsed.Usage.PromptTokensDetails != nil && parsed.Usage.PromptTokensDetails.CachedTokens != nil {
+		cached = *parsed.Usage.PromptTokensDetails.CachedTokens
+		cacheReadReported = true
+	} else if parsed.Usage.CacheReadInputTokens != nil {
+		cached = *parsed.Usage.CacheReadInputTokens
+		cacheReadReported = true
 	}
 	return &ChatResponse{
 		Content: content,
 		Model:   firstNonEmpty(parsed.Model, model),
 		Usage: Usage{
-			PromptTokens:     parsed.Usage.PromptTokens,
-			CompletionTokens: parsed.Usage.CompletionTokens,
-			TotalTokens:      parsed.Usage.TotalTokens,
-			CachedTokens:     cached,
+			PromptTokens:      parsed.Usage.PromptTokens,
+			CompletionTokens:  parsed.Usage.CompletionTokens,
+			TotalTokens:       parsed.Usage.TotalTokens,
+			CachedTokens:      cached,
+			CacheReadReported: cacheReadReported,
 		},
 		FinishReason: parsed.Choices[0].FinishReason,
 		ToolCalls:    msg.ToolCalls,

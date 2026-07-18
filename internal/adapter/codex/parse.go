@@ -71,40 +71,50 @@ func parseThreadStarted(raw map[string]json.RawMessage) []adapter.Event {
 
 func parseTurnCompleted(raw map[string]json.RawMessage, line string) []adapter.Event {
 	var usage struct {
-		InputTokens        float64 `json:"input_tokens"`
-		CachedInputTokens  float64 `json:"cached_input_tokens"`
-		OutputTokens       float64 `json:"output_tokens"`
-		ReasoningOutTokens float64 `json:"reasoning_output_tokens"`
+		InputTokens        *float64 `json:"input_tokens"`
+		CachedInputTokens  *float64 `json:"cached_input_tokens"`
+		OutputTokens       *float64 `json:"output_tokens"`
+		ReasoningOutTokens *float64 `json:"reasoning_output_tokens"`
 	}
 	_ = json.Unmarshal(raw["usage"], &usage)
 
-	tokensIn := int(usage.InputTokens)
-	tokensOut := int(usage.OutputTokens)
+	tokensIn := intValue(usage.InputTokens)
+	tokensOut := intValue(usage.OutputTokens)
+	cachedInput := intValue(usage.CachedInputTokens)
+	reasoningOut := intValue(usage.ReasoningOutTokens)
 	// Include reasoning tokens in output when present.
-	if usage.ReasoningOutTokens > 0 {
-		tokensOut += int(usage.ReasoningOutTokens)
+	if reasoningOut > 0 {
+		tokensOut += reasoningOut
 	}
 
+	nativeUsage := map[string]any{
+		"input_tokens":            valueOrZero(usage.InputTokens),
+		"cached_input_tokens":     valueOrZero(usage.CachedInputTokens),
+		"output_tokens":           valueOrZero(usage.OutputTokens),
+		"reasoning_output_tokens": valueOrZero(usage.ReasoningOutTokens),
+	}
 	result := map[string]any{
 		"subtype":    "turn.completed",
 		"is_error":   false,
 		"tokens_in":  tokensIn,
 		"tokens_out": tokensOut,
-		"usage": map[string]any{
-			"input_tokens":            usage.InputTokens,
-			"cached_input_tokens":     usage.CachedInputTokens,
-			"output_tokens":           usage.OutputTokens,
-			"reasoning_output_tokens": usage.ReasoningOutTokens,
-		},
+		"usage":      nativeUsage,
 	}
 
 	events := []adapter.Event{
 		{
 			Type: "usage",
 			Payload: mustMarshal(map[string]any{
-				"tokens_in":  tokensIn,
-				"tokens_out": tokensOut,
-				"usage":      result["usage"],
+				"source":                  "codex",
+				"input_tokens":            tokensIn,
+				"output_tokens":           intValue(usage.OutputTokens),
+				"reasoning_output_tokens": reasoningOut,
+				"cache_read_tokens":       cachedInput,
+				"cache_read_reported":     usage.CachedInputTokens != nil,
+				"input_semantics":         "total_includes_cache",
+				"tokens_in":               tokensIn,
+				"tokens_out":              tokensOut,
+				"usage":                   result["usage"],
 			}),
 		},
 		{
@@ -113,6 +123,20 @@ func parseTurnCompleted(raw map[string]json.RawMessage, line string) []adapter.E
 		},
 	}
 	return events
+}
+
+func intValue(v *float64) int {
+	if v == nil {
+		return 0
+	}
+	return int(*v)
+}
+
+func valueOrZero(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func parseTurnFailed(raw map[string]json.RawMessage) []adapter.Event {

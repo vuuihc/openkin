@@ -2,6 +2,13 @@
   {
     "type": "usage",
     "payload": {
+      "cache_read_reported": true,
+      "cache_read_tokens": 24448,
+      "input_semantics": "total_includes_cache",
+      "input_tokens": 24763,
+      "output_tokens": 122,
+      "reasoning_output_tokens": 0,
+      "source": "codex",
       "tokens_in": 24763,
       "tokens_out": 122,
       "usage": {

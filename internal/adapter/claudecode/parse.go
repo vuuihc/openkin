@@ -194,6 +194,7 @@ func parseResult(raw map[string]json.RawMessage, line string) []adapter.Event {
 		out["total_cost_usd"] = v
 		out["cost_usd"] = v
 	}
+	var usageEvent *adapter.Event
 	if u, ok := full["usage"].(map[string]any); ok {
 		out["usage"] = u
 		if v, ok := u["input_tokens"]; ok {
@@ -202,11 +203,37 @@ func parseResult(raw map[string]json.RawMessage, line string) []adapter.Event {
 		if v, ok := u["output_tokens"]; ok {
 			out["tokens_out"] = v
 		}
+		cacheRead, cacheReadReported := u["cache_read_input_tokens"]
+		cacheWrite, cacheWriteReported := u["cache_creation_input_tokens"]
+		usagePayload := map[string]any{
+			"source":              "claude-code",
+			"input_tokens":        u["input_tokens"],
+			"output_tokens":       u["output_tokens"],
+			"input_semantics":     "uncached_only",
+			"cache_read_reported": cacheReadReported || cacheWriteReported,
+			"usage":               u,
+		}
+		if cacheReadReported {
+			usagePayload["cache_read_tokens"] = cacheRead
+		}
+		if cacheWriteReported {
+			usagePayload["cache_write_tokens"] = cacheWrite
+		}
+		if v, ok := out["cost_usd"]; ok {
+			usagePayload["cost_usd"] = v
+			usagePayload["cost_source"] = "provider"
+		}
+		ev := adapter.Event{Type: "usage", Payload: mustMarshal(usagePayload)}
+		usageEvent = &ev
 	}
 	// Pass through raw for debugging.
 	out["raw"] = json.RawMessage(line)
 
-	return []adapter.Event{{Type: "result", Payload: mustMarshal(out)}}
+	events := make([]adapter.Event, 0, 2)
+	if usageEvent != nil {
+		events = append(events, *usageEvent)
+	}
+	return append(events, adapter.Event{Type: "result", Payload: mustMarshal(out)})
 }
 
 func rawOutput(line string) adapter.Event {

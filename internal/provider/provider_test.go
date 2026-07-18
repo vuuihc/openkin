@@ -57,6 +57,61 @@ func TestOpenAICompatChat(t *testing.T) {
 	if resp.Usage.CachedTokens != 7 {
 		t.Fatalf("cached_tokens %+v", resp.Usage)
 	}
+	if !resp.Usage.CacheReadReported {
+		t.Fatalf("cache field presence lost: %+v", resp.Usage)
+	}
+}
+
+func TestOpenAICompatCachePresence(t *testing.T) {
+	tests := []struct {
+		name     string
+		usage    map[string]any
+		want     int
+		reported bool
+	}{
+		{
+			name: "reported zero",
+			usage: map[string]any{
+				"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11,
+				"prompt_tokens_details": map[string]int{"cached_tokens": 0},
+			},
+			want: 0, reported: true,
+		},
+		{
+			name: "missing",
+			usage: map[string]any{
+				"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11,
+			},
+			want: 0, reported: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"model": "gpt-test",
+					"choices": []map[string]any{
+						{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": "ok"}},
+					},
+					"usage": tt.usage,
+				})
+			}))
+			t.Cleanup(srv.Close)
+
+			client, err := NewClient(Config{BaseURL: srv.URL + "/v1", Model: "gpt-test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Chat(context.Background(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Usage.CachedTokens != tt.want || resp.Usage.CacheReadReported != tt.reported {
+				t.Fatalf("usage=%+v want cached=%d reported=%v", resp.Usage, tt.want, tt.reported)
+			}
+		})
+	}
 }
 
 func TestConfigConfigured(t *testing.T) {

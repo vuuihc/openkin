@@ -1,5 +1,23 @@
 [
   {
+    "type": "usage",
+    "payload": {
+      "cache_read_reported": true,
+      "cache_read_tokens": 0,
+      "cost_source": "provider",
+      "cost_usd": 0.01234,
+      "input_semantics": "uncached_only",
+      "input_tokens": 1500,
+      "output_tokens": 42,
+      "source": "claude-code",
+      "usage": {
+        "cache_read_input_tokens": 0,
+        "input_tokens": 1500,
+        "output_tokens": 42
+      }
+    }
+  },
+  {
     "type": "result",
     "payload": {
       "cost_usd": 0.01234,
