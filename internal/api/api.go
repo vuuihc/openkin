@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
+		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
 		r.Get("/api/tasks/{id}/workspace/list", s.handleListTaskWorkspace)
 		r.Get("/api/tasks/{id}/workspace/file", s.handleReadTaskWorkspaceFile)
@@ -677,6 +678,20 @@ func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		rows = []store.UsageRow{}
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleTaskUsage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	usage, err := s.Store.TaskUsage(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, usage)
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {

@@ -113,6 +113,51 @@ func TestUsageSummaryAggregation(t *testing.T) {
 	}
 }
 
+func TestTaskUsageEndpoint(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	task := store.Task{
+		ID: "01APITASKUSAGE000000000001", Title: "usage", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: store.NowMilli(),
+	}
+	if err := s.Store.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	input, output, cached := 100, 10, 0
+	if err := s.Store.InsertUsageRecord(ctx, store.UsageRecord{
+		TaskID: task.ID, EventSeq: 1, OccurredAt: store.NowMilli(), Agent: "codex",
+		InputTokens: &input, OutputTokens: &output, CacheReadTokens: &cached,
+		CacheStatus: store.CacheStatusReported, InputSemantics: store.InputSemanticsTotalIncludesCache,
+		CostSource: store.CostSourceUnknown,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var usage store.TaskUsage
+	if err := json.Unmarshal(rr.Body.Bytes(), &usage); err != nil {
+		t.Fatal(err)
+	}
+	if usage.TokensIn != 100 || usage.CacheHitRate == nil || *usage.CacheHitRate != 0 || usage.CacheStatus != store.CacheStatusReported {
+		t.Fatalf("usage = %+v", usage)
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/missing/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d", rr.Code)
+	}
+}
+
 func TestPriceTableSettingValidation(t *testing.T) {
 	s, token := newTestServer(t)
 	h := s.Handler()

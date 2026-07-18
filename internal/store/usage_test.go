@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestMigrateV4UsageLedger(t *testing.T) {
@@ -214,3 +215,74 @@ func TestAppendUsageEventIsAtomic(t *testing.T) {
 		t.Fatalf("failed transaction left %d events", len(events))
 	}
 }
+
+func TestUsageSummariesRespectCacheSemanticsAndLegacyFallback(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	now := time.Now().UTC()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.UTC).UnixMilli()
+	yesterday := today - 24*60*60*1000
+	for _, task := range []Task{
+		{ID: "01USAGESUMMARYREPORTED00001", Title: "reported", Agent: "codex", Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: today},
+		{ID: "01USAGESUMMARYUNKNOWN000002", Title: "unknown", Agent: "codex", Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: today},
+		{ID: "01USAGESUMMARYLEGACY0000003", Title: "legacy", Agent: "codex", Cwd: "/tmp", Prompt: "p", Status: "succeeded", TokensIn: 50, TokensOut: 5, CreatedAt: today},
+	} {
+		if err := s.InsertTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	input, output, cached := 100, 10, 80
+	if err := s.InsertUsageRecord(ctx, UsageRecord{
+		TaskID: "01USAGESUMMARYREPORTED00001", EventSeq: 1, OccurredAt: yesterday, Agent: "codex",
+		Model: strPtr("gpt-5-codex"), InputTokens: &input, OutputTokens: &output, CacheReadTokens: &cached,
+		CacheStatus: CacheStatusReported, InputSemantics: InputSemanticsTotalIncludesCache, CostSource: CostSourcePriceTable,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	unknownInput := 40
+	if err := s.InsertUsageRecord(ctx, UsageRecord{
+		TaskID: "01USAGESUMMARYUNKNOWN000002", EventSeq: 1, OccurredAt: yesterday, Agent: "codex",
+		InputTokens: &unknownInput, CacheStatus: CacheStatusUnknown,
+		InputSemantics: InputSemanticsUnknown, CostSource: CostSourceUnknown,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := s.UsageSummary(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ledger, legacy *UsageRow
+	for i := range rows {
+		if rows[i].Date == time.UnixMilli(yesterday).UTC().Format("2006-01-02") {
+			ledger = &rows[i]
+		}
+		if rows[i].Date == time.UnixMilli(today).UTC().Format("2006-01-02") {
+			legacy = &rows[i]
+		}
+	}
+	if ledger == nil || ledger.TokensIn != 140 || ledger.CacheReadTokens != 80 || ledger.RequestCount != 2 {
+		t.Fatalf("ledger aggregate = %+v", ledger)
+	}
+	if ledger.CacheHitRate == nil || *ledger.CacheHitRate != 0.8 || ledger.CacheEligibleInputTokens != 100 || ledger.CacheCoverage == nil || *ledger.CacheCoverage < 0.71 || *ledger.CacheCoverage > 0.72 || ledger.CacheStatus != CacheStatusMixed {
+		t.Fatalf("ledger cache aggregate = %+v", ledger)
+	}
+	if legacy == nil || legacy.TokensIn != 50 || legacy.CacheHitRate != nil || legacy.CacheStatus != CacheStatusUnknown {
+		t.Fatalf("legacy aggregate = %+v", legacy)
+	}
+
+	taskUsage, err := s.TaskUsage(ctx, "01USAGESUMMARYREPORTED00001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskUsage.CacheHitRate == nil || *taskUsage.CacheHitRate != 0.8 || len(taskUsage.ModelSubtotals) != 1 || taskUsage.ModelSubtotals[0].Model != "gpt-5-codex" {
+		t.Fatalf("task usage = %+v", taskUsage)
+	}
+}
+
+func strPtr(s string) *string { return &s }

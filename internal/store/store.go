@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -95,6 +96,8 @@ const (
 	CacheStatusUnknown = "unknown"
 	// CacheStatusUnsupported means the provider cannot report cache token data.
 	CacheStatusUnsupported = "unsupported"
+	// CacheStatusMixed means an aggregate contains more than one cache status.
+	CacheStatusMixed = "mixed"
 )
 
 const (
@@ -834,12 +837,46 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 
 // UsageRow is one day × agent aggregate for GET /api/usage/summary (M4).
 type UsageRow struct {
-	Date      string   `json:"date"` // YYYY-MM-DD (UTC)
-	Agent     string   `json:"agent"`
-	Tasks     int      `json:"tasks"`
-	TokensIn  int64    `json:"tokens_in"`
-	TokensOut int64    `json:"tokens_out"`
-	CostUSD   *float64 `json:"cost_usd"` // nil if all costs null
+	Date  string `json:"date"` // YYYY-MM-DD (UTC)
+	Agent string `json:"agent"`
+	Tasks int    `json:"tasks"`
+	UsageTotals
+}
+
+// UsageModelSubtotal is a task usage subtotal grouped by model.
+type UsageModelSubtotal struct {
+	Model string `json:"model"`
+	UsageTotals
+}
+
+// UsageCostSourceSubtotal is a task usage subtotal grouped by cost source.
+type UsageCostSourceSubtotal struct {
+	CostSource string `json:"cost_source"`
+	UsageTotals
+}
+
+// UsageTotals is the shared token, cache, cost, and coverage shape used by
+// task subtotals and task-level usage responses.
+type UsageTotals struct {
+	TokensIn                 int64    `json:"tokens_in"`
+	TokensOut                int64    `json:"tokens_out"`
+	CostUSD                  *float64 `json:"cost_usd"`
+	RequestCount             int      `json:"request_count"`
+	ReasoningOutputTokens    int64    `json:"reasoning_output_tokens"`
+	CacheReadTokens          int64    `json:"cache_read_tokens"`
+	CacheWriteTokens         int64    `json:"cache_write_tokens"`
+	CacheEligibleInputTokens int64    `json:"cache_eligible_input_tokens"`
+	CacheHitRate             *float64 `json:"cache_hit_rate"`
+	CacheCoverage            *float64 `json:"cache_coverage"`
+	CacheStatus              string   `json:"cache_status"`
+}
+
+// TaskUsage is the cache-aware usage view for one task.
+type TaskUsage struct {
+	TaskID string `json:"task_id"`
+	UsageTotals
+	ModelSubtotals      []UsageModelSubtotal      `json:"model_subtotals"`
+	CostSourceSubtotals []UsageCostSourceSubtotal `json:"cost_source_subtotals"`
 }
 
 // UsageSummary returns per-day, per-agent aggregates over the last `days` days (UTC).
@@ -858,39 +895,246 @@ func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) 
 	startMS := startDay.UnixMilli()
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT
-			strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day,
-			agent,
-			COUNT(*) AS tasks,
-			COALESCE(SUM(tokens_in), 0) AS tokens_in,
-			COALESCE(SUM(tokens_out), 0) AS tokens_out,
-			SUM(cost_usd) AS cost_usd,
-			SUM(CASE WHEN cost_usd IS NOT NULL THEN 1 ELSE 0 END) AS cost_n
-		FROM tasks
-		WHERE created_at >= ?
-		GROUP BY day, agent
-		ORDER BY day DESC, agent ASC`, startMS)
+		SELECT task_id, event_seq, occurred_at, agent, provider, model,
+	       input_tokens, output_tokens, reasoning_output_tokens,
+	       cache_read_tokens, cache_write_tokens, cost_usd,
+	       cost_source, cache_status, input_semantics
+		FROM usage_records WHERE occurred_at >= ?`, startMS)
 	if err != nil {
 		return nil, fmt.Errorf("usage summary: %w", err)
 	}
 	defer rows.Close()
-
-	out := make([]UsageRow, 0)
+	type aggregateKey struct{ date, agent string }
+	aggregates := map[aggregateKey]*usageAccumulator{}
+	tasksByKey := map[aggregateKey]map[string]struct{}{}
 	for rows.Next() {
-		var r UsageRow
-		var cost sql.NullFloat64
-		var costN int
-		if err := rows.Scan(&r.Date, &r.Agent, &r.Tasks, &r.TokensIn, &r.TokensOut, &cost, &costN); err != nil {
+		r, err := scanUsageRecord(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan usage: %w", err)
 		}
-		if cost.Valid && costN > 0 {
-			v := cost.Float64
-			r.CostUSD = &v
+		key := aggregateKey{date: usageDate(r.OccurredAt), agent: r.Agent}
+		if aggregates[key] == nil {
+			aggregates[key] = &usageAccumulator{}
+			tasksByKey[key] = map[string]struct{}{}
 		}
-		out = append(out, r)
+		aggregates[key].addRecord(r)
+		tasksByKey[key][r.TaskID] = struct{}{}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close usage summary rows: %w", err)
+	}
+
+	// Tasks without ledger rows retain their historical task totals. Their cache
+	// state is unknown, rather than a misleading reported zero.
+	legacyRows, err := s.db.QueryContext(ctx, `
+		SELECT t.id, t.agent, t.tokens_in, t.tokens_out, t.cost_usd, t.created_at
+		FROM tasks t
+		WHERE t.created_at >= ?
+		  AND NOT EXISTS (SELECT 1 FROM usage_records u WHERE u.task_id = t.id)`, startMS)
+	if err != nil {
+		return nil, fmt.Errorf("usage summary legacy tasks: %w", err)
+	}
+	defer legacyRows.Close()
+	for legacyRows.Next() {
+		var id, agent string
+		var in, out int64
+		var cost sql.NullFloat64
+		var created int64
+		if err := legacyRows.Scan(&id, &agent, &in, &out, &cost, &created); err != nil {
+			return nil, fmt.Errorf("scan legacy usage task: %w", err)
+		}
+		key := aggregateKey{date: usageDate(created), agent: agent}
+		if aggregates[key] == nil {
+			aggregates[key] = &usageAccumulator{}
+			tasksByKey[key] = map[string]struct{}{}
+		}
+		aggregates[key].addLegacy(in, out, nullableFloat(cost))
+		tasksByKey[key][id] = struct{}{}
+	}
+	if err := legacyRows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]UsageRow, 0, len(aggregates))
+	for key, aggregate := range aggregates {
+		totals := aggregate.totals()
+		out = append(out, UsageRow{Date: key.date, Agent: key.agent, Tasks: len(tasksByKey[key]), UsageTotals: totals})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Date == out[j].Date {
+			return out[i].Agent < out[j].Agent
+		}
+		return out[i].Date > out[j].Date
+	})
+	return out, nil
 }
+
+// TaskUsage returns cache-aware totals and model/cost-source breakdowns for a task.
+func (s *Store) TaskUsage(ctx context.Context, taskID string) (TaskUsage, error) {
+	task, err := s.GetTask(ctx, taskID)
+	if err != nil {
+		return TaskUsage{}, err
+	}
+	records, err := s.ListUsageRecords(ctx, taskID)
+	if err != nil {
+		return TaskUsage{}, err
+	}
+	if len(records) == 0 {
+		a := usageAccumulator{}
+		a.addLegacy(int64(task.TokensIn), int64(task.TokensOut), task.CostUSD)
+		return TaskUsage{TaskID: taskID, UsageTotals: a.totals(), ModelSubtotals: []UsageModelSubtotal{}, CostSourceSubtotals: []UsageCostSourceSubtotal{}}, nil
+	}
+	total := usageAccumulator{}
+	byModel := map[string]*usageAccumulator{}
+	byCost := map[string]*usageAccumulator{}
+	for _, record := range records {
+		total.addRecord(record)
+		model := "unknown"
+		if record.Model != nil && *record.Model != "" {
+			model = *record.Model
+		}
+		if byModel[model] == nil {
+			byModel[model] = &usageAccumulator{}
+		}
+		byModel[model].addRecord(record)
+		if byCost[record.CostSource] == nil {
+			byCost[record.CostSource] = &usageAccumulator{}
+		}
+		byCost[record.CostSource].addRecord(record)
+	}
+	result := TaskUsage{TaskID: taskID, UsageTotals: total.totals(), ModelSubtotals: make([]UsageModelSubtotal, 0, len(byModel)), CostSourceSubtotals: make([]UsageCostSourceSubtotal, 0, len(byCost))}
+	for model, subtotal := range byModel {
+		result.ModelSubtotals = append(result.ModelSubtotals, UsageModelSubtotal{Model: model, UsageTotals: subtotal.totals()})
+	}
+	for source, subtotal := range byCost {
+		result.CostSourceSubtotals = append(result.CostSourceSubtotals, UsageCostSourceSubtotal{CostSource: source, UsageTotals: subtotal.totals()})
+	}
+	sort.Slice(result.ModelSubtotals, func(i, j int) bool { return result.ModelSubtotals[i].Model < result.ModelSubtotals[j].Model })
+	sort.Slice(result.CostSourceSubtotals, func(i, j int) bool {
+		return result.CostSourceSubtotals[i].CostSource < result.CostSourceSubtotals[j].CostSource
+	})
+	return result, nil
+}
+
+type usageAccumulator struct {
+	tokensIn, tokensOut, reasoning, cacheRead, cacheWrite  int64
+	requests, knownInput, eligibleInput, eligibleCacheRead int64
+	cost                                                   float64
+	costCount                                              int
+	statuses                                               map[string]struct{}
+}
+
+func (a *usageAccumulator) addRecord(r UsageRecord) {
+	a.tokensIn += int64(logicalUsageInput(r))
+	a.tokensOut += int64(intValueOrZero(r.OutputTokens))
+	a.reasoning += int64(intValueOrZero(r.ReasoningOutputTokens))
+	a.cacheRead += int64(intValueOrZero(r.CacheReadTokens))
+	a.cacheWrite += int64(intValueOrZero(r.CacheWriteTokens))
+	a.requests++
+	if r.InputTokens != nil {
+		a.knownInput += int64(logicalUsageInput(r))
+		if r.CacheStatus == CacheStatusReported && r.InputSemantics != InputSemanticsUnknown {
+			a.eligibleInput += int64(logicalUsageInput(r))
+			a.eligibleCacheRead += int64(intValueOrZero(r.CacheReadTokens))
+		}
+	}
+	if r.CostUSD != nil {
+		a.cost += *r.CostUSD
+		a.costCount++
+	}
+	if a.statuses == nil {
+		a.statuses = map[string]struct{}{}
+	}
+	a.statuses[r.CacheStatus] = struct{}{}
+}
+
+func (a *usageAccumulator) addLegacy(input, output int64, cost *float64) {
+	a.tokensIn += input
+	a.tokensOut += output
+	a.knownInput += input
+	if cost != nil {
+		a.cost += *cost
+		a.costCount++
+	}
+	if a.statuses == nil {
+		a.statuses = map[string]struct{}{}
+	}
+	a.statuses[CacheStatusUnknown] = struct{}{}
+}
+
+func (a *usageAccumulator) totals() UsageTotals {
+	t := UsageTotals{
+		TokensIn: a.tokensIn, TokensOut: a.tokensOut, RequestCount: int(a.requests),
+		ReasoningOutputTokens: a.reasoning, CacheReadTokens: a.cacheRead, CacheWriteTokens: a.cacheWrite,
+		CacheEligibleInputTokens: a.eligibleInput, CacheStatus: aggregateCacheStatus(a.statuses),
+	}
+	if a.costCount > 0 {
+		cost := a.cost
+		t.CostUSD = &cost
+	}
+	if a.eligibleInput > 0 {
+		rate := float64(a.eligibleCacheRead) / float64(a.eligibleInput)
+		t.CacheHitRate = &rate
+	}
+	if a.knownInput > 0 {
+		coverage := float64(a.eligibleInput) / float64(a.knownInput)
+		t.CacheCoverage = &coverage
+	}
+	return t
+}
+
+func aggregateCacheStatus(statuses map[string]struct{}) string {
+	if len(statuses) == 0 {
+		return CacheStatusUnknown
+	}
+	if len(statuses) > 1 {
+		return CacheStatusMixed
+	}
+	for status := range statuses {
+		return status
+	}
+	return CacheStatusUnknown
+}
+
+func scanUsageRecord(scanner interface{ Scan(...any) error }) (UsageRecord, error) {
+	var r UsageRecord
+	var provider, model sql.NullString
+	var input, output, reasoning, cacheRead, cacheWrite sql.NullInt64
+	var cost sql.NullFloat64
+	if err := scanner.Scan(
+		&r.TaskID, &r.EventSeq, &r.OccurredAt, &r.Agent, &provider, &model,
+		&input, &output, &reasoning, &cacheRead, &cacheWrite, &cost,
+		&r.CostSource, &r.CacheStatus, &r.InputSemantics,
+	); err != nil {
+		return UsageRecord{}, err
+	}
+	if provider.Valid {
+		r.Provider = &provider.String
+	}
+	if model.Valid {
+		r.Model = &model.String
+	}
+	r.InputTokens = nullableInt(input)
+	r.OutputTokens = nullableInt(output)
+	r.ReasoningOutputTokens = nullableInt(reasoning)
+	r.CacheReadTokens = nullableInt(cacheRead)
+	r.CacheWriteTokens = nullableInt(cacheWrite)
+	r.CostUSD = nullableFloat(cost)
+	return r, nil
+}
+
+func nullableFloat(v sql.NullFloat64) *float64 {
+	if !v.Valid {
+		return nil
+	}
+	f := v.Float64
+	return &f
+}
+
+func usageDate(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006-01-02") }
 
 // LoadPriceTable returns the configured price table, or the default if unset/invalid.
 func (s *Store) LoadPriceTable(ctx context.Context) PriceTable {
