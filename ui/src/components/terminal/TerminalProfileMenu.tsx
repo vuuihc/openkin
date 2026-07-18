@@ -15,7 +15,15 @@ export default function TerminalProfileMenu({
   onSelectProfile,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [focusedIdx, setFocusedIdx] = useState(0);
+
+  useEffect(() => {
+    if (!open || profiles.length === 0) return;
+    setFocusedIdx(0);
+    const frame = requestAnimationFrame(() => itemRefs.current[0]?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open, profiles.length]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -24,11 +32,15 @@ export default function TerminalProfileMenu({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         onClose();
-      } else if (e.key === "ArrowDown") {
-        setFocusedIdx((prev) => (prev + 1) % profiles.length);
+      } else if (e.key === "ArrowDown" && profiles.length > 0) {
+        const next = (focusedIdx + 1) % profiles.length;
+        setFocusedIdx(next);
+        itemRefs.current[next]?.focus();
         e.preventDefault();
-      } else if (e.key === "ArrowUp") {
-        setFocusedIdx((prev) => (prev - 1 + profiles.length) % profiles.length);
+      } else if (e.key === "ArrowUp" && profiles.length > 0) {
+        const next = (focusedIdx - 1 + profiles.length) % profiles.length;
+        setFocusedIdx(next);
+        itemRefs.current[next]?.focus();
         e.preventDefault();
       } else if (e.key === "Enter") {
         if (profiles[focusedIdx]) {
@@ -71,6 +83,10 @@ export default function TerminalProfileMenu({
         {profiles.map((profile, idx) => (
           <button
             key={profile.id}
+            ref={(element) => {
+              itemRefs.current[idx] = element;
+            }}
+            type="button"
             className={`
               w-full text-left px-3 py-2 text-[13px] transition-colors
               ${

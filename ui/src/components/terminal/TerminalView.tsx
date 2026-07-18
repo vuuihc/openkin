@@ -1,16 +1,8 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
-import { Terminal } from "@xterm/xterm";
+import { useCallback, useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import {
-  type TerminalSession,
-  getToken,
-} from "../../api/client";
+import { getToken, type TerminalSession } from "../../api/client";
 import { terminalSocketURL } from "../../lib/terminal";
 import { getTerminalTheme, observeThemeChanges } from "./terminalTheme";
 
@@ -29,19 +21,34 @@ type WSMessage =
   | { type: "exit"; exit_code: number }
   | { type: "error"; message: string };
 
-// Text message parser with type guard
+const RECONNECT_DELAYS = [250, 500, 1000, 5000] as const;
+
 function parseWSTextMessage(data: string): WSMessage | null {
   try {
-    const msg = JSON.parse(data);
+    const message: unknown = JSON.parse(data);
+    if (!message || typeof message !== "object" || !("type" in message)) {
+      return null;
+    }
+    const type = message.type;
+    if (type === "ready" && "session" in message) {
+      return message as WSMessage;
+    }
     if (
-      msg &&
-      typeof msg === "object" &&
-      typeof msg.type === "string"
+      type === "exit" &&
+      "exit_code" in message &&
+      typeof message.exit_code === "number"
     ) {
-      return msg as WSMessage;
+      return message as WSMessage;
+    }
+    if (
+      type === "error" &&
+      "message" in message &&
+      typeof message.message === "string"
+    ) {
+      return message as WSMessage;
     }
   } catch {
-    // ignore
+    // Ignore malformed server controls; binary PTY output remains independent.
   }
   return null;
 }
@@ -56,96 +63,140 @@ export default function TerminalView({
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const textEncoderRef = useRef(new TextEncoder());
+  const mountedRef = useRef(false);
+  const knownExitedRef = useRef(false);
+  const lastResizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const onExitRef = useRef(onExit);
+  const onConnectionChangeRef = useRef(onConnectionChange);
 
-  const [exited, setExited] = useState(false);
+  onExitRef.current = onExit;
+  onConnectionChangeRef.current = onConnectionChange;
 
-  // Backoff delays: 250ms, 500ms, 1s, 5s, 5s, ...
-  const getBackoffDelay = useCallback((attempt: number): number => {
-    const delays = [250, 500, 1000, 5000];
-    return delays[Math.min(attempt, delays.length - 1)];
+  const sendCurrentResize = useCallback(() => {
+    const container = containerRef.current;
+    const terminal = terminalRef.current;
+    const socket = wsRef.current;
+    if (
+      !container ||
+      !terminal ||
+      container.offsetWidth <= 0 ||
+      container.offsetHeight <= 0 ||
+      socket?.readyState !== WebSocket.OPEN
+    ) {
+      return;
+    }
+    const next = { cols: terminal.cols, rows: terminal.rows };
+    if (next.cols <= 0 || next.rows <= 0) return;
+    const previous = lastResizeRef.current;
+    if (previous?.cols === next.cols && previous.rows === next.rows) return;
+    lastResizeRef.current = next;
+    socket.send(JSON.stringify({ type: "resize", ...next }));
   }, []);
 
-  // Connect to WebSocket
-  const connect = useCallback(() => {
-    if (exited) return;
-    if (!containerRef.current || !terminalRef.current) return;
+  const fitAndResize = useCallback(() => {
+    const container = containerRef.current;
+    if (
+      !container ||
+      container.offsetWidth <= 0 ||
+      container.offsetHeight <= 0
+    ) {
+      return;
+    }
+    try {
+      fitRef.current?.fit();
+      sendCurrentResize();
+    } catch {
+      // Fit can race with a hidden panel or a layout transition.
+    }
+  }, [sendCurrentResize]);
 
-    const token = getToken();
-    if (!token) {
-      onConnectionChange(session.id, "disconnected");
+  const connect = useCallback(() => {
+    if (!mountedRef.current || knownExitedRef.current) return;
+    const currentSocket = wsRef.current;
+    if (
+      currentSocket?.readyState === WebSocket.CONNECTING ||
+      currentSocket?.readyState === WebSocket.OPEN
+    ) {
       return;
     }
 
-    onConnectionChange(session.id, "connecting");
+    const token = getToken();
+    if (!token) {
+      onConnectionChangeRef.current(session.id, "disconnected");
+      return;
+    }
+    onConnectionChangeRef.current(session.id, "connecting");
 
-    try {
-      const url = terminalSocketURL(
-        window.location.protocol,
-        window.location.host,
-        session.id,
-        token,
-      );
-      const ws = new WebSocket(url);
-      ws.binaryType = "arraybuffer";
-
-      ws.onopen = () => {
-        wsRef.current = ws;
-        reconnectAttemptsRef.current = 0;
-        onConnectionChange(session.id, "connected");
-      };
-
-      ws.onmessage = (event) => {
-        if (typeof event.data === "string") {
-          // Text frame: control message
-          const msg = parseWSTextMessage(event.data);
-          if (!msg) return;
-
-          if (msg.type === "ready") {
-            // Reset terminal on ready to prevent duplicated output after reconnect
-            terminalRef.current?.clear();
-          } else if (msg.type === "exit") {
-            if (typeof msg.exit_code === "number") {
-              setExited(true);
-              onExit(session.id, msg.exit_code);
-            }
-          }
-          // Ignore error type in normal flow; connection drop handles it
-        } else {
-          // Binary frame: PTY output
-          const uint8 = new Uint8Array(event.data);
-          terminalRef.current?.write(uint8);
-        }
-      };
-
-      ws.onclose = () => {
-        wsRef.current = null;
-        if (!exited) {
-          onConnectionChange(session.id, "disconnected");
-          // Schedule reconnect with backoff
-          const delay = getBackoffDelay(reconnectAttemptsRef.current);
-          reconnectAttemptsRef.current += 1;
-          reconnectTimerRef.current = setTimeout(connect, delay);
-        }
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-    } catch (err) {
-      onConnectionChange(session.id, "disconnected");
-      const delay = getBackoffDelay(reconnectAttemptsRef.current);
+    const scheduleReconnect = () => {
+      if (!mountedRef.current || knownExitedRef.current) return;
+      const attempt = reconnectAttemptsRef.current;
+      const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
       reconnectAttemptsRef.current += 1;
       reconnectTimerRef.current = setTimeout(connect, delay);
-    }
-  }, [session.id, exited, onConnectionChange, onExit, getBackoffDelay]);
+    };
 
-  // Initialize terminal on first mount
+    try {
+      const socket = new WebSocket(
+        terminalSocketURL(
+          window.location.protocol,
+          window.location.host,
+          session.id,
+          token,
+        ),
+      );
+      socket.binaryType = "arraybuffer";
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        if (!mountedRef.current || wsRef.current !== socket) {
+          socket.close();
+          return;
+        }
+        reconnectAttemptsRef.current = 0;
+        lastResizeRef.current = null;
+        onConnectionChangeRef.current(session.id, "connected");
+      };
+
+      socket.onmessage = (event) => {
+        if (wsRef.current !== socket) return;
+        if (typeof event.data === "string") {
+          const message = parseWSTextMessage(event.data);
+          if (message?.type === "ready") {
+            terminalRef.current?.reset();
+            lastResizeRef.current = null;
+            requestAnimationFrame(fitAndResize);
+          } else if (message?.type === "exit") {
+            knownExitedRef.current = true;
+            onExitRef.current(session.id, message.exit_code);
+          }
+          return;
+        }
+        if (event.data instanceof ArrayBuffer) {
+          terminalRef.current?.write(new Uint8Array(event.data));
+        }
+      };
+
+      socket.onclose = () => {
+        if (wsRef.current === socket) wsRef.current = null;
+        if (!mountedRef.current || knownExitedRef.current) return;
+        onConnectionChangeRef.current(session.id, "disconnected");
+        scheduleReconnect();
+      };
+
+      socket.onerror = () => socket.close();
+    } catch {
+      onConnectionChangeRef.current(session.id, "disconnected");
+      scheduleReconnect();
+    }
+  }, [fitAndResize, session.id]);
+
   useEffect(() => {
-    if (terminalRef.current) return; // Already initialized
+    const container = containerRef.current;
+    if (!container) return;
+    mountedRef.current = true;
 
     const terminal = new Terminal({
       scrollback: 5000,
@@ -154,166 +205,96 @@ export default function TerminalView({
       fontSize: 13,
       theme: getTerminalTheme(),
     });
-
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-
-    if (containerRef.current) {
-      terminal.open(containerRef.current);
-    }
-
+    terminal.open(container);
     terminalRef.current = terminal;
     fitRef.current = fitAddon;
 
-    // Handle terminal input
     const dataDisposable = terminal.onData((data) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        const uint8 = textEncoderRef.current.encode(data);
-        wsRef.current.send(uint8);
+      const socket = wsRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(textEncoderRef.current.encode(data));
       }
     });
-
-    // Observe theme changes
     const unsubscribeTheme = observeThemeChanges((theme) => {
-      if (terminalRef.current) {
-        terminalRef.current.options.theme = theme;
-      }
+      if (terminalRef.current) terminalRef.current.options.theme = theme;
     });
 
-    // Keyboard event handler for special keys
     terminal.attachCustomKeyEventHandler((event) => {
-      // Ctrl+Backquote: let AppShell handle it
-      if ((event.ctrlKey || event.metaKey) && event.code === "Backquote") {
+      if (event.ctrlKey && !event.metaKey && event.code === "Backquote") {
         return false;
       }
-
-      // macOS Cmd+C: copy selection if available
       if (event.metaKey && event.code === "KeyC") {
         const selection = terminal.getSelection();
         if (selection) {
-          // Let clipboard API handle it asynchronously
-          navigator.clipboard?.writeText(selection).catch(() => {
-            // silently fail
-          });
-          return false; // Prevent terminal's default handling
+          void navigator.clipboard?.writeText(selection).catch(() => undefined);
+          return false;
         }
-        // Without selection, allow Ctrl+C through for shell interrupt
       }
-
-      // Cmd+V or Ctrl+Shift+V: paste from clipboard
       if (
         (event.metaKey || (event.ctrlKey && event.shiftKey)) &&
         event.code === "KeyV"
       ) {
-        navigator.clipboard?.readText().then((text) => {
-          if (terminalRef.current) {
-            terminalRef.current.paste(text);
-          }
-        }).catch(() => {
-          // Clipboard unavailable; allow the event to propagate if the terminal
-          // has its own paste handling (unlikely in xterm)
-        });
-        return false; // Prevent terminal's default
+        const readText = navigator.clipboard?.readText;
+        if (!readText) return true;
+        void readText.call(navigator.clipboard).then(
+          (text) => terminalRef.current?.paste(text),
+          () => undefined,
+        );
+        return false;
       }
-
-      return true; // Allow other keys
+      return true;
     });
-
-    return () => {
-      dataDisposable.dispose();
-      unsubscribeTheme();
-      // Don't dispose terminal/fitAddon yet; we keep them mounted
-    };
-  }, []);
-
-  // Fit and focus when active changes
-  useEffect(() => {
-    if (!active || !terminalRef.current || !fitRef.current) return;
-
-    // Schedule fit after layout
-    const fitFrame = requestAnimationFrame(() => {
-      try {
-        fitRef.current?.fit();
-        terminalRef.current?.focus();
-      } catch {
-        // Fit may fail if container is hidden
-      }
-    });
-
-    return () => cancelAnimationFrame(fitFrame);
-  }, [active]);
-
-  // ResizeObserver for container resize
-  useEffect(() => {
-    if (!containerRef.current) return;
 
     let resizeFrame: number | null = null;
-    const handleResize = () => {
+    const observer = new ResizeObserver(() => {
       if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
-      resizeFrame = requestAnimationFrame(() => {
-        if (
-          containerRef.current &&
-          terminalRef.current &&
-          fitRef.current &&
-          containerRef.current.offsetHeight > 0
-        ) {
-          try {
-            fitRef.current.fit();
+      resizeFrame = requestAnimationFrame(fitAndResize);
+    });
+    observer.observe(container);
 
-            // Send resize control if dimensions changed
-            const cols = terminalRef.current.cols;
-            const rows = terminalRef.current.rows;
-            if (cols > 0 && rows > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(
-                JSON.stringify({ type: "resize", cols, rows }),
-              );
-            }
-          } catch {
-            // Fit may fail if container is hidden
-          }
-        }
-      });
-    };
-
-    const observer = new ResizeObserver(handleResize);
-    observer.observe(containerRef.current);
-    resizeObserverRef.current = observer;
-
-    return () => {
-      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
-      observer.disconnect();
-    };
-  }, []);
-
-  // Connect on mount and clean up on unmount
-  useEffect(() => {
     connect();
-
     return () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
+      mountedRef.current = false;
+      if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+      observer.disconnect();
+      const socket = wsRef.current;
+      wsRef.current = null;
+      if (socket) {
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close();
       }
-      wsRef.current?.close();
+      dataDisposable.dispose();
+      unsubscribeTheme();
+      fitAddon.dispose();
+      terminal.dispose();
+      fitRef.current = null;
+      terminalRef.current = null;
     };
-  }, [connect]);
+  }, [connect, fitAndResize]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect();
-      }
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-      }
-      // Don't dispose terminal; it's kept for re-mounting
-    };
-  }, []);
+    if (!active) {
+      terminalRef.current?.blur();
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      fitAndResize();
+      terminalRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, fitAndResize]);
 
   return (
     <div
       ref={containerRef}
-      className="kin-terminal w-full h-full bg-[var(--kin-bg)] overflow-hidden"
+      className="kin-terminal h-full w-full overflow-hidden bg-[var(--kin-bg)]"
     />
   );
 }

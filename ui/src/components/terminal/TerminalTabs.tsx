@@ -1,8 +1,13 @@
+import { useRef } from "react";
 import { type TerminalSession } from "../../api/client";
 import { useT } from "../../i18n/react";
 
+type TabSession = TerminalSession & {
+  connectionStatus?: "connecting" | "connected" | "disconnected";
+};
+
 type Props = {
-  sessions: TerminalSession[];
+  sessions: TabSession[];
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onCloseSession: (id: string) => void;
@@ -28,6 +33,7 @@ export default function TerminalTabs({
   onCloseSession,
 }: Props) {
   const tr = useT();
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const handleKeyDown = (e: React.KeyboardEvent, sessionId: string) => {
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
@@ -44,6 +50,7 @@ export default function TerminalTabs({
       const nextId = sessions[nextIdx]?.id;
       if (nextId) {
         onSelectSession(nextId);
+        requestAnimationFrame(() => tabRefs.current.get(nextId)?.focus());
       }
       e.preventDefault();
     } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -53,7 +60,11 @@ export default function TerminalTabs({
   };
 
   return (
-    <div className="flex items-center gap-0 border-b border-[var(--kin-hairline)] bg-[var(--kin-bg)] overflow-x-auto">
+    <div
+      className="flex items-center gap-0 overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-bg)]"
+      role="tablist"
+      aria-label={tr("terminal.title")}
+    >
       {sessions.map((session) => {
         const isActive = session.id === activeSessionId;
         const label = getSessionLabel(session, sessions);
@@ -64,7 +75,7 @@ export default function TerminalTabs({
           <div
             key={session.id}
             className={`
-              relative flex items-center gap-2 px-3 py-2 min-w-max cursor-pointer
+              relative flex min-w-max items-center
               border-r border-[var(--kin-hairline-strong)]
               transition-colors
               ${
@@ -73,23 +84,39 @@ export default function TerminalTabs({
                   : "bg-[var(--kin-bg)] text-kin-secondary hover:bg-[var(--kin-fill)]"
               }
             `}
-            role="tab"
-            aria-selected={isActive}
-            tabIndex={isActive ? 0 : -1}
-            onKeyDown={(e) => handleKeyDown(e, session.id)}
-            onClick={() => onSelectSession(session.id)}
           >
-            <span className="text-[13px] font-medium truncate">
-              {label}
-              {isExited && exitCode !== undefined && (
-                <span className="text-kin-muted ml-1">
+            <button
+              type="button"
+              ref={(element) => {
+                if (element) tabRefs.current.set(session.id, element);
+                else tabRefs.current.delete(session.id);
+              }}
+              className="flex items-center gap-1 px-3 py-2 text-left"
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              onKeyDown={(event) => handleKeyDown(event, session.id)}
+              onClick={() => onSelectSession(session.id)}
+            >
+              <span className="truncate text-[13px] font-medium">{label}</span>
+              {isExited && exitCode !== undefined ? (
+                <span className="text-[11px] text-kin-muted">
                   {tr("terminal.exited", { code: exitCode })}
                 </span>
-              )}
-            </span>
+              ) : session.connectionStatus === "connecting" ? (
+                <span className="text-[11px] text-kin-muted">
+                  {tr("terminal.connecting")}
+                </span>
+              ) : session.connectionStatus === "disconnected" ? (
+                <span className="text-[11px] text-kin-orange">
+                  {tr("terminal.disconnected")}
+                </span>
+              ) : null}
+            </button>
 
             <button
-              className="ml-1 p-1 rounded hover:bg-[var(--kin-fill)] flex-shrink-0 text-kin-muted hover:text-kin-text transition-colors"
+              type="button"
+              className="mr-1 flex-shrink-0 rounded p-1 text-kin-muted transition-colors hover:bg-[var(--kin-fill)] hover:text-kin-text"
               aria-label={tr("terminal.closeSession")}
               onClick={(e) => {
                 e.stopPropagation();

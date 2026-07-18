@@ -176,7 +176,16 @@ export default function CommandPalette({
       }));
 
     return [...actions, ...chats];
-  }, [query, tasks, navigate, onClose, onNewChat, tr]);
+  }, [
+    navigate,
+    onClose,
+    onNewChat,
+    onToggleTerminal,
+    query,
+    tasks,
+    terminalAvailable,
+    tr,
+  ]);
 
   useEffect(() => {
     setActive(0);

@@ -188,9 +188,17 @@ func (m *Manager) Create(req CreateRequest) (SessionInfo, error) {
 }
 
 func (m *Manager) Attach(id string) (*Attachment, error) {
-	current, err := m.get(id)
-	if err != nil {
-		return nil, err
+	// Keep the manager read lock until the session attachment is reserved. This
+	// makes attachment atomic with Remove/reaping: once a session ID disappears
+	// from the manager, a racing request cannot attach through a stale pointer.
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.closed {
+		return nil, ErrClosed
+	}
+	current, ok := m.sessions[id]
+	if !ok {
+		return nil, ErrNotFound
 	}
 	return current.attach()
 }

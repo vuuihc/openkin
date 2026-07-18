@@ -18,7 +18,7 @@ import { subscribeWS, useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
-import { isTerminalToggle } from "../../lib/terminal";
+import { contextCwd, isTerminalToggle } from "../../lib/terminal";
 
 type Props = {
   children: ReactNode;
@@ -40,6 +40,7 @@ export default function AppShell({ children, pendingCount }: Props) {
   const tr = useT();
   const selectedTaskId = taskIdFromPath(location.pathname);
   const draftActive = location.pathname === DRAFT_PATH;
+  const desktop = isKinDesktop();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [weekCost, setWeekCost] = useState<number | null>(null);
@@ -54,6 +55,10 @@ export default function AppShell({ children, pendingCount }: Props) {
     // Single draft entry: always jump to /new (create-or-focus).
     navigate(DRAFT_PATH);
   }, [navigate]);
+
+  const toggleTerminal = useCallback(() => {
+    setTerminalOpen((value) => !value);
+  }, []);
 
   const openNewSessionInProject = useCallback(
     (cwd: string) => {
@@ -118,8 +123,6 @@ export default function AppShell({ children, pendingCount }: Props) {
 
   // ⌘N new chat · ⌘K command palette · Ctrl+Backquote toggle terminal
   useEffect(() => {
-    const desktop = isKinDesktop();
-
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -132,12 +135,18 @@ export default function AppShell({ children, pendingCount }: Props) {
       if (desktop && isTerminalToggle(e)) {
         e.preventDefault();
         e.stopPropagation();
-        setTerminalOpen((value) => !value);
+        toggleTerminal();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openNewChat]);
+  }, [desktop, openNewChat, toggleTerminal]);
+
+  const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+  const terminalCwd = contextCwd(
+    selectedTask?.cwd,
+    draftActive ? draftCwdLocal : "",
+  );
 
   // Tray "New Chat" deep-link: /?new=1 or /new
   useEffect(() => {
@@ -211,16 +220,10 @@ export default function AppShell({ children, pendingCount }: Props) {
         </main>
 
         {/* Terminal panel — desktop only */}
-        {isKinDesktop() && (
+        {desktop && (
           <TerminalPanel
             open={terminalOpen}
-            cwd={
-              selectedTaskId
-                ? tasks.find((t) => t.id === selectedTaskId)?.cwd ?? (draftActive ? draftCwdLocal : "")
-                : draftActive
-                  ? draftCwdLocal
-                  : ""
-            }
+            cwd={terminalCwd}
             onClose={() => setTerminalOpen(false)}
           />
         )}
@@ -230,8 +233,8 @@ export default function AppShell({ children, pendingCount }: Props) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         onNewChat={openNewChat}
-        onToggleTerminal={() => setTerminalOpen((v) => !v)}
-        terminalAvailable={isKinDesktop()}
+        onToggleTerminal={toggleTerminal}
+        terminalAvailable={desktop}
       />
     </div>
   );

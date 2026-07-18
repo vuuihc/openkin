@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   isTerminalToggle,
+  clampTerminalHeight,
+  effectiveTerminalCwd,
+  maxTerminalHeight,
   parseTerminalHeight,
   contextCwd,
   terminalSocketURL,
@@ -30,9 +33,9 @@ describe("isTerminalToggle", () => {
     expect(isTerminalToggle(e as KeyboardEvent)).toBe(true);
   });
 
-  it("accepts non-repeating Cmd+Backquote (metaKey)", () => {
+  it("rejects Meta+Backquote (macOS Cmd+` is the OS window-cycle shortcut)", () => {
     const e = makeKeyboardEvent("Backquote", { metaKey: true, repeat: false });
-    expect(isTerminalToggle(e as KeyboardEvent)).toBe(true);
+    expect(isTerminalToggle(e as KeyboardEvent)).toBe(false);
   });
 
   it("rejects repeating Ctrl+Backquote", () => {
@@ -104,6 +107,17 @@ describe("parseTerminalHeight", () => {
     const result = parseTerminalHeight("", viewportHeight);
     expect(result).toBe(DEFAULT_TERMINAL_HEIGHT);
   });
+
+  it("rejects partially numeric storage values", () => {
+    expect(parseTerminalHeight("300px", viewportHeight)).toBe(
+      DEFAULT_TERMINAL_HEIGHT,
+    );
+  });
+
+  it("keeps the minimum usable height in a very short viewport", () => {
+    expect(maxTerminalHeight(200)).toBe(MIN_TERMINAL_HEIGHT);
+    expect(clampTerminalHeight(20, 200)).toBe(MIN_TERMINAL_HEIGHT);
+  });
 });
 
 describe("contextCwd", () => {
@@ -125,6 +139,16 @@ describe("contextCwd", () => {
   it("returns draft cwd when task cwd is undefined, even if it's empty", () => {
     const result = contextCwd(undefined, "");
     expect(result).toBe("");
+  });
+});
+
+describe("effectiveTerminalCwd", () => {
+  it("prefers a later route cwd over a panel-only folder choice", () => {
+    expect(effectiveTerminalCwd("/task", "/picked")).toBe("/task");
+  });
+
+  it("uses the panel override while the route has no cwd", () => {
+    expect(effectiveTerminalCwd("", "/picked")).toBe("/picked");
   });
 });
 

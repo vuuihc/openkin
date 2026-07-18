@@ -3,14 +3,32 @@ export const MIN_TERMINAL_HEIGHT = 180;
 export const DEFAULT_TERMINAL_HEIGHT = 320;
 export const MAX_TERMINAL_VIEWPORT_RATIO = 0.7;
 
+export function maxTerminalHeight(viewportHeight: number): number {
+  return Math.max(
+    MIN_TERMINAL_HEIGHT,
+    Math.floor(viewportHeight * MAX_TERMINAL_VIEWPORT_RATIO),
+  );
+}
+
+export function clampTerminalHeight(
+  height: number,
+  viewportHeight: number,
+): number {
+  return Math.max(
+    MIN_TERMINAL_HEIGHT,
+    Math.min(height, maxTerminalHeight(viewportHeight)),
+  );
+}
+
 /**
  * Check if a keyboard event is Ctrl+Backquote to toggle the terminal.
  * Uses event.code to be keyboard-layout independent.
  */
 export function isTerminalToggle(e: KeyboardEvent): boolean {
   if (e.repeat) return false;
-  const isCtrlOrMeta = e.ctrlKey || e.metaKey;
-  return isCtrlOrMeta && e.code === "Backquote";
+  // Ctrl+Backquote only. Meta+Backquote (macOS Cmd+`) is the OS window-cycle
+  // shortcut and must not be hijacked, so metaKey is deliberately rejected.
+  return e.ctrlKey && !e.metaKey && e.code === "Backquote";
 }
 
 /**
@@ -23,21 +41,15 @@ export function parseTerminalHeight(
   storedValue: string | null,
   viewportHeight: number,
 ): number {
-  const maxHeight = Math.floor(viewportHeight * MAX_TERMINAL_VIEWPORT_RATIO);
-
   if (!storedValue) {
-    return Math.min(DEFAULT_TERMINAL_HEIGHT, maxHeight);
+    return clampTerminalHeight(DEFAULT_TERMINAL_HEIGHT, viewportHeight);
   }
 
-  try {
-    const parsed = parseInt(storedValue, 10);
-    if (!Number.isFinite(parsed)) {
-      return Math.min(DEFAULT_TERMINAL_HEIGHT, maxHeight);
-    }
-    return Math.max(MIN_TERMINAL_HEIGHT, Math.min(parsed, maxHeight));
-  } catch {
-    return Math.min(DEFAULT_TERMINAL_HEIGHT, maxHeight);
+  const parsed = Number(storedValue);
+  if (!Number.isFinite(parsed)) {
+    return clampTerminalHeight(DEFAULT_TERMINAL_HEIGHT, viewportHeight);
   }
+  return clampTerminalHeight(parsed, viewportHeight);
 }
 
 /**
@@ -50,6 +62,14 @@ export function contextCwd(
 ): string {
   if (selectedTaskCwd) return selectedTaskCwd;
   return draftCwd;
+}
+
+/** A route-derived cwd supersedes a folder chosen only for the terminal panel. */
+export function effectiveTerminalCwd(
+  routeCwd: string,
+  panelOverride: string | null,
+): string {
+  return routeCwd || panelOverride || "";
 }
 
 /**
