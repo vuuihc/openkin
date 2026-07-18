@@ -19,6 +19,7 @@ import (
 	"github.com/vuuihc/kin/internal/remote"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
+	"github.com/vuuihc/kin/internal/terminal"
 )
 
 // AgentInfo is one discovered agent for GET /api/agents.
@@ -34,10 +35,11 @@ type AgentInfo struct {
 
 // Server holds HTTP handlers and dependencies for the Kin API.
 type Server struct {
-	Store   *store.Store
-	Auth    *remote.Auth
-	Engine  *task.Engine
-	Version string
+	Store     *store.Store
+	Auth      *remote.Auth
+	Engine    *task.Engine
+	Terminals *terminal.Manager
+	Version   string
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
 	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
@@ -117,6 +119,18 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.Auth.Middleware)
 		r.Post("/internal/approvals", s.handleInternalCreateApproval)
 		r.Get("/internal/approvals/{id}/wait", s.handleInternalWaitApproval)
+	})
+
+	// Integrated terminal: local desktop only. Keep these routes outside the
+	// remotely accessible authenticated API group.
+	r.Group(func(r chi.Router) {
+		r.Use(loopbackOnly)
+		r.Use(s.Auth.Middleware)
+		r.Get("/api/terminal/profiles", s.handleTerminalProfiles)
+		r.Get("/api/terminal/sessions", s.handleTerminalSessions)
+		r.Post("/api/terminal/sessions", s.handleCreateTerminalSession)
+		r.Delete("/api/terminal/sessions/{id}", s.handleDeleteTerminalSession)
+		r.Get("/api/terminal/sessions/{id}/ws", s.handleTerminalWS)
 	})
 
 	if s.Static != nil {
