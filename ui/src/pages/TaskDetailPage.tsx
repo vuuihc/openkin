@@ -432,6 +432,7 @@ export default function TaskDetailPage() {
             loading={!terminal}
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}
+            hostModel={task.model}
             showMessageActions={terminal}
             actionsBusy={actionBusy}
             onRetry={(seq) => void onRetry(seq)}

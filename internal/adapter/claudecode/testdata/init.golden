@@ -2,6 +2,7 @@
   {
     "type": "task_started",
     "payload": {
+      "model": "claude-sonnet-4",
       "session_id": "sess-abc-123",
       "subtype": "init"
     }

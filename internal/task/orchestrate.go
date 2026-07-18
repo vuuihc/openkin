@@ -173,7 +173,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				text, failed := e.forwardWorkerEvents(ctx, id, gagent, gh)
+				text, failed := e.forwardWorkerEvents(ctx, id, gagent, gmodel, gh)
 				// Workers sometimes leak role/meta chatter and end_turn without findings.
 				// Retry once with a tighter brief; if still meta, mark failed so the
 				// orchestrator does not present it as a successful answer.
@@ -207,7 +207,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 							}
 							e.handles[id] = h2
 							e.mu.Unlock()
-							text2, failed2 := e.forwardWorkerEvents(ctx, id, gagent, h2)
+							text2, failed2 := e.forwardWorkerEvents(ctx, id, gagent, gmodel, h2)
 							text, failed = text2, failed2
 						}
 					}
@@ -340,7 +340,7 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool)
 
 // forwardWorkerEvents copies adapter events onto the parent task, stamping speaker.
 // Safe for concurrent waves (serialized via eventMu).
-func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent string, h adapter.RunHandle) (string, bool) {
+func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model string, h adapter.RunHandle) (string, bool) {
 	// Collect only final, user-facing findings for the orchestrator summary.
 	// Process chatter (partials / intermediate tool narration) stays on the event
 	// bus for the progress UI, but must not become the main-chat "结果".
@@ -350,7 +350,7 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent string, 
 	isErr := false
 
 	for ev := range h.Events() {
-		payload := stampWorker(ev.Payload, agent)
+		payload := stampWorker(ev.Payload, agent, model)
 		e.appendEventLocked(ctx, taskID, ev.Type, payload)
 		switch ev.Type {
 		case "message":
@@ -469,18 +469,21 @@ func (e *Engine) emitError(ctx context.Context, taskID, msg string) {
 
 // stampSpeaker tags events for the user-facing main agent / single-agent runs.
 // Does not force task-only visibility (workers use stampWorker).
-func stampSpeaker(raw json.RawMessage, agent string) json.RawMessage {
-	return stampAgent(raw, agent, false)
+func stampSpeaker(raw json.RawMessage, agent, model string) json.RawMessage {
+	return stampAgent(raw, agent, model, false)
 }
 
 // stampWorker tags sub-agent events as task-only (hidden from main chat column).
-func stampWorker(raw json.RawMessage, agent string) json.RawMessage {
-	return stampAgent(raw, agent, true)
+func stampWorker(raw json.RawMessage, agent, model string) json.RawMessage {
+	return stampAgent(raw, agent, model, true)
 }
 
-func stampAgent(raw json.RawMessage, agent string, taskOnly bool) json.RawMessage {
+func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool) json.RawMessage {
 	if len(raw) == 0 {
 		m := map[string]any{"agent": agent, "speaker": agent, "source": agent}
+		if model = strings.TrimSpace(model); model != "" {
+			m["model"] = model
+		}
 		if taskOnly {
 			m["visibility"] = map[string]bool{"user": false, "task": true}
 		} else {
@@ -498,6 +501,13 @@ func stampAgent(raw json.RawMessage, agent string, taskOnly bool) json.RawMessag
 	}
 	m["agent"] = agent
 	m["speaker"] = agent
+	if reported, ok := m["model"].(string); !ok || strings.TrimSpace(reported) == "" {
+		if model = strings.TrimSpace(model); model != "" {
+			m["model"] = model
+		} else {
+			delete(m, "model")
+		}
+	}
 	if _, ok := m["source"]; !ok {
 		m["source"] = agent
 	}

@@ -31,6 +31,8 @@ type Props = {
    * to itself instead of Kin. Defaults to "kin".
    */
   hostSpeaker?: string;
+  /** Selected main-agent model; adapter events may replace it with the reported model. */
+  hostModel?: string | null;
   /** When true, show Retry / Fork on user messages (terminal tasks). */
   showMessageActions?: boolean;
   /** Busy flag while retry/fork request is in flight. */
@@ -47,6 +49,7 @@ type ToolStep = {
   kind: "tool";
   key: string;
   speaker: string;
+  model?: string;
   name: string;
   summary: string;
   status: "running" | "done" | "error";
@@ -58,6 +61,7 @@ type NoteStep = {
   kind: "note";
   key: string;
   speaker: string;
+  model?: string;
   text: string;
   status: "running" | "done" | "error";
 };
@@ -69,6 +73,7 @@ type ProgressItem = {
   key: string;
   /** Host speaker for alignment (usually kin). */
   speaker: string;
+  model?: string;
   steps: ProgressStep[];
 };
 
@@ -77,6 +82,7 @@ type ChatItem =
       kind: "message";
       key: string;
       speaker: string;
+      model?: string;
       text: string;
       partial?: boolean;
       /** Source event seq (for retry/fork). */
@@ -93,6 +99,7 @@ type Turn =
       kind: "agent";
       /** Host speaker for the shared left avatar. */
       speaker: string;
+      model?: string;
       items: ChatItem[];
     }
   | {
@@ -107,6 +114,7 @@ export default function ChatStream({
   loading = false,
   loadingSpeaker = "kin",
   hostSpeaker = "kin",
+  hostModel,
   showMessageActions = false,
   actionsBusy = false,
   onRetry,
@@ -117,12 +125,16 @@ export default function ChatStream({
   const { locale } = useLocale();
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(
-    () => buildChatItems(events, hostSpeaker),
-    [events, locale, hostSpeaker],
+    () => buildChatItems(events, hostSpeaker, hostModel),
+    [events, locale, hostSpeaker, hostModel],
   );
   const turns = useMemo(
-    () => groupIntoTurns(items, hostSpeaker),
-    [items, hostSpeaker],
+    () => groupIntoTurns(items, hostSpeaker, normalizeModel(hostModel)),
+    [items, hostSpeaker, hostModel],
+  );
+  const resolvedHostModel = useMemo(
+    () => findSpeakerModel(events, hostSpeaker) ?? normalizeModel(hostModel),
+    [events, hostSpeaker, hostModel],
   );
   const hasUserMsg = items.some(
     (i) => i.kind === "message" && i.speaker === "user",
@@ -180,6 +192,7 @@ export default function ChatStream({
               <AgentTurn
                 key={`turn-${turn.items[0]?.key ?? turnIdx}`}
                 speaker={turn.speaker}
+                model={turn.model}
                 items={turn.items}
                 loading={loading}
                 lastItemIdx={lastIdx}
@@ -197,7 +210,9 @@ export default function ChatStream({
         }
       })}
 
-      {loadingStandalone && <ThinkingRow speaker={loadingSpeaker} />}
+      {loadingStandalone && (
+        <ThinkingRow speaker={loadingSpeaker} model={resolvedHostModel} />
+      )}
 
       {trailing}
     </div>
@@ -210,7 +225,11 @@ export default function ChatStream({
  * - consecutive agent content (messages + progress + errors/meta) after a
  *   user message share one left avatar column
  */
-function groupIntoTurns(items: ChatItem[], hostSpeaker = "kin"): Turn[] {
+function groupIntoTurns(
+  items: ChatItem[],
+  hostSpeaker = "kin",
+  hostModel?: string,
+): Turn[] {
   const turns: Turn[] = [];
   for (const item of items) {
     if (item.kind === "message" && item.speaker === "user") {
@@ -230,13 +249,19 @@ function groupIntoTurns(items: ChatItem[], hostSpeaker = "kin"): Turn[] {
     const last = turns[turns.length - 1];
     if (last?.kind === "agent") {
       last.items.push(item);
+      last.model ??= chatItemModel(item);
       continue;
     }
     const speaker =
       item.kind === "message"
         ? item.speaker
         : item.speaker || hostSpeaker;
-    turns.push({ kind: "agent", speaker, items: [item] });
+    turns.push({
+      kind: "agent",
+      speaker,
+      model: chatItemModel(item) ?? hostModel,
+      items: [item],
+    });
   }
   return turns;
 }
@@ -244,6 +269,7 @@ function groupIntoTurns(items: ChatItem[], hostSpeaker = "kin"): Turn[] {
 /** One left avatar for the whole agent reply after a user message. */
 function AgentTurn({
   speaker,
+  model,
   items,
   loading,
   lastItemIdx,
@@ -257,6 +283,7 @@ function AgentTurn({
   onOpenPath,
 }: {
   speaker: string;
+  model?: string;
   items: ChatItem[];
   loading: boolean;
   lastItemIdx: number;
@@ -278,23 +305,21 @@ function AgentTurn({
     <div className="flex gap-2.5 items-start">
       <div
         className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-[11px] font-bold ${meta.className}`}
-        title={meta.label}
+        title={agentIdentityTitle(meta.label, model)}
       >
         {meta.initials}
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-2.5 pt-0.5">
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] font-semibold text-kin-text">
-            {meta.label}
-          </span>
+        <div className="flex items-start gap-2">
+          <AgentIdentity name={meta.label} model={model} />
           {hasPartial && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] text-kin-muted">
+            <span className="mt-px inline-flex items-center gap-1.5 text-[11px] text-kin-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
               {tr("chat.streaming")}
             </span>
           )}
           {showThinking && !hasPartial && (
-            <span className="text-[11px] text-kin-muted">
+            <span className="mt-px text-[11px] text-kin-muted">
               {tr("chat.thinking")}
             </span>
           )}
@@ -421,7 +446,13 @@ function StandaloneRow({
 }
 
 /** Animated “thinking” row while waiting for the first assistant token. */
-function ThinkingRow({ speaker }: { speaker: string }) {
+function ThinkingRow({
+  speaker,
+  model,
+}: {
+  speaker: string;
+  model?: string;
+}) {
   const tr = useT();
   const meta = agentAvatarMeta(speaker);
   return (
@@ -433,20 +464,38 @@ function ThinkingRow({ speaker }: { speaker: string }) {
     >
       <div
         className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-[11px] font-bold ${meta.className}`}
-        title={meta.label}
+        title={agentIdentityTitle(meta.label, model)}
       >
         {meta.initials}
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
-        <div className="flex items-center gap-2">
-          <span className="text-[12px] font-semibold text-kin-text">
-            {meta.label}
+        <div className="flex items-start gap-2">
+          <AgentIdentity name={meta.label} model={model} />
+          <span className="mt-px text-[11px] text-kin-muted">
+            {tr("chat.thinking")}
           </span>
-          <span className="text-[11px] text-kin-muted">{tr("chat.thinking")}</span>
         </div>
         <ThinkingDots />
       </div>
     </div>
+  );
+}
+
+function AgentIdentity({ name, model }: { name: string; model?: string }) {
+  return (
+    <span className="flex min-w-0 max-w-[70%] flex-col leading-none">
+      <span className="truncate text-[12px] font-semibold leading-[14px] text-kin-text">
+        {name}
+      </span>
+      {model && (
+        <span
+          className="mt-0.5 truncate font-mono text-[10px] font-normal leading-[12px] text-kin-muted/80"
+          title={model}
+        >
+          {model}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -682,12 +731,22 @@ function NoteStepRow({
         />
         <span
           className={`flex-none mt-0.5 w-4 h-4 rounded-[4px] flex items-center justify-center text-[8px] font-bold ${meta.className}`}
-          title={meta.label}
+          title={agentIdentityTitle(meta.label, note.model)}
         >
           {meta.initials}
         </span>
-        <span className="font-medium text-[11.5px] text-kin-muted flex-none pt-px">
-          {meta.label}
+        <span className="flex w-[min(42%,12rem)] min-w-0 flex-none flex-col pt-px leading-none">
+          <span className="truncate text-[11.5px] font-medium leading-[13px] text-kin-muted">
+            {meta.label}
+          </span>
+          {note.model && (
+            <span
+              className="mt-0.5 truncate font-mono text-[9.5px] font-normal leading-[11px] text-kin-muted/70"
+              title={note.model}
+            >
+              {note.model}
+            </span>
+          )}
         </span>
         <span className="flex-1 min-w-0 truncate text-kin-secondary">
           {shorten(note.text, 80)}
@@ -948,12 +1007,16 @@ function MessageRow({
 function buildChatItems(
   events: TaskEvent[],
   hostSpeaker = "kin",
+  hostModel?: string | null,
 ): ChatItem[] {
   const items: ChatItem[] = [];
   let streamBuf = "";
   let streamSpeaker = hostSpeaker;
+  let streamModel = normalizeModel(hostModel);
   let streamKey = "stream";
   let streamProgress = false;
+  const modelsBySpeaker = new Map<string, string>();
+  if (streamModel) modelsBySpeaker.set(hostSpeaker, streamModel);
 
   // Merge tool_use → tool_result by tool_use_id so UI shows one step.
   const toolById = new Map<string, ToolStep>();
@@ -976,10 +1039,10 @@ function buildChatItems(
           note.text = streamBuf;
           note.status = "done";
         } else {
-          pushNote(streamSpeaker, streamBuf, streamKey, "done");
+          pushNote(streamSpeaker, streamModel, streamBuf, streamKey, "done");
         }
       } else {
-        pushNote(streamSpeaker, streamBuf, streamKey, "done");
+        pushNote(streamSpeaker, streamModel, streamBuf, streamKey, "done");
       }
     } else {
       progressRef.current = null;
@@ -988,6 +1051,7 @@ function buildChatItems(
         kind: "message",
         key: streamKey,
         speaker: streamSpeaker,
+        model: streamModel,
         text: streamBuf,
         partial: true,
         // streamKey is `s-${ev.seq}` — not stable for actions; omit seq while partial.
@@ -1003,6 +1067,7 @@ function buildChatItems(
       kind: "progress",
       key: `prog-${items.length}`,
       speaker: hostSpeaker || "kin",
+      model: modelsBySpeaker.get(hostSpeaker),
       steps: [],
     };
     items.push(prog);
@@ -1012,6 +1077,7 @@ function buildChatItems(
 
   const pushNote = (
     speaker: string,
+    model: string | undefined,
     text: string,
     key: string,
     status: NoteStep["status"],
@@ -1023,7 +1089,8 @@ function buildChatItems(
       last &&
       last.kind === "note" &&
       last.key === key &&
-      last.speaker === speaker
+      last.speaker === speaker &&
+      last.model === model
     ) {
       last.text = text;
       last.status = status;
@@ -1033,6 +1100,7 @@ function buildChatItems(
       last &&
       last.kind === "note" &&
       last.speaker === speaker &&
+      last.model === model &&
       last.status === "running" &&
       status === "running"
     ) {
@@ -1044,6 +1112,7 @@ function buildChatItems(
       kind: "note",
       key,
       speaker,
+      model,
       text,
       status,
     });
@@ -1062,6 +1131,7 @@ function buildChatItems(
       kind: "tool",
       key: `tool-${id}`,
       speaker: patch.speaker,
+      model: patch.model,
       name: patch.name,
       summary: patch.summary ?? patch.name,
       status: patch.status ?? "running",
@@ -1075,6 +1145,9 @@ function buildChatItems(
   for (const ev of events) {
     const p = (ev.payload ?? {}) as Record<string, unknown>;
     const speaker = resolveSpeaker(p, hostSpeaker);
+    const reportedModel = normalizeModel(p.model);
+    if (reportedModel) modelsBySpeaker.set(speaker, reportedModel);
+    const model = reportedModel ?? modelsBySpeaker.get(speaker);
 
     switch (ev.type) {
       case "message": {
@@ -1088,7 +1161,12 @@ function buildChatItems(
         if (isLegacyToolDumpMessage(text)) {
           flushStream();
           streamNoteKey = null;
-          const legacy = parseLegacyToolDump(text, sp, `legacy-${ev.seq}`);
+          const legacy = parseLegacyToolDump(
+            text,
+            sp,
+            model,
+            `legacy-${ev.seq}`,
+          );
           if (legacy) {
             ensureProgress(hostSpeaker).steps.push(legacy);
             toolById.set(legacy.key, legacy);
@@ -1113,10 +1191,12 @@ function buildChatItems(
             }
             streamBuf += text;
             streamSpeaker = sp;
+            streamModel = model;
             streamKey = `s-${ev.seq}`;
             streamProgress = true;
             pushNote(
               sp,
+              model,
               streamBuf,
               streamNoteKey ?? streamKey,
               "running",
@@ -1129,6 +1209,7 @@ function buildChatItems(
             }
             streamBuf += text;
             streamSpeaker = sp;
+            streamModel = model;
             streamKey = `s-${ev.seq}`;
             streamProgress = false;
           }
@@ -1137,13 +1218,14 @@ function buildChatItems(
           streamNoteKey = null;
           if (!text.trim()) break;
           if (asProgress) {
-            pushNote(sp, text, `note-${ev.seq}`, "done");
+            pushNote(sp, model, text, `note-${ev.seq}`, "done");
           } else {
             progressRef.current = null;
             items.push({
               kind: "message",
               key: `t-${ev.seq}`,
               speaker: sp,
+              model: sp === "user" ? undefined : model,
               text,
               seq: ev.seq,
             });
@@ -1174,6 +1256,7 @@ function buildChatItems(
         upsertTool(id, {
           name,
           speaker,
+          model,
           summary,
           status: "running",
           input: p.input ?? content?.input ?? content,
@@ -1196,6 +1279,7 @@ function buildChatItems(
         upsertTool(id, {
           name,
           speaker,
+          model,
           summary,
           status: ok ? "done" : "error",
           input: p.input,
@@ -1257,6 +1341,7 @@ function isLegacyToolDumpMessage(text: string): boolean {
 function parseLegacyToolDump(
   text: string,
   speaker: string,
+  model: string | undefined,
   key: string,
 ): ToolStep | null {
   const m = text
@@ -1271,6 +1356,7 @@ function parseLegacyToolDump(
     kind: "tool",
     key,
     speaker,
+    model,
     name,
     summary: `${failed ? t("chat.progress.failed") : t("chat.progress.done")} · ${prettyToolName(name)} · ${t("chat.progress.lines", { n: lines })}`,
     status: failed ? "error" : "done",
@@ -1373,6 +1459,36 @@ function isTaskOnly(p: Record<string, unknown>, speaker: string): boolean {
     if (v.task) return true;
   }
   return speaker !== "kin" && speaker !== "user";
+}
+
+function normalizeModel(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const model = value.trim();
+  return model || undefined;
+}
+
+function findSpeakerModel(
+  events: TaskEvent[],
+  speaker: string,
+): string | undefined {
+  let model: string | undefined;
+  for (const event of events) {
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    if (resolveSpeaker(payload, speaker) !== speaker) continue;
+    model = normalizeModel(payload.model) ?? model;
+  }
+  return model;
+}
+
+function chatItemModel(item: ChatItem): string | undefined {
+  if (item.kind === "message" || item.kind === "progress") {
+    return item.model;
+  }
+  return undefined;
+}
+
+function agentIdentityTitle(name: string, model?: string): string {
+  return model ? `${name} · ${model}` : name;
 }
 
 function extractText(content: unknown): string {

@@ -50,9 +50,12 @@ func parseSystem(raw map[string]json.RawMessage, line string) []adapter.Event {
 	}
 	var sessionID string
 	_ = json.Unmarshal(raw["session_id"], &sessionID)
+	var model string
+	_ = json.Unmarshal(raw["model"], &model)
 	payload, _ := json.Marshal(map[string]any{
 		"session_id": sessionID,
 		"subtype":    "init",
+		"model":      model,
 	})
 	return []adapter.Event{{Type: "task_started", Payload: payload}}
 }

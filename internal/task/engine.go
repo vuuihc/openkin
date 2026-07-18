@@ -525,7 +525,7 @@ func (e *Engine) startOne(id string) {
 		e.mu.Unlock()
 	}
 
-	e.runLoop(id, h, t.Agent)
+	e.runLoop(id, h, t.Agent, model)
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
@@ -543,7 +543,7 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 	return t, err
 }
 
-func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker string) {
+func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) {
 	ctx := context.Background()
 	var sawResult bool
 	var resultIsError bool
@@ -553,7 +553,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker string) {
 
 	for ev := range h.Events() {
 		// Persist first, then broadcast (spec §3). Stamp speaker for chat UI.
-		payload := stampSpeaker(ev.Payload, speaker)
+		payload := stampSpeaker(ev.Payload, speaker, model)
 		stored, err := e.store.AppendEvent(ctx, id, ev.Type, payload)
 		if err != nil {
 			continue
