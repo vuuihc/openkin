@@ -62,7 +62,7 @@ export default function WorkspacePanel({ taskId, cwd, openPath, openNonce, onClo
   }, [loadFile, openPath, openNonce]);
 
   return (
-    <div className="h-full min-h-0 flex flex-col kin-surface-inspector">
+    <div className="h-full w-full min-w-0 min-h-0 flex flex-col kin-surface-inspector">
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-kin-text">
@@ -86,7 +86,7 @@ export default function WorkspacePanel({ taskId, cwd, openPath, openNonce, onClo
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col md:flex-row">
-        <div className="flex-none md:flex-1 md:basis-[38%] md:max-w-[420px] border-b md:border-b-0 md:border-r border-[var(--kin-hairline)] min-h-[180px] md:min-h-0">
+        <div className="h-[40%] min-h-[180px] max-h-[45%] flex-none border-b border-[var(--kin-hairline)] md:h-auto md:min-h-0 md:max-h-none md:w-[38%] md:max-w-[420px] md:border-b-0 md:border-r">
           <FileTree
             taskId={taskId}
             selectedPath={selectedPath}
@@ -95,7 +95,7 @@ export default function WorkspacePanel({ taskId, cwd, openPath, openNonce, onClo
             onSelect={(path) => void loadFile(path)}
           />
         </div>
-        <div className="flex-1 min-h-0 bg-[#111214]">
+        <div className="flex-1 min-w-0 min-h-0 bg-[#111214]">
           <CodeViewer
             path={selectedPath}
             file={file}

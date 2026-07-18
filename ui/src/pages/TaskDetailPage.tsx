@@ -498,7 +498,11 @@ export default function TaskDetailPage() {
       </div>
 
       {filesOpen && (
-        <div className="hidden md:flex w-[min(50vw,720px)] min-w-[360px] max-w-[50%] border-l border-[var(--kin-hairline)]">
+        <div
+          className="fixed inset-0 z-40 bg-[var(--kin-inspector)] safe-pad md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(50%,720px)] md:min-w-[360px] md:max-w-full md:border-l md:border-[var(--kin-hairline)] md:shadow-[-12px_0_32px_rgba(0,0,0,0.2)]"
+          role="complementary"
+          aria-label={tr("workspace.title")}
+        >
           <WorkspacePanel
             taskId={task.id}
             cwd={task.cwd}
@@ -506,20 +510,6 @@ export default function TaskDetailPage() {
             openNonce={workspaceOpenNonce}
             onClose={() => setFilesOpen(false)}
           />
-        </div>
-      )}
-
-      {filesOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-[rgba(14,14,16,.7)] backdrop-blur-[2px]">
-          <div className="absolute inset-x-0 top-0 bottom-0 bg-[var(--kin-inspector)] safe-pad">
-            <WorkspacePanel
-              taskId={task.id}
-              cwd={task.cwd}
-              openPath={workspaceOpenPath}
-              openNonce={workspaceOpenNonce}
-              onClose={() => setFilesOpen(false)}
-            />
-          </div>
         </div>
       )}
     </div>
