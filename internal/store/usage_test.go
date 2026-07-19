@@ -413,7 +413,20 @@ func TestMigrateV4UsageLedger(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`DROP TABLE usage_records; PRAGMA user_version = 4`); err != nil {
+	// Downgrade to a v4-shaped schema: no usage_records, no workspace columns.
+	// Fresh DBs already include later columns; strip them so migration 005/006 can apply.
+	if _, err := s.DB().Exec(`
+		DROP TABLE usage_records;
+		ALTER TABLE tasks DROP COLUMN workspace_mode;
+		ALTER TABLE tasks DROP COLUMN workspace_source_root;
+		ALTER TABLE tasks DROP COLUMN workspace_root;
+		ALTER TABLE tasks DROP COLUMN execution_cwd;
+		ALTER TABLE tasks DROP COLUMN workspace_scope;
+		ALTER TABLE tasks DROP COLUMN workspace_base_oid;
+		ALTER TABLE tasks DROP COLUMN workspace_branch;
+		DROP TABLE IF EXISTS task_checkpoints;
+		PRAGMA user_version = 4;
+	`); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -430,8 +443,8 @@ func TestMigrateV4UsageLedger(t *testing.T) {
 	if err := s.DB().QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
-		t.Fatalf("schema version = %d, want 5", version)
+	if version != schemaVersion {
+		t.Fatalf("schema version = %d, want %d", version, schemaVersion)
 	}
 	var name string
 	if err := s.DB().QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'usage_records'`).Scan(&name); err != nil {

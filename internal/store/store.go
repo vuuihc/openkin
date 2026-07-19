@@ -78,6 +78,23 @@ type Task struct {
 	CreatedAt      int64    `json:"created_at"`
 	StartedAt      *int64   `json:"started_at,omitempty"`
 	FinishedAt     *int64   `json:"finished_at,omitempty"`
+
+	// Workspace isolation (ADR 0005). Cwd remains user-selected project path.
+	WorkspaceMode       string `json:"workspace_mode"`
+	WorkspaceSourceRoot string `json:"workspace_source_root,omitempty"`
+	WorkspaceRoot       string `json:"workspace_root,omitempty"`
+	ExecutionCwd        string `json:"execution_cwd,omitempty"`
+	WorkspaceScope      string `json:"workspace_scope,omitempty"`
+	WorkspaceBaseOID    string `json:"workspace_base_oid,omitempty"`
+	WorkspaceBranch     string `json:"workspace_branch,omitempty"`
+}
+
+// EffectiveCwd returns the path adapters and workspace file APIs should use.
+func (t Task) EffectiveCwd() string {
+	if strings.TrimSpace(t.ExecutionCwd) != "" {
+		return t.ExecutionCwd
+	}
+	return t.Cwd
 }
 
 // Event is a row in the events table (append-only).
@@ -205,11 +222,15 @@ func scanTask(scanner interface {
 	var costUSD sql.NullFloat64
 	var startedAt, finishedAt sql.NullInt64
 	var permissionMode sql.NullString
+	var workspaceMode, sourceRoot, workspaceRoot, executionCwd sql.NullString
+	var workspaceScope, baseOID, branch sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
 		&model, &sessionRef, &permissionMode, &t.Status,
 		&exitCode, &t.TokensIn, &t.TokensOut, &costUSD,
 		&t.CreatedAt, &startedAt, &finishedAt,
+		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
+		&workspaceScope, &baseOID, &branch,
 	); err != nil {
 		return Task{}, err
 	}
@@ -217,6 +238,31 @@ func scanTask(scanner interface {
 		t.PermissionMode = permissionMode.String
 	} else {
 		t.PermissionMode = "default"
+	}
+	if workspaceMode.Valid && workspaceMode.String != "" {
+		t.WorkspaceMode = workspaceMode.String
+	} else {
+		t.WorkspaceMode = "shared"
+	}
+	if sourceRoot.Valid {
+		t.WorkspaceSourceRoot = sourceRoot.String
+	}
+	if workspaceRoot.Valid {
+		t.WorkspaceRoot = workspaceRoot.String
+	}
+	if executionCwd.Valid {
+		t.ExecutionCwd = executionCwd.String
+	}
+	if workspaceScope.Valid && workspaceScope.String != "" {
+		t.WorkspaceScope = workspaceScope.String
+	} else {
+		t.WorkspaceScope = "."
+	}
+	if baseOID.Valid {
+		t.WorkspaceBaseOID = baseOID.String
+	}
+	if branch.Valid {
+		t.WorkspaceBranch = branch.String
 	}
 	if model.Valid {
 		t.Model = &model.String
@@ -240,9 +286,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
-		       exit_code, tokens_in, tokens_out, cost_usd,
-		       created_at, started_at, finished_at`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch`
 
 // ListTasks returns tasks ordered by id descending (ULID ≈ time).
 func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, error) {
@@ -314,15 +358,28 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if perm == "" {
 		perm = "default"
 	}
+	wsMode := t.WorkspaceMode
+	if wsMode == "" {
+		wsMode = "shared"
+	}
+	wsScope := t.WorkspaceScope
+	if wsScope == "" {
+		wsScope = "."
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
 			id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
 			exit_code, tokens_in, tokens_out, cost_usd,
-			created_at, started_at, finished_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			created_at, started_at, finished_at,
+			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
+			workspace_scope, workspace_base_oid, workspace_branch
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
 		t.CreatedAt, t.StartedAt, t.FinishedAt,
+		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
+		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch,
 	)
 	if err != nil {
 		return fmt.Errorf("insert task: %w", err)

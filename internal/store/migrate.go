@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 5
+const schemaVersion = 6
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -24,7 +24,14 @@ CREATE TABLE tasks (
   created_at  INTEGER NOT NULL,
   started_at  INTEGER,
   finished_at INTEGER,
-  permission_mode TEXT NOT NULL DEFAULT 'default'
+  permission_mode TEXT NOT NULL DEFAULT 'default',
+  workspace_mode TEXT NOT NULL DEFAULT 'shared',
+  workspace_source_root TEXT NOT NULL DEFAULT '',
+  workspace_root TEXT NOT NULL DEFAULT '',
+  execution_cwd TEXT NOT NULL DEFAULT '',
+  workspace_scope TEXT NOT NULL DEFAULT '.',
+  workspace_base_oid TEXT NOT NULL DEFAULT '',
+  workspace_branch TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE events (
@@ -93,6 +100,17 @@ CREATE TABLE usage_records (
 );
 CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
 CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_seq);
+
+CREATE TABLE task_checkpoints (
+  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_seq  INTEGER NOT NULL,
+  head_oid   TEXT NOT NULL,
+  tree_oid   TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (task_id, event_seq)
+);
+CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id, event_seq);
 `
 
 const migration002 = `
@@ -125,6 +143,7 @@ CREATE TABLE artifacts (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX idx_artifacts_status ON artifacts(status, created_at DESC);
+
 `
 
 const migration005 = `
@@ -148,6 +167,27 @@ CREATE TABLE usage_records (
 );
 CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
 CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_seq);
+`
+
+const migration006 = `
+ALTER TABLE tasks ADD COLUMN workspace_mode TEXT NOT NULL DEFAULT 'shared';
+ALTER TABLE tasks ADD COLUMN workspace_source_root TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN workspace_root TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN execution_cwd TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN workspace_scope TEXT NOT NULL DEFAULT '.';
+ALTER TABLE tasks ADD COLUMN workspace_base_oid TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN workspace_branch TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE task_checkpoints (
+  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_seq  INTEGER NOT NULL,
+  head_oid   TEXT NOT NULL,
+  tree_oid   TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (task_id, event_seq)
+);
+CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id, event_seq);
 `
 
 func (s *Store) migrate() error {
@@ -246,6 +286,24 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 005: %w", err)
+		}
+		v = 5
+	}
+	if v == 5 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 006: %w", err)
+		}
+		if _, err := tx.Exec(migration006); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration 006: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 6`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 006: %w", err)
 		}
 	}
 	return nil
