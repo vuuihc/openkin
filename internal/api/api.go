@@ -20,6 +20,7 @@ import (
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
 	"github.com/vuuihc/kin/internal/terminal"
+	"github.com/vuuihc/kin/internal/usagewindows"
 )
 
 // AgentInfo is one discovered agent for GET /api/agents.
@@ -51,6 +52,10 @@ type Server struct {
 
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
+
+	// UsageWindows probes provider subscription rate-limit windows (5h/weekly).
+	// May be nil (feature disabled); the handler then returns an empty list.
+	UsageWindows *usagewindows.Service
 
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
@@ -107,6 +112,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/usage/limits", s.handleUsageLimits)
+		r.Get("/api/usage/windows", s.handleUsageWindows)
 		r.Post("/api/uploads", s.handleUpload)
 		r.Get("/api/uploads/{name}", s.handleServeUpload)
 		r.Get("/api/artifacts", s.handleListArtifacts)
@@ -706,6 +712,17 @@ func (s *Server) handleUsageLimits(w http.ResponseWriter, r *http.Request) {
 		statuses = []store.AgentLimitStatus{}
 	}
 	writeJSON(w, http.StatusOK, statuses)
+}
+
+// handleUsageWindows returns the per-provider subscription rate-limit windows
+// (5h + weekly). It is best-effort and display-only; when the feature is
+// disabled it returns an empty list.
+func (s *Server) handleUsageWindows(w http.ResponseWriter, r *http.Request) {
+	if s.UsageWindows == nil {
+		writeJSON(w, http.StatusOK, []usagewindows.Provider{})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.UsageWindows.Statuses(r.Context()))
 }
 
 func (s *Server) handleTaskUsage(w http.ResponseWriter, r *http.Request) {
