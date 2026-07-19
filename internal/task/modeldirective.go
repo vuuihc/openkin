@@ -203,3 +203,45 @@ func stepIsPlanner(instruction string) bool {
 	}
 	return false
 }
+
+// WantsRoleSplit reports whether the directive asks for different model tiers
+// for planning vs execution (the "smart plan, cheap exec" macro).
+func (d ModelDirective) WantsRoleSplit() bool {
+	if d.PlannerTier == "" || d.ExecutorTier == "" {
+		return false
+	}
+	return d.PlannerTier != d.ExecutorTier
+}
+
+// BuildRoleSplitPlan turns a bare single-agent turn into a two-step plan:
+// plan (smart tier) then execute (fast/cheap tier) on the same agent.
+// Returns ok=false when tiers are missing or the catalog cannot resolve models.
+func (d ModelDirective) BuildRoleSplitPlan(agent, userTurn string, cat ModelCatalog) (DelegatePlan, bool) {
+	if !d.WantsRoleSplit() || strings.TrimSpace(agent) == "" {
+		return DelegatePlan{}, false
+	}
+	planModel, ok1 := cat.PickByTier(agent, d.PlannerTier)
+	execModel, ok2 := cat.PickByTier(agent, d.ExecutorTier)
+	if !ok1 || !ok2 || planModel == "" || execModel == "" {
+		return DelegatePlan{}, false
+	}
+	if modelsEqual(planModel, execModel) {
+		return DelegatePlan{}, false
+	}
+	turn := strings.TrimSpace(userTurn)
+	if turn == "" {
+		turn = "Complete the assigned work for this session."
+	}
+	planInstr := "Create a concrete implementation plan only. Do not modify files or run commands. " +
+		"Output a clear step-by-step plan for: " + turn
+	execInstr := "Execute the plan from the previous step for the original request. " +
+		"Implement changes, run checks when useful, and finish the work: " + turn
+	return DelegatePlan{
+		Overview: turn,
+		Raw:      turn,
+		Steps: []DelegateStep{
+			{Agent: agent, Model: planModel, Instruction: planInstr, Mention: agent},
+			{Agent: agent, Model: execModel, Instruction: execInstr, Mention: agent},
+		},
+	}, true
+}

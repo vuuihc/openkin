@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/kin/internal/provider"
 )
 
 func TestCreateDelegationPreservesConfiguredHost(t *testing.T) {
@@ -343,3 +344,59 @@ func TestBareHostMentionStillDirectTurn(t *testing.T) {
 		t.Fatalf("bare host mention must not orchestrate: %+v", plan)
 	}
 }
+
+func TestBareTaskRoleSplitOrchestrates(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	e.putAdapter("claude-code", ad)
+
+	// Stub title resolver so resolveModelDirective can extract tiers without a real provider.
+	e.SetTitleResolver(func(context.Context) (provider.Client, provider.Config, error) {
+		return &fixedDirectiveClient{json: `{"global":"","per_agent":{},"planner_tier":"smart","executor_tier":"fast"}`}, provider.Config{Model: "m", BaseURL: "http://x", APIKey: "k"}, nil
+	})
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent:  "claude-code",
+		Cwd:    "/tmp",
+		Prompt: "用聪明的模型做计划，用便宜的模型执行：修登录 bug",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 4*time.Second)
+
+	ad.mu.Lock()
+	specs := append([]adapter.TaskSpec(nil), ad.specs...)
+	ad.mu.Unlock()
+	// create may run host once if role-split fails; we expect at least two worker starts with different models.
+	var models []string
+	for _, s := range specs {
+		if s.Model != "" {
+			models = append(models, s.Model)
+		}
+	}
+	foundPlan, foundExec := false, false
+	for _, m := range models {
+		if m == "claude-opus-4-8" {
+			foundPlan = true
+		}
+		if m == "claude-haiku-4-5" {
+			foundExec = true
+		}
+	}
+	if !foundPlan || !foundExec {
+		t.Fatalf("expected plan+exec models in starts, got %v (all specs models=%v)", models, models)
+	}
+}
+
+// fixedDirectiveClient returns a fixed JSON extraction body for model directives.
+type fixedDirectiveClient struct {
+	json string
+}
+
+func (c *fixedDirectiveClient) Chat(ctx context.Context, req provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{Content: c.json, Model: "m"}, nil
+}
+func (c *fixedDirectiveClient) Kind() string         { return "stub" }
+func (c *fixedDirectiveClient) ModelDefault() string { return "m" }

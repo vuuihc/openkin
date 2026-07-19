@@ -112,3 +112,35 @@ func TestModelDirectiveForAgent(t *testing.T) {
 		t.Errorf("ForAgent with only tier = %q, want empty", got)
 	}
 }
+
+func TestModelDirectiveWantsRoleSplit(t *testing.T) {
+	if (ModelDirective{PlannerTier: TierSmart}).WantsRoleSplit() {
+		t.Fatal("single tier should not split")
+	}
+	if !(ModelDirective{PlannerTier: TierSmart, ExecutorTier: TierFast}).WantsRoleSplit() {
+		t.Fatal("smart/fast should split")
+	}
+	if (ModelDirective{PlannerTier: TierFast, ExecutorTier: TierFast}).WantsRoleSplit() {
+		t.Fatal("identical tiers should not split")
+	}
+}
+
+func TestBuildRoleSplitPlan(t *testing.T) {
+	d := ModelDirective{PlannerTier: TierSmart, ExecutorTier: TierFast}
+	plan, ok := d.BuildRoleSplitPlan("claude-code", "修登录 bug", BuiltinCatalog())
+	if !ok {
+		t.Fatal("expected plan")
+	}
+	if len(plan.Steps) != 2 {
+		t.Fatalf("steps=%d", len(plan.Steps))
+	}
+	if plan.Steps[0].Model != "claude-opus-4-8" {
+		t.Fatalf("plan model=%q", plan.Steps[0].Model)
+	}
+	if plan.Steps[1].Model != "claude-haiku-4-5" {
+		t.Fatalf("exec model=%q", plan.Steps[1].Model)
+	}
+	if plan.Steps[0].Agent != "claude-code" || plan.Steps[1].Agent != "claude-code" {
+		t.Fatalf("agents=%q/%q", plan.Steps[0].Agent, plan.Steps[1].Agent)
+	}
+}

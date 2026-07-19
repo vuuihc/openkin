@@ -656,6 +656,17 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 
+	// Bare single-agent turn with NL "smart plan / cheap exec": expand into a
+	// same-agent two-step plan (plan worker then exec worker) so models switch
+	// without requiring explicit @mentions.
+	if d, ok := e.resolveModelDirective(ctx, t); ok && d.WantsRoleSplit() {
+		if split, ok := d.BuildRoleSplitPlan(t.Agent, UserTurnPrompt(t.Prompt), BuiltinCatalog()); ok {
+			split.SessionContext = ExtractPriorContext(t.Prompt)
+			e.runOrchestrated(id, t, split)
+			return
+		}
+	}
+
 	ad, ok := e.runnerFor(t.Agent)
 	if !ok {
 		_, _ = e.failStart(ctx, id, fmt.Sprintf("unknown agent %q", t.Agent))

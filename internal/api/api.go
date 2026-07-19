@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,12 +16,15 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"nhooyr.io/websocket"
 
+	"github.com/vuuihc/kin/internal/adapter/detect"
 	"github.com/vuuihc/kin/internal/notify"
+	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/remote"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
 	"github.com/vuuihc/kin/internal/terminal"
 	"github.com/vuuihc/kin/internal/usagewindows"
+	"github.com/vuuihc/kin/internal/workspace"
 )
 
 // AgentInfo is one discovered agent for GET /api/agents.
@@ -34,6 +38,15 @@ type AgentInfo struct {
 	Available    bool     `json:"available"`
 	Default      bool     `json:"default"`
 	Reason       string   `json:"reason,omitempty"`
+	// Models are known catalog entries for the model picker (id + short label).
+	Models []AgentModelOption `json:"models,omitempty"`
+}
+
+// AgentModelOption is one selectable model for an agent.
+type AgentModelOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Tier  string `json:"tier,omitempty"`
 }
 
 // Server holds HTTP handlers and dependencies for the Kin API.
@@ -49,6 +62,9 @@ type Server struct {
 	UploadsDir string
 	// ArtifactsDir is where artifact file bodies are stored. Empty disables artifacts.
 	ArtifactsDir string
+
+	// Workspace runs Git probe/branch operations for the UI (optional in tests).
+	Workspace *workspace.Manager
 
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
@@ -107,8 +123,15 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
+		r.Get("/api/git/branches", s.handleGitBranches)
+		r.Post("/api/git/checkout", s.handleGitCheckout)
 		r.Get("/api/settings", s.handleGetSettings)
 		r.Put("/api/settings", s.handlePutSettings)
+		r.Get("/api/providers", s.handleListProviders)
+		r.Post("/api/providers", s.handleCreateProvider)
+		r.Put("/api/providers/{id}", s.handleUpdateProvider)
+		r.Delete("/api/providers/{id}", s.handleDeleteProvider)
+		r.Post("/api/providers/{id}/activate", s.handleActivateProvider)
 		r.Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/usage/limits", s.handleUsageLimits)
@@ -214,6 +237,11 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		if list == nil {
 			list = []AgentInfo{}
 		}
+		for i := range list {
+			if len(list[i].Models) == 0 {
+				list[i].Models = agentModelOptions(list[i].ID)
+			}
+		}
 		writeJSON(w, http.StatusOK, list)
 		return
 	}
@@ -229,6 +257,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 				Installed: true,
 				Available: true,
 				Default:   id == def,
+				Models:    agentModelOptions(id),
 			})
 		}
 	}
@@ -496,14 +525,16 @@ type settingsResponse struct {
 	PriceTable      string `json:"price_table"`
 	AgentLimits     string `json:"agent_limits"`
 	// Cognition provider (OpenAI-compatible). api_key is masked on GET.
-	ProviderKind    string `json:"provider.kind"`
-	ProviderBaseURL string `json:"provider.base_url"`
-	ProviderAPIKey  string `json:"provider.api_key"`
-	ProviderModel   string `json:"provider.model"`
-	AgentDefault    string `json:"agent.default"`
-	NetworkMode     string `json:"network_mode"`
-	ConnectURL      string `json:"connect_url"`
-	Token           string `json:"token"`
+	// These fields mirror the *active* multi-provider entry for backward compat.
+	ProviderKind     string `json:"provider.kind"`
+	ProviderBaseURL  string `json:"provider.base_url"`
+	ProviderAPIKey   string `json:"provider.api_key"`
+	ProviderModel    string `json:"provider.model"`
+	ProviderActiveID string `json:"provider.active_id"`
+	AgentDefault     string `json:"agent.default"`
+	NetworkMode      string `json:"network_mode"`
+	ConnectURL       string `json:"connect_url"`
+	Token            string `json:"token"`
 }
 
 // Allowed settings keys for PUT (subset of store keys).
@@ -554,21 +585,36 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(agentLimits) == "" {
 		agentLimits = "{}"
 	}
-	apiKey := get("provider.api_key")
+	// Active cognition provider from multi-provider registry (legacy keys mirrored).
+	provKind := firstNonEmpty(get("provider.kind"), "openai-compatible")
+	provBase := get("provider.base_url")
+	provKey := get("provider.api_key")
+	provModel := get("provider.model")
+	provActive := get(provider.KeyActiveProvider)
+	if reg, err := provider.LoadRegistry(ctx, s.Store); err == nil {
+		provActive = reg.ActiveID
+		if active, ok := reg.Active(); ok {
+			provKind = firstNonEmpty(active.Kind, "openai-compatible")
+			provBase = active.BaseURL
+			provKey = active.APIKey
+			provModel = active.Model
+		}
+	}
 	writeJSON(w, http.StatusOK, settingsResponse{
-		NotifyBarkURL:   get("notify.bark_url"),
-		NotifyNtfyTopic: get("notify.ntfy_topic"),
-		UIBaseURL:       base,
-		PriceTable:      priceTable,
-		AgentLimits:     agentLimits,
-		ProviderKind:    firstNonEmpty(get("provider.kind"), "openai-compatible"),
-		ProviderBaseURL: get("provider.base_url"),
-		ProviderAPIKey:  maskSettingSecret(apiKey),
-		ProviderModel:   get("provider.model"),
-		AgentDefault:    get("agent.default"),
-		NetworkMode:     s.NetworkMode,
-		ConnectURL:      connect,
-		Token:           tok,
+		NotifyBarkURL:    get("notify.bark_url"),
+		NotifyNtfyTopic:  get("notify.ntfy_topic"),
+		UIBaseURL:        base,
+		PriceTable:       priceTable,
+		AgentLimits:      agentLimits,
+		ProviderKind:     provKind,
+		ProviderBaseURL:  provBase,
+		ProviderAPIKey:   maskSettingSecret(provKey),
+		ProviderModel:    provModel,
+		ProviderActiveID: provActive,
+		AgentDefault:     get("agent.default"),
+		NetworkMode:      s.NetworkMode,
+		ConnectURL:       connect,
+		Token:            tok,
 	})
 }
 
@@ -599,7 +645,8 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Provider clear flag (not stored as a real setting).
-	if body["provider.clear_api_key"] == "1" || body["provider.clear_api_key"] == "true" {
+	clearProviderKey := body["provider.clear_api_key"] == "1" || body["provider.clear_api_key"] == "true"
+	if clearProviderKey {
 		_ = s.Store.SetSetting(ctx, "provider.api_key", "")
 		delete(body, "provider.clear_api_key")
 	}
@@ -610,6 +657,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		// Allow partial save of empty base_url to disable provider.
 	}
 
+	providerSlotTouched := clearProviderKey
 	for k, v := range body {
 		if !puttableSettings[k] {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unknown or read-only setting: " + k})
@@ -618,22 +666,40 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		if k == "provider.clear_api_key" {
 			continue
 		}
+		if strings.HasPrefix(k, "provider.") {
+			providerSlotTouched = true
+		}
 		if k == store.KeyPriceTable {
-			if _, err := store.ParsePriceTable(v); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-				return
-			}
-			// Canonical compact form for storage.
-			if t, err := store.ParsePriceTable(v); err == nil {
-				if b, err := json.Marshal(t); err == nil {
-					v = string(b)
+			// Empty value clears the override so GET/LoadPriceTable use the
+			// embedded LiteLLM-curated defaults again.
+			if strings.TrimSpace(v) != "" {
+				if _, err := store.ParsePriceTable(v); err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+					return
 				}
+				// Canonical compact form for storage.
+				if t, err := store.ParsePriceTable(v); err == nil {
+					if b, err := json.Marshal(t); err == nil {
+						v = string(b)
+					}
+				}
+			} else {
+				v = ""
 			}
 		}
 		if k == store.KeyAgentLimits {
 			if _, err := store.ParseAgentLimits(v); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
+			}
+		}
+		if k == "agent.default" {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				if err := s.validateAgentDefault(r.Context(), v); err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+					return
+				}
 			}
 		}
 		// Ignore masked api_key round-trips from GET.
@@ -646,6 +712,13 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		if k == "ui.base_url" {
 			s.BaseURL = strings.TrimRight(strings.TrimSpace(v), "/")
+		}
+	}
+	// Keep multi-provider registry in sync when legacy single-slot keys are written.
+	if providerSlotTouched {
+		if err := syncRegistryFromLegacySettings(ctx, s.Store); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
 		}
 	}
 	// Return updated snapshot.
@@ -788,4 +861,53 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// validateAgentDefault ensures the preferred host agent is registered, locally
+// present (skills discovery / PATH), and currently runnable.
+func (s *Server) validateAgentDefault(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	if s.Engine == nil {
+		return nil
+	}
+	if !s.Engine.HasAgent(id) {
+		// Discovery-only ids (skills catalog) cannot be host until a Kin adapter exists.
+		if detect.IsLocallyPresent(id) {
+			return fmt.Errorf("agent %q is installed locally but not supported as a Kin host yet", id)
+		}
+		return fmt.Errorf("unknown agent %q", id)
+	}
+	// Local presence: skip for builtin kin (provider-backed); require for CLI ids.
+	if id != "kin" && !detect.IsLocallyPresent(id) {
+		// Still allow if the adapter Status reports available (e.g. custom KIN_*_BIN
+		// path outside discovery heuristics) — GetRunnable is the final gate.
+		if _, err := s.Engine.Agents().GetRunnable(ctx, id); err == nil {
+			return nil
+		}
+		return fmt.Errorf("agent %q is not installed on this machine", id)
+	}
+	if _, err := s.Engine.Agents().GetRunnable(ctx, id); err != nil {
+		return fmt.Errorf("agent %q is not available (%v)", id, err)
+	}
+	return nil
+}
+
+func agentModelOptions(agentID string) []AgentModelOption {
+	specs := task.ListCatalogModels(agentID)
+	if len(specs) == 0 {
+		return nil
+	}
+	out := make([]AgentModelOption, 0, len(specs))
+	for _, s := range specs {
+		label := s.ID
+		// Prefer a short alias for the picker when available.
+		if len(s.Aliases) > 0 {
+			label = s.Aliases[0]
+		}
+		out = append(out, AgentModelOption{ID: s.ID, Label: label, Tier: string(s.Tier)})
+	}
+	return out
 }

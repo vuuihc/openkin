@@ -33,8 +33,10 @@ import {
 import ApprovalCard from "../components/cards/ApprovalCard";
 import ChatStream from "../components/chat/ChatStream";
 import Composer from "../components/chat/Composer";
+import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
+import ModelPicker from "../components/chat/ModelPicker";
 import { IconBack, IconPanel } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
@@ -47,7 +49,34 @@ import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { normalizePermissionMode } from "../lib/permissionMode";
+import { modelsForAgent } from "../lib/agentModels";
 import { subscribeWS, useAppStore } from "../store/appStore";
+
+const FILES_PANEL_WIDTH_KEY = "kin.workspace.panelWidth";
+const DEFAULT_FILES_PANEL_WIDTH = 520;
+const MIN_FILES_PANEL_WIDTH = 320;
+const MAX_FILES_PANEL_WIDTH = 960;
+
+function readFilesPanelWidth(): number {
+  try {
+    const raw = localStorage.getItem(FILES_PANEL_WIDTH_KEY);
+    if (!raw) return DEFAULT_FILES_PANEL_WIDTH;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return DEFAULT_FILES_PANEL_WIDTH;
+    return clampFilesPanelWidth(n);
+  } catch {
+    return DEFAULT_FILES_PANEL_WIDTH;
+  }
+}
+
+function clampFilesPanelWidth(value: number, containerWidth?: number): number {
+  let max = MAX_FILES_PANEL_WIDTH;
+  if (containerWidth && containerWidth > 0) {
+    // Keep room for the chat column.
+    max = Math.min(MAX_FILES_PANEL_WIDTH, Math.max(MIN_FILES_PANEL_WIDTH, containerWidth - 360));
+  }
+  return Math.min(max, Math.max(MIN_FILES_PANEL_WIDTH, Math.round(value)));
+}
 
 /**
  * Single-column chat: user talks to the session host; @agents are task workers.
@@ -64,6 +93,7 @@ export default function TaskDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [composerModel, setComposerModel] = useState("");
   const [stopping, setStopping] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
@@ -72,6 +102,35 @@ export default function TaskDetailPage() {
   const [filesOpen, setFilesOpen] = useState(false);
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  const [filesPanelWidth, setFilesPanelWidth] = useState(readFilesPanelWidth);
+  const filesPanelWidthRef = useRef(filesPanelWidth);
+  const filesDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const taskLayoutRef = useRef<HTMLDivElement>(null);
+  filesPanelWidthRef.current = filesPanelWidth;
+
+  const persistFilesPanelWidth = useCallback((value: number) => {
+    try {
+      localStorage.setItem(FILES_PANEL_WIDTH_KEY, String(value));
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  const updateFilesPanelWidth = useCallback(
+    (value: number, persist = false) => {
+      const container = taskLayoutRef.current?.clientWidth;
+      const next = clampFilesPanelWidth(value, container);
+      filesPanelWidthRef.current = next;
+      setFilesPanelWidth(next);
+      if (persist) persistFilesPanelWidth(next);
+      return next;
+    },
+    [persistFilesPanelWidth],
+  );
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -96,8 +155,11 @@ export default function TaskDetailPage() {
       setApprovals(apps.filter((a) => a.task_id === id));
       setError(null);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
+      // 401 still surfaces a recoverable empty state (App also flips to ConnectScreen).
+      // Never leave loading=false + task=null + error=null — that paints a blank main pane.
       if (e instanceof ApiError && e.status === 404) setError(t("task.notFound"));
+      else if (e instanceof ApiError && e.status === 401)
+        setError(t("task.loadFailed"));
       else setError(e instanceof Error ? e.message : t("task.loadFailed"));
     } finally {
       setLoading(false);
@@ -119,6 +181,10 @@ export default function TaskDetailPage() {
   useEffect(() => {
     maxSeq.current = 0;
     setEvents([]);
+    setTask(null);
+    setError(null);
+    setApprovals([]);
+    setUsage(null);
     setLoading(true);
     setFilesOpen(false);
     setWorkspaceOpenPath(null);
@@ -220,12 +286,23 @@ export default function TaskDetailPage() {
     }
   }
 
+  // Keep model picker aligned with the task's effective model.
+  useEffect(() => {
+    if (!task) return;
+    setComposerModel((task.model || "").trim());
+  }, [task?.id, task?.model]);
+
   async function onComposer(text: string) {
     if (!task) return;
     setSending(true);
     try {
       // Non-terminal: backend interrupts the current turn then re-queues with this guide.
-      const t = await followUpPrompt(task.id, text);
+      // Include model when the picker differs from the task (or any explicit selection).
+      const picked = composerModel.trim();
+      const current = (task.model || "").trim();
+      const modelOpts =
+        picked !== current ? { model: picked } : undefined;
+      const t = await followUpPrompt(task.id, text, modelOpts);
       setTask(t);
       if (!isTerminal(task.status)) {
         pushToast(tr("task.interruptedGuide"), "info");
@@ -361,7 +438,21 @@ export default function TaskDetailPage() {
     );
   }
 
-  if (!task) return null;
+  if (!task) {
+    return (
+      <div className="flex-1 p-6 space-y-3">
+        <Link to="/" className="text-sm text-kin-blue">
+          {tr("task.home")}
+        </Link>
+        <div
+          className="rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-3 text-sm text-kin-secondary"
+          role="status"
+        >
+          {tr("task.loadFailed")}
+        </div>
+      </div>
+    );
+  }
 
   const terminal = isTerminal(task.status);
   const project = projectLabel(task.cwd);
@@ -372,7 +463,7 @@ export default function TaskDetailPage() {
   const hostAgentAvatar = agentAvatarMeta(task.agent || "kin");
 
   return (
-    <div className="flex-1 min-w-0 min-h-0 flex relative">
+    <div ref={taskLayoutRef} className="flex-1 min-w-0 min-h-0 flex relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
         <div
           className="h-11 flex-none flex items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
@@ -517,26 +608,111 @@ export default function TaskDetailPage() {
                 locked
                 onChange={() => undefined}
               />
+              <ModelPicker
+                value={composerModel}
+                models={modelsForAgent(agents, task.agent || "")}
+                disabled={sending || stopping}
+                onChange={setComposerModel}
+              />
             </div>
-            <CwdPicker cwd={task.cwd} locked onChange={() => undefined} />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+              <CwdPicker
+                className="flex-1 min-w-[12rem]"
+                cwd={task.cwd}
+                locked
+                onChange={() => undefined}
+              />
+              <BranchPicker cwd={task.cwd} locked className="flex-none" />
+            </div>
           </div>
         </div>
       </div>
 
       {filesOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-[var(--kin-inspector)] safe-pad md:absolute md:inset-y-0 md:left-auto md:right-0 md:z-20 md:w-[min(50%,720px)] md:min-w-[360px] md:max-w-full md:border-l md:border-[var(--kin-hairline)] md:shadow-[-12px_0_32px_rgba(0,0,0,0.2)]"
-          role="complementary"
-          aria-label={tr("workspace.title")}
-        >
-          <WorkspacePanel
-            taskId={task.id}
-            cwd={task.cwd}
-            openPath={workspaceOpenPath}
-            openNonce={workspaceOpenNonce}
-            onClose={() => setFilesOpen(false)}
+        <>
+          {/* Drag handle between chat and files — md+ side-by-side only. */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={tr("workspace.resizePanel")}
+            aria-valuenow={filesPanelWidth}
+            aria-valuemin={MIN_FILES_PANEL_WIDTH}
+            aria-valuemax={MAX_FILES_PANEL_WIDTH}
+            tabIndex={0}
+            className="hidden md:block flex-none w-1.5 cursor-col-resize border-l border-[var(--kin-hairline)] hover:bg-[var(--kin-fill-strong)] active:bg-kin-blue/30 transition-colors z-30"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              filesDragRef.current = {
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startWidth: filesPanelWidthRef.current,
+              };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const drag = filesDragRef.current;
+              if (!drag || drag.pointerId !== event.pointerId) return;
+              // Dragging the left edge of the files panel: move left → wider.
+              updateFilesPanelWidth(drag.startWidth - (event.clientX - drag.startX));
+            }}
+            onPointerUp={(event) => {
+              const drag = filesDragRef.current;
+              if (!drag || drag.pointerId !== event.pointerId) return;
+              filesDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              persistFilesPanelWidth(filesPanelWidthRef.current);
+            }}
+            onPointerCancel={(event) => {
+              filesDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              persistFilesPanelWidth(filesPanelWidthRef.current);
+            }}
+            onKeyDown={(event) => {
+              const step = event.shiftKey ? 40 : 16;
+              if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                updateFilesPanelWidth(filesPanelWidthRef.current + step, true);
+              } else if (event.key === "ArrowRight") {
+                event.preventDefault();
+                updateFilesPanelWidth(filesPanelWidthRef.current - step, true);
+              } else if (event.key === "Home") {
+                event.preventDefault();
+                updateFilesPanelWidth(MIN_FILES_PANEL_WIDTH, true);
+              } else if (event.key === "End") {
+                event.preventDefault();
+                updateFilesPanelWidth(MAX_FILES_PANEL_WIDTH, true);
+              }
+            }}
+            onDoubleClick={() => updateFilesPanelWidth(DEFAULT_FILES_PANEL_WIDTH, true)}
           />
-        </div>
+          <div
+            className="fixed inset-0 z-40 bg-[var(--kin-inspector)] safe-pad md:static md:inset-auto md:z-20 md:flex-none md:h-full md:min-h-0"
+            style={
+              {
+                ["--kin-files-panel-w" as string]: `${filesPanelWidth}px`,
+              } as CSSProperties
+            }
+            role="complementary"
+            aria-label={tr("workspace.title")}
+          >
+            <div className="h-full w-full md:w-[var(--kin-files-panel-w)] md:max-w-[70vw]">
+              <WorkspacePanel
+                taskId={task.id}
+                cwd={task.cwd}
+                openPath={workspaceOpenPath}
+                openNonce={workspaceOpenNonce}
+                events={events}
+                changedFiles={changedFiles}
+                onClose={() => setFilesOpen(false)}
+              />
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

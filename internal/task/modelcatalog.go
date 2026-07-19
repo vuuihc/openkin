@@ -156,3 +156,12 @@ func firstOfTier(specs []ModelSpec, tier ModelTier) string {
 	}
 	return ""
 }
+
+// ListCatalogModels returns known models for an agent (smart → fast order).
+// Empty when the agent is unknown to the catalog.
+func ListCatalogModels(agent string) []ModelSpec {
+	specs := BuiltinCatalog()[agent]
+	out := make([]ModelSpec, len(specs))
+	copy(out, specs)
+	return out
+}

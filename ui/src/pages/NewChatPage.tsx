@@ -7,10 +7,13 @@ import {
   recentCwds,
   type AgentInfo,
 } from "../api/client";
+import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
+import ModelPicker from "../components/chat/ModelPicker";
 import { useT } from "../i18n/react";
+import { modelsForAgent } from "../lib/agentModels";
 import {
   agentAvatarMeta,
   agentDisplayName,
@@ -46,6 +49,7 @@ export default function NewChatPage() {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     () => getDraftPermissionMode(),
   );
+  const [selectedModel, setSelectedModel] = useState("");
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedHost, setSelectedHost] = useState<string>("");
   const [sending, setSending] = useState(false);
@@ -98,6 +102,16 @@ export default function NewChatPage() {
   const mainAgentAvatar = agentAvatarMeta(mainAgentId || "agent");
   const hints = mentionHints(availableIds, mainAgentId);
 
+  // Drop model selection when host agent changes to one without that model.
+  useEffect(() => {
+    const opts = modelsForAgent(available, mainAgentId);
+    if (selectedModel && opts.length > 0 && !opts.some((m) => m.id === selectedModel)) {
+      setSelectedModel("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-check when host agent id changes
+  }, [mainAgentId]);
+
+
   async function onSubmit(text: string) {
     const raw = text.trim();
     if (!raw) return;
@@ -132,6 +146,7 @@ export default function NewChatPage() {
         cwd: cwd.trim(),
         prompt,
         permission_mode: permissionMode,
+        ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
       });
       clearDraftPrompt();
       navigate(`/tasks/${task.id}`, { replace: true });
@@ -247,6 +262,7 @@ export default function NewChatPage() {
             disabled={sending}
             initialValue={initialValue}
             placeholder={tr("newChat.placeholder", { name: mainAgentName })}
+            onValueChange={setDraftPrompt}
             onSubmit={onSubmit}
           />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">
@@ -258,15 +274,25 @@ export default function NewChatPage() {
                 setDraftPermissionMode(m);
               }}
             />
+            <ModelPicker
+              value={selectedModel}
+              models={modelsForAgent(available, mainAgentId)}
+              disabled={sending}
+              onChange={setSelectedModel}
+            />
           </div>
-          <CwdPicker
-            cwd={cwd}
-            locked={false}
-            onChange={(v) => {
-              setCwd(v);
-              setDraftCwd(v);
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+            <CwdPicker
+              className="flex-1 min-w-[12rem]"
+              cwd={cwd}
+              locked={false}
+              onChange={(v) => {
+                setCwd(v);
+                setDraftCwd(v);
+              }}
+            />
+            <BranchPicker cwd={cwd} className="flex-none" />
+          </div>
         </div>
       </div>
     </div>

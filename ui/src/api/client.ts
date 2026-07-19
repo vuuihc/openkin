@@ -126,6 +126,12 @@ export type CreateTaskBody = {
   permission_mode?: string;
 };
 
+export type AgentModelOption = {
+  id: string;
+  label?: string;
+  tier?: string;
+};
+
 export type AgentInfo = {
   id: string;
   name: string;
@@ -136,6 +142,8 @@ export type AgentInfo = {
   available: boolean;
   default: boolean;
   reason?: string;
+  /** Known catalog models for the composer picker. */
+  models?: AgentModelOption[];
 };
 
 export function listAgents(): Promise<AgentInfo[]> {
@@ -225,15 +233,18 @@ export function cancelTask(id: string): Promise<Task> {
 export function followUpPrompt(
   id: string,
   prompt: string,
-  opts?: { agent?: string },
+  opts?: { agent?: string; model?: string },
 ): Promise<Task> {
+  const body: { prompt: string; agent?: string; model?: string } = { prompt };
+  if (opts?.agent) body.agent = opts.agent;
+  // Include model when the caller opts in (empty string clears task model).
+  if (opts && "model" in opts && opts.model !== undefined) {
+    body.model = (opts.model || "").trim();
+  }
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      prompt,
-      ...(opts?.agent ? { agent: opts.agent } : {}),
-    }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -376,6 +387,37 @@ export function recentCwds(): Promise<string[]> {
   return apiFetch<string[]>("/api/recent-cwds");
 }
 
+export type GitBranch = {
+  name: string;
+  current: boolean;
+};
+
+export type GitBranchStatus = {
+  cwd: string;
+  is_git: boolean;
+  current?: string;
+  detached?: boolean;
+  dirty?: boolean;
+  branches: GitBranch[];
+  reason?: string;
+};
+
+export function listGitBranches(cwd: string): Promise<GitBranchStatus> {
+  const q = new URLSearchParams({ cwd });
+  return apiFetch<GitBranchStatus>(`/api/git/branches?${q.toString()}`);
+}
+
+export function checkoutGitBranch(
+  cwd: string,
+  branch: string,
+): Promise<{ cwd: string; current: string }> {
+  return apiFetch<{ cwd: string; current: string }>("/api/git/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cwd, branch }),
+  });
+}
+
 /** Max single attachment size (must match server maxUploadBytes). */
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MiB
 
@@ -450,6 +492,7 @@ export type Settings = {
   "provider.base_url": string;
   "provider.api_key": string;
   "provider.model": string;
+  "provider.active_id": string;
   "agent.default": string;
   network_mode: string;
   connect_url: string;
@@ -519,6 +562,69 @@ export function updateSettings(body: SettingsUpdate): Promise<Settings> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/** One registered cognition provider (API key masked on read). */
+export type ProviderEntry = {
+  id: string;
+  name: string;
+  kind: string;
+  base_url: string;
+  api_key?: string;
+  model: string;
+  active: boolean;
+};
+
+export type ProvidersResponse = {
+  active_id: string;
+  providers: ProviderEntry[];
+};
+
+export type ProviderWrite = {
+  id?: string;
+  name?: string;
+  kind?: string;
+  base_url: string;
+  api_key?: string;
+  model: string;
+  active?: boolean;
+  clear_api_key?: boolean;
+};
+
+export function listProviders(): Promise<ProvidersResponse> {
+  return apiFetch<ProvidersResponse>("/api/providers");
+}
+
+export function createProvider(body: ProviderWrite): Promise<ProvidersResponse> {
+  return apiFetch<ProvidersResponse>("/api/providers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateProvider(
+  id: string,
+  body: ProviderWrite,
+): Promise<ProvidersResponse> {
+  return apiFetch<ProvidersResponse>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteProvider(id: string): Promise<ProvidersResponse> {
+  return apiFetch<ProvidersResponse>(`/api/providers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export function activateProvider(id: string): Promise<ProvidersResponse> {
+  return apiFetch<ProvidersResponse>(
+    `/api/providers/${encodeURIComponent(id)}/activate`,
+    { method: "POST" },
+  );
 }
 
 export type NotifyChannelResult = {
