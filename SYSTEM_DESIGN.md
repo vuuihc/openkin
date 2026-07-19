@@ -83,7 +83,7 @@ Even if users only see the console first, these names keep their meaning in late
 | **Task** | One goal-directed unit of agent work (dispatch, stream, approvals, result) |
 | **Adapter** | Bridges an external agent CLI to unified task / event / approval APIs |
 | **Approval** | A human decision before external effects; written to the audit log |
-| **Cost record** | Tokens and spend on tasks and providers; local price table |
+| **Cost record** | Tokens and spend on tasks and providers; local price table; per-agent daily caps (advisory) |
 | **Provider config** | Endpoints and capabilities; secrets in the OS secret store, never in logs |
 | **Artifact** (near-term) | Readable session deliverable (md/html/…); files are truth; metadata holds source task and status (`proposed|saved|archived`) |
 | **Export bundle** | Versioned takeaway package (**no** secrets; **includes** artifacts tree convention) |
@@ -104,9 +104,10 @@ External coding agents are **managed workers behind adapters** — Kin supervise
 | Component | Responsibility |
 |-----------|-----------------|
 | Adapter layer | Drive external agents; normalize events, approval requests, cost telemetry |
+| Agent plugin registry | Compiled plugins (descriptor, readiness, runner, optional controller/session hooks); Kin is one plugin |
 | Task engine | Dispatch, state machine, pause/cancel, history |
 | Trust & Audit | Grants, confirmations, credentials, egress awareness |
-| Providers / cost | Provider config, usage accounting, spend per task |
+| Providers / cost | Provider config, usage accounting, spend per task; per-agent daily limits (display-only) |
 | Artifacts (near-term) | Capture, index, library, reader; P1 companion threads; HTML sandbox |
 | Remote access | The §5 ladder; never a mandatory Kin cloud |
 | Console UI | One UI shared by desktop shell and any-device web |

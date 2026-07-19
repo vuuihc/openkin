@@ -429,3 +429,49 @@ Design: [docs/adr/0002-context-management.md](./adr/0002-context-management.md) 
 | **P1.5 auto-`[Pinned]`** | Goals/decisions still caller-empty; could derive from durable transcript later |
 | **P2 JSONL mirror** | Optional `rg`-friendly mirror; SQLite remains SoT |
 | **P3** | Optional LLM micro-summarize at seal boundaries only (current seal is extractive/deterministic) |
+
+## Per-agent daily usage limits (2026-07-19)
+
+### Capability
+
+Optional daily spend-USD and/or token caps per agent. Both metrics are independently optional: omitting a field means unlimited for that metric. Stored as a single JSON value under the existing `settings` key `agent_limits` — no schema migration required.
+
+Settings key: `agent_limits`  
+Shape: `{"<agent-id>": {"spend_usd_daily": 10.0, "tokens_daily": 500000}}`
+
+### Read model
+
+`GET /api/usage/limits` returns `[]AgentLimitStatus`. Each row contains:
+
+- `agent` — agent id
+- `limit_spend_usd` / `limit_tokens` — configured caps (omitted when unlimited)
+- `used_spend_usd` / `used_tokens` — today's totals from `usage_records`
+- `status` — `ok` (< 80% of all configured limits), `warn` (≥ 80%), `over` (≥ 100%)
+- `period_start` — RFC3339 start of the natural day in server-local timezone
+
+Status `over` means the more severe of the two metrics: if spend is `ok` but tokens is `over`, the row status is `over`.
+
+An agent with usage today but no configured limit is included (with nil limit fields, status `ok`). An agent with a configured limit but no usage today is included with `used = 0, status = ok`. A database with no `agent_limits` key returns `[]` from this endpoint.
+
+### UI
+
+- Usage page (`/usage`): compact progress bar + `used / limit` label under each agent row in the by-agent section. Warning colors (`--kin-yellow` at warn, `--kin-red` at over). Rows without a configured limit keep their current appearance.
+- Settings page (`/settings`): JSON textarea for `agent_limits`, mirroring the existing `price_table` field. Parse-on-save validation rejects malformed JSON or negative values with a visible error.
+
+### Thresholds
+
+`ok` < 80% · `warn` ≥ 80% · `over` ≥ 100%
+
+### Deferred: soft enforcement
+
+Limits are **advisory and display-only** in this version. No task is blocked.
+
+Future soft-enforcement sketch: at task creation or new-round start in `task.Engine`, call `AgentLimitStatuses(ctx)`, check whether the target agent's row `status == "over"`, and either warn (return a non-fatal annotation on the task) or block (return an error to `Create`/`Orchestrate`). The store layer is already correct for this path; only the engine callsite is missing.
+
+## Pluggable agent runtime (2026-07-17)
+
+- `internal/agent` registry owns plugin metadata, readiness, controllers, session hooks.
+- `task.Engine` takes `*agent.Registry`; hosts are interchangeable; `@agent` selects workers only.
+- Composition root: `internal/server/agents.go` (`buildAgentRegistry`).
+- Canonical adapter events: `internal/adapter/events.go` (`ParseStarted` / `ParseResult`).
+- ADR: `docs/adr/0007-pluggable-agent-runtime.md`.
