@@ -25,6 +25,7 @@ import (
 	"github.com/vuuihc/kin/internal/task"
 	"github.com/vuuihc/kin/internal/terminal"
 	"github.com/vuuihc/kin/internal/usagewindows"
+	"github.com/vuuihc/kin/internal/workspace"
 	"github.com/vuuihc/kin/web"
 )
 
@@ -150,6 +151,8 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 
 	eng := task.NewEngine(st, reg, task.NewBus(), task.DefaultMaxConcurrent)
+	wsMgr := workspace.NewManager(stateDir)
+	eng.SetWorkspaceRuntime(wsMgr)
 	defer eng.Close()
 	eng.SetDefaultPreference(func(c context.Context) (string, error) {
 		pref, err := st.GetSetting(c, "agent.default")
@@ -188,6 +191,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		Store:        st,
 		Auth:         auth,
 		Engine:       eng,
+		Workspace:    wsMgr,
 		Terminals:    terminals,
 		Version:      version,
 		Static:       static,

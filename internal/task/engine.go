@@ -17,6 +17,7 @@ import (
 	"github.com/vuuihc/kin/internal/agent"
 	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/kin/internal/workspace"
 )
 
 // Status values (spec §3 / §5).
@@ -35,12 +36,13 @@ const DefaultMaxConcurrent = 4
 // CreateRequest is the body for POST /api/tasks.
 // Agent is optional: empty → engine picks default available agent.
 type CreateRequest struct {
-	Agent          string  `json:"agent"`
-	Cwd            string  `json:"cwd"`
-	Prompt         string  `json:"prompt"`
-	Model          *string `json:"model,omitempty"`
-	Title          *string `json:"title,omitempty"`
-	PermissionMode string  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
+	Agent          string                  `json:"agent"`
+	Cwd            string                  `json:"cwd"`
+	Prompt         string                  `json:"prompt"`
+	Model          *string                 `json:"model,omitempty"`
+	Title          *string                 `json:"title,omitempty"`
+	PermissionMode string                  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
+	WorkspaceMode  workspace.RequestedMode `json:"workspace_mode,omitempty"`  // auto | shared | worktree
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -62,11 +64,12 @@ type TitleResolver func(ctx context.Context) (provider.Client, provider.Config, 
 
 // Engine owns task lifecycle. Status transitions only happen here (spec §3).
 type Engine struct {
-	store    *store.Store
-	agents *agent.Registry
-	bus      *Bus
-	notify   Notifier
-	titleFn  TitleResolver
+	store     *store.Store
+	agents    *agent.Registry
+	bus       *Bus
+	notify    Notifier
+	titleFn   TitleResolver
+	workspace WorkspaceRuntime
 
 	mu            sync.Mutex
 	eventMu       sync.Mutex // serializes event append during parallel worker waves
@@ -233,6 +236,19 @@ func (e *Engine) SetApprovalTTL(d time.Duration) { e.approvalTTL = d }
 // SetNotifier wires Bark/ntfy notifications (M3). Optional.
 func (e *Engine) SetNotifier(n Notifier) { e.notify = n }
 
+// WorkspaceRuntime prepares isolated task workspaces and (later) checkpoints.
+// Optional: nil preserves shared cwd behavior for tests and headless paths.
+type WorkspaceRuntime interface {
+	Prepare(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
+	CleanupPrepared(ctx context.Context, taskID string, meta workspace.Metadata) error
+	Capture(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
+	Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
+	PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
+}
+
+// SetWorkspaceRuntime wires Git workspace isolation. Optional.
+func (e *Engine) SetWorkspaceRuntime(runtime WorkspaceRuntime) { e.workspace = runtime }
+
 // SetTitleResolver wires provider-backed session title summarization. Optional.
 func (e *Engine) SetTitleResolver(fn TitleResolver) { e.titleFn = fn }
 
@@ -372,7 +388,15 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		Status:         StatusQueued,
 		CreatedAt:      now,
 	}
+
+	meta, err := e.prepareWorkspace(ctx, id, req.Cwd, req.WorkspaceMode)
+	if err != nil {
+		return store.Task{}, err
+	}
+	applyWorkspaceMetadata(&t, meta)
+
 	if err := e.store.InsertTask(ctx, t); err != nil {
+		e.cleanupPreparedWorkspace(id, meta)
 		return store.Task{}, err
 	}
 	e.bus.PublishTask(t)
@@ -652,7 +676,7 @@ func (e *Engine) startOne(id string) {
 	spec := adapter.TaskSpec{
 		ID:             t.ID,
 		Agent:          t.Agent,
-		Cwd:            t.Cwd,
+		Cwd:            t.EffectiveCwd(),
 		Prompt:         t.Prompt,
 		Model:          model,
 		SessionRef:     sessionRef,
@@ -862,6 +886,15 @@ func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.U
 	if record.Model != nil {
 		model = strings.TrimSpace(*record.Model)
 	}
+	// Adapters that report tokens without a model (or tasks with no model pin)
+	// still get a price-table estimate when we know a stable agent default.
+	if model == "" {
+		model = defaultPriceModelForAgent(record.Agent)
+		if model != "" {
+			m := model
+			record.Model = &m
+		}
+	}
 	if model == "" {
 		return ""
 	}
@@ -871,6 +904,19 @@ func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.U
 		return ""
 	}
 	return model
+}
+
+// defaultPriceModelForAgent is a last-resort model name for price-table cost
+// estimates when neither the usage event nor the host task pinned a model.
+// Only agents with a documented CLI default are listed here.
+func defaultPriceModelForAgent(agent string) string {
+	switch strings.TrimSpace(agent) {
+	case "codex":
+		// Matches internal/adapter/codex.DefaultModel (avoid importing adapter).
+		return "gpt-5-codex"
+	default:
+		return ""
+	}
 }
 
 func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, cost *float64) (store.Task, error) {
@@ -902,3 +948,46 @@ func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, c
 
 // ErrTerminal is returned when canceling a finished task.
 var ErrTerminal = errors.New("task already terminal")
+
+func (e *Engine) prepareWorkspace(ctx context.Context, taskID, cwd string, mode workspace.RequestedMode) (workspace.Metadata, error) {
+	if mode == "" {
+		mode = workspace.ModeAuto
+	}
+	if e.workspace == nil {
+		return workspace.Metadata{
+			Mode:  workspace.ResolvedShared,
+			Root:  cwd,
+			Cwd:   cwd,
+			Scope: ".",
+		}, nil
+	}
+	return e.workspace.Prepare(ctx, taskID, cwd, mode)
+}
+
+func (e *Engine) cleanupPreparedWorkspace(taskID string, meta workspace.Metadata) {
+	if e.workspace == nil || meta.Mode != workspace.ResolvedWorktree {
+		return
+	}
+	cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = e.workspace.CleanupPrepared(cctx, taskID, meta)
+}
+
+func applyWorkspaceMetadata(t *store.Task, meta workspace.Metadata) {
+	if t == nil {
+		return
+	}
+	t.WorkspaceMode = string(meta.Mode)
+	if t.WorkspaceMode == "" {
+		t.WorkspaceMode = string(workspace.ResolvedShared)
+	}
+	t.WorkspaceSourceRoot = meta.SourceRoot
+	t.WorkspaceRoot = meta.Root
+	t.ExecutionCwd = meta.Cwd
+	t.WorkspaceScope = meta.Scope
+	if t.WorkspaceScope == "" {
+		t.WorkspaceScope = "."
+	}
+	t.WorkspaceBaseOID = meta.BaseOID
+	t.WorkspaceBranch = meta.Branch
+}

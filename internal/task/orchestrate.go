@@ -168,7 +168,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			spec := adapter.TaskSpec{
 				ID:             t.ID,
 				Agent:          step.Agent,
-				Cwd:            t.Cwd,
+				Cwd:            t.EffectiveCwd(),
 				Prompt:         brief,
 				Model:          model,
 				SessionRef:     "",
@@ -209,7 +209,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 						spec := adapter.TaskSpec{
 							ID:             id,
 							Agent:          gagent,
-							Cwd:            t.Cwd,
+							Cwd:            t.EffectiveCwd(),
 							Prompt:         retryBrief,
 							Model:          gmodel,
 							SessionRef:     "",
