@@ -80,9 +80,9 @@ func TestOrchestratedWorkersInheritPermissionMode(t *testing.T) {
 	codexAd := &fakeAdapter{events: successEvents()}
 
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
-	e.adapters["codex"] = codexAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
+	e.putAdapter("codex", codexAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	t1, err := e.Create(ctx, CreateRequest{
@@ -129,8 +129,8 @@ func TestOrchestratedWorkersAcceptEditsMode(t *testing.T) {
 	kinAd := &fakeAdapter{events: successEvents()}
 	claudeAd := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	t1, err := e.Create(ctx, CreateRequest{
@@ -160,9 +160,9 @@ func TestOrchestratedWorkersReceivePerStepModels(t *testing.T) {
 	claudeAd := &fakeAdapter{events: successEvents()}
 	codexAd := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
-	e.adapters["codex"] = codexAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
+	e.putAdapter("codex", codexAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	fallback := "task-default"
@@ -197,8 +197,8 @@ func TestOrchestratedWorkerModelFallsBackToTaskModel(t *testing.T) {
 	kinAd := &fakeAdapter{events: successEvents()}
 	codexAd := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["codex"] = codexAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("codex", codexAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	fallback := "gpt-fallback"

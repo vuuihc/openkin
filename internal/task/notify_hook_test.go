@@ -47,7 +47,7 @@ func TestNotifyOnApproval(t *testing.T) {
 	_ = st.SetSetting(ctx, notify.KeyNtfyTopic, srv.URL)
 	_ = st.SetSetting(ctx, notify.KeyBaseURL, "http://host:7777")
 
-	e := NewEngine(st, map[string]adapter.Adapter{"claude-code": &hangAd{}}, NewBus(), 4)
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": &hangAd{}}, NewBus(), 4)
 	t.Cleanup(e.Close)
 	e.SetNotifier(&notify.Sender{Store: st, Client: &http.Client{Timeout: 2 * time.Second}})
 

@@ -14,9 +14,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/claudecode"
-	"github.com/vuuihc/kin/internal/adapter/codex"
-	"github.com/vuuihc/kin/internal/adapter/grok"
+	"github.com/vuuihc/kin/internal/agent"
 	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/store"
 )
@@ -65,7 +63,7 @@ type TitleResolver func(ctx context.Context) (provider.Client, provider.Config, 
 // Engine owns task lifecycle. Status transitions only happen here (spec §3).
 type Engine struct {
 	store    *store.Store
-	adapters map[string]adapter.Adapter
+	agents *agent.Registry
 	bus      *Bus
 	notify   Notifier
 	titleFn  TitleResolver
@@ -90,8 +88,9 @@ type Engine struct {
 	clock       func() time.Time
 	approvalTTL time.Duration
 
-	// defaultAgentFn optional; when set, used by DefaultAgent() first.
-	defaultAgentFn func() string
+	// defaultPreference optional; returns configured preferred agent id only.
+	// Readiness/fallback is owned by the registry.
+	defaultPreference agentDefaultPreference
 }
 
 // tiny interface so tests can inject ULID entropy if needed.
@@ -100,17 +99,20 @@ type ioReader interface {
 }
 
 // NewEngine wires the engine. Call Recover() once after construction.
-func NewEngine(st *store.Store, adapters map[string]adapter.Adapter, bus *Bus, maxConcurrent int) *Engine {
+func NewEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent int) *Engine {
 	if maxConcurrent <= 0 {
 		maxConcurrent = DefaultMaxConcurrent
 	}
 	if bus == nil {
 		bus = NewBus()
 	}
+	if agents == nil {
+		agents = agent.MustRegistry()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
 		store:           st,
-		adapters:        adapters,
+		agents:          agents,
 		bus:             bus,
 		maxConcurrent:   maxConcurrent,
 		handles:         make(map[string]adapter.RunHandle),
@@ -123,6 +125,104 @@ func NewEngine(st *store.Store, adapters map[string]adapter.Adapter, bus *Bus, m
 		approvalTTL:     store.DefaultApprovalTTL,
 	}
 }
+
+// NewEngineFromAdapters is a test helper that wraps adapters as a registry.
+func NewEngineFromAdapters(st *store.Store, adapters map[string]adapter.Adapter, bus *Bus, maxConcurrent int) *Engine {
+	entries := make([]agent.Entry, 0, len(adapters))
+	// Stable priority: kin first, then known CLIs, then others.
+	prio := map[string]int{"kin": 10, "claude-code": 20, "codex": 30, "grok": 40, "rawpty": 90}
+	for id, ad := range adapters {
+		p := 50
+		if v, ok := prio[id]; ok {
+			p = v
+		}
+		name := id
+		switch id {
+		case "claude-code":
+			name = "Claude Code"
+		case "codex":
+			name = "Codex"
+		case "grok":
+			name = "Grok"
+		case "kin":
+			name = "Kin"
+		}
+		caps := []agent.Capability{agent.CapabilityRun, agent.CapabilityResume}
+		if id == "kin" {
+			caps = append(caps, agent.CapabilityTools, agent.CapabilityOrchestrate)
+		}
+		entry := agent.Entry{
+			ID: id, Name: name, Priority: p, Caps: caps, Runner: ad,
+			// Controllers are optional in tests; orchestrate capability without
+			// controller is only enforced by agent.Build, not NewRegistry for kin tests.
+			// Use Status always-available for fake adapters.
+			Status: func(context.Context) agent.Status {
+				return agent.Status{Installed: true, Available: true}
+			},
+		}
+		if id == "kin" && st != nil {
+			entry.Sessions = agentSessionResetFunc(func(ctx context.Context, taskID string) error {
+				return st.ClearKinMessages(ctx, taskID)
+			})
+			// Keep tools; orchestrate requires controller — omit for adapter-map helper.
+			entry.Caps = []agent.Capability{agent.CapabilityRun, agent.CapabilityResume, agent.CapabilityTools}
+		}
+		entries = append(entries, entry)
+	}
+	return NewEngine(st, agent.MustRegistry(entries...), bus, maxConcurrent)
+}
+
+// putAdapter replaces or adds a runnable agent (tests).
+func (e *Engine) putAdapter(id string, ad adapter.Adapter) {
+	entries := make([]agent.Entry, 0, len(e.agents.IDs())+1)
+	for _, existing := range e.agents.IDs() {
+		if existing == id {
+			continue
+		}
+		reg, _ := e.agents.Get(existing)
+		entries = append(entries, agent.Entry{
+			ID: existing, Name: reg.Descriptor.Name, Kind: reg.Descriptor.Kind,
+			Priority: reg.Descriptor.Priority, Caps: reg.Descriptor.Capabilities,
+			Runner: reg.Runner, Controller: reg.Controller, Sessions: reg.Sessions, Status: reg.Status,
+		})
+	}
+	name := id
+	prio := 50
+	caps := []agent.Capability{agent.CapabilityRun, agent.CapabilityResume}
+	if id == "kin" {
+		name = "Kin"
+		prio = 10
+		caps = []agent.Capability{agent.CapabilityRun, agent.CapabilityResume, agent.CapabilityTools}
+	}
+	entry := agent.Entry{
+		ID: id, Name: name, Priority: prio, Caps: caps, Runner: ad,
+		Status: func(context.Context) agent.Status {
+			return agent.Status{Installed: true, Available: true}
+		},
+	}
+	if id == "kin" && e.store != nil {
+		// Private transcript reset for handoff/interrupt/orchestration.
+		st := e.store
+		entry.Sessions = agentSessionResetFunc(func(ctx context.Context, taskID string) error {
+			return st.ClearKinMessages(ctx, taskID)
+		})
+	}
+	entries = append(entries, entry)
+	e.agents = agent.MustRegistry(entries...)
+}
+
+type agentSessionResetFunc func(context.Context, string) error
+
+func (f agentSessionResetFunc) Reset(ctx context.Context, taskID string) error { return f(ctx, taskID) }
+
+// Agents returns the plugin registry.
+func (e *Engine) Agents() *agent.Registry { return e.agents }
+
+// DefaultPreference returns only the configured preferred agent id (e.g. agent.default).
+// The registry decides readiness and fallback.
+type DefaultPreference func(ctx context.Context) (string, error)
+
+type agentDefaultPreference = DefaultPreference
 
 // SetClock injects a clock for tests (approval expiry).
 func (e *Engine) SetClock(fn func() time.Time) { e.clock = fn }
@@ -164,63 +264,67 @@ func (e *Engine) Recover(ctx context.Context) error {
 	return nil
 }
 
-// DefaultAgent returns the preferred registered agent id, or "".
-// Preference: SetDefaultAgentFn (server: kin when provider ready) → coding CLIs → kin last.
+// DefaultAgent returns the preferred ready agent id, or "".
+// Preference comes from SetDefaultPreference; readiness/fallback from the registry.
 func (e *Engine) DefaultAgent() string {
-	if e.defaultAgentFn != nil {
-		if id := e.defaultAgentFn(); id != "" {
-			if _, ok := e.adapters[id]; ok {
-				return id
-			}
-		}
-	}
-	for _, id := range []string{"claude-code", "codex", "grok"} {
-		if _, ok := e.adapters[id]; ok {
-			return id
-		}
-	}
-	if _, ok := e.adapters["kin"]; ok {
-		return "kin"
-	}
-	for id := range e.adapters {
-		return id
-	}
-	return ""
+	return e.DefaultAgentContext(context.Background())
 }
 
-// SetDefaultAgentFn sets the dynamic default resolver (serve setup).
+// DefaultAgentContext is the context-aware default selection.
+func (e *Engine) DefaultAgentContext(ctx context.Context) string {
+	configured := ""
+	if e.defaultPreference != nil {
+		if id, err := e.defaultPreference(ctx); err == nil {
+			configured = strings.TrimSpace(id)
+		}
+	}
+	return e.agents.Default(ctx, configured)
+}
+
+// SetDefaultPreference sets the configured preferred agent id resolver (serve setup).
+func (e *Engine) SetDefaultPreference(fn DefaultPreference) {
+	e.defaultPreference = fn
+}
+
+// SetDefaultAgentFn is a compatibility wrapper for tests/older callers.
+// Prefer SetDefaultPreference.
 func (e *Engine) SetDefaultAgentFn(fn func() string) {
-	e.defaultAgentFn = fn
+	if fn == nil {
+		e.defaultPreference = nil
+		return
+	}
+	e.defaultPreference = func(context.Context) (string, error) { return fn(), nil }
 }
 
-// HasAgent reports whether an adapter is registered.
+// HasAgent reports whether an agent is registered (not necessarily ready).
 func (e *Engine) HasAgent(id string) bool {
-	_, ok := e.adapters[id]
-	return ok
+	return e.agents.Has(id)
 }
 
-// AgentIDs returns registered adapter ids (sorted).
+// AgentIDs returns registered agent ids in registry order.
 func (e *Engine) AgentIDs() []string {
-	ids := make([]string, 0, len(e.adapters))
-	for id := range e.adapters {
-		ids = append(ids, id)
+	return e.agents.IDs()
+}
+
+// runnerFor returns the run adapter for id if registered.
+func (e *Engine) runnerFor(id string) (adapter.Adapter, bool) {
+	reg, ok := e.agents.Get(id)
+	if !ok || reg.Runner == nil {
+		return nil, false
 	}
-	// stable-ish: prefer known order
-	pref := []string{"kin", "claude-code", "codex", "grok", "rawpty"}
-	var out []string
-	seen := map[string]bool{}
-	for _, p := range pref {
-		if _, ok := e.adapters[p]; ok {
-			out = append(out, p)
-			seen[p] = true
+	return reg.Runner, true
+}
+
+// resetAgentSession clears plugin-private session state for id.
+func (e *Engine) resetAgentSession(ctx context.Context, id, taskID string) {
+	if err := e.agents.ResetSession(ctx, id, taskID); err != nil {
+		payload, _ := json.Marshal(map[string]string{
+			"message": fmt.Sprintf("session reset for %s failed: %v", id, err),
+		})
+		if ev, err := e.store.AppendEvent(ctx, taskID, "error", payload); err == nil {
+			e.bus.PublishEvent(ev)
 		}
 	}
-	for _, id := range ids {
-		if !seen[id] {
-			out = append(out, id)
-		}
-	}
-	return out
 }
 
 // Create enqueues a new task and starts it if under the concurrency limit.
@@ -232,13 +336,13 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		return store.Task{}, fmt.Errorf("prompt is required")
 	}
 	if req.Agent == "" {
-		req.Agent = e.DefaultAgent()
+		req.Agent = e.DefaultAgentContext(ctx)
 		if req.Agent == "" {
-			return store.Task{}, fmt.Errorf("no agents available: install claude, codex, or grok CLI")
+			return store.Task{}, fmt.Errorf("no agents available: install claude, codex, or grok CLI, or configure Kin provider")
 		}
 	}
-	if _, ok := e.adapters[req.Agent]; !ok {
-		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q (available: %v)", req.Agent, e.AgentIDs())
+	if _, err := e.agents.GetRunnable(ctx, req.Agent); err != nil {
+		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q (available: %v): %w", req.Agent, e.AgentIDs(), err)
 	}
 
 	id, err := e.newID()
@@ -328,6 +432,37 @@ func (e *Engine) maybeSummarizeTitle(taskID, prompt, fallback string) {
 			e.bus.PublishTask(t)
 		}
 	}()
+}
+
+// planNeedsModel reports whether any delegate step still lacks a model, so the
+// (provider-backed) NL directive resolution is only attempted when it can matter.
+func planNeedsModel(plan DelegatePlan) bool {
+	for _, s := range plan.Steps {
+		if strings.TrimSpace(s.Model) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveModelDirective extracts natural-language model intent from the live
+// user turn using the cognition provider. Best-effort and gated: returns ok=false
+// (no provider call) when unconfigured or the turn carries no model-ish hint.
+func (e *Engine) resolveModelDirective(ctx context.Context, t store.Task) (ModelDirective, bool) {
+	if e.titleFn == nil {
+		return ModelDirective{}, false
+	}
+	turn := UserTurnPrompt(t.Prompt)
+	if strings.TrimSpace(turn) == "" || !modelHintRE.MatchString(turn) {
+		return ModelDirective{}, false
+	}
+	callCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	client, cfg, err := e.titleFn(callCtx)
+	if err != nil || client == nil || !cfg.Configured() {
+		return ModelDirective{}, false
+	}
+	return ExtractModelDirective(callCtx, client, cfg.Model, turn)
 }
 
 // Cancel requests cancellation. Queued → canceled; running/waiting_approval → SIGTERM/SIGKILL.
@@ -481,11 +616,20 @@ func (e *Engine) startOne(id string) {
 
 	// Multi-@ keeps the selected session host; mentioned agents run as workers.
 	if plan, ok := e.shouldOrchestrate(t); ok {
+		// Natural-language model steering ("用 Codex 的 GPT-5.6 执行" /
+		// "计划用聪明模型，执行用便宜模型") fills any worker without an explicit
+		// @agent[model]. Gated + best-effort: no provider call unless a step
+		// actually lacks a model and the turn mentions models/cost.
+		if planNeedsModel(plan) {
+			if d, ok := e.resolveModelDirective(ctx, t); ok {
+				d.ApplyTo(&plan, BuiltinCatalog())
+			}
+		}
 		e.runOrchestrated(id, t, plan)
 		return
 	}
 
-	ad, ok := e.adapters[t.Agent]
+	ad, ok := e.runnerFor(t.Agent)
 	if !ok {
 		_, _ = e.failStart(ctx, id, fmt.Sprintf("unknown agent %q", t.Agent))
 		return
@@ -494,6 +638,12 @@ func (e *Engine) startOne(id string) {
 	model := ""
 	if t.Model != nil {
 		model = *t.Model
+	}
+	// Bare task with no selected model: honor an NL model directive for the host.
+	if model == "" {
+		if d, ok := e.resolveModelDirective(ctx, t); ok {
+			model = d.ForAgent(t.Agent, BuiltinCatalog())
+		}
 	}
 	sessionRef := ""
 	if t.SessionRef != nil {
@@ -605,14 +755,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 
 		switch ev.Type {
 		case "task_started":
-			sid := claudecode.ExtractSessionID(ev.Payload)
-			if sid == "" {
-				sid = codex.ExtractSessionID(ev.Payload)
-			}
-			if sid == "" {
-				sid = grok.ExtractSessionID(ev.Payload)
-			}
-			if sid != "" {
+			if sid := adapter.SessionRefFromEvent(ev.Payload); sid != "" {
 				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 				if t, err := e.store.GetTask(ctx, id); err == nil {
 					e.bus.PublishTask(t)
@@ -620,21 +763,18 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 			}
 		case "result":
 			sawResult = true
-			var resultMeta struct {
-				IsError bool `json:"is_error"`
-			}
-			_ = json.Unmarshal(ev.Payload, &resultMeta)
-			// Capture grok session id from result if not already set.
-			if sid := grok.ExtractSessionID(ev.Payload); sid != "" {
-				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
-			}
-			resultIsError = resultMeta.IsError
-			sid := claudecode.ExtractSessionID(ev.Payload)
-			if sid == "" {
-				sid = codex.ExtractSessionID(ev.Payload)
-			}
-			if sid != "" {
-				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
+			if parsed, ok := adapter.ParseResult(ev.Payload); ok {
+				resultIsError = parsed.IsError
+				if parsed.SessionRef != "" {
+					sid := parsed.SessionRef
+					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
+				}
+			} else {
+				var resultMeta struct {
+					IsError bool `json:"is_error"`
+				}
+				_ = json.Unmarshal(ev.Payload, &resultMeta)
+				resultIsError = resultMeta.IsError
 			}
 		}
 	}
@@ -704,7 +844,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 }
 
 func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.UsageRecord) string {
-	if record == nil || record.CostUSD != nil || record.Agent != "codex" {
+	if record == nil || record.CostUSD != nil {
 		return ""
 	}
 	input := 0
@@ -718,9 +858,12 @@ func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.U
 	if input == 0 && output == 0 {
 		return ""
 	}
-	model := codex.DefaultModel
-	if record.Model != nil && strings.TrimSpace(*record.Model) != "" {
+	model := ""
+	if record.Model != nil {
 		model = strings.TrimSpace(*record.Model)
+	}
+	if model == "" {
+		return ""
 	}
 	if cost, found := e.store.LoadPriceTable(ctx).ComputeCost(model, input, output); found {
 		record.CostUSD = &cost

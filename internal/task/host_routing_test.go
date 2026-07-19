@@ -16,9 +16,9 @@ func TestCreateDelegationPreservesConfiguredHost(t *testing.T) {
 	kinAdapter := &fakeAdapter{events: successEvents()}
 	workerAdapter := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, defaultAdapter)
-	e.adapters["codex"] = defaultAdapter
-	e.adapters["kin"] = kinAdapter
-	e.adapters["claude-code"] = workerAdapter
+	e.putAdapter("codex", defaultAdapter)
+	e.putAdapter("kin", kinAdapter)
+	e.putAdapter("claude-code", workerAdapter)
 	e.SetDefaultAgentFn(func() string { return "codex" })
 
 	task, err := e.Create(ctx, CreateRequest{
@@ -40,9 +40,9 @@ func TestFollowUpDelegationPreservesSessionHost(t *testing.T) {
 	kinAdapter := &fakeAdapter{events: successEvents()}
 	workerAdapter := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, codexAdapter)
-	e.adapters["codex"] = codexAdapter
-	e.adapters["kin"] = kinAdapter
-	e.adapters["claude-code"] = workerAdapter
+	e.putAdapter("codex", codexAdapter)
+	e.putAdapter("kin", kinAdapter)
+	e.putAdapter("claude-code", workerAdapter)
 	e.SetDefaultAgentFn(func() string { return "codex" })
 
 	task, err := e.Create(ctx, CreateRequest{
@@ -70,8 +70,8 @@ func TestMentionOfSessionHostDoesNotDelegateToItself(t *testing.T) {
 	codexAdapter := &fakeAdapter{events: successEvents()}
 	kinAdapter := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, codexAdapter)
-	e.adapters["codex"] = codexAdapter
-	e.adapters["kin"] = kinAdapter
+	e.putAdapter("codex", codexAdapter)
+	e.putAdapter("kin", kinAdapter)
 	e.SetDefaultAgentFn(func() string { return "codex" })
 
 	task, err := e.Create(ctx, CreateRequest{
@@ -96,8 +96,8 @@ func TestFollowUpMentionOfSessionHostKeepsResume(t *testing.T) {
 	codexAdapter := &fakeAdapter{events: successEvents()}
 	kinAdapter := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, codexAdapter)
-	e.adapters["codex"] = codexAdapter
-	e.adapters["kin"] = kinAdapter
+	e.putAdapter("codex", codexAdapter)
+	e.putAdapter("kin", kinAdapter)
 	e.SetDefaultAgentFn(func() string { return "codex" })
 
 	task, err := e.Create(ctx, CreateRequest{
@@ -162,9 +162,9 @@ func TestWorkerRetryMessageUsesSessionHostSpeaker(t *testing.T) {
 		{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)},
 	}}
 	e, _ := testEngine(t, 4, codexAdapter)
-	e.adapters["codex"] = codexAdapter
-	e.adapters["kin"] = kinAdapter
-	e.adapters["claude-code"] = workerAdapter
+	e.putAdapter("codex", codexAdapter)
+	e.putAdapter("kin", kinAdapter)
+	e.putAdapter("claude-code", workerAdapter)
 	e.SetDefaultAgentFn(func() string { return "codex" })
 
 	task, err := e.Create(ctx, CreateRequest{

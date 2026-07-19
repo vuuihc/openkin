@@ -33,7 +33,7 @@ func (e *Engine) shouldOrchestrate(t store.Task) (DelegatePlan, bool) {
 			if s.Agent == t.Agent {
 				continue
 			}
-			if _, ok := e.adapters[s.Agent]; ok {
+			if e.HasAgent(s.Agent) {
 				steps = append(steps, s)
 			}
 		}
@@ -56,7 +56,21 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	ctx := e.ctx
 	main := t.Agent
 	if main == "" {
-		main = e.DefaultAgent()
+		main = e.DefaultAgentContext(ctx)
+	}
+
+	hostModel := ""
+	if t.Model != nil {
+		hostModel = strings.TrimSpace(*t.Model)
+	}
+	if e.hostHasOrchestrate(main) {
+		refined, usage, ok := e.tryHostPlanRefine(ctx, main, hostModel, plan)
+		e.recordControllerUsage(ctx, id, main, "orchestration_plan", usage)
+		if ok {
+			plan = refined
+		} else {
+			e.emitOrchestrationFallback(ctx, id, main, "plan refine unavailable or invalid", "plan")
+		}
 	}
 
 	waves := PlanWaves(plan.Steps)
@@ -74,7 +88,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		if i > 0 {
 			b.WriteString(" · ")
 		}
-		fmt.Fprintf(&b, "**%s**", displayAgentName(s.Agent, effectiveStepModel(t, s)))
+		fmt.Fprintf(&b, "**%s**", e.agentDisplayName(s.Agent, effectiveStepModel(t, s)))
 	}
 	if parallelN > 0 {
 		fmt.Fprintf(&b, "（%d 波次，可并行）", len(waves))
@@ -83,7 +97,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	}
 	b.WriteString("\n")
 	for i, s := range plan.Steps {
-		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, displayAgentName(s.Agent, effectiveStepModel(t, s)), truncate(s.Instruction, 160))
+		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, e.agentDisplayName(s.Agent, effectiveStepModel(t, s)), truncate(s.Instruction, 160))
 	}
 	e.emitSpeakerMessage(ctx, id, main, "assistant", strings.TrimSpace(b.String()), "orchestrator")
 
@@ -98,7 +112,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		for si, txt := range priorByStep {
 			if strings.TrimSpace(txt) != "" {
 				step := plan.Steps[si]
-				priorList = append(priorList, fmt.Sprintf("[%s]\n%s", displayAgentName(step.Agent, effectiveStepModel(t, step)), txt))
+				priorList = append(priorList, fmt.Sprintf("[%s]\n%s", e.agentDisplayName(step.Agent, effectiveStepModel(t, step)), txt))
 			}
 		}
 
@@ -107,13 +121,13 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			si := wave[0]
 			step := plan.Steps[si]
 			announce := fmt.Sprintf("→ **%s**（%d/%d）",
-				displayAgentName(step.Agent, effectiveStepModel(t, step)), si+1, len(plan.Steps))
+				e.agentDisplayName(step.Agent, effectiveStepModel(t, step)), si+1, len(plan.Steps))
 			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate")
 		} else {
 			names := make([]string, 0, len(wave))
 			for _, si := range wave {
 				step := plan.Steps[si]
-				names = append(names, displayAgentName(step.Agent, effectiveStepModel(t, step)))
+				names = append(names, e.agentDisplayName(step.Agent, effectiveStepModel(t, step)))
 			}
 			announce := fmt.Sprintf("→ 并行 **%s**（波次 %d/%d）",
 				strings.Join(names, " + "), wi+1, len(waves))
@@ -132,7 +146,13 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		// Start all workers in the wave.
 		for i, si := range wave {
 			step := plan.Steps[si]
-			ad := e.adapters[step.Agent]
+			ad, ok := e.runnerFor(step.Agent)
+			if !ok {
+				e.emitError(ctx, id, fmt.Sprintf("%s has no runner", step.Agent))
+				failedByStep[si] = true
+				anyErr = true
+				continue
+			}
 			if ad == nil {
 				e.emitError(ctx, id, fmt.Sprintf("Agent %s is not available", step.Agent))
 				outs[i] = stepOut{idx: si, err: true}
@@ -182,7 +202,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					canceled := e.canceled[id]
 					e.mu.Unlock()
 					if !canceled {
-						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", displayAgentName(gagent, gmodel))
+						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", e.agentDisplayName(gagent, gmodel))
 						e.emitSpeakerMessage(ctx, id, main, "assistant", retryNote, "orchestrator")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
 						// Keep assignment identity stable for approvals.
@@ -277,12 +297,38 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			continue
 		}
 		step := plan.Steps[si]
-		label := displayAgentName(step.Agent, effectiveStepModel(t, step))
+		label := e.agentDisplayName(step.Agent, effectiveStepModel(t, step))
 		priorResults = append(priorResults, fmt.Sprintf("[%s]\n%s", label, txt))
 		priorFailed = append(priorFailed, failedByStep[si])
 	}
 
 	summary := buildMainSummary(plan, priorResults, priorFailed, anyErr)
+	// Optional host control-plane synthesis when the plugin declares orchestrate.
+	if e.hostHasOrchestrate(main) {
+		var synthPrompt strings.Builder
+		synthPrompt.WriteString("Summarize the multi-agent run for the user. Be concise and factual.\n\n")
+		synthPrompt.WriteString("User request:\n")
+		synthPrompt.WriteString(UserTurnPrompt(t.Prompt))
+		synthPrompt.WriteString("\n\nWorker results:\n")
+		for _, r := range priorResults {
+			synthPrompt.WriteString(r)
+			synthPrompt.WriteString("\n---\n")
+		}
+		if anyErr {
+			synthPrompt.WriteString("\nNote: at least one worker failed.\n")
+		}
+		model := ""
+		if t.Model != nil {
+			model = *t.Model
+		}
+		if text, usage, ok := e.tryHostSynthesis(ctx, main, model, synthPrompt.String()); ok {
+			summary = text
+			e.recordControllerUsage(ctx, id, main, "orchestration_synthesis", usage)
+		} else {
+			e.recordControllerUsage(ctx, id, main, "orchestration_synthesis", usage)
+			e.emitOrchestrationFallback(ctx, id, main, "synthesis unavailable or empty", "synthesis")
+		}
+	}
 	e.emitSpeakerMessage(ctx, id, main, "assistant", summary, "orchestrator")
 
 	res, _ := json.Marshal(map[string]any{
@@ -413,18 +459,14 @@ func extractFinalWorkerText(raw json.RawMessage) string {
 
 // extractResultText pulls a final answer string from a result event payload.
 func extractResultText(raw json.RawMessage) string {
+	if res, ok := adapter.ParseResult(raw); ok {
+		if s := strings.TrimSpace(res.Text); s != "" {
+			return s
+		}
+	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return ""
-	}
-	switch v := m["result"].(type) {
-	case string:
-		return strings.TrimSpace(v)
-	case map[string]any:
-		// Some adapters nest text under result.
-		if t, ok := v["text"].(string); ok {
-			return strings.TrimSpace(t)
-		}
 	}
 	if t, ok := m["message"].(string); ok {
 		// Error-ish results only — avoid treating generic status strings as answers.
@@ -444,19 +486,28 @@ func (e *Engine) appendEventLocked(ctx context.Context, taskID, typ string, payl
 	}
 }
 
-func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agent, role, text, source string) {
-	// Main-agent turns are user-facing; workers are task-only (see stampSpeaker).
-	userFacing := source == "orchestrator" || source == "delegate"
+func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agentID, role, text, source string) {
+	// Host plan/delegate/summary are user-facing; other sources default to task+user.
+	userFacing := source == "orchestrator" || source == "delegate" || source == "host"
+	phase := ""
+	switch source {
+	case "orchestrator":
+		phase = "plan"
+	case "delegate":
+		phase = "progress"
+	}
+	// Heuristic: final summary calls still use source=orchestrator; UI uses finality via last message.
 	payload, _ := json.Marshal(map[string]any{
 		"role":    role,
 		"content": []map[string]string{{"type": "text", "text": text}},
 		"partial": false,
-		"agent":   agent,
-		"speaker": agent,
+		"agent":   agentID,
+		"speaker": agentID,
 		"source":  source,
+		"phase":   phase,
 		"visibility": map[string]bool{
 			"user": userFacing,
-			"task": !userFacing,
+			"task": true,
 		},
 	})
 	e.appendEventLocked(ctx, taskID, "message", payload)
@@ -682,24 +733,6 @@ func effectiveStepModel(t store.Task, step DelegateStep) string {
 		return *t.Model
 	}
 	return ""
-}
-
-func displayAgentName(id, model string) string {
-	name := id
-	switch id {
-	case "claude-code":
-		name = "Claude Code"
-	case "codex":
-		name = "Codex"
-	case "grok":
-		name = "Grok"
-	case "kin":
-		name = "Kin"
-	}
-	if model != "" {
-		return name + "[" + model + "]"
-	}
-	return name
 }
 
 func truncate(s string, n int) string {

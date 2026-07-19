@@ -1,0 +1,114 @@
+package task
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+
+	"github.com/vuuihc/kin/internal/provider"
+)
+
+// countingClient records how many times Chat is invoked (gating assertions).
+type countingClient struct {
+	content string
+	calls   int32
+}
+
+func (c *countingClient) Chat(ctx context.Context, req provider.ChatRequest) (*provider.ChatResponse, error) {
+	atomic.AddInt32(&c.calls, 1)
+	return &provider.ChatResponse{Content: c.content, Model: "stub"}, nil
+}
+func (c *countingClient) Kind() string         { return "stub" }
+func (c *countingClient) ModelDefault() string { return "stub" }
+
+func TestExtractModelDirectiveGating(t *testing.T) {
+	ctx := context.Background()
+	// No model-ish hint → no provider call, ok=false.
+	c := &countingClient{content: `{"per_agent":{"codex":"gpt-5"}}`}
+	if _, ok := ExtractModelDirective(ctx, c, "m", "帮我修一下登录的 bug"); ok {
+		t.Fatalf("plain prompt should not yield a directive")
+	}
+	if got := atomic.LoadInt32(&c.calls); got != 0 {
+		t.Fatalf("prefilter must skip the provider call, got %d calls", got)
+	}
+	// nil client → ok=false, no panic.
+	if _, ok := ExtractModelDirective(ctx, nil, "m", "用 gpt-5 执行"); ok {
+		t.Fatalf("nil client should yield ok=false")
+	}
+}
+
+func TestExtractModelDirectivePerAgent(t *testing.T) {
+	ctx := context.Background()
+	c := &countingClient{content: `{"global":"","per_agent":{"codex":"GPT 5.6 Terra"},"planner_tier":"","executor_tier":""}`}
+	d, ok := ExtractModelDirective(ctx, c, "m", "这个任务用 Codex 的 GPT 5.6 Terra 去执行")
+	if !ok {
+		t.Fatalf("expected a directive")
+	}
+	if d.PerAgent["codex"] != "GPT 5.6 Terra" {
+		t.Fatalf("per_agent codex = %q", d.PerAgent["codex"])
+	}
+	if atomic.LoadInt32(&c.calls) != 1 {
+		t.Fatalf("expected exactly one provider call")
+	}
+}
+
+func TestModelDirectiveApplyPrecedence(t *testing.T) {
+	cat := BuiltinCatalog()
+	plan := &DelegatePlan{Steps: []DelegateStep{
+		{Agent: "claude-code", Instruction: "做实验", Model: "explicit-model"}, // explicit @model — keep
+		{Agent: "codex", Instruction: "根据实验结果验收"},                           // fill from per-agent
+		{Agent: "grok", Instruction: "跑一下测试"},                               // fill from global
+	}}
+	d := ModelDirective{
+		Global:   "grok-4",
+		PerAgent: map[string]string{"codex": "gpt 5.1 codex max"},
+	}
+	d.ApplyTo(plan, cat)
+
+	if plan.Steps[0].Model != "explicit-model" {
+		t.Errorf("explicit model overwritten: %q", plan.Steps[0].Model)
+	}
+	if plan.Steps[1].Model != "gpt-5.1-codex-max" { // per-agent, normalized
+		t.Errorf("codex step = %q, want normalized per-agent model", plan.Steps[1].Model)
+	}
+	if plan.Steps[2].Model != "grok-4" { // global fallback
+		t.Errorf("grok step = %q, want global", plan.Steps[2].Model)
+	}
+}
+
+func TestModelDirectiveApplyTiers(t *testing.T) {
+	cat := BuiltinCatalog()
+	// "聪明模型做计划，便宜模型做执行" — role → tier mapping.
+	plan := &DelegatePlan{Steps: []DelegateStep{
+		{Agent: "claude-code", Instruction: "先做架构设计与调研方案"}, // planner → smart
+		{Agent: "codex", Instruction: "根据方案实现并修复问题"},       // executor → fast
+	}}
+	d := ModelDirective{PlannerTier: TierSmart, ExecutorTier: TierFast}
+	d.ApplyTo(plan, cat)
+
+	if plan.Steps[0].Model != "claude-opus-4-8" {
+		t.Errorf("planner step = %q, want smart tier", plan.Steps[0].Model)
+	}
+	if plan.Steps[1].Model != "o4-mini" {
+		t.Errorf("executor step = %q, want fast tier", plan.Steps[1].Model)
+	}
+}
+
+func TestModelDirectiveForAgent(t *testing.T) {
+	cat := BuiltinCatalog()
+	d := ModelDirective{
+		Global:   "opus",
+		PerAgent: map[string]string{"codex": "mini"},
+	}
+	if got := d.ForAgent("codex", cat); got != "o4-mini" {
+		t.Errorf("ForAgent codex = %q, want o4-mini", got)
+	}
+	if got := d.ForAgent("claude-code", cat); got != "claude-opus-4-8" {
+		t.Errorf("ForAgent claude-code = %q, want global opus normalized", got)
+	}
+	// Tiers do not apply to a bare task.
+	empty := ModelDirective{PlannerTier: TierSmart}
+	if got := empty.ForAgent("codex", cat); got != "" {
+		t.Errorf("ForAgent with only tier = %q, want empty", got)
+	}
+}

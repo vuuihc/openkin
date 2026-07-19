@@ -81,6 +81,8 @@ func NormalizeUsage(defaultAgent, defaultModel string, raw json.RawMessage) (sto
 		}
 	}
 	if record.InputSemantics == "" {
+		// Prefer adapter-provided semantics. Legacy payloads (pre-field) are mapped by
+		// historical event source labels only — not by live agent capability branches.
 		switch strings.TrimSpace(payload.Source) {
 		case "codex", "kin":
 			record.InputSemantics = store.InputSemanticsTotalIncludesCache

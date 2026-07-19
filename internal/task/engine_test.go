@@ -90,7 +90,7 @@ func testEngine(t *testing.T, max int, ad adapter.Adapter) (*Engine, *store.Stor
 	t.Cleanup(func() { _ = st.Close() })
 	bus := NewBus()
 	adapters := map[string]adapter.Adapter{"claude-code": ad}
-	e := NewEngine(st, adapters, bus, max)
+	e := NewEngineFromAdapters(st, adapters, bus, max)
 	t.Cleanup(e.Close)
 	if err := e.Recover(context.Background()); err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestRestartRecovery(t *testing.T) {
 	}
 
 	ad := &fakeAdapter{events: successEvents()}
-	e := NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, NewBus(), 4)
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, NewBus(), 4)
 	defer e.Close()
 	if err := e.Recover(ctx); err != nil {
 		t.Fatal(err)
@@ -436,3 +436,53 @@ func (s *titleStubClient) Chat(ctx context.Context, req provider.ChatRequest) (*
 }
 func (s *titleStubClient) Kind() string         { return "stub" }
 func (s *titleStubClient) ModelDefault() string { return "stub" }
+
+
+func TestExplicitAgentIsSingleRunSpeaker(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "say hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
+	evs, err := e.Events(context.Background(), task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawAssistant bool
+	for _, ev := range evs {
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		_ = json.Unmarshal(ev.Payload, &m)
+		if m["role"] == "assistant" || m["speaker"] == "claude-code" {
+			if sp, _ := m["speaker"].(string); sp != "" && sp != "claude-code" {
+				t.Fatalf("speaker=%v want claude-code payload=%s", m["speaker"], string(ev.Payload))
+			}
+			sawAssistant = true
+		}
+	}
+	if !sawAssistant {
+		t.Fatal("no assistant message")
+	}
+}
+
+func TestLegacyResultPayloadStillParsed(t *testing.T) {
+	// successEvents already uses legacy session_id / cost fields.
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "hi",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
+	if final.SessionRef == nil || *final.SessionRef != "s1" {
+		t.Fatalf("session_ref=%v", final.SessionRef)
+	}
+}

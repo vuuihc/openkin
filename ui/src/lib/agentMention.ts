@@ -3,7 +3,7 @@
  *
  * Single:
  *   "@codex fix the tests" → { agents: ["codex"], steps: [...], prompt cleaned }
- * Multi (orchestrated by Kin):
+ * Multi (host orchestrates workers):
  *   "调研 X，@claude 做实验 @codex 验收" → multiple steps, keep raw for backend
  */
 
@@ -41,7 +41,7 @@ export type AgentDirective = {
   raw: string;
   /** Raw first mention token if any. */
   mention?: string;
-  /** True when ≥1 non-kin worker is assigned. */
+  /** True when ≥1 worker step is assigned. */
   multi: boolean;
 };
 
@@ -100,7 +100,7 @@ export function parseAgentDirective(
     };
   });
 
-  const workers = steps.filter((s) => s.agent !== "kin");
+  const workers = steps.filter((s) => !!s.agent);
   // Strip mentions for a cleaned single-agent prompt (first worker or kin).
   const cleaned = text
     .replace(MENTION_RE, (full, tok: string) => {
@@ -124,12 +124,12 @@ export function parseAgentDirective(
 }
 
 /** Short labels for composer hint. */
-export function mentionHints(availableIds: string[]): string[] {
+export function mentionHints(availableIds: string[], hostId?: string): string[] {
   const hints: string[] = [];
-  if (availableIds.includes("kin")) hints.push("@kin");
-  if (availableIds.includes("claude-code")) hints.push("@claude-code");
-  if (availableIds.includes("codex")) hints.push("@codex");
-  if (availableIds.includes("grok")) hints.push("@grok");
+  for (const id of availableIds) {
+    if (hostId && id === hostId) continue;
+    hints.push("@" + id);
+  }
   return hints;
 }
 
@@ -187,11 +187,24 @@ export function agentAvatarMeta(id: string): {
         initials: "G",
         className: "bg-zinc-800 text-white border border-zinc-600",
       };
-    default:
+    default: {
+      const label = agentDisplayName(id) || id || "agent";
+      const cleaned = label.replace(/[^a-zA-Z0-9]+/g, " ").trim();
+      const initials = (
+        cleaned
+          .split(/\s+/)
+          .map((w) => w[0] || "")
+          .join("") ||
+        label.slice(0, 2) ||
+        "?"
+      )
+        .slice(0, 2)
+        .toUpperCase();
       return {
-        label: id,
-        initials: (id[0] || "?").toUpperCase(),
+        label,
+        initials,
         className: "bg-kin-blue-soft text-kin-blue",
       };
+    }
   }
 }

@@ -16,13 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/claudecode"
-	"github.com/vuuihc/kin/internal/adapter/codex"
-	"github.com/vuuihc/kin/internal/adapter/detect"
-	"github.com/vuuihc/kin/internal/adapter/grok"
-	"github.com/vuuihc/kin/internal/adapter/kinagent"
-	"github.com/vuuihc/kin/internal/adapter/rawpty"
 	"github.com/vuuihc/kin/internal/api"
 	"github.com/vuuihc/kin/internal/notify"
 	"github.com/vuuihc/kin/internal/provider"
@@ -31,6 +24,7 @@ import (
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
 	"github.com/vuuihc/kin/internal/terminal"
+	"github.com/vuuihc/kin/internal/usagewindows"
 	"github.com/vuuihc/kin/web"
 )
 
@@ -126,104 +120,40 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 	}
 
+	// Build pluggable agent registry (composition root).
 	daemonURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-
-	// Discover installed agent CLIs and only register those present on PATH.
-	// Optional preference: settings key agent.default.
-	defaultPref, _ := st.GetSetting(ctx, "agent.default")
-	found := detect.Scan(defaultPref)
-	adapters := map[string]adapter.Adapter{}
-	for _, info := range found {
-		if !info.Available {
-			fmt.Printf("agent %s: not installed (%s)\n", info.ID, info.Reason)
-			continue
-		}
-		switch info.ID {
-		case "claude-code":
-			claudeAd := claudecode.New()
-			claudeAd.Binary = info.Binary
-			claudeAd.DaemonURL = daemonURL
-			claudeAd.Token = token
-			claudeAd.TokenFunc = func() string {
-				t, err := remote.ReadToken(stateDir)
-				if err != nil || t == "" {
-					return token
-				}
-				return t
-			}
-			adapters["claude-code"] = claudeAd
-			fmt.Printf("agent claude-code: %s\n", info.Binary)
-		case "codex":
-			codexAd := codex.New()
-			codexAd.Binary = info.Binary
-			adapters["codex"] = codexAd
-			fmt.Printf("agent codex: %s\n", info.Binary)
-		case "grok":
-			grokAd := grok.New()
-			grokAd.Binary = info.Binary
-			adapters["grok"] = grokAd
-			fmt.Printf("agent grok: %s\n", info.Binary)
-		}
-	}
-	// rawpty is opt-in (not auto-discovered as a coding agent).
-	if os.Getenv("KIN_ENABLE_RAWPTY") == "1" {
-		adapters["rawpty"] = rawpty.New()
-		fmt.Println("agent rawpty: enabled (KIN_ENABLE_RAWPTY=1)")
-	}
-
-	// Built-in Kin agent = Kin + cognition Provider (always registered).
-	// Available for runs when provider.base_url + provider.model are set.
-	// Durable multi-turn transcript + session_search over events (ADR 0002 P1.5/P2).
-	kinBridge := kinagent.StoreTranscript{Store: st}
-	kinAd := kinagent.New(func(c context.Context) (provider.Client, provider.Config, error) {
-		cfg, err := provider.LoadConfig(c, st)
+	tokenFn := func() string {
+		b, err := os.ReadFile(filepath.Join(stateDir, "token"))
 		if err != nil {
-			return nil, cfg, err
+			return token
 		}
-		if !cfg.Configured() {
-			return nil, cfg, fmt.Errorf("provider not configured (Settings → Cognition)")
+		return strings.TrimSpace(string(b))
+	}
+	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn)
+	if err != nil {
+		return err
+	}
+	for _, info := range reg.List(ctx, "") {
+		if info.Available {
+			if info.Binary != "" {
+				fmt.Printf("agent %s: %s\n", info.ID, info.Binary)
+			} else {
+				fmt.Printf("agent %s: ready\n", info.ID)
+			}
+		} else {
+			reason := info.Reason
+			if reason == "" {
+				reason = "unavailable"
+			}
+			fmt.Printf("agent %s: %s\n", info.ID, reason)
 		}
-		cli, err := provider.NewClient(cfg)
-		return cli, cfg, err
-	})
-	kinAd.Transcript = kinBridge
-	kinAd.Search = kinBridge
-	adapters[kinagent.AgentID] = kinAd
-	if cfg, err := provider.LoadConfig(ctx, st); err == nil && cfg.Configured() {
-		fmt.Printf("agent kin: provider %s model=%s\n", cfg.BaseURL, cfg.Model)
-	} else {
-		fmt.Println("agent kin: registered (configure provider in Settings to enable)")
 	}
 
-	if len(adapters) == 0 {
-		return fmt.Errorf("no agents available")
-	}
-
-	eng := task.NewEngine(st, adapters, task.NewBus(), task.DefaultMaxConcurrent)
+	eng := task.NewEngine(st, reg, task.NewBus(), task.DefaultMaxConcurrent)
 	defer eng.Close()
-	// Default agent: agent.default setting if available; else kin when provider ready; else first CLI.
-	eng.SetDefaultAgentFn(func() string {
-		pref, _ := st.GetSetting(context.Background(), "agent.default")
-		pref = strings.TrimSpace(pref)
-		pcfg, _ := provider.LoadConfig(context.Background(), st)
-		kinReady := pcfg.Configured() && eng.HasAgent(kinagent.AgentID)
-		if pref != "" {
-			if pref == kinagent.AgentID && kinReady {
-				return kinagent.AgentID
-			}
-			if pref != kinagent.AgentID && eng.HasAgent(pref) {
-				return pref
-			}
-		}
-		if kinReady {
-			return kinagent.AgentID
-		}
-		for _, id := range []string{"claude-code", "codex", "grok"} {
-			if eng.HasAgent(id) {
-				return id
-			}
-		}
-		return ""
+	eng.SetDefaultPreference(func(c context.Context) (string, error) {
+		pref, err := st.GetSetting(c, "agent.default")
+		return strings.TrimSpace(pref), err
 	})
 	if err := eng.Recover(context.Background()); err != nil {
 		return err
@@ -252,7 +182,6 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	auth := remote.NewFileAuth(tokenPath)
 	mode := networkMode(flags)
-	agentCache := detect.NewCache(5 * time.Second)
 	terminals := newTerminalManager(terminal.DetectProfiles)
 	defer terminals.Close()
 	srvAPI := &api.Server{
@@ -265,40 +194,30 @@ func ServeWith(version string, flags ServeFlags) error {
 		UploadsDir:   filepath.Join(stateDir, "uploads"),
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
 		NetworkMode:  mode,
+		// Probe provider subscription windows (5h/weekly) from the tokens the
+		// Claude Code and Codex CLIs already store. Cached 60s to avoid
+		// hammering providers (and spending Codex quota) on every page view.
+		UsageWindows: usagewindows.New(60*time.Second, &usagewindows.ClaudeProber{}, &usagewindows.CodexProber{}),
 		ListAgents: func() []api.AgentInfo {
 			pref, _ := st.GetSetting(context.Background(), "agent.default")
-			list := agentCache.Get(pref)
-			out := make([]api.AgentInfo, 0, len(list)+1)
-
-			// Kin + Provider first-class agent.
-			pcfg, _ := provider.LoadConfig(context.Background(), st)
-			kinOK := pcfg.Configured() && eng.HasAgent(kinagent.AgentID)
-			kinInfo := api.AgentInfo{
-				ID:        kinagent.AgentID,
-				Name:      "Kin",
-				Installed: true,
-				Available: kinOK,
-				Binary:    pcfg.BaseURL,
-			}
-			if !kinOK {
-				kinInfo.Reason = "configure provider.base_url + provider.model in Settings"
-			}
-			out = append(out, kinInfo)
-
+			list := reg.List(context.Background(), strings.TrimSpace(pref))
+			out := make([]api.AgentInfo, 0, len(list))
 			for _, i := range list {
-				reg := eng.HasAgent(i.ID)
+				caps := make([]string, 0, len(i.Capabilities))
+				for _, c := range i.Capabilities {
+					caps = append(caps, string(c))
+				}
 				out = append(out, api.AgentInfo{
-					ID:        i.ID,
-					Name:      i.Name,
-					Binary:    i.Binary,
-					Installed: i.Installed,
-					Available: reg,
-					Reason:    i.Reason,
+					ID:           i.ID,
+					Name:         i.Name,
+					Kind:         string(i.Kind),
+					Capabilities: caps,
+					Binary:       i.Binary,
+					Installed:    i.Installed,
+					Available:    i.Available,
+					Reason:       i.Reason,
+					Default:      i.Default,
 				})
-			}
-			def := eng.DefaultAgent()
-			for i := range out {
-				out[i].Default = out[i].ID == def && out[i].Available
 			}
 			return out
 		},

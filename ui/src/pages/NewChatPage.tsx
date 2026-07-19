@@ -47,6 +47,7 @@ export default function NewChatPage() {
     () => getDraftPermissionMode(),
   );
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [selectedHost, setSelectedHost] = useState<string>("");
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -85,12 +86,17 @@ export default function NewChatPage() {
   const availableIds = useMemo(() => available.map((a) => a.id), [available]);
   const defaultAgent =
     available.find((a) => a.default) ??
-    available.find((a) => a.id === "kin") ??
     available[0];
-  const mainAgentId = defaultAgent?.id ?? "kin";
-  const mainAgentName = defaultAgent?.name ?? agentDisplayName(mainAgentId);
-  const mainAgentAvatar = agentAvatarMeta(mainAgentId);
-  const hints = mentionHints(availableIds);
+  const mainAgentId =
+    (selectedHost && availableIds.includes(selectedHost) && selectedHost) ||
+    defaultAgent?.id ||
+    availableIds[0] ||
+    "";
+  const mainAgentMeta =
+    available.find((a) => a.id === mainAgentId) ?? defaultAgent;
+  const mainAgentName = mainAgentMeta?.name ?? agentDisplayName(mainAgentId || "agent");
+  const mainAgentAvatar = agentAvatarMeta(mainAgentId || "agent");
+  const hints = mentionHints(availableIds, mainAgentId);
 
   async function onSubmit(text: string) {
     const raw = text.trim();
@@ -108,12 +114,7 @@ export default function NewChatPage() {
 
     // Main agent (user-facing host): honor the configured default. Worker
     // mentions never replace this session host.
-    const mainAgent =
-      defaultAgent?.id ||
-      (availableIds.includes("kin") && "kin") ||
-      availableIds[0];
-
-    let agent: string = mainAgent;
+    let agent: string = mainAgentId;
     // No main at all — last resort single @ worker as the whole session.
     if (!agent && plan.agent) agent = plan.agent;
     if (!agent) {
@@ -161,7 +162,7 @@ export default function NewChatPage() {
         </div>
         {defaultAgent && (
           <div className="ml-2 text-[12px] text-kin-muted">
-            {tr("newChat.mainAgent", { name: defaultAgent.name })}
+            {tr("newChat.hostAgent", { name: defaultAgent.name })}
           </div>
         )}
       </div>
@@ -177,40 +178,41 @@ export default function NewChatPage() {
           {tr("newChat.heroTitle", { name: mainAgentName })}
         </h1>
         <p className="mt-2 text-[14px] text-kin-secondary text-center max-w-md">
-          {tr(
-            mainAgentId === "kin"
-              ? "newChat.heroSubtitleKin"
-              : "newChat.heroSubtitleExternal",
-            { name: mainAgentName },
-          )}
+          {tr("newChat.heroSubtitleHost", { name: mainAgentName })}
         </p>
 
-        {agents.length > 0 && (
-          <div className="mt-5 flex flex-wrap justify-center gap-1.5">
-            {agents.map((a) => (
-              <span
-                key={a.id}
-                className={[
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] border",
-                  a.available
-                    ? a.id === defaultAgent?.id
-                      ? "border-kin-blue/50 bg-kin-blue-soft text-kin-blue"
-                      : "border-kin-blue/30 bg-kin-blue-soft/60 text-kin-blue"
-                    : "border-[var(--kin-hairline)] text-kin-muted",
-                ].join(" ")}
-              >
-                <span
+        {available.length > 0 && (
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-1.5 max-w-lg">
+            <span className="w-full text-center text-[11.5px] text-kin-muted mb-0.5">
+              {tr("newChat.hostPicker")}
+            </span>
+            {available.map((a) => {
+              const active = a.id === mainAgentId;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setSelectedHost(a.id)}
                   className={[
-                    "w-1.5 h-1.5 rounded-full",
-                    a.available ? "bg-kin-green" : "bg-kin-muted",
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] border transition-colors",
+                    active
+                      ? "border-kin-blue/50 bg-kin-blue-soft text-kin-blue"
+                      : "border-[var(--kin-hairline)] text-kin-muted hover:text-kin-text",
                   ].join(" ")}
-                />
-                {a.name}
-                {a.id === defaultAgent?.id
-                  ? ` · ${tr("newChat.roleMain")}`
-                  : ` · ${tr("newChat.roleWorker")}`}
-              </span>
-            ))}
+                >
+                  <span
+                    className={[
+                      "w-1.5 h-1.5 rounded-full",
+                      a.available ? "bg-kin-green" : "bg-kin-muted",
+                    ].join(" ")}
+                  />
+                  {a.name}
+                  {active ? (
+                    <span className="text-[10px] opacity-70">{tr("newChat.roleHost")}</span>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -234,12 +236,13 @@ export default function NewChatPage() {
           {hints.length > 0 && (
             <div className="text-[11.5px] text-kin-muted px-0.5">
               {tr("newChat.tip", {
-                hints: hints.filter((h) => h !== "@kin").join(" · "),
+                hints: hints.join(" · "),
               })}
             </div>
           )}
           <Composer
             agents={agents}
+            hostAgentId={mainAgentId}
             busy={sending}
             disabled={sending}
             initialValue={initialValue}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/kin/internal/sessionctx"
+	"github.com/vuuihc/kin/internal/agent"
 	"github.com/vuuihc/kin/internal/store"
 )
 
@@ -364,7 +365,7 @@ func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpReques
 func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Task, req FollowUpRequest) (store.Task, error) {
 	// Validate agent early so we do not cancel then fail.
 	if req.Agent != "" && req.Agent != t.Agent {
-		if _, ok := e.adapters[req.Agent]; !ok {
+		if !e.HasAgent(req.Agent) {
 			return store.Task{}, fmt.Errorf("unknown or unavailable agent %q", req.Agent)
 		}
 	}
@@ -473,7 +474,7 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	handoff := false
 
 	if req.Agent != "" && req.Agent != t.Agent {
-		if _, ok := e.adapters[req.Agent]; !ok {
+		if !e.HasAgent(req.Agent) {
 			return store.Task{}, fmt.Errorf("unknown or unavailable agent %q", req.Agent)
 		}
 		targetAgent = req.Agent
@@ -487,27 +488,40 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	orchestrate := plan.HasWorkersOtherThan(targetAgent)
 
 	// Cross-turn context strategy (ADR 0002 Policy K):
-	//   - same-agent kin with durable transcript → append-only live user prompt
-	//   - handoff / interrupt / orchestrate / no-session CLI → sealed Context Pack blob
+	//   - same-agent resume-capable host with live session → append-only live user prompt
+	//   - handoff / interrupt / orchestrate / no-session → sealed Context Pack blob
 	// Orchestrated turns still store the user request under "User request:" so
 	// UserTurnPrompt / shouldOrchestrate only see the live @mentions.
 	runPrompt := prompt
-	sameKinResume := !handoff && !interrupted && !orchestrate && targetAgent == "kin"
-	if sameKinResume {
-		// Live user turn only; kinagent loads prior messages from kin_messages.
+	targetReg, _ := e.agents.Get(targetAgent)
+	canResume := targetReg.Descriptor.Has(agent.CapabilityResume)
+	sameAgentResume := !handoff && !interrupted && !orchestrate && canResume &&
+		t.SessionRef != nil && *t.SessionRef != "" && fromAgent == targetAgent
+	// Kin-style managed transcript: no engine session_ref but SessionHooks present.
+	managedTranscript := targetReg.Sessions != nil
+	if !handoff && !interrupted && !orchestrate && managedTranscript && fromAgent == targetAgent {
+		// Live user turn only; plugin loads prior messages from private storage.
+		sameAgentResume = true
+		runPrompt = prompt
+	} else if sameAgentResume {
 		runPrompt = prompt
 	} else {
 		ctxBlock := e.handoffContext(ctx, id)
-		needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || targetAgent == "kin" || interrupted || orchestrate
-		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate) {
+		needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || managedTranscript || interrupted || orchestrate
+		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript) {
 			runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
 			if interrupted {
 				runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
 			}
 		}
-		// Cold prefix: drop durable Kin transcript so we don't mix packs with resume.
-		if handoff || interrupted || orchestrate || targetAgent != "kin" {
-			_ = e.store.ClearKinMessages(ctx, id)
+		// Cold prefix: reset plugin session state so we don't mix packs with resume.
+		if handoff || interrupted || orchestrate {
+			e.resetAgentSession(ctx, fromAgent, id)
+			if targetAgent != fromAgent {
+				e.resetAgentSession(ctx, targetAgent, id)
+			}
+		} else if managedTranscript {
+			e.resetAgentSession(ctx, targetAgent, id)
 		}
 	}
 
@@ -644,7 +658,7 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 	}
 
 	// Best-effort: drop durable kin transcript so the next turn rebuilds from remaining events / handoff context.
-	_ = e.store.ClearKinMessages(ctx, id)
+	e.resetAgentSession(ctx, t.Agent, id)
 
 	// Re-seed the user message (same text) for the UI timeline.
 	userPayload, _ := json.Marshal(map[string]any{

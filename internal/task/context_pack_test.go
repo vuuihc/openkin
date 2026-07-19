@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/store"
 )
 
@@ -70,7 +71,7 @@ func TestHandoffContextKeepsRecentTurns(t *testing.T) {
 		}
 	}
 
-	e := NewEngine(st, nil, NewBus(), 1)
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{}, NewBus(), 1)
 	got := e.handoffContext(ctx, task.ID)
 	if got == "" {
 		t.Fatal("empty handoff context")

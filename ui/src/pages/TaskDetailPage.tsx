@@ -396,7 +396,7 @@ export default function TaskDetailPage() {
           >
             <span
               className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1"
-              title={tr("newChat.mainAgent", { name: hostAgentName })}
+              title={tr("newChat.hostAgent", { name: hostAgentName })}
             >
               <span
                 className={`w-4 h-4 rounded-[5px] inline-flex items-center justify-center text-[8px] font-semibold ${hostAgentAvatar.className}`}
@@ -404,7 +404,7 @@ export default function TaskDetailPage() {
                 {hostAgentAvatar.initials}
               </span>
               <span className="hidden sm:inline">
-                {tr("newChat.mainAgent", { name: hostAgentName })}
+                {tr("newChat.hostAgent", { name: hostAgentName })}
               </span>
             </span>
             <button
@@ -498,6 +498,7 @@ export default function TaskDetailPage() {
           <div className="max-w-[720px] mx-auto space-y-2">
             <Composer
               agents={agents}
+              hostAgentId={task.agent || ""}
               busy={sending}
               running={!terminal}
               stopping={stopping}

@@ -20,7 +20,7 @@ func TestKinFollowUpUsesLivePromptOnly(t *testing.T) {
 		events: successEvents(),
 	}
 	e, st := testEngine(t, 4, ad)
-	e.adapters["kin"] = ad
+	e.putAdapter("kin", ad)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	// Seed a prior durable transcript as if a previous kin turn completed.
@@ -69,8 +69,8 @@ func TestHandoffClearsKinTranscript(t *testing.T) {
 	kinAd := &fakeAdapter{events: successEvents()}
 	claudeAd := &fakeAdapter{events: successEvents()}
 	e, st := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
 
 	t1, err := e.Create(ctx, CreateRequest{Agent: "kin", Cwd: "/tmp", Prompt: "hi"})
 	if err != nil {

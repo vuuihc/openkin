@@ -23,12 +23,12 @@ type Props = {
    * streaming yet (and no progress is mid-run).
    */
   loading?: boolean;
-  /** Avatar speaker for the loading row (default: kin). */
+  /** Avatar speaker for the loading row (pass the session host). */
   loadingSpeaker?: string;
   /**
    * The task's main/host agent (task.agent). Used as the progress-box host and
    * the fallback speaker so a non-Kin main agent (e.g. Claude Code) is attributed
-   * to itself instead of Kin. Defaults to "kin".
+   * to itself instead of Kin. Defaults to empty; pass the session host.
    */
   hostSpeaker?: string;
   /** Selected main-agent model; adapter events may replace it with the reported model. */
@@ -112,8 +112,8 @@ export default function ChatStream({
   fallbackUserPrompt,
   trailing,
   loading = false,
-  loadingSpeaker = "kin",
-  hostSpeaker = "kin",
+  loadingSpeaker = "",
+  hostSpeaker = "",
   hostModel,
   showMessageActions = false,
   actionsBusy = false,
@@ -125,8 +125,8 @@ export default function ChatStream({
   const { locale } = useLocale();
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(
-    () => buildChatItems(events, hostSpeaker, hostModel),
-    [events, locale, hostSpeaker, hostModel],
+    () => buildChatItems(events, hostSpeaker, hostModel, !loading),
+    [events, locale, hostSpeaker, hostModel, loading],
   );
   const turns = useMemo(
     () => groupIntoTurns(items, hostSpeaker, normalizeModel(hostModel)),
@@ -227,7 +227,7 @@ export default function ChatStream({
  */
 function groupIntoTurns(
   items: ChatItem[],
-  hostSpeaker = "kin",
+  hostSpeaker = "",
   hostModel?: string,
 ): Turn[] {
   const turns: Turn[] = [];
@@ -1006,8 +1006,9 @@ function MessageRow({
 
 function buildChatItems(
   events: TaskEvent[],
-  hostSpeaker = "kin",
+  hostSpeaker = "",
   hostModel?: string | null,
+  finalized = false,
 ): ChatItem[] {
   const items: ChatItem[] = [];
   let streamBuf = "";
@@ -1026,7 +1027,7 @@ function buildChatItems(
   // Streaming note step key inside the progress box.
   let streamNoteKey: string | null = null;
 
-  const flushStream = () => {
+  const flushStream = (final = false) => {
     if (!streamBuf) return;
     if (streamProgress) {
       // Finalize streaming note inside progress.
@@ -1053,7 +1054,10 @@ function buildChatItems(
         speaker: streamSpeaker,
         model: streamModel,
         text: streamBuf,
-        partial: true,
+        // Once the task is terminal there is no live generation: a trailing
+        // streamed chunk with no non-partial finalizer must not stay "partial"
+        // (otherwise the "生成中" badge/cursor sticks forever).
+        partial: !final,
         // streamKey is `s-${ev.seq}` — not stable for actions; omit seq while partial.
       });
     }
@@ -1066,7 +1070,7 @@ function buildChatItems(
     const prog: ProgressItem = {
       kind: "progress",
       key: `prog-${items.length}`,
-      speaker: hostSpeaker || "kin",
+      speaker: hostSpeaker || "agent",
       model: modelsBySpeaker.get(hostSpeaker),
       steps: [],
     };
@@ -1214,7 +1218,18 @@ function buildChatItems(
             streamProgress = false;
           }
         } else {
-          flushStream();
+          // A non-partial user-facing message is the authoritative version of
+          // the live-preview stream it closes. Drop the accumulated preview
+          // buffer instead of flushing it as a separate partial item — else we
+          // duplicate the text and leave a dangling "partial" (stuck badge).
+          const supersedesPreview =
+            !!streamBuf && !streamProgress && !asProgress && streamSpeaker === sp;
+          if (supersedesPreview) {
+            streamBuf = "";
+            progressRef.current = null;
+          } else {
+            flushStream();
+          }
           streamNoteKey = null;
           if (!text.trim()) break;
           if (asProgress) {
@@ -1235,7 +1250,7 @@ function buildChatItems(
       }
       case "tool_use": {
         // Worker tools are task-only; the host agent's own tools show in chat.
-        if (!isUserFacingEvent(p, speaker)) {
+        if (!isUserFacingEvent(p, speaker, hostSpeaker)) {
           break;
         }
         flushStream();
@@ -1264,7 +1279,7 @@ function buildChatItems(
         break;
       }
       case "tool_result": {
-        if (!isUserFacingEvent(p, speaker)) {
+        if (!isUserFacingEvent(p, speaker, hostSpeaker)) {
           break;
         }
         flushStream();
@@ -1300,8 +1315,9 @@ function buildChatItems(
       case "task_started":
         break;
       case "result": {
-        // Orchestrator / adapter result closes the open progress group.
-        flushStream();
+        // Orchestrator / adapter result closes the turn: finalize any trailing
+        // streamed text so it is not left dangling as "partial".
+        flushStream(true);
         streamNoteKey = null;
         // Mark any still-running steps as done so the card can collapse.
         const open = progressRef.current;
@@ -1327,7 +1343,9 @@ function buildChatItems(
         break;
     }
   }
-  flushStream();
+  // When the task is terminal, a trailing streamed chunk is the final answer,
+  // not live output — finalize it so no stale "生成中" indicator remains.
+  flushStream(finalized);
   return items;
 }
 
@@ -1372,7 +1390,7 @@ function countLines(s: string): number {
 
 function resolveSpeaker(
   p: Record<string, unknown>,
-  hostSpeaker = "kin",
+  hostSpeaker = "",
 ): string {
   const s = p.speaker ?? p.agent ?? p.source;
   if (
@@ -1397,7 +1415,7 @@ function resolveSpeaker(
     if (["claude-code", "codex", "grok", "kin"].includes(s)) return s;
   }
   if (p.role === "user") return "user";
-  if (p.source === "orchestrator" || p.source === "delegate") return "kin";
+  if (p.source === "orchestrator" || p.source === "delegate") return hostSpeaker;
   return hostSpeaker;
 }
 
@@ -1409,12 +1427,19 @@ function resolveSpeaker(
 function isUserFacingEvent(
   p: Record<string, unknown>,
   speaker: string,
+  hostSpeaker = "",
 ): boolean {
   const source = String(p.source ?? "");
   if (source === "orchestrator" || source === "delegate") return true;
   const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
   if (v && typeof v.user === "boolean") return v.user;
-  return speaker === "kin" || speaker === "user";
+  // Legacy rows without visibility: host + kin + user are chat-visible.
+  return (
+    speaker === "user" ||
+    speaker === "kin" ||
+    speaker === hostSpeaker ||
+    speaker === "orchestrator"
+  );
 }
 
 /**

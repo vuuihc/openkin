@@ -25,7 +25,7 @@ func TestRetryRewindsLastUserTurn(t *testing.T) {
 
 	// Second turn
 	ad2 := &fakeAdapter{events: successEvents()}
-	e.adapters["claude-code"] = ad2
+	e.putAdapter("claude-code", ad2)
 	_, err = e.FollowUp(ctx, task.ID, "second question")
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestRetryRewindsLastUserTurn(t *testing.T) {
 
 	// Retry last user turn (from_seq=0).
 	ad3 := &fakeAdapter{events: successEvents()}
-	e.adapters["claude-code"] = ad3
+	e.putAdapter("claude-code", ad3)
 	t2, err := e.Retry(ctx, task.ID, RetryRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestForkCopiesPrefix(t *testing.T) {
 
 	// Fork with new prompt → queued/running
 	ad2 := &fakeAdapter{events: successEvents()}
-	e.adapters["claude-code"] = ad2
+	e.putAdapter("claude-code", ad2)
 	forked2, err := e.Fork(ctx, src.ID, ForkRequest{
 		FromSeq: userSeq,
 		Prompt:  "branch question",

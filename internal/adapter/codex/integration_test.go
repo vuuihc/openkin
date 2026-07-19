@@ -32,7 +32,7 @@ func TestFakeCodexIntegration(t *testing.T) {
 	}
 
 	ad := &codex.Adapter{Binary: fake}
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"codex": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"codex": ad}, task.NewBus(), 4)
 	defer eng.Close()
 	if err := eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)

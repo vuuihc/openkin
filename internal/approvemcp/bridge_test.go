@@ -41,7 +41,7 @@ func TestBridgeAllowDeny(t *testing.T) {
 
 	const token = "aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb"
 	ad := &holdAdapter{}
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
 	t.Cleanup(eng.Close)
 	if err := eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)

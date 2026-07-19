@@ -24,6 +24,8 @@ type Props = {
   initialValue?: string;
   /** Available agents for @mention menu. */
   agents?: AgentInfo[];
+  /** Current session host; used only for mention role labels. */
+  hostAgentId?: string;
   onSubmit: (text: string) => void | Promise<void>;
 };
 
@@ -46,6 +48,7 @@ export default function Composer({
   onStop,
   initialValue = "",
   agents = [],
+  hostAgentId,
   onSubmit,
 }: Props) {
   const tr = useT();
@@ -356,7 +359,7 @@ export default function Composer({
                 </span>
                 <span className="text-kin-secondary">
                   {agentDisplayName(a.id)}
-                  {a.id === "kin"
+                  {hostAgentId && a.id === hostAgentId
                     ? ` · ${tr("composer.roleMain")}`
                     : ` · ${tr("composer.roleWorker")}`}
                 </span>

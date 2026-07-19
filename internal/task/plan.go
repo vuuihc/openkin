@@ -51,7 +51,8 @@ type DelegatePlan struct {
 	SessionContext string
 }
 
-// HasSubAgents is true when at least one non-kin worker is assigned.
+// HasSubAgents is true when at least one worker step is assigned.
+// Prefer HasWorkersOtherThan(host) when a session host is known.
 func (p DelegatePlan) HasSubAgents() bool {
 	return p.HasWorkersOtherThan("")
 }
@@ -60,18 +61,18 @@ func (p DelegatePlan) HasSubAgents() bool {
 // that is not the selected session host.
 func (p DelegatePlan) HasWorkersOtherThan(host string) bool {
 	for _, s := range p.Steps {
-		if s.Agent != "" && s.Agent != "kin" && s.Agent != host {
+		if s.Agent != "" && s.Agent != host {
 			return true
 		}
 	}
 	return false
 }
 
-// SubSteps returns only non-kin workers (coding / task agents).
+// SubSteps returns worker steps (all assigned agents in the plan).
 func (p DelegatePlan) SubSteps() []DelegateStep {
 	var out []DelegateStep
 	for _, s := range p.Steps {
-		if s.Agent != "" && s.Agent != "kin" {
+		if s.Agent != "" {
 			out = append(out, s)
 		}
 	}
@@ -101,10 +102,6 @@ func ParseDelegatePlan(raw string, available map[string]bool) DelegatePlan {
 			id = key
 		}
 		if !available[id] {
-			continue
-		}
-		// @kin is the main agent, not a worker step.
-		if id == "kin" {
 			continue
 		}
 		model := ""

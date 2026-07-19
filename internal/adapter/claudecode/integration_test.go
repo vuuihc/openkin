@@ -27,7 +27,7 @@ func TestFakeAgentIntegration(t *testing.T) {
 	defer st.Close()
 
 	ad := &claudecode.Adapter{Binary: fake}
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
 	defer eng.Close()
 	if err := eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestMissingBinaryFails(t *testing.T) {
 			return "", exec.ErrNotFound
 		},
 	}
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
 	defer eng.Close()
 	_ = eng.Recover(context.Background())
 

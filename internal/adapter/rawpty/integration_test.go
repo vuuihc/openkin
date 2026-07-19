@@ -21,7 +21,7 @@ func TestRawptyPrintfSucceeds(t *testing.T) {
 	defer st.Close()
 
 	ad := rawpty.New()
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"rawpty": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"rawpty": ad}, task.NewBus(), 4)
 	defer eng.Close()
 	_ = eng.Recover(context.Background())
 
@@ -77,7 +77,7 @@ func TestRawptyCancel(t *testing.T) {
 	defer st.Close()
 
 	ad := rawpty.New()
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"rawpty": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"rawpty": ad}, task.NewBus(), 4)
 	defer eng.Close()
 	_ = eng.Recover(context.Background())
 

@@ -278,7 +278,7 @@ func TestHandoffSwitchesAgent(t *testing.T) {
 	adB := &fakeAdapter{events: successEvents()}
 	// Seed with claude only via helper, then swap adapters map... better construct engine with both.
 	e, _ := testEngine(t, 4, adA)
-	e.adapters["codex"] = adB
+	e.putAdapter("codex", adB)
 
 	t1, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first"})
 	if err != nil {
@@ -387,8 +387,8 @@ func TestFollowUpPlainDoesNotReorchestrate(t *testing.T) {
 	kinAd := &fakeAdapter{events: successEvents()}
 	claudeAd := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
 	// Prefer kin as main.
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
@@ -422,8 +422,8 @@ func TestFollowUpWithMentionStillOrchestrates(t *testing.T) {
 	kinAd := &fakeAdapter{events: successEvents()}
 	claudeAd := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	t1, err := e.Create(ctx, CreateRequest{Agent: "kin", Cwd: "/tmp", Prompt: "hello"})
@@ -456,8 +456,8 @@ func TestFollowUpOrchestrateGetsPriorContext(t *testing.T) {
 		events: successEvents(),
 	}
 	e, _ := testEngine(t, 4, kinAd)
-	e.adapters["kin"] = kinAd
-	e.adapters["claude-code"] = claudeAd
+	e.putAdapter("kin", kinAd)
+	e.putAdapter("claude-code", claudeAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
 	t1, err := e.Create(ctx, CreateRequest{Agent: "kin", Cwd: "/tmp", Prompt: "先让 codex 做，但它不支持这个模型"})
