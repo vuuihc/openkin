@@ -489,6 +489,26 @@ export function getUsageLimits(): Promise<AgentLimitStatus[]> {
   return apiFetch<AgentLimitStatus[]>("/api/usage/limits");
 }
 
+export type UsageWindow = {
+  kind: "5h" | "weekly";
+  used_percent: number;
+  status: "ok" | "warn" | "over";
+  reset_at: number;
+};
+
+export type UsageWindowProvider = {
+  provider: string;
+  plan?: string;
+  windows: UsageWindow[];
+  error?: string;
+  updated_at: number;
+};
+
+/** GET /api/usage/windows — provider subscription 5h/weekly rate-limit windows. */
+export function getUsageWindows(): Promise<UsageWindowProvider[]> {
+  return apiFetch<UsageWindowProvider[]>("/api/usage/windows");
+}
+
 export function getSettings(): Promise<Settings> {
   return apiFetch<Settings>("/api/settings");
 }

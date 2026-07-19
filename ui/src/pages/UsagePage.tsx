@@ -5,8 +5,10 @@ import {
   getToken,
   getUsageLimits,
   getUsageSummary,
+  getUsageWindows,
   type AgentLimitStatus,
   type UsageRow,
+  type UsageWindowProvider,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -34,6 +36,7 @@ export default function UsagePage() {
   const [days, setDays] = useState(7);
   const [rows, setRows] = useState<UsageRow[] | null>(null);
   const [limitStatuses, setLimitStatuses] = useState<AgentLimitStatus[]>([]);
+  const [windows, setWindows] = useState<UsageWindowProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const slow = useSlowHint(rows === null && !error);
@@ -42,12 +45,14 @@ export default function UsagePage() {
     if (!getToken()) return;
     setError(null);
     try {
-      const [data, limits] = await Promise.all([
+      const [data, limits, win] = await Promise.all([
         getUsageSummary(days),
         getUsageLimits().catch(() => [] as AgentLimitStatus[]),
+        getUsageWindows().catch(() => [] as UsageWindowProvider[]),
       ]);
       setRows(data);
       setLimitStatuses(limits);
+      setWindows(win);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof ApiError ? e.message : String(e));
@@ -202,6 +207,79 @@ export default function UsagePage() {
               ))}
             </div>
 
+            {windows.length > 0 && (
+              <div className="mt-8">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+                  {tr("usage.windowsTitle")}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {windows.map((p) => (
+                    <div
+                      key={p.provider}
+                      className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold capitalize">{p.provider}</span>
+                        {p.plan && (
+                          <span className="text-[11px] text-kin-muted uppercase tracking-wide">
+                            {p.plan}
+                          </span>
+                        )}
+                      </div>
+                      {p.error ? (
+                        <p className="mt-2 text-[12px] text-kin-muted">{p.error}</p>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {p.windows.map((w) => {
+                            const pct = Math.min(100, Math.max(0, w.used_percent));
+                            const barClass =
+                              w.status === "over"
+                                ? "bg-[var(--kin-red,#ff453a)]"
+                                : w.status === "warn"
+                                  ? "bg-[var(--kin-yellow,#ffd60a)]"
+                                  : "bg-kin-blue/80";
+                            const textClass =
+                              w.status === "over"
+                                ? "text-[var(--kin-red,#ff453a)]"
+                                : w.status === "warn"
+                                  ? "text-[var(--kin-yellow,#ffd60a)]"
+                                  : "text-kin-muted";
+                            return (
+                              <div key={w.kind}>
+                                <div className="flex items-center justify-between text-[12px]">
+                                  <span className="text-kin-secondary">
+                                    {w.kind === "5h"
+                                      ? tr("usage.window5h")
+                                      : tr("usage.windowWeekly")}
+                                  </span>
+                                  <span className={`tabular-nums ${textClass}`}>
+                                    {Math.round(w.used_percent)}%
+                                  </span>
+                                </div>
+                                <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-[var(--kin-hairline)]">
+                                  <span
+                                    className={`block h-full rounded-full ${barClass}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </span>
+                                {w.reset_at > 0 && (
+                                  <span className="mt-0.5 block text-[10px] text-kin-muted">
+                                    {tr("usage.windowResets", {
+                                      time: formatResetIn(w.reset_at),
+                                    })}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mt-8">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
                 {tr("usage.dailySpend")}
@@ -327,4 +405,16 @@ function aggregateCacheStatus(statuses: Set<string>): CacheStatus {
   if (statuses.size === 0) return "unknown";
   if (statuses.size > 1) return "mixed";
   return cacheState(statuses.values().next().value, null);
+}
+
+/** formatResetIn renders a unix-seconds reset time as a coarse countdown. */
+function formatResetIn(resetAtSeconds: number): string {
+  const secs = resetAtSeconds - Math.floor(Date.now() / 1000);
+  if (secs <= 0) return "0m";
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
