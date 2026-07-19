@@ -14,7 +14,8 @@ Exploratory drafts and implementation diaries do not live in this repo. This is 
 
 ```text
 User-owned Kin Core (local-first daemon)
-  ├── Agent adapters            ← drive external coding agents (Claude Code, Codex, any CLI)
+  ├── Agent plugin registry     ← compiled plugins (Kin, Claude Code, Codex, …); interchangeable hosts
+  ├── Agent adapters            ← process runners + normalized events for each plugin
   ├── Task engine + approvals   ← dispatch, watch, approve, audit
   ├── Provider / cost layer     ← usage and spend per task and model
   ├── Remote access (ladder)    ← LAN → tailnet / Funnel; never a Kin cloud

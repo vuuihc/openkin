@@ -14,7 +14,8 @@
 
 ```text
 用户拥有的 Kin Core（local-first daemon）
-  ├── Agent 适配层               ← 驱动外部 coding agent（Claude Code、Codex、任意 CLI）
+  ├── Agent 插件注册表            ← 编译期插件（Kin / Claude Code / Codex …）；host 可互换
+  ├── Agent 适配层               ← 各插件的进程 runner 与归一化事件
   ├── 任务引擎 + 确认            ← 派发、监控、批准、审计
   ├── Provider / 费用层          ← 按任务、按模型的用量与花费
   ├── 远程访问（梯子）           ← 局域网 → tailnet / Funnel；绝不做 Kin 云
@@ -103,6 +104,7 @@
 
 | 组件 | 职责 |
 |------|------|
+| Agent 插件注册表 | 编译期插件（descriptor / readiness / runner / 可选 controller 与 session hooks）；Kin 也是插件之一 |
 | 适配层 | 驱动外部 agent；归一化事件、确认请求、费用遥测 |
 | 任务引擎 | 派发、状态机、暂停/取消、历史 |
 | Trust & Audit | 授权、确认、凭据、出站感知 |

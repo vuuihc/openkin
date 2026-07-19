@@ -474,4 +474,6 @@ Future soft-enforcement sketch: at task creation or new-round start in `task.Eng
 - `task.Engine` takes `*agent.Registry`; hosts are interchangeable; `@agent` selects workers only.
 - Composition root: `internal/server/agents.go` (`buildAgentRegistry`).
 - Canonical adapter events: `internal/adapter/events.go` (`ParseStarted` / `ParseResult`).
+- Host control-plane: optional `Controller` for plan refine + synthesis; fail-closed to deterministic plan/summary (`orchestration_fallback` events).
+- Plugin-private session state resets through `SessionHooks` (no engine `switch agentID` for Kin transcripts).
 - ADR: `docs/adr/0007-pluggable-agent-runtime.md`.
