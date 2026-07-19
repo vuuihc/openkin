@@ -3,13 +3,21 @@ import {
   ApiError,
   formatCost,
   getToken,
+  getUsageLimits,
   getUsageSummary,
+  type AgentLimitStatus,
   type UsageRow,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
+import {
+  agentLimitProgress,
+  combinedStatus,
+  formatLimitLabel,
+  type LimitStatus,
+} from "../lib/agentLimits";
 import {
   cacheCoverageLabel,
   cacheRateLabel,
@@ -25,6 +33,7 @@ export default function UsagePage() {
   const tr = useT();
   const [days, setDays] = useState(7);
   const [rows, setRows] = useState<UsageRow[] | null>(null);
+  const [limitStatuses, setLimitStatuses] = useState<AgentLimitStatus[]>([]);
   const [error, setError] = useState<string | null>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const slow = useSlowHint(rows === null && !error);
@@ -33,8 +42,12 @@ export default function UsagePage() {
     if (!getToken()) return;
     setError(null);
     try {
-      const data = await getUsageSummary(days);
+      const [data, limits] = await Promise.all([
+        getUsageSummary(days),
+        getUsageLimits().catch(() => [] as AgentLimitStatus[]),
+      ]);
       setRows(data);
+      setLimitStatuses(limits);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof ApiError ? e.message : String(e));
@@ -81,6 +94,15 @@ export default function UsagePage() {
   }, [rows]);
 
   const maxDay = Math.max(0.001, ...byDay.map(([, c]) => c));
+
+  // Key limit statuses by agent for O(1) lookup during rendering.
+  const limitsByAgent = useMemo(() => {
+    const m = new Map<string, AgentLimitStatus>();
+    for (const s of limitStatuses) {
+      m.set(s.agent, s);
+    }
+    return m;
+  }, [limitStatuses]);
 
   const agentTotals = useMemo(() => {
     const m = new Map<
@@ -221,6 +243,32 @@ export default function UsagePage() {
                             rate: cacheRateLabel(status, rate),
                             tokens: formatTokenCount(v.cacheRead),
                           })}${coverage ? ` · ${tr("usage.coverage", { coverage })}` : ""}`;
+                  const limitStatus = limitsByAgent.get(agent);
+                  const spendProgress = limitStatus
+                    ? agentLimitProgress(limitStatus.used_spend_usd, limitStatus.limit_spend_usd ?? undefined)
+                    : null;
+                  const tokensProgress = limitStatus
+                    ? agentLimitProgress(limitStatus.used_tokens, limitStatus.limit_tokens ?? undefined)
+                    : null;
+                  const rowLimitStatus: LimitStatus | null =
+                    spendProgress || tokensProgress
+                      ? combinedStatus(
+                          spendProgress?.status ?? "ok",
+                          tokensProgress?.status ?? "ok",
+                        )
+                      : null;
+                  const limitColorClass =
+                    rowLimitStatus === "over"
+                      ? "text-[var(--kin-red,#ff453a)]"
+                      : rowLimitStatus === "warn"
+                        ? "text-[var(--kin-yellow,#ffd60a)]"
+                        : "text-kin-muted";
+                  const barBgClass =
+                    rowLimitStatus === "over"
+                      ? "bg-[var(--kin-red,#ff453a)]"
+                      : rowLimitStatus === "warn"
+                        ? "bg-[var(--kin-yellow,#ffd60a)]"
+                        : "bg-kin-blue";
                   return (
                     <div
                       key={agent}
@@ -231,6 +279,28 @@ export default function UsagePage() {
                         <span className="block truncate text-[11px] text-kin-muted">
                           {cacheDescription}
                         </span>
+                        {spendProgress && limitStatus?.limit_spend_usd != null && (
+                          <span className={`mt-1 flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
+                            <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
+                              <span
+                                className={`block h-full rounded-full ${barBgClass}`}
+                                style={{ width: `${spendProgress.barPct}%` }}
+                              />
+                            </span>
+                            {formatLimitLabel(limitStatus.used_spend_usd, limitStatus.limit_spend_usd, "spend")}
+                          </span>
+                        )}
+                        {tokensProgress && limitStatus?.limit_tokens != null && (
+                          <span className={`mt-0.5 flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
+                            <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
+                              <span
+                                className={`block h-full rounded-full ${barBgClass}`}
+                                style={{ width: `${tokensProgress.barPct}%` }}
+                              />
+                            </span>
+                            {formatLimitLabel(limitStatus.used_tokens, limitStatus.limit_tokens, "tokens")}
+                          </span>
+                        )}
                       </span>
                       <span className="text-kin-secondary text-[12.5px] tabular-nums">
                         {tr("usage.taskCount", { count: v.tasks })}

@@ -27,6 +27,7 @@ export default function SettingsPage() {
   const [ntfy, setNtfy] = useState("");
   const [baseURL, setBaseURL] = useState("");
   const [priceTable, setPriceTable] = useState("");
+  const [agentLimitsText, setAgentLimitsText] = useState("");
   const [provBase, setProvBase] = useState("");
   const [provKey, setProvKey] = useState("");
   const [provModel, setProvModel] = useState("");
@@ -61,6 +62,11 @@ export default function SettingsPage() {
       } catch {
         setPriceTable(s.price_table ?? "");
       }
+      try {
+        setAgentLimitsText(JSON.stringify(JSON.parse(s.agent_limits || "{}"), null, 2));
+      } catch {
+        setAgentLimitsText(s.agent_limits ?? "{}");
+      }
       listAgents()
         .then(setAgentList)
         .catch(() => setAgentList([]));
@@ -91,12 +97,21 @@ export default function SettingsPage() {
       setBusy(false);
       return;
     }
+    // Validate agent_limits JSON client-side.
+    try {
+      JSON.parse(agentLimitsText);
+    } catch {
+      setError(tr("settings.agentLimits.invalidJson"));
+      setBusy(false);
+      return;
+    }
     try {
       const body: Parameters<typeof updateSettings>[0] = {
         "notify.bark_url": bark.trim(),
         "notify.ntfy_topic": ntfy.trim(),
         "ui.base_url": baseURL.trim(),
         price_table: priceTable,
+        agent_limits: agentLimitsText,
         "provider.kind": "openai-compatible",
         "provider.base_url": provBase.trim(),
         "provider.model": provModel.trim(),
@@ -120,6 +135,11 @@ export default function SettingsPage() {
         setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
       } catch {
         setPriceTable(s.price_table ?? "");
+      }
+      try {
+        setAgentLimitsText(JSON.stringify(JSON.parse(s.agent_limits || "{}"), null, 2));
+      } catch {
+        setAgentLimitsText(s.agent_limits ?? "{}");
       }
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
@@ -501,6 +521,35 @@ export default function SettingsPage() {
           >
             {busy ? tr("settings.saving") : tr("settings.price.save")}
           </button>
+        </div>
+      </section>
+
+      {/* Agent usage limits */}
+      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          {tr("settings.agentLimits.heading")}
+        </h2>
+        <p className="text-xs text-kin-muted">
+          {tr("settings.agentLimits.desc")}
+          <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
+        </p>
+        <textarea
+          value={agentLimitsText}
+          onChange={(e) => setAgentLimitsText(e.target.value)}
+          rows={6}
+          spellCheck={false}
+          className="kin-input font-mono text-xs resize-y min-h-[100px]"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="kin-btn-primary disabled:opacity-50"
+          >
+            {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
+          </button>
+          {error && <span className="text-xs text-kin-red">{error}</span>}
         </div>
       </section>
       </div>

@@ -129,6 +129,8 @@ export type CreateTaskBody = {
 export type AgentInfo = {
   id: string;
   name: string;
+  kind?: string;
+  capabilities?: string[];
   binary?: string;
   installed: boolean;
   available: boolean;
@@ -443,6 +445,7 @@ export type Settings = {
   "notify.ntfy_topic": string;
   "ui.base_url": string;
   price_table: string;
+  agent_limits: string;
   "provider.kind": string;
   "provider.base_url": string;
   "provider.api_key": string;
@@ -460,6 +463,7 @@ export type SettingsUpdate = Partial<
     | "notify.ntfy_topic"
     | "ui.base_url"
     | "price_table"
+    | "agent_limits"
     | "provider.kind"
     | "provider.base_url"
     | "provider.api_key"
@@ -469,6 +473,21 @@ export type SettingsUpdate = Partial<
 > & {
   "provider.clear_api_key"?: string;
 };
+
+/** Per-agent daily limit status from GET /api/usage/limits. */
+export type AgentLimitStatus = {
+  agent: string;
+  limit_spend_usd?: number | null;
+  used_spend_usd: number;
+  limit_tokens?: number | null;
+  used_tokens: number;
+  status: "ok" | "warn" | "over";
+  period_start: string;
+};
+
+export function getUsageLimits(): Promise<AgentLimitStatus[]> {
+  return apiFetch<AgentLimitStatus[]>("/api/usage/limits");
+}
 
 export function getSettings(): Promise<Settings> {
   return apiFetch<Settings>("/api/settings");
