@@ -180,8 +180,8 @@ func TestOrchestratedWorkersReceivePerStepModels(t *testing.T) {
 	claudeAd.mu.Lock()
 	claudeModel := claudeAd.lastSpec.Model
 	claudeAd.mu.Unlock()
-	if claudeModel != "opus" {
-		t.Fatalf("claude model=%q want opus", claudeModel)
+	if claudeModel != "claude-opus-4-8" {
+		t.Fatalf("claude model=%q want claude-opus-4-8 (normalized)", claudeModel)
 	}
 
 	codexAd.mu.Lock()

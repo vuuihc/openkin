@@ -143,3 +143,37 @@ func TestExtractPriorContext(t *testing.T) {
 		t.Fatal("bare prompt should have empty prior context")
 	}
 }
+
+func TestHasDelegateWorkers_sameAgentModelSwitch(t *testing.T) {
+	plan := DelegatePlan{Steps: []DelegateStep{
+		{Agent: "claude-code", Model: "claude-haiku-4-5", Instruction: "implement the plan"},
+	}}
+	if !plan.HasDelegateWorkers("claude-code", "claude-opus-4-8") {
+		t.Fatal("expected same-agent different model to count as worker")
+	}
+	if plan.HasDelegateWorkers("claude-code", "claude-haiku-4-5") {
+		t.Fatal("same model as host must not self-delegate")
+	}
+	if !plan.HasDelegateWorkers("claude-code", "") {
+		t.Fatal("explicit step model with empty host model should be a worker")
+	}
+	bare := DelegatePlan{Steps: []DelegateStep{
+		{Agent: "claude-code", Instruction: "continue"},
+	}}
+	if bare.HasDelegateWorkers("claude-code", "claude-opus-4-8") {
+		t.Fatal("bare @host must not self-delegate")
+	}
+	cross := DelegatePlan{Steps: []DelegateStep{
+		{Agent: "codex", Instruction: "review"},
+	}}
+	if !cross.HasDelegateWorkers("claude-code", "claude-opus-4-8") {
+		t.Fatal("cross-agent must still be a worker")
+	}
+}
+
+func TestIsDelegateWorkerStep_modelAliasCase(t *testing.T) {
+	s := DelegateStep{Agent: "claude-code", Model: "Opus"}
+	if isDelegateWorkerStep(s, "claude-code", "opus") {
+		t.Fatal("case-insensitive same model should not fan out")
+	}
+}

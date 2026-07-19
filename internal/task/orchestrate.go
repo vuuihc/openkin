@@ -25,12 +25,16 @@ func (e *Engine) shouldOrchestrate(t store.Task) (DelegatePlan, bool) {
 	// handoff wrapper so historical @mentions in prior context cannot fan out again.
 	userTurn := UserTurnPrompt(t.Prompt)
 	plan := ParseDelegatePlan(userTurn, avail)
-	if plan.HasWorkersOtherThan(t.Agent) {
+	hostModel := ""
+	if t.Model != nil {
+		hostModel = strings.TrimSpace(*t.Model)
+	}
+	if plan.HasDelegateWorkers(t.Agent, hostModel) {
 		var steps []DelegateStep
 		for _, s := range plan.SubSteps() {
-			// Mentioning the current host is redundant routing, not a request to
-			// launch a second copy of that same agent as a worker.
-			if s.Agent == t.Agent {
+			// Bare @host (same model) is redundant routing, not a second worker.
+			// Same agent with an explicit different model is a model-switch worker.
+			if !isDelegateWorkerStep(s, t.Agent, hostModel) {
 				continue
 			}
 			if e.HasAgent(s.Agent) {
@@ -726,11 +730,18 @@ func buildMainSummary(plan DelegatePlan, prior []string, priorFailed []bool, any
 }
 
 func effectiveStepModel(t store.Task, step DelegateStep) string {
-	if step.Model != "" {
-		return step.Model
+	if m := strings.TrimSpace(step.Model); m != "" {
+		// Normalize known aliases (opus/haiku/...) so adapters get canonical ids.
+		if id, ok := BuiltinCatalog().Normalize(step.Agent, m); ok {
+			return id
+		}
+		return m
 	}
+	// Same-agent model-switch workers always carry an explicit model; do not
+	// fall back to the host task model for those (would defeat the switch).
+	// Cross-agent workers without a model still inherit the task selection.
 	if t.Model != nil {
-		return *t.Model
+		return strings.TrimSpace(*t.Model)
 	}
 	return ""
 }

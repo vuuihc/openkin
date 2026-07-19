@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/sessionctx"
 	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/kin/internal/sessionctx"
 	"github.com/vuuihc/kin/internal/store"
 )
 
@@ -481,25 +481,58 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 		handoff = true
 	}
 
+	// Resolve the host model baseline for this turn (current task model, optionally
+	// overridden by FollowUpRequest.Model). Used for same-agent model-switch detection.
+	hostModel := ""
+	if t.Model != nil {
+		hostModel = strings.TrimSpace(*t.Model)
+	}
+	modelSwitch := false
+	setModel := false
+	clearModel := false
+	resolvedModel := ""
+	if req.Model != nil {
+		m := strings.TrimSpace(*req.Model)
+		if m == "" {
+			clearModel = true
+			if hostModel != "" {
+				modelSwitch = true
+			}
+			hostModel = ""
+		} else {
+			if canon, ok := BuiltinCatalog().Normalize(targetAgent, m); ok {
+				m = canon
+			}
+			setModel = true
+			resolvedModel = m
+			if !modelsEqual(m, hostModel) {
+				modelSwitch = true
+			}
+			hostModel = m
+		}
+	}
+
 	// Multi-@ is decided from the *current* user message only. Prior transcript
-	// @mentions must not force orchestration on a plain follow-up (mixed modes),
-	// and mentioning the selected host is not self-delegation.
+	// @mentions must not force orchestration on a plain follow-up (mixed modes).
+	// Bare @host is not self-delegation; @host[otherModel] is a model-switch worker.
 	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
-	orchestrate := plan.HasWorkersOtherThan(targetAgent)
+	orchestrate := plan.HasDelegateWorkers(targetAgent, hostModel)
 
 	// Cross-turn context strategy (ADR 0002 Policy K):
 	//   - same-agent resume-capable host with live session → append-only live user prompt
-	//   - handoff / interrupt / orchestrate / no-session → sealed Context Pack blob
+	//   - handoff / interrupt / orchestrate / model-switch / no-session → sealed Context Pack
 	// Orchestrated turns still store the user request under "User request:" so
 	// UserTurnPrompt / shouldOrchestrate only see the live @mentions.
 	runPrompt := prompt
 	targetReg, _ := e.agents.Get(targetAgent)
 	canResume := targetReg.Descriptor.Has(agent.CapabilityResume)
-	sameAgentResume := !handoff && !interrupted && !orchestrate && canResume &&
+	// Model switch clears session continuity: adapters must see TaskSpec.Model on a
+	// fresh Start rather than a resume that silently keeps the old model.
+	sameAgentResume := !handoff && !interrupted && !orchestrate && !modelSwitch && canResume &&
 		t.SessionRef != nil && *t.SessionRef != "" && fromAgent == targetAgent
 	// Kin-style managed transcript: no engine session_ref but SessionHooks present.
 	managedTranscript := targetReg.Sessions != nil
-	if !handoff && !interrupted && !orchestrate && managedTranscript && fromAgent == targetAgent {
+	if !handoff && !interrupted && !orchestrate && !modelSwitch && managedTranscript && fromAgent == targetAgent {
 		// Live user turn only; plugin loads prior messages from private storage.
 		sameAgentResume = true
 		runPrompt = prompt
@@ -507,15 +540,15 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 		runPrompt = prompt
 	} else {
 		ctxBlock := e.handoffContext(ctx, id)
-		needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || managedTranscript || interrupted || orchestrate
-		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript) {
+		needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || managedTranscript || interrupted || orchestrate || modelSwitch
+		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript || modelSwitch) {
 			runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
 			if interrupted {
 				runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
 			}
 		}
 		// Cold prefix: reset plugin session state so we don't mix packs with resume.
-		if handoff || interrupted || orchestrate {
+		if handoff || interrupted || orchestrate || modelSwitch {
 			e.resetAgentSession(ctx, fromAgent, id)
 			if targetAgent != fromAgent {
 				e.resetAgentSession(ctx, targetAgent, id)
@@ -536,14 +569,19 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 		patch.Agent = &targetAgent
 		patch.ClearSessionRef = true
 	}
-	// Fresh worker sessions for multi-@ orchestrated turns.
-	if orchestrate {
+	if clearModel {
+		patch.ClearModel = true
+	} else if setModel {
+		patch.Model = &resolvedModel
+	}
+	// Fresh sessions for multi-@, handoff, or model switch.
+	if orchestrate || modelSwitch {
 		patch.ClearSessionRef = true
 	}
 	// Interrupt always starts a clean turn (CLI may have left a half-finished session).
 	if interrupted {
 		// Keep session_ref only when same agent and not orchestrating — resume is best-effort.
-		if handoff || orchestrate {
+		if handoff || orchestrate || modelSwitch {
 			patch.ClearSessionRef = true
 		}
 	}
@@ -577,7 +615,16 @@ func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Ta
 		targetAgent = req.Agent
 	}
 	plan := ParseDelegatePlan(UserTurnPrompt(prompt), AvailableSet(e.AgentIDs()))
-	orchestrate := plan.HasWorkersOtherThan(targetAgent)
+	hostModel := ""
+	if t.Model != nil {
+		hostModel = strings.TrimSpace(*t.Model)
+	}
+	if req.Model != nil {
+		if m := strings.TrimSpace(*req.Model); m != "" {
+			hostModel = m
+		}
+	}
+	orchestrate := plan.HasDelegateWorkers(targetAgent, hostModel)
 
 	meta := map[string]any{
 		"role":    "user",

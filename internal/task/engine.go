@@ -47,9 +47,12 @@ type CreateRequest struct {
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
 // Agent optional: when set to a different agent, hand off (clear session, inject context).
+// Model optional: when set, updates the task model for this and subsequent turns
+// (same-agent resume uses the new model on the next adapter Start).
 type FollowUpRequest struct {
-	Prompt string `json:"prompt"`
-	Agent  string `json:"agent,omitempty"`
+	Prompt string  `json:"prompt"`
+	Agent  string  `json:"agent,omitempty"`
+	Model  *string `json:"model,omitempty"`
 }
 
 // Notifier is optional fire-and-forget push for approvals / task finish (M3).

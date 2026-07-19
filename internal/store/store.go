@@ -395,6 +395,8 @@ type TaskPatch struct {
 	SessionRef      *string
 	ClearSessionRef bool // sets session_ref NULL (handoff across agents)
 	Prompt          *string
+	Model           *string // set task model for subsequent turns
+	ClearModel      bool    // sets model NULL
 	PermissionMode  *string
 	ExitCode        *int
 	ClearExitCode   bool
@@ -432,6 +434,12 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 	if p.Prompt != nil {
 		sets = append(sets, "prompt = ?")
 		args = append(args, *p.Prompt)
+	}
+	if p.ClearModel {
+		sets = append(sets, "model = NULL")
+	} else if p.Model != nil {
+		sets = append(sets, "model = ?")
+		args = append(args, *p.Model)
 	}
 	if p.PermissionMode != nil {
 		sets = append(sets, "permission_mode = ?")

@@ -122,3 +122,42 @@ func TestTaskAndEventCRUD(t *testing.T) {
 		t.Fatalf("status=%s", got.Status)
 	}
 }
+
+func TestUpdateTaskModel(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	model := "claude-opus-4-8"
+	task := Task{
+		ID: "t-model", Title: "m", Agent: "claude-code", Cwd: "/tmp",
+		Prompt: "p", Model: &model, Status: "queued", CreatedAt: 1,
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	next := "claude-haiku-4-5"
+	if err := s.UpdateTask(ctx, task.ID, TaskPatch{Model: &next}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model == nil || *got.Model != next {
+		t.Fatalf("model=%v want %s", got.Model, next)
+	}
+	if err := s.UpdateTask(ctx, task.ID, TaskPatch{ClearModel: true}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != nil {
+		t.Fatalf("model should be cleared, got %v", got.Model)
+	}
+}

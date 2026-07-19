@@ -52,20 +52,57 @@ type DelegatePlan struct {
 }
 
 // HasSubAgents is true when at least one worker step is assigned.
-// Prefer HasWorkersOtherThan(host) when a session host is known.
+// Prefer HasDelegateWorkers when a session host and host model are known.
 func (p DelegatePlan) HasSubAgents() bool {
-	return p.HasWorkersOtherThan("")
+	return p.HasDelegateWorkers("", "")
 }
 
 // HasWorkersOtherThan reports whether the plan assigns at least one worker
 // that is not the selected session host.
+// Prefer HasDelegateWorkers when the host model is known: same-agent steps with
+// an explicit different model also count as workers.
 func (p DelegatePlan) HasWorkersOtherThan(host string) bool {
+	return p.HasDelegateWorkers(host, "")
+}
+
+// HasDelegateWorkers reports whether any step should run as a delegated worker
+// under the given host. A step is a worker when:
+//   - it targets a different agent than the host, or
+//   - it targets the host agent but carries an explicit model that differs from
+//     the host task model (same-agent model switch, e.g. Opus plan → Haiku exec).
+//
+// Bare @host mentions without a model (or with the same model as the host) are
+// not self-delegation.
+func (p DelegatePlan) HasDelegateWorkers(host, hostModel string) bool {
+	host = strings.TrimSpace(host)
+	hostModel = strings.TrimSpace(hostModel)
 	for _, s := range p.Steps {
-		if s.Agent != "" && s.Agent != host {
+		if isDelegateWorkerStep(s, host, hostModel) {
 			return true
 		}
 	}
 	return false
+}
+
+// isDelegateWorkerStep reports whether step should run as a worker under host.
+func isDelegateWorkerStep(s DelegateStep, host, hostModel string) bool {
+	if strings.TrimSpace(s.Agent) == "" {
+		return false
+	}
+	if s.Agent != host {
+		return true
+	}
+	// Same agent as host: only fan out when the step requests a different model.
+	stepModel := strings.TrimSpace(s.Model)
+	if stepModel == "" {
+		return false
+	}
+	return !modelsEqual(stepModel, hostModel)
+}
+
+// modelsEqual compares model ids case-insensitively after trim.
+func modelsEqual(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
 }
 
 // SubSteps returns worker steps (all assigned agents in the plan).
