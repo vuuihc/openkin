@@ -30,6 +30,25 @@ func (al AgentLimit) validate(agent string) error {
 	return nil
 }
 
+// ParseAgentLimits parses and validates raw JSON agent-limits text.
+// Used by the API layer to validate PUT /api/settings before persisting.
+func ParseAgentLimits(raw string) (map[string]AgentLimit, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "{}" {
+		return map[string]AgentLimit{}, nil
+	}
+	var limits map[string]AgentLimit
+	if err := json.Unmarshal([]byte(raw), &limits); err != nil {
+		return nil, fmt.Errorf("invalid agent_limits JSON: %w", err)
+	}
+	for agent, limit := range limits {
+		if err := limit.validate(agent); err != nil {
+			return nil, err
+		}
+	}
+	return limits, nil
+}
+
 // GetAgentLimits reads the agent_limits settings key. Returns an empty map
 // (not an error) when the key is absent or empty.
 func (s *Store) GetAgentLimits(ctx context.Context) (map[string]AgentLimit, error) {

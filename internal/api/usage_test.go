@@ -204,3 +204,138 @@ func TestPriceTableSettingValidation(t *testing.T) {
 }
 
 func ptr(f float64) *float64 { return &f }
+
+func TestUsageLimitsEndpoint(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+
+	// Empty limits returns [] (not null).
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/usage/limits", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var empty []store.AgentLimitStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &empty); err != nil {
+		t.Fatalf("unmarshal empty: %v", err)
+	}
+	if empty == nil {
+		t.Fatal("expected [] not null")
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty slice, got %v", empty)
+	}
+
+	// Auth required.
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/usage/limits", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("no auth: %d", rr.Code)
+	}
+
+	// Seed a task with today's usage and configure an over-limit agent.
+	now := time.Now()
+	todayMid := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, time.Local).UnixMilli()
+	task := store.Task{
+		ID: "01APILIMITOVER0000000001", Title: "limit-t", Agent: "limit-agent",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: todayMid,
+	}
+	if err := s.Store.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	cost := 15.0
+	if err := s.Store.InsertUsageRecord(ctx, store.UsageRecord{
+		TaskID: task.ID, EventSeq: 1, OccurredAt: todayMid,
+		Agent: "limit-agent", CostUSD: &cost,
+		CacheStatus: store.CacheStatusUnknown, InputSemantics: store.InputSemanticsUnknown,
+		CostSource: store.CostSourceProvider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	spendLimit := 10.0
+	if err := s.Store.SetAgentLimits(ctx, map[string]store.AgentLimit{
+		"limit-agent": {SpendUSDDaily: &spendLimit},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/usage/limits", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var statuses []store.AgentLimitStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &statuses); err != nil {
+		t.Fatalf("unmarshal statuses: %v", err)
+	}
+	if len(statuses) != 1 || statuses[0].Agent != "limit-agent" || statuses[0].Status != "over" {
+		t.Fatalf("expected over-limit status, got %+v", statuses)
+	}
+}
+
+func TestAgentLimitsSettingsRoundTrip(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	// PUT agent_limits persists. The value itself is a JSON string containing the limits map.
+	limitsJSON := `{"codex":{"spend_usd_daily":5.0}}`
+	bodyBytes, _ := json.Marshal(map[string]string{"agent_limits": limitsJSON})
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader(bodyBytes))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT agent_limits: %d %s", rr.Code, rr.Body.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["agent_limits"] == "" {
+		t.Fatal("agent_limits missing from GET snapshot after PUT")
+	}
+
+	// GET echoes it back.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET settings: %d", rr.Code)
+	}
+	var settings map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["agent_limits"] == "" {
+		t.Fatal("agent_limits missing from GET settings")
+	}
+
+	// Invalid JSON is rejected with 400.
+	rr = httptest.NewRecorder()
+	invalidBody, _ := json.Marshal(map[string]string{"agent_limits": "not-json"})
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader(invalidBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid agent_limits JSON: %d", rr.Code)
+	}
+
+	// Invalid limit value (negative) is rejected with 400.
+	rr = httptest.NewRecorder()
+	negBody, _ := json.Marshal(map[string]string{"agent_limits": `{"bad":{"spend_usd_daily":-1}}`})
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader(negBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("negative limit: %d", rr.Code)
+	}
+}

@@ -24,13 +24,15 @@ import (
 
 // AgentInfo is one discovered agent for GET /api/agents.
 type AgentInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Binary    string `json:"binary,omitempty"`
-	Installed bool   `json:"installed"`
-	Available bool   `json:"available"`
-	Default   bool   `json:"default"`
-	Reason    string `json:"reason,omitempty"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Kind         string   `json:"kind,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Binary       string   `json:"binary,omitempty"`
+	Installed    bool     `json:"installed"`
+	Available    bool     `json:"available"`
+	Default      bool     `json:"default"`
+	Reason       string   `json:"reason,omitempty"`
 }
 
 // Server holds HTTP handlers and dependencies for the Kin API.
@@ -104,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 		r.Put("/api/settings", s.handlePutSettings)
 		r.Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
+		r.Get("/api/usage/limits", s.handleUsageLimits)
 		r.Post("/api/uploads", s.handleUpload)
 		r.Get("/api/uploads/{name}", s.handleServeUpload)
 		r.Get("/api/artifacts", s.handleListArtifacts)
@@ -485,6 +488,7 @@ type settingsResponse struct {
 	NotifyNtfyTopic string `json:"notify.ntfy_topic"`
 	UIBaseURL       string `json:"ui.base_url"`
 	PriceTable      string `json:"price_table"`
+	AgentLimits     string `json:"agent_limits"`
 	// Cognition provider (OpenAI-compatible). api_key is masked on GET.
 	ProviderKind    string `json:"provider.kind"`
 	ProviderBaseURL string `json:"provider.base_url"`
@@ -502,6 +506,7 @@ var puttableSettings = map[string]bool{
 	"notify.ntfy_topic": true,
 	"ui.base_url":       true,
 	"price_table":       true,
+	"agent_limits":      true,
 	"provider.kind":     true,
 	"provider.base_url": true,
 	"provider.api_key":  true,
@@ -539,12 +544,17 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(priceTable) == "" {
 		priceTable = store.DefaultPriceTableJSON
 	}
+	agentLimits := get(store.KeyAgentLimits)
+	if strings.TrimSpace(agentLimits) == "" {
+		agentLimits = "{}"
+	}
 	apiKey := get("provider.api_key")
 	writeJSON(w, http.StatusOK, settingsResponse{
 		NotifyBarkURL:   get("notify.bark_url"),
 		NotifyNtfyTopic: get("notify.ntfy_topic"),
 		UIBaseURL:       base,
 		PriceTable:      priceTable,
+		AgentLimits:     agentLimits,
 		ProviderKind:    firstNonEmpty(get("provider.kind"), "openai-compatible"),
 		ProviderBaseURL: get("provider.base_url"),
 		ProviderAPIKey:  maskSettingSecret(apiKey),
@@ -614,6 +624,12 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if k == store.KeyAgentLimits {
+			if _, err := store.ParseAgentLimits(v); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+		}
 		// Ignore masked api_key round-trips from GET.
 		if k == "provider.api_key" && (v == "" || strings.Contains(v, "…") || strings.Contains(v, "••••")) {
 			continue
@@ -678,6 +694,18 @@ func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
 		rows = []store.UsageRow{}
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) handleUsageLimits(w http.ResponseWriter, r *http.Request) {
+	statuses, err := s.Store.AgentLimitStatuses(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if statuses == nil {
+		statuses = []store.AgentLimitStatus{}
+	}
+	writeJSON(w, http.StatusOK, statuses)
 }
 
 func (s *Server) handleTaskUsage(w http.ResponseWriter, r *http.Request) {

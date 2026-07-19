@@ -64,7 +64,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 		{Type: "message", Payload: json.RawMessage(`{"role":"assistant","content":[{"type":"text","text":"ok"}],"partial":false}`)},
 		{Type: "result", Payload: json.RawMessage(`{"cost_usd":0.02,"tokens_in":1,"tokens_out":2,"is_error":false}`)},
 	}}
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
 	t.Cleanup(eng.Close)
 	if err := eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestApprovalsAPI(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ad := &holdAPIAdapter{}
-	eng := task.NewEngine(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
 	t.Cleanup(eng.Close)
 	_ = eng.Recover(context.Background())
 	s = &Server{Store: st, Auth: remote.NewAuth(token), Engine: eng, Version: "test"}
@@ -295,5 +295,44 @@ func TestGzipOnTasks(t *testing.T) {
 	}
 	if got := rr.Header().Get("Content-Encoding"); got != "gzip" {
 		t.Fatalf("Content-Encoding = %q, want gzip", got)
+	}
+}
+
+
+func TestListAgentsExactlyOneDefault(t *testing.T) {
+	s, token := newTestServer(t)
+	// Provide a registry-backed list via ListAgents callback.
+	s.ListAgents = func() []AgentInfo {
+		return []AgentInfo{
+			{ID: "claude-code", Name: "Claude Code", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+			{ID: "codex", Name: "Codex", Available: true, Installed: true, Default: false, Kind: "cli", Capabilities: []string{"run"}},
+		}
+	}
+	h := s.Handler()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var list []AgentInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len=%d", len(list))
+	}
+	var defaults int
+	for _, a := range list {
+		if a.Default {
+			defaults++
+		}
+		if a.Kind == "" {
+			t.Fatalf("missing kind on %s", a.ID)
+		}
+	}
+	if defaults != 1 {
+		t.Fatalf("defaults=%d", defaults)
 	}
 }
