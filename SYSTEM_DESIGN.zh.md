@@ -106,7 +106,7 @@
 |------|------|
 | Agent 插件注册表 | 编译期插件（descriptor / readiness / runner / 可选 controller 与 session hooks）；Kin 也是插件之一 |
 | 适配层 | 驱动外部 agent；归一化事件、确认请求、费用遥测 |
-| 任务引擎 | 派发、状态机、暂停/取消、历史 |
+| 任务引擎 | 派发、状态机、暂停/取消、历史；适配器使用有效执行 cwd，原始 cwd 仍作任务归属/出处 |
 | Trust & Audit | 授权、确认、凭据、出站感知 |
 | Providers / 费用 | Provider 配置、用量记账、按任务花费；每 agent 每日上限（仅展示） |
 | Artifacts（近端） | 捕获、索引、库、阅读器；P1 陪读线程；HTML 沙箱 |
@@ -153,6 +153,7 @@ Artifacts 的多端阅读走同一梯子：**手机打开的是你的 daemon 上
 | Daemon | Go，单静态二进制；纯 Go SQLite（无 CGO）；内嵌 Web 控制台；内建 tsnet |
 | 桌面壳 | Electron；daemon 作为受管 sidecar；托盘、原生通知批确认、自动更新 |
 | 本地终端 | 仅 Electron 主窗口；临时 PTY 会话使用同时校验 Kin token 与真实 loopback TCP 对端的 HTTP/WebSocket 路由，绝不经局域网、Tailnet 或 Funnel 暴露 |
+| 任务工作区 | 干净 Git 任务默认使用 Kin 自有 worktree；回合 checkpoint 使用可删除的 Kin 私有 Git 对象；非 Git/脏工作区在 auto 模式下仍为 shared |
 | UI | React + Tailwind 一套代码，Electron 窗口与手机 Web 共用 |
 | API 契约 | OpenAPI 单一来源；代码生成 Go handler 与 TS 类型 |
 | 分发 | 桌面 .dmg / .exe 双击；headless 机器 `curl \| sh` 或 brew |

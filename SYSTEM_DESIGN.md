@@ -106,7 +106,7 @@ External coding agents are **managed workers behind adapters** — Kin supervise
 |-----------|-----------------|
 | Adapter layer | Drive external agents; normalize events, approval requests, cost telemetry |
 | Agent plugin registry | Compiled plugins (descriptor, readiness, runner, optional controller/session hooks); Kin is one plugin |
-| Task engine | Dispatch, state machine, pause/cancel, history |
+| Task engine | Dispatch, state machine, pause/cancel, history; adapters receive an effective execution cwd while the original cwd remains task provenance |
 | Trust & Audit | Grants, confirmations, credentials, egress awareness |
 | Providers / cost | Provider config, usage accounting, spend per task; per-agent daily limits (display-only) |
 | Artifacts (near-term) | Capture, index, library, reader; P1 companion threads; HTML sandbox |
@@ -153,6 +153,7 @@ Current choices; may change with evidence. The one invariant: **UI talks to the 
 | Daemon | Go, single static binary; pure-Go SQLite (no CGO); embeds the web console; tsnet built in |
 | Desktop shell | Electron; daemon as supervised sidecar; tray, native notifications for approvals, auto-update |
 | Local terminal | Electron main window only; ephemeral PTY sessions use token-authenticated, true-loopback-only HTTP/WebSocket routes and are never exposed through LAN, Tailnet, or Funnel |
+| Task workspaces | Clean Git tasks default to Kin-owned worktrees; turn checkpoints use deletable Kin-private Git objects; non-Git/dirty auto mode remains shared |
 | UI | One React + Tailwind codebase for the Electron window and the phone web console |
 | API contract | OpenAPI as single source; codegen for Go handlers and TS types |
 | Distribution | .dmg / .exe double-click for desktops; `curl \| sh` or brew for headless boxes |
