@@ -301,3 +301,83 @@ func mustWriteBytes(t *testing.T, name string, content []byte) {
 		t.Fatal(err)
 	}
 }
+
+func TestTaskWorkspaceUsesEffectiveCwd(t *testing.T) {
+	src := t.TempDir()
+	execDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "source.txt"), []byte("src\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(execDir, "isolated.txt"), []byte("iso\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, token := newTestServer(t)
+	ctx := context.Background()
+	task := store.Task{
+		ID: "01WSEFFECTIVE0000000000001", Title: "ws", Agent: "claude-code",
+		Cwd: src, Prompt: "p", Status: "succeeded", CreatedAt: store.NowMilli(),
+		WorkspaceMode: "worktree", ExecutionCwd: execDir, WorkspaceRoot: execDir,
+	}
+	if err := s.Store.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/workspace/list?path=.", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var listResp struct {
+		Root    string `json:"root"`
+		Entries []struct {
+			Name string `json:"name"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&listResp); err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, e := range listResp.Entries {
+		names[e.Name] = true
+	}
+	if !names["isolated.txt"] {
+		t.Fatalf("entries=%v want isolated.txt; root=%q", names, listResp.Root)
+	}
+	if names["source.txt"] {
+		t.Fatalf("should not list source.txt: %v", names)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/workspace/file?path=isolated.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("read isolated status=%d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/workspace/file?path=source.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("read source status=%d want 404", rec.Code)
+	}
+
+	task2 := store.Task{
+		ID: "01WSHISTORICAL000000000001", Title: "h", Agent: "claude-code",
+		Cwd: src, Prompt: "p", Status: "succeeded", CreatedAt: store.NowMilli(),
+	}
+	if err := s.Store.InsertTask(ctx, task2); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+task2.ID+"/workspace/file?path=source.txt", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("historical read status=%d %s", rec.Code, rec.Body.String())
+	}
+}

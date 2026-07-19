@@ -132,7 +132,7 @@ func (s *Server) workspaceEnvForTask(r *http.Request) (*workspaceEnv, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newWorkspaceEnv(t.Cwd)
+	return newWorkspaceEnv(t.EffectiveCwd())
 }
 
 func (s *Server) handleListTaskWorkspace(w http.ResponseWriter, r *http.Request) {
