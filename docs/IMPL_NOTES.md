@@ -226,11 +226,19 @@ Binary override: env `KIN_CODEX_BIN` (same pattern as `KIN_CLAUDE_BIN`). Follow-
 
 Default `price_table` (USD per 1M tokens), returned by GET settings when unset:
 
-```json
-{"gpt-5-codex":{"in":1.25,"out":10.0},"gpt-5.1-codex":{"in":1.25,"out":10.0},"gpt-5.1-codex-max":{"in":1.25,"out":10.0},"o3":{"in":2.0,"out":8.0},"o4-mini":{"in":1.1,"out":4.4}}
-```
+- Embedded from a **curated subset of LiteLLM**’s open
+  `model_prices_and_context_window.json`
+  ([repo](https://github.com/BerriAI/litellm)).
+- File: `internal/store/default_price_table.json` (`go:embed`).
+- Covers common Codex / GPT / Claude / Grok ids (incl. `grok-4.5`).
+- Regenerate: `python3 scripts/gen_default_price_table.py`
+- Lookup: exact model id, then strip `provider/` prefix, then case-insensitive.
+- Claude Code still prefers CLI `total_cost_usd` when present; the table is a
+  fallback for agents that only report tokens.
 
 PUT validates JSON shape (`model → {in, out}` with non-negative numbers). Editable as raw JSON on Settings.
+If a user already saved an old table, GET returns that override — clear/replace
+the setting to pick up the new defaults (or paste the regenerated JSON).
 
 ### Raw PTY adapter
 
@@ -477,3 +485,46 @@ Future soft-enforcement sketch: at task creation or new-round start in `task.Eng
 - Host control-plane: optional `Controller` for plan refine + synthesis; fail-closed to deterministic plan/summary (`orchestration_fallback` events).
 - Plugin-private session state resets through `SessionHooks` (no engine `switch agentID` for Kin transcripts).
 - ADR: `docs/adr/0007-pluggable-agent-runtime.md`.
+
+## Multi-provider registry (2026-07-19)
+
+Cognition providers are no longer a single settings slot.
+
+### Storage
+
+| Key | Value |
+|-----|--------|
+| `providers` | JSON registry: `{ "active_id": "...", "entries": [ {id,name,kind,base_url,api_key,model} ] }` |
+| `provider.active_id` | Active entry id (mirrored) |
+| `provider.kind` / `base_url` / `api_key` / `model` | **Mirror of the active entry** (legacy) |
+
+On first `LoadRegistry`, a populated legacy slot is migrated into one entry with
+`id=legacy` and persisted.
+
+### API
+
+- `GET /api/providers` → `{ active_id, providers[] }` (keys masked)
+- `POST /api/providers` — create (default `active=true` when first / requested)
+- `PUT /api/providers/{id}` — update; empty/masked `api_key` keeps the previous secret; `clear_api_key: true` wipes it
+- `DELETE /api/providers/{id}` — remove; if it was active, first remaining becomes active
+- `POST /api/providers/{id}/activate` — switch active + re-mirror legacy keys
+- `GET /api/settings` adds `provider.active_id` and still returns the active slot fields
+
+### Call sites
+
+`provider.LoadConfig` resolves the **active** registry entry (used by kin agent,
+session title summarizer, model directives). Switching active takes effect on the
+next resolution; in-flight runs keep the client they already opened.
+
+### UI
+
+Settings → Cognition lists registered providers with Use / Edit / Delete and an
+add form. Default agent save is separate from provider CRUD.
+
+## Agent discovery catalog (skills ecosystem)
+
+- `internal/adapter/detect/skills_catalog.go` is a snapshot of the [vercel-labs/skills](https://github.com/vercel-labs/skills) AGENTS table (`skills@1.5.19`): ~70 coding-agent install targets with home/XDG config signals and optional binaries.
+- Used for **local presence** (`ScanPresence` / `IsLocallyPresent`), not for automatically gaining a first-class runner.
+- `PUT /api/settings` `agent.default` must name a **registered + runnable** Kin adapter; empty clears auto mode. Discovery-only ids (e.g. openclaw when no adapter) are rejected with 400.
+- First-class runnable hints today: `claude-code`, `codex`, `grok` (same as process adapters).
+

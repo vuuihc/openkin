@@ -22,6 +22,8 @@ type Props = {
   onStop?: () => void | Promise<void>;
   /** Prefill once (e.g. deep-link /new?q=). */
   initialValue?: string;
+  /** Fired whenever the textarea value changes (for draft persistence). */
+  onValueChange?: (value: string) => void;
   /** Available agents for @mention menu. */
   agents?: AgentInfo[];
   /** Current session host; used only for mention role labels. */
@@ -47,6 +49,7 @@ export default function Composer({
   stopping,
   onStop,
   initialValue = "",
+  onValueChange,
   agents = [],
   hostAgentId,
   onSubmit,
@@ -193,16 +196,29 @@ export default function Composer({
       if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
     }
     setValue("");
+    onValueChange?.("");
     setMenu(null);
     setMentionQuery("");
     setMentionIndex(0);
     setAttachments([]);
-    await onSubmit(payload);
+    try {
+      await onSubmit(payload);
+    } catch (err) {
+      // Parent handlers usually toast; never let an unhandled rejection
+      // leave the composer in a cleared-but-failed state without feedback.
+      useAppStore
+        .getState()
+        .pushToast(
+          err instanceof Error ? err.message : "Send failed",
+          "error",
+        );
+    }
   }
 
   /** Match @token immediately before the caret (not only end-of-string). */
   function onChange(v: string, caret?: number) {
     setValue(v);
+    onValueChange?.(v);
     const upto = caret == null ? v : v.slice(0, caret);
     const at = upto.match(/(?:^|\s)@([a-zA-Z0-9_-]*)$/);
     if (at) {
@@ -246,6 +262,7 @@ export default function Composer({
       }
     }
     setValue(next);
+    onValueChange?.(next);
     setMenu(null);
     setMentionQuery("");
     setMentionIndex(0);

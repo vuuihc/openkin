@@ -1,0 +1,14 @@
+Default model prices for Kin cost estimates.
+
+Source: LiteLLM model_prices_and_context_window.json (open source)
+  https://github.com/BerriAI/litellm
+  https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
+
+Units in default_price_table.json: USD per 1M input/output tokens
+  (LiteLLM stores USD per token; we multiply by 1e6).
+
+Regenerate:
+  python3 scripts/gen_default_price_table.py
+
+This is a curated subset of models Kin agents commonly report.
+Prices change; edit Settings → price_table to override, or regenerate.

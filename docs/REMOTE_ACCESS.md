@@ -174,7 +174,7 @@ cloudflared tunnel --url http://127.0.0.1:7777
 
 Copy the printed `https://….trycloudflare.com` URL, append `?token=<token>`, open on your phone.
 
-**Named tunnel (stable hostname):**
+**Named tunnel (stable hostname) — recommended for daily phone / multi-device use:**
 
 ```bash
 cloudflared tunnel login
@@ -198,7 +198,14 @@ ingress:
 cloudflared tunnel run kin
 ```
 
-Set `ui.base_url` to `https://kin.example.com` for notification deep links.
+Prefer origin on **loopback** (`kin serve` without `--lan`) so only the tunnel exposes Kin.
+
+Set `ui.base_url` to `https://kin.example.com` for notification deep links. Open the phone once with
+`https://kin.example.com/?token=<token>` (token lands in `localStorage`).
+
+Full multi-device setup, process supervision (launchd/systemd), WebSocket notes, security hardening
+(optional Cloudflare Access), and acceptance checks:
+[plans/2026-07-19-cloudflare-tunnel-custom-domain.md](./plans/2026-07-19-cloudflare-tunnel-custom-domain.md).
 
 ---
 

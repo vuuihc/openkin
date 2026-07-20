@@ -18,6 +18,7 @@ import TaskDetailPage from "./pages/TaskDetailPage";
 import TasksPage from "./pages/TasksPage";
 import TrayPage from "./pages/TrayPage";
 import UsagePage from "./pages/UsagePage";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { dispatchWS, useAppStore } from "./store/appStore";
 
 export default function App() {
@@ -102,19 +103,21 @@ export default function App() {
   return (
     <>
       <AppShell pendingCount={pendingCount}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/new" replace />} />
-          <Route path="/new" element={<NewChatPage />} />
-          <Route path="/inbox" element={<ApprovalsPage />} />
-          <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
-          <Route path="/tasks" element={<TasksPage />} />
-          <Route path="/tasks/:id" element={<TaskDetailPage />} />
-          <Route path="/artifacts" element={<ArtifactsPage />} />
-          <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
-          <Route path="/usage" element={<UsagePage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/new" replace />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<Navigate to="/new" replace />} />
+            <Route path="/new" element={<NewChatPage />} />
+            <Route path="/inbox" element={<ApprovalsPage />} />
+            <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
+            <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/tasks/:id" element={<TaskDetailPage />} />
+            <Route path="/artifacts" element={<ArtifactsPage />} />
+            <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
+            <Route path="/usage" element={<UsagePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<Navigate to="/new" replace />} />
+          </Routes>
+        </ErrorBoundary>
       </AppShell>
       <ToastHost />
     </>

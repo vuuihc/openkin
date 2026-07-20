@@ -6,9 +6,10 @@
 // command; they are only returned as HTTP response headers on the providers'
 // own endpoints (anthropic-ratelimit-unified-* for Claude, x-codex-* for
 // Codex). This package makes one minimal authenticated probe per provider and
-// parses those headers. It is best-effort and display-only: the tokens are read
-// but never refreshed (the CLIs own their refresh), and any failure surfaces as
-// a per-provider error rather than blocking anything.
+// parses those headers. It is best-effort and display-only: Claude access
+// tokens are refreshed via the same OAuth endpoint the CLI uses when near
+// expiry or rejected; Codex still relies on the CLI's own refresh. Any failure
+// surfaces as a per-provider error rather than blocking anything.
 package usagewindows
 
 import (
@@ -96,6 +97,8 @@ func New(ttl time.Duration, probers ...Prober) *Service {
 
 // Statuses returns one Provider per configured prober, using cached values that
 // are still within the TTL. Providers are returned in prober order.
+// Failed probes (Error set) are not cached so the next poll can retry after a
+// credential refresh.
 func (s *Service) Statuses(ctx context.Context) []Provider {
 	out := make([]Provider, 0, len(s.probers))
 	for _, p := range s.probers {
@@ -124,7 +127,8 @@ func (s *Service) status(ctx context.Context, p Prober) Provider {
 	}
 	prov.UpdatedAt = now.Unix()
 
-	if s.ttl > 0 {
+	// Only cache successful snapshots so auth/transient failures re-probe soon.
+	if s.ttl > 0 && prov.Error == "" {
 		s.mu.Lock()
 		s.cache[p.ID()] = cacheEntry{provider: prov, at: now}
 		s.mu.Unlock()

@@ -84,3 +84,90 @@ func TestDefaultPrefRespected(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillsCatalogHasCoreAgents(t *testing.T) {
+	cat := SkillsDiscoveryCatalog()
+	if len(cat) < 20 {
+		t.Fatalf("expected broad skills catalog, got %d", len(cat))
+	}
+	want := map[string]bool{
+		"claude-code": false,
+		"codex":       false,
+		"openclaw":    false,
+		"qoder":       false,
+		"cursor":      false,
+		"grok":        false,
+	}
+	for _, e := range cat {
+		if _, ok := want[e.ID]; ok {
+			want[e.ID] = true
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Fatalf("missing %s in skills discovery catalog", id)
+		}
+	}
+	// Runnable subset must include first-class adapters.
+	runnable := 0
+	for _, e := range cat {
+		if e.RunnableHint {
+			runnable++
+		}
+	}
+	if runnable < 3 {
+		t.Fatalf("runnable hints=%d want >= 3", runnable)
+	}
+}
+
+func TestScanPresenceConfigDir(t *testing.T) {
+	home := t.TempDir()
+	// Simulate ~/.openclaw without binary.
+	if err := os.MkdirAll(filepath.Join(home, ".openclaw"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldHome := HomeDir
+	HomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { HomeDir = oldHome })
+
+	oldLook := LookPath
+	LookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	t.Cleanup(func() { LookPath = oldLook })
+
+	var openclaw *Presence
+	for _, p := range ScanPresence("") {
+		if p.ID == "openclaw" {
+			cp := p
+			openclaw = &cp
+			break
+		}
+	}
+	if openclaw == nil {
+		t.Fatal("openclaw missing from presence scan")
+	}
+	if !openclaw.Installed || openclaw.Source != "config" {
+		t.Fatalf("openclaw presence: %+v", openclaw)
+	}
+	if !IsLocallyPresent("openclaw") {
+		t.Fatal("IsLocallyPresent(openclaw) = false")
+	}
+	if IsLocallyPresent("definitely-not-an-agent-xyz") {
+		t.Fatal("unexpected presence")
+	}
+}
+
+func TestCatalogMatchesRunnableHints(t *testing.T) {
+	cat := Catalog()
+	if len(cat) < 3 {
+		t.Fatalf("catalog=%d", len(cat))
+	}
+	ids := map[string]bool{}
+	for _, s := range cat {
+		ids[s.ID] = true
+	}
+	for _, id := range []string{"claude-code", "codex", "grok"} {
+		if !ids[id] {
+			t.Fatalf("Catalog missing %s", id)
+		}
+	}
+}

@@ -3,7 +3,9 @@ import {
   cacheCoverageLabel,
   cacheRateLabel,
   cacheState,
+  costSourceLabelKey,
   formatTokenCount,
+  primaryCostSource,
 } from "./usage";
 
 describe("usage helpers", () => {
@@ -31,5 +33,17 @@ describe("usage helpers", () => {
     expect(cacheCoverageLabel(1)).toBeNull();
     expect(cacheCoverageLabel(0)).toBe("0%");
     expect(cacheCoverageLabel(0.625)).toBe("63%");
+  });
+
+  it("picks the dominant cost source by spend", () => {
+    expect(
+      primaryCostSource([
+        { cost_source: "provider", cost_usd: 0.01, request_count: 1 },
+        { cost_source: "price_table", cost_usd: 0.05, request_count: 2 },
+      ]),
+    ).toBe("price_table");
+    expect(costSourceLabelKey("price_table")).toBe("costEstimated");
+    expect(costSourceLabelKey("provider")).toBe("costProvider");
+    expect(costSourceLabelKey("unknown")).toBeNull();
   });
 });

@@ -533,27 +533,33 @@ function ProgressCard({
   const done = steps.filter((x) => x.status === "done").length;
   const count = steps.length;
 
-  const [expanded, setExpanded] = useState(running);
+  // Default collapsed so multi-tool runs don't dominate the transcript.
+  // Auto-expand only while tools are actively running; collapse when they finish
+  // unless the user manually toggled the card open.
+  const [expanded, setExpanded] = useState(false);
   const [openStep, setOpenStep] = useState<string | null>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const wasRunning = useRef(running);
+  const userToggled = useRef(false);
 
   useEffect(() => {
     if (running) {
-      setExpanded(true);
+      if (!userToggled.current) setExpanded(true);
       wasRunning.current = true;
     } else if (wasRunning.current) {
-      // Just finished → auto-collapse to summary.
-      setExpanded(false);
+      // Just finished → collapse to summary (unless user pinned it open).
+      if (!userToggled.current) setExpanded(false);
+      setOpenStep(null);
       wasRunning.current = false;
+      userToggled.current = false;
     }
   }, [running]);
 
   const stepsSig = steps
     .map((x) =>
       x.kind === "tool"
-        ? `${x.key}:${x.status}:${x.summary}`
-        : `${x.key}:${x.status}:${x.text.length}`,
+        ? `${x.key}:${x.status}:${x.summary ?? ""}`
+        : `${x.key}:${x.status}:${(x.text ?? "").length}`,
     )
     .join("|");
 
@@ -597,7 +603,7 @@ function ProgressCard({
   const glance = latest
     ? latest.kind === "tool"
       ? `${prettyToolName(latest.name)}${latest.summary && latest.summary !== latest.name ? ` · ${shorten(latest.summary, 48)}` : ""}`
-      : `${agentDisplayName(latest.speaker)} · ${shorten(latest.text, 48)}`
+      : `${agentDisplayName(latest.speaker)} · ${shorten(latest.text ?? "", 48)}`
     : "";
 
   return (
@@ -606,7 +612,10 @@ function ProgressCard({
     >
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => {
+          userToggled.current = true;
+          setExpanded((v) => !v);
+        }}
         className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12.5px] cursor-pointer hover:bg-black/[.03] dark:hover:bg-white/[.03]"
         aria-expanded={expanded}
       >
@@ -692,8 +701,9 @@ function NoteStepRow({
 }) {
   const tr = useT();
   const meta = agentAvatarMeta(note.speaker);
-  const long = note.text.trim().length > 120 || note.text.includes("\n");
-  const hasDetail = long || note.text.trim().length > 0;
+  const noteText = note.text ?? "";
+  const long = noteText.trim().length > 120 || noteText.includes("\n");
+  const hasDetail = long || noteText.trim().length > 0;
 
   const statusDot =
     note.status === "error"
@@ -749,7 +759,7 @@ function NoteStepRow({
           )}
         </span>
         <span className="flex-1 min-w-0 truncate text-kin-secondary">
-          {shorten(note.text, 80)}
+          {shorten(noteText, 80)}
         </span>
         {hasDetail && (
           <span className="flex-none text-[10.5px] text-kin-muted pt-0.5">
@@ -760,7 +770,7 @@ function NoteStepRow({
       {open && (
         <div className="px-3 pb-2 pl-10">
           <div className="text-[12.5px] leading-relaxed text-kin-secondary rounded-md bg-[var(--kin-fill)] px-2.5 py-2 max-h-40 overflow-y-auto kin-scroll">
-            <Markdown text={note.text} />
+            <Markdown text={noteText} />
           </div>
         </div>
       )}
@@ -909,8 +919,8 @@ function formatToolJson(input: unknown): string {
   }
 }
 
-function shorten(s: string, max: number): string {
-  const t = s.replace(/\s+/g, " ").trim();
+function shorten(s: string | null | undefined, max: number): string {
+  const t = (s ?? "").replace(/\s+/g, " ").trim();
   if (t.length <= max) return t;
   return t.slice(0, max - 1) + "…";
 }
@@ -923,11 +933,12 @@ function MessageBody({
   text: string;
   partial?: boolean;
 }) {
+  const body = text ?? "";
   return (
     <div className="text-[14px] sm:text-[15px] leading-relaxed text-kin-text">
-      <Markdown text={text} />
-      {partial && !text.trim() && <ThinkingDots />}
-      {partial && text.trim() && (
+      <Markdown text={body} />
+      {partial && !body.trim() && <ThinkingDots />}
+      {partial && body.trim() && (
         <span
           className="inline-block w-[2px] h-[1em] ml-0.5 align-[-2px] bg-kin-blue animate-pulse"
           aria-hidden
@@ -1351,6 +1362,7 @@ function buildChatItems(
 
 /** Old kinagent dumped tools as markdown messages: **bash**\n```...``` */
 function isLegacyToolDumpMessage(text: string): boolean {
+  if (typeof text !== "string" || !text) return false;
   return /^\*\*(bash|read_file|write_file|list_dir|glob)\*\*\s*\n```/m.test(
     text.trim(),
   );

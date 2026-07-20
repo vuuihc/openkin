@@ -1,0 +1,218 @@
+{
+  "claude-3-5-sonnet-20241022": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "claude-3-7-sonnet-20250219": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "claude-haiku-4-5": {
+    "in": 1.0,
+    "out": 5.0
+  },
+  "claude-haiku-4-5-20251001": {
+    "in": 1.0,
+    "out": 5.0
+  },
+  "claude-opus-4-1": {
+    "in": 15.0,
+    "out": 75.0
+  },
+  "claude-opus-4-1-20250805": {
+    "in": 15.0,
+    "out": 75.0
+  },
+  "claude-opus-4-20250514": {
+    "in": 15.0,
+    "out": 75.0
+  },
+  "claude-sonnet-4-20250514": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "claude-sonnet-4-5": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "claude-sonnet-4-5-20250929": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "gpt-4.1": {
+    "in": 2.0,
+    "out": 8.0
+  },
+  "gpt-4.1-mini": {
+    "in": 0.4,
+    "out": 1.6
+  },
+  "gpt-4.1-nano": {
+    "in": 0.1,
+    "out": 0.4
+  },
+  "gpt-4o": {
+    "in": 2.5,
+    "out": 10.0
+  },
+  "gpt-4o-mini": {
+    "in": 0.15,
+    "out": 0.6
+  },
+  "gpt-5": {
+    "in": 1.25,
+    "out": 10.0
+  },
+  "gpt-5-codex": {
+    "in": 1.25,
+    "out": 10.0
+  },
+  "gpt-5-mini": {
+    "in": 0.25,
+    "out": 2.0
+  },
+  "gpt-5-nano": {
+    "in": 0.05,
+    "out": 0.4
+  },
+  "gpt-5.1": {
+    "in": 1.25,
+    "out": 10.0
+  },
+  "gpt-5.1-chat": {
+    "in": 1.38,
+    "out": 11.0
+  },
+  "gpt-5.1-codex": {
+    "in": 1.25,
+    "out": 10.0
+  },
+  "gpt-5.1-codex-max": {
+    "in": 1.25,
+    "out": 10.0
+  },
+  "gpt-5.1-codex-mini": {
+    "in": 0.25,
+    "out": 2.0
+  },
+  "grok-2": {
+    "in": 2.0,
+    "out": 10.0
+  },
+  "grok-2-latest": {
+    "in": 2.0,
+    "out": 10.0
+  },
+  "grok-2-vision": {
+    "in": 2.0,
+    "out": 10.0
+  },
+  "grok-2-vision-latest": {
+    "in": 2.0,
+    "out": 10.0
+  },
+  "grok-3": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "grok-3-fast-latest": {
+    "in": 5.0,
+    "out": 25.0
+  },
+  "grok-3-latest": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "grok-3-mini": {
+    "in": 0.3,
+    "out": 0.5
+  },
+  "grok-3-mini-fast": {
+    "in": 0.6,
+    "out": 4.0
+  },
+  "grok-3-mini-fast-latest": {
+    "in": 0.6,
+    "out": 4.0
+  },
+  "grok-3-mini-latest": {
+    "in": 0.3,
+    "out": 0.5
+  },
+  "grok-4": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "grok-4-1-fast": {
+    "in": 0.2,
+    "out": 0.5
+  },
+  "grok-4-fast-non-reasoning": {
+    "in": 0.2,
+    "out": 0.5
+  },
+  "grok-4-fast-reasoning": {
+    "in": 0.2,
+    "out": 0.5
+  },
+  "grok-4-latest": {
+    "in": 3.0,
+    "out": 15.0
+  },
+  "grok-4.3": {
+    "in": 1.25,
+    "out": 2.5
+  },
+  "grok-4.3-latest": {
+    "in": 1.25,
+    "out": 2.5
+  },
+  "grok-4.5": {
+    "in": 2.0,
+    "out": 6.0
+  },
+  "grok-4.5-latest": {
+    "in": 2.0,
+    "out": 6.0
+  },
+  "grok-code-fast": {
+    "in": 0.2,
+    "out": 1.5
+  },
+  "grok-code-fast-1": {
+    "in": 0.2,
+    "out": 1.5
+  },
+  "grok-code-fast-1-0825": {
+    "in": 0.2,
+    "out": 1.5
+  },
+  "o1": {
+    "in": 15.0,
+    "out": 60.0
+  },
+  "o1-mini": {
+    "in": 1.21,
+    "out": 4.84
+  },
+  "o1-pro": {
+    "in": 150.0,
+    "out": 600.0
+  },
+  "o3": {
+    "in": 2.0,
+    "out": 8.0
+  },
+  "o3-mini": {
+    "in": 1.1,
+    "out": 4.4
+  },
+  "o3-pro": {
+    "in": 20.0,
+    "out": 80.0
+  },
+  "o4-mini": {
+    "in": 1.1,
+    "out": 4.4
+  }
+}

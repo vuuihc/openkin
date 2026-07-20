@@ -1,16 +1,21 @@
 /**
  * Main-process IPC handlers for the desktop shell.
  */
-import { BrowserWindow, dialog, ipcMain } from "electron";
 
-export type SelectDirectoryOpts = {
+import { BrowserWindow, dialog, ipcMain } from "electron";
+import {
+  listExternalApps,
+  openPathInApp,
+  type ExternalAppId,
+} from "./open-external";
+
+type SelectDirectoryOpts = {
   defaultPath?: string;
   title?: string;
 };
 
 let registered = false;
 
-/** Idempotent registration (safe across reloads in dev). */
 export function registerIpcHandlers(): void {
   if (registered) return;
   registered = true;
@@ -47,6 +52,31 @@ export function registerIpcHandlers(): void {
         return null;
       }
       return result.filePaths[0] ?? null;
+    },
+  );
+
+  ipcMain.handle("kin:list-external-apps", async () => {
+    return listExternalApps();
+  });
+
+  ipcMain.handle(
+    "kin:open-in-app",
+    async (
+      _event,
+      payload: { path?: string; appId?: ExternalAppId },
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+      try {
+        const path = payload?.path;
+        const appId = payload?.appId;
+        if (!path || !appId) {
+          return { ok: false, error: "path and appId are required" };
+        }
+        await openPathInApp(path, appId);
+        return { ok: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: message };
+      }
     },
   );
 

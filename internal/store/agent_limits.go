@@ -88,13 +88,13 @@ func (s *Store) SetAgentLimits(ctx context.Context, limits map[string]AgentLimit
 
 // AgentLimitStatus is the per-agent progress row returned by AgentLimitStatuses.
 type AgentLimitStatus struct {
-	Agent        string   `json:"agent"`
+	Agent         string   `json:"agent"`
 	LimitSpendUSD *float64 `json:"limit_spend_usd,omitempty"`
-	UsedSpendUSD float64  `json:"used_spend_usd"`
-	LimitTokens  *int64   `json:"limit_tokens,omitempty"`
-	UsedTokens   int64    `json:"used_tokens"`
-	Status       string   `json:"status"` // ok | warn | over
-	PeriodStart  string   `json:"period_start"` // RFC3339, start of today (local)
+	UsedSpendUSD  float64  `json:"used_spend_usd"`
+	LimitTokens   *int64   `json:"limit_tokens,omitempty"`
+	UsedTokens    int64    `json:"used_tokens"`
+	Status        string   `json:"status"`       // ok | warn | over
+	PeriodStart   string   `json:"period_start"` // RFC3339, start of today (local)
 }
 
 // AgentLimitStatuses aggregates today's usage_records (natural day, server-local

@@ -106,7 +106,7 @@ func runAgentLoop(
 		// P1b metrics (debug): prompt size + optional provider cache hits.
 		log.Printf("kinagent: turn=%d prompt_chars=%d prompt_tokens=%d cached_tokens=%d completion_tokens=%d",
 			turn, promptChars, resp.Usage.PromptTokens, resp.Usage.CachedTokens, resp.Usage.CompletionTokens)
-		emitUsage(ch, promptChars, resp.Usage)
+		emitUsage(ch, lastModel, promptChars, resp.Usage)
 
 		// Assistant text (may accompany tool calls).
 		if strings.TrimSpace(resp.Content) != "" {
@@ -227,7 +227,7 @@ func runChatOnly(
 	}
 	log.Printf("kinagent: chat-only prompt_chars=%d prompt_tokens=%d cached_tokens=%d",
 		promptChars, resp.Usage.PromptTokens, resp.Usage.CachedTokens)
-	emitUsage(ch, promptChars, resp.Usage)
+	emitUsage(ch, firstNonEmpty(resp.Model, model), promptChars, resp.Usage)
 	if strings.TrimSpace(resp.Content) != "" {
 		emitMsg(ch, "kin", resp.Content)
 	}
@@ -409,8 +409,8 @@ func emitToolResult(ch chan<- adapter.Event, name, argsJSON, output string, ok b
 	ch <- adapter.Event{Type: "tool_result", Payload: payload}
 }
 
-func emitUsage(ch chan<- adapter.Event, promptChars int, u provider.Usage) {
-	payload, _ := json.Marshal(map[string]any{
+func emitUsage(ch chan<- adapter.Event, model string, promptChars int, u provider.Usage) {
+	payload := map[string]any{
 		"prompt_chars":        promptChars,
 		"prompt_tokens":       u.PromptTokens,
 		"completion_tokens":   u.CompletionTokens,
@@ -418,8 +418,12 @@ func emitUsage(ch chan<- adapter.Event, promptChars int, u provider.Usage) {
 		"cache_read_reported": u.CacheReadReported,
 		"total_tokens":        u.TotalTokens,
 		"source":              "kin",
-	})
-	ch <- adapter.Event{Type: "usage", Payload: payload}
+	}
+	if m := strings.TrimSpace(model); m != "" {
+		payload["model"] = m
+	}
+	raw, _ := json.Marshal(payload)
+	ch <- adapter.Event{Type: "usage", Payload: raw}
 }
 
 func toolRunningSummary(name, argsJSON string) string {

@@ -1,14 +1,28 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { formatCost, isTerminal, type Task } from "../../api/client";
 import { useT } from "../../i18n/react";
-import { getDraftCwd, subscribeDraft } from "../../lib/draftChat";
-import { projectLabel } from "../../lib/paths";
+import { getDraftCwd, getDraftPrompt, subscribeDraft } from "../../lib/draftChat";
 import {
+  archiveProject,
+  getProjectSortMode,
+  groupByProject,
+  setProjectSortMode,
+  subscribeProjectSidebar,
+  toggleProjectPinned,
+  touchProject,
+  unarchiveProject,
+  type ProjectGroup,
+  type ProjectSortMode,
+} from "../../lib/projectSidebar";
+import {
+  IconArchive,
   IconArtifacts,
   IconInbox,
+  IconPin,
   IconPlus,
   IconSettings,
+  IconSort,
   IconTasks,
   IconUsage,
 } from "../icons";
@@ -27,26 +41,6 @@ type Props = {
   mobileOpen: boolean;
   onCloseMobile: () => void;
 };
-
-function groupByProject(tasks: Task[]): { label: string; cwd: string; items: Task[] }[] {
-  const map = new Map<string, Task[]>();
-  for (const t of tasks) {
-    const key = t.cwd || "unknown";
-    const list = map.get(key) ?? [];
-    list.push(t);
-    map.set(key, list);
-  }
-  return [...map.entries()]
-    .map(([cwd, items]) => ({
-      cwd,
-      label: projectLabel(cwd),
-      items: items
-        .slice()
-        .sort((a, b) => b.created_at - a.created_at)
-        .slice(0, 8),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
 
 /** Normalize path for cwd comparison across platforms. */
 function normCwd(cwd: string): string {
@@ -67,25 +61,125 @@ export default function Sidebar({
   mobileOpen,
   onCloseMobile,
 }: Props) {
-  const navigate = useNavigate();
   const tr = useT();
-  const groups = groupByProject(tasks);
-  const liveDraftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, getDraftCwd);
+  const navigate = useNavigate();
+  const draftCwd = useSyncExternalStore(subscribeDraft, getDraftCwd, () => "");
+  const draftPrompt = useSyncExternalStore(subscribeDraft, getDraftPrompt, () => "");
+  /** Keep the draft row visible when navigating away with unsent text (or any draft cwd). */
+  const hasDraft = Boolean(draftActive || draftPrompt.trim());
+  // Re-render when sort / pin / archive / last-interact prefs change.
+  const [prefsTick, setPrefsTick] = useState(0);
+  useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
 
-  // When draft has a project cwd that matches an existing group, nest it there.
-  const draftCwd = draftActive ? liveDraftCwd : "";
-  const draftGroupCwd = draftCwd
-    ? groups.find((g) => normCwd(g.cwd) === normCwd(draftCwd))?.cwd ?? null
-    : null;
+  const sortMode = getProjectSortMode();
+  // prefsTick invalidates after localStorage updates (sort / pin / archive / interact).
+  const groups = useMemo(() => groupByProject(tasks), [tasks, prefsTick]);
+  const archivedGroups = useMemo(
+    () => groupByProject(tasks, { onlyArchived: true }),
+    [tasks, prefsTick],
+  );
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!sortMenuRef.current?.contains(e.target as Node)) setSortMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSortMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [sortMenuOpen]);
+
+  // When the user opens a task, bump its project last-interact so "recent" stays fresh.
+  // Also restores the project if it was archived (open ⇒ unarchive).
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const t = tasks.find((x) => x.id === selectedTaskId);
+    if (t?.cwd) touchProject(t.cwd);
+  }, [selectedTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const draftGroupCwd =
+    hasDraft && draftCwd
+      ? [...groups, ...archivedGroups].find((g) => normCwd(g.cwd) === normCwd(draftCwd))
+          ?.cwd ?? null
+      : null;
+  // Show orphan "New chat" tab when we have a draft and it is not nested under a project group.
+  const showOrphanDraft = Boolean(hasDraft && !draftGroupCwd);
+
+  const pickSort = (mode: ProjectSortMode) => {
+    setProjectSortMode(mode);
+    setSortMenuOpen(false);
+  };
+
+  const onArchive = (g: ProjectGroup) => {
+    const ok = window.confirm(tr("nav.archiveConfirm", { project: g.label }));
+    if (!ok) return;
+    archiveProject(g.cwd);
+  };
 
   const panel = (
-    <aside className="kin-surface-sidebar flex flex-col h-full w-[min(248px,85vw)] flex-none border-r border-[var(--kin-hairline-strong)]">
-      {/* Mobile-only brand strip; desktop uses native window chrome (no fake traffic lights). */}
-      <div className="md:hidden h-11 flex items-center px-4 flex-none">
-        <span className="text-[15px] font-semibold text-kin-text">Kin</span>
+    <aside className="w-[248px] max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-border shrink-0">
+      <div className="px-3 pt-3 pb-2 flex items-center gap-2">
+        <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-[13px] font-semibold shadow-sm">
+          K
+        </div>
+        <span className="text-[14px] font-semibold tracking-tight">{tr("app.name")}</span>
+        <div className="ml-auto relative" ref={sortMenuRef}>
+          <button
+            type="button"
+            title={tr("nav.sortProjects")}
+            aria-label={tr("nav.sortProjects")}
+            aria-expanded={sortMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => setSortMenuOpen((o) => !o)}
+            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+          >
+            <IconSort size={15} />
+          </button>
+          {sortMenuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
+            >
+              {(
+                [
+                  ["recent", "nav.sortByRecent"],
+                  ["created", "nav.sortByCreated"],
+                ] as const
+              ).map(([mode, key]) => {
+                const active = sortMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={active}
+                    onClick={() => pickSort(mode)}
+                    className={[
+                      "w-full text-left px-3 py-1.5 text-[12.5px] transition-colors",
+                      active
+                        ? "text-kin-text bg-[var(--kin-fill-strong)]"
+                        : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+                    ].join(" ")}
+                  >
+                    {tr(key)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="px-3 pt-3 md:pt-3 pb-2.5 flex-none">
+      <div className="px-2.5 pb-2">
         <button
           type="button"
           onClick={() => {
@@ -93,7 +187,7 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2.5 py-[7px] rounded-lg border text-[13.5px] font-medium min-h-[40px]",
+            "w-full flex items-center gap-2 px-2.5 h-9 rounded-[8px] text-[13px] font-medium border transition-colors",
             draftActive
               ? "border-kin-blue/40 bg-kin-blue-soft text-kin-text"
               : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -107,17 +201,22 @@ export default function Sidebar({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto kin-scroll px-2">
+      <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-3">
         <button
           type="button"
           onClick={() => {
-            navigate("/inbox");
+            navigate("/approvals");
             onCloseMobile();
           }}
-          className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] text-[13px] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text min-h-[36px]"
+          className={[
+            "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-[13px] min-h-[34px]",
+            pendingCount > 0
+              ? "border border-kin-blue/40 bg-kin-blue-soft text-kin-text"
+              : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+          ].join(" ")}
         >
-          <IconInbox size={15} className="text-kin-orange" />
-          {tr("nav.inbox")}
+          <IconInbox size={15} />
+          <span>{tr("nav.inbox")}</span>
           {pendingCount > 0 && (
             <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-[#1a1a1c] text-[11px] font-bold inline-flex items-center justify-center tabular-nums">
               {pendingCount > 99 ? "99+" : pendingCount}
@@ -125,128 +224,164 @@ export default function Sidebar({
           )}
         </button>
 
-        {groups.length === 0 && (
+        {groups.length === 0 && archivedGroups.length === 0 && (
           <div className="px-2 py-4 text-[12.5px] text-kin-muted leading-relaxed">
             {tr("nav.emptyHint")}
           </div>
         )}
 
         {groups.map((g) => {
-          const nestDraft = Boolean(draftActive && draftGroupCwd === g.cwd);
+          const nestDraft = Boolean(hasDraft && draftGroupCwd === g.cwd);
           return (
-            <div key={g.cwd}>
-              <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5">
-                <span className="truncate flex-1 min-w-0" title={g.cwd}>
-                  {g.label}
-                </span>
-                <button
-                  type="button"
-                  title={tr("nav.newSessionIn", { project: g.label })}
-                  aria-label={tr("nav.newSessionIn", { project: g.label })}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onNewSessionInProject) onNewSessionInProject(g.cwd);
-                    else onNewChat();
-                    onCloseMobile();
-                  }}
-                  className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-70 group-hover/proj:opacity-100 transition-opacity"
-                >
-                  <IconPlus size={13} strokeWidth={2.2} />
-                </button>
-              </div>
-
-              {/* Draft nested under its project when cwd matches. */}
-              {nestDraft && (
-                <DraftRow
-                  active
-                  label={tr("nav.draftChat")}
-                  onClick={() => {
-                    onNewChat();
-                    onCloseMobile();
-                  }}
-                />
-              )}
-
-              {g.items.map((task) => {
-                const active = task.id === selectedTaskId;
-                const running = !isTerminal(task.status);
-                return (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => {
-                      navigate(`/tasks/${task.id}`);
-                      onCloseMobile();
-                    }}
-                    className={[
-                      "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-[13px] min-h-[34px] text-left",
-                      active
-                        ? "bg-[var(--kin-fill-strong)] text-kin-text"
-                        : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-                    ].join(" ")}
-                  >
-                    <span
-                      className={[
-                        "w-1.5 h-1.5 rounded-full flex-none",
-                        running
-                          ? task.status === "waiting_approval"
-                            ? "bg-kin-orange"
-                            : "bg-kin-blue"
-                          : "bg-transparent",
-                      ].join(" ")}
-                    />
-                    <span className="truncate">{task.title || task.prompt}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <ProjectBlock
+              key={g.cwd}
+              group={g}
+              nestDraft={nestDraft}
+              draftRowActive={Boolean(draftActive)}
+              selectedTaskId={selectedTaskId}
+              draftLabel={tr("nav.draftChat")}
+              onDraftClick={() => {
+                navigate("/new");
+                onCloseMobile();
+              }}
+              onCloseMobile={onCloseMobile}
+              onNewSession={() => {
+                touchProject(g.cwd);
+                if (onNewSessionInProject) onNewSessionInProject(g.cwd);
+                else onNewChat();
+                onCloseMobile();
+              }}
+              onTogglePin={() => toggleProjectPinned(g.cwd)}
+              onArchive={() => onArchive(g)}
+              pinLabel={g.pinned ? tr("nav.unpinProject") : tr("nav.pinProject")}
+              archiveLabel={tr("nav.archiveProject")}
+              newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
+              mode="active"
+            />
           );
         })}
-      </div>
 
-      <div className="border-t border-[var(--kin-hairline)] px-2 py-2 flex flex-col gap-0.5 flex-none">
+        {showOrphanDraft && (
+          <div>
+            <div className="kin-section-label">{tr("nav.draft")}</div>
+            <DraftRow
+              active={Boolean(draftActive)}
+              label={tr("nav.draftChat")}
+              onClick={() => {
+                navigate("/new");
+                onCloseMobile();
+              }}
+            />
+          </div>
+        )}
+
+        {archivedGroups.length > 0 && (
+          <div className="pt-1 border-t border-kin-border/60">
+            <button
+              type="button"
+              onClick={() => setArchivedOpen((o) => !o)}
+              className="kin-section-label w-full flex items-center gap-1 pr-0.5 hover:text-kin-secondary transition-colors"
+              aria-expanded={archivedOpen}
+            >
+              <IconArchive size={11} className="flex-none opacity-70" />
+              <span className="truncate flex-1 min-w-0 text-left">
+                {tr("nav.archivedProjects")}
+              </span>
+              <span className="text-[11px] tabular-nums opacity-70">
+                {archivedGroups.length}
+              </span>
+              <span
+                className={[
+                  "text-[10px] opacity-60 transition-transform",
+                  archivedOpen ? "rotate-90" : "",
+                ].join(" ")}
+              >
+                ▸
+              </span>
+            </button>
+            {archivedOpen && (
+              <div className="space-y-3 mt-1">
+                {archivedGroups.map((g) => {
+                  const nestDraft = Boolean(hasDraft && draftGroupCwd === g.cwd);
+                  return (
+                    <ProjectBlock
+                      key={`arch-${g.cwd}`}
+                      group={g}
+                      nestDraft={nestDraft}
+                      draftRowActive={Boolean(draftActive)}
+                      selectedTaskId={selectedTaskId}
+                      draftLabel={tr("nav.draftChat")}
+                      onDraftClick={() => {
+                        navigate("/new");
+                        onCloseMobile();
+                      }}
+                      onCloseMobile={onCloseMobile}
+                      onNewSession={() => {
+                        unarchiveProject(g.cwd);
+                        touchProject(g.cwd);
+                        if (onNewSessionInProject) onNewSessionInProject(g.cwd);
+                        else onNewChat();
+                        onCloseMobile();
+                      }}
+                      onTogglePin={() => toggleProjectPinned(g.cwd)}
+                      onArchive={() => unarchiveProject(g.cwd)}
+                      pinLabel={tr("nav.pinProject")}
+                      archiveLabel={tr("nav.unarchiveProject")}
+                      newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
+                      mode="archived"
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </nav>
+
+      <div className="border-t border-kin-border px-2 py-2 space-y-0.5">
         <NavLink
           to="/tasks"
           onClick={onCloseMobile}
           className={({ isActive }) =>
-            `${footLink} ${isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""}`
+            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
           }
         >
-          <IconTasks size={14} />
+          <IconTasks size={15} />
           {tr("nav.tasks")}
-          <span className="ml-auto text-kin-muted tabular-nums">{tasks.length}</span>
         </NavLink>
         <NavLink
           to="/artifacts"
           onClick={onCloseMobile}
           className={({ isActive }) =>
-            `${footLink} ${isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""}`
+            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
           }
         >
-          <IconArtifacts size={14} />
+          <IconArtifacts size={15} />
           {tr("nav.artifacts")}
         </NavLink>
         <NavLink
           to="/usage"
           onClick={onCloseMobile}
           className={({ isActive }) =>
-            `${footLink} ${isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""}`
+            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
           }
         >
-          <IconUsage size={14} />
-          {tr("nav.usage")}
-          <span className="ml-auto text-kin-muted tabular-nums">
-            {weekCost != null ? formatCost(weekCost) : "—"}
-          </span>
+          <IconUsage size={15} />
+          <span className="flex-1">{tr("nav.usage")}</span>
+          {weekCost != null && weekCost > 0 && (
+            <span className="text-[11px] text-kin-muted tabular-nums">
+              {formatCost(weekCost)}
+            </span>
+          )}
         </NavLink>
         <NavLink
           to="/settings"
           onClick={onCloseMobile}
           className={({ isActive }) =>
-            `${footLink} ${isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""}`
+            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
           }
         >
-          <IconSettings size={14} />
+          <IconSettings size={15} />
           {tr("nav.settings")}
         </NavLink>
       </div>
@@ -255,7 +390,10 @@ export default function Sidebar({
 
   return (
     <>
+      {/* Desktop */}
       <div className="hidden md:flex h-full shrink-0">{panel}</div>
+
+      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="md:hidden fixed inset-0 z-40 flex">
           <button
@@ -268,6 +406,138 @@ export default function Sidebar({
         </div>
       )}
     </>
+  );
+}
+
+function ProjectBlock({
+  group: g,
+  nestDraft,
+  draftRowActive,
+  selectedTaskId,
+  draftLabel,
+  onDraftClick,
+  onCloseMobile,
+  onNewSession,
+  onTogglePin,
+  onArchive,
+  pinLabel,
+  archiveLabel,
+  newSessionLabel,
+  mode,
+}: {
+  group: ProjectGroup;
+  nestDraft: boolean;
+  draftRowActive: boolean;
+  selectedTaskId?: string | null;
+  draftLabel: string;
+  onDraftClick: () => void;
+  onCloseMobile: () => void;
+  onNewSession: () => void;
+  onTogglePin: () => void;
+  onArchive: () => void;
+  pinLabel: string;
+  archiveLabel: string;
+  newSessionLabel: string;
+  mode: "active" | "archived";
+}) {
+  return (
+    <div className={mode === "archived" ? "opacity-80" : undefined}>
+      <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5">
+        {g.pinned && mode === "active" && (
+          <IconPin size={11} className="flex-none text-kin-blue opacity-90" />
+        )}
+        <span className="truncate flex-1 min-w-0" title={g.cwd}>
+          {g.label}
+        </span>
+        {mode === "active" && (
+          <button
+            type="button"
+            title={pinLabel}
+            aria-label={pinLabel}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+            className={[
+              "flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center transition-opacity",
+              g.pinned
+                ? "text-kin-blue opacity-100"
+                : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100",
+            ].join(" ")}
+          >
+            <IconPin size={12} strokeWidth={g.pinned ? 2.2 : 1.7} />
+          </button>
+        )}
+        <button
+          type="button"
+          title={archiveLabel}
+          aria-label={archiveLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onArchive();
+          }}
+          className={[
+            "flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-opacity",
+            mode === "archived"
+              ? "opacity-100"
+              : "opacity-0 group-hover/proj:opacity-100",
+          ].join(" ")}
+        >
+          <IconArchive size={12} />
+        </button>
+        <button
+          type="button"
+          title={newSessionLabel}
+          aria-label={newSessionLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onNewSession();
+          }}
+          className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-70 group-hover/proj:opacity-100 transition-opacity"
+        >
+          <IconPlus size={13} strokeWidth={2.2} />
+        </button>
+      </div>
+
+      {nestDraft && (
+        <DraftRow active={draftRowActive} label={draftLabel} onClick={onDraftClick} />
+      )}
+
+      <div className="space-y-0.5">
+        {g.items.map((t) => {
+          const active = t.id === selectedTaskId;
+          const running = !isTerminal(t.status);
+          return (
+            <NavLink
+              key={t.id}
+              to={`/tasks/${t.id}`}
+              onClick={() => {
+                touchProject(t.cwd || g.cwd);
+                onCloseMobile();
+              }}
+              className={[
+                "flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-[13px] min-h-[34px]",
+                active
+                  ? "bg-[var(--kin-fill-strong)] text-kin-text"
+                  : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "w-1.5 h-1.5 rounded-full flex-none",
+                  running
+                    ? "bg-kin-blue animate-pulse"
+                    : t.status === "failed"
+                      ? "bg-kin-red"
+                      : "bg-transparent",
+                ].join(" ")}
+              />
+              <span className="truncate flex-1 min-w-0">{t.title || t.prompt}</span>
+            </NavLink>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

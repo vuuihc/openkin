@@ -7,25 +7,9 @@ import (
 	"github.com/vuuihc/kin/internal/store"
 )
 
-// LoadConfig reads provider settings from the store.
-func LoadConfig(ctx context.Context, st *store.Store) (Config, error) {
-	get := func(k string) string {
-		v, err := st.GetSetting(ctx, k)
-		if err != nil {
-			return ""
-		}
-		return v
-	}
-	cfg := Config{
-		Kind:    get(KeyKind),
-		BaseURL: get(KeyBaseURL),
-		APIKey:  get(KeyAPIKey),
-		Model:   get(KeyModel),
-	}.Normalize()
-	return cfg, nil
-}
-
-// SaveConfig writes provider settings.
+// SaveConfig writes the legacy single-slot provider settings.
+// Prefer SaveRegistry / UpsertEntry for multi-provider management; this remains
+// so the active entry can be mirrored and older call sites keep working.
 // API key: empty + clearAPIKey clears; masked values (from GET) are ignored; otherwise set.
 func SaveConfig(ctx context.Context, st *store.Store, cfg Config, clearAPIKey bool) error {
 	cfg = cfg.Normalize()
@@ -46,6 +30,11 @@ func SaveConfig(ctx context.Context, st *store.Store, cfg Config, clearAPIKey bo
 	}
 	if cfg.APIKey != "" && !looksMasked(cfg.APIKey) {
 		return st.SetSetting(ctx, KeyAPIKey, cfg.APIKey)
+	}
+	// When mirroring an active entry with an empty key, clear the legacy slot
+	// so Configured() stays consistent with the registry.
+	if cfg.APIKey == "" {
+		return st.SetSetting(ctx, KeyAPIKey, "")
 	}
 	return nil
 }

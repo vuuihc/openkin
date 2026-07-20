@@ -6,9 +6,10 @@ export function projectLabel(cwd: string): string {
   return parts[parts.length - 1] || cwd;
 }
 
-export function shortPath(path: string, max = 36): string {
-  if (path.length <= max) return path;
-  return "…" + path.slice(-(max - 1));
+export function shortPath(path: string | null | undefined, max = 36): string {
+  const p = path ?? "";
+  if (p.length <= max) return p;
+  return "…" + p.slice(-(max - 1));
 }
 
 function slashPath(input: string): string {
@@ -58,3 +59,30 @@ export function toWorkspaceRelativePath(cwd: string, filePath: string): string |
   }
   return normalizeRelativePath(normalizedPath);
 }
+
+/** Join task cwd/root with a workspace-relative path into an absolute path. */
+export function toAbsoluteWorkspacePath(
+  root: string,
+  relativePath: string | null | undefined,
+): string | null {
+  if (!root) return null;
+  const base = trimTrailingSlash(slashPath(root));
+  if (!relativePath || relativePath === "." || relativePath === "./") {
+    return base || null;
+  }
+  // Refuse absolute / drive inputs before normalizing.
+  const slashRel = slashPath(relativePath.trim());
+  if (
+    slashRel.startsWith("/") ||
+    /^[A-Za-z]:\//.test(slashRel) ||
+    slashRel.startsWith("//")
+  ) {
+    return null;
+  }
+  const rel = normalizeRelativePath(relativePath);
+  // null means the path escaped above root (e.g. "../x").
+  if (rel == null) return null;
+  if (rel === ".") return base || null;
+  return `${base}/${rel}`;
+}
+

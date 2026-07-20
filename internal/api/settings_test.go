@@ -136,3 +136,42 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
+
+func TestPutAgentDefaultRequiresAvailable(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	// Unknown agent → 400
+	body := `{"agent.default":"not-a-real-agent"}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unknown agent: status %d body %s", rr.Code, rr.Body.String())
+	}
+
+	// Empty clears preference → 200
+	body = `{"agent.default":""}`
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear default: status %d body %s", rr.Code, rr.Body.String())
+	}
+
+	// Registered + runnable test adapter may pass even without PATH binary
+	// (GetRunnable is the final gate for adapters Kin already opened).
+	body = `{"agent.default":"claude-code"}`
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("claude-code default: status %d body %s", rr.Code, rr.Body.String())
+	}
+}

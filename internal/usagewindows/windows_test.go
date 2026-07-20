@@ -170,3 +170,31 @@ func (e fakeErr) Error() string { return string(e) }
 func round2(f float64) float64 {
 	return float64(int64(f*100+0.5)) / 100
 }
+
+func TestServiceDoesNotCacheErrors(t *testing.T) {
+	fp := &fakeProber{id: "claude", prov: Provider{Error: "claude token expired; re-login"}}
+	svc := New(time.Minute, fp)
+	now := time.Unix(1000, 0)
+	svc.now = func() time.Time { return now }
+
+	_ = svc.Statuses(context.Background())
+	if fp.calls != 1 {
+		t.Fatalf("calls = %d", fp.calls)
+	}
+	// Still within TTL, but error must not be cached.
+	_ = svc.Statuses(context.Background())
+	if fp.calls != 2 {
+		t.Fatalf("expected re-probe after error, got %d calls", fp.calls)
+	}
+
+	// Successful result is cached.
+	fp.prov = Provider{Provider: "claude", Windows: []Window{{Kind: "5h", UsedPercent: 1, Status: "ok"}}}
+	_ = svc.Statuses(context.Background())
+	if fp.calls != 3 {
+		t.Fatalf("calls after success = %d", fp.calls)
+	}
+	_ = svc.Statuses(context.Background())
+	if fp.calls != 3 {
+		t.Fatalf("expected cache hit after success, got %d calls", fp.calls)
+	}
+}

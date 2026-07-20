@@ -1,15 +1,44 @@
-// Package detect discovers installed agent CLIs on PATH.
+// Package detect discovers installed coding agents on the local machine.
+//
+// Two catalogs are maintained:
+//
+//   - Catalog / Scan: Kin-runnable adapters (claude-code, codex, grok, …) via PATH.
+//   - SkillsDiscoveryCatalog / ScanPresence: broader skills-ecosystem list
+//     (vercel-labs/skills AGENTS table) via PATH and/or well-known config dirs.
+//
+// Presence is used when switching the default host (agent.default): an id may
+// only be selected when it is both registered as a Kin adapter and Available.
 package detect
 
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 )
 
-// Info describes one known agent backend.
+// LookPath is overridable in tests (defaults to exec.LookPath).
+var LookPath = exec.LookPath
+
+// HomeDir is overridable in tests (defaults to os.UserHomeDir).
+var HomeDir = os.UserHomeDir
+
+// ConfigHome returns the XDG config directory (~/.config or $XDG_CONFIG_HOME).
+// Overridable in tests.
+var ConfigHome = func() string {
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		return v
+	}
+	home, err := HomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".config")
+}
+
+// Info describes one known agent backend (Kin-runnable catalog).
 type Info struct {
 	ID        string `json:"id"`        // kin agent key, e.g. "claude-code"
 	Name      string `json:"name"`      // display name
@@ -18,6 +47,19 @@ type Info struct {
 	Available bool   `json:"available"` // ready to run (installed for now)
 	Default   bool   `json:"default"`   // selected as default when agent omitted
 	Reason    string `json:"reason,omitempty"`
+}
+
+// Presence is one discovery result from the skills-ecosystem catalog.
+type Presence struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Binary       string `json:"binary,omitempty"`
+	Installed    bool   `json:"installed"` // binary and/or config dir present
+	Available    bool   `json:"available"` // same as Installed for discovery
+	RunnableHint bool   `json:"runnable_hint"`
+	Default      bool   `json:"default,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+	Source       string `json:"source,omitempty"` // "binary" | "config" | "binary+config"
 }
 
 // Spec is a known agent that Kin can drive if installed.
@@ -31,90 +73,56 @@ type Spec struct {
 }
 
 // Catalog is the built-in set of adapters Kin knows how to launch.
-// Only installed entries are registered into the engine at serve time.
+// Derived from SkillsDiscoveryCatalog entries with RunnableHint (plus grok).
 func Catalog() []Spec {
-	return []Spec{
-		{
-			ID:       "claude-code",
-			Name:     "Claude Code",
-			Bins:     []string{"claude"},
-			EnvBin:   "KIN_CLAUDE_BIN",
-			Priority: 10,
-		},
-		{
-			ID:       "codex",
-			Name:     "Codex",
-			Bins:     []string{"codex"},
-			EnvBin:   "KIN_CODEX_BIN",
-			Priority: 20,
-		},
-		{
-			ID:       "grok",
-			Name:     "Grok",
-			Bins:     []string{"grok"},
-			EnvBin:   "KIN_GROK_BIN",
-			Priority: 30,
-		},
+	var out []Spec
+	for _, d := range SkillsDiscoveryCatalog() {
+		if !d.RunnableHint {
+			continue
+		}
+		out = append(out, Spec{
+			ID:       d.ID,
+			Name:     d.Name,
+			Bins:     append([]string(nil), d.Bins...),
+			EnvBin:   d.EnvBin,
+			Priority: d.Priority,
+		})
 	}
+	if len(out) == 0 {
+		// Fallback if catalog is empty (should not happen).
+		return []Spec{
+			{ID: "claude-code", Name: "Claude Code", Bins: []string{"claude"}, EnvBin: "KIN_CLAUDE_BIN", Priority: 10},
+			{ID: "codex", Name: "Codex", Bins: []string{"codex"}, EnvBin: "KIN_CODEX_BIN", Priority: 20},
+			{ID: "grok", Name: "Grok", Bins: []string{"grok"}, EnvBin: "KIN_GROK_BIN", Priority: 30},
+		}
+	}
+	return out
 }
 
-// LookPath is overridable in tests.
-var LookPath = exec.LookPath
-
-// Scan returns all catalog agents with install status.
-// defaultID, if non-empty and installed, is marked Default; else first installed by priority.
-func Scan(defaultID string) []Info {
+// Scan returns live status for Catalog agents (PATH / env bin only).
+// defaultPref, when non-empty and available, is marked Default; otherwise the
+// lowest-priority available agent is default.
+func Scan(defaultPref string) []Info {
 	specs := Catalog()
 	out := make([]Info, 0, len(specs))
 	for _, sp := range specs {
+		path, reason := resolveBinary(sp.EnvBin, sp.Bins)
+		inst := path != ""
 		info := Info{
-			ID:   sp.ID,
-			Name: sp.Name,
+			ID:        sp.ID,
+			Name:      sp.Name,
+			Binary:    path,
+			Installed: inst,
+			Available: inst,
+			Reason:    reason,
 		}
-		path, reason := resolveBinary(sp)
-		if path != "" {
-			info.Binary = path
-			info.Installed = true
-			info.Available = true
-		} else {
-			info.Reason = reason
+		if !inst && reason == "" {
+			info.Reason = "not found on PATH"
 		}
 		out = append(out, info)
 	}
-
-	// Pick default among available.
-	chosen := ""
-	if defaultID != "" {
-		for _, i := range out {
-			if i.ID == defaultID && i.Available {
-				chosen = defaultID
-				break
-			}
-		}
-	}
-	if chosen == "" {
-		// lowest Priority among available
-		bestP := int(^uint(0) >> 1)
-		for _, sp := range specs {
-			for _, i := range out {
-				if i.ID == sp.ID && i.Available && sp.Priority < bestP {
-					bestP = sp.Priority
-					chosen = sp.ID
-				}
-			}
-		}
-	}
-	for i := range out {
-		if out[i].ID == chosen {
-			out[i].Default = true
-		}
-	}
-
-	// Stable order: available first (by priority), then unavailable.
+	markDefaultInfo(out, defaultPref)
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Available != out[j].Available {
-			return out[i].Available
-		}
 		pi, pj := priorityOf(out[i].ID), priorityOf(out[j].ID)
 		if pi != pj {
 			return pi < pj
@@ -124,7 +132,78 @@ func Scan(defaultID string) []Info {
 	return out
 }
 
-// DefaultID returns the default available agent id, or "".
+// ScanPresence returns local presence for the skills discovery catalog.
+// An agent is Installed when a binary resolves and/or a known config directory exists.
+func ScanPresence(defaultPref string) []Presence {
+	specs := SkillsDiscoveryCatalog()
+	out := make([]Presence, 0, len(specs))
+	for _, sp := range specs {
+		binPath, binReason := resolveBinary(sp.EnvBin, sp.Bins)
+		configHit, configPath := resolveConfigPresence(sp)
+		inst := binPath != "" || configHit
+		src := ""
+		switch {
+		case binPath != "" && configHit:
+			src = "binary+config"
+		case binPath != "":
+			src = "binary"
+		case configHit:
+			src = "config"
+		}
+		reason := ""
+		if !inst {
+			if binReason != "" {
+				reason = binReason
+			} else if len(sp.Bins) > 0 || len(sp.HomeDirs) > 0 || len(sp.ConfigDirs) > 0 {
+				reason = "not found on PATH or known config dirs"
+			} else {
+				reason = "no detection signals"
+			}
+		} else if binPath == "" && configHit {
+			reason = "config present (" + configPath + "); CLI binary not on PATH"
+		}
+		out = append(out, Presence{
+			ID:           sp.ID,
+			Name:         sp.Name,
+			Binary:       binPath,
+			Installed:    inst,
+			Available:    inst,
+			RunnableHint: sp.RunnableHint,
+			Reason:       reason,
+			Source:       src,
+		})
+	}
+	markDefaultPresence(out, defaultPref)
+	sort.SliceStable(out, func(i, j int) bool {
+		// Runnable + installed first, then priority, then id.
+		ai, aj := scorePresence(out[i]), scorePresence(out[j])
+		if ai != aj {
+			return ai < aj
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func scorePresence(p Presence) int {
+	// lower is better
+	s := 1000
+	if p.Installed {
+		s -= 500
+	}
+	if p.RunnableHint {
+		s -= 200
+	}
+	for _, d := range SkillsDiscoveryCatalog() {
+		if d.ID == p.ID {
+			s += d.Priority
+			break
+		}
+	}
+	return s
+}
+
+// DefaultID returns the default available agent id from Catalog, or "".
 func DefaultID(defaultPref string) string {
 	for _, i := range Scan(defaultPref) {
 		if i.Default {
@@ -134,7 +213,7 @@ func DefaultID(defaultPref string) string {
 	return ""
 }
 
-// AvailableIDs returns installed agent ids.
+// AvailableIDs returns installed Catalog agent ids.
 func AvailableIDs() []string {
 	var ids []string
 	for _, i := range Scan("") {
@@ -145,25 +224,90 @@ func AvailableIDs() []string {
 	return ids
 }
 
-func resolveBinary(sp Spec) (path string, reason string) {
-	if sp.EnvBin != "" {
-		if v := os.Getenv(sp.EnvBin); v != "" {
-			if p, err := LookPath(v); err == nil {
-				return p, ""
-			}
-			// Allow absolute path even if LookPath fails on some systems.
-			if _, err := os.Stat(v); err == nil {
-				return v, ""
-			}
-			return "", sp.EnvBin + " set but not found"
+// IsLocallyPresent reports whether id is present on this machine via the
+// discovery catalog (binary and/or config dir).
+func IsLocallyPresent(id string) bool {
+	id = trimID(id)
+	if id == "" {
+		return false
+	}
+	for _, p := range ScanPresence("") {
+		if p.ID == id {
+			return p.Installed
 		}
 	}
-	for _, b := range sp.Bins {
-		if p, err := LookPath(b); err == nil {
-			return p, ""
+	// Also accept pure Catalog PATH hits for ids not in skills list.
+	for _, i := range Scan("") {
+		if i.ID == id {
+			return i.Installed
 		}
 	}
-	return "", "not found on PATH"
+	return false
+}
+
+func trimID(id string) string {
+	for len(id) > 0 && (id[0] == ' ' || id[0] == '\t') {
+		id = id[1:]
+	}
+	for len(id) > 0 && (id[len(id)-1] == ' ' || id[len(id)-1] == '\t') {
+		id = id[:len(id)-1]
+	}
+	return id
+}
+
+func markDefaultInfo(out []Info, defaultPref string) {
+	pref := trimID(defaultPref)
+	if pref != "" {
+		for i := range out {
+			if out[i].ID == pref && out[i].Available {
+				out[i].Default = true
+				return
+			}
+		}
+	}
+	// First available by current order (caller sorts by priority).
+	best := -1
+	bestPri := 1 << 30
+	for i := range out {
+		if !out[i].Available {
+			continue
+		}
+		p := priorityOf(out[i].ID)
+		if p < bestPri {
+			bestPri = p
+			best = i
+		}
+	}
+	if best >= 0 {
+		out[best].Default = true
+	}
+}
+
+func markDefaultPresence(out []Presence, defaultPref string) {
+	pref := trimID(defaultPref)
+	if pref != "" {
+		for i := range out {
+			if out[i].ID == pref && out[i].Available {
+				out[i].Default = true
+				return
+			}
+		}
+	}
+	best := -1
+	bestScore := 1 << 30
+	for i := range out {
+		if !out[i].Available || !out[i].RunnableHint {
+			continue
+		}
+		s := scorePresence(out[i])
+		if s < bestScore {
+			bestScore = s
+			best = i
+		}
+	}
+	if best >= 0 {
+		out[best].Default = true
+	}
 }
 
 func priorityOf(id string) int {
@@ -173,6 +317,66 @@ func priorityOf(id string) int {
 		}
 	}
 	return 999
+}
+
+func resolveBinary(envBin string, bins []string) (path string, reason string) {
+	if envBin != "" {
+		if v := os.Getenv(envBin); v != "" {
+			if p, err := LookPath(v); err == nil {
+				return p, ""
+			}
+			// Allow absolute path even if LookPath fails on some systems.
+			if _, err := os.Stat(v); err == nil {
+				return v, ""
+			}
+			return "", envBin + " set but not found"
+		}
+	}
+	for _, b := range bins {
+		if b == "" {
+			continue
+		}
+		if p, err := LookPath(b); err == nil {
+			return p, ""
+		}
+	}
+	return "", ""
+}
+
+func resolveConfigPresence(sp DiscoverySpec) (ok bool, hit string) {
+	home, err := HomeDir()
+	if err != nil {
+		home = ""
+	}
+	if home != "" {
+		for _, rel := range sp.HomeDirs {
+			if rel == "" {
+				continue
+			}
+			p := filepath.Join(home, rel)
+			if dirExists(p) {
+				return true, p
+			}
+		}
+	}
+	cfg := ConfigHome()
+	if cfg != "" {
+		for _, rel := range sp.ConfigDirs {
+			if rel == "" {
+				continue
+			}
+			p := filepath.Join(cfg, rel)
+			if dirExists(p) {
+				return true, p
+			}
+		}
+	}
+	return false, ""
+}
+
+func dirExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.IsDir()
 }
 
 // Cache is an optional short-lived scan cache for hot paths.
