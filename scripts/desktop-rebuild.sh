@@ -23,6 +23,7 @@ BIN="${KIN_BIN:-$ROOT/kin}"
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "error: missing required command: $1" >&2
+    echo "hint: run ./scripts/setup-dev.sh first" >&2
     exit 1
   fi
 }

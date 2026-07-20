@@ -1,4 +1,4 @@
-.PHONY: build test clean ui go-build desktop-dev desktop-dist desktop-icons desktop-rebuild dev
+.PHONY: build test clean ui go-build setup-dev desktop-dev desktop-dist desktop-icons desktop-rebuild dev
 
 # Single binary with embedded UI (spec §10 M0).
 build: ui go-build
@@ -8,6 +8,9 @@ ui:
 
 go-build:
 	go build -o kin ./cmd/kin
+
+setup-dev:
+	./scripts/setup-dev.sh
 
 # Full-stack local dev: Vite HMR + Go rebuild/restart on change.
 # Open http://127.0.0.1:5173  (API proxied to :7777)
