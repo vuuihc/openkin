@@ -11,6 +11,7 @@ import (
 	"github.com/vuuihc/kin/internal/agent"
 	"github.com/vuuihc/kin/internal/sessionctx"
 	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/kin/internal/workspace"
 )
 
 // ErrConflict is returned when a state transition is not allowed (HTTP 409).
@@ -594,8 +595,14 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	}
 	e.bus.PublishTask(t)
 
+	userSeq := 0
 	if emitUser {
-		e.appendUserGuideEvent(ctx, id, t, req, interrupted)
+		userSeq = e.appendUserGuideEvent(ctx, id, t, req, interrupted)
+	} else {
+		userSeq = e.latestUserMessageSeq(ctx, id)
+	}
+	if userSeq > 0 {
+		e.captureCheckpoint(ctx, t, userSeq)
 	}
 
 	e.mu.Lock()
@@ -606,7 +613,7 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	return e.store.GetTask(ctx, id)
 }
 
-func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool) {
+func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool) int {
 	prompt := req.Prompt
 	fromAgent := t.Agent
 	targetAgent := t.Agent
@@ -649,7 +656,32 @@ func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Ta
 	evPayload, _ := json.Marshal(meta)
 	if ev, err := e.store.AppendEvent(ctx, id, "message", evPayload); err == nil {
 		e.bus.PublishEvent(ev)
+		return ev.Seq
 	}
+	return 0
+}
+
+func (e *Engine) latestUserMessageSeq(ctx context.Context, id string) int {
+	evs, err := e.store.ListEvents(ctx, id, 0)
+	if err != nil {
+		return 0
+	}
+	for i := len(evs) - 1; i >= 0; i-- {
+		ev := evs[i]
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal(ev.Payload, &m) != nil {
+			continue
+		}
+		role, _ := m["role"].(string)
+		speaker, _ := m["speaker"].(string)
+		if role == "user" || speaker == "user" {
+			return ev.Seq
+		}
+	}
+	return 0
 }
 
 // RetryRequest is the body for POST /api/tasks/{id}/retry.
@@ -657,7 +689,8 @@ func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Ta
 // nearest user turn at or before FromSeq and re-runs from there.
 // When FromSeq is 0, the last user turn is used.
 type RetryRequest struct {
-	FromSeq int `json:"from_seq,omitempty"`
+	FromSeq      int   `json:"from_seq,omitempty"`
+	RestoreFiles *bool `json:"restore_files,omitempty"`
 }
 
 // ForkRequest is the body for POST /api/tasks/{id}/fork.
@@ -696,12 +729,40 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 		return store.Task{}, err
 	}
 
+	restoreFiles := t.WorkspaceMode == string(workspace.ResolvedWorktree)
+	if req.RestoreFiles != nil {
+		restoreFiles = *req.RestoreFiles
+	}
+	if restoreFiles {
+		if t.WorkspaceMode != string(workspace.ResolvedWorktree) {
+			return store.Task{}, workspace.ErrNotIsolated
+		}
+		if e.workspace == nil {
+			return store.Task{}, workspace.ErrCheckpointUnavailable
+		}
+		cp, err := e.store.GetCheckpoint(ctx, id, fromSeq)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return store.Task{}, workspace.ErrCheckpointUnavailable
+			}
+			return store.Task{}, err
+		}
+		if err := e.workspace.Restore(ctx, workspaceMetadata(t), id, runtimeCheckpoint(cp)); err != nil {
+			return store.Task{}, err
+		}
+	}
+
 	// Capture prior context BEFORE truncate (events with seq < fromSeq).
 	priorCtx := e.handoffContextUpTo(ctx, id, fromSeq-1)
 
 	// Drop events from the chosen user message onward.
 	if err := e.store.TruncateEventsFrom(ctx, id, fromSeq); err != nil {
 		return store.Task{}, err
+	}
+	if restoreFiles {
+		if err := e.store.DeleteCheckpointsFrom(ctx, id, fromSeq); err != nil {
+			return store.Task{}, err
+		}
 	}
 
 	// Best-effort: drop durable kin transcript so the next turn rebuilds from remaining events / handoff context.
@@ -719,6 +780,7 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 	})
 	if ev, err := e.store.AppendEvent(ctx, id, "message", userPayload); err == nil {
 		e.bus.PublishEvent(ev)
+		e.captureCheckpoint(ctx, t, ev.Seq)
 	}
 
 	// Build run prompt: inject prior transcript when rewinding past the first turn
@@ -863,12 +925,44 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 	// Context from source prefix (before copy); dst seqs are renumbered.
 	priorCtx := e.handoffContextUpTo(ctx, id, maxSeq)
 
+	preparedFork := false
+	var forkMeta workspace.Metadata
+	if src.WorkspaceMode == string(workspace.ResolvedWorktree) {
+		if e.workspace == nil {
+			return store.Task{}, workspace.ErrCheckpointUnavailable
+		}
+		cp, err := e.store.GetCheckpointAtOrBefore(ctx, id, maxSeq)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return store.Task{}, workspace.ErrCheckpointUnavailable
+			}
+			return store.Task{}, err
+		}
+		forkMeta, err = e.workspace.PrepareFork(ctx, newID, workspaceMetadata(src), runtimeCheckpoint(cp))
+		if err != nil {
+			return store.Task{}, err
+		}
+		applyWorkspaceMetadata(&dst, forkMeta)
+		preparedFork = true
+	}
+
 	if err := e.store.InsertTask(ctx, dst); err != nil {
+		if preparedFork {
+			e.cleanupPreparedWorkspace(newID, forkMeta)
+		}
 		return store.Task{}, err
 	}
 
 	if _, err := e.store.CopyEventsToTask(ctx, id, newID, maxSeq); err != nil {
+		if preparedFork {
+			e.cleanupPreparedWorkspace(newID, forkMeta)
+		}
 		return store.Task{}, err
+	}
+	if preparedFork {
+		if seq := e.latestUserMessageSeq(ctx, newID); seq > 0 {
+			e.captureCheckpoint(ctx, dst, seq)
+		}
 	}
 
 	// Optional new user turn on top of the prefix.
@@ -885,6 +979,7 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 		})
 		if ev, err := e.store.AppendEvent(ctx, newID, "message", userPayload); err == nil {
 			e.bus.PublishEvent(ev)
+			e.captureCheckpoint(ctx, dst, ev.Seq)
 		}
 		runPrompt := prompt
 		if priorCtx != "" {

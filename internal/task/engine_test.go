@@ -580,17 +580,44 @@ func TestPriceTableUsesCodexDefaultWhenModelMissing(t *testing.T) {
 }
 
 type fakeWorkspaceRuntime struct {
-	mu       sync.Mutex
-	prepares []prepareCall
-	cleanups []string
-	prepare  func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
-	failPrep error
+	mu           sync.Mutex
+	prepares     []prepareCall
+	cleanups     []string
+	captures     []captureCall
+	restores     []restoreCall
+	prepareForks []prepareForkCall
+	prepare      func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
+	capture      func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
+	restore      func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
+	prepareFork  func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
+	failPrep     error
+	failCapture  error
+	failRestore  error
+	failFork     error
 }
 
 type prepareCall struct {
 	TaskID    string
 	Cwd       string
 	Requested workspace.RequestedMode
+}
+
+type captureCall struct {
+	TaskID   string
+	EventSeq int
+	Meta     workspace.Metadata
+}
+
+type restoreCall struct {
+	TaskID string
+	Meta   workspace.Metadata
+	CP     workspace.Checkpoint
+}
+
+type prepareForkCall struct {
+	NewTaskID string
+	Source    workspace.Metadata
+	CP        workspace.Checkpoint
 }
 
 func (f *fakeWorkspaceRuntime) Prepare(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error) {
@@ -622,15 +649,58 @@ func (f *fakeWorkspaceRuntime) CleanupPrepared(ctx context.Context, taskID strin
 }
 
 func (f *fakeWorkspaceRuntime) Capture(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error) {
-	return workspace.Checkpoint{}, workspace.ErrCheckpointUnavailable
+	f.mu.Lock()
+	f.captures = append(f.captures, captureCall{TaskID: taskID, EventSeq: eventSeq, Meta: meta})
+	f.mu.Unlock()
+	if f.failCapture != nil {
+		return workspace.Checkpoint{}, f.failCapture
+	}
+	if f.capture != nil {
+		return f.capture(ctx, meta, taskID, eventSeq)
+	}
+	return workspace.Checkpoint{
+		TaskID:    taskID,
+		EventSeq:  eventSeq,
+		HeadOID:   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		TreeOID:   "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		SizeBytes: 42,
+		CreatedAt: 99,
+	}, nil
 }
 
 func (f *fakeWorkspaceRuntime) Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error {
-	return workspace.ErrCheckpointUnavailable
+	f.mu.Lock()
+	f.restores = append(f.restores, restoreCall{TaskID: taskID, Meta: meta, CP: cp})
+	f.mu.Unlock()
+	if f.failRestore != nil {
+		return f.failRestore
+	}
+	if f.restore != nil {
+		return f.restore(ctx, meta, taskID, cp)
+	}
+	return nil
 }
 
 func (f *fakeWorkspaceRuntime) PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error) {
-	return workspace.Metadata{}, workspace.ErrCheckpointUnavailable
+	f.mu.Lock()
+	f.prepareForks = append(f.prepareForks, prepareForkCall{NewTaskID: newTaskID, Source: source, CP: cp})
+	f.mu.Unlock()
+	if f.failFork != nil {
+		return workspace.Metadata{}, f.failFork
+	}
+	if f.prepareFork != nil {
+		return f.prepareFork(ctx, newTaskID, source, cp)
+	}
+	root := filepath.Join(source.SourceRoot, "fork-"+newTaskID)
+	return workspace.Metadata{
+		Mode:       workspace.ResolvedWorktree,
+		SourceRoot: source.SourceRoot,
+		Root:       root,
+		Cwd:        filepath.Join(root, source.Scope),
+		Scope:      source.Scope,
+		BaseOID:    source.BaseOID,
+		Branch:     "kin/task/" + strings.ToLower(newTaskID),
+	}, nil
 }
 
 func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {

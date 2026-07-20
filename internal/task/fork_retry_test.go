@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/kin/internal/workspace"
 )
 
 func TestRetryRewindsLastUserTurn(t *testing.T) {
@@ -110,6 +112,155 @@ func TestRetryRequiresTerminal(t *testing.T) {
 	_, _ = e.Cancel(ctx, task.ID)
 }
 
+func TestRetryRestoresCheckpointBeforeTruncate(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "restore me", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	before, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.restore = func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error {
+		evs, err := st.ListEvents(ctx, taskID, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(evs) != len(before) {
+			t.Fatalf("restore saw truncated events: got %d want %d", len(evs), len(before))
+		}
+		return nil
+	}
+	ad2 := &fakeAdapter{events: successEvents()}
+	e.putAdapter("claude-code", ad2)
+
+	if _, err := e.Retry(ctx, task.ID, RetryRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	rt.mu.Lock()
+	restores := append([]restoreCall(nil), rt.restores...)
+	captures := append([]captureCall(nil), rt.captures...)
+	rt.mu.Unlock()
+	if len(restores) != 1 {
+		t.Fatalf("restores=%d", len(restores))
+	}
+	if restores[0].CP.EventSeq != 1 {
+		t.Fatalf("restore checkpoint seq=%d", restores[0].CP.EventSeq)
+	}
+	if len(captures) < 2 {
+		t.Fatalf("captures=%d want create + retry", len(captures))
+	}
+	cps, err := st.ListCheckpoints(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestUserSeq := firstUserSeq(t, st, task.ID)
+	for {
+		evs, err := st.ListEvents(ctx, task.ID, latestUserSeq)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next := 0
+		for _, ev := range evs {
+			if ev.Type != "message" {
+				continue
+			}
+			var m map[string]any
+			_ = json.Unmarshal(ev.Payload, &m)
+			if m["role"] == "user" || m["speaker"] == "user" {
+				next = ev.Seq
+			}
+		}
+		if next == 0 {
+			break
+		}
+		latestUserSeq = next
+	}
+	if len(cps) != 1 || cps[0].EventSeq != latestUserSeq {
+		t.Fatalf("checkpoints after retry=%+v", cps)
+	}
+}
+
+func TestRetryRestoreFailureLeavesEventsAndCheckpoints(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "restore fail", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+	beforeEvents, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeCheckpoints, err := st.ListCheckpoints(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rt.failRestore = workspace.ErrCheckpointUnavailable
+	_, err = e.Retry(ctx, task.ID, RetryRequest{})
+	if !errors.Is(err, workspace.ErrCheckpointUnavailable) {
+		t.Fatalf("err=%v", err)
+	}
+	afterEvents, _ := st.ListEvents(ctx, task.ID, 0)
+	afterCheckpoints, _ := st.ListCheckpoints(ctx, task.ID)
+	if len(afterEvents) != len(beforeEvents) {
+		t.Fatalf("events mutated: %d -> %d", len(beforeEvents), len(afterEvents))
+	}
+	if len(afterCheckpoints) != len(beforeCheckpoints) {
+		t.Fatalf("checkpoints mutated: %d -> %d", len(beforeCheckpoints), len(afterCheckpoints))
+	}
+}
+
+func TestRetryRestoreFilesFalseKeepsConversationOnlyBehavior(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{failRestore: workspace.ErrCheckpointUnavailable}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "no restore", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	restoreFiles := false
+	ad2 := &fakeAdapter{events: successEvents()}
+	e.putAdapter("claude-code", ad2)
+	if _, err := e.Retry(ctx, task.ID, RetryRequest{RestoreFiles: &restoreFiles}); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+	rt.mu.Lock()
+	restores := len(rt.restores)
+	rt.mu.Unlock()
+	if restores != 0 {
+		t.Fatalf("restores=%d", restores)
+	}
+}
+
 func TestForkCopiesPrefix(t *testing.T) {
 	ad := &fakeAdapter{events: successEvents()}
 	e, st := testEngine(t, 4, ad)
@@ -195,4 +346,104 @@ func TestForkCopiesPrefix(t *testing.T) {
 	if !sawBranch {
 		t.Fatal("forked task missing new prompt event")
 	}
+}
+
+func TestForkIsolatedPreparesWorkspaceFromCheckpoint(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	src, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "root prompt", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, src.ID, StatusSucceeded, 3*time.Second)
+	userSeq := firstUserSeq(t, st, src.ID)
+
+	forked, err := e.Fork(ctx, src.ID, ForkRequest{FromSeq: userSeq})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forked.WorkspaceMode != string(workspace.ResolvedWorktree) {
+		t.Fatalf("workspace mode=%q", forked.WorkspaceMode)
+	}
+	rt.mu.Lock()
+	prepareForks := append([]prepareForkCall(nil), rt.prepareForks...)
+	rt.mu.Unlock()
+	if len(prepareForks) != 1 {
+		t.Fatalf("prepareForks=%d", len(prepareForks))
+	}
+	if prepareForks[0].CP.TaskID != src.ID || prepareForks[0].CP.EventSeq != userSeq {
+		t.Fatalf("prepare fork checkpoint=%+v", prepareForks[0].CP)
+	}
+	cps, err := st.ListCheckpoints(ctx, forked.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cps) == 0 {
+		t.Fatal("forked task missing owned checkpoint")
+	}
+}
+
+func TestForkIsolatedRequiresCheckpoint(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{failCapture: workspace.ErrSnapshotTooLarge}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	src, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "root prompt", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, src.ID, StatusSucceeded, 3*time.Second)
+	userSeq := firstUserSeq(t, st, src.ID)
+	beforeTasks, err := st.ListTasks(ctx, store.ListTasksOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = e.Fork(ctx, src.ID, ForkRequest{FromSeq: userSeq})
+	if !errors.Is(err, workspace.ErrCheckpointUnavailable) {
+		t.Fatalf("err=%v", err)
+	}
+	afterTasks, err := st.ListTasks(ctx, store.ListTasksOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterTasks) != len(beforeTasks) {
+		t.Fatalf("task inserted despite missing checkpoint: %d -> %d", len(beforeTasks), len(afterTasks))
+	}
+	rt.mu.Lock()
+	prepareForks := len(rt.prepareForks)
+	rt.mu.Unlock()
+	if prepareForks != 0 {
+		t.Fatalf("prepareForks=%d", prepareForks)
+	}
+}
+
+func firstUserSeq(t *testing.T, st *store.Store, taskID string) int {
+	t.Helper()
+	evs, err := st.ListEvents(context.Background(), taskID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		_ = json.Unmarshal(ev.Payload, &m)
+		if m["role"] == "user" || m["speaker"] == "user" {
+			return ev.Seq
+		}
+	}
+	t.Fatal("no user event")
+	return 0
 }

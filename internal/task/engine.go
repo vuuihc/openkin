@@ -415,6 +415,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	})
 	if ev, err := e.store.AppendEvent(ctx, id, "message", userPayload); err == nil {
 		e.bus.PublishEvent(ev)
+		e.captureCheckpoint(ctx, t, ev.Seq)
 	}
 
 	// Async LLM title when the user did not supply one and a provider is available.
@@ -976,6 +977,75 @@ func (e *Engine) prepareWorkspace(ctx context.Context, taskID, cwd string, mode 
 		}, nil
 	}
 	return e.workspace.Prepare(ctx, taskID, cwd, mode)
+}
+
+func workspaceMetadata(t store.Task) workspace.Metadata {
+	return workspace.Metadata{
+		Mode:       workspace.ResolvedMode(t.WorkspaceMode),
+		SourceRoot: t.WorkspaceSourceRoot,
+		Root:       t.WorkspaceRoot,
+		Cwd:        t.ExecutionCwd,
+		Scope:      t.WorkspaceScope,
+		BaseOID:    t.WorkspaceBaseOID,
+		Branch:     t.WorkspaceBranch,
+	}
+}
+
+func storeCheckpoint(cp workspace.Checkpoint) store.TaskCheckpoint {
+	return store.TaskCheckpoint{
+		TaskID:    cp.TaskID,
+		EventSeq:  cp.EventSeq,
+		HeadOID:   cp.HeadOID,
+		TreeOID:   cp.TreeOID,
+		SizeBytes: cp.SizeBytes,
+		CreatedAt: cp.CreatedAt,
+	}
+}
+
+func runtimeCheckpoint(cp store.TaskCheckpoint) workspace.Checkpoint {
+	return workspace.Checkpoint{
+		TaskID:    cp.TaskID,
+		EventSeq:  cp.EventSeq,
+		HeadOID:   cp.HeadOID,
+		TreeOID:   cp.TreeOID,
+		SizeBytes: cp.SizeBytes,
+		CreatedAt: cp.CreatedAt,
+	}
+}
+
+func (e *Engine) captureCheckpoint(ctx context.Context, t store.Task, userSeq int) {
+	if e.workspace == nil || t.WorkspaceMode != string(workspace.ResolvedWorktree) || userSeq < 1 {
+		return
+	}
+	cp, err := e.workspace.Capture(ctx, workspaceMetadata(t), t.ID, userSeq)
+	if err == nil {
+		if putErr := e.store.PutCheckpoint(ctx, storeCheckpoint(cp)); putErr != nil {
+			err = putErr
+		}
+	}
+	if err == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"event_seq": userSeq,
+		"reason":    checkpointSkipReason(err),
+	})
+	if ev, appendErr := e.store.AppendEvent(ctx, t.ID, "checkpoint_skipped", payload); appendErr == nil {
+		e.bus.PublishEvent(ev)
+	}
+}
+
+func checkpointSkipReason(err error) string {
+	switch {
+	case errors.Is(err, workspace.ErrSnapshotTooLarge):
+		return "too_large"
+	case errors.Is(err, workspace.ErrCheckpointUnavailable),
+		errors.Is(err, workspace.ErrNotIsolated),
+		errors.Is(err, workspace.ErrGitUnavailable):
+		return "unavailable"
+	default:
+		return "git_error"
+	}
 }
 
 func (e *Engine) cleanupPreparedWorkspace(taskID string, meta workspace.Metadata) {

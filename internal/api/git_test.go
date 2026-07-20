@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/kin/internal/workspace"
 )
@@ -39,14 +40,33 @@ func initRepo(t *testing.T, dir string) {
 		}
 	}
 	run("init", "-b", "main")
+	t.Cleanup(func() { removeGitDirForTest(filepath.Join(dir, ".git")) })
 	run("config", "user.email", "kin@test")
 	run("config", "user.name", "Kin Test")
+	run("config", "gc.auto", "0")
+	run("config", "maintenance.auto", "false")
 	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("hi\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run("add", "README")
 	run("commit", "-m", "init")
 	run("branch", "dev")
+}
+
+func removeGitDirForTest(path string) {
+	for i := 0; i < 5; i++ {
+		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+			if err == nil {
+				_ = os.Chmod(p, 0o700)
+			}
+			return nil
+		})
+		if err := os.RemoveAll(path); err == nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = os.RemoveAll(path)
 }
 
 func TestGitBranchesAPI(t *testing.T) {

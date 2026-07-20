@@ -227,18 +227,3 @@ func (m *Manager) safeRemoveWorktreeDir(path string) error {
 	}
 	return os.RemoveAll(path)
 }
-
-// Capture is implemented in a later task (private Git tree checkpoints).
-func (m *Manager) Capture(ctx context.Context, meta Metadata, taskID string, eventSeq int) (Checkpoint, error) {
-	return Checkpoint{}, ErrCheckpointUnavailable
-}
-
-// Restore is implemented in a later task.
-func (m *Manager) Restore(ctx context.Context, meta Metadata, taskID string, cp Checkpoint) error {
-	return ErrCheckpointUnavailable
-}
-
-// PrepareFork is implemented in a later task.
-func (m *Manager) PrepareFork(ctx context.Context, newTaskID string, source Metadata, cp Checkpoint) (Metadata, error) {
-	return Metadata{}, ErrCheckpointUnavailable
-}

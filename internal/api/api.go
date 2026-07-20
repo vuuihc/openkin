@@ -380,6 +380,10 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_seq"})
 		return
 	}
+	if errors.Is(err, workspace.ErrCheckpointUnavailable) || errors.Is(err, workspace.ErrNotIsolated) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -403,6 +407,10 @@ func (s *Server) handleFork(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, task.ErrInvalidSeq) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid from_seq"})
+		return
+	}
+	if errors.Is(err, workspace.ErrCheckpointUnavailable) || errors.Is(err, workspace.ErrNotIsolated) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
 	if err != nil {

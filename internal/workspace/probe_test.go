@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func requireGit(t *testing.T) string {
@@ -38,8 +39,27 @@ func gitCmd(t *testing.T, dir string, args ...string) {
 func initRepo(t *testing.T, dir string) {
 	t.Helper()
 	gitCmd(t, dir, "init")
+	t.Cleanup(func() { removeGitDirForTest(filepath.Join(dir, ".git")) })
 	gitCmd(t, dir, "config", "user.email", "kin@test.local")
 	gitCmd(t, dir, "config", "user.name", "Kin Test")
+	gitCmd(t, dir, "config", "gc.auto", "0")
+	gitCmd(t, dir, "config", "maintenance.auto", "false")
+}
+
+func removeGitDirForTest(path string) {
+	for i := 0; i < 5; i++ {
+		_ = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+			if err == nil {
+				_ = os.Chmod(p, 0o700)
+			}
+			return nil
+		})
+		if err := os.RemoveAll(path); err == nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = os.RemoveAll(path)
 }
 
 func commitFile(t *testing.T, dir, rel, content string) {
