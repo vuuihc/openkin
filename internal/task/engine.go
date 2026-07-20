@@ -556,6 +556,61 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	return e.finish(ctx, id, StatusCanceled, nil, nil)
 }
 
+// Delete permanently removes a task and its history after canceling any
+// in-flight work. Isolated worktrees are cleaned up when possible.
+func (e *Engine) Delete(ctx context.Context, id string) error {
+	t, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Stop runners / dequeue so nothing rewrites the row while we delete.
+	switch t.Status {
+	case StatusSucceeded, StatusFailed, StatusCanceled:
+		// already terminal
+	default:
+		if _, err := e.Cancel(ctx, id); err != nil {
+			// Race: became terminal between Get and Cancel.
+			if !errors.Is(err, ErrTerminal) && !strings.Contains(err.Error(), "already terminal") {
+				return err
+			}
+		}
+	}
+
+	// Drop in-memory bookkeeping (run loop may also clear these).
+	e.mu.Lock()
+	for i, qid := range e.queue {
+		if qid == id {
+			e.queue = append(e.queue[:i], e.queue[i+1:]...)
+			break
+		}
+	}
+	delete(e.handles, id)
+	delete(e.handleGroups, id)
+	delete(e.canceled, id)
+	delete(e.pendingFollowUp, id)
+	e.mu.Unlock()
+
+	e.resetAgentSession(ctx, t.Agent, id)
+
+	meta := workspace.Metadata{
+		Mode:       workspace.ResolvedMode(t.WorkspaceMode),
+		SourceRoot: t.WorkspaceSourceRoot,
+		Root:       t.WorkspaceRoot,
+		Cwd:        t.ExecutionCwd,
+		Scope:      t.WorkspaceScope,
+		BaseOID:    t.WorkspaceBaseOID,
+		Branch:     t.WorkspaceBranch,
+	}
+	e.cleanupPreparedWorkspace(id, meta)
+
+	if err := e.store.DeleteTask(ctx, id); err != nil {
+		return err
+	}
+	e.bus.PublishTaskDeleted(id)
+	return nil
+}
+
 // Get returns a task by id.
 func (e *Engine) Get(ctx context.Context, id string) (store.Task, error) {
 	return e.store.GetTask(ctx, id)

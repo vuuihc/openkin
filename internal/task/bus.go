@@ -9,7 +9,7 @@ import (
 
 // WSMessage is pushed on the global bus (spec §6).
 type WSMessage struct {
-	Kind string `json:"kind"` // task_update | event | approval_update
+	Kind string `json:"kind"` // task_update | task_deleted | event | approval_update
 	Data any    `json:"data"`
 }
 
@@ -63,6 +63,11 @@ func (b *Bus) Publish(msg WSMessage) {
 // PublishTask broadcasts a task_update.
 func (b *Bus) PublishTask(t store.Task) {
 	b.Publish(WSMessage{Kind: "task_update", Data: t})
+}
+
+// PublishTaskDeleted broadcasts that a task row was permanently removed.
+func (b *Bus) PublishTaskDeleted(id string) {
+	b.Publish(WSMessage{Kind: "task_deleted", Data: map[string]string{"id": id}})
 }
 
 // PublishEvent broadcasts an event envelope with task_id.

@@ -8,6 +8,7 @@ export type AuthState =
 /** Minimal WS message shape (avoid importing client → circular store↔client). */
 export type WSMessage =
   | { kind: "task_update"; data: unknown }
+  | { kind: "task_deleted"; data: unknown }
   | { kind: "event"; data: unknown }
   | { kind: "approval_update"; data: unknown };
 

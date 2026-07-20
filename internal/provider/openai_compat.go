@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -42,13 +43,18 @@ func (c *openAICompat) Kind() string         { return "openai-compatible" }
 func (c *openAICompat) ModelDefault() string { return c.cfg.Model }
 
 type oaiChatReq struct {
-	Model       string       `json:"model"`
-	Messages    []oaiMessage `json:"messages"`
-	Tools       []ToolDef    `json:"tools,omitempty"`
-	ToolChoice  any          `json:"tool_choice,omitempty"`
-	Temperature *float64     `json:"temperature,omitempty"`
-	MaxTokens   *int         `json:"max_tokens,omitempty"`
-	Stream      bool         `json:"stream"`
+	Model         string            `json:"model"`
+	Messages      []oaiMessage      `json:"messages"`
+	Tools         []ToolDef         `json:"tools,omitempty"`
+	ToolChoice    any               `json:"tool_choice,omitempty"`
+	Temperature   *float64          `json:"temperature,omitempty"`
+	MaxTokens     *int              `json:"max_tokens,omitempty"`
+	Stream        bool              `json:"stream"`
+	StreamOptions *oaiStreamOptions `json:"stream_options,omitempty"`
+}
+
+type oaiStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type oaiMessage struct {
@@ -107,12 +113,16 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		}
 		msgs = append(msgs, om)
 	}
+	useStream := c.cfg.Stream
+	if req.Stream != nil {
+		useStream = *req.Stream
+	}
 	body := oaiChatReq{
 		Model:       model,
 		Messages:    msgs,
 		Temperature: req.Temperature,
 		MaxTokens:   req.MaxTokens,
-		Stream:      false,
+		Stream:      useStream,
 	}
 	if len(req.Tools) > 0 {
 		body.Tools = req.Tools
@@ -121,6 +131,11 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 			tc = "auto"
 		}
 		body.ToolChoice = tc
+	}
+	// OpenAI-compatible stream responses only include usage when stream_options
+	// is set; keep the field optional for proxies that ignore unknown keys.
+	if useStream {
+		body.StreamOptions = &oaiStreamOptions{IncludeUsage: true}
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -136,7 +151,13 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 			return nil, err
 		}
 		tried = attempt
-		resp, err := c.chatOnce(ctx, url, raw, model)
+		var resp *ChatResponse
+		var err error
+		if useStream {
+			resp, err = c.chatOnceStream(ctx, url, raw, model, req.OnContentDelta)
+		} else {
+			resp, err = c.chatOnce(ctx, url, raw, model)
+		}
 		if err == nil {
 			return resp, nil
 		}
@@ -236,6 +257,222 @@ func (c *openAICompat) chatOnce(ctx context.Context, url string, raw []byte, mod
 		},
 		FinishReason: parsed.Choices[0].FinishReason,
 		ToolCalls:    msg.ToolCalls,
+	}, nil
+}
+
+// oaiStreamChunk is one SSE data payload from stream=true chat completions.
+type oaiStreamChunk struct {
+	Model   string `json:"model"`
+	Choices []struct {
+		Index        int    `json:"index"`
+		FinishReason string `json:"finish_reason"`
+		Delta        struct {
+			Role      string `json:"role"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"delta"`
+	} `json:"choices"`
+	Usage *struct {
+		PromptTokens         int  `json:"prompt_tokens"`
+		CompletionTokens     int  `json:"completion_tokens"`
+		TotalTokens          int  `json:"total_tokens"`
+		CachedTokens         *int `json:"cached_tokens"`
+		CacheReadInputTokens *int `json:"cache_read_input_tokens"`
+		PromptTokensDetails  *struct {
+			CachedTokens *int `json:"cached_tokens"`
+		} `json:"prompt_tokens_details"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    any    `json:"code"`
+	} `json:"error"`
+}
+
+func (c *openAICompat) chatOnceStream(ctx context.Context, url string, raw []byte, model string, onDelta func(string)) (*ChatResponse, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	if c.cfg.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
+
+	res, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, classifyRequestErr(url, err)
+	}
+	defer res.Body.Close()
+
+	// Non-2xx: read a bounded body for error classification (same as non-stream).
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(res.Body, 16<<20))
+		bodyStr := string(respBody)
+		trimmed := strings.TrimSpace(bodyStr)
+		looksJSON := len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
+		if looksJSON {
+			var parsed oaiChatResp
+			if err := json.Unmarshal(respBody, &parsed); err == nil && parsed.Error != nil && parsed.Error.Message != "" {
+				return nil, httpStatusErr(res.StatusCode, url, parsed.Error.Message)
+			}
+		}
+		return nil, httpStatusErr(res.StatusCode, url, bodyStr)
+	}
+
+	agg, err := readOpenAIStream(res.Body, model, onDelta)
+	if err != nil {
+		return nil, err
+	}
+	return agg, nil
+}
+
+func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (*ChatResponse, error) {
+	sc := bufio.NewScanner(r)
+	// Tool-call argument streams can be large; raise the default 64KiB limit.
+	sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
+
+	var content strings.Builder
+	// Indexed tool call assembly (OpenAI streams by index).
+	type tcAcc struct {
+		id, typ, name string
+		args          strings.Builder
+	}
+	toolByIdx := map[int]*tcAcc{}
+	maxToolIdx := -1
+	finishReason := ""
+	model := fallbackModel
+	usage := Usage{}
+	gotAny := false
+
+	for sc.Scan() {
+		line := sc.Text()
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			// Some proxies omit the "data:" prefix; try raw JSON object lines.
+			trimmed := strings.TrimSpace(line)
+			if len(trimmed) == 0 || trimmed[0] != '{' {
+				continue
+			}
+			line = "data: " + trimmed
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		if payload == "[DONE]" {
+			break
+		}
+		var chunk oaiStreamChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			return nil, fmt.Errorf("decode stream chunk: %w; payload=%s", err, truncate(payload, 200))
+		}
+		if chunk.Error != nil && chunk.Error.Message != "" {
+			return nil, fmt.Errorf("provider stream error: %s", chunk.Error.Message)
+		}
+		gotAny = true
+		if chunk.Model != "" {
+			model = chunk.Model
+		}
+		if chunk.Usage != nil {
+			usage.PromptTokens = chunk.Usage.PromptTokens
+			usage.CompletionTokens = chunk.Usage.CompletionTokens
+			usage.TotalTokens = chunk.Usage.TotalTokens
+			if chunk.Usage.CachedTokens != nil {
+				usage.CachedTokens = *chunk.Usage.CachedTokens
+				usage.CacheReadReported = true
+			} else if chunk.Usage.PromptTokensDetails != nil && chunk.Usage.PromptTokensDetails.CachedTokens != nil {
+				usage.CachedTokens = *chunk.Usage.PromptTokensDetails.CachedTokens
+				usage.CacheReadReported = true
+			} else if chunk.Usage.CacheReadInputTokens != nil {
+				usage.CachedTokens = *chunk.Usage.CacheReadInputTokens
+				usage.CacheReadReported = true
+			}
+		}
+		for _, ch := range chunk.Choices {
+			if ch.FinishReason != "" {
+				finishReason = ch.FinishReason
+			}
+			if ch.Delta.Content != "" {
+				content.WriteString(ch.Delta.Content)
+				if onDelta != nil {
+					onDelta(ch.Delta.Content)
+				}
+			}
+			for _, tc := range ch.Delta.ToolCalls {
+				idx := tc.Index
+				acc, ok := toolByIdx[idx]
+				if !ok {
+					acc = &tcAcc{}
+					toolByIdx[idx] = acc
+					if idx > maxToolIdx {
+						maxToolIdx = idx
+					}
+				}
+				if tc.ID != "" {
+					acc.id = tc.ID
+				}
+				if tc.Type != "" {
+					acc.typ = tc.Type
+				}
+				if tc.Function.Name != "" {
+					acc.name += tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					acc.args.WriteString(tc.Function.Arguments)
+				}
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("read stream: %w", err)
+	}
+	if !gotAny {
+		return nil, fmt.Errorf("empty stream response")
+	}
+
+	var toolCalls []ToolCall
+	if maxToolIdx >= 0 {
+		toolCalls = make([]ToolCall, 0, maxToolIdx+1)
+		for i := 0; i <= maxToolIdx; i++ {
+			acc, ok := toolByIdx[i]
+			if !ok {
+				continue
+			}
+			typ := acc.typ
+			if typ == "" {
+				typ = "function"
+			}
+			tc := ToolCall{ID: acc.id, Type: typ}
+			tc.Function.Name = acc.name
+			tc.Function.Arguments = acc.args.String()
+			toolCalls = append(toolCalls, tc)
+		}
+	}
+	if finishReason == "" {
+		if len(toolCalls) > 0 {
+			finishReason = "tool_calls"
+		} else {
+			finishReason = "stop"
+		}
+	}
+	return &ChatResponse{
+		Content:      content.String(),
+		Model:        model,
+		Usage:        usage,
+		FinishReason: finishReason,
+		ToolCalls:    toolCalls,
 	}, nil
 }
 

@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { type TerminalSession } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { IconX } from "../icons";
 
 type TabSession = TerminalSession & {
   connectionStatus?: "connecting" | "connected" | "disconnected";
@@ -61,7 +62,7 @@ export default function TerminalTabs({
 
   return (
     <div
-      className="flex items-center gap-0 overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-bg)]"
+      className="flex items-center gap-0 overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)]/30"
       role="tablist"
       aria-label={tr("terminal.title")}
     >
@@ -123,7 +124,7 @@ export default function TerminalTabs({
                 onCloseSession(session.id);
               }}
             >
-              ×
+              <IconX size={12} />
             </button>
           </div>
         );

@@ -152,6 +152,7 @@ export function listAgents(): Promise<AgentInfo[]> {
 
 export type WSMessage =
   | { kind: "task_update"; data: Task }
+  | { kind: "task_deleted"; data: { id: string } }
   | { kind: "event"; data: TaskEvent }
   | { kind: "approval_update"; data: Approval };
 
@@ -227,6 +228,12 @@ export function createTask(body: CreateTaskBody): Promise<Task> {
 export function cancelTask(id: string): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
+  });
+}
+
+export function deleteTask(id: string): Promise<void> {
+  return apiFetch<void>(`/api/tasks/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 }
 
@@ -492,6 +499,7 @@ export type Settings = {
   "provider.base_url": string;
   "provider.api_key": string;
   "provider.model": string;
+  "provider.stream"?: string;
   "provider.active_id": string;
   "agent.default": string;
   network_mode: string;
@@ -572,6 +580,7 @@ export type ProviderEntry = {
   base_url: string;
   api_key?: string;
   model: string;
+  stream?: boolean;
   active: boolean;
 };
 
@@ -587,6 +596,7 @@ export type ProviderWrite = {
   base_url: string;
   api_key?: string;
   model: string;
+  stream?: boolean;
   active?: boolean;
   clear_api_key?: boolean;
 };

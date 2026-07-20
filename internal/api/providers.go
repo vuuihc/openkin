@@ -33,14 +33,16 @@ func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 
 // providerWriteBody is the body for POST/PUT provider entries.
 type providerWriteBody struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	BaseURL     string `json:"base_url"`
-	APIKey      string `json:"api_key"`
-	Model       string `json:"model"`
-	Active      *bool  `json:"active"`
-	ClearAPIKey bool   `json:"clear_api_key"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
+	// Stream is optional; nil keeps the previous value on update, defaults false on create.
+	Stream      *bool `json:"stream"`
+	Active      *bool `json:"active"`
+	ClearAPIKey bool  `json:"clear_api_key"`
 }
 
 func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +58,9 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		BaseURL: body.BaseURL,
 		APIKey:  body.APIKey,
 		Model:   body.Model,
+	}
+	if body.Stream != nil {
+		entry.Stream = *body.Stream
 	}
 	// New entries default to becoming active when none is selected.
 	makeActive := true
@@ -87,6 +92,14 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		BaseURL: body.BaseURL,
 		APIKey:  body.APIKey,
 		Model:   body.Model,
+	}
+	// Preserve Stream when the client omits the field; false is a valid explicit value.
+	if body.Stream != nil {
+		entry.Stream = *body.Stream
+	} else if prev, err := provider.LoadRegistry(r.Context(), s.Store); err == nil {
+		if e, ok := prev.ByID(id); ok {
+			entry.Stream = e.Stream
+		}
 	}
 	// Empty/masked API key on update means "keep existing". clear_api_key forces wipe
 	// after upsert by writing an empty secret explicitly.
@@ -181,11 +194,13 @@ func syncRegistryFromLegacySettings(ctx context.Context, st *store.Store) error 
 		}
 		return v
 	}
+	streamVal := get(provider.KeyStream)
 	cfg := provider.Config{
 		Kind:    get(provider.KeyKind),
 		BaseURL: get(provider.KeyBaseURL),
 		APIKey:  get(provider.KeyAPIKey),
 		Model:   get(provider.KeyModel),
+		Stream:  streamVal == "1" || streamVal == "true" || streamVal == "yes" || streamVal == "on",
 	}.Normalize()
 
 	reg, err := provider.LoadRegistry(ctx, st)
@@ -206,6 +221,7 @@ func syncRegistryFromLegacySettings(ctx context.Context, st *store.Store) error 
 			active.Model = cfg.Model
 			active.Kind = cfg.Kind
 			active.APIKey = cfg.APIKey
+			active.Stream = cfg.Stream
 			// If fully empty, delete the entry instead of leaving a broken one.
 			if active.BaseURL == "" && active.Model == "" {
 				_, err := provider.DeleteEntry(ctx, st, active.ID)
@@ -240,6 +256,7 @@ func syncRegistryFromLegacySettings(ctx context.Context, st *store.Store) error 
 		BaseURL: cfg.BaseURL,
 		APIKey:  cfg.APIKey,
 		Model:   cfg.Model,
+		Stream:  cfg.Stream,
 	}
 	_, err = provider.UpsertEntry(ctx, st, entry, true)
 	return err

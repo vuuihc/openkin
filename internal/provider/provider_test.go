@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -329,5 +330,290 @@ func TestIsTransientProviderErr(t *testing.T) {
 	cancel()
 	if isTransientProviderErr(canceled, errors.New("provider HTTP 524: x")) {
 		t.Fatal("canceled parent should not retry")
+	}
+}
+
+func TestOpenAICompatChatStreamAggregates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["stream"] != true {
+			t.Fatalf("want stream=true, got %#v", body["stream"])
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		chunks := []string{
+			`data: {"id":"1","model":"gpt-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"lo"}}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"!"},"finish_reason":"stop"}]}`,
+			`data: {"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7,"prompt_tokens_details":{"cached_tokens":1}}}`,
+			`data: [DONE]`,
+		}
+		for _, c := range chunks {
+			_, _ = io.WriteString(w, c+"\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(Config{
+		Kind:    "openai-compatible",
+		BaseURL: srv.URL + "/v1",
+		APIKey:  "sk-test",
+		Model:   "gpt-stream",
+		Stream:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Chat(context.Background(), ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "Hello!" {
+		t.Fatalf("content %q", resp.Content)
+	}
+	if resp.FinishReason != "stop" {
+		t.Fatalf("finish %q", resp.FinishReason)
+	}
+	if resp.Usage.PromptTokens != 5 || resp.Usage.CompletionTokens != 2 {
+		t.Fatalf("usage %+v", resp.Usage)
+	}
+	if resp.Usage.CachedTokens != 1 || !resp.Usage.CacheReadReported {
+		t.Fatalf("cached %+v", resp.Usage)
+	}
+}
+
+func TestOpenAICompatChatStreamToolCalls(t *testing.T) {
+	// Build SSE payloads with json.Marshal so argument fragments stay valid JSON.
+	chunk := func(v any) string {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return "data: " + string(b)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		chunks := []string{
+			chunk(map[string]any{
+				"choices": []map[string]any{{
+					"index": 0,
+					"delta": map[string]any{
+						"role": "assistant",
+						"tool_calls": []map[string]any{{
+							"index": 0,
+							"id":    "call_1",
+							"type":  "function",
+							"function": map[string]any{
+								"name":      "ba",
+								"arguments": "",
+							},
+						}},
+					},
+				}},
+			}),
+			chunk(map[string]any{
+				"choices": []map[string]any{{
+					"index": 0,
+					"delta": map[string]any{
+						"tool_calls": []map[string]any{{
+							"index": 0,
+							"function": map[string]any{
+								"name":      "sh",
+								"arguments": `{"cmd"`,
+							},
+						}},
+					},
+				}},
+			}),
+			chunk(map[string]any{
+				"choices": []map[string]any{{
+					"index": 0,
+					"delta": map[string]any{
+						"tool_calls": []map[string]any{{
+							"index": 0,
+							"function": map[string]any{
+								"arguments": `:"ls"}`,
+							},
+						}},
+					},
+					"finish_reason": "tool_calls",
+				}},
+			}),
+			"data: [DONE]",
+		}
+		for _, c := range chunks {
+			_, _ = io.WriteString(w, c+"\n\n")
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(Config{
+		BaseURL: srv.URL + "/v1",
+		Model:   "m",
+		Stream:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Chat(context.Background(), ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "run"}},
+		Tools:    []ToolDef{FunctionTool("bash", "run", nil)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.ToolCalls) != 1 {
+		t.Fatalf("toolcalls %+v", resp.ToolCalls)
+	}
+	tc := resp.ToolCalls[0]
+	if tc.ID != "call_1" || tc.Function.Name != "bash" {
+		t.Fatalf("tc %+v", tc)
+	}
+	if tc.Function.Arguments != `{"cmd":"ls"}` {
+		t.Fatalf("args %q", tc.Function.Arguments)
+	}
+	if resp.FinishReason != "tool_calls" {
+		t.Fatalf("finish %q", resp.FinishReason)
+	}
+}
+
+func TestOpenAICompatChatStreamRequestOverride(t *testing.T) {
+	var gotStream any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotStream = body["stream"]
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "m",
+			"choices": []map[string]any{
+				{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": "ok"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(Config{BaseURL: srv.URL + "/v1", Model: "m", Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	_, err = c.Chat(context.Background(), ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+		Stream:   &off,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotStream != false {
+		t.Fatalf("override want false, got %#v", gotStream)
+	}
+}
+
+func TestEntryStreamRoundTrip(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	reg, err := UpsertEntry(ctx, st, Entry{
+		Name:    "S",
+		BaseURL: "https://api.openai.com/v1",
+		Model:   "gpt-4o",
+		APIKey:  "sk",
+		Stream:  true,
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reg.Entries[0].Stream {
+		t.Fatal("stream not saved on entry")
+	}
+	cfg, err := LoadConfig(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Stream {
+		t.Fatal("LoadConfig stream false")
+	}
+	raw, _ := st.GetSetting(ctx, KeyStream)
+	if raw != "true" {
+		t.Fatalf("legacy stream mirror %q", raw)
+	}
+}
+
+func TestOpenAICompatChatStreamOnContentDelta(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, c := range []string{
+			`data: {"choices":[{"delta":{"content":"A"}}]}`,
+			`data: {"choices":[{"delta":{"content":"B"}}]}`,
+			`data: {"choices":[{"delta":{"content":"C"},"finish_reason":"stop"}]}`,
+			`data: [DONE]`,
+		} {
+			_, _ = io.WriteString(w, c+"\n\n")
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(Config{BaseURL: srv.URL + "/v1", Model: "m", Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	resp, err := c.Chat(context.Background(), ChatRequest{
+		Messages:       []Message{{Role: RoleUser, Content: "hi"}},
+		OnContentDelta: func(d string) { got = append(got, d) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "ABC" {
+		t.Fatalf("content %q", resp.Content)
+	}
+	if strings.Join(got, "") != "ABC" {
+		t.Fatalf("deltas %v", got)
+	}
+}
+
+func TestOpenAICompatOnContentDeltaIgnoredWithoutStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["stream"] == true {
+			t.Fatal("stream should be false when config.Stream is false")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "m",
+			"choices": []map[string]any{
+				{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": "full"}},
+			},
+		})
+	}))
+	defer srv.Close()
+	c, err := NewClient(Config{BaseURL: srv.URL + "/v1", Model: "m", Stream: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	resp, err := c.Chat(context.Background(), ChatRequest{
+		Messages:       []Message{{Role: RoleUser, Content: "hi"}},
+		OnContentDelta: func(string) { called = true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "full" {
+		t.Fatalf("content %q", resp.Content)
+	}
+	if called {
+		t.Fatal("OnContentDelta must not fire for non-stream chat")
 	}
 }

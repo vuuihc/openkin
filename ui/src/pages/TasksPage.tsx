@@ -6,6 +6,7 @@ import {
   formatElapsed,
   getToken,
   isTerminal,
+  deleteTask,
   listTasks,
   type Task,
 } from "../api/client";
@@ -30,6 +31,7 @@ export default function TasksPage() {
   const [now, setNow] = useState(Date.now());
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const slow = useSlowHint(tasks === null && !error);
+  const pushToast = useAppStore((s) => s.pushToast);
 
   const load = useCallback(async () => {
     if (!getToken()) return;
@@ -54,6 +56,12 @@ export default function TasksPage() {
 
   useEffect(() => {
     return subscribeWS((msg) => {
+      if (msg.kind === "task_deleted") {
+        const data = msg.data as { id?: string };
+        if (!data?.id) return;
+        setTasks((prev) => (prev ? prev.filter((t) => t.id !== data.id) : prev));
+        return;
+      }
       if (msg.kind !== "task_update") return;
       const task = msg.data as Task;
       setTasks((prev) => {
@@ -84,6 +92,21 @@ export default function TasksPage() {
       .filter((t) => t.created_at >= ms)
       .reduce((s, t) => s + (t.cost_usd ?? 0), 0);
   }, [tasks]);
+
+  async function handleDelete(task: Task) {
+    const title = (task.title || task.prompt || task.id).trim();
+    const ok = window.confirm(
+      tr("tasks.deleteConfirm") + (title ? `\n\n${title}` : ""),
+    );
+    if (!ok) return;
+    try {
+      await deleteTask(task.id);
+      setTasks((prev) => (prev ? prev.filter((t) => t.id !== task.id) : prev));
+      pushToast(tr("task.deleted"), "info");
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : tr("task.deleteFailed"), "error");
+    }
+  }
 
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
@@ -154,6 +177,9 @@ export default function TasksPage() {
                   <th className="px-3 py-2.5 font-semibold">{tr("tasks.colStatus")}</th>
                   <th className="px-3 py-2.5 font-semibold hidden md:table-cell">{tr("tasks.colElapsed")}</th>
                   <th className="px-3 py-2.5 font-semibold text-right">{tr("tasks.colCost")}</th>
+                  <th className="px-3 py-2.5 font-semibold text-right w-[1%]">
+                    <span className="sr-only">{tr("tasks.delete")}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -181,6 +207,15 @@ export default function TasksPage() {
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-kin-secondary">
                       {formatCost(t.cost_usd)}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => void handleDelete(t)}
+                        className="text-[12px] text-kin-muted hover:text-[#ff8a80]"
+                      >
+                        {tr("tasks.delete")}
+                      </button>
                     </td>
                   </tr>
                 ))}

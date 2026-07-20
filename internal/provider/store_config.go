@@ -25,6 +25,9 @@ func SaveConfig(ctx context.Context, st *store.Store, cfg Config, clearAPIKey bo
 	if err := st.SetSetting(ctx, KeyModel, cfg.Model); err != nil {
 		return err
 	}
+	if err := st.SetSetting(ctx, KeyStream, formatBoolSetting(cfg.Stream)); err != nil {
+		return err
+	}
 	if clearAPIKey {
 		return st.SetSetting(ctx, KeyAPIKey, "")
 	}

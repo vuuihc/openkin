@@ -67,12 +67,15 @@ func runAgentLoop(
 
 		promptChars := estimateMessagesChars(messages)
 		chatCtx := withProviderRetryHints(ctx, ch)
+		onDelta, flushDelta := streamContentDeltaEmitter(ch, "kin")
 		resp, err := client.Chat(chatCtx, provider.ChatRequest{
-			Model:      model,
-			Messages:   messages,
-			Tools:      tools,
-			ToolChoice: "auto",
+			Model:          model,
+			Messages:       messages,
+			Tools:          tools,
+			ToolChoice:     "auto",
+			OnContentDelta: onDelta,
 		})
+		flushDelta()
 		if err != nil {
 			// Some proxies reject tools; fall back to one-shot chat once.
 			if turn == 0 && looksLikeToolsUnsupported(err) {
@@ -216,10 +219,13 @@ func runChatOnly(
 	}
 	promptChars := estimateMessagesChars(msgs)
 	chatCtx := withProviderRetryHints(ctx, ch)
+	onDelta, flushDelta := streamContentDeltaEmitter(ch, "kin")
 	resp, err := client.Chat(chatCtx, provider.ChatRequest{
-		Model:    model,
-		Messages: msgs,
+		Model:          model,
+		Messages:       msgs,
+		OnContentDelta: onDelta,
 	})
+	flushDelta()
 	if err != nil {
 		emitErr(ch, err.Error())
 		emitResult(ch, true, model, 0, 0, 0)
@@ -359,6 +365,52 @@ func emitMsg(ch chan<- adapter.Event, agent, text string) {
 		"source":  "kin",
 	})
 	ch <- adapter.Event{Type: "message", Payload: payload}
+}
+
+// emitPartialMsg pushes a text *delta* (append) for live UI streaming.
+// Matches Claude Code partial message convention used by transcriptProjection.
+func emitPartialMsg(ch chan<- adapter.Event, agent, delta string) {
+	if delta == "" {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"role":    "assistant",
+		"content": []map[string]string{{"type": "text", "text": delta}},
+		"partial": true,
+		"agent":   agent,
+		"speaker": agent,
+		"source":  "kin",
+	})
+	ch <- adapter.Event{Type: "message", Payload: payload}
+}
+
+// streamContentDeltaEmitter throttles partial message events so high-frequency
+// token streams do not flood the event log / websocket. Returns (onDelta, flush).
+// flush must be called after Chat returns (success or error) to emit any remainder.
+func streamContentDeltaEmitter(ch chan<- adapter.Event, agent string) (onDelta func(string), flush func()) {
+	const minInterval = 80 * time.Millisecond
+	var (
+		buf      strings.Builder
+		lastEmit time.Time
+	)
+	flush = func() {
+		if buf.Len() == 0 {
+			return
+		}
+		emitPartialMsg(ch, agent, buf.String())
+		buf.Reset()
+		lastEmit = time.Now()
+	}
+	onDelta = func(delta string) {
+		if delta == "" {
+			return
+		}
+		buf.WriteString(delta)
+		if lastEmit.IsZero() || time.Since(lastEmit) >= minInterval {
+			flush()
+		}
+	}
+	return onDelta, flush
 }
 
 func emitToolUse(ch chan<- adapter.Event, name, argsJSON, callID string) {

@@ -345,6 +345,53 @@ func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 	return t, nil
 }
 
+// DeleteTask removes a task and all task-scoped rows (events, approvals,
+// kin_messages, usage, checkpoints). Artifacts keep their files; source_task_id
+// is nulled so library entries remain readable.
+func (s *Store) DeleteTask(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lookup task: %w", err)
+	}
+
+	// Child tables without ON DELETE CASCADE (legacy schema).
+	for _, q := range []string{
+		`DELETE FROM events WHERE task_id = ?`,
+		`DELETE FROM approvals WHERE task_id = ?`,
+		`DELETE FROM kin_messages WHERE task_id = ?`,
+		`DELETE FROM usage_records WHERE task_id = ?`,
+		`DELETE FROM task_checkpoints WHERE task_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, q, id); err != nil {
+			return fmt.Errorf("delete task children: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE artifacts SET source_task_id = NULL WHERE source_task_id = ?`, id); err != nil {
+		return fmt.Errorf("detach artifacts: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete task: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete task: %w", err)
+	}
+	return nil
+}
+
 // InsertTask inserts a new task row. Status should be "queued".
 func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	var model, sessionRef any

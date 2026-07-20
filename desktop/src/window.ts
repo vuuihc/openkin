@@ -65,16 +65,29 @@ export class MainWindow {
     this.clearLoadRetry();
   }
 
-  show(path = "/"): void {
+  /**
+   * Show and focus the main window.
+   *
+   * - No path / "/" → restore the existing window as-is (keep current session).
+   *   Callers that only re-focus after blur/tray/dock must not wipe SPA state.
+   * - Explicit path (e.g. /tasks/:id, /new, /inbox) → navigate there.
+   * - If the window was destroyed, recreate at the explicit path or last pendingPath.
+   */
+  show(path?: string): void {
+    const wantsRestore = path == null || path === "" || path === "/";
     if (this.win && !this.win.isDestroyed()) {
-      this.navigate(path);
+      if (!wantsRestore) {
+        this.navigate(path);
+      }
       if (this.win.isMinimized()) this.win.restore();
       this.win.show();
       this.win.focus();
       this.showDock();
       return;
     }
-    this.create(path);
+    // Fresh window: prefer an explicit deep-link, else last known path, else home.
+    const target = wantsRestore ? this.pendingPath || "/" : path;
+    this.create(target);
   }
 
   hide(): void {
@@ -177,6 +190,15 @@ export class MainWindow {
     this.win.webContents.on("did-finish-load", () => {
       this.loadAttempts = 0;
       this.clearLoadRetry();
+      this.rememberPathFromURL(this.win?.webContents.getURL() ?? "");
+    });
+
+    // SPA client-side routes (pushState) — keep last path so recreate restores session.
+    this.win.webContents.on("did-navigate-in-page", (_event, url) => {
+      this.rememberPathFromURL(url);
+    });
+    this.win.webContents.on("did-navigate", (_event, url) => {
+      this.rememberPathFromURL(url);
     });
 
     // Navigation lockdown: only 127.0.0.1:7777
@@ -210,6 +232,22 @@ export class MainWindow {
       : `${base}${p}`;
     console.log("[kin-desktop] loadURL", p, "token=", tok ? "yes" : "no");
     void this.win.loadURL(url);
+  }
+
+  /** Persist SPA path (strip auth token query) for restore-after-recreate. */
+  private rememberPathFromURL(url: string): void {
+    if (!url || !isAllowedURL(url)) return;
+    try {
+      const u = new URL(url);
+      u.searchParams.delete("token");
+      const qs = u.searchParams.toString();
+      const next = `${u.pathname}${qs ? `?${qs}` : ""}${u.hash || ""}`;
+      if (next && next !== "/tray") {
+        this.pendingPath = next.startsWith("/") ? next : `/${next}`;
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   private resolveToken(): string | null {

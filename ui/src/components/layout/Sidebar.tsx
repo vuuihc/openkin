@@ -16,6 +16,13 @@ import {
   type ProjectSortMode,
 } from "../../lib/projectSidebar";
 import {
+  getViewedSessionIds,
+  isSessionViewed,
+  markSessionViewed,
+  sessionStatusDotClass,
+  subscribeSessionViewed,
+} from "../../lib/sessionViewed";
+import {
   IconArchive,
   IconArtifacts,
   IconInbox,
@@ -24,6 +31,7 @@ import {
   IconSettings,
   IconSort,
   IconTasks,
+  IconTrash,
   IconUsage,
 } from "../icons";
 
@@ -37,6 +45,8 @@ type Props = {
   onNewChat: () => void;
   /** New session scoped to a project cwd (Claude/Codex style). */
   onNewSessionInProject?: (cwd: string) => void;
+  /** Permanently delete a session/task. */
+  onDeleteSession?: (task: Task) => void;
   /** Mobile drawer open. Desktop always visible. */
   mobileOpen: boolean;
   onCloseMobile: () => void;
@@ -58,6 +68,7 @@ export default function Sidebar({
   weekCost,
   onNewChat,
   onNewSessionInProject,
+  onDeleteSession,
   mobileOpen,
   onCloseMobile,
 }: Props) {
@@ -70,6 +81,12 @@ export default function Sidebar({
   // Re-render when sort / pin / archive / last-interact prefs change.
   const [prefsTick, setPrefsTick] = useState(0);
   useEffect(() => subscribeProjectSidebar(() => setPrefsTick((n) => n + 1)), []);
+  // Re-render when a session is marked viewed (green completion dot → clear).
+  useSyncExternalStore(
+    subscribeSessionViewed,
+    () => getViewedSessionIds().slice().sort().join(","),
+    () => "",
+  );
 
   const sortMode = getProjectSortMode();
   // prefsTick invalidates after localStorage updates (sort / pin / archive / interact).
@@ -100,11 +117,13 @@ export default function Sidebar({
 
   // When the user opens a task, bump its project last-interact so "recent" stays fresh.
   // Also restores the project if it was archived (open ⇒ unarchive).
+  // Terminal success: mark viewed so the green "done" dot clears.
   useEffect(() => {
     if (!selectedTaskId) return;
     const t = tasks.find((x) => x.id === selectedTaskId);
     if (t?.cwd) touchProject(t.cwd);
-  }, [selectedTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (t && isTerminal(t.status)) markSessionViewed(t.id);
+  }, [selectedTaskId, tasks]);
 
   const draftGroupCwd =
     hasDraft && draftCwd
@@ -126,7 +145,7 @@ export default function Sidebar({
   };
 
   const panel = (
-    <aside className="w-[248px] max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-border shrink-0">
+    <aside className="w-[248px] max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
       <div className="px-3 pt-3 pb-2 flex items-center gap-2">
         <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-[13px] font-semibold shadow-sm">
           K
@@ -256,6 +275,8 @@ export default function Sidebar({
               pinLabel={g.pinned ? tr("nav.unpinProject") : tr("nav.pinProject")}
               archiveLabel={tr("nav.archiveProject")}
               newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
+              onDeleteSession={onDeleteSession}
+              deleteLabel={tr("task.deleteSession")}
               mode="active"
             />
           );
@@ -328,6 +349,8 @@ export default function Sidebar({
                       pinLabel={tr("nav.pinProject")}
                       archiveLabel={tr("nav.unarchiveProject")}
                       newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
+                      onDeleteSession={onDeleteSession}
+                      deleteLabel={tr("task.deleteSession")}
                       mode="archived"
                     />
                   );
@@ -418,11 +441,13 @@ function ProjectBlock({
   onDraftClick,
   onCloseMobile,
   onNewSession,
+  onDeleteSession,
   onTogglePin,
   onArchive,
   pinLabel,
   archiveLabel,
   newSessionLabel,
+  deleteLabel,
   mode,
 }: {
   group: ProjectGroup;
@@ -433,11 +458,13 @@ function ProjectBlock({
   onDraftClick: () => void;
   onCloseMobile: () => void;
   onNewSession: () => void;
+  onDeleteSession?: (task: Task) => void;
   onTogglePin: () => void;
   onArchive: () => void;
   pinLabel: string;
   archiveLabel: string;
   newSessionLabel: string;
+  deleteLabel: string;
   mode: "active" | "archived";
 }) {
   return (
@@ -506,34 +533,50 @@ function ProjectBlock({
       <div className="space-y-0.5">
         {g.items.map((t) => {
           const active = t.id === selectedTaskId;
-          const running = !isTerminal(t.status);
+          const dot = sessionStatusDotClass(t.status, isSessionViewed(t.id));
           return (
-            <NavLink
+            <div
               key={t.id}
-              to={`/tasks/${t.id}`}
-              onClick={() => {
-                touchProject(t.cwd || g.cwd);
-                onCloseMobile();
-              }}
               className={[
-                "flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-[13px] min-h-[34px]",
+                "group/session flex items-center gap-0.5 rounded-[7px] min-h-[34px]",
                 active
                   ? "bg-[var(--kin-fill-strong)] text-kin-text"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
               ].join(" ")}
             >
-              <span
-                className={[
-                  "w-1.5 h-1.5 rounded-full flex-none",
-                  running
-                    ? "bg-kin-blue animate-pulse"
-                    : t.status === "failed"
-                      ? "bg-kin-red"
-                      : "bg-transparent",
-                ].join(" ")}
-              />
-              <span className="truncate flex-1 min-w-0">{t.title || t.prompt}</span>
-            </NavLink>
+              <NavLink
+                to={`/tasks/${t.id}`}
+                onClick={() => {
+                  touchProject(t.cwd || g.cwd);
+                  if (isTerminal(t.status)) markSessionViewed(t.id);
+                  onCloseMobile();
+                }}
+                className="flex flex-1 items-center gap-2 px-2 py-1.5 text-[13px] min-w-0"
+              >
+                <span
+                  className={[
+                    "w-1.5 h-1.5 rounded-full flex-none",
+                    dot ?? "bg-transparent",
+                  ].join(" ")}
+                />
+                <span className="truncate flex-1 min-w-0">{t.title || t.prompt}</span>
+              </NavLink>
+              {onDeleteSession && (
+                <button
+                  type="button"
+                  title={deleteLabel}
+                  aria-label={deleteLabel}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDeleteSession(t);
+                  }}
+                  className="flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-[#ff8a80] hover:bg-[rgba(255,69,58,.12)] opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
+                >
+                  <IconTrash size={12} />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>

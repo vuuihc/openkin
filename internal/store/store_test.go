@@ -1,6 +1,8 @@
 package store
 
 import (
+	"errors"
+	"encoding/json"
 	"context"
 	"path/filepath"
 	"testing"
@@ -159,5 +161,85 @@ func TestUpdateTaskModel(t *testing.T) {
 	}
 	if got.Model != nil {
 		t.Fatalf("model should be cleared, got %v", got.Model)
+	}
+}
+
+
+func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+
+	now := NowMilli()
+	task := Task{
+		ID: "01DELTESTTASK0000000000001", Title: "delete me", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "bye", Status: "succeeded", CreatedAt: now,
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendEvent(ctx, task.ID, "message", []byte(`{"text":"a"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertApproval(ctx, Approval{
+		ID: "01DELAPPROVAL000000000001", TaskID: task.ID, Kind: "bash",
+		Payload: json.RawMessage(`{"command":"ls"}`), Decision: "pending", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceKinMessages(ctx, task.ID, []KinMessage{{
+		Role: "user", Content: "hi",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	inTok, outTok := 1, 2
+	cost := 0.01
+	if err := s.InsertUsageRecord(ctx, UsageRecord{
+		TaskID: task.ID, EventSeq: 1, OccurredAt: now, Agent: "claude-code",
+		InputTokens: &inTok, OutputTokens: &outTok, CostUSD: &cost,
+		CostSource: CostSourcePriceTable, CacheStatus: CacheStatusUnknown, InputSemantics: InputSemanticsUncachedOnly,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutCheckpoint(ctx, TaskCheckpoint{
+		TaskID: task.ID, EventSeq: 1, HeadOID: "abc", TreeOID: "def", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	art := Artifact{
+		ID: "01DELARTIFACT000000000001", Title: "note", Kind: "markdown",
+		RelPath: "note.md", Size: 3, Status: ArtifactSaved, SourceTaskID: &task.ID,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.InsertArtifact(ctx, art); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTask(ctx, task.ID); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+	if _, err := s.GetTask(ctx, task.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetTask after delete: %v", err)
+	}
+	evs, err := s.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 0 {
+		t.Fatalf("events left: %d", len(evs))
+	}
+	gotArt, err := s.GetArtifact(ctx, art.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotArt.SourceTaskID != nil {
+		t.Fatalf("artifact source should be nil, got %v", *gotArt.SourceTaskID)
+	}
+	if err := s.DeleteTask(ctx, task.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second DeleteTask: %v", err)
 	}
 }

@@ -171,7 +171,6 @@ func TestLegacySettingsUpsertSyncsRegistry(t *testing.T) {
 	}
 }
 
-
 func TestUpdateProviderClearAPIKey(t *testing.T) {
 	_, token, h := testProviderServer(t)
 
@@ -211,5 +210,71 @@ func TestUpdateProviderClearAPIKey(t *testing.T) {
 	}
 	if settings["provider.api_key"] != "" {
 		t.Fatalf("want cleared key, got %q", settings["provider.api_key"])
+	}
+}
+
+func TestProviderStreamFlag(t *testing.T) {
+	_, token, h := testProviderServer(t)
+
+	body := `{"name":"S","base_url":"https://api.openai.com/v1","api_key":"sk","model":"m","stream":true}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/providers", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var list providersResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Providers) != 1 || !list.Providers[0].Stream {
+		t.Fatalf("want stream true, got %+v", list.Providers)
+	}
+	id := list.Providers[0].ID
+
+	// Omit stream on update → keep true
+	body = `{"name":"S","base_url":"https://api.openai.com/v1","model":"m2"}`
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/providers/"+id, bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", rr.Code, rr.Body.String())
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if !list.Providers[0].Stream || list.Providers[0].Model != "m2" {
+		t.Fatalf("preserve stream: %+v", list.Providers[0])
+	}
+
+	// Explicit false
+	body = `{"name":"S","base_url":"https://api.openai.com/v1","model":"m2","stream":false}`
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/providers/"+id, bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if list.Providers[0].Stream {
+		t.Fatalf("want stream false, got %+v", list.Providers[0])
+	}
+
+	// Settings mirror
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	var settings map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["provider.stream"] != "false" {
+		t.Fatalf("settings stream=%q", settings["provider.stream"])
 	}
 }

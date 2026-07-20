@@ -17,6 +17,8 @@ export default {
           inspector: "var(--kin-inspector)",
           hairline: "var(--kin-hairline)",
           "hairline-strong": "var(--kin-hairline-strong)",
+          // Structural dividers (sidebar/main, section splits). Soft hairline, not default gray.
+          border: "var(--kin-hairline)",
           text: "var(--kin-text)",
           secondary: "var(--kin-secondary)",
           tertiary: "var(--kin-tertiary)",

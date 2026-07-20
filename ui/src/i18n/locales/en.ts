@@ -159,6 +159,10 @@ const en: MessageTree = {
     saveArtifactTitle: "Save as artifact",
     saveArtifactDone: "Saved to Artifacts",
     saveArtifactFailed: "Failed to save artifact",
+    deleteSession: "Delete session",
+    deleteConfirm: "Delete this session permanently? History cannot be recovered.",
+    deleted: "Session deleted",
+    deleteFailed: "Failed to delete session",
   },
   artifacts: {
     title: "Artifacts",
@@ -267,6 +271,8 @@ const en: MessageTree = {
     colCost: "Cost",
     needsApproval: "needs approval",
     statusDone: "done",
+    delete: "Delete",
+    deleteConfirm: "Delete this session permanently?",
   },
   usage: {
     title: "Usage",
@@ -332,6 +338,8 @@ const en: MessageTree = {
       apiKeyHint:
         "Stored in ~/.kin/kin.db. Leave unchanged to keep existing key; clear field and save to remove.",
       model: "Default model",
+      stream: "Stream responses",
+      streamHint: "Stream tokens into the chat as they arrive (Kin agent). Also helps with gateway idle timeouts. Turn off if a proxy mishandles stream=true.",
       defaultAgent: "Default agent (no @mention)",
       autoOption: "Auto (Kin if provider ready, else first CLI)",
       unavailable: " — unavailable",
@@ -475,6 +483,8 @@ const en: MessageTree = {
     title: "Terminal",
     toggle: "Toggle terminal",
     new: "New terminal",
+    chooseProfile: "Choose shell profile",
+    defaultProfile: "default",
     newWithProfile: "New {profile}",
     closePanel: "Close terminal panel",
     closeSession: "Close this session",

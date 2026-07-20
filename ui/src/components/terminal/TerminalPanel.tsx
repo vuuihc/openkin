@@ -9,15 +9,9 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { pickDirectory } from "../../lib/desktop";
-import {
-  clampTerminalHeight,
-  DEFAULT_TERMINAL_HEIGHT,
-  effectiveTerminalCwd,
-  maxTerminalHeight,
-  MIN_TERMINAL_HEIGHT,
-  parseTerminalHeight,
-  TERMINAL_HEIGHT_KEY,
-} from "../../lib/terminal";
+import { projectLabel, shortPath } from "../../lib/paths";
+import { effectiveTerminalCwd } from "../../lib/terminal";
+import { IconChevron, IconPlus, IconTerminal, IconX } from "../icons";
 import TerminalProfileMenu from "./TerminalProfileMenu";
 import TerminalTabs from "./TerminalTabs";
 import TerminalView from "./TerminalView";
@@ -32,20 +26,16 @@ type SessionWithConnection = TerminalSession & {
   connectionStatus: "connecting" | "connected" | "disconnected";
 };
 
-type DragState = {
-  pointerId: number;
-  startY: number;
-  startHeight: number;
-};
-
+/**
+ * Full-screen terminal overlay (same shell pattern as the workspace/files panel).
+ * Lives inside the main content column so the app sidebar stays visible.
+ */
 export default function TerminalPanel({ open, cwd, onClose }: Props) {
   const tr = useT();
   const [hasOpened, setHasOpened] = useState(false);
-  const [height, setHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
-  const heightRef = useRef(height);
-  const dragRef = useRef<DragState | null>(null);
   const loadStartedRef = useRef(false);
   const autoCreateAttemptedRef = useRef(false);
+  const newSessionRef = useRef<HTMLDivElement>(null);
 
   const [profiles, setProfiles] = useState<TerminalProfile[]>([]);
   const [defaultProfileId, setDefaultProfileId] = useState("");
@@ -60,48 +50,17 @@ export default function TerminalPanel({ open, cwd, onClose }: Props) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
 
-  heightRef.current = height;
   const effectiveCwd = effectiveTerminalCwd(cwd, cwdOverride);
 
-  const persistHeight = useCallback((value: number) => {
-    try {
-      localStorage.setItem(TERMINAL_HEIGHT_KEY, String(value));
-    } catch {
-      // Client preference persistence is best-effort.
-    }
-  }, []);
-
-  const updateHeight = useCallback((value: number, persist = false) => {
-    const next = clampTerminalHeight(value, window.innerHeight);
-    heightRef.current = next;
-    setHeight(next);
-    if (persist) persistHeight(next);
-    return next;
-  }, [persistHeight]);
-
   useEffect(() => {
-    try {
-      updateHeight(
-        parseTerminalHeight(
-          localStorage.getItem(TERMINAL_HEIGHT_KEY),
-          window.innerHeight,
-        ),
-      );
-    } catch {
-      updateHeight(DEFAULT_TERMINAL_HEIGHT);
-    }
-  }, [updateHeight]);
-
-  useEffect(() => {
-    const onResize = () => updateHeight(heightRef.current);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [updateHeight]);
+    if (open) setHasOpened(true);
+    else setMenuOpen(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open || loadStartedRef.current) return;
     loadStartedRef.current = true;
-    setHasOpened(true);
+
     setLoadingProfiles(true);
     setLoadingSessions(true);
 
@@ -258,112 +217,82 @@ export default function TerminalPanel({ open, cwd, onClose }: Props) {
     [],
   );
 
-  const handleResizeKey = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    const maximum = maxTerminalHeight(window.innerHeight);
-    let next: number | null = null;
-    switch (event.key) {
-      case "ArrowUp":
-        next = Math.min(heightRef.current + 16, maximum);
-        break;
-      case "ArrowDown":
-        next = Math.max(heightRef.current - 16, MIN_TERMINAL_HEIGHT);
-        break;
-      case "Home":
-        next = MIN_TERMINAL_HEIGHT;
-        break;
-      case "End":
-        next = maximum;
-        break;
-    }
-    if (next === null) return;
-    event.preventDefault();
-    updateHeight(next, true);
-  };
+  const canCreate =
+    !creatingSession && profiles.length > 0 && sessions.length < 8;
+  const defaultCreateId = defaultProfileId || profiles[0]?.id || "";
 
+  // Keep the component mounted after first open so PTY sockets survive toggles.
   if (!hasOpened) return null;
 
   return (
     <div
-      className={`flex flex-none flex-col overflow-hidden border-t border-[var(--kin-hairline)] bg-[var(--kin-bg)] transition-[height,opacity] duration-200 ${
-        open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
-      }`}
-      style={{ height: open ? height : 0 }}
+      className={[
+        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad",
+        open ? "flex flex-col" : "hidden",
+      ].join(" ")}
+      role="complementary"
+      aria-label={tr("terminal.title")}
       aria-hidden={!open}
     >
-      <div
-        className="h-1.5 flex-none cursor-ns-resize border-t border-[var(--kin-hairline)] transition-colors hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)] focus:outline-none focus:ring-2 focus:ring-kin-blue/30"
-        role="separator"
-        aria-label={tr("terminal.resize")}
-        aria-orientation="horizontal"
-        aria-valuemin={MIN_TERMINAL_HEIGHT}
-        aria-valuemax={maxTerminalHeight(window.innerHeight)}
-        aria-valuenow={height}
-        tabIndex={open ? 0 : -1}
-        onKeyDown={handleResizeKey}
-        onPointerDown={(event) => {
-          dragRef.current = {
-            pointerId: event.pointerId,
-            startY: event.clientY,
-            startHeight: heightRef.current,
-          };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          const drag = dragRef.current;
-          if (!drag || drag.pointerId !== event.pointerId) return;
-          updateHeight(drag.startHeight + drag.startY - event.clientY);
-        }}
-        onPointerUp={(event) => {
-          const drag = dragRef.current;
-          if (!drag || drag.pointerId !== event.pointerId) return;
-          dragRef.current = null;
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-          persistHeight(heightRef.current);
-        }}
-        onPointerCancel={(event) => {
-          dragRef.current = null;
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-          persistHeight(heightRef.current);
-        }}
-      />
+      <div className="flex h-full min-h-0 w-full flex-col">
+        {/* Header — matches WorkspacePanel chrome */}
+        <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
+          <IconTerminal size={14} className="flex-none text-kin-muted" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[12px] font-semibold text-kin-text">
+              {tr("terminal.title")}
+            </div>
+            {effectiveCwd ? (
+              <div
+                className="truncate font-mono text-[11px] text-kin-muted"
+                title={effectiveCwd}
+              >
+                {projectLabel(effectiveCwd)} · {shortPath(effectiveCwd, 48)}
+              </div>
+            ) : (
+              <div className="truncate text-[11px] text-kin-muted">
+                {tr("terminal.noSessions")}
+              </div>
+            )}
+          </div>
 
-      <div className="flex flex-none items-center justify-between gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-elevated)] px-3 py-2">
-        <span className="text-[13px] font-semibold text-kin-text">
-          {tr("terminal.title")}
-        </span>
-        <div className="flex items-center gap-1">
-          <div className="relative flex items-center gap-0.5">
-            <button
-              type="button"
-              className="rounded bg-kin-blue px-2 py-1 text-[12px] text-white transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() =>
-                void handleCreateSession(defaultProfileId || profiles[0]?.id || "")
-              }
-              disabled={
-                creatingSession || profiles.length === 0 || sessions.length >= 8
-              }
-              aria-label={tr("terminal.new")}
-              title={tr("terminal.new")}
-            >
-              +
-            </button>
-            {profiles.length > 1 && (
+          <div className="relative flex flex-none items-center" ref={newSessionRef}>
+            <div className="flex items-center overflow-hidden rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]">
               <button
                 type="button"
-                className="rounded px-1 py-1 text-[12px] transition-colors hover:bg-[var(--kin-fill)] disabled:opacity-50"
-                onClick={() => setMenuOpen((value) => !value)}
-                disabled={creatingSession}
+                className="flex items-center gap-1 px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void handleCreateSession(defaultCreateId);
+                }}
+                disabled={!canCreate || !defaultCreateId}
                 aria-label={tr("terminal.new")}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
+                title={tr("terminal.new")}
               >
-                ▼
+                <IconPlus size={13} strokeWidth={1.9} />
+                <span className="hidden sm:inline">{tr("terminal.new")}</span>
               </button>
-            )}
+              {profiles.length > 1 && (
+                <button
+                  type="button"
+                  className="flex items-center border-l border-[var(--kin-hairline-strong)] px-1.5 py-1 text-kin-muted transition-colors hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    if (!canCreate) return;
+                    setMenuOpen((value) => !value);
+                  }}
+                  disabled={!canCreate}
+                  aria-label={tr("terminal.chooseProfile")}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  title={tr("terminal.chooseProfile")}
+                >
+                  <IconChevron
+                    size={12}
+                    className={menuOpen ? "rotate-[-90deg]" : "rotate-90"}
+                  />
+                </button>
+              )}
+            </div>
             <TerminalProfileMenu
               profiles={profiles}
               open={menuOpen}
@@ -372,87 +301,90 @@ export default function TerminalPanel({ open, cwd, onClose }: Props) {
                 setMenuOpen(false);
                 void handleCreateSession(profileId);
               }}
+              anchorRef={newSessionRef}
             />
           </div>
+
           <button
             type="button"
-            className="rounded px-2 py-1 text-[12px] text-kin-secondary transition-colors hover:bg-[var(--kin-fill)] hover:text-kin-text"
             onClick={onClose}
+            className="flex-none rounded-md p-1.5 text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
             aria-label={tr("terminal.closePanel")}
             title={tr("terminal.closePanel")}
           >
-            ✕
+            <IconX size={14} />
           </button>
         </div>
-      </div>
 
-      {sessions.length > 0 && (
-        <TerminalTabs
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelectSession={setActiveSessionId}
-          onCloseSession={(id) => void handleCloseSession(id)}
-        />
-      )}
+        {sessions.length > 0 && (
+          <TerminalTabs
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelectSession={setActiveSessionId}
+            onCloseSession={(id) => void handleCloseSession(id)}
+          />
+        )}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {loadingProfiles || loadingSessions ? (
-          <div className="flex h-full items-center justify-center text-kin-muted">
-            <span className="text-[13px]">{tr("terminal.loading")}</span>
-          </div>
-        ) : sessions.length > 0 ? (
-          sessions.map((session) => {
-            const active = session.id === activeSessionId;
-            return (
-              <div
-                key={session.id}
-                className={active ? "min-h-0 flex-1" : "hidden"}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {loadingProfiles || loadingSessions ? (
+            <div className="flex h-full items-center justify-center text-kin-muted">
+              <span className="text-[13px]">{tr("terminal.loading")}</span>
+            </div>
+          ) : sessions.length > 0 ? (
+            sessions.map((session) => {
+              const isActive = session.id === activeSessionId;
+              return (
+                <div
+                  key={session.id}
+                  className={isActive ? "h-full w-full" : "hidden"}
+                  aria-hidden={!isActive}
+                >
+                  <TerminalView
+                    session={session}
+                    active={open && isActive}
+                    onExit={handleSessionExit}
+                    onConnectionChange={handleConnectionChange}
+                  />
+                </div>
+              );
+            })
+          ) : profiles.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-kin-muted">
+              <span className="text-[13px]">{tr("terminal.noProfiles")}</span>
+            </div>
+          ) : !effectiveCwd ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3">
+              <span className="text-[13px] text-kin-secondary">
+                {tr("terminal.noSessions")}
+              </span>
+              <button
+                type="button"
+                className="rounded-md bg-kin-blue px-3 py-1.5 text-[12px] text-white transition-all hover:brightness-110"
+                onClick={async () => {
+                  try {
+                    const chosen = await pickDirectory();
+                    if (chosen) setCwdOverride(chosen);
+                  } catch {
+                    setCreateError(tr("terminal.createFailed"));
+                  }
+                }}
               >
-                <TerminalView
-                  session={session}
-                  active={open && active}
-                  onExit={handleSessionExit}
-                  onConnectionChange={handleConnectionChange}
-                />
-              </div>
-            );
-          })
-        ) : profiles.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-kin-muted">
-            <span className="text-[13px]">{tr("terminal.noProfiles")}</span>
-          </div>
-        ) : !effectiveCwd ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3">
-            <span className="text-[13px] text-kin-secondary">
-              {tr("terminal.noSessions")}
-            </span>
-            <button
-              type="button"
-              className="rounded bg-kin-blue px-3 py-1.5 text-[12px] text-white transition-all hover:brightness-110"
-              onClick={async () => {
-                try {
-                  const chosen = await pickDirectory();
-                  if (chosen) setCwdOverride(chosen);
-                } catch {
-                  setCreateError(tr("terminal.createFailed"));
-                }
-              }}
-            >
-              {tr("terminal.chooseFolder")}
-            </button>
-          </div>
-        ) : (
-          <div className="flex h-full items-center justify-center text-kin-muted">
-            <span className="text-[13px]">{tr("terminal.noSessions")}</span>
+                {tr("terminal.chooseFolder")}
+              </button>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-kin-muted">
+              <span className="text-[13px]">{tr("terminal.noSessions")}</span>
+            </div>
+          )}
+        </div>
+
+        {(createError || closeError) && (
+          <div className="flex-none border-t border-kin-orange/25 bg-kin-orange/10 px-3 py-2 text-[12px] text-kin-orange">
+            {createError || closeError}
           </div>
         )}
       </div>
-
-      {(createError || closeError) && (
-        <div className="flex-none border-t border-kin-orange/25 bg-kin-orange/10 px-3 py-2 text-[12px] text-kin-orange">
-          {createError || closeError}
-        </div>
-      )}
     </div>
   );
 }

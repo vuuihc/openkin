@@ -17,7 +17,7 @@ import (
 // legacy single-slot keys (KeyKind/KeyBaseURL/KeyAPIKey/KeyModel) are mirrored
 // from the active entry so older readers keep working.
 const (
-	KeyProviders     = "providers"
+	KeyProviders      = "providers"
 	KeyActiveProvider = "provider.active_id"
 )
 
@@ -29,6 +29,8 @@ type Entry struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key,omitempty"`
 	Model   string `json:"model"`
+	// Stream enables SSE transport for Chat (aggregated before return).
+	Stream bool `json:"stream,omitempty"`
 }
 
 // PublicEntry is Entry with a masked API key for GET responses.
@@ -39,6 +41,7 @@ type PublicEntry struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key,omitempty"`
 	Model   string `json:"model"`
+	Stream  bool   `json:"stream"`
 	Active  bool   `json:"active"`
 }
 
@@ -97,6 +100,7 @@ func (e Entry) Config() Config {
 		BaseURL: e.BaseURL,
 		APIKey:  e.APIKey,
 		Model:   e.Model,
+		Stream:  e.Stream,
 	}.Normalize()
 }
 
@@ -145,6 +149,7 @@ func (r Registry) Public() []PublicEntry {
 			BaseURL: e.BaseURL,
 			APIKey:  MaskAPIKey(e.APIKey),
 			Model:   e.Model,
+			Stream:  e.Stream,
 			Active:  e.ID == r.ActiveID,
 		})
 	}
@@ -208,6 +213,7 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 		BaseURL: legacy.BaseURL,
 		APIKey:  legacy.APIKey,
 		Model:   legacy.Model,
+		Stream:  legacy.Stream,
 	}.Normalize()
 	reg = Registry{ActiveID: id, Entries: []Entry{entry}}.Normalize()
 	// Persist migration so subsequent loads hit the registry path.
@@ -231,6 +237,7 @@ func loadLegacyConfig(ctx context.Context, st *store.Store) (Config, error) {
 		BaseURL: get(KeyBaseURL),
 		APIKey:  get(KeyAPIKey),
 		Model:   get(KeyModel),
+		Stream:  parseBoolSetting(get(KeyStream)),
 	}.Normalize(), nil
 }
 
@@ -419,4 +426,20 @@ func newProviderID() string {
 		return fmt.Sprintf("p_%d", time.Now().UnixNano())
 	}
 	return "p_" + hex.EncodeToString(b[:])
+}
+
+func parseBoolSetting(v string) bool {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func formatBoolSetting(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
 }

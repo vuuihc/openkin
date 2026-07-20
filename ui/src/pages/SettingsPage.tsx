@@ -41,6 +41,7 @@ export default function SettingsPage() {
   const [provBase, setProvBase] = useState("");
   const [provKey, setProvKey] = useState("");
   const [provModel, setProvModel] = useState("");
+  const [provStream, setProvStream] = useState(false);
   const [provKeyDirty, setProvKeyDirty] = useState(false);
   const [provBusy, setProvBusy] = useState(false);
   const [agentDefault, setAgentDefault] = useState("");
@@ -167,6 +168,7 @@ export default function SettingsPage() {
     setProvBase("");
     setProvKey("");
     setProvModel("");
+    setProvStream(false);
     setProvKeyDirty(false);
     setReveal(false);
   };
@@ -177,6 +179,7 @@ export default function SettingsPage() {
     setProvBase(p.base_url || "");
     setProvKey(p.api_key || "");
     setProvModel(p.model || "");
+    setProvStream(!!p.stream);
     setProvKeyDirty(false);
     setReveal(false);
   };
@@ -200,6 +203,7 @@ export default function SettingsPage() {
         kind: "openai-compatible",
         base_url: provBase.trim(),
         model: provModel.trim(),
+        stream: provStream,
         // New entries become active; edits keep current active selection.
         active: editingId === "" ? true : undefined,
       } as Parameters<typeof createProvider>[0];
@@ -504,6 +508,22 @@ export default function SettingsPage() {
                 placeholder="gpt-4.1-mini · grok-3 · llama3.2"
                 className="kin-input min-h-[44px] font-mono text-xs"
               />
+            </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={provStream}
+                onChange={(e) => setProvStream(e.target.checked)}
+                className="mt-1"
+              />
+              <span className="space-y-0.5">
+                <span className="block text-xs font-medium text-kin-secondary">
+                  {tr("settings.provider.stream")}
+                </span>
+                <span className="block text-[11px] text-kin-muted">
+                  {tr("settings.provider.streamHint")}
+                </span>
+              </span>
             </label>
             <div className="flex flex-wrap gap-2">
               <button

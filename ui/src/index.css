@@ -14,8 +14,8 @@
   --kin-bg: #1a1a1c;
   --kin-elevated: #2c2c2e;
   --kin-sidebar: #141416;
-  --kin-hairline: rgba(255, 255, 255, 0.1);
-  --kin-hairline-strong: rgba(255, 255, 255, 0.16);
+  --kin-hairline: rgba(255, 255, 255, 0.08);
+  --kin-hairline-strong: rgba(255, 255, 255, 0.14);
   --kin-text: #f5f5f7;
   --kin-secondary: #c7c7cc;
   --kin-tertiary: #98989d;
@@ -39,8 +39,8 @@ html[data-theme="light"] {
   --kin-chat: #ffffff;
   --kin-elevated: #f4f4f6;
   --kin-inspector: #ebebf0;
-  --kin-hairline: rgba(0, 0, 0, 0.12);
-  --kin-hairline-strong: rgba(0, 0, 0, 0.2);
+  --kin-hairline: rgba(0, 0, 0, 0.09);
+  --kin-hairline-strong: rgba(0, 0, 0, 0.16);
   --kin-text: #1c1c1e;
   --kin-secondary: #3a3a3c;
   --kin-tertiary: #636366;
@@ -61,8 +61,8 @@ html[data-theme="light"] {
     --kin-chat: #ffffff;
     --kin-elevated: #f4f4f6;
     --kin-inspector: #ebebf0;
-    --kin-hairline: rgba(0, 0, 0, 0.12);
-    --kin-hairline-strong: rgba(0, 0, 0, 0.2);
+    --kin-hairline: rgba(0, 0, 0, 0.09);
+    --kin-hairline-strong: rgba(0, 0, 0, 0.16);
     --kin-text: #1c1c1e;
     --kin-secondary: #3a3a3c;
     --kin-tertiary: #636366;
@@ -81,8 +81,8 @@ html[data-theme="light"] {
     --kin-bg: #1a1a1c;
     --kin-elevated: #2c2c2e;
     --kin-sidebar: #141416;
-    --kin-hairline: rgba(255, 255, 255, 0.1);
-    --kin-hairline-strong: rgba(255, 255, 255, 0.16);
+    --kin-hairline: rgba(255, 255, 255, 0.08);
+    --kin-hairline-strong: rgba(255, 255, 255, 0.14);
     --kin-text: #f5f5f7;
     --kin-secondary: #c7c7cc;
     --kin-tertiary: #98989d;

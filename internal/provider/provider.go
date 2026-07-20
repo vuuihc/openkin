@@ -24,7 +24,9 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
-// ChatRequest is a non-streaming completion request.
+// ChatRequest is a chat completion request.
+// Streaming is a transport concern controlled by Config.Stream (or Stream override);
+// Chat still returns the fully aggregated assistant turn.
 type ChatRequest struct {
 	Model       string
 	Messages    []Message
@@ -32,6 +34,13 @@ type ChatRequest struct {
 	ToolChoice  string // "auto" | "none" | ""
 	Temperature *float64
 	MaxTokens   *int
+	// Stream overrides Config.Stream when non-nil. nil = use provider config.
+	Stream *bool
+	// OnContentDelta receives each non-empty assistant text fragment while the
+	// transport is streaming. It is never called for non-stream Chat calls.
+	// Callers must treat fragments as deltas (append), not full snapshots.
+	// The callback runs on the Chat caller's goroutine; keep it cheap.
+	OnContentDelta func(delta string)
 }
 
 // Usage token counts (provider-reported).
@@ -59,7 +68,9 @@ type ChatResponse struct {
 
 // Client talks to one configured backend.
 type Client interface {
-	// Chat runs a non-streaming chat completion.
+	// Chat runs a chat completion and returns the fully aggregated assistant turn.
+	// When the provider is configured with Stream=true (or req.Stream forces it),
+	// the transport may use SSE under the hood; callers still see one ChatResponse.
 	Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
 	// Kind returns the provider kind (e.g. "openai-compatible").
 	Kind() string
@@ -77,6 +88,10 @@ type Config struct {
 	APIKey string `json:"api_key"`
 	// Model default chat model id.
 	Model string `json:"model"`
+	// Stream requests SSE token streaming from the provider and aggregates the
+	// result before returning from Chat. Helps with gateway idle timeouts and
+	// future partial-progress UX; agent tool loops still wait for a full turn.
+	Stream bool `json:"stream,omitempty"`
 }
 
 // Settings keys in store.
@@ -85,6 +100,8 @@ const (
 	KeyBaseURL = "provider.base_url"
 	KeyAPIKey  = "provider.api_key"
 	KeyModel   = "provider.model"
+	// KeyStream is "true" / "false" (or empty = false) on the legacy single-slot mirror.
+	KeyStream = "provider.stream"
 )
 
 // Normalize fills defaults and trims.

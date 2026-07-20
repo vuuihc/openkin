@@ -153,6 +153,17 @@ export function IconImage(p: IconProps) {
 export function IconX(p: IconProps) {
   return base(p, <path d="M18 6 6 18M6 6l12 12" />);
 }
+export function IconTrash(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M3 6h18" />
+      <path d="M8 6V4h8v2" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+    </>,
+  );
+}
 export function IconKin(p: IconProps) {
   return base(
     { ...p, strokeWidth: p.strokeWidth ?? 1.6 },

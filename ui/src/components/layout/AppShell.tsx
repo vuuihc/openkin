@@ -6,6 +6,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  deleteTask,
   getToken,
   getUsageSummary,
   listTasks,
@@ -49,6 +50,7 @@ export default function AppShell({ children, pendingCount }: Props) {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const reconnectGen = useAppStore((s) => s.reconnectGen);
+  const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
 
   const openNewChat = useCallback(() => {
@@ -66,6 +68,27 @@ export default function AppShell({ children, pendingCount }: Props) {
       navigate(`${DRAFT_PATH}?cwd=${encodeURIComponent(cwd)}`);
     },
     [navigate],
+  );
+
+  const handleDeleteSession = useCallback(
+    async (task: Task) => {
+      const title = (task.title || task.prompt || task.id).trim();
+      const ok = window.confirm(
+        tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""),
+      );
+      if (!ok) return;
+      try {
+        await deleteTask(task.id);
+        setTasks((prev) => prev.filter((x) => x.id !== task.id));
+        pushToast(tr("task.deleted"), "info");
+        if (taskIdFromPath(location.pathname) === task.id) {
+          navigate("/");
+        }
+      } catch (e) {
+        pushToast(e instanceof Error ? e.message : tr("task.deleteFailed"), "error");
+      }
+    },
+    [location.pathname, navigate, pushToast, tr],
   );
 
   const loadTasks = useCallback(async () => {
@@ -107,6 +130,12 @@ export default function AppShell({ children, pendingCount }: Props) {
           const rest = prev.filter((x) => x.id !== t.id);
           return [t, ...rest].sort((a, b) => b.created_at - a.created_at);
         });
+        return;
+      }
+      if (msg.kind === "task_deleted") {
+        const data = msg.data as { id?: string };
+        if (!data?.id) return;
+        setTasks((prev) => prev.filter((x) => x.id !== data.id));
       }
     });
   }, []);
@@ -171,11 +200,12 @@ export default function AppShell({ children, pendingCount }: Props) {
         weekCost={weekCost}
         onNewChat={openNewChat}
         onNewSessionInProject={openNewSessionInProject}
+        onDeleteSession={(task) => void handleDeleteSession(task)}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
       />
 
-      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
         {wsStatus !== "connected" && (
           <div
             className="flex-none bg-[rgba(255,159,10,.12)] border-b border-[rgba(255,159,10,.25)] text-kin-orange text-[12px] text-center px-3 py-1.5"

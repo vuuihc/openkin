@@ -336,3 +336,66 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 		t.Fatalf("defaults=%d", defaults)
 	}
 }
+
+
+func TestDeleteTask(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	body := `{"prompt":"delete me","cwd":"/tmp","agent":"claude-code"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", bytes.NewBufferString(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status %d body %s", rr.Code, rr.Body.String())
+	}
+	var created store.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("create decode: %v body %s", err, rr.Body.String())
+	}
+	if created.ID == "" {
+		t.Fatal("empty task id")
+	}
+
+	// Wait for adapter to finish so Delete does not race the run loop.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+created.ID, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr = httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code == http.StatusOK {
+			_ = json.Unmarshal(rr.Body.Bytes(), &created)
+			if created.Status == "succeeded" || created.Status == "failed" || created.Status == "canceled" {
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/tasks/"+created.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete status %d body %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+created.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("get after delete: %d body %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/tasks/"+created.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("second delete: %d", rr.Code)
+	}
+}

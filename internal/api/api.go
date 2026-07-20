@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/workspace/list", s.handleListTaskWorkspace)
 		r.Get("/api/tasks/{id}/workspace/file", s.handleReadTaskWorkspaceFile)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
+		r.Delete("/api/tasks/{id}", s.handleDeleteTask)
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
 		r.Post("/api/tasks/{id}/fork", s.handleFork)
@@ -319,6 +320,20 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		evs = []store.Event{}
 	}
 	writeJSON(w, http.StatusOK, evs)
+}
+
+func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	err := s.Engine.Delete(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
@@ -538,6 +553,7 @@ type settingsResponse struct {
 	ProviderBaseURL  string `json:"provider.base_url"`
 	ProviderAPIKey   string `json:"provider.api_key"`
 	ProviderModel    string `json:"provider.model"`
+	ProviderStream   string `json:"provider.stream"`
 	ProviderActiveID string `json:"provider.active_id"`
 	AgentDefault     string `json:"agent.default"`
 	NetworkMode      string `json:"network_mode"`
@@ -556,6 +572,7 @@ var puttableSettings = map[string]bool{
 	"provider.base_url": true,
 	"provider.api_key":  true,
 	"provider.model":    true,
+	"provider.stream":   true,
 	"agent.default":     true,
 }
 
@@ -598,6 +615,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	provBase := get("provider.base_url")
 	provKey := get("provider.api_key")
 	provModel := get("provider.model")
+	provStream := get(provider.KeyStream)
+	if provStream == "" {
+		provStream = "false"
+	}
 	provActive := get(provider.KeyActiveProvider)
 	if reg, err := provider.LoadRegistry(ctx, s.Store); err == nil {
 		provActive = reg.ActiveID
@@ -606,6 +627,11 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 			provBase = active.BaseURL
 			provKey = active.APIKey
 			provModel = active.Model
+			if active.Stream {
+				provStream = "true"
+			} else {
+				provStream = "false"
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, settingsResponse{
@@ -618,6 +644,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		ProviderBaseURL:  provBase,
 		ProviderAPIKey:   maskSettingSecret(provKey),
 		ProviderModel:    provModel,
+		ProviderStream:   provStream,
 		ProviderActiveID: provActive,
 		AgentDefault:     get("agent.default"),
 		NetworkMode:      s.NetworkMode,

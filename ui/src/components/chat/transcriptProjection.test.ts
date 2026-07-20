@@ -167,7 +167,69 @@ describe("transcriptProjection", () => {
     ]);
   });
 
-  it("groups projected items into user and agent turns", () => {
+  it("coalesces multiple partial deltas into one streaming message", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          content: [{ type: "text", text: "hi" }],
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "Hel" }],
+          partial: true,
+        }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "lo" }],
+          partial: true,
+        }),
+        ev(4, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "Hello world" }],
+          partial: false,
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      { kind: "message", speaker: "user", text: "hi" },
+      { kind: "message", speaker: "kin", text: "Hello world" },
+    ]);
+    // No leftover partial item.
+    expect(items.filter((i) => i.kind === "message" && i.partial)).toHaveLength(0);
+  });
+
+  it("keeps a live partial while the task is still running", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "Hel" }],
+          partial: true,
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "kin",
+          content: [{ type: "text", text: "lo" }],
+          partial: true,
+        }),
+      ],
+      "kin",
+      undefined,
+      false,
+    );
+    expect(items).toMatchObject([
+      { kind: "message", speaker: "kin", text: "Hello", partial: true },
+    ]);
+  });
+
+    it("groups projected items into user and agent turns", () => {
     const items = buildChatItems(
       [
         ev(1, "message", { role: "user", text: "do it" }),
