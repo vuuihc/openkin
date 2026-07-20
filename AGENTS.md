@@ -14,6 +14,44 @@ These instructions apply to the entire repository. A more deeply nested
 - Preserve unrelated working-tree changes. Never reset, overwrite, or silently
   reformat work that is outside the assigned task.
 
+## Agent best practices
+
+Industry habits that keep agent-driven changes reviewable and recoverable:
+
+1. **Orient before editing.** Read nearby code, tests, types, and call sites.
+   Prefer searching the repo over inventing APIs, paths, or patterns.
+2. **Plan, then implement.** For multi-file or cross-layer work, state a short
+   plan (goal, files, risks, verification) before writing code. Adjust the plan
+   when reality diverges.
+3. **Smallest reversible step.** Ship one independently verifiable concern at a
+   time (API, storage, UI, docs stay consistent within that concern). Avoid
+   speculative abstractions and drive-by cleanups.
+4. **Tests as the contract.** Add or update tests with behavior changes.
+   Reproduce bugs with a failing test when practical; only then fix.
+5. **Verify, do not assume.** Run the narrowest relevant checks while iterating,
+   then the full applicable suite before handoff. Report any check that could
+   not run, with residual risk.
+6. **Commit when a unit of work is done.** After a feature, fix, or module is
+   complete and its checks pass, create an atomic Git commit immediately—do not
+   wait for a reminder. Do not commit known-failing work unless the user
+   explicitly requests a checkpoint.
+7. **Clear commit messages.** Use Conventional Commits that explain *why*, not
+   only *what* changed. Prefer:
+   - `feat(scope): …` / `fix(scope): …` / `refactor(scope): …` /
+     `test(scope): …` / `docs(scope): …` / `chore(scope): …`
+   - Subject ≤ ~72 chars, imperative mood (`add`, `fix`, `extract`).
+   - Body when non-obvious: motivation, user-visible effect, follow-ups, or
+     risks. One logical change per commit; split mixed concerns.
+8. **Self-review the diff.** Before committing or declaring done, re-read the
+   staged change: correctness, edge cases, secrets, unrelated noise, and
+   missing tests or i18n.
+9. **Leave the tree intentional.** Prefer a clean working tree at handoff. If
+   anything remains uncommitted, list it and why.
+10. **Escalate uncertainty.** Ask before destructive ops, public API breaks,
+    schema resets, dependency-wide upgrades, network publication, or anything
+    that affects external systems. If stuck after a few honest attempts, stop
+    and summarize what failed.
+
 ## Development workflow
 
 1. Inspect `git status`, nearby code, tests, and repository instructions before
@@ -27,8 +65,9 @@ These instructions apply to the entire repository. A more deeply nested
 5. Run the narrowest relevant checks while iterating, then the full applicable
    verification before completion.
 6. After a module is complete and its checks pass, automatically create an
-   atomic Git commit; do not wait for a separate reminder. Do not commit known
-   failing work unless the user explicitly requests a checkpoint.
+   atomic Git commit with a clear Conventional Commit message; do not wait for
+   a separate reminder. Do not commit known failing work unless the user
+   explicitly requests a checkpoint.
 
 ## Go conventions
 
@@ -58,19 +97,24 @@ These instructions apply to the entire repository. A more deeply nested
 
 - Schema changes require an ordered migration, upgrade coverage, and tests for
   both empty and populated databases.
-- Keep handlers thin: validate input and authorization at the HTTP boundary,
-  place durable behavior in the task/store layer, and return stable status
-  codes and JSON shapes.
-- Filesystem APIs must defend against traversal, symlink escapes, oversized
-  files, binary data where text is expected, and unintended secret exposure.
+- Preserve backward-compatible reads when practical; document intentional breaks
+  in the change and any ADR.
+- Keep HTTP handlers thin: parse and validate input, call domain logic, map
+  errors to stable status codes and response shapes.
+- Prefer additive API evolution. Version or explicitly document breaking
+  response and event contract changes.
 
 ## Verification
 
-Run checks appropriate to the changed area:
+Run the checks that match the blast radius of the change:
 
-```sh
-# Backend and shared behavior
+```bash
+# Go — package under edit
+go test ./internal/<package>/...
+
+# Go — broader backend / race when concurrency is involved
 go test ./...
+go test -race ./internal/<package>/...
 go vet ./...
 
 # Console
@@ -89,8 +133,13 @@ make test
 
 ## Git discipline
 
+- **Done means committed:** when a coherent unit of work is finished and
+  verified, commit it in the same session with a clear message.
 - Use atomic Conventional Commit messages such as `feat(api): ...`,
-  `fix(provider): ...`, `test(task): ...`, and `docs: ...`.
+  `fix(provider): ...`, `test(task): ...`, and `docs: ...`. Subject in
+  imperative mood; add a body for non-obvious motivation or tradeoffs.
+- One logical change per commit. Do not mix unrelated refactors with feature
+  work; do not squash away useful history just to look tidy.
 - Stage explicit paths or reviewed hunks. Never use a broad add when caches,
   credentials, logs, databases, or unrelated user files may be present.
 - Commit generated `web/dist/` only with the source change that produced it or
