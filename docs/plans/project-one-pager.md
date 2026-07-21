@@ -1,6 +1,7 @@
 # Project + One-Pager — 产品规范与实现计划
 
 **状态：** P0 implemented（对应 [ADR 0008](../adr/0008-project-one-pager.md)）；P1+ 未开工  
+**交互设计：** [Kin 在项目中的角色与教练循环](./project-agent-role-design.md)
 **读者：** 产品决策 + 后续实现者  
 **原则：** 随性开会话不被打断；结构在「收工 / 回顾」时长出来；用户拥有目标；Agent 只提议补丁。
 

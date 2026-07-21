@@ -80,7 +80,7 @@ Goal: read without leaving context; ask about *this* document.
 
 **Promise:** Optional project containers with a single living **One-Pager**—goals, current focus, conclusions, open questions, next steps, evidence links. Casual sessions stay free-form; structure grows on a cover page the user owns. Agent proposes patches; user accepts.
 
-**Docs:** [ADR 0008](./adr/0008-project-one-pager.md) · [plan](./plans/project-one-pager.md)
+**Docs:** [ADR 0008](./adr/0008-project-one-pager.md) · [plan](./plans/project-one-pager.md) · [Kin role / coaching loop](./plans/project-agent-role-design.md)
 
 **Not in this theme:** kanban / sprint boards, completion %, streak guilt, fixed “overview session” as source of truth, always-on CEO dashboard, multi-user PM, Memory/Wiki replacement.
 
@@ -125,6 +125,8 @@ Goal: open a project, see *your* goals/focus in one page, start a session withou
 ### P1 — Recycle + Catch-up
 
 Goal: keep the cover warm without turning work into status theater.
+
+Interaction contract: Kin remains one identity. The main agent works against North Star / Current Focus; mode-specific coaching stays low-frequency, and the session-end deputy-editor proposes only 0–3 evidence-backed patches. See [Kin role / coaching loop](./plans/project-agent-role-design.md).
 
 - [ ] **Session-end recycle card** (long sessions or manual 收工 only)
   - One-line session summary (editable)
