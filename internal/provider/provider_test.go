@@ -415,7 +415,7 @@ func TestOpenAICompatChatStreamToolCalls(t *testing.T) {
 							"id":    "call_1",
 							"type":  "function",
 							"function": map[string]any{
-								"name":      "ba",
+								"name":      "bash",
 								"arguments": "",
 							},
 						}},
@@ -429,7 +429,6 @@ func TestOpenAICompatChatStreamToolCalls(t *testing.T) {
 						"tool_calls": []map[string]any{{
 							"index": 0,
 							"function": map[string]any{
-								"name":      "sh",
 								"arguments": `{"cmd"`,
 							},
 						}},

@@ -73,6 +73,8 @@ func TestLooksLikeToolsUnsupported(t *testing.T) {
 		{"provider HTTP 400 (https://x/v1): invalid tools parameter", true},
 		{"provider error: function calling is not supported", true},
 		{"provider HTTP 400: unknown field \"tools\"", true},
+		// Tool arguments format errors — provider supports tools, args were malformed.
+		{`provider HTTP 400 (https://grok-proxy.example.com/v1/chat/completions): {"code":"invalid-argument","error":"Invalid tool arguments received, please pass back the unmodified tool arguments from the original model response: trailing characters at line 1 column 13"}`, false},
 		// Unrelated
 		{"invalid api key", false},
 		{"provider HTTP 401: unauthorized", false},

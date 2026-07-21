@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -420,6 +421,14 @@ func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (
 					if idx > maxToolIdx {
 						maxToolIdx = idx
 					}
+				} else if tc.ID != "" && acc.id != "" && tc.ID != acc.id {
+					// Same index, different id: proxy reused idx for a
+					// distinct tool call. Allocate a synthetic index so
+					// they don't collide.
+					maxToolIdx++
+					idx = maxToolIdx
+					acc = &tcAcc{}
+					toolByIdx[idx] = acc
 				}
 				if tc.ID != "" {
 					acc.id = tc.ID
@@ -428,11 +437,13 @@ func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (
 					acc.typ = tc.Type
 				}
 				if tc.Function.Name != "" {
-					acc.name += tc.Function.Name
+					acc.name = tc.Function.Name
 				}
 				if tc.Function.Arguments != "" {
 					acc.args.WriteString(tc.Function.Arguments)
 				}
+				log.Printf("openai_compat: tool_call delta idx=%d id=%q name=%q args=%q",
+					idx, tc.ID, tc.Function.Name, tc.Function.Arguments)
 			}
 		}
 	}
@@ -454,6 +465,11 @@ func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (
 			typ := acc.typ
 			if typ == "" {
 				typ = "function"
+			}
+			if acc.name == "" {
+				log.Printf("openai_compat: skipping tool_call idx=%d with empty name (id=%q args=%q)",
+					i, acc.id, acc.args.String())
+				continue
 			}
 			tc := ToolCall{ID: acc.id, Type: typ}
 			tc.Function.Name = acc.name

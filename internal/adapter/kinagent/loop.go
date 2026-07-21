@@ -301,6 +301,7 @@ func looksLikeToolsUnsupported(err error) bool {
 		"tls:", "x509:", "i/o timeout",
 		"failed after", "reconnecting", "gateway timeout",
 		"bad gateway", "service unavailable", "rate limited",
+		"tool argument", // "invalid tool arguments" is a format error, not "tools unsupported"
 	} {
 		if strings.Contains(s, k) {
 			return false
@@ -334,11 +335,15 @@ func looksLikeToolsUnsupported(err error) bool {
 		}
 	}
 	// 400 + tools/function wording + clear rejection.
+	// Exclude "tool arguments" format errors (e.g. "Invalid tool arguments received:
+	// trailing characters") — those mean the provider accepts tools but the
+	// arguments JSON was malformed, not that tools are unsupported.
 	if strings.Contains(s, "400") &&
 		(strings.Contains(s, "tools") || strings.Contains(s, "tool_choice") || strings.Contains(s, "function")) &&
 		(strings.Contains(s, "not support") || strings.Contains(s, "unsupported") ||
 			strings.Contains(s, "unknown") || strings.Contains(s, "unexpected") ||
-			strings.Contains(s, "invalid")) {
+			strings.Contains(s, "invalid")) &&
+		!strings.Contains(s, "tool argument") {
 		return true
 	}
 	return false
