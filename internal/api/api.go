@@ -118,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
 		r.Get("/api/tasks/{id}/workspace/list", s.handleListTaskWorkspace)
 		r.Get("/api/tasks/{id}/workspace/file", s.handleReadTaskWorkspaceFile)
+		r.Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
 		r.Delete("/api/tasks/{id}", s.handleDeleteTask)
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
@@ -381,6 +382,43 @@ func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleRestoreTaskWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		EventSeq int `json:"event_seq"`
+	}
+	if r.Body != nil {
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	t, err := s.Engine.RestoreWorkspace(r.Context(), id, body.EventSeq)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "task is not terminal"})
+		return
+	}
+	if errors.Is(err, workspace.ErrCheckpointUnavailable) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	if errors.Is(err, workspace.ErrNotIsolated) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, t)

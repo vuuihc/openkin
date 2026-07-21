@@ -24,6 +24,7 @@ import {
   listAgents,
   listApprovals,
   listEvents,
+  restoreTaskWorkspace,
   retryTask,
   type AgentInfo,
   type Approval,
@@ -78,6 +79,7 @@ export default function TaskDetailPage() {
   const [filesOpen, setFilesOpen] = useState(false);
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -382,6 +384,31 @@ export default function TaskDetailPage() {
     setFilesOpen(true);
   }
 
+  async function onKeepAllChanges() {
+    pushToast(tr("workspace.changed.keepAllDone"), "info");
+  }
+
+  async function onDiscardAllChanges() {
+    if (!task) return;
+    if (task.workspace_mode && task.workspace_mode !== "worktree") {
+      pushToast(tr("workspace.changed.discardUnavailable"), "error");
+      return;
+    }
+    setReviewBusy(true);
+    try {
+      await restoreTaskWorkspace(task.id, 0);
+      pushToast(tr("workspace.changed.discardAllDone"), "info");
+    } catch (err) {
+      pushToast(
+        err instanceof Error ? err.message : tr("workspace.changed.discardAllFailed"),
+        "error",
+      );
+      throw err;
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
 
   if (loading) {
     return (
@@ -523,6 +550,10 @@ export default function TaskDetailPage() {
           files={changedFiles}
           onOpenPath={onOpenWorkspacePath}
           onOpenPanel={openFilesPanel}
+          reviewActions={terminal}
+          onKeepAll={onKeepAllChanges}
+          onDiscardAll={onDiscardAllChanges}
+          actionsBusy={reviewBusy}
         />
 
         <div className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0">
@@ -628,6 +659,9 @@ export default function TaskDetailPage() {
               openNonce={workspaceOpenNonce}
               events={events}
               changedFiles={changedFiles}
+              reviewActions={terminal}
+              onDiscardAll={onDiscardAllChanges}
+              actionsBusy={reviewBusy}
               onClose={() => setFilesOpen(false)}
             />
           </div>

@@ -93,6 +93,10 @@ export type Task = {
   started_at?: number | null;
   finished_at?: number | null;
   project_id?: string | null;
+  /** Resolved isolation mode: shared | worktree */
+  workspace_mode?: string | null;
+  workspace_root?: string | null;
+  execution_cwd?: string | null;
 };
 
 export type TaskEvent = {
@@ -217,6 +221,21 @@ export function readTaskWorkspaceFile(
   const q = new URLSearchParams({ path });
   return apiFetch<TaskWorkspaceFileResponse>(
     `/api/tasks/${encodeURIComponent(taskId)}/workspace/file?${q.toString()}`,
+  );
+}
+
+/** Restore isolated task files to a checkpoint (event_seq 0 = initial). */
+export function restoreTaskWorkspace(
+  taskId: string,
+  eventSeq = 0,
+): Promise<Task> {
+  return apiFetch<Task>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspace/restore`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event_seq: eventSeq }),
+    },
   );
 }
 

@@ -816,6 +816,56 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 	return e.store.GetTask(ctx, id)
 }
 
+// RestoreWorkspace materializes a prior checkpoint into the isolated worktree without
+// truncating the transcript. eventSeq 0 (or negative) selects the earliest checkpoint;
+// a positive value selects the latest checkpoint at or before that sequence.
+// Requires a terminal, worktree-isolated task.
+func (e *Engine) RestoreWorkspace(ctx context.Context, taskID string, eventSeq int) (store.Task, error) {
+	t, err := e.store.GetTask(ctx, taskID)
+	if err != nil {
+		return store.Task{}, err
+	}
+	switch t.Status {
+	case StatusSucceeded, StatusFailed, StatusCanceled:
+		// allowed
+	default:
+		return store.Task{}, ErrConflict
+	}
+	if t.WorkspaceMode != string(workspace.ResolvedWorktree) {
+		return store.Task{}, workspace.ErrNotIsolated
+	}
+	if e.workspace == nil {
+		return store.Task{}, workspace.ErrCheckpointUnavailable
+	}
+
+	var cp store.TaskCheckpoint
+	if eventSeq <= 0 {
+		cp, err = e.store.GetInitialCheckpoint(ctx, taskID)
+	} else {
+		cp, err = e.store.GetCheckpointAtOrBefore(ctx, taskID, eventSeq)
+	}
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return store.Task{}, workspace.ErrCheckpointUnavailable
+		}
+		return store.Task{}, err
+	}
+
+	if err := e.workspace.Restore(ctx, workspaceMetadata(t), taskID, runtimeCheckpoint(cp)); err != nil {
+		return store.Task{}, err
+	}
+
+	// Audit-only meta event; do not change task status.
+	payload, _ := json.Marshal(map[string]any{
+		"event_seq": cp.EventSeq,
+	})
+	if ev, appendErr := e.store.AppendEvent(ctx, taskID, "workspace_restored", payload); appendErr == nil {
+		e.bus.PublishEvent(ev)
+	}
+
+	return e.store.GetTask(ctx, taskID)
+}
+
 // Fork creates a new task that shares the transcript prefix up to fromSeq, then optionally continues with prompt.
 func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Task, error) {
 	src, err := e.store.GetTask(ctx, id)

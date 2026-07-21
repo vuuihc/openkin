@@ -6,6 +6,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import type { FileDiffSnippet } from "../../lib/changedFiles";
+import { IconCheck, IconX } from "../icons";
 import OpenInMenu from "./OpenInMenu";
 import "./monacoSetup";
 
@@ -18,6 +19,11 @@ type Props = {
   diff?: FileDiffSnippet | null;
   /** Task workspace root — used to resolve absolute path for "Open in…". */
   cwd?: string;
+  /** Show keep/discard controls for the open file. */
+  reviewActions?: boolean;
+  onKeep?: () => void;
+  onDiscard?: () => void;
+  actionsBusy?: boolean;
 };
 
 const EDITOR_OPTIONS = {
@@ -51,6 +57,10 @@ export default function CodeViewer({
   error,
   diff,
   cwd,
+  reviewActions = false,
+  onKeep,
+  onDiscard,
+  actionsBusy = false,
 }: Props) {
   const t = useT();
 
@@ -93,6 +103,30 @@ export default function CodeViewer({
           )}
           {!file && loading && (
             <span className="tabular-nums">…</span>
+          )}
+          {reviewActions && path && (
+            <>
+              <button
+                type="button"
+                disabled={actionsBusy}
+                onClick={() => onDiscard?.()}
+                title={t("workspace.changed.discardHint")}
+                className="kin-btn-secondary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
+              >
+                <IconX size={12} />
+                {t("workspace.changed.discard")}
+              </button>
+              <button
+                type="button"
+                disabled={actionsBusy}
+                onClick={() => onKeep?.()}
+                title={t("workspace.changed.keepHint")}
+                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
+              >
+                <IconCheck size={12} />
+                {t("workspace.changed.keep")}
+              </button>
+            </>
           )}
           <OpenInMenu root={openRoot} relativePath={path} />
         </div>

@@ -1,35 +1,60 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { shortPath } from "../../lib/paths";
 import {
   summarizeChangedFiles,
   type ChangedFile,
 } from "../../lib/changedFiles";
 import { useT } from "../../i18n/react";
-import { IconFile, IconPanel } from "../icons";
+import { IconCheck, IconFile, IconX } from "../icons";
 
 type Props = {
   files: ChangedFile[];
   onOpenPath: (path: string) => void;
   onOpenPanel?: () => void;
-  /** Compact single-row chips under the task header. */
+  /**
+   * When true, show Keep / Discard bulk actions (isolated worktree + terminal task).
+   * Keep is a soft acknowledgment (clears the review card); Discard rewinds files.
+   */
+  reviewActions?: boolean;
+  onKeepAll?: () => void | Promise<void>;
+  onDiscardAll?: () => void | Promise<void>;
+  actionsBusy?: boolean;
   className?: string;
 };
 
 /**
- * Collapsed-by-default summary of files the agent touched.
- * Shows file count + best-effort +/- line stats; expand for per-file chips.
+ * Review card summarizing files the agent touched.
+ * Header: count + total +/- + bulk keep/discard.
+ * Body: per-file rows with deltas; click opens the workspace diff panel.
  */
 export default function ChangedFilesBar({
   files,
   onOpenPath,
   onOpenPanel,
+  reviewActions = false,
+  onKeepAll,
+  onDiscardAll,
+  actionsBusy = false,
   className,
 }: Props) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const detailsID = useId();
+  const [dismissed, setDismissed] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  // Hooks must run unconditionally — early return only after all hooks.
+  // Re-show the card when the agent touches a new set of files.
+  const filesKey = useMemo(
+    () =>
+      files
+        .map((f) => `${f.action}:${f.path}:${f.seq}`)
+        .sort()
+        .join("|"),
+    [files],
+  );
+  useEffect(() => {
+    setDismissed(false);
+    setConfirmDiscard(false);
+  }, [filesKey]);
+
   const mutated = useMemo(
     () => files.filter((f) => f.action !== "read"),
     [files],
@@ -40,138 +65,195 @@ export default function ChangedFilesBar({
   );
   const stats = useMemo(() => summarizeChangedFiles(focus), [focus]);
 
-  // Compact glance when collapsed: "+12 −3 · a.ts · b.go +2"
-  const glance = useMemo(() => {
-    if (files.length === 0) return "";
-    const parts: string[] = [];
-    if (stats.hasStats && (stats.additions > 0 || stats.deletions > 0)) {
-      parts.push(formatDelta(stats.additions, stats.deletions));
-    } else if (stats.hasStats) {
-      parts.push(t("workspace.changed.noLineDelta"));
-    }
-
-    // Top files by |delta|, fallback order as given.
-    const ranked = [...focus].sort((a, b) => {
+  const ordered = useMemo(() => {
+    return [...focus].sort((a, b) => {
       const da = (a.additions ?? 0) + (a.deletions ?? 0);
       const db = (b.additions ?? 0) + (b.deletions ?? 0);
       if (db !== da) return db - da;
-      return b.seq - a.seq;
+      return b.seq - a.seq || a.path.localeCompare(b.path);
     });
-    const shown = ranked.slice(0, 2).map((f) => {
-      const name = shortPath(f.path, 22);
-      const d =
-        f.additions != null || f.deletions != null
-          ? ` ${formatDelta(f.additions ?? 0, f.deletions ?? 0)}`
-          : "";
-      return `${name}${d}`;
-    });
-    if (shown.length) parts.push(shown.join(" · "));
-    if (ranked.length > 2) parts.push(`+${ranked.length - 2}`);
-    return parts.join(" · ");
-  }, [files.length, focus, stats, t]);
+  }, [focus]);
 
-  if (files.length === 0) return null;
+  if (files.length === 0 || dismissed) return null;
 
   const labelCount = focus.length;
   const titleKey =
-    mutated.length > 0 ? "workspace.changed.title" : "workspace.changed.viewedTitle";
+    mutated.length > 0
+      ? "workspace.changed.reviewTitle"
+      : "workspace.changed.viewedTitle";
+  const showBulk = reviewActions && mutated.length > 0;
+
+  const handleKeepAll = async () => {
+    try {
+      await onKeepAll?.();
+    } finally {
+      setDismissed(true);
+      setConfirmDiscard(false);
+    }
+  };
+
+  const handleDiscardAll = async () => {
+    if (!onDiscardAll) {
+      setDismissed(true);
+      return;
+    }
+    if (!confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    try {
+      await onDiscardAll();
+      setDismissed(true);
+    } finally {
+      setConfirmDiscard(false);
+    }
+  };
 
   return (
     <div
       className={[
-        "flex-none border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)]/80",
+        "flex-none border-b border-[var(--kin-hairline)]",
+        "bg-[var(--kin-elevated)]/60",
         className ?? "",
       ].join(" ")}
     >
-      <div className="px-4 sm:px-5 py-1.5 flex items-center gap-2 min-w-0">
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={detailsID}
-          onClick={() => setOpen((v) => !v)}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md px-0.5 py-0.5 hover:bg-black/[.03] dark:hover:bg-white/[.03] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
-        >
-          <span className="flex-none text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+      <div className="px-4 sm:px-5 py-2.5 flex items-center gap-2 min-w-0">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="flex-none text-[12px] font-semibold text-kin-text">
             {t(titleKey, { count: labelCount })}
           </span>
-          {!open && (
-            <span
-              className="flex-1 min-w-0 truncate text-[11.5px] font-mono text-kin-secondary"
-              title={focus
-                .map((f) => {
-                  const d =
-                    f.additions != null || f.deletions != null
-                      ? ` ${formatDelta(f.additions ?? 0, f.deletions ?? 0)}`
-                      : "";
-                  return `${f.path}${d}`;
-                })
-                .join("\n")}
-            >
-              {glance}
+          {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
+            <span className="flex-none text-[12px] font-mono tabular-nums">
+              <DeltaInline
+                additions={stats.additions}
+                deletions={stats.deletions}
+              />
             </span>
           )}
-          {open && (
-            <span className="flex-1 min-w-0 truncate text-[11.5px] font-mono text-kin-secondary">
-              {stats.hasStats
-                ? formatDelta(stats.additions, stats.deletions)
-                : null}
+          {stats.hasStats && stats.additions === 0 && stats.deletions === 0 && (
+            <span className="flex-none text-[11px] text-kin-muted">
+              {t("workspace.changed.noLineDelta")}
             </span>
           )}
-          <span className="flex-none text-[11px] text-kin-muted tabular-nums">
-            {open ? t("workspace.changed.collapse") : t("workspace.changed.expand")}
-          </span>
-        </button>
-        {onOpenPanel && (
+        </div>
+
+        {showBulk && (
+          <div className="flex-none flex items-center gap-1.5">
+            {confirmDiscard ? (
+              <>
+                <span className="hidden sm:inline text-[11px] text-kin-muted mr-0.5">
+                  {t("workspace.changed.discardConfirmShort")}
+                </span>
+                <button
+                  type="button"
+                  disabled={actionsBusy}
+                  onClick={() => void handleDiscardAll()}
+                  className="kin-btn-deny !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+                >
+                  {t("workspace.changed.discardConfirm")}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionsBusy}
+                  onClick={() => setConfirmDiscard(false)}
+                  className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+                >
+                  {t("workspace.changed.discardCancel")}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={actionsBusy}
+                  onClick={() => void handleDiscardAll()}
+                  title={t("workspace.changed.discardAllHint")}
+                  className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+                >
+                  <IconX size={12} className="opacity-80" />
+                  {t("workspace.changed.discardAll")}
+                </button>
+                <button
+                  type="button"
+                  disabled={actionsBusy}
+                  onClick={() => void handleKeepAll()}
+                  title={t("workspace.changed.keepAllHint")}
+                  className="kin-btn-primary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+                >
+                  <IconCheck size={12} />
+                  {t("workspace.changed.keepAll")}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {!showBulk && (
           <button
             type="button"
-            onClick={onOpenPanel}
-            className="flex-none inline-flex items-center gap-1 text-[11.5px] text-kin-blue hover:underline"
-            title={t("workspace.toggle")}
+            onClick={() => setDismissed(true)}
+            aria-label={t("workspace.changed.dismiss")}
+            className="flex-none p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
           >
-            <IconPanel size={12} />
-            <span className="hidden sm:inline">{t("workspace.title")}</span>
+            <IconX size={13} />
           </button>
         )}
       </div>
 
-      {open && (
-        <div id={detailsID} className="px-4 sm:px-5 pb-2 flex flex-wrap gap-1.5">
-          {files.map((f) => (
-            <button
-              key={`${f.action}:${f.path}`}
-              type="button"
-              onClick={() => onOpenPath(f.path)}
-              title={
-                f.additions != null || f.deletions != null
-                  ? `${f.path} (${formatDelta(f.additions ?? 0, f.deletions ?? 0)})`
-                  : f.path
-              }
-              className={[
-                "inline-flex items-center gap-1 max-w-full rounded-md border px-2 py-0.5",
-                "text-[11.5px] font-mono transition-colors",
-                chipClass(f.action),
-              ].join(" ")}
-            >
-              <IconFile size={11} className="flex-none opacity-80" />
-              <span className="truncate">{shortPath(f.path, 42)}</span>
-              <span className="flex-none text-[10px] uppercase opacity-70">
-                {actionLabel(f.action, t)}
-              </span>
-              {(f.additions != null || f.deletions != null) && (
-                <span className="flex-none text-[10px] tabular-nums opacity-90">
-                  <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
+      <ul className="px-2 sm:px-3 pb-2 space-y-0.5 max-h-[40vh] overflow-y-auto kin-scroll">
+        {ordered.map((f) => {
+          const hasDelta = f.additions != null || f.deletions != null;
+          return (
+            <li key={`${f.action}:${f.path}`}>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenPath(f.path);
+                  onOpenPanel?.();
+                }}
+                title={
+                  hasDelta
+                    ? `${f.path} (${formatDelta(f.additions ?? 0, f.deletions ?? 0)})`
+                    : f.path
+                }
+                className={[
+                  "w-full flex items-center gap-2 min-w-0 rounded-lg px-2.5 py-1.5",
+                  "text-left transition-colors",
+                  "hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "flex-none w-1.5 h-1.5 rounded-full",
+                    actionDot(f.action),
+                  ].join(" ")}
+                  aria-hidden
+                />
+                <IconFile size={13} className="flex-none opacity-70 text-kin-secondary" />
+                <span className="flex-1 min-w-0 truncate text-[12.5px] font-mono text-kin-text">
+                  {shortPath(f.path, 56)}
                 </span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+                <span className="flex-none text-[10px] uppercase tracking-wide text-kin-muted">
+                  {actionLabel(f.action, t)}
+                </span>
+                {hasDelta && (
+                  <span className="flex-none text-[11.5px] font-mono tabular-nums">
+                    <DeltaInline
+                      additions={f.additions ?? 0}
+                      deletions={f.deletions ?? 0}
+                    />
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
 
 function formatDelta(additions: number, deletions: number): string {
-  // Prefer compact: "+12 −3"; omit zero side only when the other is non-zero.
   if (additions === 0 && deletions === 0) return "+0 −0";
   if (additions > 0 && deletions === 0) return `+${additions}`;
   if (deletions > 0 && additions === 0) return `−${deletions}`;
@@ -191,30 +273,35 @@ function DeltaInline({
   return (
     <span>
       {additions > 0 && <span className="text-[#8de4a0]">+{additions}</span>}
-      {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
+      {additions > 0 && deletions > 0 && (
+        <span className="text-kin-muted"> </span>
+      )}
       {deletions > 0 && <span className="text-[#ffb4ad]">−{deletions}</span>}
     </span>
   );
 }
 
-function chipClass(action: ChangedFile["action"]): string {
+function actionDot(action: ChangedFile["action"]): string {
   switch (action) {
     case "write":
-      return "border-[rgba(50,215,75,.35)] bg-[rgba(50,215,75,.08)] text-[#8de4a0] hover:bg-[rgba(50,215,75,.14)]";
+      return "bg-[#8de4a0]";
     case "edit":
-      return "border-[rgba(10,132,255,.35)] bg-[rgba(10,132,255,.08)] text-[#7cbcff] hover:bg-[rgba(10,132,255,.14)]";
+      return "bg-[#7cbcff]";
     case "delete":
-      return "border-[rgba(255,69,58,.35)] bg-[rgba(255,69,58,.08)] text-[#ffb4ad] hover:bg-[rgba(255,69,58,.14)]";
+      return "bg-[#ffb4ad]";
     case "read":
-      return "border-[var(--kin-hairline-strong)] bg-black/[.03] dark:bg-white/[.04] text-kin-secondary hover:bg-black/[.05] dark:hover:bg-white/[.06]";
+      return "bg-kin-muted";
     default:
-      return "border-[var(--kin-hairline-strong)] bg-black/[.03] dark:bg-white/[.04] text-kin-secondary";
+      return "bg-kin-muted";
   }
 }
 
 function actionLabel(
   action: ChangedFile["action"],
-  t: (path: string, params?: Record<string, string | number | null | undefined>) => string,
+  t: (
+    path: string,
+    params?: Record<string, string | number | null | undefined>,
+  ) => string,
 ): string {
   switch (action) {
     case "write":

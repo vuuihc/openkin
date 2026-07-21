@@ -447,3 +447,165 @@ func firstUserSeq(t *testing.T, st *store.Store, taskID string) int {
 	t.Fatal("no user event")
 	return 0
 }
+
+func TestRestoreWorkspaceInitialCheckpoint(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "restore me", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	// Second turn so there are multiple checkpoints.
+	ad2 := &fakeAdapter{events: successEvents()}
+	e.putAdapter("claude-code", ad2)
+	if _, err := e.FollowUp(ctx, task.ID, "again"); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	cps, err := st.ListCheckpoints(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cps) < 1 {
+		t.Fatalf("checkpoints=%d", len(cps))
+	}
+	initial := cps[0]
+
+	rt.mu.Lock()
+	rt.restores = nil
+	rt.mu.Unlock()
+
+	if _, err := e.RestoreWorkspace(ctx, task.ID, 0); err != nil {
+		t.Fatal(err)
+	}
+	rt.mu.Lock()
+	restores := append([]restoreCall(nil), rt.restores...)
+	rt.mu.Unlock()
+	if len(restores) != 1 {
+		t.Fatalf("restores=%d", len(restores))
+	}
+	if restores[0].CP.EventSeq != initial.EventSeq {
+		t.Fatalf("restored seq=%d want %d", restores[0].CP.EventSeq, initial.EventSeq)
+	}
+
+	// Meta event published.
+	evs, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ev := range evs {
+		if ev.Type == "workspace_restored" {
+			found = true
+			var p map[string]any
+			_ = json.Unmarshal(ev.Payload, &p)
+			if int(p["event_seq"].(float64)) != initial.EventSeq {
+				t.Fatalf("event_seq payload=%v", p["event_seq"])
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing workspace_restored event")
+	}
+
+	// Status unchanged.
+	got, err := e.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusSucceeded {
+		t.Fatalf("status=%s", got.Status)
+	}
+}
+
+func TestRestoreWorkspaceRequiresTerminalAndIsolated(t *testing.T) {
+	ad := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		},
+		runFor: 10 * time.Second,
+	}
+	e, _ := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "running", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Non-terminal → conflict.
+	if _, err := e.RestoreWorkspace(ctx, task.ID, 0); !errors.Is(err, ErrConflict) {
+		t.Fatalf("want ErrConflict, got %v", err)
+	}
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 3*time.Second)
+
+	// Shared task → not isolated.
+	ad2 := &fakeAdapter{events: successEvents()}
+	e2, _ := testEngine(t, 4, ad2)
+	// No workspace runtime → prepareWorkspace falls back to shared.
+	shared, err := e2.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "shared", WorkspaceMode: workspace.ModeShared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e2, shared.ID, StatusSucceeded, 3*time.Second)
+	if shared.WorkspaceMode != string(workspace.ResolvedShared) {
+		t.Fatalf("workspace mode=%q", shared.WorkspaceMode)
+	}
+	if _, err := e2.RestoreWorkspace(ctx, shared.ID, 0); !errors.Is(err, workspace.ErrNotIsolated) {
+		t.Fatalf("want ErrNotIsolated, got %v", err)
+	}
+}
+
+func TestRestoreWorkspaceFailureDoesNotAppendEvent(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{failRestore: workspace.ErrCheckpointUnavailable}
+	e.SetWorkspaceRuntime(rt)
+	ctx := context.Background()
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "restore fail", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	// Clear fail so capture succeeded; force restore fail.
+	rt.failRestore = errors.New("git boom")
+	before, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.RestoreWorkspace(ctx, task.ID, 0); err == nil {
+		t.Fatal("expected restore error")
+	}
+	after, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("events grew on failed restore: %d -> %d", len(before), len(after))
+	}
+	got, _ := e.Get(ctx, task.ID)
+	if got.Status != StatusSucceeded {
+		t.Fatalf("status changed to %s", got.Status)
+	}
+}

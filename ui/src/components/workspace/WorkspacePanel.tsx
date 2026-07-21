@@ -39,6 +39,10 @@ type Props = {
    * Optional precomputed changed-file list. When omitted, derived from events.
    */
   changedFiles?: ChangedFile[];
+  /** Isolated terminal task: enable keep/discard review actions. */
+  reviewActions?: boolean;
+  onDiscardAll?: () => void | Promise<void>;
+  actionsBusy?: boolean;
 };
 
 type SidebarTab = "changes" | "files";
@@ -88,6 +92,9 @@ export default function WorkspacePanel({
   onClose,
   events,
   changedFiles: changedFilesProp,
+  reviewActions = false,
+  onDiscardAll,
+  actionsBusy = false,
 }: Props) {
   useT();
   const tr = useT();
@@ -95,6 +102,7 @@ export default function WorkspacePanel({
   const [file, setFile] = useState<TaskWorkspaceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dismissedPaths, setDismissedPaths] = useState<Set<string>>(() => new Set());
   const requestRef = useRef(0);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
@@ -130,7 +138,23 @@ export default function WorkspacePanel({
     return extractChangedFiles(events);
   }, [changedFilesProp, events]);
 
-  const hasChanges = changedFiles.length > 0;
+  const visibleChangedFiles = useMemo(
+    () => changedFiles.filter((f) => !dismissedPaths.has(f.path)),
+    [changedFiles, dismissedPaths],
+  );
+  const hasChanges = visibleChangedFiles.length > 0;
+
+  const changedFilesKey = useMemo(
+    () =>
+      changedFiles
+        .map((f) => `${f.action}:${f.path}:${f.seq}`)
+        .sort()
+        .join("|"),
+    [changedFiles],
+  );
+  useEffect(() => {
+    setDismissedPaths(new Set());
+  }, [changedFilesKey]);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>(
     hasChanges ? "changes" : "files",
   );
@@ -230,6 +254,17 @@ export default function WorkspacePanel({
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
           </div>
         </div>
+        {reviewActions && onDiscardAll && (
+          <button
+            type="button"
+            disabled={actionsBusy || !hasChanges}
+            onClick={() => void onDiscardAll()}
+            title={tr("workspace.changed.discardAllHint")}
+            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+          >
+            {tr("workspace.changed.discardAll")}
+          </button>
+        )}
         {onClose && (
           <button
             type="button"
@@ -263,7 +298,7 @@ export default function WorkspacePanel({
               onClick={() => pickTab("changes")}
               label={
                 hasChanges
-                  ? tr("workspace.tabChangesCount", { count: changedFiles.length })
+                  ? tr("workspace.tabChangesCount", { count: visibleChangedFiles.length })
                   : tr("workspace.tabChanges")
               }
             />
@@ -276,7 +311,7 @@ export default function WorkspacePanel({
           <div className="flex-1 min-h-0">
             {sidebarTab === "changes" ? (
               <ChangedFilesList
-                files={changedFiles}
+                files={visibleChangedFiles}
                 selectedPath={selectedPath}
                 onSelect={(path) => void loadFile(path)}
               />
@@ -360,6 +395,24 @@ export default function WorkspacePanel({
             error={error}
             diff={enrichedDiff}
             cwd={cwd}
+            reviewActions={reviewActions && Boolean(selectedPath)}
+            actionsBusy={actionsBusy}
+            onKeep={() => {
+              if (!selectedPath) return;
+              setDismissedPaths((prev) => {
+                const next = new Set(prev);
+                next.add(selectedPath);
+                return next;
+              });
+            }}
+            onDiscard={() => {
+              if (!selectedPath) return;
+              setDismissedPaths((prev) => {
+                const next = new Set(prev);
+                next.add(selectedPath);
+                return next;
+              });
+            }}
           />
         </div>
       </div>
