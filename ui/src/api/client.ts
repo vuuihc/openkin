@@ -92,6 +92,7 @@ export type Task = {
   created_at: number;
   started_at?: number | null;
   finished_at?: number | null;
+  project_id?: string | null;
 };
 
 export type TaskEvent = {
@@ -124,6 +125,8 @@ export type CreateTaskBody = {
   title?: string;
   /** Session permission mode applied to every agent (default | accept_edits | yolo). */
   permission_mode?: string;
+  /** Optional project association (ADR 0008). */
+  project_id?: string;
 };
 
 export type AgentModelOption = {
@@ -378,6 +381,146 @@ export function deriveArtifactTitle(content: string, fallback: string): string {
   if (line) return line.replace(/^#+\s*/, "").slice(0, 120);
   return fallback || "Untitled";
 }
+
+
+export type ProjectMode = "ship" | "learn" | "explore" | "maintain";
+
+export type Project = {
+  id: string;
+  name: string;
+  mode: ProjectMode | string;
+  status: string;
+  soft_progress?: string;
+  created_at: number;
+  updated_at: number;
+  last_active_at: number;
+  roots?: string[];
+  one_pager_path?: string;
+};
+
+export type OnePager = {
+  project_id: string;
+  markdown: string;
+  updated_at: number;
+};
+
+export function listProjects(status: string = "active"): Promise<Project[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiFetch<Project[]>(`/api/projects${q}`);
+}
+
+export function getProject(id: string): Promise<Project> {
+  return apiFetch<Project>(`/api/projects/${encodeURIComponent(id)}`);
+}
+
+export function ensureProject(body: {
+  path: string;
+  name?: string;
+  mode?: ProjectMode | string;
+}): Promise<Project> {
+  return apiFetch<Project>("/api/projects/ensure", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function createProject(body: {
+  name?: string;
+  mode?: ProjectMode | string;
+  roots?: string[];
+}): Promise<Project> {
+  return apiFetch<Project>("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchProject(
+  id: string,
+  body: {
+    name?: string;
+    mode?: ProjectMode | string;
+    status?: string;
+    soft_progress?: string;
+    roots?: string[];
+  },
+): Promise<Project> {
+  return apiFetch<Project>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function getOnePager(id: string): Promise<OnePager> {
+  return apiFetch<OnePager>(
+    `/api/projects/${encodeURIComponent(id)}/one-pager`,
+  );
+}
+
+export function putOnePager(
+  id: string,
+  markdown: string,
+  updatedAt?: number,
+): Promise<OnePager> {
+  return apiFetch<OnePager>(
+    `/api/projects/${encodeURIComponent(id)}/one-pager`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        markdown,
+        updated_at: updatedAt,
+      }),
+    },
+  );
+}
+
+export function listProjectTasks(id: string, limit = 50): Promise<Task[]> {
+  return apiFetch<Task[]>(
+    `/api/projects/${encodeURIComponent(id)}/tasks?limit=${limit}`,
+  );
+}
+
+export function listProjectArtifacts(
+  id: string,
+  limit = 30,
+): Promise<Artifact[]> {
+  return apiFetch<Artifact[]>(
+    `/api/projects/${encodeURIComponent(id)}/artifacts?limit=${limit}`,
+  );
+}
+
+export function findProjectByRoot(path: string): Promise<Project> {
+  return apiFetch<Project>(
+    `/api/projects/by-root?path=${encodeURIComponent(path)}`,
+  );
+}
+
+export function continueProject(
+  id: string,
+  body: {
+    prompt?: string;
+    agent?: string;
+    model?: string;
+    title?: string;
+    permission_mode?: string;
+    workspace_mode?: string;
+    cwd?: string;
+  } = {},
+): Promise<Task> {
+  return apiFetch<Task>(
+    `/api/projects/${encodeURIComponent(id)}/continue`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 
 export function decideApproval(
   id: string,

@@ -108,3 +108,55 @@ func TestArtifactListEmpty(t *testing.T) {
 		t.Fatalf("len=%d", len(list))
 	}
 }
+
+func TestListArtifactsByProject(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	now := NowMilli()
+
+	if err := s.InsertProject(ctx, Project{
+		ID: "proj-a", Name: "A", Mode: ProjectModeShip, Status: ProjectActive,
+		OnePagerRel: "proj-a/ONE_PAGER.md", CreatedAt: now, UpdatedAt: now, LastActiveAt: now,
+	}, []string{"/tmp/a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertTask(ctx, Task{
+		ID: "task-a", Title: "TA", Agent: "test", Cwd: "/tmp/a", Prompt: "x",
+		Status: "done", CreatedAt: now, ProjectID: "proj-a",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertTask(ctx, Task{
+		ID: "task-b", Title: "TB", Agent: "test", Cwd: "/tmp/b", Prompt: "y",
+		Status: "done", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srcA, srcB := "task-a", "task-b"
+	if err := s.InsertArtifact(ctx, Artifact{
+		ID: "art-a", Title: "from A", Kind: ArtifactKindMarkdown,
+		RelPath: "a.md", Size: 1, Status: ArtifactSaved,
+		SourceTaskID: &srcA, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertArtifact(ctx, Artifact{
+		ID: "art-b", Title: "from B", Kind: ArtifactKindMarkdown,
+		RelPath: "b.md", Size: 1, Status: ArtifactSaved,
+		SourceTaskID: &srcB, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := s.ListArtifacts(ctx, ListArtifactsOpts{ProjectID: "proj-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != "art-a" {
+		t.Fatalf("want only art-a, got %+v", list)
+	}
+}

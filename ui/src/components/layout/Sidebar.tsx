@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { formatCost, isTerminal, type Task } from "../../api/client";
+import { ensureProject, formatCost, isTerminal, type Task } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { getDraftCwd, getDraftPrompt, subscribeDraft } from "../../lib/draftChat";
 import {
@@ -24,13 +24,13 @@ import {
 } from "../../lib/sessionViewed";
 import {
   IconArchive,
+  IconFile,
   IconArtifacts,
   IconInbox,
   IconPin,
   IconPlus,
   IconSettings,
   IconSort,
-  IconTasks,
   IconTrash,
   IconUsage,
 } from "../icons";
@@ -273,6 +273,7 @@ export default function Sidebar({
               onTogglePin={() => toggleProjectPinned(g.cwd)}
               onArchive={() => onArchive(g)}
               pinLabel={g.pinned ? tr("nav.unpinProject") : tr("nav.pinProject")}
+              coverLabel={tr("nav.openCover")}
               archiveLabel={tr("nav.archiveProject")}
               newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
               onDeleteSession={onDeleteSession}
@@ -347,6 +348,7 @@ export default function Sidebar({
                       onTogglePin={() => toggleProjectPinned(g.cwd)}
                       onArchive={() => unarchiveProject(g.cwd)}
                       pinLabel={tr("nav.pinProject")}
+                      coverLabel={tr("nav.openCover")}
                       archiveLabel={tr("nav.unarchiveProject")}
                       newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
                       onDeleteSession={onDeleteSession}
@@ -361,18 +363,7 @@ export default function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-kin-border px-2 py-2 space-y-0.5">
-        <NavLink
-          to="/tasks"
-          onClick={onCloseMobile}
-          className={({ isActive }) =>
-            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
-          }
-        >
-          <IconTasks size={15} />
-          {tr("nav.tasks")}
-        </NavLink>
-        <NavLink
+      <div className="border-t border-kin-border px-2 py-2 space-y-0.5">        <NavLink
           to="/artifacts"
           onClick={onCloseMobile}
           className={({ isActive }) =>
@@ -381,8 +372,7 @@ export default function Sidebar({
         >
           <IconArtifacts size={15} />
           {tr("nav.artifacts")}
-        </NavLink>
-        <NavLink
+        </NavLink>        <NavLink
           to="/usage"
           onClick={onCloseMobile}
           className={({ isActive }) =>
@@ -446,6 +436,7 @@ function ProjectBlock({
   onArchive,
   pinLabel,
   archiveLabel,
+  coverLabel,
   newSessionLabel,
   deleteLabel,
   mode,
@@ -463,10 +454,21 @@ function ProjectBlock({
   onArchive: () => void;
   pinLabel: string;
   archiveLabel: string;
+  coverLabel: string;
   newSessionLabel: string;
   deleteLabel: string;
   mode: "active" | "archived";
 }) {
+  const navigate = useNavigate();
+  const openCover = async () => {
+    try {
+      const p = await ensureProject({ path: g.cwd, name: g.label });
+      onCloseMobile();
+      navigate(`/projects/${p.id}`);
+    } catch {
+      // cover is optional; ignore ensure failures
+    }
+  };
   return (
     <div className={mode === "archived" ? "opacity-80" : undefined}>
       <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5">
@@ -476,6 +478,18 @@ function ProjectBlock({
         <span className="truncate flex-1 min-w-0" title={g.cwd}>
           {g.label}
         </span>
+        <button
+          type="button"
+          title={coverLabel}
+          aria-label={coverLabel}
+          onClick={(e) => {
+            e.stopPropagation();
+            void openCover();
+          }}
+          className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 transition-opacity"
+        >
+          <IconFile size={12} />
+        </button>
         {mode === "active" && (
           <button
             type="button"

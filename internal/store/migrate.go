@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 6
+const schemaVersion = 7
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -31,7 +31,8 @@ CREATE TABLE tasks (
   execution_cwd TEXT NOT NULL DEFAULT '',
   workspace_scope TEXT NOT NULL DEFAULT '.',
   workspace_base_oid TEXT NOT NULL DEFAULT '',
-  workspace_branch TEXT NOT NULL DEFAULT ''
+  workspace_branch TEXT NOT NULL DEFAULT '',
+  project_id TEXT
 );
 
 CREATE TABLE events (
@@ -111,6 +112,28 @@ CREATE TABLE task_checkpoints (
   PRIMARY KEY (task_id, event_seq)
 );
 CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id, event_seq);
+
+CREATE TABLE projects (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  mode            TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'active',
+  one_pager_rel   TEXT NOT NULL,
+  soft_progress   TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  last_active_at  INTEGER NOT NULL
+);
+CREATE INDEX idx_projects_status_active ON projects(status, last_active_at DESC);
+
+CREATE TABLE project_roots (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  path       TEXT NOT NULL,
+  PRIMARY KEY (project_id, path)
+);
+CREATE INDEX idx_project_roots_path ON project_roots(path);
+
+CREATE INDEX idx_tasks_project ON tasks(project_id, id DESC);
 `
 
 const migration002 = `
@@ -188,6 +211,28 @@ CREATE TABLE task_checkpoints (
   PRIMARY KEY (task_id, event_seq)
 );
 CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id, event_seq);
+`
+
+const migration007 = `
+CREATE TABLE IF NOT EXISTS projects (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  mode            TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'active',
+  one_pager_rel   TEXT NOT NULL,
+  soft_progress   TEXT,
+  created_at      INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  last_active_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_projects_status_active ON projects(status, last_active_at DESC);
+
+CREATE TABLE IF NOT EXISTS project_roots (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  path       TEXT NOT NULL,
+  PRIMARY KEY (project_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_project_roots_path ON project_roots(path);
 `
 
 func (s *Store) migrate() error {
@@ -304,6 +349,42 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 006: %w", err)
+		}
+		v = 6
+	}
+
+	if v == 6 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 007: %w", err)
+		}
+		if _, err := tx.Exec(migration007); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration 007: %w", err)
+		}
+		// project_id may already exist on fresh DBs that were downgraded in tests.
+		var n int
+		err = tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'project_id'`).Scan(&n)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check project_id column: %w", err)
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN project_id TEXT REFERENCES projects(id)`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add project_id column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id, id DESC)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("create idx_tasks_project: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 7`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 007: %w", err)
 		}
 	}
 	return nil

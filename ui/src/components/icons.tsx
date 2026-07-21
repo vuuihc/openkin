@@ -65,6 +65,15 @@ export function IconArtifacts(p: IconProps) {
     </>,
   );
 }
+export function IconProjects(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M3 7h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+      <path d="M3 7V5a2 2 0 0 1 2-2h4l2 2" />
+    </>,
+  );
+}
 export function IconUsage(p: IconProps) {
   return base(
     p,

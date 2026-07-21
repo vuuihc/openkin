@@ -62,6 +62,8 @@ type Server struct {
 	UploadsDir string
 	// ArtifactsDir is where artifact file bodies are stored. Empty disables artifacts.
 	ArtifactsDir string
+	// ProjectsDir is where project One-Pagers live (ADR 0008). Empty disables projects.
+	ProjectsDir string
 
 	// Workspace runs Git probe/branch operations for the UI (optional in tests).
 	Workspace *workspace.Manager
@@ -144,6 +146,17 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/artifacts/{id}", s.handleGetArtifact)
 		r.Get("/api/artifacts/{id}/content", s.handleGetArtifactContent)
 		r.Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
+		r.Get("/api/projects", s.handleListProjects)
+		r.Post("/api/projects", s.handleCreateProject)
+		r.Post("/api/projects/ensure", s.handleEnsureProject)
+		r.Get("/api/projects/by-root", s.handleFindProjectByRoot)
+		r.Get("/api/projects/{id}", s.handleGetProject)
+		r.Patch("/api/projects/{id}", s.handlePatchProject)
+		r.Get("/api/projects/{id}/one-pager", s.handleGetOnePager)
+		r.Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
+		r.Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
+		r.Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
+		r.Post("/api/projects/{id}/continue", s.handleContinueProject)
 		r.Get("/api/ws", s.handleWS)
 	})
 

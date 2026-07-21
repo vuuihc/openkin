@@ -1,7 +1,7 @@
 # Kin TODO
 
 **Status:** living backlog (not a calendar)
-**Related:** [SYSTEM_DESIGN.md](../SYSTEM_DESIGN.md) · [PRINCIPLE.md](../PRINCIPLE.md) · [ADR 0003](./adr/0003-artifacts-and-reader.md)
+**Related:** [SYSTEM_DESIGN.md](../SYSTEM_DESIGN.md) · [PRINCIPLE.md](../PRINCIPLE.md) · [ADR 0003](./adr/0003-artifacts-and-reader.md) · [ADR 0008](./adr/0008-project-one-pager.md)
 
 This file tracks **near-term product work after the MVP agent console**. MVP milestones M0–M4 remain in [MVP_TECH_SPEC.md](./MVP_TECH_SPEC.md).
 
@@ -76,9 +76,99 @@ Goal: read without leaving context; ask about *this* document.
 
 ---
 
+## Theme: Projects + One-Pager (项目封面)
+
+**Promise:** Optional project containers with a single living **One-Pager**—goals, current focus, conclusions, open questions, next steps, evidence links. Casual sessions stay free-form; structure grows on a cover page the user owns. Agent proposes patches; user accepts.
+
+**Docs:** [ADR 0008](./adr/0008-project-one-pager.md) · [plan](./plans/project-one-pager.md)
+
+**Not in this theme:** kanban / sprint boards, completion %, streak guilt, fixed “overview session” as source of truth, always-on CEO dashboard, multi-user PM, Memory/Wiki replacement.
+
+**Ordering principle:** Project P0 (cover + continue) can ship in parallel with Artifacts P1. Project P1 (recycle / catch-up) is the habit loop. Project companion should reuse Artifacts companion patterns when both exist.
+
+---
+
+### P0 — Project + One-Pager + Continue Focus
+
+Goal: open a project, see *your* goals/focus in one page, start a session without re-explaining.
+
+- [x] **Project model + local store**
+  - Table `projects` (+ `project_roots`); files under e.g. `~/.kin/projects/<id>/ONE_PAGER.md`
+  - Fields: `id`, `name`, `mode` (`ship` | `learn` | `explore` | `maintain`), `status`, `one_pager_rel`, optional `soft_progress`, timestamps
+  - `tasks.project_id` nullable FK; no forced project on every task
+  - Exportable; no Kin account
+- [x] **One-Pager as file truth**
+  - Stable skeleton: What / North Star / Current Focus / Conclusions / Open questions / Next (≤3) / Evidence
+  - Mode templates (P0 at least **ship** + **learn**; explore/maintain strings ok)
+  - Soft progress language only (`fog` → `can_explain` → `can_build` → `can_ship` → `can_teach`) — **no % bar**
+  - Direct UI edit + optimistic concurrency on save
+- [x] **Create / list / home UI**
+  - Nav: Projects
+  - Create from cwd / name + mode; optional suggest when cwd matches a root
+  - Project Home: One-Pager + recent tasks + related artifacts + primary CTA **继续当前焦点**
+- [x] **Continue Focus**
+  - Creates task with short inject block (North Star, Focus, ≤3 next, brief digest)—not full history dump
+  - Kin host: pinned/system short block; external CLIs: best-effort description / first message prefix
+- [x] **Zero regression without projects**
+  - Users who never create a project keep today’s Tasks-only path
+
+**P0 acceptance**
+
+- [x] From a repo cwd, create project → template One-Pager on disk → edit survives daemon restart
+- [x] Associate tasks; project home lists them
+- [x] Continue Focus opens a new task whose initial context includes Focus + North Star
+- [x] No kanban columns, no completion percentage UI
+- [x] Phone via existing remote ladder can open Project Home / read One-Pager
+
+---
+
+### P1 — Recycle + Catch-up
+
+Goal: keep the cover warm without turning work into status theater.
+
+- [ ] **Session-end recycle card** (long sessions or manual 收工 only)
+  - One-line session summary (editable)
+  - Propose 0–3 One-Pager patches (conclusions / open / next)
+  - Optional Focus update suggestion
+  - UX: `[采纳] [编辑后采纳] [忽略]` — never silent overwrite of North Star
+- [ ] **Catch-up**
+  - From last N project sessions → patch diff against current One-Pager → user confirm
+- [ ] **Overview refresh** (explicit, rare): full-page draft with preview/discard
+- [ ] **Stale hint** (e.g. 14 days): “可能过期了” + Catch-up; no red guilt UX
+- [ ] **Diff view** before accept
+
+**P1 acceptance**
+
+- [ ] After a substantial session, user can write 0–3 lines back to the cover in ~20 seconds
+- [ ] Catch-up never silently replaces the file
+- [ ] User edits to North Star / Next stick unless a new suggestion is accepted
+
+---
+
+### P2 — Companion, handoff, on-demand map
+
+- [ ] One-Pager companion thread (reuse Artifacts P1 thread model)
+- [ ] Tighter Focus inject aligned with ADR 0002 packing budgets
+- [ ] On-demand **module map** as a normal Artifact (not system truth / not % complete)
+- [ ] Handoff pack: One-Pager + Focus + recent digests for cross-agent continue
+- [ ] Polish explore / maintain templates
+
+---
+
+### Later (not scheduled)
+
+- Auto-scan all disks for repos to “become projects”
+- Multi-root monorepo UX beyond simple `project_roots`
+- Wiki/Memory extract from One-Pagers (v2 Remember track)
+- Optional weak kanban *view* (only if real pain remains—not default IA)
+
+---
+
 ## Theme: Wiki / governed memory (pointer)
 
-Semantic memory / LLM wiki remains the **v2 Remember** track. Prefer: Artifacts P0/P1 → then sparse Wiki extraction. Do not dual-build a second notes product in parallel without a written ADR.
+Semantic memory / LLM wiki remains the **v2 Remember** track. Prefer: Artifacts P0/P1 → Project One-Pagers as active covers → then sparse Wiki extraction. Do not dual-build a second notes product in parallel without a written ADR.
+
+One-Pagers and Artifacts are **upstream shelves** for later memory—not memory themselves.
 
 ---
 
@@ -87,3 +177,7 @@ Semantic memory / LLM wiki remains the **v2 Remember** track. Prefer: Artifacts 
 | Date | Change |
 |------|--------|
 | 2026-07-17 | Added Artifacts P0/P1 from study-material / multi-device reading pain |
+| 2026-03-22 | Added Projects + One-Pager theme (ADR 0008 + plan); explicit non-goals: kanban / % / overview-session-as-SoT |
+| 2026-03-22 | Projects P0 implemented: store/API/UI, Continue Focus, One-Pager edit |
+| 2026-03-22 | IA: sidebar cwd group *is* the project; cover via hover icon; remove Tasks/Projects footer tabs |
+| 2026-03-22 | Project home lists related artifacts via source-task project_id |

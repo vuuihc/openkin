@@ -43,6 +43,7 @@ type CreateRequest struct {
 	Title          *string                 `json:"title,omitempty"`
 	PermissionMode string                  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
 	WorkspaceMode  workspace.RequestedMode `json:"workspace_mode,omitempty"`  // auto | shared | worktree
+	ProjectID      string                  `json:"project_id,omitempty"`      // optional project link (ADR 0008)
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -380,6 +381,12 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	perm := adapter.NormalizePermissionMode(req.PermissionMode)
 
 	now := e.nowMilli()
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID == "" {
+		if resolved, err := e.store.ResolveProjectIDForCwd(ctx, req.Cwd); err == nil && resolved != "" {
+			projectID = resolved
+		}
+	}
 	t := store.Task{
 		ID:             id,
 		Title:          title,
@@ -390,6 +397,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		PermissionMode: perm,
 		Status:         StatusQueued,
 		CreatedAt:      now,
+		ProjectID:      projectID,
 	}
 
 	meta, err := e.prepareWorkspace(ctx, id, req.Cwd, req.WorkspaceMode)
@@ -401,6 +409,9 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	if err := e.store.InsertTask(ctx, t); err != nil {
 		e.cleanupPreparedWorkspace(id, meta)
 		return store.Task{}, err
+	}
+	if t.ProjectID != "" {
+		_ = e.store.TouchProjectActivity(ctx, t.ProjectID)
 	}
 	e.bus.PublishTask(t)
 

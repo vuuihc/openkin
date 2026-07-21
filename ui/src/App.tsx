@@ -12,6 +12,8 @@ import ToastHost from "./components/ToastHost";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import ArtifactDetailPage from "./pages/ArtifactDetailPage";
 import ArtifactsPage from "./pages/ArtifactsPage";
+import ProjectsPage from "./pages/ProjectsPage";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
 import SettingsPage from "./pages/SettingsPage";
 import TaskDetailPage from "./pages/TaskDetailPage";
@@ -113,6 +115,8 @@ export default function App() {
             <Route path="/tasks/:id" element={<TaskDetailPage />} />
             <Route path="/artifacts" element={<ArtifactsPage />} />
             <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/usage" element={<UsagePage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/new" replace />} />

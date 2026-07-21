@@ -87,6 +87,9 @@ type Task struct {
 	WorkspaceScope      string `json:"workspace_scope,omitempty"`
 	WorkspaceBaseOID    string `json:"workspace_base_oid,omitempty"`
 	WorkspaceBranch     string `json:"workspace_branch,omitempty"`
+
+	// Optional project association (ADR 0008). Empty = not linked.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // EffectiveCwd returns the path adapters and workspace file APIs should use.
@@ -208,9 +211,10 @@ func validUsageEnum(value string, values ...string) bool {
 
 // ListTasksOpts filters for ListTasks.
 type ListTasksOpts struct {
-	Status string // empty = all
-	Limit  int    // 0 = default 50
-	Before string // ULID cursor: only tasks with id < before
+	Status    string // empty = all
+	Limit     int    // 0 = default 50
+	Before    string // ULID cursor: only tasks with id < before
+	ProjectID string // empty = all; filter by project
 }
 
 func scanTask(scanner interface {
@@ -224,13 +228,14 @@ func scanTask(scanner interface {
 	var permissionMode sql.NullString
 	var workspaceMode, sourceRoot, workspaceRoot, executionCwd sql.NullString
 	var workspaceScope, baseOID, branch sql.NullString
+	var projectID sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
 		&model, &sessionRef, &permissionMode, &t.Status,
 		&exitCode, &t.TokensIn, &t.TokensOut, &costUSD,
 		&t.CreatedAt, &startedAt, &finishedAt,
 		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
-		&workspaceScope, &baseOID, &branch,
+		&workspaceScope, &baseOID, &branch, &projectID,
 	); err != nil {
 		return Task{}, err
 	}
@@ -264,6 +269,9 @@ func scanTask(scanner interface {
 	if branch.Valid {
 		t.WorkspaceBranch = branch.String
 	}
+	if projectID.Valid {
+		t.ProjectID = projectID.String
+	}
 	if model.Valid {
 		t.Model = &model.String
 	}
@@ -286,7 +294,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id`
 
 // ListTasks returns tasks ordered by id descending (ULID ≈ time).
 func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, error) {
@@ -304,6 +312,10 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 	if opts.Status != "" {
 		b.WriteString(` AND status = ?`)
 		args = append(args, opts.Status)
+	}
+	if opts.ProjectID != "" {
+		b.WriteString(` AND project_id = ?`)
+		args = append(args, opts.ProjectID)
 	}
 	if opts.Before != "" {
 		b.WriteString(` AND id < ?`)
@@ -413,20 +425,24 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if wsScope == "" {
 		wsScope = "."
 	}
+	var projectID any
+	if t.ProjectID != "" {
+		projectID = t.ProjectID
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
 			id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
 			exit_code, tokens_in, tokens_out, cost_usd,
 			created_at, started_at, finished_at,
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
-			workspace_scope, workspace_base_oid, workspace_branch
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			workspace_scope, workspace_base_oid, workspace_branch, project_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
 		t.CreatedAt, t.StartedAt, t.FinishedAt,
 		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
-		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch,
+		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert task: %w", err)
@@ -453,6 +469,7 @@ type TaskPatch struct {
 	StartedAt       *int64
 	FinishedAt      *int64
 	ClearFinishedAt bool
+	ProjectID       *string // set or clear (empty string clears)
 }
 
 // UpdateTask applies a patch to a task row.
@@ -519,6 +536,14 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 	} else if p.FinishedAt != nil {
 		sets = append(sets, "finished_at = ?")
 		args = append(args, *p.FinishedAt)
+	}
+	if p.ProjectID != nil {
+		if *p.ProjectID == "" {
+			sets = append(sets, "project_id = NULL")
+		} else {
+			sets = append(sets, "project_id = ?")
+			args = append(args, *p.ProjectID)
+		}
 	}
 	if len(sets) == 0 {
 		return nil

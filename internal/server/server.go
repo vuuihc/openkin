@@ -197,6 +197,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		Static:       static,
 		UploadsDir:   filepath.Join(stateDir, "uploads"),
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
+		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		NetworkMode:  mode,
 		// Probe provider subscription windows (5h/weekly) from the tokens the
 		// Claude Code and Codex CLIs already store. Cached 60s to avoid

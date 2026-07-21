@@ -257,8 +257,8 @@ PRAGMA user_version = 5;
 	if err := s.DB().QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Fatalf("version=%d", v)
+	if v != schemaVersion {
+		t.Fatalf("version=%d want %d", v, schemaVersion)
 	}
 	got, err := s.GetTask(ctx, "01OLDV5TASK000000000000001")
 	if err != nil {
