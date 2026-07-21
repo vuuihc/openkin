@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // KinMessage is one durable chat message for the Kin agent multi-turn path
@@ -148,7 +149,7 @@ func (s *Store) SearchEvents(ctx context.Context, taskID, q string, limit int) (
 func trimSearch(q string) string {
 	s := strings.TrimSpace(q)
 	if len(s) > 120 {
-		s = s[:120]
+		s = clipUTF8(s, 0, 120)
 	}
 	// Drop unescaped % wildcards only (pathological). Keep "_" so identifiers match.
 	s = strings.ReplaceAll(s, "%", "")
@@ -180,7 +181,7 @@ func snippetAround(payload, q string, max int) string {
 		if len(payload) <= max {
 			return payload
 		}
-		return payload[:max] + "…"
+		return clipUTF8(payload, 0, max) + "…"
 	}
 	start := idx - max/3
 	if start < 0 {
@@ -194,6 +195,12 @@ func snippetAround(payload, q string, max int) string {
 			start = 0
 		}
 	}
+	// Snap to rune boundaries so JSON/UI never sees mid-character garbage.
+	start = runeStartAtOrBefore(payload, start)
+	end = runeStartAtOrBefore(payload, end)
+	if end < start {
+		end = start
+	}
 	snip := payload[start:end]
 	if start > 0 {
 		snip = "…" + snip
@@ -202,6 +209,40 @@ func snippetAround(payload, q string, max int) string {
 		snip = snip + "…"
 	}
 	return snip
+}
+
+// runeStartAtOrBefore returns the largest i <= idx that is a UTF-8 rune start
+// (or 0). idx may equal len(s), which is treated as a valid end boundary.
+func runeStartAtOrBefore(s string, idx int) int {
+	if idx <= 0 {
+		return 0
+	}
+	if idx >= len(s) {
+		return len(s)
+	}
+	for idx > 0 && !utf8.RuneStart(s[idx]) {
+		idx--
+	}
+	return idx
+}
+
+// clipUTF8 returns s[start:end] with end snapped back onto a rune boundary.
+func clipUTF8(s string, start, end int) string {
+	if start < 0 {
+		start = 0
+	}
+	if end > len(s) {
+		end = len(s)
+	}
+	if start >= end {
+		return ""
+	}
+	start = runeStartAtOrBefore(s, start)
+	end = runeStartAtOrBefore(s, end)
+	if end < start {
+		return ""
+	}
+	return s[start:end]
 }
 
 func indexBytes(hay, needle []byte) int {

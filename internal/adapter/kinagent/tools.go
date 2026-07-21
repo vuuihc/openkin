@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vuuihc/kin/internal/provider"
 )
@@ -402,9 +403,41 @@ func relDisplay(root, abs string) string {
 	return filepath.ToSlash(rel)
 }
 
+// truncateUTF8 returns a valid-UTF-8 prefix of s of at most maxBytes, plus
+// suffix when truncation happens. Cuts never land mid-rune (avoids U+FFFD
+// replacement when the result is later json.Marshal'd into the event log).
+func truncateUTF8(s string, maxBytes int, suffix string) string {
+	if maxBytes <= 0 {
+		if len(s) == 0 {
+			return ""
+		}
+		return suffix
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		// First rune alone exceeds the budget; drop content rather than emit invalid UTF-8.
+		return suffix
+	}
+	return s[:cut] + suffix
+}
+
 func truncateBytes(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + fmt.Sprintf("\n… truncated %d bytes", len(s)-n)
+	// Recompute omitted byte count after backing up to a rune boundary.
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		return fmt.Sprintf("… truncated %d bytes", len(s))
+	}
+	return s[:cut] + fmt.Sprintf("\n… truncated %d bytes", len(s)-cut)
 }

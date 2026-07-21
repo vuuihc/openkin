@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Transient chat attempts: 1 initial + up to 4 retries = 5 total.
@@ -703,5 +704,12 @@ func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	if cut == 0 {
+		return "…"
+	}
+	return s[:cut] + "…"
 }

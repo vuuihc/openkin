@@ -279,7 +279,7 @@ func summarizeProviderRetryReason(err error) string {
 		// Keep short for chat noise control.
 		msg := err.Error()
 		if len(msg) > 120 {
-			msg = msg[:120] + "…"
+			msg = truncateUTF8(msg, 120, "…")
 		}
 		return msg
 	}
@@ -439,9 +439,10 @@ func emitToolResult(ch chan<- adapter.Event, name, argsJSON, output string, ok b
 		input = map[string]string{"raw": argsJSON}
 	}
 	// Cap stored output so the event log stays small. Model path uses ToolDigest separately.
+	// Byte-budget cut must stay on a UTF-8 boundary (see truncateUTF8).
 	stored := output
 	if len(stored) > 8000 {
-		stored = stored[:8000] + "\n… truncated for UI"
+		stored = truncateUTF8(stored, 8000, "\n… truncated for UI")
 	}
 	summary := toolResultSummary(name, argsJSON, output, ok)
 	payload, _ := json.Marshal(map[string]any{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,33 @@ func TestSearchEvents(t *testing.T) {
 	}
 	if hits[0].Snippet == "" {
 		t.Fatal("empty snippet")
+	}
+}
+
+func TestSnippetAroundUTF8Boundary(t *testing.T) {
+	// Chinese payload; cut windows must not introduce U+FFFD.
+	payload := strings.Repeat("你好世界", 50) // plenty of bytes
+	snip := snippetAround(payload, "世界", 40)
+	if strings.Contains(snip, "\uFFFD") {
+		t.Fatalf("snippet has replacement char: %q", snip)
+	}
+	if !strings.Contains(snip, "世界") {
+		t.Fatalf("expected match in snippet: %q", snip)
+	}
+	// No-match path also rune-safe.
+	snip = snippetAround(payload, "nomatch-xyz", 25)
+	if strings.Contains(snip, "\uFFFD") {
+		t.Fatalf("no-match snippet has replacement: %q", snip)
+	}
+}
+
+func TestTrimSearchUTF8(t *testing.T) {
+	q := strings.Repeat("测", 100) // 300 bytes
+	got := trimSearch(q)
+	if strings.Contains(got, "\uFFFD") {
+		t.Fatalf("trimSearch produced U+FFFD: %q", got)
+	}
+	if len(got) > 120 {
+		t.Fatalf("len=%d > 120", len(got))
 	}
 }
