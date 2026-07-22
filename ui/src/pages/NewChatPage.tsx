@@ -22,8 +22,10 @@ import {
 } from "../lib/agentMention";
 import {
   clearDraftPrompt,
+  getDraftAttachments,
   getDraftCwd,
   getDraftPrompt,
+  setDraftAttachments,
   setDraftCwd,
   setDraftPrompt,
 } from "../lib/draftChat";
@@ -46,6 +48,7 @@ export default function NewChatPage() {
 
   const [cwd, setCwd] = useState(() => getDraftCwd());
   const [initialValue, setInitialValue] = useState(() => getDraftPrompt());
+  const [initialAttachments] = useState(() => getDraftAttachments());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     () => getDraftPermissionMode(),
   );
@@ -261,7 +264,9 @@ export default function NewChatPage() {
             busy={sending}
             disabled={sending}
             initialValue={initialValue}
+            initialAttachments={initialAttachments}
             placeholder={tr("newChat.placeholder", { name: mainAgentName })}
+            onAttachmentsChange={setDraftAttachments}
             onValueChange={setDraftPrompt}
             onSubmit={onSubmit}
           />

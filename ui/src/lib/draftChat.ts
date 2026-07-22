@@ -1,7 +1,10 @@
 /** Client-only draft chat slot (one "new chat" at a time). */
 
+import type { Upload } from "../api/client";
+
 const CWD_KEY = "kin_draft_cwd";
 const PROMPT_KEY = "kin_draft_prompt";
+const ATTACHMENTS_KEY = "kin_draft_attachments";
 
 const DRAFT_EVENT = "kin:draft";
 
@@ -54,7 +57,44 @@ export function clearDraftPrompt(): void {
   notifyDraft();
 }
 
-/** Subscribe to draft cwd/prompt changes (cross-component). */
+function isUpload(value: unknown): value is Upload {
+  if (!value || typeof value !== "object") return false;
+  const upload = value as Record<string, unknown>;
+  return (
+    typeof upload.id === "string" &&
+    typeof upload.name === "string" &&
+    typeof upload.mime === "string" &&
+    typeof upload.size === "number" &&
+    typeof upload.url === "string" &&
+    typeof upload.path === "string"
+  );
+}
+
+export function getDraftAttachments(): Upload[] {
+  try {
+    const stored = localStorage.getItem(ATTACHMENTS_KEY);
+    if (!stored) return [];
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter(isUpload) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setDraftAttachments(attachments: Upload[]): void {
+  try {
+    if (attachments.length > 0) {
+      localStorage.setItem(ATTACHMENTS_KEY, JSON.stringify(attachments));
+    } else {
+      localStorage.removeItem(ATTACHMENTS_KEY);
+    }
+  } catch {
+    // ignore
+  }
+  notifyDraft();
+}
+
+/** Subscribe to draft cwd/prompt/attachment changes (cross-component). */
 export function subscribeDraft(fn: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   const handler = () => fn();

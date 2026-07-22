@@ -46,7 +46,9 @@ vi.stubGlobal(
 
 const {
   clearDraftPrompt,
+  getDraftAttachments,
   getDraftPrompt,
+  setDraftAttachments,
   setDraftPrompt,
   subscribeDraft,
 } = await import("./draftChat");
@@ -58,6 +60,7 @@ describe("draftChat prompt persistence", () => {
 
   afterEach(() => {
     clearDraftPrompt();
+    setDraftAttachments([]);
   });
 
   it("stores and restores unsent prompt text", () => {
@@ -77,5 +80,42 @@ describe("draftChat prompt persistence", () => {
     setDraftPrompt("ping");
     expect(fn).toHaveBeenCalled();
     unsub();
+  });
+
+  it("stores and restores uploaded attachments", () => {
+    const attachments = [
+      {
+        id: "upload-1.png",
+        name: "diagram.png",
+        mime: "image/png",
+        size: 1234,
+        url: "/api/uploads/upload-1.png",
+        path: "/tmp/kin/uploads/upload-1.png",
+      },
+    ];
+
+    setDraftAttachments(attachments);
+
+    expect(getDraftAttachments()).toEqual(attachments);
+  });
+
+  it("ignores malformed stored attachments", () => {
+    store.set("kin_draft_attachments", JSON.stringify([{ id: "incomplete" }]));
+    expect(getDraftAttachments()).toEqual([]);
+  });
+
+  it("clears stored attachments when the list becomes empty", () => {
+    setDraftAttachments([
+      {
+        id: "upload-1.txt",
+        name: "notes.txt",
+        mime: "text/plain",
+        size: 42,
+        url: "/api/uploads/upload-1.txt",
+        path: "/tmp/kin/uploads/upload-1.txt",
+      },
+    ]);
+    setDraftAttachments([]);
+    expect(getDraftAttachments()).toEqual([]);
   });
 });

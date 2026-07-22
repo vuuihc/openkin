@@ -22,8 +22,12 @@ type Props = {
   onStop?: () => void | Promise<void>;
   /** Prefill once (e.g. deep-link /new?q=). */
   initialValue?: string;
+  /** Restore already-uploaded files when a draft composer remounts. */
+  initialAttachments?: Upload[];
   /** Fired whenever the textarea value changes (for draft persistence). */
   onValueChange?: (value: string) => void;
+  /** Fired whenever uploaded attachments change (for draft persistence). */
+  onAttachmentsChange?: (attachments: Upload[]) => void;
   /** Available agents for @mention menu. */
   agents?: AgentInfo[];
   /** Current session host; used only for mention role labels. */
@@ -49,7 +53,9 @@ export default function Composer({
   stopping,
   onStop,
   initialValue = "",
+  initialAttachments = [],
   onValueChange,
+  onAttachmentsChange,
   agents = [],
   hostAgentId,
   onSubmit,
@@ -61,7 +67,7 @@ export default function Composer({
   const [menu, setMenu] = useState<"slash" | "mention" | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -143,7 +149,11 @@ export default function Composer({
         const previewUrl = isImageMime(up.mime || f.type)
           ? URL.createObjectURL(f)
           : undefined;
-        setAttachments((prev) => [...prev, { ...up, previewUrl }]);
+        setAttachments((prev) => {
+          const next = [...prev, { ...up, previewUrl }];
+          onAttachmentsChange?.(next);
+          return next;
+        });
       }
     } catch (err) {
       const msg =
@@ -163,7 +173,9 @@ export default function Composer({
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id);
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-      return prev.filter((a) => a.id !== id);
+      const next = prev.filter((a) => a.id !== id);
+      onAttachmentsChange?.(next);
+      return next;
     });
   }
 
@@ -201,6 +213,7 @@ export default function Composer({
     setMentionQuery("");
     setMentionIndex(0);
     setAttachments([]);
+    onAttachmentsChange?.([]);
     try {
       await onSubmit(payload);
     } catch (err) {
