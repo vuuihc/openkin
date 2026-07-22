@@ -1,11 +1,18 @@
 /**
- * Generate macOS template tray icons and a simple app icon without extra deps.
+ * Generate macOS template tray icons and a rounded-square app icon without extra deps.
  * Template icons: black glyphs on transparent background (macOS tints them).
+ * App icon: dark rounded square with white "K" → icon.png + icon.icns.
  */
 import { deflateSync } from "node:zlib";
-import { writeFileSync, mkdirSync } from "node:fs";
+import {
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -86,21 +93,86 @@ function paintK(x, y, size) {
   return on ? { g: 0, a: 255 } : { g: 0, a: 0 };
 }
 
-/** Solid black rounded square "K" for app icon (RGBA via GA, then we only need GA). */
+/**
+ * Coverage (0..1) of a rounded rectangle — macOS-style app-icon shape.
+ * Corner radius ~22% of side; small outer margin for Dock/Finder mask.
+ */
+function roundedRectCoverage(px, py, size) {
+  const margin = size * 0.04;
+  const radius = size * 0.22;
+  const left = margin;
+  const top = margin;
+  const right = size - 1 - margin;
+  const bottom = size - 1 - margin;
+  const cx = (left + right) / 2;
+  const cy = (top + bottom) / 2;
+  const hw = (right - left) / 2;
+  const hh = (bottom - top) / 2;
+
+  // Signed distance to rounded box (negative = inside).
+  const qx = Math.abs(px - cx) - (hw - radius);
+  const qy = Math.abs(py - cy) - (hh - radius);
+  const ox = Math.max(qx, 0);
+  const oy = Math.max(qy, 0);
+  const dist =
+    Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - radius;
+
+  if (dist <= -0.5) return 1;
+  if (dist >= 0.5) return 0;
+  return 1 - (dist + 0.5);
+}
+
+/** Dark rounded-square app icon with white "K". */
 function paintAppIcon(x, y, size) {
-  const cx = size / 2;
-  const cy = size / 2;
-  const r = size * 0.42;
-  const dx = x - cx + 0.5;
-  const dy = y - cy + 0.5;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  // soft circle background (white-ish for template? app icons need color —
-  // for electron-builder a simple monochrome circle is fine as placeholder)
-  if (dist > r) return { g: 0, a: 0 };
-  // fill dark
+  const cover = roundedRectCoverage(x + 0.5, y + 0.5, size);
+  if (cover <= 0) return { g: 0, a: 0 };
+
   const k = paintK(x, y, size);
-  if (k.a > 0) return { g: 255, a: 255 }; // white K
-  return { g: 40, a: 255 }; // dark fill
+  const g = k.a > 0 ? 255 : 40; // white K on near-black fill
+  const a = Math.round(255 * cover);
+  return { g, a };
+}
+
+/** Build icon.icns from a master PNG via sips + iconutil (macOS only). */
+function writeIcns(pngPath, icnsPath) {
+  if (process.platform !== "darwin") {
+    console.warn("desktop: skip icon.icns (not macOS)");
+    return;
+  }
+  const iconset = join(tmpdir(), `kin-icon-${process.pid}.iconset`);
+  try {
+    rmSync(iconset, { recursive: true, force: true });
+    mkdirSync(iconset, { recursive: true });
+
+    // Standard macOS iconset sizes (1x + 2x).
+    const entries = [
+      [16, "icon_16x16.png"],
+      [32, "icon_16x16@2x.png"],
+      [32, "icon_32x32.png"],
+      [64, "icon_32x32@2x.png"],
+      [128, "icon_128x128.png"],
+      [256, "icon_128x128@2x.png"],
+      [256, "icon_256x256.png"],
+      [512, "icon_256x256@2x.png"],
+      [512, "icon_512x512.png"],
+      [1024, "icon_512x512@2x.png"],
+    ];
+
+    for (const [px, name] of entries) {
+      const out = join(iconset, name);
+      execFileSync(
+        "sips",
+        ["-z", String(px), String(px), pngPath, "--out", out],
+        { stdio: "ignore" },
+      );
+    }
+
+    execFileSync("iconutil", ["-c", "icns", iconset, "-o", icnsPath], {
+      stdio: "ignore",
+    });
+  } finally {
+    rmSync(iconset, { recursive: true, force: true });
+  }
 }
 
 const assets = join(root, "assets");
@@ -108,6 +180,9 @@ mkdirSync(assets, { recursive: true });
 
 writeGrayAlphaPng(join(assets, "trayTemplate.png"), 16, paintK);
 writeGrayAlphaPng(join(assets, "trayTemplate@2x.png"), 32, paintK);
-writeGrayAlphaPng(join(assets, "icon.png"), 512, paintAppIcon);
 
-console.log("desktop: icons written to assets/");
+const iconPng = join(assets, "icon.png");
+writeGrayAlphaPng(iconPng, 512, paintAppIcon);
+writeIcns(iconPng, join(assets, "icon.icns"));
+
+console.log("desktop: icons written to assets/ (rounded-square app icon)");

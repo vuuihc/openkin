@@ -595,7 +595,10 @@ func isTransientProviderErr(ctx context.Context, err error) bool {
 		strings.Contains(s, "tls handshake timeout") ||
 		strings.Contains(s, "i/o timeout") ||
 		strings.Contains(s, "temporary failure") ||
-		strings.Contains(s, "eof") {
+		strings.Contains(s, "eof") ||
+		strings.Contains(s, "stream error") ||
+		strings.Contains(s, "internal_error") ||
+		strings.Contains(s, "received from peer") {
 		return true
 	}
 	// Retryable HTTP statuses (incl. Cloudflare 52x).

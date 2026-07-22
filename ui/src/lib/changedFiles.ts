@@ -39,9 +39,8 @@ const WRITE_TOOLS = new Set([
 const READ_TOOLS = new Set(["read_file", "read", "view"]);
 
 /**
- * Collect workspace file paths touched by tools in a task event stream.
- * Prefers mutation tools; falls back to reads so the bar is still useful
- * when the agent only inspected files.
+ * Collect workspace file paths mutated by tools in a task event stream.
+ * Read-only tools are ignored — the review UI only tracks writes/edits/deletes.
  */
 export function extractChangedFiles(events: TaskEvent[]): ChangedFile[] {
   const byPath = new Map<string, ChangedFile>();
@@ -102,9 +101,11 @@ export function extractChangedFiles(events: TaskEvent[]): ChangedFile[] {
     }
   }
 
-  const all = Array.from(byPath.values());
-  const mutated = all.filter((f) => f.action !== "read" && f.action !== "other");
-  const list = mutated.length > 0 ? mutated : all.filter((f) => f.action === "read");
+  // Only surface mutations (write/edit/delete). Reads are intentionally
+  // omitted from task file stats / review UI.
+  const list = Array.from(byPath.values()).filter(
+    (f) => f.action !== "read" && f.action !== "other",
+  );
   list.sort((a, b) => b.seq - a.seq || a.path.localeCompare(b.path));
   return list;
 }

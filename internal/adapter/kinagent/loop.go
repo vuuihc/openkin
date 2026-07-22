@@ -275,6 +275,8 @@ func summarizeProviderRetryReason(err error) string {
 		return "connection reset"
 	case strings.Contains(s, "connection refused"):
 		return "connection refused"
+	case strings.Contains(s, "stream error") || strings.Contains(s, "internal_error"):
+		return "upstream stream reset"
 	default:
 		// Keep short for chat noise control.
 		msg := err.Error()

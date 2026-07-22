@@ -113,6 +113,29 @@ describe("extractChangedFiles stats", () => {
     expect(files[0].additions).toBe(2);
     expect(files[0].deletions).toBe(2);
   });
+
+  it("ignores pure reads — only mutations are listed", () => {
+    const events = [
+      toolUse(1, "read_file", { path: "src/a.ts" }),
+      toolUse(2, "write_file", {
+        path: "src/b.ts",
+        content: "one\n",
+      }),
+    ];
+    const files = extractChangedFiles(events);
+    expect(files).toHaveLength(1);
+    expect(files[0].path).toContain("b.ts");
+    expect(files[0].action).toBe("write");
+  });
+
+  it("returns empty when the agent only read files", () => {
+    const events = [
+      toolUse(1, "read_file", { path: "src/a.ts" }),
+      toolUse(2, "read_file", { path: "src/b.ts" }),
+    ];
+    expect(extractChangedFiles(events)).toEqual([]);
+  });
+
 });
 
 describe("extractFileDiff", () => {

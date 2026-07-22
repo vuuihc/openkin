@@ -11,8 +11,8 @@ type Props = {
 };
 
 /**
- * Sidebar list of agent-touched files for the workspace dual-pane.
- * Keeps the file list visible while the right pane shows a single diff/file.
+ * Sidebar list of agent-written files for the workspace dual-pane.
+ * Left column of the diff panel: only mutations (write/edit/delete).
  */
 export default function ChangedFilesList({
   files,
@@ -22,12 +22,13 @@ export default function ChangedFilesList({
   const t = useT();
 
   const ordered = useMemo(() => {
-    // Mutations first (by recency), then reads.
-    const mut = files.filter((f) => f.action !== "read");
-    const reads = files.filter((f) => f.action === "read");
+    // Mutations only, newest first.
+    const mut = files.filter(
+      (f) => f.action !== "read" && f.action !== "other",
+    );
     const bySeq = (a: ChangedFile, b: ChangedFile) =>
       b.seq - a.seq || a.path.localeCompare(b.path);
-    return [...mut].sort(bySeq).concat([...reads].sort(bySeq));
+    return [...mut].sort(bySeq);
   }, [files]);
 
   if (ordered.length === 0) {
@@ -114,8 +115,6 @@ function actionDot(action: ChangedFile["action"]): string {
       return "bg-[#7cbcff]";
     case "delete":
       return "bg-[#ffb4ad]";
-    case "read":
-      return "bg-kin-muted";
     default:
       return "bg-kin-muted";
   }
@@ -123,7 +122,10 @@ function actionDot(action: ChangedFile["action"]): string {
 
 function actionLabel(
   action: ChangedFile["action"],
-  t: (path: string, params?: Record<string, string | number | null | undefined>) => string,
+  t: (
+    path: string,
+    params?: Record<string, string | number | null | undefined>,
+  ) => string,
 ): string {
   switch (action) {
     case "write":
@@ -132,8 +134,6 @@ function actionLabel(
       return t("workspace.changed.edit");
     case "delete":
       return t("workspace.changed.delete");
-    case "read":
-      return t("workspace.changed.read");
     default:
       return t("workspace.changed.other");
   }
@@ -152,7 +152,9 @@ function DeltaInline({
   return (
     <span>
       {additions > 0 && <span className="text-[#8de4a0]">+{additions}</span>}
-      {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
+      {additions > 0 && deletions > 0 && (
+        <span className="text-kin-muted"> </span>
+      )}
       {deletions > 0 && <span className="text-[#ffb4ad]">−{deletions}</span>}
     </span>
   );

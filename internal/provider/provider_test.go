@@ -318,6 +318,8 @@ func TestIsTransientProviderErr(t *testing.T) {
 		{"provider HTTP 401 (x): unauthorized", false},
 		{"provider HTTP 400 (x): invalid tools", false},
 		{"tools are not supported", false},
+		{"read stream: stream error: stream ID 5; INTERNAL_ERROR; received from peer", true},
+		{"read stream: stream error: stream ID 33; INTERNAL_ERROR; received from peer", true},
 	}
 	for _, c := range cases {
 		got := isTransientProviderErr(ctx, errors.New(c.err))

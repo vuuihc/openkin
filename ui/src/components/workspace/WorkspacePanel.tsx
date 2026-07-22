@@ -139,7 +139,13 @@ export default function WorkspacePanel({
   }, [changedFilesProp, events]);
 
   const visibleChangedFiles = useMemo(
-    () => changedFiles.filter((f) => !dismissedPaths.has(f.path)),
+    () =>
+      changedFiles.filter(
+        (f) =>
+          f.action !== "read" &&
+          f.action !== "other" &&
+          !dismissedPaths.has(f.path),
+      ),
     [changedFiles, dismissedPaths],
   );
   const hasChanges = visibleChangedFiles.length > 0;

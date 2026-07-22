@@ -1,12 +1,19 @@
-import { Component, type ReactNode } from "react";
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import Editor, { DiffEditor } from "@monaco-editor/react";
+import type { editor as MonacoEditor } from "monaco-editor";
 import {
   formatBytes,
   type TaskWorkspaceFileResponse,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import type { FileDiffSnippet } from "../../lib/changedFiles";
-import { IconCheck, IconX } from "../icons";
+import { IconCheck, IconChevron, IconX } from "../icons";
 import OpenInMenu from "./OpenInMenu";
 import "./monacoSetup";
 
@@ -63,6 +70,34 @@ export default function CodeViewer({
   actionsBusy = false,
 }: Props) {
   const t = useT();
+  const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
+    null,
+  );
+
+  // Drop the editor handle when leaving diff mode / switching path so
+  // stale goToDiff calls never target a disposed instance.
+  useEffect(() => {
+    return () => {
+      diffEditorRef.current = null;
+    };
+  }, [path]);
+
+  const onDiffMount = useCallback(
+    (editor: MonacoEditor.IStandaloneDiffEditor) => {
+      diffEditorRef.current = editor;
+    },
+    [],
+  );
+
+  const goToHunk = useCallback((target: "next" | "previous") => {
+    const ed = diffEditorRef.current;
+    if (!ed) return;
+    try {
+      ed.goToDiff(target);
+    } catch {
+      // Editor may be mid-dispose during path switches.
+    }
+  }, []);
 
   if (!path) {
     return (
@@ -73,7 +108,9 @@ export default function CodeViewer({
   }
 
   // Prefer tool-derived diff when available; fall back to plain file view.
-  const useDiff = Boolean(diff && (diff.original.length > 0 || diff.modified.length > 0));
+  const useDiff = Boolean(
+    diff && (diff.original.length > 0 || diff.modified.length > 0),
+  );
   // Keep the last good file mounted while a new path loads so Monaco is not
   // disposed/recreated on every navigation. Only blank the editor on hard error
   // with no content, or first open before any content arrives.
@@ -85,7 +122,10 @@ export default function CodeViewer({
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-[11.5px] text-kin-muted">
-        <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
+        <span
+          className="font-mono text-kin-secondary truncate min-w-0"
+          title={path}
+        >
           {path}
         </span>
         {useDiff && (
@@ -94,6 +134,33 @@ export default function CodeViewer({
           </span>
         )}
         <div className="ml-auto flex items-center gap-2 shrink-0">
+          {useDiff && (
+            <div
+              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
+              role="group"
+              aria-label={t("workspace.viewer.diffNav")}
+            >
+              <button
+                type="button"
+                onClick={() => goToHunk("previous")}
+                title={t("workspace.viewer.prevHunk")}
+                aria-label={t("workspace.viewer.prevHunk")}
+                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+              >
+                {/* Chevron points right by default; rotate for up/down. */}
+                <IconChevron size={13} className="-rotate-90" />
+              </button>
+              <button
+                type="button"
+                onClick={() => goToHunk("next")}
+                title={t("workspace.viewer.nextHunk")}
+                aria-label={t("workspace.viewer.nextHunk")}
+                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+              >
+                <IconChevron size={13} className="rotate-90" />
+              </button>
+            </div>
+          )}
           {file && (
             <span className="tabular-nums">
               {formatBytes(file.size)}
@@ -101,9 +168,7 @@ export default function CodeViewer({
               {loading ? " · …" : ""}
             </span>
           )}
-          {!file && loading && (
-            <span className="tabular-nums">…</span>
-          )}
+          {!file && loading && <span className="tabular-nums">…</span>}
           {reviewActions && path && (
             <>
               <button
@@ -149,7 +214,9 @@ export default function CodeViewer({
           </div>
         )}
         {showEditor && useDiff && diff && (
-          <MonacoSafe fallback={<FallbackPre text={diff.modified || diff.original} />}>
+          <MonacoSafe
+            fallback={<FallbackPre text={diff.modified || diff.original} />}
+          >
             <DiffEditor
               height="100%"
               theme="vs-dark"
@@ -163,6 +230,7 @@ export default function CodeViewer({
                   : diff.modified
               }
               options={DIFF_OPTIONS}
+              onMount={onDiffMount}
               loading={
                 <div className="h-full flex items-center justify-center text-sm text-kin-muted">
                   {t("workspace.viewer.loading")}

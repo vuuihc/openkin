@@ -504,3 +504,15 @@ Artifacts P1（陪读）与 Project P0 **可并行**；Project P1 的 companion 
 **做：** Project 容器 + 一页用户拥有的 One-Pager + Continue Focus +（稍后）收工补丁。  
 **不做：** 看板、KPI、强制整理、overview session 当真源、自动 CEO 舱。  
 **气质：** 随性开发保留；结构在封面生长；Agent 是副编辑，用户是主编。
+
+## 16. Cover density — Pulse (shipped slice)
+
+One-Pager felt empty as a blank template. Add a **structured cover**:
+
+1. User sections: 项目描述 / North Star / Focus / 结论 / 下一步 / 模块笔记
+2. **Pulse strip (UI)**: session + commit heatmaps, window 30/90/180d, hot modules
+3. **Managed auto block** in markdown between `<!-- kin:auto:start/end -->` — refresh merges without overwriting user text
+4. Rule-based next-step suggestions first; LLM narrative refresh can come later as optional Catch-up
+5. No guilt KPI; soft signals only
+
+APIs: `GET /api/projects/:id/pulse`, `POST /api/projects/:id/pulse/refresh`

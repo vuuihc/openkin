@@ -55,8 +55,8 @@ func (m *Manager) Capture(ctx context.Context, meta Metadata, taskID string, eve
 		return Checkpoint{}, err
 	}
 	env := map[string]string{
-		"GIT_INDEX_FILE":                   indexPath,
-		"GIT_OBJECT_DIRECTORY":             objectsDir,
+		"GIT_INDEX_FILE":                    indexPath,
+		"GIT_OBJECT_DIRECTORY":              objectsDir,
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES": normalObjects,
 	}
 

@@ -95,6 +95,7 @@ Mode extras (templates, not separate products):
 ### Phasing
 
 - **P0 — Project + One-Pager + Continue:** model, store, templates, editor/reader, link recent sessions/artifacts, “continue focus” task create, manual edit.
+- **P0.5 — Pulse strip:** deterministic session/git heat + managed auto suggestions on cover (refresh button; window configurable).
 - **P1 — Recycle + Catch-up:** session-end propose patches; catch-up from last N sessions; stale hint (not alarm).
 - **P2 — Companion + deeper inject:** One-Pager-scoped companion; better prompt packing with Focus/digest (ADR 0002-aligned); optional module map **on demand** only.
 
