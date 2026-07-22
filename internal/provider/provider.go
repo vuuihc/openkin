@@ -5,6 +5,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -178,6 +179,11 @@ func MaskAPIKey(key string) string {
 // NewClient builds a Client from config.
 func NewClient(cfg Config) (Client, error) {
 	cfg = cfg.Normalize()
+	apiKey, err := resolveAPIKey(cfg.APIKey)
+	if err != nil {
+		return nil, err
+	}
+	cfg.APIKey = apiKey
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -187,4 +193,26 @@ func NewClient(cfg Config) (Client, error) {
 	default:
 		return nil, fmt.Errorf("unsupported provider.kind %q", cfg.Kind)
 	}
+}
+
+// resolveAPIKey supports exact $NAME and ${NAME} references in persisted
+// provider configuration, keeping the actual secret out of Kin's database.
+func resolveAPIKey(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	name := ""
+	if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
+		name = value[2 : len(value)-1]
+	} else if strings.HasPrefix(value, "$") {
+		name = value[1:]
+	} else {
+		return value, nil
+	}
+	if name == "" || strings.ContainsAny(name, "${} \\t\\r\\n") {
+		return "", fmt.Errorf("invalid provider API key environment reference %q", value)
+	}
+	resolved, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(resolved) == "" {
+		return "", fmt.Errorf("provider API key environment variable %s is not set", name)
+	}
+	return strings.TrimSpace(resolved), nil
 }
