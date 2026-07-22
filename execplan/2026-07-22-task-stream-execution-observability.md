@@ -20,12 +20,21 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
   - Focused tests: `go test ./internal/task -run TestBus`, `ui/src/lib/eventStream.test.ts`.
 - [x] (2026-07-22 21:33 +08) Milestone 2: removed production speaker-ID whitelists in `transcriptProjection`; explicit `speaker`/`agent` and `visibility` are authoritative with a narrow legacy path.
 - [x] (2026-07-22 21:33 +08) Added host-neutral projection tests using `future-agent` as host and worker; UI suite 102/102 and `npm run build` green.
-- [ ] Milestone 3: add delegated execution identity and approval attribution.
+- [x] (2026-07-22 23:30 +08) Milestone 3: add delegated execution identity and approval attribution.
+  - Every host/worker/meta-retry adapter start receives a distinct execution ID; events and Claude approvals carry it beneath the parent Task ID.
+  - Migration 009 preserves populated historical approvals with null attribution; partial metadata is rejected.
+  - Approval UI distinguishes positive-step workers from step-zero host executions, with English/Chinese copy and pure formatter tests.
 - [ ] Milestone 4: make event persistence failures explicit and consolidate the canonical event contract.
 - [ ] Run full repository verification, inspect the built UI, update this plan, and commit each coherent change.
 
 ## Surprises & Discoveries
 
+- Observation: execution attribution is present for both host and worker adapter runs; only a positive orchestration step identifies a delegated worker for UI wording.
+  Evidence: single-agent Claude approvals carry `execution_agent` with `execution_step` unset, while orchestrated workers use a 1-based step.
+- Observation: the Kin daemon restarted during parallel implementation and marked active Tasks failed, but isolated worktrees preserved both committed and uncommitted state for follow-up recovery.
+  Evidence: Milestone 1 resumed from commit `63233ed`; Milestone 3 resumed from its existing worktree and later committed `177eed0` plus gate-review corrections.
+- Observation: full `go test -race ./internal/task` exposes a pre-existing race in `notify_hook_test.go`; focused race tests for the new execution path pass.
+  Evidence: the race report points to the test's unsynchronized HTTP-handler flag, not files changed by these milestones.
 - Observation: closing the slow subscriber channel is enough to drive recovery — `handleWS` exits on closed sub, browser `connectWS` reconnects and bumps `reconnectGen`, and TaskDetail already re-fetches via `since_seq`.
   Evidence: `internal/api/api.go` `handleWS` select on `!ok`, `ui/src/api/client.ts` `noteReconnect` on reopen, `TaskDetailPage` reconnect effect.
 - Observation: advancing the UI cursor with `Math.max(...seqs)` after an out-of-order live event permanently hid holes from reconnect fetches (`listEvents(id, maxSeq)` skips missing lower seqs).
@@ -68,7 +77,7 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
 
 ## Outcomes & Retrospective
 
-Milestone 2 is complete. Arbitrary plugin IDs such as `future-agent` now project as host messages and as worker progress when `visibility.user=false, task=true`, without enumerating the ID in production UI code. Legacy Kin host and built-in worker rows without visibility still render. Remaining work: stream gap recovery (M1), execution/approval attribution (M3), and persistence-failure observability plus canonical contract consolidation (M4).
+Milestones 1–3 are complete and integrated. Live task streams now recover sequence gaps, arbitrary plugin IDs project without UI whitelists, and delegated executions/approvals have stable attribution beneath the parent Task. Gate review caught and corrected a step-zero host being mislabeled as a worker and restored unrelated Store behavior before integration. Milestone 4—persistence-failure observability and canonical contract consolidation—remains open.
 
 ## Context and Orientation
 
