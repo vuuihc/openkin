@@ -770,6 +770,16 @@ func (e *Engine) startOne(id string) {
 	if t.SessionRef != nil {
 		sessionRef = *t.SessionRef
 	}
+	execRef := adapter.ExecutionRef{
+		Agent: t.Agent,
+		Model: model,
+	}
+	eid, err := e.newID()
+	if err != nil {
+		_, _ = e.failStart(ctx, id, fmt.Sprintf("execution id: %v", err))
+		return
+	}
+	execRef.ID = eid
 	spec := adapter.TaskSpec{
 		ID:             t.ID,
 		Agent:          t.Agent,
@@ -778,6 +788,7 @@ func (e *Engine) startOne(id string) {
 		Model:          model,
 		SessionRef:     sessionRef,
 		PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
+		Execution:      execRef,
 	}
 
 	h, err := ad.Start(ctx, spec)
@@ -796,7 +807,7 @@ func (e *Engine) startOne(id string) {
 		e.mu.Unlock()
 	}
 
-	e.runLoop(id, h, t.Agent, model)
+	e.runLoop(id, h, t.Agent, model, execRef)
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
@@ -814,7 +825,7 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 	return t, err
 }
 
-func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) {
+func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, exec adapter.ExecutionRef) {
 	ctx := context.Background()
 	var sawResult bool
 	var sawUsage bool
@@ -825,7 +836,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string) 
 
 	for ev := range h.Events() {
 		// Persist first, then broadcast (spec §3). Stamp speaker for chat UI.
-		payload := stampSpeaker(ev.Payload, speaker, model)
+		payload := stampSpeaker(ev.Payload, speaker, model, exec)
 		var (
 			stored            store.Event
 			updatedTask       *store.Task

@@ -3,6 +3,8 @@ package task
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/vuuihc/kin/internal/adapter"
 )
 
 func TestStampAgentModel(t *testing.T) {
@@ -35,7 +37,7 @@ func TestStampAgentModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := stampSpeaker(tt.raw, "kin", tt.selected)
+			got := stampSpeaker(tt.raw, "kin", tt.selected, adapter.ExecutionRef{})
 			var payload map[string]any
 			if err := json.Unmarshal(got, &payload); err != nil {
 				t.Fatalf("unmarshal stamped payload: %v", err)
@@ -55,7 +57,7 @@ func TestStampAgentModel(t *testing.T) {
 }
 
 func TestStampWorkerModel(t *testing.T) {
-	got := stampWorker(json.RawMessage(`{"role":"assistant"}`), "codex", "gpt-5.5-codex")
+	got := stampWorker(json.RawMessage(`{"role":"assistant"}`), "codex", "gpt-5.5-codex", adapter.ExecutionRef{ID: "exec-1", Step: 2, Agent: "codex", Model: "gpt-5.5-codex"})
 	var payload map[string]any
 	if err := json.Unmarshal(got, &payload); err != nil {
 		t.Fatalf("unmarshal stamped payload: %v", err)

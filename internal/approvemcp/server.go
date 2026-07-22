@@ -12,15 +12,20 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Env vars (set by per-task MCP config).
 const (
-	EnvTaskID = "KIN_TASK_ID"
-	EnvDaemon = "KIN_DAEMON"
-	EnvToken  = "KIN_TOKEN"
+	EnvTaskID         = "KIN_TASK_ID"
+	EnvDaemon         = "KIN_DAEMON"
+	EnvToken          = "KIN_TOKEN"
+	EnvExecutionID    = "KIN_EXECUTION_ID"
+	EnvExecutionAgent = "KIN_EXECUTION_AGENT"
+	EnvExecutionStep  = "KIN_EXECUTION_STEP"
+	EnvExecutionModel = "KIN_EXECUTION_MODEL"
 )
 
 // Run is the `kin approve-mcp` entrypoint. Logs protocol traffic to stderr only.
@@ -34,25 +39,37 @@ func Run(ctx context.Context) error {
 
 	client := &http.Client{Timeout: 0} // long-polls managed per-request
 	s := &server{
-		taskID: taskID,
-		daemon: daemon,
-		token:  token,
-		client: client,
-		in:     os.Stdin,
-		out:    os.Stdout,
-		err:    os.Stderr,
+		taskID:         taskID,
+		daemon:         daemon,
+		token:          token,
+		executionID:    strings.TrimSpace(os.Getenv(EnvExecutionID)),
+		executionAgent: strings.TrimSpace(os.Getenv(EnvExecutionAgent)),
+		executionModel: strings.TrimSpace(os.Getenv(EnvExecutionModel)),
+		client:         client,
+		in:             os.Stdin,
+		out:            os.Stdout,
+		err:            os.Stderr,
+	}
+	if stepRaw := strings.TrimSpace(os.Getenv(EnvExecutionStep)); stepRaw != "" {
+		if n, err := strconv.Atoi(stepRaw); err == nil && n > 0 {
+			s.executionStep = n
+		}
 	}
 	return s.loop(ctx)
 }
 
 type server struct {
-	taskID string
-	daemon string
-	token  string
-	client *http.Client
-	in     io.Reader
-	out    io.Writer
-	err    io.Writer
+	taskID         string
+	daemon         string
+	token          string
+	executionID    string
+	executionAgent string
+	executionStep  int
+	executionModel string
+	client         *http.Client
+	in             io.Reader
+	out            io.Writer
+	err            io.Writer
 }
 
 type rpcRequest struct {
@@ -224,11 +241,24 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) rpcRespons
 }
 
 func (s *server) postApproval(ctx context.Context, payload json.RawMessage) (string, error) {
-	body, _ := json.Marshal(map[string]any{
+	reqBody := map[string]any{
 		"task_id": s.taskID,
 		"kind":    "tool_use",
 		"payload": json.RawMessage(payload),
-	})
+	}
+	if s.executionID != "" {
+		reqBody["execution_id"] = s.executionID
+	}
+	if s.executionAgent != "" {
+		reqBody["execution_agent"] = s.executionAgent
+	}
+	if s.executionStep > 0 {
+		reqBody["execution_step"] = s.executionStep
+	}
+	if s.executionModel != "" {
+		reqBody["execution_model"] = s.executionModel
+	}
+	body, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.daemon+"/internal/approvals", bytes.NewReader(body))
 	if err != nil {
 		return "", err

@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -106,7 +108,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 				kinBin, _ = os.Executable()
 			}
 		}
-		mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token)
+		mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token, spec.Execution)
 		if err != nil {
 			return nil, fmt.Errorf("mcp config: %w", err)
 		}
@@ -207,17 +209,32 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 }
 
 // writeMCPConfig writes a per-task MCP config JSON and returns its path.
-func writeMCPConfig(kinBin, taskID, daemonURL, token string) (string, error) {
+// Execution metadata is optional; when present it is passed to approve-mcp so
+// approvals can attribute the request to this adapter run. Token is never logged.
+func writeMCPConfig(kinBin, taskID, daemonURL, token string, exec adapter.ExecutionRef) (string, error) {
+	env := map[string]string{
+		"KIN_TASK_ID": taskID,
+		"KIN_DAEMON":  daemonURL,
+		"KIN_TOKEN":   token,
+	}
+	if id := strings.TrimSpace(exec.ID); id != "" {
+		env["KIN_EXECUTION_ID"] = id
+	}
+	if agent := strings.TrimSpace(exec.Agent); agent != "" {
+		env["KIN_EXECUTION_AGENT"] = agent
+	}
+	if exec.Step > 0 {
+		env["KIN_EXECUTION_STEP"] = strconv.Itoa(exec.Step)
+	}
+	if model := strings.TrimSpace(exec.Model); model != "" {
+		env["KIN_EXECUTION_MODEL"] = model
+	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
 			"kin": map[string]any{
 				"command": kinBin,
 				"args":    []string{"approve-mcp"},
-				"env": map[string]string{
-					"KIN_TASK_ID": taskID,
-					"KIN_DAEMON":  daemonURL,
-					"KIN_TOKEN":   token,
-				},
+				"env":     env,
 			},
 		},
 	}

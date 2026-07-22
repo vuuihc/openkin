@@ -169,6 +169,20 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			// posts KIN_TASK_ID to POST /internal/approvals, which looks up
 			// the tasks row. A synthetic "parent:agent:idx" id fails that
 			// lookup and fail-closes as "denied via Kin console".
+			// Each adapter start gets its own immutable execution id.
+			execRef := adapter.ExecutionRef{
+				Agent: step.Agent,
+				Model: model,
+				Step:  si + 1, // 1-based plan step index
+			}
+			eid, err := e.newID()
+			if err != nil {
+				e.emitError(ctx, id, fmt.Sprintf("%s execution id: %v", step.Agent, err))
+				outs[i] = stepOut{idx: si, text: "", err: true}
+				anyErr = true
+				continue
+			}
+			execRef.ID = eid
 			spec := adapter.TaskSpec{
 				ID:             t.ID,
 				Agent:          step.Agent,
@@ -177,6 +191,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 				Model:          model,
 				SessionRef:     "",
 				PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
+				Execution:      execRef,
 			}
 			h, err := ad.Start(ctx, spec)
 			if err != nil {
@@ -194,10 +209,11 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			gmodel := model
 			gad := ad
 			gprior := append([]string(nil), priorList...)
+			gexec := execRef
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				text, failed := e.forwardWorkerEvents(ctx, id, gagent, gmodel, gh)
+				text, failed := e.forwardWorkerEvents(ctx, id, gagent, gmodel, gexec, gh)
 				// Workers sometimes leak role/meta chatter and end_turn without findings.
 				// Retry once with a tighter brief; if still meta, mark failed so the
 				// orchestrator does not present it as a successful answer.
@@ -209,30 +225,44 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", e.agentDisplayName(gagent, gmodel))
 						e.emitSpeakerMessage(ctx, id, main, "assistant", retryNote, "orchestrator", "progress")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
-						// Keep assignment identity stable for approvals.
-						spec := adapter.TaskSpec{
-							ID:             id,
-							Agent:          gagent,
-							Cwd:            t.EffectiveCwd(),
-							Prompt:         retryBrief,
-							Model:          gmodel,
-							SessionRef:     "",
-							PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
+						// Parent task id stays stable for approval lookup; meta-retry
+						// gets a fresh execution id so attribution distinguishes runs.
+						retryExec := adapter.ExecutionRef{
+							Agent: gagent,
+							Model: gmodel,
+							Step:  gsi + 1,
 						}
-						h2, err := gad.Start(ctx, spec)
+						eid, err := e.newID()
 						if err != nil {
-							e.emitError(ctx, id, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
+							e.emitError(ctx, id, fmt.Sprintf("%s meta-retry execution id: %v", gagent, err))
 							failed = true
 						} else {
-							// Allow Cancel() during retry.
-							e.mu.Lock()
-							if e.handleGroups != nil {
-								e.handleGroups[id] = append(e.handleGroups[id], h2)
+							retryExec.ID = eid
+							spec := adapter.TaskSpec{
+								ID:             id,
+								Agent:          gagent,
+								Cwd:            t.EffectiveCwd(),
+								Prompt:         retryBrief,
+								Model:          gmodel,
+								SessionRef:     "",
+								PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
+								Execution:      retryExec,
 							}
-							e.handles[id] = h2
-							e.mu.Unlock()
-							text2, failed2 := e.forwardWorkerEvents(ctx, id, gagent, gmodel, h2)
-							text, failed = text2, failed2
+							h2, err := gad.Start(ctx, spec)
+							if err != nil {
+								e.emitError(ctx, id, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
+								failed = true
+							} else {
+								// Allow Cancel() during retry.
+								e.mu.Lock()
+								if e.handleGroups != nil {
+									e.handleGroups[id] = append(e.handleGroups[id], h2)
+								}
+								e.handles[id] = h2
+								e.mu.Unlock()
+								text2, failed2 := e.forwardWorkerEvents(ctx, id, gagent, gmodel, retryExec, h2)
+								text, failed = text2, failed2
+							}
 						}
 					}
 				}
@@ -395,7 +425,7 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool)
 
 // forwardWorkerEvents copies adapter events onto the parent task, stamping speaker.
 // Safe for concurrent waves (serialized via eventMu).
-func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model string, h adapter.RunHandle) (string, bool) {
+func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model string, exec adapter.ExecutionRef, h adapter.RunHandle) (string, bool) {
 	// Collect only final, user-facing findings for the orchestrator summary.
 	// Process chatter (partials / intermediate tool narration) stays on the event
 	// bus for the progress UI, but must not become the main-chat "结果".
@@ -405,7 +435,7 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 	isErr := false
 
 	for ev := range h.Events() {
-		payload := stampWorker(ev.Payload, agent, model)
+		payload := stampWorker(ev.Payload, agent, model, exec)
 		e.appendEventLocked(ctx, taskID, ev.Type, payload)
 		switch ev.Type {
 		case "message":
@@ -521,16 +551,16 @@ func (e *Engine) emitError(ctx context.Context, taskID, msg string) {
 
 // stampSpeaker tags events for the user-facing main agent / single-agent runs.
 // Does not force task-only visibility (workers use stampWorker).
-func stampSpeaker(raw json.RawMessage, agent, model string) json.RawMessage {
-	return stampAgent(raw, agent, model, false)
+func stampSpeaker(raw json.RawMessage, agent, model string, exec adapter.ExecutionRef) json.RawMessage {
+	return stampAgent(raw, agent, model, false, exec)
 }
 
 // stampWorker tags sub-agent events as task-only (hidden from main chat column).
-func stampWorker(raw json.RawMessage, agent, model string) json.RawMessage {
-	return stampAgent(raw, agent, model, true)
+func stampWorker(raw json.RawMessage, agent, model string, exec adapter.ExecutionRef) json.RawMessage {
+	return stampAgent(raw, agent, model, true, exec)
 }
 
-func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool) json.RawMessage {
+func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec adapter.ExecutionRef) json.RawMessage {
 	if len(raw) == 0 {
 		m := map[string]any{"agent": agent, "speaker": agent, "source": agent}
 		if model = strings.TrimSpace(model); model != "" {
@@ -541,6 +571,7 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool) json.Ra
 		} else {
 			m["visibility"] = map[string]bool{"user": true, "task": true}
 		}
+		applyExecutionMeta(m, exec)
 		b, _ := json.Marshal(m)
 		return b
 	}
@@ -571,11 +602,31 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool) json.Ra
 			m["visibility"] = map[string]bool{"user": true, "task": true}
 		}
 	}
+	applyExecutionMeta(m, exec)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return raw
 	}
 	return out
+}
+
+// applyExecutionMeta stamps immutable adapter-run identity onto event metadata.
+func applyExecutionMeta(m map[string]any, exec adapter.ExecutionRef) {
+	if m == nil {
+		return
+	}
+	if id := strings.TrimSpace(exec.ID); id != "" {
+		m["execution_id"] = id
+	}
+	if exec.Step > 0 {
+		m["execution_step"] = exec.Step
+	}
+	if agent := strings.TrimSpace(exec.Agent); agent != "" {
+		m["execution_agent"] = agent
+	}
+	if model := strings.TrimSpace(exec.Model); model != "" {
+		m["execution_model"] = model
+	}
 }
 
 func extractMessageTextFromRaw(raw json.RawMessage) string {

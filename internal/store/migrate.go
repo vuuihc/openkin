@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 8
+const schemaVersion = 9
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -52,7 +52,11 @@ CREATE TABLE approvals (
   decision    TEXT NOT NULL DEFAULT 'pending',
   decided_via TEXT,
   created_at  INTEGER NOT NULL,
-  decided_at  INTEGER
+  decided_at  INTEGER,
+  execution_id    TEXT,
+  execution_agent TEXT,
+  execution_step  INTEGER,
+  execution_model TEXT
 );
 
 CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
@@ -267,6 +271,11 @@ CREATE INDEX IF NOT EXISTS idx_project_recycles_project ON project_recycles(proj
 CREATE INDEX IF NOT EXISTS idx_project_recycles_pending ON project_recycles(project_id, status, created_at DESC);
 `
 
+// Migration 009 adds nullable execution attribution columns to approvals.
+// Applied conditionally (missing columns only) so fresh DBs whose migration001
+// already includes the columns and legacy fixtures without an approvals table
+// both advance to user_version=9 cleanly.
+
 func (s *Store) migrate() error {
 	var v int
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
@@ -436,6 +445,54 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 008: %w", err)
+		}
+		v = 8
+	}
+
+	if v == 8 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 009: %w", err)
+		}
+		// Fresh DBs already have execution columns in migration001. Populated
+		// legacy fixtures may lack the approvals table or already include some
+		// columns after partial upgrades; add only missing nullable columns.
+		var hasApprovals int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'approvals'`).Scan(&hasApprovals); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check approvals table: %w", err)
+		}
+		if hasApprovals > 0 {
+			cols := []struct {
+				name string
+				decl string
+			}{
+				{"execution_id", "TEXT"},
+				{"execution_agent", "TEXT"},
+				{"execution_step", "INTEGER"},
+				{"execution_model", "TEXT"},
+			}
+			for _, col := range cols {
+				var n int
+				q := fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('approvals') WHERE name = '%s'`, col.name)
+				if err := tx.QueryRow(q).Scan(&n); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("check approvals.%s: %w", col.name, err)
+				}
+				if n == 0 {
+					if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE approvals ADD COLUMN %s %s`, col.name, col.decl)); err != nil {
+						_ = tx.Rollback()
+						return fmt.Errorf("add approvals.%s: %w", col.name, err)
+					}
+				}
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 9`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 009: %w", err)
 		}
 	}
 	return nil

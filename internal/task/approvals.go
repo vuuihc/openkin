@@ -21,15 +21,47 @@ var ErrConflict = errors.New("conflict")
 var ErrAlreadyDecided = errors.New("approval already decided")
 
 // CreateApprovalRequest is the body for POST /internal/approvals.
+// Execution fields are optional and identify the concrete adapter run that
+// requested the approval. Parent TaskID remains required for lifecycle.
 type CreateApprovalRequest struct {
 	TaskID  string          `json:"task_id"`
 	Kind    string          `json:"kind"`
 	Payload json.RawMessage `json:"payload"`
+	// Optional execution attribution (worker / host adapter run).
+	ExecutionID    string `json:"execution_id,omitempty"`
+	ExecutionAgent string `json:"execution_agent,omitempty"`
+	ExecutionStep  int    `json:"execution_step,omitempty"` // 1-based; 0 = unset
+	ExecutionModel string `json:"execution_model,omitempty"`
 }
 
 // DecisionRequest is the body for POST /api/approvals/{id}/decision.
 type DecisionRequest struct {
 	Decision string `json:"decision"` // approved | denied
+}
+
+// normalizeExecutionAttribution enforces approval attribution invariants.
+// Historical / unattributed requests leave all fields empty.
+// Partial metadata without execution_id is rejected so nothing is persisted.
+// When execution_id is set, execution_agent is required. Delegated workers
+// (step >= 1) must pass a positive plan step; host runs may omit step (0).
+func normalizeExecutionAttribution(id, agent string, step int, model string) (string, string, int, string, error) {
+	id = strings.TrimSpace(id)
+	agent = strings.TrimSpace(agent)
+	model = strings.TrimSpace(model)
+	if id == "" {
+		if agent != "" || step != 0 || model != "" {
+			return "", "", 0, "", fmt.Errorf("execution_agent/step/model require execution_id")
+		}
+		return "", "", 0, "", nil
+	}
+	if agent == "" {
+		return "", "", 0, "", fmt.Errorf("execution_agent is required when execution_id is set")
+	}
+	if step < 0 {
+		return "", "", 0, "", fmt.Errorf("execution_step must be >= 0")
+	}
+	// Positive step marks a delegated worker plan step. Zero is host / unset.
+	return id, agent, step, model, nil
 }
 
 // RequestApproval inserts a pending approval, sets task waiting_approval,
@@ -43,6 +75,12 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 	}
 	if len(req.Payload) == 0 {
 		req.Payload = json.RawMessage(`{}`)
+	}
+	execID, execAgent, execStep, execModel, err := normalizeExecutionAttribution(
+		req.ExecutionID, req.ExecutionAgent, req.ExecutionStep, req.ExecutionModel,
+	)
+	if err != nil {
+		return store.Approval{}, err
 	}
 
 	t, err := e.store.GetTask(ctx, req.TaskID)
@@ -69,6 +107,17 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 		Decision:  store.DecisionPending,
 		CreatedAt: now,
 	}
+	if execID != "" {
+		a.ExecutionID = &execID
+		a.ExecutionAgent = &execAgent
+		if execStep > 0 {
+			step := execStep
+			a.ExecutionStep = &step
+		}
+		if execModel != "" {
+			a.ExecutionModel = &execModel
+		}
+	}
 	if err := e.store.InsertApproval(ctx, a); err != nil {
 		return store.Approval{}, err
 	}
@@ -81,12 +130,28 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 	t, _ = e.store.GetTask(ctx, req.TaskID)
 	e.bus.PublishTask(t)
 
-	// Event payload includes approval id + tool request body.
-	evPayload, _ := json.Marshal(map[string]any{
+	// Event payload includes approval id + tool request body + optional execution ref.
+	evMap := map[string]any{
 		"approval_id": id,
 		"kind":        req.Kind,
 		"payload":     json.RawMessage(req.Payload),
-	})
+	}
+	if a.ExecutionID != nil {
+		evMap["execution_id"] = *a.ExecutionID
+	}
+	if a.ExecutionAgent != nil {
+		evMap["execution_agent"] = *a.ExecutionAgent
+		evMap["agent"] = *a.ExecutionAgent
+		evMap["speaker"] = *a.ExecutionAgent
+	}
+	if a.ExecutionStep != nil {
+		evMap["execution_step"] = *a.ExecutionStep
+	}
+	if a.ExecutionModel != nil {
+		evMap["execution_model"] = *a.ExecutionModel
+		evMap["model"] = *a.ExecutionModel
+	}
+	evPayload, _ := json.Marshal(evMap)
 	ev, err := e.store.AppendEvent(ctx, req.TaskID, "approval_requested", evPayload)
 	if err != nil {
 		return store.Approval{}, err

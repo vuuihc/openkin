@@ -22,6 +22,8 @@ const (
 const DefaultApprovalTTL = time.Hour
 
 // Approval is a row in the approvals table, optionally joined with task fields.
+// Execution* fields attribute the request to one concrete adapter run under
+// the parent task. Historical rows leave them null.
 type Approval struct {
 	ID         string          `json:"id"`
 	TaskID     string          `json:"task_id"`
@@ -31,12 +33,17 @@ type Approval struct {
 	DecidedVia *string         `json:"decided_via,omitempty"`
 	CreatedAt  int64           `json:"created_at"`
 	DecidedAt  *int64          `json:"decided_at,omitempty"`
+	// Execution attribution (nullable; additive).
+	ExecutionID    *string `json:"execution_id,omitempty"`
+	ExecutionAgent *string `json:"execution_agent,omitempty"`
+	ExecutionStep  *int    `json:"execution_step,omitempty"`
+	ExecutionModel *string `json:"execution_model,omitempty"`
 	// Joined from tasks (list endpoint).
 	TaskTitle string `json:"task_title,omitempty"`
 	TaskAgent string `json:"task_agent,omitempty"`
 }
 
-const approvalColumns = `id, task_id, kind, payload, decision, decided_via, created_at, decided_at`
+const approvalColumns = `id, task_id, kind, payload, decision, decided_via, created_at, decided_at, execution_id, execution_agent, execution_step, execution_model`
 
 func scanApproval(scanner interface {
 	Scan(dest ...any) error
@@ -45,23 +52,43 @@ func scanApproval(scanner interface {
 	var payload string
 	var decidedVia sql.NullString
 	var decidedAt sql.NullInt64
+	var execID, execAgent, execModel sql.NullString
+	var execStep sql.NullInt64
 	if err := scanner.Scan(
 		&a.ID, &a.TaskID, &a.Kind, &payload, &a.Decision,
 		&decidedVia, &a.CreatedAt, &decidedAt,
+		&execID, &execAgent, &execStep, &execModel,
 	); err != nil {
 		return Approval{}, err
 	}
 	a.Payload = json.RawMessage(payload)
 	if decidedVia.Valid {
-		a.DecidedVia = &decidedVia.String
+		s := decidedVia.String
+		a.DecidedVia = &s
 	}
 	if decidedAt.Valid {
-		a.DecidedAt = &decidedAt.Int64
+		v := decidedAt.Int64
+		a.DecidedAt = &v
+	}
+	if execID.Valid && execID.String != "" {
+		s := execID.String
+		a.ExecutionID = &s
+	}
+	if execAgent.Valid && execAgent.String != "" {
+		s := execAgent.String
+		a.ExecutionAgent = &s
+	}
+	if execStep.Valid {
+		step := int(execStep.Int64)
+		a.ExecutionStep = &step
+	}
+	if execModel.Valid && execModel.String != "" {
+		s := execModel.String
+		a.ExecutionModel = &s
 	}
 	return a, nil
 }
 
-// InsertApproval inserts a new pending approval.
 func (s *Store) InsertApproval(ctx context.Context, a Approval) error {
 	if a.Decision == "" {
 		a.Decision = DecisionPending
@@ -78,11 +105,27 @@ func (s *Store) InsertApproval(ctx context.Context, a Approval) error {
 	if a.DecidedAt != nil {
 		decidedAt = *a.DecidedAt
 	}
+	var execID, execAgent, execModel any
+	if a.ExecutionID != nil {
+		execID = *a.ExecutionID
+	}
+	if a.ExecutionAgent != nil {
+		execAgent = *a.ExecutionAgent
+	}
+	var execStep any
+	if a.ExecutionStep != nil {
+		execStep = *a.ExecutionStep
+	}
+	if a.ExecutionModel != nil {
+		execModel = *a.ExecutionModel
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO approvals (
-			id, task_id, kind, payload, decision, decided_via, created_at, decided_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, task_id, kind, payload, decision, decided_via, created_at, decided_at,
+			execution_id, execution_agent, execution_step, execution_model
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.TaskID, a.Kind, payload, a.Decision, decidedVia, a.CreatedAt, decidedAt,
+		execID, execAgent, execStep, execModel,
 	)
 	if err != nil {
 		return fmt.Errorf("insert approval: %w", err)
@@ -90,7 +133,6 @@ func (s *Store) InsertApproval(ctx context.Context, a Approval) error {
 	return nil
 }
 
-// GetApproval returns a single approval by id.
 func (s *Store) GetApproval(ctx context.Context, id string) (Approval, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+approvalColumns+` FROM approvals WHERE id = ?`, id)
 	a, err := scanApproval(row)
@@ -122,8 +164,9 @@ func (s *Store) ListApprovals(ctx context.Context, opts ListApprovalsOpts) ([]Ap
 	var b strings.Builder
 	args := make([]any, 0, 2)
 	b.WriteString(`
-		SELECT a.id, a.task_id, a.kind, a.payload, a.decision, a.decided_via,
-		       a.created_at, a.decided_at, t.title, t.agent
+		SELECT a.id, a.task_id, a.kind, a.payload, a.decision, a.decided_via, a.created_at, a.decided_at,
+			a.execution_id, a.execution_agent, a.execution_step, a.execution_model,
+			t.title, t.agent
 		FROM approvals a
 		JOIN tasks t ON t.id = a.task_id
 		WHERE 1=1`)
@@ -146,19 +189,40 @@ func (s *Store) ListApprovals(ctx context.Context, opts ListApprovalsOpts) ([]Ap
 		var payload string
 		var decidedVia sql.NullString
 		var decidedAt sql.NullInt64
+		var execID, execAgent, execModel sql.NullString
+		var execStep sql.NullInt64
 		if err := rows.Scan(
 			&a.ID, &a.TaskID, &a.Kind, &payload, &a.Decision,
 			&decidedVia, &a.CreatedAt, &decidedAt,
+			&execID, &execAgent, &execStep, &execModel,
 			&a.TaskTitle, &a.TaskAgent,
 		); err != nil {
 			return nil, fmt.Errorf("scan approval: %w", err)
 		}
 		a.Payload = json.RawMessage(payload)
 		if decidedVia.Valid {
-			a.DecidedVia = &decidedVia.String
+			s := decidedVia.String
+			a.DecidedVia = &s
 		}
 		if decidedAt.Valid {
-			a.DecidedAt = &decidedAt.Int64
+			v := decidedAt.Int64
+			a.DecidedAt = &v
+		}
+		if execID.Valid && execID.String != "" {
+			s := execID.String
+			a.ExecutionID = &s
+		}
+		if execAgent.Valid && execAgent.String != "" {
+			s := execAgent.String
+			a.ExecutionAgent = &s
+		}
+		if execStep.Valid {
+			step := int(execStep.Int64)
+			a.ExecutionStep = &step
+		}
+		if execModel.Valid && execModel.String != "" {
+			s := execModel.String
+			a.ExecutionModel = &s
 		}
 		out = append(out, a)
 	}
