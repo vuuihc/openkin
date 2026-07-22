@@ -424,7 +424,7 @@ func (e *Engine) emitOrchestrationFallback(ctx context.Context, taskID, host, re
 		"stage":  stage,
 		"reason": reason,
 	})
-	e.appendEventLocked(ctx, taskID, "orchestration_fallback", payload)
+	_, _ = e.appendEventLocked(ctx, taskID, "orchestration_fallback", payload)
 }
 
 func (e *Engine) recordControllerUsage(ctx context.Context, taskID, host, purpose string, usage agent.ControlUsage) {
@@ -441,5 +441,5 @@ func (e *Engine) recordControllerUsage(ctx context.Context, taskID, host, purpos
 		"agent":      host,
 		"speaker":    host,
 	})
-	e.appendEventLocked(ctx, taskID, "usage", payload)
+	_, _ = e.appendEventLocked(ctx, taskID, "usage", payload)
 }

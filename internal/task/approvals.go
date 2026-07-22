@@ -152,11 +152,9 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 		evMap["model"] = *a.ExecutionModel
 	}
 	evPayload, _ := json.Marshal(evMap)
-	ev, err := e.store.AppendEvent(ctx, req.TaskID, "approval_requested", evPayload)
-	if err != nil {
-		return store.Approval{}, err
+	if _, err := e.appendEventLocked(ctx, req.TaskID, "approval_requested", evPayload); err != nil {
+		return store.Approval{}, fmt.Errorf("persist approval_requested: %w", err)
 	}
-	e.bus.PublishEvent(ev)
 	e.bus.PublishApproval(a)
 
 	if e.notify != nil {
@@ -191,15 +189,16 @@ func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Ap
 	// Notify long-poll waiters.
 	e.notifyApprovalWaiters(id, a)
 
-	// Event + task status.
+	// Event + task status. Losing approval_decided would make the audit trail
+	// incomplete; surface the error even though the decision row is stored.
 	evPayload, _ := json.Marshal(map[string]any{
 		"approval_id": id,
 		"decision":    decision,
 		"decided_via": via,
 	})
-	ev, err := e.store.AppendEvent(ctx, a.TaskID, "approval_decided", evPayload)
-	if err == nil {
-		e.bus.PublishEvent(ev)
+	if _, err := e.appendEventLocked(ctx, a.TaskID, "approval_decided", evPayload); err != nil {
+		e.bus.PublishApproval(a)
+		return a, fmt.Errorf("persist approval_decided: %w", err)
 	}
 
 	// Resume task to running if still waiting (process is blocked on MCP).

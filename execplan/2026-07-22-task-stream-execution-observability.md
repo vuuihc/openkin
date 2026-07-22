@@ -24,8 +24,12 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
   - Every host/worker/meta-retry adapter start receives a distinct execution ID; events and Claude approvals carry it beneath the parent Task ID.
   - Migration 009 preserves populated historical approvals with null attribution; partial metadata is rejected.
   - Approval UI distinguishes positive-step workers from step-zero host executions, with English/Chinese copy and pure formatter tests.
-- [ ] Milestone 4: make event persistence failures explicit and consolidate the canonical event contract.
-- [ ] Run full repository verification, inspect the built UI, update this plan, and commit each coherent change.
+- [x] (2026-07-22 23:50 +08) Milestone 4: make event persistence failures explicit and consolidate the canonical event contract.
+  - Narrow `eventWriter` seam on Engine; critical append failures (result, approval, user-visible message) prevent normal success.
+  - Disposable partial drops degrade live preview and emit a recovery diagnostic (`raw_output`) when the store accepts writes again.
+  - Go typed constants/helpers: origin, visibility, phase, execution attribution; orchestration `emitSpeakerMessage`/`stampAgent` migrated first.
+  - TypeScript: `eventMeta.ts` holds canonical metadata + one `decodeCanonicalEventMeta` legacy path; wording heuristics only for phase-less history.
+- [x] (2026-07-22 23:50 +08) Full verification: `go test ./internal/...`, `go test -race ./internal/task`, UI 117 tests, `npm run build` (web/dist regenerated).
 
 ## Surprises & Discoveries
 
@@ -53,6 +57,12 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
 - Observation: task-only routing previously hard-coded non-`kin` speakers as workers even when `visibility.user` was true and the speaker was the session host.
   Evidence: `isTaskOnly` returned `speaker !== "kin" && speaker !== "user"` for legacy rows; host-neutral hosts need hostSpeaker comparison, while explicit visibility remains authoritative for new events.
 
+
+- Observation: single-agent `result` events often persist through `AppendUsageEvent` rather than plain `AppendEvent`, so the injected failure seam must cover both paths.
+  Evidence: `TestResultPersistFailurePreventsSuccess` only failed the task after `failTypesEventWriter.AppendUsageEvent` honored the same type filter.
+- Observation: `TestNotifyOnApproval` had a pre-existing data race on a plain `string` written from the httptest handler; fixed with `atomic.Value` while exercising the approval event path under `-race`.
+  Evidence: `go test -race ./internal/task -run TestNotifyOnApproval`.
+
 ## Decision Log
 
 - Decision: on bus overflow, drop/close only the lagging subscriber instead of dropping the message while keeping the channel open.
@@ -75,9 +85,22 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
   Rationale: stored local task history must remain readable after upgrade.
   Date/Author: 2026-07-22 / Codex.
 
+
+- Decision: inject event-store failures through a narrow `eventWriter` interface on Engine rather than corrupting SQLite or refactoring Engine onto a broad repository interface.
+  Rationale: keeps production paths on `*store.Store`, makes persistence policy testable, and avoids a repository-wide Engine rewrite in one patch.
+  Date/Author: 2026-07-22 / Kin.
+- Decision: critical events (result, error, approval_*, non-partial user-visible messages) force a non-success terminal state when append fails; disposable partials only record a gap and emit a diagnostic on recovery.
+  Rationale: a Task must not report success with a missing audit trail, while live preview degradation remains observable without failing every tool blip.
+  Date/Author: 2026-07-22 / Kin.
+- Decision: consolidate TypeScript legacy visibility/speaker decoding in `decodeCanonicalEventMeta` and retain wording heuristics only for phase-less orchestrator history.
+  Rationale: new rows use explicit phase/visibility; stored history must keep rendering without a broad UI rewrite.
+  Date/Author: 2026-07-22 / Kin.
+
 ## Outcomes & Retrospective
 
-Milestones 1–3 are complete and integrated. Live task streams now recover sequence gaps, arbitrary plugin IDs project without UI whitelists, and delegated executions/approvals have stable attribution beneath the parent Task. Gate review caught and corrected a step-zero host being mislabeled as a worker and restored unrelated Store behavior before integration. Milestone 4—persistence-failure observability and canonical contract consolidation—remains open.
+Milestones 1–4 are complete on this plan. Live task streams recover sequence gaps; arbitrary plugin IDs project without UI whitelists; delegated executions/approvals carry stable attribution; and event persistence failures are explicit: losing a final result, approval event, or canonical user-visible message prevents a normal successful terminal state, while disposable partial drops degrade the preview and surface a recovery diagnostic. Canonical origin/visibility/phase/execution helpers live in Go (`event_meta.go`) and TypeScript (`eventMeta.ts`) with orchestration migrated first and legacy decoding isolated behind one compatibility path. Provider payload shapes remain compatible.
+
+Verification for Milestone 4: `go test ./internal/...`, `go test -race ./internal/task`, `go vet ./internal/task/...`, UI Vitest 117/117, `npm run build` regenerating `web/dist/`.
 
 ## Context and Orientation
 

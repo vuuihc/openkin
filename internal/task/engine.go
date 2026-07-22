@@ -78,8 +78,13 @@ type Engine struct {
 	titleFn   TitleResolver
 	workspace WorkspaceRuntime
 
+	// events is the narrow event persistence seam (nil → storeEventWriter).
+	// Tests inject failures here without corrupting a real database.
+	events eventWriter
+
 	mu            sync.Mutex
 	eventMu       sync.Mutex // serializes event append during parallel worker waves
+	persistMu     sync.Mutex // disposable persist-gap bookkeeping
 	maxConcurrent int
 	active        int
 	queue         []string // FIFO of task IDs waiting to run
@@ -88,6 +93,11 @@ type Engine struct {
 	canceled      map[string]bool
 	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
 	pendingFollowUp map[string]pendingFollowUp
+	// criticalPersistFail forces a non-success terminal state when a final
+	// result, approval event, or user-visible message could not be stored.
+	criticalPersistFail map[string]error
+	// persistGaps tracks disposable drops so recovery can emit a diagnostic.
+	persistGaps map[string]*persistGap
 	ctx             context.Context
 	cancel          context.CancelFunc
 	entropy         ioReader
@@ -120,19 +130,26 @@ func NewEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		agents = agent.MustRegistry()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	var events eventWriter
+	if st != nil {
+		events = storeEventWriter{st: st}
+	}
 	return &Engine{
-		store:           st,
-		agents:          agents,
-		bus:             bus,
-		maxConcurrent:   maxConcurrent,
-		handles:         make(map[string]adapter.RunHandle),
-		canceled:        make(map[string]bool),
-		pendingFollowUp: make(map[string]pendingFollowUp),
-		ctx:             ctx,
-		cancel:          cancel,
-		entropy:         rand.Reader,
-		approvalWaiters: make(map[string][]chan store.Approval),
-		approvalTTL:     store.DefaultApprovalTTL,
+		store:               st,
+		agents:              agents,
+		bus:                 bus,
+		events:              events,
+		maxConcurrent:       maxConcurrent,
+		handles:             make(map[string]adapter.RunHandle),
+		canceled:            make(map[string]bool),
+		pendingFollowUp:     make(map[string]pendingFollowUp),
+		criticalPersistFail: make(map[string]error),
+		persistGaps:         make(map[string]*persistGap),
+		ctx:                 ctx,
+		cancel:              cancel,
+		entropy:             rand.Reader,
+		approvalWaiters:     make(map[string][]chan store.Approval),
+		approvalTTL:         store.DefaultApprovalTTL,
 	}
 }
 
@@ -436,10 +453,13 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		"speaker": "user",
 		"source":  "create",
 	})
-	if ev, err := e.store.AppendEvent(ctx, id, "message", userPayload); err == nil {
-		e.bus.PublishEvent(ev)
-		e.captureCheckpoint(ctx, t, ev.Seq)
+	ev, err := e.appendEventLocked(ctx, id, "message", userPayload)
+	if err != nil {
+		failed := StatusFailed
+		_ = e.store.UpdateTask(ctx, id, store.TaskPatch{Status: &failed})
+		return store.Task{}, fmt.Errorf("persist user message: %w", err)
 	}
+	e.captureCheckpoint(ctx, t, ev.Seq)
 
 	// Async LLM title when the user did not supply one and a provider is available.
 	if !explicitTitle {
@@ -812,9 +832,11 @@ func (e *Engine) startOne(id string) {
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
 	payload, _ := json.Marshal(map[string]string{"message": msg})
-	ev, err := e.store.AppendEvent(ctx, id, "error", payload)
-	if err == nil {
-		e.bus.PublishEvent(ev)
+	if w := e.eventWriter(); w != nil {
+		ev, err := w.AppendEvent(ctx, id, "error", payload)
+		if err == nil {
+			e.bus.PublishEvent(ev)
+		}
 	}
 	t, err := e.finish(ctx, id, StatusFailed, nil, nil)
 	e.mu.Lock()
@@ -846,18 +868,25 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		// Canonical usage events are incremental. A result is only an accounting
 		// fallback for legacy adapters that emitted no usage event in this run.
 		shouldAccount := ev.Type == "usage" || (ev.Type == "result" && !sawUsage)
+		w := e.eventWriter()
 		if shouldAccount {
 			record, usageErr := NormalizeUsage(speaker, model, payload)
 			if usageErr == nil {
 				missingPriceModel = e.populateEstimatedUsageCost(ctx, &record)
-				usageEvent, taskAfterUsage, appendErr := e.store.AppendUsageEvent(ctx, id, ev.Type, payload, record)
-				if appendErr != nil {
+				if w == nil {
 					accountingFailed = true
+					e.notePersistFailure(id, ev.Type, payload, fmt.Errorf("event writer unavailable"))
 				} else {
-					stored = usageEvent
-					updatedTask = &taskAfterUsage
-					if ev.Type == "usage" {
-						sawUsage = true
+					usageEvent, taskAfterUsage, appendErr := w.AppendUsageEvent(ctx, id, ev.Type, payload, record)
+					if appendErr != nil {
+						accountingFailed = true
+						e.notePersistFailure(id, ev.Type, payload, appendErr)
+					} else {
+						stored = usageEvent
+						updatedTask = &taskAfterUsage
+						if ev.Type == "usage" {
+							sawUsage = true
+						}
 					}
 				}
 			}
@@ -866,13 +895,19 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			continue
 		}
 		if stored.TaskID == "" {
+			if w == nil {
+				e.notePersistFailure(id, ev.Type, payload, fmt.Errorf("event writer unavailable"))
+				continue
+			}
 			var err error
-			stored, err = e.store.AppendEvent(ctx, id, ev.Type, payload)
+			stored, err = w.AppendEvent(ctx, id, ev.Type, payload)
 			if err != nil {
+				e.notePersistFailure(id, ev.Type, payload, err)
 				continue
 			}
 		}
 		e.bus.PublishEvent(stored)
+		e.maybeEmitPersistDiagnostic(ctx, id)
 		if updatedTask != nil {
 			e.bus.PublishTask(*updatedTask)
 		}
@@ -880,8 +915,10 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			note, _ := json.Marshal(map[string]string{
 				"line": fmt.Sprintf("price_table has no entry for model %q; cost_usd left null", missingPriceModel),
 			})
-			if diagnostic, err := e.store.AppendEvent(ctx, id, "raw_output", note); err == nil {
-				e.bus.PublishEvent(diagnostic)
+			if w != nil {
+				if diagnostic, err := w.AppendEvent(ctx, id, "raw_output", note); err == nil {
+					e.bus.PublishEvent(diagnostic)
+				}
 			}
 		}
 
@@ -956,12 +993,24 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	}
 
 	final := StatusSucceeded
-	if !sawResult || resultIsError {
+	if !sawResult || resultIsError || e.hasCriticalPersistFailure(id) {
 		final = StatusFailed
-		if !sawResult {
+		if !sawResult && !e.hasCriticalPersistFailure(id) {
 			payload, _ := json.Marshal(map[string]string{"message": "process exited without result"})
-			if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
-				e.bus.PublishEvent(ev)
+			if w := e.eventWriter(); w != nil {
+				if ev, err := w.AppendEvent(ctx, id, "error", payload); err == nil {
+					e.bus.PublishEvent(ev)
+				} else {
+					e.notePersistFailure(id, "error", payload, err)
+				}
+			}
+		} else if e.hasCriticalPersistFailure(id) && !sawResult {
+			// Result was lost at the store; surface an explicit error event if possible.
+			payload, _ := json.Marshal(map[string]string{"message": "failed to persist critical task event"})
+			if w := e.eventWriter(); w != nil {
+				if ev, err := w.AppendEvent(ctx, id, "error", payload); err == nil {
+					e.bus.PublishEvent(ev)
+				}
 			}
 		}
 	}
@@ -971,6 +1020,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	if ec, ok := h.(exitCoder); ok {
 		exitCode = ec.ExitCode()
 	}
+	e.clearPersistTracking(id)
 	_, _ = e.finish(ctx, id, final, exitCode, nil)
 	e.pump()
 }

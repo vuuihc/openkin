@@ -29,10 +29,11 @@ func (a *hangAd) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunH
 
 func TestNotifyOnApproval(t *testing.T) {
 	var hits atomic.Int32
-	var click string
+	var click atomic.Value
+	click.Store("")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		click = r.Header.Get("Click")
+		click.Store(r.Header.Get("Click"))
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(200)
 	}))
@@ -70,7 +71,7 @@ func TestNotifyOnApproval(t *testing.T) {
 	if hits.Load() == 0 {
 		t.Fatal("expected notification POST")
 	}
-	if click != "http://host:7777/approvals" {
-		t.Fatalf("click=%q", click)
+	if got, _ := click.Load().(string); got != "http://host:7777/approvals" {
+		t.Fatalf("click=%q", got)
 	}
 }

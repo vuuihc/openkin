@@ -377,7 +377,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		"waves":    len(waves),
 		"main":     main,
 	})
-	e.appendEventLocked(ctx, id, "result", res)
+	_, _ = e.appendEventLocked(ctx, id, "result", res)
 
 	e.finishOrchestrated(ctx, id, anyErr)
 }
@@ -411,14 +411,16 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool)
 	}
 
 	if wasCanceled {
+		e.clearPersistTracking(id)
 		_, _ = e.finish(ctx, id, StatusCanceled, nil, nil)
 		e.pump()
 		return
 	}
 	final := StatusSucceeded
-	if failed {
+	if failed || e.hasCriticalPersistFailure(id) {
 		final = StatusFailed
 	}
+	e.clearPersistTracking(id)
 	_, _ = e.finish(ctx, id, final, nil, nil)
 	e.pump()
 }
@@ -436,7 +438,7 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 
 	for ev := range h.Events() {
 		payload := stampWorker(ev.Payload, agent, model, exec)
-		e.appendEventLocked(ctx, taskID, ev.Type, payload)
+		_, _ = e.appendEventLocked(ctx, taskID, ev.Type, payload)
 		switch ev.Type {
 		case "message":
 			if t := extractFinalWorkerText(ev.Payload); t != "" {
@@ -516,37 +518,57 @@ func extractResultText(raw json.RawMessage) string {
 	return ""
 }
 
-func (e *Engine) appendEventLocked(ctx context.Context, taskID, typ string, payload json.RawMessage) {
+// appendEventLocked persists then publishes an event (append-first rule).
+// Critical failures are recorded so the task cannot terminate as a normal
+// success with a missing audit trail. Safe for concurrent waves (eventMu).
+func (e *Engine) appendEventLocked(ctx context.Context, taskID, typ string, payload json.RawMessage) (store.Event, error) {
 	e.eventMu.Lock()
 	defer e.eventMu.Unlock()
-	stored, err := e.store.AppendEvent(ctx, taskID, typ, payload)
-	if err == nil {
-		e.bus.PublishEvent(stored)
+	w := e.eventWriter()
+	if w == nil {
+		err := fmt.Errorf("event writer unavailable")
+		e.notePersistFailure(taskID, typ, payload, err)
+		return store.Event{}, err
 	}
+	stored, err := w.AppendEvent(ctx, taskID, typ, payload)
+	if err != nil {
+		e.notePersistFailure(taskID, typ, payload, err)
+		return store.Event{}, err
+	}
+	e.bus.PublishEvent(stored)
+	e.maybeEmitPersistDiagnostic(ctx, taskID)
+	return stored, nil
 }
 
 func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agentID, role, text, source, phase string) {
 	// Host plan/delegate/summary are user-facing; other sources default to task+user.
-	userFacing := source == "orchestrator" || source == "delegate" || source == "host"
-	payload, _ := json.Marshal(map[string]any{
-		"role":    role,
-		"content": []map[string]string{{"type": "text", "text": text}},
-		"partial": false,
-		"agent":   agentID,
-		"speaker": agentID,
-		"source":  source,
-		"phase":   phase,
-		"visibility": map[string]bool{
-			"user": userFacing,
-			"task": true,
-		},
+	userFacing := source == OriginOrchestrator || source == OriginDelegate || source == OriginHost
+	vis := VisibilityUserFacing()
+	if !userFacing {
+		vis = VisibilityTaskOnly()
+	}
+	payload, err := MarshalMessage(text, EventAttribution{
+		Speaker:    agentID,
+		Agent:      agentID,
+		Source:     source,
+		Phase:      phase,
+		Role:       role,
+		Visibility: &vis,
 	})
-	e.appendEventLocked(ctx, taskID, "message", payload)
+	if err != nil {
+		// Fall back to a minimal map if marshaling fails (should not happen).
+		payload, _ = json.Marshal(map[string]any{
+			"role": role, "content": []map[string]string{{"type": "text", "text": text}},
+			"partial": false, "agent": agentID, "speaker": agentID, "source": source, "phase": phase,
+			"visibility": map[string]bool{"user": userFacing, "task": true},
+		})
+	}
+	_, _ = e.appendEventLocked(ctx, taskID, "message", payload)
 }
 
 func (e *Engine) emitError(ctx context.Context, taskID, msg string) {
 	payload, _ := json.Marshal(map[string]string{"message": msg})
-	e.appendEventLocked(ctx, taskID, "error", payload)
+	_, _ = e.appendEventLocked(ctx, taskID, "error", payload)
 }
 
 // stampSpeaker tags events for the user-facing main agent / single-agent runs.
@@ -561,17 +583,21 @@ func stampWorker(raw json.RawMessage, agent, model string, exec adapter.Executio
 }
 
 func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec adapter.ExecutionRef) json.RawMessage {
+	vis := VisibilityUserFacing()
+	if taskOnly {
+		vis = VisibilityTaskOnly()
+	}
+	attr := EventAttribution{
+		Speaker:    agent,
+		Agent:      agent,
+		Source:     agent,
+		Model:      model,
+		Visibility: &vis,
+		Execution:  exec,
+	}
 	if len(raw) == 0 {
-		m := map[string]any{"agent": agent, "speaker": agent, "source": agent}
-		if model = strings.TrimSpace(model); model != "" {
-			m["model"] = model
-		}
-		if taskOnly {
-			m["visibility"] = map[string]bool{"user": false, "task": true}
-		} else {
-			m["visibility"] = map[string]bool{"user": true, "task": true}
-		}
-		applyExecutionMeta(m, exec)
+		m := map[string]any{}
+		ApplyAttribution(m, attr)
 		b, _ := json.Marshal(m)
 		return b
 	}
@@ -582,6 +608,7 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec ad
 	if m == nil {
 		m = map[string]any{}
 	}
+	// Stamping always owns agent/speaker identity for this run.
 	m["agent"] = agent
 	m["speaker"] = agent
 	if reported, ok := m["model"].(string); !ok || strings.TrimSpace(reported) == "" {
@@ -591,18 +618,9 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec ad
 			delete(m, "model")
 		}
 	}
-	if _, ok := m["source"]; !ok {
-		m["source"] = agent
-	}
 	// Never overwrite an explicit visibility from the emitter (e.g. kinagent tools).
-	if _, ok := m["visibility"]; !ok {
-		if taskOnly {
-			m["visibility"] = map[string]bool{"user": false, "task": true}
-		} else {
-			m["visibility"] = map[string]bool{"user": true, "task": true}
-		}
-	}
-	applyExecutionMeta(m, exec)
+	// ApplyAttribution preserves existing visibility and only fills source when unset.
+	ApplyAttribution(m, attr)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return raw

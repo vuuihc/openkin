@@ -1,5 +1,10 @@
 import type { TaskEvent } from "../../api/client";
 import { t } from "../../i18n";
+import {
+  decodeCanonicalEventMeta,
+  isProgressMessageMeta,
+  resolveSpeaker,
+} from "./eventMeta";
 
 export type ToolStep = {
   kind: "tool";
@@ -500,130 +505,38 @@ function countLines(s: string): number {
   return text.split("\n").length;
 }
 
-/**
- * Resolve the speaking agent for an event.
- *
- * Explicit `speaker` / `agent` metadata is authoritative for any registered
- * plugin ID (ADR 0007: no UI agent-ID whitelist). Control-plane labels that
- * appear only as `source` (follow_up, create, orchestrator, delegate, …) are
- * never treated as speaker identity. Legacy rows may still encode a built-in
- * agent id in `source`; those are accepted only when not a control label.
- */
-function resolveSpeaker(
-  p: Record<string, unknown>,
-  hostSpeaker = "",
-): string {
-  for (const raw of [p.speaker, p.agent]) {
-    if (typeof raw === "string" && raw && !isControlSourceLabel(raw)) {
-      return raw;
-    }
-  }
-  // Narrow legacy path: older rows sometimes used source as agent identity.
-  const source = p.source;
-  if (typeof source === "string" && source && !isControlSourceLabel(source)) {
-    return source;
-  }
-  if (p.role === "user") return "user";
-  return hostSpeaker || "agent";
-}
+// Speaker / visibility / progress classification live in eventMeta.ts
+// (canonical contract + one legacy decode path).
 
-/** Transport/control labels that must not become chat speakers. */
-function isControlSourceLabel(value: string): boolean {
-  return (
-    value === "follow_up" ||
-    value === "handoff" ||
-    value === "create" ||
-    value === "orchestrate" ||
-    value === "orchestrator" ||
-    value === "delegate"
-  );
-}
-
-/**
- * Whether an event should render in the user-visible surface (chat column or
- * host tool progress) rather than being dropped as pure task-log noise.
- *
- * Explicit `visibility.user` is authoritative for new events. Legacy rows
- * without visibility keep a narrow compatibility rule: the session host, the
- * historical kin host id, user messages, and orchestrator labels remain
- * visible; other speakers are treated as workers.
- */
 function isUserFacingEvent(
   p: Record<string, unknown>,
   speaker: string,
   hostSpeaker = "",
 ): boolean {
-  const source = String(p.source ?? "");
-  if (source === "orchestrator" || source === "delegate") return true;
-  const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
-  if (v && typeof v.user === "boolean") return v.user;
-  // Legacy rows without visibility metadata.
+  const meta = decodeCanonicalEventMeta(p, hostSpeaker);
+  if (speaker) meta.speaker = speaker;
+  if (meta.origin === "orchestrator" || meta.origin === "delegate") return true;
+  if (meta.visibility && typeof meta.visibility.user === "boolean") {
+    return meta.visibility.user;
+  }
   return (
-    speaker === "user" ||
-    speaker === "kin" ||
-    speaker === hostSpeaker ||
-    speaker === "orchestrator"
+    meta.speaker === "user" ||
+    meta.speaker === "kin" ||
+    meta.speaker === hostSpeaker ||
+    meta.speaker === "orchestrator"
   );
 }
 
-/**
- * Intermediate multi-agent / worker chatter goes into the progress box.
- * Final orchestrator summaries and normal host replies stay as chat bubbles.
- */
 function isProgressMessage(
   p: Record<string, unknown>,
   speaker: string,
   text: string,
   hostSpeaker = "",
 ): boolean {
-  if (speaker === "user") return false;
-  const source = String(p.source ?? "");
-  if (source === "delegate") return true;
-  if (source === "orchestrator") {
-    const phase = String(p.phase ?? "");
-    if (phase === "summary") return false;
-    if (phase === "plan" || phase === "progress") return true;
-    // Final summary from buildMainSummary: "完成：" / "完成（有失败）："
-    // Keep this text heuristic only for events written before phase was added.
-    if (isOrchestratorSummary(text)) return false;
-    return true;
-  }
-  if (isTaskOnly(p, speaker, hostSpeaker)) return true;
-  return false;
-}
-
-function isOrchestratorSummary(text: string): boolean {
-  const trimmed = text.trim();
-  // zh from buildMainSummary; en-friendly fallbacks if copy changes later.
-  return (
-    /^完成(（有失败）)?[：:]/u.test(trimmed) ||
-    /^(done|completed)([:：]|\s*\()/i.test(trimmed)
-  );
-}
-
-function isTaskOnly(
-  p: Record<string, unknown>,
-  speaker: string,
-  hostSpeaker = "",
-): boolean {
-  if (speaker === "user") return false;
-  const source = String(p.source ?? "");
-  if (source === "orchestrator" || source === "delegate") return false;
-  const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
-  if (v && (typeof v.user === "boolean" || typeof v.task === "boolean")) {
-    // Explicit visibility is authoritative: user:true stays in chat even when
-    // also task-visible; user:false + task:true is worker progress chatter.
-    if (v.user) return false;
-    if (v.task) return true;
-  }
-  // Legacy rows without visibility: host (and historical kin) stay in chat;
-  // any other agent speaker is treated as a worker.
-  return (
-    speaker !== "user" &&
-    speaker !== "kin" &&
-    speaker !== hostSpeaker &&
-    speaker !== "orchestrator"
-  );
+  const meta = decodeCanonicalEventMeta(p, hostSpeaker);
+  // Prefer the resolved speaker already computed by the caller when present.
+  if (speaker) meta.speaker = speaker;
+  return isProgressMessageMeta(meta, text);
 }
 
 export function normalizeModel(value: unknown): string | undefined {
