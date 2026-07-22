@@ -242,7 +242,7 @@ export function buildChatItems(
           break;
         }
 
-        const asProgress = sp !== "user" && isProgressMessage(p, sp, text);
+        const asProgress = sp !== "user" && isProgressMessage(p, sp, text, hostSpeaker);
 
         if (partial) {
           // Switching between speakers / progress vs final message flushes.
@@ -500,41 +500,53 @@ function countLines(s: string): number {
   return text.split("\n").length;
 }
 
+/**
+ * Resolve the speaking agent for an event.
+ *
+ * Explicit `speaker` / `agent` metadata is authoritative for any registered
+ * plugin ID (ADR 0007: no UI agent-ID whitelist). Control-plane labels that
+ * appear only as `source` (follow_up, create, orchestrator, delegate, …) are
+ * never treated as speaker identity. Legacy rows may still encode a built-in
+ * agent id in `source`; those are accepted only when not a control label.
+ */
 function resolveSpeaker(
   p: Record<string, unknown>,
   hostSpeaker = "",
 ): string {
-  const s = p.speaker ?? p.agent ?? p.source;
-  if (
-    typeof s === "string" &&
-    s &&
-    s !== "follow_up" &&
-    s !== "handoff" &&
-    s !== "create" &&
-    s !== "orchestrate" &&
-    s !== "orchestrator" &&
-    s !== "delegate"
-  ) {
-    if (
-      s === "kin" ||
-      s === "claude-code" ||
-      s === "codex" ||
-      s === "grok" ||
-      s === "user"
-    ) {
-      return s;
+  for (const raw of [p.speaker, p.agent]) {
+    if (typeof raw === "string" && raw && !isControlSourceLabel(raw)) {
+      return raw;
     }
-    if (["claude-code", "codex", "grok", "kin"].includes(s)) return s;
+  }
+  // Narrow legacy path: older rows sometimes used source as agent identity.
+  const source = p.source;
+  if (typeof source === "string" && source && !isControlSourceLabel(source)) {
+    return source;
   }
   if (p.role === "user") return "user";
-  if (p.source === "orchestrator" || p.source === "delegate") return hostSpeaker;
-  return hostSpeaker;
+  return hostSpeaker || "agent";
+}
+
+/** Transport/control labels that must not become chat speakers. */
+function isControlSourceLabel(value: string): boolean {
+  return (
+    value === "follow_up" ||
+    value === "handoff" ||
+    value === "create" ||
+    value === "orchestrate" ||
+    value === "orchestrator" ||
+    value === "delegate"
+  );
 }
 
 /**
- * Whether an event is user-facing (shown in the main chat column) vs a
- * task-only worker step. Prefers the backend's explicit visibility flag; falls
- * back to the Kin-only assumption for legacy events without visibility.
+ * Whether an event should render in the user-visible surface (chat column or
+ * host tool progress) rather than being dropped as pure task-log noise.
+ *
+ * Explicit `visibility.user` is authoritative for new events. Legacy rows
+ * without visibility keep a narrow compatibility rule: the session host, the
+ * historical kin host id, user messages, and orchestrator labels remain
+ * visible; other speakers are treated as workers.
  */
 function isUserFacingEvent(
   p: Record<string, unknown>,
@@ -545,7 +557,7 @@ function isUserFacingEvent(
   if (source === "orchestrator" || source === "delegate") return true;
   const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
   if (v && typeof v.user === "boolean") return v.user;
-  // Legacy rows without visibility: host + kin + user are chat-visible.
+  // Legacy rows without visibility metadata.
   return (
     speaker === "user" ||
     speaker === "kin" ||
@@ -556,12 +568,13 @@ function isUserFacingEvent(
 
 /**
  * Intermediate multi-agent / worker chatter goes into the progress box.
- * Final orchestrator summaries and normal Kin replies stay as chat bubbles.
+ * Final orchestrator summaries and normal host replies stay as chat bubbles.
  */
 function isProgressMessage(
   p: Record<string, unknown>,
   speaker: string,
   text: string,
+  hostSpeaker = "",
 ): boolean {
   if (speaker === "user") return false;
   const source = String(p.source ?? "");
@@ -575,7 +588,7 @@ function isProgressMessage(
     if (isOrchestratorSummary(text)) return false;
     return true;
   }
-  if (isTaskOnly(p, speaker)) return true;
+  if (isTaskOnly(p, speaker, hostSpeaker)) return true;
   return false;
 }
 
@@ -588,18 +601,29 @@ function isOrchestratorSummary(text: string): boolean {
   );
 }
 
-function isTaskOnly(p: Record<string, unknown>, speaker: string): boolean {
+function isTaskOnly(
+  p: Record<string, unknown>,
+  speaker: string,
+  hostSpeaker = "",
+): boolean {
   if (speaker === "user") return false;
   const source = String(p.source ?? "");
   if (source === "orchestrator" || source === "delegate") return false;
   const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
   if (v && (typeof v.user === "boolean" || typeof v.task === "boolean")) {
-    // A user-facing event (main/single host agent) is never task-only, even
-    // when it is also task-visible. Only user:false steps are worker chatter.
+    // Explicit visibility is authoritative: user:true stays in chat even when
+    // also task-visible; user:false + task:true is worker progress chatter.
     if (v.user) return false;
     if (v.task) return true;
   }
-  return speaker !== "kin" && speaker !== "user";
+  // Legacy rows without visibility: host (and historical kin) stay in chat;
+  // any other agent speaker is treated as a worker.
+  return (
+    speaker !== "user" &&
+    speaker !== "kin" &&
+    speaker !== hostSpeaker &&
+    speaker !== "orchestrator"
+  );
 }
 
 export function normalizeModel(value: unknown): string | undefined {

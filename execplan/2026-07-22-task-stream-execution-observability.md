@@ -14,8 +14,10 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
 
 - [x] (2026-07-22 21:30 +08) Reviewed the task engine, event bus, WebSocket client, transcript projection, orchestration, approvals, store, ADR 0006, ADR 0007, and ADR 0008.
 - [x] (2026-07-22 21:30 +08) Confirmed the existing focused Go tests, 95 UI tests, and production UI build pass before implementation.
+- [x] (2026-07-22 21:33 +08) Milestone 2: removed production speaker-ID whitelists in `transcriptProjection`; explicit `speaker`/`agent` and `visibility` are authoritative with a narrow legacy path.
+- [x] (2026-07-22 21:33 +08) Added host-neutral projection tests using `future-agent` as host and worker; UI suite 102/102 and `npm run build` green.
 - [ ] Milestone 1: make stream delivery gap-aware and self-healing.
-- [ ] Milestone 2: make transcript projection host-neutral for arbitrary registered agents.
+- [x] (2026-07-22 21:33 +08) Milestone 2: make transcript projection host-neutral for arbitrary registered agents.
 - [ ] Milestone 3: add delegated execution identity and approval attribution.
 - [ ] Milestone 4: make event persistence failures explicit and consolidate the canonical event contract.
 - [ ] Run full repository verification, inspect the built UI, update this plan, and commit each coherent change.
@@ -30,6 +32,10 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
   Evidence: `resolveSpeaker` enumerates `kin`, `claude-code`, `codex`, and `grok`.
 - Observation: delegated Claude workers must retain the parent task ID because the approval bridge looks up a real task row; worker identity therefore cannot be represented by replacing `task_id`.
   Evidence: the comment and `TaskSpec` construction in `internal/task/orchestrate.go` explain this constraint.
+- Observation: `resolveSpeaker` duplicated the built-in agent allow-list twice and ignored any other explicit speaker string, so a correctly stamped plugin event still projected as the host.
+  Evidence: pre-change `resolveSpeaker` only returned `kin`/`claude-code`/`codex`/`grok`/`user`; Milestone 2 tests with `speaker: "future-agent"` failed until the whitelist was removed.
+- Observation: task-only routing previously hard-coded non-`kin` speakers as workers even when `visibility.user` was true and the speaker was the session host.
+  Evidence: `isTaskOnly` returned `speaker !== "kin" && speaker !== "user"` for legacy rows; host-neutral hosts need hostSpeaker comparison, while explicit visibility remains authoritative for new events.
 
 ## Decision Log
 
@@ -48,7 +54,7 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
 
 ## Outcomes & Retrospective
 
-Implementation has not started. The baseline is green. Update this section after every milestone with observable behavior, remaining gaps, and any scope change.
+Milestone 2 is complete. Arbitrary plugin IDs such as `future-agent` now project as host messages and as worker progress when `visibility.user=false, task=true`, without enumerating the ID in production UI code. Legacy Kin host and built-in worker rows without visibility still render. Remaining work: stream gap recovery (M1), execution/approval attribution (M3), and persistence-failure observability plus canonical contract consolidation (M4).
 
 ## Context and Orientation
 

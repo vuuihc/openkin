@@ -252,7 +252,189 @@ describe("transcriptProjection", () => {
     ]);
   });
 
-    it("groups projected items into user and agent turns", () => {
+  
+  it("projects an arbitrary plugin host without a speaker whitelist", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          content: [{ type: "text", text: "ship it" }],
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "future-agent",
+          text: "host reply from a new plugin",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "future-agent",
+    );
+
+    expect(items).toMatchObject([
+      { kind: "message", speaker: "user", text: "ship it" },
+      {
+        kind: "message",
+        speaker: "future-agent",
+        text: "host reply from a new plugin",
+      },
+    ]);
+  });
+
+  it("accepts explicit agent field for arbitrary plugin speakers", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          agent: "future-agent",
+          text: "identity via agent field",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "future-agent",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "message",
+        speaker: "future-agent",
+        text: "identity via agent field",
+      },
+    ]);
+  });
+
+  it("keeps future-agent worker chatter in progress via visibility metadata", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "future-agent",
+          text: "worker scratch notes",
+          visibility: { user: false, task: true },
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "host summary after workers",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        speaker: "kin",
+        steps: [
+          {
+            kind: "note",
+            speaker: "future-agent",
+            text: "worker scratch notes",
+          },
+        ],
+      },
+      {
+        kind: "message",
+        speaker: "kin",
+        text: "host summary after workers",
+      },
+    ]);
+  });
+
+  it("uses future-agent as host while a built-in worker stays in progress", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          source: "delegate",
+          speaker: "claude-code",
+          text: "→ delegated worker",
+          visibility: { user: false, task: true },
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "future-agent",
+          text: "host closes the turn",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "future-agent",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        speaker: "future-agent",
+        steps: [
+          {
+            kind: "note",
+            speaker: "claude-code",
+            text: "→ delegated worker",
+          },
+        ],
+      },
+      {
+        kind: "message",
+        speaker: "future-agent",
+        text: "host closes the turn",
+      },
+    ]);
+  });
+
+  it("preserves legacy kin host and built-in worker events without visibility", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          source: "delegate",
+          speaker: "codex",
+          text: "legacy worker note",
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "legacy host reply",
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [{ kind: "note", speaker: "codex", text: "legacy worker note" }],
+      },
+      {
+        kind: "message",
+        speaker: "kin",
+        text: "legacy host reply",
+      },
+    ]);
+  });
+
+  it("does not treat control source labels as speakers", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          source: "follow_up",
+          text: "follow-up reply",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "future-agent",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "message",
+        speaker: "future-agent",
+        text: "follow-up reply",
+      },
+    ]);
+  });
+
+  it("groups projected items into user and agent turns", () => {
     const items = buildChatItems(
       [
         ev(1, "message", { role: "user", text: "do it" }),
@@ -270,6 +452,31 @@ describe("transcriptProjection", () => {
     expect(turns).toMatchObject([
       { kind: "user" },
       { kind: "agent", speaker: "kin", items: [{ text: "working" }, { kind: "meta" }] },
+    ]);
+  });
+
+  it("groups turns under an arbitrary plugin host speaker", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", { role: "user", text: "go" }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "future-agent",
+          text: "on it",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "future-agent",
+    );
+
+    const turns = groupIntoTurns(items, "future-agent");
+    expect(turns).toMatchObject([
+      { kind: "user" },
+      {
+        kind: "agent",
+        speaker: "future-agent",
+        items: [{ kind: "message", speaker: "future-agent", text: "on it" }],
+      },
     ]);
   });
 });
