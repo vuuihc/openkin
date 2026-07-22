@@ -188,3 +188,147 @@ OpenKeep 容易被当成笔记应用。`
 		t.Fatal("long real answer with late incidental mention should pass")
 	}
 }
+
+func TestResponseLanguageForPrompt(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+		want   responseLanguage
+	}{
+		{name: "Chinese", prompt: "请修复登录问题并说明原因", want: responseLanguageChinese},
+		{name: "English", prompt: "Fix the login issue and explain why", want: responseLanguageEnglish},
+		{name: "Chinese prompt explicitly asks English", prompt: "请修复登录问题，用英文回答", want: responseLanguageEnglish},
+		{name: "English prompt explicitly asks Chinese", prompt: "Fix the login issue and answer in Chinese", want: responseLanguageChinese},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := responseLanguageForPrompt(tt.prompt); got != tt.want {
+				t.Fatalf("language=%v want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCleanUserFacingSynthesis(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		lang responseLanguage
+		want string
+		ok   bool
+	}{
+		{
+			name: "removes orchestration wrapper",
+			raw:  "Multi-agent run summary\n\nRequest: fix the login flow\nWorker: [Codex] (ok)\nDeliverable: The login flow now validates tokens.\n\nDetails in task log / session_search",
+			lang: responseLanguageEnglish,
+			want: "The login flow now validates tokens.",
+			ok:   true,
+		},
+		{
+			name: "rejects marker-only response",
+			raw:  "[Codex] (ok)\nWorker Digest\n… details in task log / session_search",
+			lang: responseLanguageEnglish,
+			ok:   false,
+		},
+		{
+			name: "rejects surviving internal prose",
+			raw:  "I am the orchestration controller and here is the worker digest.",
+			lang: responseLanguageEnglish,
+			ok:   false,
+		},
+		{
+			name: "rejects wrong response language",
+			raw:  "The change is complete.",
+			lang: responseLanguageChinese,
+			ok:   false,
+		},
+		{
+			name: "preserves Markdown indentation",
+			raw:  "Fixed with:\n\n    go test ./internal/task\n\n- result\n  - nested",
+			lang: responseLanguageEnglish,
+			want: "Fixed with:\n\n    go test ./internal/task\n\n- result\n  - nested",
+			ok:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := cleanUserFacingSynthesis(tt.raw, tt.lang)
+			if ok != tt.ok {
+				t.Fatalf("ok=%v want %v (text=%q)", ok, tt.ok, got)
+			}
+			if got != tt.want {
+				t.Fatalf("text=%q want %q", got, tt.want)
+			}
+			for _, marker := range []string{"Multi-agent", "Worker", "Deliverable", "session_search", "task log"} {
+				if strings.Contains(strings.ToLower(got), strings.ToLower(marker)) {
+					t.Fatalf("internal marker %q leaked: %q", marker, got)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildUserFacingSummaryLanguageAndFallback(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+		prior  []string
+		failed []bool
+		anyErr bool
+		want   string
+	}{
+		{
+			name:   "Chinese result",
+			prompt: "请修复登录问题",
+			prior:  []string{"[Codex]\n登录流程已修复。\n… details in task log / session_search"},
+			failed: []bool{false},
+			want:   "已完成：\n\n登录流程已修复。",
+		},
+		{
+			name:   "English result",
+			prompt: "Fix the login issue",
+			prior:  []string{"[Codex]\nThe login flow is fixed.\n… details in task log / session_search"},
+			failed: []bool{false},
+			want:   "Completed:\n\nThe login flow is fixed.",
+		},
+		{
+			name:   "explicit English override",
+			prompt: "请修复登录问题，用英文回答",
+			prior:  []string{"[Codex]\nThe login flow is fixed."},
+			failed: []bool{false},
+			want:   "Completed:\n\nThe login flow is fixed.",
+		},
+		{
+			name:   "explicit Chinese override",
+			prompt: "Fix the login issue and answer in Chinese",
+			prior:  []string{"[Codex]\n登录流程已修复。"},
+			failed: []bool{false},
+			want:   "已完成：\n\n登录流程已修复。",
+		},
+		{
+			name:   "Chinese empty fallback",
+			prompt: "请检查构建",
+			anyErr: true,
+			want:   "已完成，但有部分工作未成功：\n\n没有可显示的结果。",
+		},
+		{
+			name:   "English empty fallback",
+			prompt: "Check the build",
+			anyErr: true,
+			want:   "Completed, but some work was unsuccessful:\n\nNo result was available to display.",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildUserFacingSummary(tt.prompt, tt.prior, tt.failed, tt.anyErr)
+			if got != tt.want {
+				t.Fatalf("summary=%q want %q", got, tt.want)
+			}
+			for _, marker := range []string{"Multi-agent", "Request:", "Worker", "Deliverable", "session_search", "handoff", "digest"} {
+				if strings.Contains(strings.ToLower(got), strings.ToLower(marker)) {
+					t.Fatalf("internal marker %q leaked: %q", marker, got)
+				}
+			}
+		})
+	}
+}

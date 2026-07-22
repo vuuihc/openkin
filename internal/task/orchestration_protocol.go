@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/vuuihc/kin/internal/agent"
@@ -169,7 +171,7 @@ func (e *Engine) tryHostPlanRefine(ctx context.Context, host, model string, plan
 }
 
 // tryHostSynthesis asks the host controller for a final summary; empty/error → fallback.
-func (e *Engine) tryHostSynthesis(ctx context.Context, host, model, prompt string) (string, agent.ControlUsage, bool) {
+func (e *Engine) tryHostSynthesis(ctx context.Context, host, model, prompt string, lang responseLanguage) (string, agent.ControlUsage, bool) {
 	reg, ok := e.agents.Get(host)
 	if !ok || reg.Controller == nil {
 		return "", agent.ControlUsage{}, false
@@ -185,11 +187,168 @@ func (e *Engine) tryHostSynthesis(ctx context.Context, host, model, prompt strin
 	if err != nil {
 		return "", agent.ControlUsage{}, false
 	}
-	text := strings.TrimSpace(res.Text)
-	if text == "" || isWorkerMetaOutput(text) {
+	text, ok := cleanUserFacingSynthesis(res.Text, lang)
+	if !ok || isWorkerMetaOutput(text) {
 		return "", res.Usage, false
 	}
 	return text, res.Usage, true
+}
+
+type responseLanguage uint8
+
+const (
+	responseLanguageEnglish responseLanguage = iota
+	responseLanguageChinese
+)
+
+var (
+	// These expressions intentionally only recognize explicit response-language
+	// instructions. A casual mention of a language in the task should not
+	// change the language of the final answer.
+	responseLanguageEnglishRE  = regexp.MustCompile(`(?i)(?:\b(?:answer|respond|reply|write|output|use)\s+(?:in\s+)?english\b|\b(?:in|into|to)\s+english\b|(?:英文|英语)(?:回答|回复|输出)|(?:用|使用|以)\s*(?:英文|英语))`)
+	responseLanguageChineseRE  = regexp.MustCompile(`(?i)(?:\b(?:answer|respond|reply|write|output|use)\s+(?:in\s+)?chinese\b|\b(?:in|into|to)\s+chinese\b|(?:中文|汉语|简体中文)(?:回答|回复|输出)|(?:用|使用|以)\s*(?:中文|汉语|简体中文))`)
+	internalSynthesisLineRE    = regexp.MustCompile(`(?i)^\s*(?:[-*]\s*)?(?:#{1,6}\s*)?(?:multi[- ]agent(?: run)? summary|request|workers?|worker results?|worker digest|workerdigest|deliverable|digest|handoff|prompt|session_search|details in task log)\s*:?(?:\s*)$`)
+	internalSynthesisLabelRE   = regexp.MustCompile(`(?i)^\s*(?:[-*]\s*)?(?:request|worker(?:\s+results?)?|worker\s*\d+|deliverable|digest|handoff|prompt)\s*[:：]\s*(.*)$`)
+	internalSynthesisContextRE = regexp.MustCompile(`(?i)^\s*(?:[-*]\s*)?(?:multi[- ]agent(?: run)? summary|request|handoff|prompt)\s*[:：]`)
+	workerStatusLineRE         = regexp.MustCompile(`^\s*(?:[-*]\s*)?\[[^]\r\n]+\](?:\s+\((?:ok|failed|error)\))?\s*$`)
+)
+
+// responseLanguageForPrompt follows the live user turn unless that turn
+// explicitly asks for another response language. The final instruction added
+// to synthesis prompts is also understood, which keeps this helper compatible
+// with callers that only have the complete synthesis prompt.
+func responseLanguageForPrompt(prompt string) responseLanguage {
+	if lang, ok := lastExplicitResponseLanguage(prompt); ok {
+		return lang
+	}
+	for _, r := range prompt {
+		if unicode.Is(unicode.Han, r) {
+			return responseLanguageChinese
+		}
+	}
+	return responseLanguageEnglish
+}
+
+func lastExplicitResponseLanguage(prompt string) (responseLanguage, bool) {
+	english := responseLanguageEnglishRE.FindAllStringIndex(prompt, -1)
+	chinese := responseLanguageChineseRE.FindAllStringIndex(prompt, -1)
+	if len(english) == 0 && len(chinese) == 0 {
+		return responseLanguageEnglish, false
+	}
+	lastEnglish := -1
+	if len(english) > 0 {
+		lastEnglish = english[len(english)-1][0]
+	}
+	lastChinese := -1
+	if len(chinese) > 0 {
+		lastChinese = chinese[len(chinese)-1][0]
+	}
+	if lastChinese > lastEnglish {
+		return responseLanguageChinese, true
+	}
+	return responseLanguageEnglish, true
+}
+
+func synthesisLanguageInstruction(lang responseLanguage) string {
+	if lang == responseLanguageChinese {
+		return "Respond directly to the user in Chinese."
+	}
+	return "Respond directly to the user in English."
+}
+
+// cleanUserFacingSynthesis removes control-plane labels and recoverability
+// pointers before a controller response reaches the user. It returns false
+// when the response contains no usable user-facing content.
+func cleanUserFacingSynthesis(raw string, lang responseLanguage) (string, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", false
+	}
+	if strings.HasPrefix(text, "```") {
+		text = strings.TrimPrefix(text, "```markdown")
+		text = strings.TrimPrefix(text, "```md")
+		text = strings.TrimPrefix(text, "```")
+		text = strings.TrimSuffix(strings.TrimSpace(text), "```")
+	}
+
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	kept := make([]string, 0, len(lines))
+	for _, original := range lines {
+		line := strings.TrimSpace(original)
+		output := strings.TrimRight(original, " \t")
+		if line == "" {
+			if len(kept) > 0 && kept[len(kept)-1] != "" {
+				kept = append(kept, "")
+			}
+			continue
+		}
+		if internalSynthesisLineRE.MatchString(line) || workerStatusLineRE.MatchString(line) {
+			continue
+		}
+		if internalSynthesisContextRE.MatchString(line) {
+			continue
+		}
+		if m := internalSynthesisLabelRE.FindStringSubmatch(line); m != nil {
+			line = strings.TrimSpace(m[1])
+			output = line
+			if line == "" {
+				continue
+			}
+			if workerStatusLineRE.MatchString(line) {
+				continue
+			}
+		}
+		if strings.Contains(strings.ToLower(line), "session_search") ||
+			strings.Contains(strings.ToLower(line), "details in task log") {
+			continue
+		}
+		// Preserve Markdown indentation for code blocks and nested lists.
+		kept = append(kept, output)
+	}
+
+	text = strings.TrimSpace(strings.Join(kept, "\n"))
+	if text == "" {
+		return "", false
+	}
+	// A marker that survives line cleanup means the controller is still
+	// speaking in orchestration terms; reject it so the deterministic fallback
+	// can provide a safe answer in the user's language.
+	lower := strings.ToLower(text)
+	for _, marker := range []string{
+		"multi-agent", "multi agent", "orchestration", "orchestrator",
+		"worker digest", "workerdigest", "session_search", "handoff", "system prompt",
+		"internal prompt", "task log",
+	} {
+		if strings.Contains(lower, marker) {
+			return "", false
+		}
+	}
+	if !isLanguageAppropriate(text, lang) {
+		return "", false
+	}
+	return text, true
+}
+
+func isLanguageAppropriate(text string, lang responseLanguage) bool {
+	han, latin := 0, 0
+	for _, r := range text {
+		switch {
+		case unicode.Is(unicode.Han, r):
+			han++
+		case unicode.IsLetter(r) && r <= unicode.MaxASCII:
+			latin++
+		}
+	}
+	// Code-only or punctuation-only answers carry no language signal and are
+	// safe to preserve. Otherwise reject a response written in the other
+	// supported language so fallback remains language-appropriate.
+	if han == 0 && latin == 0 {
+		return true
+	}
+	if lang == responseLanguageChinese {
+		return han > 0
+	}
+	return han == 0
 }
 
 func buildPlanRefinePrompt(plan DelegatePlan, required []RequiredStep) string {

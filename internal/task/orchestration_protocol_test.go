@@ -97,7 +97,6 @@ func TestTryHostPlanRefineFailClosed(t *testing.T) {
 	}
 }
 
-
 type stubController struct {
 	text string
 	err  error
@@ -161,5 +160,60 @@ func TestTryHostPlanRefineRejectsInvalidJSON(t *testing.T) {
 	}
 	if got.Steps[0].Instruction != "original" {
 		t.Fatalf("plan mutated: %+v", got.Steps[0])
+	}
+}
+
+func TestTryHostSynthesisCleansAndRejectsInternalOutput(t *testing.T) {
+	tests := []struct {
+		name   string
+		prompt string
+		text   string
+		want   string
+		ok     bool
+	}{
+		{
+			name:   "cleans English wrapper",
+			prompt: "Respond directly to the user in English.",
+			text:   "Multi-agent run summary\nDeliverable: The fix is complete.",
+			want:   "The fix is complete.",
+			ok:     true,
+		},
+		{
+			name:   "cleans Chinese wrapper",
+			prompt: "Respond directly to the user in Chinese.",
+			text:   "Deliverable：修复已完成。",
+			want:   "修复已完成。",
+			ok:     true,
+		},
+		{
+			name:   "rejects internal-only output",
+			prompt: "Respond directly to the user in English.",
+			text:   "[Codex] (ok)\n… details in task log / session_search",
+			ok:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := agent.MustRegistry(agent.Entry{
+				ID:         "kin",
+				Name:       "Kin",
+				Kind:       agent.KindBuiltin,
+				Priority:   10,
+				Caps:       []agent.Capability{agent.CapabilityRun, agent.CapabilityOrchestrate},
+				Controller: stubController{text: tt.text},
+				Status: func(context.Context) agent.Status {
+					return agent.Status{Installed: true, Available: true}
+				},
+			})
+			e := NewEngine(nil, reg, NewBus(), 1)
+			lang := responseLanguageForPrompt(tt.prompt)
+			got, _, ok := e.tryHostSynthesis(t.Context(), "kin", "", tt.prompt, lang)
+			if ok != tt.ok {
+				t.Fatalf("ok=%v want %v, text=%q", ok, tt.ok, got)
+			}
+			if got != tt.want {
+				t.Fatalf("text=%q want %q", got, tt.want)
+			}
+		})
 	}
 }

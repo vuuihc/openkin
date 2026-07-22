@@ -306,26 +306,31 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		priorFailed = append(priorFailed, failedByStep[si])
 	}
 
-	summary := buildMainSummary(plan, priorResults, priorFailed, anyErr)
+	summary := buildUserFacingSummary(UserTurnPrompt(t.Prompt), priorResults, priorFailed, anyErr)
 	// Optional host control-plane synthesis when the plugin declares orchestrate.
 	if e.hostHasOrchestrate(main) {
 		var synthPrompt strings.Builder
-		synthPrompt.WriteString("Summarize the multi-agent run for the user. Be concise and factual.\n\n")
+		lang := responseLanguageForPrompt(UserTurnPrompt(t.Prompt))
+		synthPrompt.WriteString("Write the final answer to the user. Be concise and factual.\n")
+		synthPrompt.WriteString("Do not mention orchestration, workers, digests, prompts, handoffs, or internal task logs. Do not use headings such as Request, Worker, or Deliverable. State the result directly.\n\n")
 		synthPrompt.WriteString("User request:\n")
 		synthPrompt.WriteString(UserTurnPrompt(t.Prompt))
 		synthPrompt.WriteString("\n\nWorker results:\n")
-		for _, r := range priorResults {
-			synthPrompt.WriteString(r)
+		for i, r := range priorResults {
+			failed := i < len(priorFailed) && priorFailed[i]
+			synthPrompt.WriteString(sessionctx.WorkerDigest(r, failed))
 			synthPrompt.WriteString("\n---\n")
 		}
 		if anyErr {
 			synthPrompt.WriteString("\nNote: at least one worker failed.\n")
 		}
+		synthPrompt.WriteString("\n")
+		synthPrompt.WriteString(synthesisLanguageInstruction(lang))
 		model := ""
 		if t.Model != nil {
 			model = *t.Model
 		}
-		if text, usage, ok := e.tryHostSynthesis(ctx, main, model, synthPrompt.String()); ok {
+		if text, usage, ok := e.tryHostSynthesis(ctx, main, model, synthPrompt.String(), lang); ok {
 			summary = text
 			e.recordControllerUsage(ctx, id, main, "orchestration_synthesis", usage)
 		} else {
@@ -718,6 +723,54 @@ func buildMainSummary(plan DelegatePlan, prior []string, priorFailed []bool, any
 		}
 	}
 	_ = plan // reserved for assignment one-liners in a later polish
+	return strings.TrimSpace(b.String())
+}
+
+// buildUserFacingSummary is the deterministic fallback for the final chat
+// message. WorkerDigest remains available for internal model context, but its
+// labels and task-log pointers must never be used as user-facing output.
+func buildUserFacingSummary(userPrompt string, prior []string, priorFailed []bool, anyErr bool) string {
+	lang := responseLanguageForPrompt(userPrompt)
+	var b strings.Builder
+	if lang == responseLanguageChinese {
+		if anyErr {
+			b.WriteString("已完成，但有部分工作未成功：\n\n")
+		} else {
+			b.WriteString("已完成：\n\n")
+		}
+	} else if anyErr {
+		b.WriteString("Completed, but some work was unsuccessful:\n\n")
+	} else {
+		b.WriteString("Completed:\n\n")
+	}
+
+	count := 0
+	for i, p := range prior {
+		failed := i < len(priorFailed) && priorFailed[i]
+		cleaned, ok := cleanUserFacingSynthesis(sessionctx.WorkerDigest(p, failed), lang)
+		if !ok {
+			continue
+		}
+		if count > 0 {
+			b.WriteString("\n\n")
+		}
+		if failed {
+			if lang == responseLanguageChinese {
+				b.WriteString("失败：")
+			} else {
+				b.WriteString("Issue: ")
+			}
+		}
+		b.WriteString(cleaned)
+		count++
+	}
+	if count == 0 {
+		if lang == responseLanguageChinese {
+			b.WriteString("没有可显示的结果。")
+		} else {
+			b.WriteString("No result was available to display.")
+		}
+	}
 	return strings.TrimSpace(b.String())
 }
 
