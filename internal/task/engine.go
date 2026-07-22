@@ -44,6 +44,9 @@ type CreateRequest struct {
 	PermissionMode string                  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
 	WorkspaceMode  workspace.RequestedMode `json:"workspace_mode,omitempty"`  // auto | shared | worktree
 	ProjectID      string                  `json:"project_id,omitempty"`      // optional project link (ADR 0008)
+	// UserPrompt is the original user text shown in the chat timeline when Prompt
+	// has been wrapped with project context. Empty → use Prompt.
+	UserPrompt string `json:"-"`
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -375,7 +378,11 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		title = TruncateTitle(*req.Title, TitleMaxRunes)
 	} else {
 		// Immediate fallback so the sidebar has something; may be replaced async.
-		title = TruncateTitle(req.Prompt, TitleMaxRunes)
+		titleSrc := req.Prompt
+		if strings.TrimSpace(req.UserPrompt) != "" {
+			titleSrc = req.UserPrompt
+		}
+		title = TruncateTitle(titleSrc, TitleMaxRunes)
 	}
 
 	perm := adapter.NormalizePermissionMode(req.PermissionMode)
@@ -416,9 +423,14 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	e.bus.PublishTask(t)
 
 	// Seed chat timeline with the user's message (speaker = user).
+	// Prefer UserPrompt so injected project context does not appear as user text.
+	displayPrompt := req.Prompt
+	if strings.TrimSpace(req.UserPrompt) != "" {
+		displayPrompt = req.UserPrompt
+	}
 	userPayload, _ := json.Marshal(map[string]any{
 		"role":    "user",
-		"content": []map[string]string{{"type": "text", "text": req.Prompt}},
+		"content": []map[string]string{{"type": "text", "text": displayPrompt}},
 		"partial": false,
 		"agent":   "user",
 		"speaker": "user",
@@ -431,7 +443,11 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 
 	// Async LLM title when the user did not supply one and a provider is available.
 	if !explicitTitle {
-		e.maybeSummarizeTitle(id, req.Prompt, title)
+		titleSrc := req.Prompt
+		if strings.TrimSpace(req.UserPrompt) != "" {
+			titleSrc = req.UserPrompt
+		}
+		e.maybeSummarizeTitle(id, titleSrc, title)
 	}
 
 	e.mu.Lock()

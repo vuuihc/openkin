@@ -75,6 +75,10 @@ type Server struct {
 	// May be nil (feature disabled); the handler then returns an empty list.
 	UsageWindows *usagewindows.Service
 
+	// ProviderResolve returns the active cognition provider for short LLM jobs
+	// (project cover summarize, titles, …). May be nil.
+	ProviderResolve func(ctx context.Context) (provider.Client, provider.Config, error)
+
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
 	BaseURL     string // ui.base_url without token
@@ -124,6 +128,10 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
 		r.Post("/api/tasks/{id}/fork", s.handleFork)
+		r.Post("/api/tasks/{id}/recycle", s.handleCreateTaskRecycle)
+		r.Get("/api/tasks/{id}/recycle", s.handleGetTaskRecycle)
+		r.Post("/api/recycles/{id}/suggestions/{index}/accept", s.handleAcceptRecycleSuggestion)
+		r.Post("/api/recycles/{id}/suggestions/{index}/ignore", s.handleIgnoreRecycleSuggestion)
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
@@ -155,9 +163,13 @@ func (s *Server) Handler() http.Handler {
 		r.Patch("/api/projects/{id}", s.handlePatchProject)
 		r.Get("/api/projects/{id}/one-pager", s.handleGetOnePager)
 		r.Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
+		r.Get("/api/projects/{id}/pulse", s.handleGetProjectPulse)
+		r.Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
+		r.Post("/api/projects/{id}/summarize", s.handleSummarizeProject)
 		r.Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
 		r.Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
 		r.Post("/api/projects/{id}/continue", s.handleContinueProject)
+		r.Get("/api/projects/{id}/recycles", s.handleListProjectRecycles)
 		r.Get("/api/ws", s.handleWS)
 	})
 
@@ -288,6 +300,8 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
+	// Best-effort project context inject. Failures never block task creation.
+	s.maybeInjectProjectContext(r.Context(), &req)
 	t, err := s.Engine.Create(r.Context(), req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})

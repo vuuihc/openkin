@@ -26,12 +26,16 @@ import {
   listEvents,
   restoreTaskWorkspace,
   retryTask,
+  createTaskRecycle,
+  getTaskRecycle,
   type AgentInfo,
   type Approval,
+  type ProjectRecycle,
   type Task,
   type TaskEvent,
   type TaskUsage,
 } from "../api/client";
+import RecycleReviewCard from "../components/project/RecycleReviewCard";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import ChatStream from "../components/chat/ChatStream";
 import Composer from "../components/chat/Composer";
@@ -80,6 +84,10 @@ export default function TaskDetailPage() {
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [recycle, setRecycle] = useState<ProjectRecycle | null>(null);
+  const [recycleOpen, setRecycleOpen] = useState(false);
+  const [recycleLoading, setRecycleLoading] = useState(false);
+  const [recycleError, setRecycleError] = useState<string | null>(null);
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -114,6 +122,34 @@ export default function TaskDetailPage() {
       setLoading(false);
     }
   }, [id]);
+
+  // Restore pending/resolved wrap-up for project tasks.
+  useEffect(() => {
+    if (!task?.project_id || !id) {
+      setRecycle(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rec = await getTaskRecycle(id);
+        if (!cancelled) {
+          setRecycle(rec);
+          if (rec.status === "pending") setRecycleOpen(true);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setRecycle(null);
+          return;
+        }
+        // Non-fatal: wrap-up is optional.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, task?.project_id]);
 
   const loadUsage = useCallback(async () => {
     if (!getToken()) return;
@@ -410,6 +446,28 @@ export default function TaskDetailPage() {
   }
 
 
+  async function onRecycle() {
+    if (!task?.project_id || recycleLoading) return;
+    setRecycleLoading(true);
+    setRecycleError(null);
+    setRecycleOpen(true);
+    try {
+      const rec = await createTaskRecycle(task.id);
+      setRecycle(rec);
+    } catch (e) {
+      setRecycleError(
+        e instanceof Error ? e.message : tr("task.recycleGenerateFailed"),
+      );
+    } finally {
+      setRecycleLoading(false);
+    }
+  }
+
+  const canRecycle =
+    !!task?.project_id &&
+    (events.length > 0 || !!(task?.prompt || "").trim());
+
+
   if (loading) {
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
@@ -525,7 +583,27 @@ export default function TaskDetailPage() {
             >
               <IconTrash size={13} />
             </button>
-            <span>{project}</span>
+            {canRecycle ? (
+              <button
+                type="button"
+                onClick={() => void onRecycle()}
+                disabled={recycleLoading}
+                className="inline-flex items-center gap-1 rounded-md border border-kin-accent/40 bg-kin-accent/10 px-2 py-1 text-[12px] text-kin-text hover:bg-kin-accent/15 disabled:opacity-40"
+                title={tr("task.recycle")}
+              >
+                {recycleLoading ? tr("task.recycleGenerating") : tr("task.recycle")}
+              </button>
+            ) : null}
+            {task.project_id ? (
+              <Link
+                to={`/projects/${encodeURIComponent(task.project_id)}`}
+                className="text-kin-secondary hover:text-kin-text hover:underline"
+              >
+                {project}
+              </Link>
+            ) : (
+              <span>{project}</span>
+            )}
             {!terminal && (
               <>
                 <span className="text-kin-blue tabular-nums">
@@ -604,6 +682,49 @@ export default function TaskDetailPage() {
 
         <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
           <div className="max-w-[720px] mx-auto space-y-2">
+            {(recycleOpen || recycleLoading || recycleError) && (
+              <div className="space-y-2">
+                {recycleLoading && !recycle ? (
+                  <div className="rounded-2xl border border-kin-accent/30 bg-kin-panel px-4 py-3 text-[12.5px] text-kin-secondary">
+                    {tr("task.recycleGenerating")}
+                  </div>
+                ) : null}
+                {recycleError ? (
+                  <div className="rounded-2xl border border-red-500/30 bg-kin-panel px-4 py-3">
+                    <p className="text-[12.5px] text-red-500/90">{recycleError}</p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        className="text-[12px] text-kin-accent hover:underline"
+                        onClick={() => void onRecycle()}
+                      >
+                        {tr("task.recycleRetry")}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-[12px] text-kin-muted hover:underline"
+                        onClick={() => {
+                          setRecycleError(null);
+                          setRecycleOpen(false);
+                        }}
+                      >
+                        {tr("common.close")}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {recycle ? (
+                  <RecycleReviewCard
+                    recycle={recycle}
+                    onChange={setRecycle}
+                    onClose={() => setRecycleOpen(false)}
+                    onConflict={() =>
+                      pushToast(tr("task.recycleConflict"), "error")
+                    }
+                  />
+                ) : null}
+              </div>
+            )}
             <Composer
               agents={agents}
               hostAgentId={task.agent || ""}

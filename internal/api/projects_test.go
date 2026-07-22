@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +197,116 @@ func TestListProjectArtifacts(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("want empty, got %v", list)
+	}
+}
+
+func TestProjectPulseRefresh(t *testing.T) {
+	s, token := newTestServer(t)
+	projectsDir := filepath.Join(t.TempDir(), "projects")
+	s.ProjectsDir = projectsDir
+	h := s.Handler()
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"path": repo, "name": "PulseDemo", "mode": "ship"})
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/ensure", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated && rr.Code != http.StatusOK {
+		t.Fatalf("ensure %d %s", rr.Code, rr.Body.String())
+	}
+	var proj map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &proj)
+	id := proj["id"].(string)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/projects/"+id+"/pulse?window_days=30", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pulse %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/projects/"+id+"/pulse/refresh", bytes.NewReader([]byte(`{"window_days":30}`)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("refresh %d %s", rr.Code, rr.Body.String())
+	}
+	var res map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &res)
+	md, _ := res["markdown"].(string)
+	if md == "" || !bytes.Contains([]byte(md), []byte("kin:auto:start")) {
+		t.Fatalf("markdown missing auto block: %q", md)
+	}
+}
+
+func TestFindProjectByRootIncludesSummary(t *testing.T) {
+	s, token := newTestServer(t)
+	projectsDir := t.TempDir()
+	s.ProjectsDir = projectsDir
+	h := s.Handler()
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{"path": repo, "name": "SumDemo", "mode": "ship"})
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/ensure", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated && rr.Code != http.StatusOK {
+		t.Fatalf("ensure %d %s", rr.Code, rr.Body.String())
+	}
+	var proj map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &proj)
+	id := proj["id"].(string)
+
+	// Write a filled one-pager
+	opReq := httptest.NewRequest(http.MethodGet, "/api/projects/"+id+"/one-pager", nil)
+	opReq.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, opReq)
+	var op map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &op)
+	md := op["markdown"].(string)
+	// Replace focus section content by put
+	md = strings.Replace(md, "当下唯一主线（越短越好）。", "Ship recycle path", 1)
+	md = strings.Replace(md, "你为什么做这个项目（用户主权；刷新不会改这里）。", "Users finish sessions with a cover update", 1)
+	putBody, _ := json.Marshal(map[string]any{"markdown": md, "updated_at": int64(op["updated_at"].(float64))})
+	req = httptest.NewRequest(http.MethodPut, "/api/projects/"+id+"/one-pager", bytes.NewReader(putBody))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("put %d %s", rr.Code, rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/projects/by-root?path="+repo, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("by-root %d %s", rr.Code, rr.Body.String())
+	}
+	var res map[string]any
+	_ = json.Unmarshal(rr.Body.Bytes(), &res)
+	if res["id"] != id {
+		t.Fatalf("id=%v", res["id"])
+	}
+	sum, _ := res["one_pager_summary"].(map[string]any)
+	if sum == nil {
+		t.Fatalf("missing summary: %v", res)
+	}
+	if sum["focus"] == "" && sum["north_star"] == "" {
+		t.Fatalf("empty summary fields: %v", sum)
 	}
 }

@@ -198,6 +198,17 @@ func ServeWith(version string, flags ServeFlags) error {
 		UploadsDir:   filepath.Join(stateDir, "uploads"),
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
+		ProviderResolve: func(c context.Context) (provider.Client, provider.Config, error) {
+			cfg, err := provider.LoadConfig(c, st)
+			if err != nil {
+				return nil, cfg, err
+			}
+			if !cfg.Configured() {
+				return nil, cfg, fmt.Errorf("provider not configured")
+			}
+			cli, err := provider.NewClient(cfg)
+			return cli, cfg, err
+		},
 		NetworkMode:  mode,
 		// Probe provider subscription windows (5h/weekly) from the tokens the
 		// Claude Code and Codex CLIs already store. Cached 60s to avoid

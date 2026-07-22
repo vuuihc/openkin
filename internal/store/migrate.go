@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 7
+const schemaVersion = 8
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -133,6 +133,21 @@ CREATE TABLE project_roots (
 );
 CREATE INDEX idx_project_roots_path ON project_roots(path);
 
+CREATE TABLE project_recycles (
+  id                         TEXT PRIMARY KEY,
+  project_id                 TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  task_id                    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  base_one_pager_updated_at  INTEGER NOT NULL,
+  summary                    TEXT NOT NULL DEFAULT '',
+  suggestions_json           TEXT NOT NULL DEFAULT '[]',
+  status                     TEXT NOT NULL DEFAULT 'pending',
+  created_at                 INTEGER NOT NULL,
+  resolved_at                INTEGER
+);
+CREATE INDEX idx_project_recycles_task ON project_recycles(task_id, created_at DESC);
+CREATE INDEX idx_project_recycles_project ON project_recycles(project_id, created_at DESC);
+CREATE INDEX idx_project_recycles_pending ON project_recycles(project_id, status, created_at DESC);
+
 CREATE INDEX idx_tasks_project ON tasks(project_id, id DESC);
 `
 
@@ -233,6 +248,23 @@ CREATE TABLE IF NOT EXISTS project_roots (
   PRIMARY KEY (project_id, path)
 );
 CREATE INDEX IF NOT EXISTS idx_project_roots_path ON project_roots(path);
+`
+
+const migration008 = `
+CREATE TABLE IF NOT EXISTS project_recycles (
+  id                         TEXT PRIMARY KEY,
+  project_id                 TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  task_id                    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  base_one_pager_updated_at  INTEGER NOT NULL,
+  summary                    TEXT NOT NULL DEFAULT '',
+  suggestions_json           TEXT NOT NULL DEFAULT '[]',
+  status                     TEXT NOT NULL DEFAULT 'pending',
+  created_at                 INTEGER NOT NULL,
+  resolved_at                INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_project_recycles_task ON project_recycles(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_recycles_project ON project_recycles(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_recycles_pending ON project_recycles(project_id, status, created_at DESC);
 `
 
 func (s *Store) migrate() error {
@@ -385,6 +417,25 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 007: %w", err)
+		}
+		v = 7
+	}
+
+	if v == 7 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 008: %w", err)
+		}
+		if _, err := tx.Exec(migration008); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply migration 008: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 8`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 008: %w", err)
 		}
 	}
 	return nil

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/vuuihc/kin/internal/projectpulse"
+	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
 	"github.com/vuuihc/kin/internal/workspace"
@@ -372,9 +375,10 @@ func (s *Server) handleGetOnePager(w http.ResponseWriter, r *http.Request) {
 		updatedAt = st.ModTime().UnixMilli()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"project_id": id,
-		"markdown":   string(data),
-		"updated_at": updatedAt,
+		"project_id":        id,
+		"markdown":          string(data),
+		"updated_at":        updatedAt,
+		"one_pager_summary": store.ParseOnePagerSummary(string(data), p.Name, p.Mode),
 	})
 }
 
@@ -534,7 +538,38 @@ func (s *Server) handleFindProjectByRoot(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, s.projectToJSON(p))
+	out := map[string]any{
+		"project": s.projectToJSON(p),
+	}
+	// Always include structured summary; failures degrade to empty, not 5xx.
+	if abs, err := s.onePagerAbs(p.OnePagerRel); err == nil {
+		if data, err := os.ReadFile(abs); err == nil {
+			var updatedAt int64
+			if st, err := os.Stat(abs); err == nil {
+				updatedAt = st.ModTime().UnixMilli()
+			}
+			sum := store.ParseOnePagerSummary(string(data), p.Name, p.Mode)
+			out["one_pager_summary"] = sum
+			out["one_pager_updated_at"] = updatedAt
+		} else {
+			out["one_pager_summary"] = store.OnePagerSummary{Name: p.Name, Mode: p.Mode, Empty: true}
+		}
+	} else {
+		out["one_pager_summary"] = store.OnePagerSummary{Name: p.Name, Mode: p.Mode, Empty: true}
+	}
+	// Back-compat: flatten project fields at top level for older clients.
+	pj := s.projectToJSON(p)
+	out["id"] = pj.ID
+	out["name"] = pj.Name
+	out["mode"] = pj.Mode
+	out["status"] = pj.Status
+	out["soft_progress"] = pj.SoftProgress
+	out["created_at"] = pj.CreatedAt
+	out["updated_at"] = pj.UpdatedAt
+	out["last_active_at"] = pj.LastActiveAt
+	out["roots"] = pj.Roots
+	out["one_pager_path"] = pj.OnePagerPath
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleContinueProject(w http.ResponseWriter, r *http.Request) {
@@ -582,7 +617,8 @@ func (s *Server) handleContinueProject(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "read one-pager: " + err.Error()})
 		return
 	}
-	prompt := store.BuildContinuePrompt(p.Name, p.Mode, string(mdBytes), body.Prompt)
+	userPrompt := strings.TrimSpace(body.Prompt)
+	prompt := store.BuildContinuePrompt(p.Name, p.Mode, string(mdBytes), userPrompt)
 
 	cwd := strings.TrimSpace(body.Cwd)
 	if cwd == "" && len(p.Roots) > 0 {
@@ -603,6 +639,7 @@ func (s *Server) handleContinueProject(w http.ResponseWriter, r *http.Request) {
 		Agent:          body.Agent,
 		Cwd:            cwd,
 		Prompt:         prompt,
+		UserPrompt:     userPrompt,
 		Model:          body.Model,
 		Title:          title,
 		PermissionMode: body.PermissionMode,
@@ -616,4 +653,432 @@ func (s *Server) handleContinueProject(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Store.TouchProjectActivity(r.Context(), p.ID)
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func (s *Server) handleGetProjectPulse(w http.ResponseWriter, r *http.Request) {
+	if !s.projectsConfigured(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	p, err := s.Store.GetProject(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	window := 90
+	if v := r.URL.Query().Get("window_days"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			window = n
+		}
+	}
+	pulse, err := projectpulse.Build(r.Context(), s.Store, p, window)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, pulse)
+}
+
+// handleRefreshProjectPulse rebuilds pulse and merges the managed auto section into ONE_PAGER.md.
+// User-owned sections outside kin:auto markers are preserved.
+func (s *Server) handleRefreshProjectPulse(w http.ResponseWriter, r *http.Request) {
+	if !s.projectsConfigured(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	p, err := s.Store.GetProject(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	window := 90
+	var body struct {
+		WindowDays int   `json:"window_days"`
+		Write      *bool `json:"write"` // default true
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	if body.WindowDays > 0 {
+		window = body.WindowDays
+	}
+	writeFile := true
+	if body.Write != nil {
+		writeFile = *body.Write
+	}
+
+	pulse, err := projectpulse.Build(r.Context(), s.Store, p, window)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	abs, err := s.onePagerAbs(p.OnePagerRel)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	cur, err := os.ReadFile(abs)
+	if err != nil && !os.IsNotExist(err) {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	md := string(cur)
+	if md == "" {
+		md = store.DefaultOnePagerMarkdown(p.Name, p.Mode)
+	}
+	merged := projectpulse.MergeAutoSection(md, pulse.AutoMarkdown)
+	if writeFile {
+		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := os.WriteFile(abs, []byte(merged), 0o600); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		_, _ = s.Store.UpdateProject(r.Context(), id, store.ProjectPatch{TouchLastActive: true})
+	}
+	var updatedAt int64
+	if st, err := os.Stat(abs); err == nil {
+		updatedAt = st.ModTime().UnixMilli()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pulse":      pulse,
+		"markdown":   merged,
+		"updated_at": updatedAt,
+		"written":    writeFile,
+	})
+}
+
+// handleSummarizeProject uses the cognition provider to draft user-owned cover
+// sections as a proposal. Never silent-writes North Star without client accept.
+// Body: { "apply"?: bool } — when apply=true, merges proposal into markdown after
+// refreshing the auto pulse block. Default apply=false returns proposal only.
+func (s *Server) handleSummarizeProject(w http.ResponseWriter, r *http.Request) {
+	if !s.projectsConfigured(w) {
+		return
+	}
+	if s.ProviderResolve == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "provider not available"})
+		return
+	}
+	id := chi.URLParam(r, "id")
+	p, err := s.Store.GetProject(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	var body struct {
+		Apply      bool `json:"apply"`
+		WindowDays int  `json:"window_days"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	window := body.WindowDays
+	if window <= 0 {
+		window = 90
+	}
+
+	pulse, err := projectpulse.Build(r.Context(), s.Store, p, window)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	abs, err := s.onePagerAbs(p.OnePagerRel)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	cur, _ := os.ReadFile(abs)
+	md := string(cur)
+	if md == "" {
+		md = store.DefaultOnePagerMarkdown(p.Name, p.Mode)
+	}
+
+	// Recent session titles as context (not a UI list).
+	tasks, _ := s.Store.ListTasksForProject(r.Context(), p.ID, p.Roots, 12)
+	var sessLines []string
+	for _, tsk := range tasks {
+		title := strings.TrimSpace(tsk.Title)
+		if title == "" {
+			title = strings.TrimSpace(tsk.Prompt)
+		}
+		if title == "" {
+			continue
+		}
+		if len([]rune(title)) > 80 {
+			title = string([]rune(title)[:80]) + "…"
+		}
+		sessLines = append(sessLines, fmt.Sprintf("- [%s] %s", tsk.Status, title))
+		if len(sessLines) >= 8 {
+			break
+		}
+	}
+
+	cli, cfg, err := s.ProviderResolve(r.Context())
+	if err != nil || cli == nil || !cfg.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "configure a cognition provider in Settings to summarize"})
+		return
+	}
+
+	sys := `You help maintain a personal project cover page for a coding agent console.
+Return ONLY a compact Markdown fragment with these sections (Chinese ok if user content is Chinese):
+## 项目描述
+## North Star
+## Current Focus
+## 结论
+## 下一步（你写的）
+## 模块笔记
+
+Rules:
+- Be concrete and short; no fluff, no KPI, no % complete.
+- Prefer improving empty/placeholder text; keep strong user wording when already specific.
+- Next steps: at most 3 bullets.
+- Module notes: use hot paths if provided.
+- Do not invent secrets or credentials.
+- Do not wrap the whole answer in a code fence.`
+
+	user := fmt.Sprintf(`Project name: %s
+Mode: %s
+Soft progress: %s
+
+Pulse:
+%s
+
+Recent sessions:
+%s
+
+Current cover markdown:
+-----
+%s
+-----
+
+Draft improved sections now.`,
+		p.Name, p.Mode, p.SoftProgress, pulse.AutoMarkdown, strings.Join(sessLines, "\n"), trimRunesLocal(md, 6000))
+
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	resp, err := cli.Chat(ctx, provider.ChatRequest{
+		Messages: []provider.Message{
+			{Role: provider.RoleSystem, Content: sys},
+			{Role: provider.RoleUser, Content: user},
+		},
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "summarize failed: " + err.Error()})
+		return
+	}
+	proposal := strings.TrimSpace(resp.Content)
+	if proposal == "" {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "empty summarize response"})
+		return
+	}
+
+	// Always refresh auto pulse block.
+	mergedAuto := projectpulse.MergeAutoSection(md, pulse.AutoMarkdown)
+	outMD := mergedAuto
+	if body.Apply {
+		outMD = mergeCoverProposal(mergedAuto, proposal)
+		if err := os.WriteFile(abs, []byte(outMD), 0o600); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		_, _ = s.Store.UpdateProject(r.Context(), id, store.ProjectPatch{TouchLastActive: true})
+	}
+	var updatedAt int64
+	if st, err := os.Stat(abs); err == nil {
+		updatedAt = st.ModTime().UnixMilli()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"proposal":   proposal,
+		"markdown":   outMD,
+		"pulse":      pulse,
+		"applied":    body.Apply,
+		"updated_at": updatedAt,
+	})
+}
+
+func trimRunesLocal(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}
+
+// mergeCoverProposal replaces known user sections when proposal provides them;
+// keeps kin:auto block intact.
+func mergeCoverProposal(current, proposal string) string {
+	current = strings.ReplaceAll(current, "\r\n", "\n")
+	proposal = strings.ReplaceAll(proposal, "\r\n", "\n")
+	// strip auto from working copy
+	auto := ""
+	if i := strings.Index(current, projectpulse.AutoStart); i >= 0 {
+		if j := strings.Index(current, projectpulse.AutoEnd); j > i {
+			auto = current[i : j+len(projectpulse.AutoEnd)]
+			current = strings.TrimSpace(current[:i]) + "\n"
+		}
+	}
+	sections := parseMDSections(current)
+	propSecs := parseMDSections(proposal)
+	order := []string{"项目描述", "North Star", "Current Focus", "完成定义（Demo）", "Teach-back", "仍模糊", "假设", "已否决路径", "健康与雷区", "结论", "未决问题", "下一步（你写的）", "模块笔记"}
+	// title
+	title := sections["#"]
+	if title == "" {
+		// first line heading
+		for _, line := range strings.Split(current, "\n") {
+			if strings.HasPrefix(line, "# ") {
+				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+				break
+			}
+		}
+	}
+	var b strings.Builder
+	if title != "" {
+		fmt.Fprintf(&b, "# %s\n\n", title)
+	}
+	used := map[string]bool{}
+	writeSec := func(name string) {
+		body := strings.TrimSpace(propSecs[name])
+		if body == "" {
+			body = strings.TrimSpace(sections[name])
+		}
+		if body == "" && !sectionExists(sections, name) && !sectionExists(propSecs, name) {
+			return
+		}
+		if body == "" && !sectionExists(propSecs, name) && !sectionExists(sections, name) {
+			return
+		}
+		// include if either side has the heading conceptually
+		if !sectionExists(sections, name) && !sectionExists(propSecs, name) {
+			return
+		}
+		fmt.Fprintf(&b, "## %s\n", name)
+		if body != "" {
+			b.WriteString(body)
+			if !strings.HasSuffix(body, "\n") {
+				b.WriteByte('\n')
+			}
+		}
+		b.WriteByte('\n')
+		used[name] = true
+	}
+	for _, name := range order {
+		if sectionExists(sections, name) || sectionExists(propSecs, name) {
+			writeSec(name)
+		}
+	}
+	// preserve unknown user sections
+	for name, body := range sections {
+		if name == "#" || used[name] {
+			continue
+		}
+		if strings.HasPrefix(name, "Pulse") {
+			continue
+		}
+		fmt.Fprintf(&b, "## %s\n%s\n\n", name, strings.TrimSpace(body))
+	}
+	out := strings.TrimSpace(b.String()) + "\n\n"
+	if auto != "" {
+		out += auto + "\n"
+	} else {
+		out = projectpulse.MergeAutoSection(out, "")
+	}
+	return out
+}
+
+func sectionExists(m map[string]string, name string) bool {
+	_, ok := m[name]
+	return ok
+}
+
+func parseMDSections(md string) map[string]string {
+	out := map[string]string{}
+	var cur string
+	var buf strings.Builder
+	flush := func() {
+		if cur == "" {
+			return
+		}
+		out[cur] = strings.TrimSpace(buf.String())
+		buf.Reset()
+	}
+	for _, line := range strings.Split(md, "\n") {
+		if strings.HasPrefix(line, "# ") && !strings.HasPrefix(line, "## ") {
+			flush()
+			cur = "#"
+			buf.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "# ")))
+			continue
+		}
+		if strings.HasPrefix(line, "## ") {
+			flush()
+			cur = strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			continue
+		}
+		if cur != "" {
+			buf.WriteString(line)
+			buf.WriteByte('\n')
+		}
+	}
+	flush()
+	return out
+}
+
+// maybeInjectProjectContext prepends a bounded One-Pager digest when the task
+// is (or will be) linked to a project. Never fails the create path.
+func (s *Server) maybeInjectProjectContext(ctx context.Context, req *task.CreateRequest) {
+	if req == nil || s.ProjectsDir == "" || s.Store == nil {
+		return
+	}
+	// Skip if prompt already carries project context (e.g. Continue Focus).
+	if strings.Contains(req.Prompt, "[Project context") {
+		return
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID == "" {
+		if id, err := s.Store.ResolveProjectIDForCwd(ctx, req.Cwd); err == nil {
+			projectID = id
+		}
+	}
+	if projectID == "" {
+		return
+	}
+	p, err := s.Store.GetProject(ctx, projectID)
+	if err != nil {
+		return
+	}
+	req.ProjectID = p.ID
+	abs, err := s.onePagerAbs(p.OnePagerRel)
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return
+	}
+	// Rebuild prompt with digest; keep user text as the direct goal.
+	if strings.TrimSpace(req.UserPrompt) == "" {
+		req.UserPrompt = req.Prompt
+	}
+	req.Prompt = store.BuildContinuePrompt(p.Name, p.Mode, string(data), req.UserPrompt)
 }

@@ -104,10 +104,11 @@ func TestOnePagerTemplateAndDigest(t *testing.T) {
 	if !strings.Contains(md, "# Demo") || !strings.Contains(md, "## Teach-back") {
 		t.Fatalf("template missing sections: %s", md)
 	}
-	// Fill sections roughly
-	filled := strings.Replace(md, "用你自己的话写目标（可随时改；Agent 不应擅自覆盖）。", "Understand Raft votes", 1)
+	// Fill sections with non-placeholder content.
+	filled := strings.Replace(md, "你为什么做这个项目（用户主权；刷新不会改这里）。", "Understand Raft votes", 1)
 	filled = strings.Replace(filled, "当下唯一主线（越短越好）。", "Read election chapter", 1)
-	filled = strings.Replace(filled, "## Next\n1. \n2. \n3. \n", "## Next\n1. Skim paper\n2. Draw diagram\n3. \n", 1)
+	filled = strings.Replace(filled, "这是什么、给谁用、边界在哪（3～8 行即可）。", "Consensus learning notes", 1)
+	filled = strings.Replace(filled, "## 下一步（你写的）\n1. \n2. \n3. \n", "## 下一步（你写的）\n1. Skim paper\n2. Draw diagram\n3. \n", 1)
 	d := OnePagerDigest(filled, 800)
 	if !strings.Contains(d, "North Star") || !strings.Contains(d, "Current Focus") {
 		t.Fatalf("digest=%q", d)
@@ -115,5 +116,8 @@ func TestOnePagerTemplateAndDigest(t *testing.T) {
 	prompt := BuildContinuePrompt("Demo", ProjectModeLearn, filled, "Continue")
 	if !strings.Contains(prompt, "Continue") || !strings.Contains(prompt, "Project: Demo") {
 		t.Fatalf("prompt=%q", prompt)
+	}
+	if !strings.Contains(prompt, "Mode focus:") {
+		t.Fatalf("prompt missing mode strategy: %q", prompt)
 	}
 }

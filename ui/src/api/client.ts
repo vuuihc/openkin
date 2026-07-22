@@ -39,9 +39,11 @@ export function captureTokenFromURL(): void {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  body?: unknown;
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -66,7 +68,24 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       notifyUnauthorized();
     }
     const text = await res.text().catch(() => "");
-    throw new ApiError(res.status, text || res.statusText);
+    let body: unknown = undefined;
+    let message = text || res.statusText;
+    if (text) {
+      try {
+        body = JSON.parse(text);
+        if (
+          body &&
+          typeof body === "object" &&
+          "error" in body &&
+          typeof (body as { error: unknown }).error === "string"
+        ) {
+          message = (body as { error: string }).error;
+        }
+      } catch {
+        /* plain text */
+      }
+    }
+    throw new ApiError(res.status, message, body);
   }
   if (res.status === 204) {
     return undefined as T;
@@ -417,10 +436,57 @@ export type Project = {
   one_pager_path?: string;
 };
 
+export type OnePagerSummary = {
+  name?: string;
+  mode?: string;
+  north_star?: string;
+  focus?: string;
+  next?: string[];
+  empty?: boolean;
+};
+
 export type OnePager = {
   project_id: string;
   markdown: string;
   updated_at: number;
+  one_pager_summary?: OnePagerSummary;
+};
+
+export type ProjectByRoot = Project & {
+  project?: Project;
+  one_pager_summary?: OnePagerSummary;
+  one_pager_updated_at?: number;
+};
+
+export type RecycleEvidence = {
+  kind: "task" | "artifact" | "file" | string;
+  id?: string;
+  label?: string;
+  path?: string;
+};
+
+export type RecycleSuggestion = {
+  target: "conclusions" | "open_questions" | "next" | "focus" | string;
+  text: string;
+  reason?: string;
+  evidence?: RecycleEvidence[];
+  confidence?: "low" | "medium" | "high" | string;
+  status: "pending" | "accepted" | "accepted_edited" | "ignored" | string;
+  final_text?: string;
+  accepted_at?: number | null;
+  ignored_at?: number | null;
+};
+
+export type ProjectRecycle = {
+  id: string;
+  project_id: string;
+  task_id: string;
+  base_one_pager_updated_at: number;
+  summary: string;
+  suggestions: RecycleSuggestion[];
+  status: "pending" | "resolved" | string;
+  created_at: number;
+  resolved_at?: number | null;
 };
 
 export function listProjects(status: string = "active"): Promise<Project[]> {
@@ -430,6 +496,69 @@ export function listProjects(status: string = "active"): Promise<Project[]> {
 
 export function getProject(id: string): Promise<Project> {
   return apiFetch<Project>(`/api/projects/${encodeURIComponent(id)}`);
+}
+
+
+export type PulseDay = { date: string; count: number };
+export type ProjectPulse = {
+  project_id: string;
+  generated_at: number;
+  window_days: number;
+  session_total: number;
+  session_window: number;
+  sessions_running: number;
+  sessions_waiting: number;
+  last_session_at?: number;
+  session_heat: PulseDay[];
+  git_available: boolean;
+  git_root?: string;
+  commit_window: number;
+  commit_heat?: PulseDay[];
+  top_paths?: { path: string; count: number }[];
+  auto_markdown: string;
+};
+
+export function getProjectPulse(
+  id: string,
+  windowDays = 90,
+): Promise<ProjectPulse> {
+  return apiFetch<ProjectPulse>(
+    `/api/projects/${encodeURIComponent(id)}/pulse?window_days=${windowDays}`,
+  );
+}
+
+
+export function summarizeProject(
+  id: string,
+  body: { apply?: boolean; window_days?: number } = {},
+): Promise<{
+  proposal: string;
+  markdown: string;
+  pulse: ProjectPulse;
+  applied: boolean;
+  updated_at: number;
+}> {
+  return apiFetch(`/api/projects/${encodeURIComponent(id)}/summarize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function refreshProjectPulse(
+  id: string,
+  body: { window_days?: number; write?: boolean } = {},
+): Promise<{
+  pulse: ProjectPulse;
+  markdown: string;
+  updated_at: number;
+  written: boolean;
+}> {
+  return apiFetch(`/api/projects/${encodeURIComponent(id)}/pulse/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export function ensureProject(body: {
@@ -512,9 +641,65 @@ export function listProjectArtifacts(
   );
 }
 
-export function findProjectByRoot(path: string): Promise<Project> {
-  return apiFetch<Project>(
+export function findProjectByRoot(path: string): Promise<ProjectByRoot> {
+  return apiFetch<ProjectByRoot>(
     `/api/projects/by-root?path=${encodeURIComponent(path)}`,
+  );
+}
+
+export function createTaskRecycle(taskId: string): Promise<ProjectRecycle> {
+  return apiFetch<ProjectRecycle>(
+    `/api/tasks/${encodeURIComponent(taskId)}/recycle`,
+    { method: "POST" },
+  );
+}
+
+export function getTaskRecycle(taskId: string): Promise<ProjectRecycle> {
+  return apiFetch<ProjectRecycle>(
+    `/api/tasks/${encodeURIComponent(taskId)}/recycle`,
+  );
+}
+
+export function listProjectRecycles(
+  projectId: string,
+  opts?: { status?: string; limit?: number },
+): Promise<ProjectRecycle[]> {
+  const q = new URLSearchParams();
+  if (opts?.status) q.set("status", opts.status);
+  if (opts?.limit) q.set("limit", String(opts.limit));
+  const qs = q.toString();
+  return apiFetch<ProjectRecycle[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/recycles${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function acceptRecycleSuggestion(
+  recycleId: string,
+  index: number,
+  body: { final_text?: string; one_pager_updated_at?: number },
+): Promise<{
+  recycle: ProjectRecycle;
+  markdown?: string;
+  updated_at?: number;
+  idempotent?: boolean;
+}> {
+  return apiFetch(
+    `/api/recycles/${encodeURIComponent(recycleId)}/suggestions/${index}/accept`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function ignoreRecycleSuggestion(
+  recycleId: string,
+  index: number,
+): Promise<{ recycle: ProjectRecycle; idempotent?: boolean }> {
+  return apiFetch(
+    `/api/recycles/${encodeURIComponent(recycleId)}/suggestions/${index}/ignore`,
+    { method: "POST" },
   );
 }
 
