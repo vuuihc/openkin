@@ -103,7 +103,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	for i, s := range plan.Steps {
 		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, e.agentDisplayName(s.Agent, effectiveStepModel(t, s)), truncate(s.Instruction, 160))
 	}
-	e.emitSpeakerMessage(ctx, id, main, "assistant", strings.TrimSpace(b.String()), "orchestrator")
+	e.emitSpeakerMessage(ctx, id, main, "assistant", strings.TrimSpace(b.String()), "orchestrator", "plan")
 
 	// priorResults keyed by step index; filled as waves complete.
 	priorByStep := make([]string, len(plan.Steps))
@@ -126,7 +126,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			step := plan.Steps[si]
 			announce := fmt.Sprintf("→ **%s**（%d/%d）",
 				e.agentDisplayName(step.Agent, effectiveStepModel(t, step)), si+1, len(plan.Steps))
-			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate")
+			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate", "progress")
 		} else {
 			names := make([]string, 0, len(wave))
 			for _, si := range wave {
@@ -135,7 +135,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			}
 			announce := fmt.Sprintf("→ 并行 **%s**（波次 %d/%d）",
 				strings.Join(names, " + "), wi+1, len(waves))
-			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate")
+			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate", "progress")
 		}
 
 		type stepOut struct {
@@ -207,7 +207,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					e.mu.Unlock()
 					if !canceled {
 						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", e.agentDisplayName(gagent, gmodel))
-						e.emitSpeakerMessage(ctx, id, main, "assistant", retryNote, "orchestrator")
+						e.emitSpeakerMessage(ctx, id, main, "assistant", retryNote, "orchestrator", "progress")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
 						// Keep assignment identity stable for approvals.
 						spec := adapter.TaskSpec{
@@ -333,7 +333,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			e.emitOrchestrationFallback(ctx, id, main, "synthesis unavailable or empty", "synthesis")
 		}
 	}
-	e.emitSpeakerMessage(ctx, id, main, "assistant", summary, "orchestrator")
+	e.emitSpeakerMessage(ctx, id, main, "assistant", summary, "orchestrator", "summary")
 
 	res, _ := json.Marshal(map[string]any{
 		"source":   "orchestrator",
@@ -490,17 +490,9 @@ func (e *Engine) appendEventLocked(ctx context.Context, taskID, typ string, payl
 	}
 }
 
-func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agentID, role, text, source string) {
+func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agentID, role, text, source, phase string) {
 	// Host plan/delegate/summary are user-facing; other sources default to task+user.
 	userFacing := source == "orchestrator" || source == "delegate" || source == "host"
-	phase := ""
-	switch source {
-	case "orchestrator":
-		phase = "plan"
-	case "delegate":
-		phase = "progress"
-	}
-	// Heuristic: final summary calls still use source=orchestrator; UI uses finality via last message.
 	payload, _ := json.Marshal(map[string]any{
 		"role":    role,
 		"content": []map[string]string{{"type": "text", "text": text}},

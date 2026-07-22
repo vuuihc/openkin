@@ -79,3 +79,10 @@ func TestParseLineNeverPanics(t *testing.T) {
 		_ = ParseLine(in)
 	}
 }
+
+func TestParseLineIgnoresDeprecatedCodexHooksNotice(t *testing.T) {
+	line := `{"type":"item.completed","item":{"id":"item_0","type":"error","message":"[features].codex_hooks is deprecated. Use [features].hooks instead."}}`
+	if got := ParseLine(line); len(got) != 0 {
+		t.Fatalf("deprecated compatibility notice should not become a task error: %#v", got)
+	}
+}

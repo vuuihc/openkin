@@ -140,6 +140,29 @@ describe("transcriptProjection", () => {
     ]);
   });
 
+  it("shows a synthesized orchestrator summary regardless of its wording", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          source: "orchestrator",
+          phase: "summary",
+          speaker: "kin",
+          text: "The workers found and fixed the root cause.",
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "message",
+        speaker: "kin",
+        text: "The workers found and fixed the root cause.",
+      },
+    ]);
+  });
+
   it("converts legacy tool dump messages into progress tool steps", () => {
     const items = buildChatItems(
       [

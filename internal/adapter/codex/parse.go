@@ -3,6 +3,7 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/vuuihc/kin/internal/adapter"
 )
@@ -232,6 +233,12 @@ func parseItem(eventType string, raw map[string]json.RawMessage, line string) []
 		if msg == "" {
 			msg = "item error"
 		}
+		// Codex 0.144+ reports the renamed hooks feature as an error item when
+		// an older user config still contains features.codex_hooks. It is a
+		// non-fatal compatibility diagnostic: the turn continues normally.
+		if isDeprecatedCodexHooksNotice(msg) {
+			return nil
+		}
 		return []adapter.Event{{
 			Type:    "error",
 			Payload: mustMarshal(map[string]string{"message": msg, "item_id": itemID}),
@@ -244,6 +251,12 @@ func parseItem(eventType string, raw map[string]json.RawMessage, line string) []
 		}
 		return nil
 	}
+}
+
+func isDeprecatedCodexHooksNotice(msg string) bool {
+	return strings.Contains(msg, "[features].codex_hooks") &&
+		strings.Contains(msg, "deprecated") &&
+		strings.Contains(msg, "[features].hooks")
 }
 
 func itemPhase(eventType string) string {

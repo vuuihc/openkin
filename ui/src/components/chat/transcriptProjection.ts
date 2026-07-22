@@ -567,7 +567,11 @@ function isProgressMessage(
   const source = String(p.source ?? "");
   if (source === "delegate") return true;
   if (source === "orchestrator") {
+    const phase = String(p.phase ?? "");
+    if (phase === "summary") return false;
+    if (phase === "plan" || phase === "progress") return true;
     // Final summary from buildMainSummary: "完成：" / "完成（有失败）："
+    // Keep this text heuristic only for events written before phase was added.
     if (isOrchestratorSummary(text)) return false;
     return true;
   }
