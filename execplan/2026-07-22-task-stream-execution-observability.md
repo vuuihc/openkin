@@ -14,20 +14,27 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
 
 - [x] (2026-07-22 21:30 +08) Reviewed the task engine, event bus, WebSocket client, transcript projection, orchestration, approvals, store, ADR 0006, ADR 0007, and ADR 0008.
 - [x] (2026-07-22 21:30 +08) Confirmed the existing focused Go tests, 95 UI tests, and production UI build pass before implementation.
+- [x] (2026-07-22 21:35 +08) Milestone 1: make stream delivery gap-aware and self-healing.
+  - Bus overflow now closes only the slow subscriber (non-blocking Publish); OverflowCount is observable.
+  - TaskDetail cursor uses highest contiguous seq; live gaps trigger `listEvents(since=contiguous)` recovery.
+  - Focused tests: `go test ./internal/task -run TestBus`, `ui/src/lib/eventStream.test.ts`.
 - [x] (2026-07-22 21:33 +08) Milestone 2: removed production speaker-ID whitelists in `transcriptProjection`; explicit `speaker`/`agent` and `visibility` are authoritative with a narrow legacy path.
 - [x] (2026-07-22 21:33 +08) Added host-neutral projection tests using `future-agent` as host and worker; UI suite 102/102 and `npm run build` green.
-- [ ] Milestone 1: make stream delivery gap-aware and self-healing.
-- [x] (2026-07-22 21:33 +08) Milestone 2: make transcript projection host-neutral for arbitrary registered agents.
 - [ ] Milestone 3: add delegated execution identity and approval attribution.
 - [ ] Milestone 4: make event persistence failures explicit and consolidate the canonical event contract.
 - [ ] Run full repository verification, inspect the built UI, update this plan, and commit each coherent change.
 
 ## Surprises & Discoveries
 
+- Observation: closing the slow subscriber channel is enough to drive recovery — `handleWS` exits on closed sub, browser `connectWS` reconnects and bumps `reconnectGen`, and TaskDetail already re-fetches via `since_seq`.
+  Evidence: `internal/api/api.go` `handleWS` select on `!ok`, `ui/src/api/client.ts` `noteReconnect` on reopen, `TaskDetailPage` reconnect effect.
+- Observation: advancing the UI cursor with `Math.max(...seqs)` after an out-of-order live event permanently hid holes from reconnect fetches (`listEvents(id, maxSeq)` skips missing lower seqs).
+  Evidence: pre-change `TaskDetailPage` set `maxSeq.current = Math.max(maxSeq.current, ev.seq)` on every live event.
+
 - Observation: the durable event table already provides monotonic per-task sequence numbers and `GET /api/tasks/{id}/events?since_seq=N`, so recovery does not require a new message store.
   Evidence: `internal/store/store.go` assigns the next sequence before insert, and `internal/api/api.go` exposes `since_seq`.
-- Observation: WebSocket overflow is silent and does not disconnect the subscriber.
-  Evidence: `internal/task/bus.go` uses a 64-entry channel and a `default` case that drops messages.
+- Observation: WebSocket overflow was silent and did not disconnect the subscriber (pre-M1).
+  Evidence: old `internal/task/bus.go` used a 64-entry channel and a `default` case that dropped messages. M1 closes the slow subscriber instead.
 - Observation: ADR 0007 explicitly forbids UI speaker whitelists, but `ui/src/components/chat/transcriptProjection.ts` still recognizes only the built-in IDs.
   Evidence: `resolveSpeaker` enumerates `kin`, `claude-code`, `codex`, and `grok`.
 - Observation: delegated Claude workers must retain the parent task ID because the approval bridge looks up a real task row; worker identity therefore cannot be represented by replacing `task_id`.
@@ -38,6 +45,13 @@ The behavior is visible in four ways. A slow WebSocket consumer eventually recon
   Evidence: `isTaskOnly` returned `speaker !== "kin" && speaker !== "user"` for legacy rows; host-neutral hosts need hostSpeaker comparison, while explicit visibility remains authoritative for new events.
 
 ## Decision Log
+
+- Decision: on bus overflow, drop/close only the lagging subscriber instead of dropping the message while keeping the channel open.
+  Rationale: keeps Publish non-blocking for the engine, makes loss observable (WS disconnect), and reuses the existing browser reconnect + `since_seq` recovery path.
+  Date/Author: 2026-07-22 / Kin.
+- Decision: browser cursor = highest contiguous sequence; gap detection triggers REST backfill from that cursor.
+  Rationale: maximum observed sequence is not proof that lower sequences exist; durable log remains source of truth.
+  Date/Author: 2026-07-22 / Kin.
 
 - Decision: implement recovery over the existing durable event log; keep WebSocket as a low-latency notification adapter rather than a second source of truth.
   Rationale: this reuses the existing sequence and REST seam, avoids durable queue duplication, and preserves local-first simplicity.

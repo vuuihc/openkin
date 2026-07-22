@@ -49,6 +49,11 @@ import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import { extractChangedFiles } from "../lib/changedFiles";
+import {
+  hasSequenceGap,
+  highestContiguousSeq,
+  mergeEventsBySeq,
+} from "../lib/eventStream";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
@@ -106,8 +111,11 @@ export default function TaskDetailPage() {
       ]);
       setTask(t);
       if (evs.length) {
-        setEvents((prev) => mergeEvents(prev, evs));
-        maxSeq.current = Math.max(maxSeq.current, ...evs.map((e) => e.seq));
+        setEvents((prev) => {
+          const next = mergeEventsBySeq(prev, evs);
+          maxSeq.current = highestContiguousSeq(next);
+          return next;
+        });
       }
       setApprovals(apps.filter((a) => a.task_id === id));
       setError(null);
@@ -186,8 +194,11 @@ export default function TaskDetailPage() {
     void listEvents(id, maxSeq.current)
       .then((evs) => {
         if (!evs.length) return;
-        setEvents((prev) => mergeEvents(prev, evs));
-        maxSeq.current = Math.max(maxSeq.current, ...evs.map((e) => e.seq));
+        setEvents((prev) => {
+          const next = mergeEventsBySeq(prev, evs);
+          maxSeq.current = highestContiguousSeq(next);
+          return next;
+        });
       })
       .catch(() => undefined);
     void getTask(id).then(setTask).catch(() => undefined);
@@ -218,11 +229,29 @@ export default function TaskDetailPage() {
       if (msg.kind === "event") {
         const ev = msg.data as TaskEvent;
         if (ev.task_id === id) {
+          // Cursor is highest contiguous seq, not max observed.
+          const contiguous = maxSeq.current;
+          const gap = hasSequenceGap(contiguous, ev.seq);
           setEvents((prev) => {
-            const next = mergeEvents(prev, [ev]);
-            maxSeq.current = Math.max(maxSeq.current, ev.seq);
+            const next = mergeEventsBySeq(prev, [ev]);
+            maxSeq.current = highestContiguousSeq(next);
             return next;
           });
+          if (gap) {
+            // Recover missing sequences from the durable log without blocking the bus.
+            // Fetch from the last contiguous cursor so the hole is filled even when
+            // the live event jumped ahead.
+            void listEvents(id, contiguous)
+              .then((evs) => {
+                if (!evs.length) return;
+                setEvents((prev) => {
+                  const next = mergeEventsBySeq(prev, evs);
+                  maxSeq.current = highestContiguousSeq(next);
+                  return next;
+                });
+              })
+              .catch(() => undefined);
+          }
         }
       }
       if (msg.kind === "approval_update") {
@@ -352,7 +381,7 @@ export default function TaskDetailPage() {
       // Reload events after server truncated + re-seeded.
       const evs = await listEvents(task.id);
       setEvents(evs);
-      maxSeq.current = evs.reduce((m, e) => Math.max(m, e.seq), 0);
+      maxSeq.current = highestContiguousSeq(evs);
       pushToast(tr("task.retryDone"), "info");
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.retryFailed"), "error");
@@ -792,11 +821,4 @@ export default function TaskDetailPage() {
       )}
     </div>
   );
-}
-
-function mergeEvents(prev: TaskEvent[], incoming: TaskEvent[]): TaskEvent[] {
-  const map = new Map<number, TaskEvent>();
-  for (const e of prev) map.set(e.seq, e);
-  for (const e of incoming) map.set(e.seq, e);
-  return Array.from(map.values()).sort((a, b) => a.seq - b.seq);
 }

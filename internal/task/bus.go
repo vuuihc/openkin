@@ -3,6 +3,7 @@ package task
 import (
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 
 	"github.com/vuuihc/kin/internal/store"
 )
@@ -14,10 +15,15 @@ type WSMessage struct {
 }
 
 // Bus is an in-process fan-out for WebSocket clients.
+//
+// Publish is non-blocking: a full subscriber is dropped (channel closed) so
+// the slow client cannot remain "connected" after losing data. Closing the
+// channel causes handleWS to exit and the browser reconnect path to run.
 type Bus struct {
-	mu      sync.Mutex
-	subs    map[chan WSMessage]struct{}
-	bufSize int
+	mu       sync.Mutex
+	subs     map[chan WSMessage]struct{}
+	bufSize  int
+	overflow atomic.Uint64
 }
 
 // NewBus creates a pub/sub bus.
@@ -47,7 +53,14 @@ func (b *Bus) Unsubscribe(ch chan WSMessage) {
 	b.mu.Unlock()
 }
 
-// Publish sends a message to all subscribers (non-blocking; drops if full).
+// OverflowCount reports how many times a subscriber was dropped for lag.
+// Useful for tests and diagnostics.
+func (b *Bus) OverflowCount() uint64 {
+	return b.overflow.Load()
+}
+
+// Publish sends a message to all subscribers (non-blocking).
+// A full subscriber is closed and removed so it cannot appear healthy after a hole.
 func (b *Bus) Publish(msg WSMessage) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -55,7 +68,11 @@ func (b *Bus) Publish(msg WSMessage) {
 		select {
 		case ch <- msg:
 		default:
-			// Slow client: drop rather than block the engine.
+			// Slow client: drop the subscriber rather than drop the message silently.
+			// Closing the channel makes the hole observable (WS disconnect → reconnect).
+			delete(b.subs, ch)
+			close(ch)
+			b.overflow.Add(1)
 		}
 	}
 }
