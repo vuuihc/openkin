@@ -168,8 +168,10 @@ export type AgentInfo = {
   available: boolean;
   default: boolean;
   reason?: string;
-  /** Known catalog models for the composer picker. */
+  /** Locally configured/discovered choices or stable CLI aliases. */
   models?: AgentModelOption[];
+  model_list_source: "configured" | "discovered" | "recommended" | "none";
+  model_list_status: "available" | "default_only" | "unavailable";
 };
 
 export function listAgents(): Promise<AgentInfo[]> {

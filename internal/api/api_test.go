@@ -298,7 +298,6 @@ func TestGzipOnTasks(t *testing.T) {
 	}
 }
 
-
 func TestListAgentsExactlyOneDefault(t *testing.T) {
 	s, token := newTestServer(t)
 	// Provide a registry-backed list via ListAgents callback.
@@ -335,8 +334,16 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 	if defaults != 1 {
 		t.Fatalf("defaults=%d", defaults)
 	}
+	if got := list[0].ModelListSource; got != "recommended" {
+		t.Fatalf("claude model source=%q", got)
+	}
+	if got := list[0].Models; len(got) != 3 || got[0].ID != "opus" || got[1].ID != "sonnet" || got[2].ID != "haiku" {
+		t.Fatalf("claude models=%+v", got)
+	}
+	if got := list[1].ModelListStatus; got != "default_only" || len(list[1].Models) != 0 {
+		t.Fatalf("codex model list status=%q models=%+v", got, list[1].Models)
+	}
 }
-
 
 func TestDeleteTask(t *testing.T) {
 	s, token := newTestServer(t)

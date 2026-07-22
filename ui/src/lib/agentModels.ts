@@ -24,6 +24,10 @@ export function modelsForAgent(
   return a?.models ?? [];
 }
 
+export function isListedModel(models: AgentModelOption[], modelId: string): boolean {
+  return models.some((model) => model.id === modelId.trim());
+}
+
 /** Resolve display value: empty string means "agent default". */
 export function normalizeModelSelection(value: string | null | undefined): string {
   return (value || "").trim();

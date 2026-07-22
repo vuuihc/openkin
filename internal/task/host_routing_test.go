@@ -297,8 +297,8 @@ func TestFollowUpModelUpdatesTaskAndSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.Model == nil || *task.Model != "claude-haiku-4-5" {
-		t.Fatalf("task.Model=%v want claude-haiku-4-5", task.Model)
+	if task.Model == nil || *task.Model != "haiku" {
+		t.Fatalf("task.Model=%v want haiku", task.Model)
 	}
 	// Model switch should clear session_ref for a clean Start with --model.
 	if task.SessionRef != nil && *task.SessionRef != "" {
@@ -313,8 +313,8 @@ func TestFollowUpModelUpdatesTaskAndSpec(t *testing.T) {
 		t.Fatal("expected Start after follow-up")
 	}
 	last := specs[len(specs)-1]
-	if last.Model != "claude-haiku-4-5" {
-		t.Fatalf("Start model=%q want claude-haiku-4-5", last.Model)
+	if last.Model != "haiku" {
+		t.Fatalf("Start model=%q want haiku", last.Model)
 	}
 }
 

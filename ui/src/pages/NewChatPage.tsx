@@ -292,7 +292,10 @@ export default function NewChatPage() {
                 <button
                   key={a.id}
                   type="button"
-                  onClick={() => setSelectedHost(a.id)}
+                  onClick={() => {
+                    setSelectedHost(a.id);
+                    setSelectedModel("");
+                  }}
                   className={[
                     "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors",
                     active
@@ -383,8 +386,11 @@ export default function NewChatPage() {
               }}
             />
             <ModelPicker
+              key={mainAgentId}
               value={selectedModel}
               models={modelsForAgent(available, mainAgentId)}
+              source={mainAgentMeta?.model_list_source}
+              status={mainAgentMeta?.model_list_status}
               disabled={sending}
               onChange={setSelectedModel}
             />

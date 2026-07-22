@@ -501,9 +501,9 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 			}
 			hostModel = ""
 		} else {
-			if canon, ok := BuiltinCatalog().Normalize(targetAgent, m); ok {
-				m = canon
-			}
+			// An explicit API/UI model selection is an opaque adapter value. Do not
+			// expand stable CLI aliases through BuiltinCatalog: that catalog is only
+			// advisory for natural-language routing and may contain stale full IDs.
 			setModel = true
 			resolvedModel = m
 			if !modelsEqual(m, hostModel) {

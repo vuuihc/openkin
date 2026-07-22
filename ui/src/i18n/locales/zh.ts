@@ -104,6 +104,15 @@ const zh = {
     default: "默认",
     defaultHint: "使用 agent CLI 默认模型",
     sessionHint: "对下一轮生效",
+    custom: "自定义模型…",
+    customLabel: "自定义模型 ID",
+    customPlaceholder: "模型 ID 或别名",
+    defaultOnly: "仅 Agent 默认模型",
+    source: {
+      configured: "已配置",
+      discovered: "已发现",
+      recommended: "CLI 稳定别名",
+    },
   },
   permission: {
     label: "权限",

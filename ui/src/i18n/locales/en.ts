@@ -108,6 +108,15 @@ const en: MessageTree = {
     default: "Default",
     defaultHint: "Use the agent CLI default model",
     sessionHint: "Applies to the next turn",
+    custom: "Custom model…",
+    customLabel: "Custom model ID",
+    customPlaceholder: "Model ID or alias",
+    defaultOnly: "Agent default only",
+    source: {
+      configured: "Configured",
+      discovered: "Discovered",
+      recommended: "CLI aliases",
+    },
   },
   permission: {
     label: "Permissions",

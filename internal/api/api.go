@@ -38,8 +38,11 @@ type AgentInfo struct {
 	Available    bool     `json:"available"`
 	Default      bool     `json:"default"`
 	Reason       string   `json:"reason,omitempty"`
-	// Models are known catalog entries for the model picker (id + short label).
-	Models []AgentModelOption `json:"models,omitempty"`
+	// Models contains only choices supported by a trustworthy local source or
+	// stable CLI aliases. The task routing catalog is intentionally not exposed.
+	Models          []AgentModelOption `json:"models,omitempty"`
+	ModelListSource string             `json:"model_list_source"`
+	ModelListStatus string             `json:"model_list_status"`
 }
 
 // AgentModelOption is one selectable model for an agent.
@@ -265,9 +268,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 			list = []AgentInfo{}
 		}
 		for i := range list {
-			if len(list[i].Models) == 0 {
-				list[i].Models = agentModelOptions(list[i].ID)
-			}
+			applyAgentModelList(&list[i])
 		}
 		writeJSON(w, http.StatusOK, list)
 		return
@@ -284,8 +285,8 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 				Installed: true,
 				Available: true,
 				Default:   id == def,
-				Models:    agentModelOptions(id),
 			})
+			applyAgentModelList(&list[len(list)-1])
 		}
 	}
 	if list == nil {
@@ -995,19 +996,30 @@ func (s *Server) validateAgentDefault(ctx context.Context, id string) error {
 	return nil
 }
 
-func agentModelOptions(agentID string) []AgentModelOption {
-	specs := task.ListCatalogModels(agentID)
-	if len(specs) == 0 {
-		return nil
+func applyAgentModelList(info *AgentInfo) {
+	if info.ModelListSource != "" || info.ModelListStatus != "" {
+		return
 	}
-	out := make([]AgentModelOption, 0, len(specs))
-	for _, s := range specs {
-		label := s.ID
-		// Prefer a short alias for the picker when available.
-		if len(s.Aliases) > 0 {
-			label = s.Aliases[0]
+	if len(info.Models) > 0 {
+		info.ModelListSource = "configured"
+		info.ModelListStatus = "available"
+		return
+	}
+	switch info.ID {
+	case "claude-code":
+		info.Models = []AgentModelOption{
+			{ID: "opus", Label: "Opus"},
+			{ID: "sonnet", Label: "Sonnet"},
+			{ID: "haiku", Label: "Haiku"},
 		}
-		out = append(out, AgentModelOption{ID: s.ID, Label: label, Tier: string(s.Tier)})
+		info.ModelListSource = "recommended"
+		info.ModelListStatus = "available"
+	case "codex":
+		info.Models = nil
+		info.ModelListSource = "none"
+		info.ModelListStatus = "default_only"
+	default:
+		info.ModelListSource = "none"
+		info.ModelListStatus = "unavailable"
 	}
-	return out
 }

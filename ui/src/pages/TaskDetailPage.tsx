@@ -749,6 +749,8 @@ export default function TaskDetailPage() {
               <ModelPicker
                 value={composerModel}
                 models={modelsForAgent(agents, task.agent || "")}
+                source={agents.find((agent) => agent.id === task.agent)?.model_list_source}
+                status={agents.find((agent) => agent.id === task.agent)?.model_list_status}
                 disabled={sending || stopping}
                 onChange={setComposerModel}
               />
