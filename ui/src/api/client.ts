@@ -135,6 +135,11 @@ export type Approval = {
   decided_via?: string | null;
   created_at: number;
   decided_at?: number | null;
+  /** Immutable adapter-run id when the approval came from a delegated worker. */
+  execution_id?: string | null;
+  execution_agent?: string | null;
+  execution_step?: number | null;
+  execution_model?: string | null;
   task_title?: string;
   task_agent?: string;
 };

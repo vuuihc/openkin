@@ -398,6 +398,9 @@ const en: MessageTree = {
     running: "Running",
     loadFailed: "Failed to load",
     decisionFailed: "Decision failed",
+    fromWorker: "From worker {agent}",
+    execution: "execution {id}",
+    step: "step {n}",
   },
   tasks: {
     title: "Tasks",

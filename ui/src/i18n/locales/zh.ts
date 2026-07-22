@@ -393,6 +393,9 @@ const zh = {
     running: "运行中",
     loadFailed: "加载失败",
     decisionFailed: "操作失败",
+    fromWorker: "来自 worker {agent}",
+    execution: "执行 {id}",
+    step: "步骤 {n}",
   },
   tasks: {
     title: "任务",

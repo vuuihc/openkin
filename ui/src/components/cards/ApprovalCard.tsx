@@ -1,8 +1,10 @@
 import {
-  parseApprovalPayload,
   type Approval,
+  parseApprovalPayload,
 } from "../../api/client";
 import { shortPath } from "../../lib/paths";
+import { formatApprovalAttribution } from "../../lib/approvalAttribution";
+import { useT } from "../../i18n/react";
 import { IconAlert, IconFile } from "../icons";
 
 type Props = {
@@ -25,7 +27,9 @@ export default function ApprovalCard({
   onOpenPath,
   previewLines,
 }: Props) {
+  const tr = useT();
   const { toolName, input } = parseApprovalPayload(approval.payload);
+  const attr = formatApprovalAttribution(approval, tr);
   const filePath =
     typeof input.path === "string"
       ? input.path
@@ -62,8 +66,8 @@ export default function ApprovalCard({
               focused
             </span>
           )}
-          <span className="ml-auto text-[11px] text-kin-tertiary truncate max-w-[45%]">
-            {[approval.task_agent, approval.task_title].filter(Boolean).join(" · ")}
+          <span className="ml-auto text-[11px] text-kin-tertiary truncate max-w-[45%]" title={attr}>
+            {attr}
           </span>
         </div>
 
