@@ -252,7 +252,7 @@ describe("transcriptProjection", () => {
     ]);
   });
 
-  
+
   it("projects an arbitrary plugin host without a speaker whitelist", () => {
     const items = buildChatItems(
       [
