@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -23,10 +21,6 @@ import (
 var version = "0.0.0-dev"
 
 func main() {
-	if err := loadDotEnv(".env"); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "kin: load .env: %v\n", err)
-		os.Exit(1)
-	}
 	if len(os.Args) < 2 {
 		usage(2)
 	}
@@ -61,42 +55,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		usage(2)
 	}
-}
-
-// loadDotEnv loads simple KEY=VALUE entries without overriding the process
-// environment. This keeps deployment-provided secrets authoritative while
-// supporting an ignored .env file for local development.
-func loadDotEnv(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		key, value, ok := strings.Cut(line, "=")
-		key = strings.TrimSpace(key)
-		if !ok || key == "" {
-			return fmt.Errorf("invalid line %q", scanner.Text())
-		}
-		value = strings.TrimSpace(value)
-		if len(value) >= 2 && ((value[0] == '\'' && value[len(value)-1] == '\'') ||
-			(value[0] == '"' && value[len(value)-1] == '"')) {
-			value = value[1 : len(value)-1]
-		}
-		if _, exists := os.LookupEnv(key); !exists {
-			if err := os.Setenv(key, value); err != nil {
-				return fmt.Errorf("set %s: %w", key, err)
-			}
-		}
-	}
-	return scanner.Err()
 }
 
 func runToken(args []string) error {
