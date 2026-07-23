@@ -127,6 +127,8 @@ const zh = {
   chat: {
     thinking: "思考中…",
     streaming: "生成中",
+    canceled: "已取消",
+    timedOut: "已超时",
     task: "任务",
     needsApproval: "需要你的审批 ↓",
     approve: "批准",

@@ -3,6 +3,7 @@ package kinagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -95,7 +96,7 @@ func runAgentLoop(
 				emitMsg(ch, "kin", "_Context limit approached; compacted tool results and retrying…_")
 				continue
 			}
-			emitErr(ch, err.Error())
+			emitErr(ch, friendlyErrorMessage(err))
 			emitResult(ch, true, lastModel, totalIn, totalOut, totalCached)
 			return messages
 		}
@@ -227,7 +228,7 @@ func runChatOnly(
 	})
 	flushDelta()
 	if err != nil {
-		emitErr(ch, err.Error())
+		emitErr(ch, friendlyErrorMessage(err))
 		emitResult(ch, true, model, 0, 0, 0)
 		return
 	}
@@ -577,6 +578,36 @@ func truncateRunes(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// friendlyErrorMessage maps transport/cancel noise to short UI copy.
+// Abort paths already emit "canceled"; this catches Chat() races where the
+// provider surfaces context cancel / HTTP2 CANCEL as a raw stream error.
+func friendlyErrorMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timed out"
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "context canceled"),
+		strings.Contains(s, "context cancelled"),
+		strings.Contains(s, "request canceled"),
+		strings.Contains(s, "request cancelled"),
+		(strings.Contains(s, "stream error") && strings.Contains(s, "cancel")),
+		(strings.Contains(s, "cancel") && strings.Contains(s, "received from peer")):
+		return "canceled"
+	case strings.Contains(s, "context deadline exceeded"),
+		strings.Contains(s, "client.timeout"):
+		return "timed out"
+	default:
+		return err.Error()
+	}
 }
 
 func emitErr(ch chan<- adapter.Event, msg string) {

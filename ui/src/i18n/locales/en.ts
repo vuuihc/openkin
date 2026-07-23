@@ -131,6 +131,8 @@ const en: MessageTree = {
   chat: {
     thinking: "thinking…",
     streaming: "streaming",
+    canceled: "Canceled",
+    timedOut: "Timed out",
     task: "task",
     needsApproval: "Needs your approval ↓",
     approve: "Approve",

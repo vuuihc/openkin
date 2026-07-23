@@ -135,7 +135,7 @@ export default function Markdown({
         }
         // paragraph
         return (
-          <p key={i} className="whitespace-pre-wrap">
+          <p key={i} className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             {inline(b.type === "p" ? b.value : "")}
           </p>
         );

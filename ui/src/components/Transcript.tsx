@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import type { TaskEvent } from "../api/client";
 import Markdown from "./Markdown";
+import { useT } from "../i18n/react";
+import { friendlyErrorLabel } from "../lib/friendlyError";
 
 type Props = {
   events: TaskEvent[];
@@ -17,6 +19,7 @@ type Row =
   | { kind: "approval_dec"; decision: string; via: string; key: string };
 
 export default function Transcript({ events }: Props) {
+  const tr = useT();
   const rows = useMemo(() => buildRows(events), [events]);
 
   if (rows.length === 0) {
@@ -65,7 +68,7 @@ export default function Transcript({ events }: Props) {
                 key={row.key}
                 className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-kin-red"
               >
-                {row.message}
+                {friendlyErrorLabel(row.message, tr)}
               </div>
             );
           case "result":

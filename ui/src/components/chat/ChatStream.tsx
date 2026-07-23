@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TaskEvent } from "../../api/client";
 import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
+import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import { useAppStore } from "../../store/appStore";
@@ -210,7 +211,7 @@ export default function ChatStream({
   const loadingStandalone = showLoading && !loadingInsideAgent;
 
   return (
-    <div className="max-w-[720px] mx-auto px-4 sm:px-7 flex flex-col gap-4">
+    <div className="max-w-[720px] w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4">
       {sharing && (
         <ShareSelectionBar
           count={selectedMessages.length}
@@ -501,10 +502,11 @@ function StandaloneRow({
 }: {
   item: Extract<ChatItem, { kind: "error" | "meta" }>;
 }) {
+  const tr = useT();
   if (item.kind === "error") {
     return (
       <div className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-[13.5px] text-kin-red">
-        {item.message}
+        {friendlyErrorLabel(item.message, tr)}
       </div>
     );
   }
@@ -1022,13 +1024,15 @@ function MessageRow({
     return (
       <div
         className={[
-          "flex justify-end gap-2.5 items-start rounded-lg",
+          // min-w-0: let this row shrink inside the chat column so max-w on
+          // the bubble can actually constrain long unbroken paths/URLs.
+          "flex min-w-0 w-full justify-end gap-2.5 items-start rounded-lg",
           selectionMode && selected
             ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2"
             : "",
         ].join(" ")}
       >
-        <div className="max-w-[85%] sm:max-w-[78%] flex flex-col items-end gap-1">
+        <div className="min-w-0 max-w-[85%] sm:max-w-[78%] flex flex-col items-end gap-1">
           {selectionMode && (
             <MessageSelectionControl
               role="user"
@@ -1040,7 +1044,7 @@ function MessageRow({
             {meta.label}
           </div>
           <div
-            className="px-3.5 py-2.5 rounded-[18px] rounded-br-[5px] text-[14px] sm:text-[15px] leading-relaxed whitespace-pre-wrap"
+            className="max-w-full min-w-0 px-3.5 py-2.5 rounded-[18px] rounded-br-[5px] text-[14px] sm:text-[15px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{
               background: "var(--kin-bubble-user)",
               color: "var(--kin-bubble-user-fg)",
