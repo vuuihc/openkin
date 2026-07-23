@@ -9,7 +9,14 @@ import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
 import { useLocale, useT } from "../../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
+import { useAppStore } from "../../store/appStore";
+import { IconCopy, IconDownload, IconShare } from "../icons";
 import Markdown from "../Markdown";
+import {
+  formatSharedHTML,
+  formatSharedText,
+  type SharedMessage,
+} from "./shareExport";
 import {
   buildChatItems,
   findSpeakerModel,
@@ -71,6 +78,12 @@ export default function ChatStream({
   onOpenPath,
 }: Props) {
   const { locale } = useLocale();
+  const tr = useT();
+  const pushToast = useAppStore((s) => s.pushToast);
+  const [sharing, setSharing] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(
     () => buildChatItems(events, hostSpeaker, hostModel, !loading),
@@ -87,6 +100,94 @@ export default function ChatStream({
   const hasUserMsg = items.some(
     (i) => i.kind === "message" && i.speaker === "user",
   );
+  const selectableMessages = useMemo(
+    () =>
+      items.filter(
+        (item): item is Extract<ChatItem, { kind: "message" }> =>
+          item.kind === "message" &&
+          !item.partial &&
+          item.text.trim().length > 0,
+      ),
+    [items],
+  );
+  const selectableKeys = useMemo(
+    () => new Set(selectableMessages.map((item) => item.key)),
+    [selectableMessages],
+  );
+  const selectedMessages = useMemo<SharedMessage[]>(
+    () =>
+      selectableMessages
+        .filter((item) => selectedKeys.has(item.key))
+        .map((item) => ({
+          role: item.speaker === "user" ? "user" : "assistant",
+          text: item.text,
+        })),
+    [selectableMessages, selectedKeys],
+  );
+
+  useEffect(() => {
+    setSelectedKeys((previous) => {
+      const next = new Set(
+        [...previous].filter((key) => selectableKeys.has(key)),
+      );
+      return next.size === previous.size ? previous : next;
+    });
+  }, [selectableKeys]);
+
+  const copyMessage = async (text: string) => {
+    try {
+      await copyToClipboard(text);
+      pushToast(tr("chat.message.copied"), "info");
+    } catch {
+      pushToast(tr("chat.message.copyFailed"), "error");
+    }
+  };
+
+  const startSharing = (key: string) => {
+    setSelectedKeys(new Set([key]));
+    setSharing(true);
+  };
+
+  const toggleSelection = (key: string) => {
+    setSelectedKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const shareLabels = {
+    title: tr("chat.message.exportTitle"),
+    user: tr("chat.message.user"),
+    assistant: tr("chat.message.assistant"),
+  };
+
+  const copySelected = async () => {
+    if (!selectedMessages.length) return;
+    try {
+      await copyToClipboard(formatSharedText(selectedMessages, shareLabels));
+      pushToast(tr("chat.message.textCopied"), "info");
+    } catch {
+      pushToast(tr("chat.message.copyFailed"), "error");
+    }
+  };
+
+  const downloadSelectedHTML = () => {
+    if (!selectedMessages.length) return;
+    const blob = new Blob([formatSharedHTML(selectedMessages, shareLabels)], {
+      type: "text/html;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "kin-conversation.html";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    pushToast(tr("chat.message.htmlDownloaded"), "info");
+  };
 
   const hasPartial = items.some((i) => i.kind === "message" && i.partial);
   const lastIdx = items.length - 1;
@@ -110,6 +211,17 @@ export default function ChatStream({
 
   return (
     <div className="max-w-[720px] mx-auto px-4 sm:px-7 flex flex-col gap-4">
+      {sharing && (
+        <ShareSelectionBar
+          count={selectedMessages.length}
+          onCancel={() => {
+            setSharing(false);
+            setSelectedKeys(new Set());
+          }}
+          onCopy={() => void copySelected()}
+          onDownload={downloadSelectedHTML}
+        />
+      )}
       {!hasUserMsg && fallbackUserPrompt?.trim() && (
         <MessageRow
           speaker="user"
@@ -127,6 +239,9 @@ export default function ChatStream({
                 speaker={turn.item.speaker}
                 text={turn.item.text}
                 partial={turn.item.partial}
+                selectionMode={sharing}
+                selected={selectedKeys.has(turn.item.key)}
+                onToggleSelection={() => toggleSelection(turn.item.key)}
               />
             );
           case "standalone":
@@ -152,6 +267,11 @@ export default function ChatStream({
                 onFork={onFork}
                 onSaveArtifact={onSaveArtifact}
                 onOpenPath={onOpenPath}
+                selectionMode={sharing}
+                selectedKeys={selectedKeys}
+                onToggleSelection={toggleSelection}
+                onCopyMessage={(text) => void copyMessage(text)}
+                onShareMessage={startSharing}
               />
             );
           }
@@ -182,6 +302,11 @@ function AgentTurn({
   onFork,
   onSaveArtifact,
   onOpenPath,
+  selectionMode = false,
+  selectedKeys,
+  onToggleSelection,
+  onCopyMessage,
+  onShareMessage,
 }: {
   speaker: string;
   model?: string;
@@ -196,6 +321,11 @@ function AgentTurn({
   onFork?: (fromSeq: number) => void;
   onSaveArtifact?: (text: string) => void;
   onOpenPath?: (path: string) => void;
+  selectionMode?: boolean;
+  selectedKeys: Set<string>;
+  onToggleSelection: (key: string) => void;
+  onCopyMessage: (text: string) => void;
+  onShareMessage: (key: string) => void;
 }) {
   const tr = useT();
   const meta = agentAvatarMeta(speaker);
@@ -237,13 +367,26 @@ function AgentTurn({
                 showMessageActions &&
                 !item.partial &&
                 typeof item.seq === "number";
+              const canCopy = !item.partial && item.text.trim().length > 0;
               return (
-                <div key={item.key} className="group/msg space-y-1">
-                  <MessageBody
-                    text={item.text}
-                    partial={item.partial}
-                  />
-                  {(canRetryFork || canSave) && (
+                <div
+                  key={item.key}
+                  className={[
+                    "group/msg space-y-1 rounded-lg",
+                    selectionMode && selectedKeys.has(item.key)
+                      ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2"
+                      : "",
+                  ].join(" ")}
+                >
+                  {selectionMode && (
+                    <MessageSelectionControl
+                      role="assistant"
+                      selected={selectedKeys.has(item.key)}
+                      onToggle={() => onToggleSelection(item.key)}
+                    />
+                  )}
+                  <MessageBody text={item.text} partial={item.partial} />
+                  {(canRetryFork || canSave || canCopy) && (
                     <div
                       className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                       role="group"
@@ -268,6 +411,30 @@ function AgentTurn({
                             className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
                           >
                             {tr("task.fork")}
+                          </button>
+                        </>
+                      )}
+                      {canCopy && (
+                        <>
+                          <button
+                            type="button"
+                            title={tr("chat.message.copyTitle")}
+                            aria-label={tr("chat.message.copyTitle")}
+                            onClick={() => onCopyMessage(item.text)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                          >
+                            <IconCopy size={13} />
+                            {tr("chat.message.copy")}
+                          </button>
+                          <button
+                            type="button"
+                            title={tr("chat.message.shareTitle")}
+                            aria-label={tr("chat.message.shareTitle")}
+                            onClick={() => onShareMessage(item.key)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                          >
+                            <IconShare size={13} />
+                            {tr("chat.message.share")}
                           </button>
                         </>
                       )}
@@ -836,10 +1003,16 @@ function MessageRow({
   speaker,
   text,
   partial,
+  selectionMode = false,
+  selected = false,
+  onToggleSelection,
 }: {
   speaker: string;
   text: string;
   partial?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelection?: () => void;
 }) {
   const tr = useT();
   const isUser = speaker === "user";
@@ -847,8 +1020,22 @@ function MessageRow({
 
   if (isUser) {
     return (
-      <div className="flex justify-end gap-2.5 items-start">
+      <div
+        className={[
+          "flex justify-end gap-2.5 items-start rounded-lg",
+          selectionMode && selected
+            ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2"
+            : "",
+        ].join(" ")}
+      >
         <div className="max-w-[85%] sm:max-w-[78%] flex flex-col items-end gap-1">
+          {selectionMode && (
+            <MessageSelectionControl
+              role="user"
+              selected={selected}
+              onToggle={onToggleSelection ?? (() => undefined)}
+            />
+          )}
           <div className="text-[11.5px] font-medium text-kin-muted px-1">
             {meta.label}
           </div>
@@ -897,6 +1084,105 @@ function MessageRow({
       </div>
     </div>
   );
+}
+
+function ShareSelectionBar({
+  count,
+  onCancel,
+  onCopy,
+  onDownload,
+}: {
+  count: number;
+  onCancel: () => void;
+  onCopy: () => void;
+  onDownload: () => void;
+}) {
+  const tr = useT();
+  const disabled = count === 0;
+  return (
+    <div
+      className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-kin-blue/30 bg-[var(--kin-elevated)]/95 px-3 py-2 shadow-sm backdrop-blur"
+      role="region"
+      aria-label={tr("chat.message.selection")}
+    >
+      <span className="mr-auto text-[12px] font-medium text-kin-text">
+        {tr("chat.message.selected", { count })}
+      </span>
+      <button
+        type="button"
+        onClick={onCopy}
+        disabled={disabled}
+        className="inline-flex min-h-[32px] items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-[12px] font-medium text-white hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <IconCopy size={14} />
+        {tr("chat.message.copyText")}
+      </button>
+      <button
+        type="button"
+        onClick={onDownload}
+        disabled={disabled}
+        className="inline-flex min-h-[32px] items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-[12px] font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <IconDownload size={14} />
+        {tr("chat.message.downloadHTML")}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="min-h-[32px] rounded-md px-2 py-1 text-[12px] font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+      >
+        {tr("chat.message.cancel")}
+      </button>
+    </div>
+  );
+}
+
+function MessageSelectionControl({
+  role,
+  selected,
+  onToggle,
+}: {
+  role: "user" | "assistant";
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const tr = useT();
+  const label = role === "user" ? tr("chat.message.user") : tr("chat.message.assistant");
+  return (
+    <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 text-[11.5px] font-medium text-kin-muted">
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        className="h-4 w-4 accent-[var(--kin-blue)]"
+        aria-label={tr("chat.message.selectMessage", { role: label })}
+      />
+      {label}
+    </label>
+  );
+}
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Some local / embedded contexts expose the API but deny permissions.
+      // Fall through to the browser's legacy copy command in that case.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("clipboard unavailable");
 }
 
 function agentIdentityTitle(name: string, model?: string): string {

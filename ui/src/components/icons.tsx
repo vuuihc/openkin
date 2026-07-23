@@ -110,6 +110,29 @@ export function IconPanel(p: IconProps) {
 export function IconCheck(p: IconProps) {
   return base(p, <path d="M20 6 9 17l-5-5" />);
 }
+export function IconCopy(p: IconProps) {
+  return base(
+    p,
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" />
+    </>,
+  );
+}
+export function IconShare(p: IconProps) {
+  return base(
+    p,
+    <>
+      <circle cx="18" cy="5" r="2.5" />
+      <circle cx="6" cy="12" r="2.5" />
+      <circle cx="18" cy="19" r="2.5" />
+      <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
+    </>,
+  );
+}
+export function IconDownload(p: IconProps) {
+  return base(p, <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14" /></>);
+}
 export function IconAlert(p: IconProps) {
   return base(
     p,
@@ -235,4 +258,3 @@ export function IconMore(p: IconProps) {
     </>,
   );
 }
-
