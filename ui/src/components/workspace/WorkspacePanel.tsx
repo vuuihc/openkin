@@ -401,6 +401,9 @@ export default function WorkspacePanel({
             error={error}
             diff={enrichedDiff}
             cwd={cwd}
+            taskId={taskId}
+            editable
+            onSaved={(updated) => setFile(updated)}
             reviewActions={reviewActions && Boolean(selectedPath)}
             actionsBusy={actionsBusy}
             onKeep={() => {

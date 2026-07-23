@@ -267,6 +267,71 @@ func TestTaskWorkspaceReadRejectsBinaryEscapeAndLargeFiles(t *testing.T) {
 	}
 }
 
+func TestWriteTaskWorkspaceFile(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "main.go"), "package main\n")
+	mustWriteFile(t, filepath.Join(root, "dir", "nested.txt"), "nested")
+	taskID := insertWorkspaceTask(t, s.Store, root)
+
+	writeReq := func(t *testing.T, path, content string) *httptest.ResponseRecorder {
+		t.Helper()
+		payload, err := json.Marshal(map[string]string{"path": path, "content": content})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPut, "/api/tasks/"+taskID+"/workspace/file", strings.NewReader(string(payload)))
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	t.Run("success", func(t *testing.T) {
+		want := "package main\n\nfunc main() {}\n"
+		rr := writeReq(t, "main.go", want)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("write: %d %s", rr.Code, rr.Body.String())
+		}
+		var got workspaceFileResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Path != "main.go" || got.Content != want || got.Truncated {
+			t.Fatalf("got=%+v", got)
+		}
+		if int(got.Size) != len(want) {
+			t.Fatalf("size=%d want=%d", got.Size, len(want))
+		}
+		data, err := os.ReadFile(filepath.Join(root, "main.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != want {
+			t.Fatalf("disk=%q want=%q", string(data), want)
+		}
+	})
+
+	t.Run("escape", func(t *testing.T) {
+		rr := writeReq(t, "../escape.txt", "nope")
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("escape: %d %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("directory", func(t *testing.T) {
+		rr := writeReq(t, "dir", "nope")
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("directory: %d %s", rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "path is a directory") {
+			t.Fatalf("body=%s", rr.Body.String())
+		}
+	})
+}
+
 func insertWorkspaceTask(t *testing.T, st *store.Store, cwd string) string {
 	t.Helper()
 	const id = "task-workspace"

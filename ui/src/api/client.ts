@@ -250,6 +250,21 @@ export function readTaskWorkspaceFile(
   );
 }
 
+export function writeTaskWorkspaceFile(
+  taskId: string,
+  path: string,
+  content: string,
+): Promise<TaskWorkspaceFileResponse> {
+  return apiFetch<TaskWorkspaceFileResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspace/file`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, content }),
+    },
+  );
+}
+
 /** Restore isolated task files to a checkpoint (event_seq 0 = initial). */
 export function restoreTaskWorkspace(
   taskId: string,

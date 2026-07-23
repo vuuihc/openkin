@@ -125,6 +125,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
 		r.Get("/api/tasks/{id}/workspace/list", s.handleListTaskWorkspace)
 		r.Get("/api/tasks/{id}/workspace/file", s.handleReadTaskWorkspaceFile)
+		r.Put("/api/tasks/{id}/workspace/file", s.handleWriteTaskWorkspaceFile)
 		r.Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
 		r.Delete("/api/tasks/{id}", s.handleDeleteTask)

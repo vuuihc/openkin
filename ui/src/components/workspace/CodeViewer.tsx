@@ -3,12 +3,14 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
-import Editor, { DiffEditor } from "@monaco-editor/react";
+import Editor, { DiffEditor, type Monaco } from "@monaco-editor/react";
 import type { editor as MonacoEditor } from "monaco-editor";
 import {
   formatBytes,
+  writeTaskWorkspaceFile,
   type TaskWorkspaceFileResponse,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
@@ -31,6 +33,12 @@ type Props = {
   onKeep?: () => void;
   onDiscard?: () => void;
   actionsBusy?: boolean;
+  /** Task id — required to persist edits. */
+  taskId?: string;
+  /** Allow editing + saving the open file (plain view only, never diff). */
+  editable?: boolean;
+  /** Called with the server response after a successful save. */
+  onSaved?: (updated: TaskWorkspaceFileResponse) => void;
 };
 
 const EDITOR_OPTIONS = {
@@ -68,11 +76,32 @@ export default function CodeViewer({
   onKeep,
   onDiscard,
   actionsBusy = false,
+  taskId,
+  editable = false,
+  onSaved,
 }: Props) {
   const t = useT();
   const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
     null,
   );
+
+  // Editing state. `draft` is the working copy; the server content on `file`
+  // is the baseline we diff against to know if there are unsaved changes.
+  const [draft, setDraft] = useState("");
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveRef = useRef<(() => void) | null>(null);
+
+  // Reset the draft to the freshly-loaded server content whenever the open
+  // file (path or content) changes, e.g. after navigation or a successful save.
+  const serverContent = file?.content ?? "";
+  useEffect(() => {
+    setDraft(serverContent);
+    setSaveState("idle");
+    setSaveError(null);
+  }, [path, serverContent]);
 
   // Drop the editor handle when leaving diff mode / switching path so
   // stale goToDiff calls never target a disposed instance.
@@ -99,6 +128,33 @@ export default function CodeViewer({
     }
   }, []);
 
+  const dirty = draft !== serverContent;
+
+  const doSave = useCallback(async () => {
+    if (!taskId || !path || saveState === "saving") return;
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      const updated = await writeTaskWorkspaceFile(taskId, path, draft);
+      setSaveState("saved");
+      onSaved?.(updated);
+    } catch (err) {
+      setSaveState("error");
+      setSaveError(err instanceof Error ? err.message : String(err));
+    }
+  }, [taskId, path, draft, saveState, onSaved]);
+
+  // Keep the ⌘S/Ctrl+S command pointed at the latest save closure without
+  // re-registering it on every keystroke.
+  saveRef.current = doSave;
+
+  const onEditorMount = useCallback((editor: unknown, monaco: Monaco) => {
+    const ed = editor as MonacoEditor.IStandaloneCodeEditor;
+    ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void saveRef.current?.();
+    });
+  }, []);
+
   if (!path) {
     return (
       <div className="h-full flex items-center justify-center text-sm text-kin-muted px-6 text-center">
@@ -110,6 +166,11 @@ export default function CodeViewer({
   // Prefer tool-derived diff when available; fall back to plain file view.
   const useDiff = Boolean(
     diff && (diff.original.length > 0 || diff.modified.length > 0),
+  );
+  // Editing is only offered in the plain file view. Diffs stay read-only, and a
+  // truncated file must not be saved or we would clobber the unseen tail.
+  const canEdit = Boolean(
+    editable && taskId && file && !useDiff && !file.truncated,
   );
   // Keep the last good file mounted while a new path loads so Monaco is not
   // disposed/recreated on every navigation. Only blank the editor on hard error
@@ -193,6 +254,40 @@ export default function CodeViewer({
               </button>
             </>
           )}
+          {editable && file?.truncated && !useDiff && (
+            <span
+              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-kin-orange"
+              title={t("workspace.viewer.readOnlyTruncated")}
+            >
+              {t("workspace.viewer.readOnlyTruncated")}
+            </span>
+          )}
+          {canEdit && (
+            <>
+              {saveState === "error" && saveError && (
+                <span className="text-kin-red" title={saveError}>
+                  {t("workspace.viewer.saveFailed")}
+                </span>
+              )}
+              {saveState === "saved" && !dirty && (
+                <span className="text-kin-green">
+                  {t("workspace.viewer.saved")}
+                </span>
+              )}
+              <button
+                type="button"
+                disabled={!dirty || saveState === "saving"}
+                onClick={() => void doSave()}
+                title={t("workspace.viewer.save")}
+                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
+              >
+                <IconCheck size={12} />
+                {saveState === "saving"
+                  ? t("workspace.viewer.saving")
+                  : t("workspace.viewer.save")}
+              </button>
+            </>
+          )}
           <OpenInMenu root={openRoot} relativePath={path} />
         </div>
       </div>
@@ -245,8 +340,14 @@ export default function CodeViewer({
               height="100%"
               theme="vs-dark"
               language={languageForPath(path)}
-              value={file.content}
-              options={EDITOR_OPTIONS}
+              value={canEdit ? draft : file.content}
+              onChange={
+                canEdit ? (next) => setDraft(next ?? "") : undefined
+              }
+              onMount={canEdit ? onEditorMount : undefined}
+              options={
+                canEdit ? { ...EDITOR_OPTIONS, readOnly: false } : EDITOR_OPTIONS
+              }
               loading={
                 <div className="h-full flex items-center justify-center text-sm text-kin-muted">
                   {t("workspace.viewer.loading")}

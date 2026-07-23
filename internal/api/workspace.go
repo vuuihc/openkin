@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -303,6 +304,67 @@ func (s *Server) handleReadTaskWorkspaceFile(w http.ResponseWriter, r *http.Requ
 		Size:      fi.Size(),
 		Truncated: truncated,
 		Content:   string(data),
+	})
+}
+
+func (s *Server) handleWriteTaskWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+
+	reqPath := strings.TrimSpace(body.Path)
+	if reqPath == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
+		return
+	}
+	if len(body.Content) > workspaceReadHardLimit {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+			"error": fmt.Sprintf("file too large (max %d bytes)", workspaceReadHardLimit),
+		})
+		return
+	}
+	if !utf8.ValidString(body.Content) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is not valid UTF-8"})
+		return
+	}
+
+	env, err := s.workspaceEnvForTask(r)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	resolved, err := env.resolvePath(reqPath)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if fi, err := os.Stat(resolved.Abs); err == nil && fi.IsDir() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is a directory"})
+		return
+	}
+
+	if err := os.WriteFile(resolved.Abs, []byte(body.Content), 0o644); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, workspaceFileResponse{
+		Root:      env.Root,
+		Path:      resolved.Rel,
+		Size:      int64(len(body.Content)),
+		Truncated: false,
+		Content:   body.Content,
 	})
 }
 
