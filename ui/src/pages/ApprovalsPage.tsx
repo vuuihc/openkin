@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
+  answerUserQuestion,
   decideApproval,
   getToken,
   listApprovals,
+  listUserQuestions,
   type Approval,
+  type UserQuestion,
 } from "../api/client";
 import ApprovalCard from "../components/cards/ApprovalCard";
+import UserQuestionCard from "../components/cards/UserQuestionCard";
 import RunningTaskCard from "../components/cards/RunningTaskCard";
 import {
   ApprovalListSkeleton,
@@ -26,10 +30,12 @@ type PendingDecision = "approved" | "denied";
 export default function ApprovalsPage() {
   const tr = useT();
   const [items, setItems] = useState<Approval[]>([]);
+  const [questions, setQuestions] = useState<UserQuestion[]>([]);
   const [running, setRunning] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, PendingDecision>>({});
+  const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
   const [focusIdx, setFocusIdx] = useState(0);
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
@@ -40,11 +46,13 @@ export default function ApprovalsPage() {
   const load = useCallback(async () => {
     if (!getToken()) return;
     try {
-      const [list, tasks] = await Promise.all([
+      const [list, qs, tasks] = await Promise.all([
         listApprovals("pending"),
+        listUserQuestions("pending").catch(() => [] as UserQuestion[]),
         listTasks({ limit: 50 }),
       ]);
       setItems(list);
+      setQuestions(qs);
       setRunning(tasks.filter((t) => !isTerminal(t.status)));
       setError(null);
     } catch (e) {
@@ -81,6 +89,22 @@ export default function ApprovalsPage() {
           }
           const rest = prev.filter((x) => x.id !== a.id);
           return [a, ...rest].sort((x, y) => y.created_at - x.created_at);
+        });
+      }
+      if (msg.kind === "user_question_update") {
+        const q = msg.data as UserQuestion;
+        setQuestions((prev) => {
+          if (q.status !== "pending") {
+            setAnswerBusy((b) => {
+              if (!(q.id in b)) return b;
+              const next = { ...b };
+              delete next[q.id];
+              return next;
+            });
+            return prev.filter((x) => x.id !== q.id);
+          }
+          const rest = prev.filter((x) => x.id !== q.id);
+          return [q, ...rest].sort((x, y) => x.created_at - y.created_at);
         });
       }
       if (msg.kind === "task_update") {
@@ -141,6 +165,24 @@ export default function ApprovalsPage() {
     }
   }
 
+  async function onAnswer(
+    id: string,
+    body: { selected: string[]; other_text: string },
+  ) {
+    setAnswerBusy((b) => ({ ...b, [id]: true }));
+    try {
+      await answerUserQuestion(id, body);
+      setQuestions((prev) => prev.filter((x) => x.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : tr("question.answerFailed"));
+      setAnswerBusy((b) => {
+        const next = { ...b };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-[640px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
@@ -150,9 +192,9 @@ export default function ApprovalsPage() {
         <p className="text-[13.5px] text-kin-tertiary mt-1">
           {loading
             ? tr("inbox.loading")
-            : items.length === 0
+            : items.length + questions.length === 0
               ? tr("inbox.noneWaiting")
-              : tr("inbox.waiting", { count: items.length })}
+              : tr("inbox.waiting", { count: items.length + questions.length })}
         </p>
 
         {loading && (
@@ -171,7 +213,7 @@ export default function ApprovalsPage() {
           </div>
         )}
 
-        {!loading && !error && items.length === 0 && running.length === 0 && (
+        {!loading && !error && items.length === 0 && questions.length === 0 && running.length === 0 && (
           <div className="mt-10 rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-16 text-center">
             <p className="text-base font-medium text-kin-text">{tr("inbox.allClear")}</p>
             <p className="mt-1 text-sm text-kin-secondary">
@@ -181,7 +223,11 @@ export default function ApprovalsPage() {
         )}
 
         {!loading && items.length > 0 && (
-          <ul className="mt-6 space-y-3.5">
+          <div className="mt-6">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+              {tr("inbox.approvalsSection")}
+            </div>
+          <ul className="space-y-3.5">
             {items.map((a, i) => (
               <li key={a.id}>
                 <ApprovalCard
@@ -194,6 +240,26 @@ export default function ApprovalsPage() {
               </li>
             ))}
           </ul>
+          </div>
+        )}
+
+        {!loading && questions.length > 0 && (
+          <div className="mt-8">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+              {tr("inbox.questionsSection")}
+            </div>
+            <ul className="space-y-3.5">
+              {questions.map((q) => (
+                <li key={q.id}>
+                  <UserQuestionCard
+                    question={q}
+                    busy={Boolean(answerBusy[q.id])}
+                    onAnswer={(body) => void onAnswer(q.id, body)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {!loading && running.length > 0 && (

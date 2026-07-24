@@ -128,6 +128,17 @@ const en: MessageTree = {
     yoloHint: "Skip permission prompts — trusted / sandboxed envs only",
     sessionLocked: "locked for this session",
   },
+  question: {
+    cardTitle: "Needs your answer",
+    fallback: "Please choose an option",
+    other: "Other",
+    otherPlaceholder: "Type your own answer…",
+    submit: "Submit",
+    submitting: "Submitting…",
+    answerFailed: "Failed to submit answer",
+    hintKeys: "1–9 select · Enter submit",
+  },
+
   chat: {
     thinking: "thinking…",
     streaming: "streaming",
@@ -417,6 +428,8 @@ const en: MessageTree = {
     title: "Inbox",
     loading: "Loading…",
     noneWaiting: "No approvals waiting",
+    approvalsSection: "Approvals",
+    questionsSection: "Questions",
     waiting: "{count} approval(s) waiting",
     allClear: "All clear",
     allClearHint:

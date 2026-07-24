@@ -379,6 +379,7 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	for _, q := range []string{
 		`DELETE FROM events WHERE task_id = ?`,
 		`DELETE FROM approvals WHERE task_id = ?`,
+		`DELETE FROM user_questions WHERE task_id = ?`,
 		`DELETE FROM kin_messages WHERE task_id = ?`,
 		`DELETE FROM usage_records WHERE task_id = ?`,
 		`DELETE FROM task_checkpoints WHERE task_id = ?`,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -438,3 +439,180 @@ func TestAgentInfoInstallURLJSON(t *testing.T) {
 		t.Fatalf("json=%s", b)
 	}
 }
+
+
+func TestUserQuestionsAPI(t *testing.T) {
+	_, token := newTestServer(t)
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ad := &holdAPIAdapter{}
+	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, task.NewBus(), 4)
+	t.Cleanup(eng.Close)
+	_ = eng.Recover(context.Background())
+	s := &Server{Store: st, Auth: remote.NewAuth(token), Engine: eng, Version: "test"}
+	h := s.Handler()
+
+	// Empty list is [] not null.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/user-questions?status=pending", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list empty: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr.Body.String() != "[]\n" && rr.Body.String() != "[]" {
+		// accept either with or without newline from encoder
+		var list []store.UserQuestion
+		if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+			t.Fatalf("list body=%s err=%v", rr.Body.String(), err)
+		}
+		if list == nil || len(list) != 0 {
+			t.Fatalf("want empty slice, got %#v body=%s", list, rr.Body.String())
+		}
+	}
+
+	// Create holding task.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/tasks",
+		bytes.NewBufferString(`{"agent":"claude-code","cwd":"/tmp","prompt":"hold"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var created store.Task
+	_ = json.Unmarshal(rr.Body.Bytes(), &created)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tt, _ := eng.Get(context.Background(), created.ID)
+		if tt.Status == "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Reject incomplete internal create.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/internal/user-questions",
+		bytes.NewBufferString(`{"task_id":"`+created.ID+`","question":"only one?","options":[{"label":"A"}]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for <2 options, got %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Internal create.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/internal/user-questions",
+		bytes.NewBufferString(`{"task_id":"`+created.ID+`","question":"Which auth?","header":"Auth","options":[{"label":"JWT"},{"label":"Session"}]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("internal create: %d %s", rr.Code, rr.Body.String())
+	}
+	var q store.UserQuestion
+	_ = json.Unmarshal(rr.Body.Bytes(), &q)
+	if q.Status != store.UQStatusPending {
+		t.Fatalf("status=%s", q.Status)
+	}
+
+	// List pending with join.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/user-questions?status=pending", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: %d", rr.Code)
+	}
+	var list []store.UserQuestion
+	_ = json.Unmarshal(rr.Body.Bytes(), &list)
+	if len(list) != 1 || list[0].ID != q.ID {
+		t.Fatalf("list=%v", list)
+	}
+	if list[0].TaskTitle == "" {
+		t.Fatal("expected task_title join")
+	}
+
+	// Concurrent wait + answer.
+	waitDone := make(chan store.UserQuestion, 1)
+	waitErr := make(chan error, 1)
+	go func() {
+		rrw := httptest.NewRecorder()
+		reqw := httptest.NewRequest(http.MethodGet, "/internal/user-questions/"+q.ID+"/wait?timeout=5", nil)
+		reqw.Header.Set("Authorization", "Bearer "+token)
+		reqw.RemoteAddr = "127.0.0.1:12345"
+		h.ServeHTTP(rrw, reqw)
+		if rrw.Code != http.StatusOK {
+			waitErr <- fmt.Errorf("status %d: %s", rrw.Code, rrw.Body.String())
+			return
+		}
+		var got store.UserQuestion
+		_ = json.Unmarshal(rrw.Body.Bytes(), &got)
+		waitDone <- got
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/user-questions/"+q.ID+"/answer",
+		bytes.NewBufferString(`{"selected":["JWT"]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("answer: %d %s", rr.Code, rr.Body.String())
+	}
+
+	select {
+	case err := <-waitErr:
+		t.Fatalf("wait: %v", err)
+	case got := <-waitDone:
+		if got.Status != store.UQStatusAnswered {
+			t.Fatalf("wait status=%s", got.Status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("wait timed out")
+	}
+
+	// Second answer → 409.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/user-questions/"+q.ID+"/answer",
+		bytes.NewBufferString(`{"selected":["Session"]}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("second answer: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Wait with short timeout on unanswered question returns pending.
+	q2, err := eng.RequestUserQuestion(context.Background(), task.CreateUserQuestionRequest{
+		TaskID: created.ID, Question: "Still?",
+		Options: []task.UserQuestionOption{{Label: "Y"}, {Label: "N"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/internal/user-questions/"+q2.ID+"/wait?timeout=1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.RemoteAddr = "127.0.0.1:12345"
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("wait pending: %d %s", rr.Code, rr.Body.String())
+	}
+	var pending store.UserQuestion
+	_ = json.Unmarshal(rr.Body.Bytes(), &pending)
+	if pending.Status != store.UQStatusPending {
+		t.Fatalf("status=%s want pending", pending.Status)
+	}
+}
+

@@ -12,6 +12,7 @@ import {
   cancelTask,
   deleteTask,
   createArtifact,
+  answerUserQuestion,
   decideApproval,
   deriveArtifactTitle,
   detectArtifactKind,
@@ -24,6 +25,7 @@ import {
   listAgents,
   listApprovals,
   listEvents,
+  listUserQuestions,
   restoreTaskWorkspace,
   retryTask,
   createTaskRecycle,
@@ -34,9 +36,11 @@ import {
   type Task,
   type TaskEvent,
   type TaskUsage,
+  type UserQuestion,
 } from "../api/client";
 import RecycleReviewCard from "../components/project/RecycleReviewCard";
 import ApprovalCard from "../components/cards/ApprovalCard";
+import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import Composer from "../components/chat/Composer";
 import BranchPicker from "../components/chat/BranchPicker";
@@ -75,6 +79,7 @@ export default function TaskDetailPage() {
   const [usageLoading, setUsageLoading] = useState(true);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [userQuestions, setUserQuestions] = useState<UserQuestion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -83,6 +88,7 @@ export default function TaskDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
+  const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
   const [focusIdx, setFocusIdx] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -104,10 +110,11 @@ export default function TaskDetailPage() {
   const load = useCallback(async () => {
     if (!getToken()) return;
     try {
-      const [t, evs, apps] = await Promise.all([
+      const [t, evs, apps, qs] = await Promise.all([
         getTask(id),
         listEvents(id, maxSeq.current),
         listApprovals("pending"),
+        listUserQuestions("pending").catch(() => [] as UserQuestion[]),
       ]);
       setTask(t);
       if (evs.length) {
@@ -118,6 +125,7 @@ export default function TaskDetailPage() {
         });
       }
       setApprovals(apps.filter((a) => a.task_id === id));
+      setUserQuestions(qs.filter((q) => q.task_id === id));
       setError(null);
     } catch (e) {
       // 401 still surfaces a recoverable empty state (App also flips to ConnectScreen).
@@ -177,6 +185,7 @@ export default function TaskDetailPage() {
     setTask(null);
     setError(null);
     setApprovals([]);
+    setUserQuestions([]);
     setUsage(null);
     setLoading(true);
     setFilesOpen(false);
@@ -205,6 +214,9 @@ export default function TaskDetailPage() {
     void loadUsage();
     void listApprovals("pending")
       .then((apps) => setApprovals(apps.filter((a) => a.task_id === id)))
+      .catch(() => undefined);
+    void listUserQuestions("pending")
+      .then((qs) => setUserQuestions(qs.filter((q) => q.task_id === id)))
       .catch(() => undefined);
   }, [reconnectGen, id, loadUsage]);
 
@@ -263,35 +275,60 @@ export default function TaskDetailPage() {
           return [a, ...rest];
         });
       }
+      if (msg.kind === "user_question_update") {
+        const q = msg.data as UserQuestion;
+        if (q.task_id !== id) return;
+        setUserQuestions((prev) => {
+          if (q.status !== "pending") return prev.filter((x) => x.id !== q.id);
+          const rest = prev.filter((x) => x.id !== q.id);
+          return [q, ...rest];
+        });
+      }
     });
   }, [id, loadUsage]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events, approvals, sending]);
+  }, [events, approvals, userQuestions, sending]);
+
+  const needsYou = useMemo(() => {
+    const a = approvals.map((item) => ({
+      kind: "approval" as const,
+      id: item.id,
+      created_at: item.created_at,
+      item,
+    }));
+    const q = userQuestions.map((item) => ({
+      kind: "question" as const,
+      id: item.id,
+      created_at: item.created_at,
+      item,
+    }));
+    return [...a, ...q].sort((x, y) => x.created_at - y.created_at);
+  }, [approvals, userQuestions]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      const list = approvals;
+      const list = needsYou;
       if (!list.length) return;
       if (e.key === "j" || e.key === "J") {
         setFocusIdx((i) => Math.min(list.length - 1, i + 1));
       } else if (e.key === "k" || e.key === "K") {
         setFocusIdx((i) => Math.max(0, i - 1));
       } else if (e.key === "a" || e.key === "A") {
-        const a = list[focusIdx] ?? list[0];
-        if (a) void onDecide(a.id, "approved");
+        const cur = list[focusIdx] ?? list[0];
+        if (cur?.kind === "approval") void onDecide(cur.id, "approved");
       } else if (e.key === "d" || e.key === "D") {
-        const a = list[focusIdx] ?? list[0];
-        if (a) void onDecide(a.id, "denied");
+        const cur = list[focusIdx] ?? list[0];
+        if (cur?.kind === "approval") void onDecide(cur.id, "denied");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [approvals, focusIdx]);
+  }, [needsYou, focusIdx]);
 
   async function onDecide(approvalId: string, decision: "approved" | "denied") {
     setBusy((b) => ({ ...b, [approvalId]: decision }));
@@ -304,6 +341,25 @@ export default function TaskDetailPage() {
       setBusy((b) => {
         const next = { ...b };
         delete next[approvalId];
+        return next;
+      });
+    }
+  }
+
+  async function onAnswer(
+    questionId: string,
+    body: { selected: string[]; other_text: string },
+  ) {
+    setAnswerBusy((b) => ({ ...b, [questionId]: true }));
+    try {
+      await answerUserQuestion(questionId, body);
+      setUserQuestions((prev) => prev.filter((x) => x.id !== questionId));
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : tr("question.answerFailed"), "error");
+    } finally {
+      setAnswerBusy((b) => {
+        const next = { ...b };
+        delete next[questionId];
         return next;
       });
     }
@@ -679,19 +735,28 @@ export default function TaskDetailPage() {
             onSaveArtifact={(text) => void onSaveArtifact(text)}
             trailing={
               <>
-                {approvals.map((a, i) => (
-                  <div key={a.id} className="mt-1">
-                    <ApprovalCard
-                      approval={a}
-                      focused={i === focusIdx && approvals.length > 0}
-                      busy={busy[a.id] ?? null}
-                      onApprove={() => void onDecide(a.id, "approved")}
-                      onDeny={() => void onDecide(a.id, "denied")}
-                      onOpenPath={onOpenWorkspacePath}
-                    />
+                {needsYou.map((entry, i) => (
+                  <div key={`${entry.kind}-${entry.id}`} className="mt-1">
+                    {entry.kind === "approval" ? (
+                      <ApprovalCard
+                        approval={entry.item}
+                        focused={i === focusIdx && needsYou.length > 0}
+                        busy={busy[entry.id] ?? null}
+                        onApprove={() => void onDecide(entry.id, "approved")}
+                        onDeny={() => void onDecide(entry.id, "denied")}
+                        onOpenPath={onOpenWorkspacePath}
+                      />
+                    ) : (
+                      <UserQuestionCard
+                        question={entry.item}
+                        focused={i === focusIdx && needsYou.length > 0}
+                        busy={Boolean(answerBusy[entry.id])}
+                        onAnswer={(body) => void onAnswer(entry.id, body)}
+                      />
+                    )}
                   </div>
                 ))}
-                {approvals.length > 0 && (
+                {needsYou.length > 0 && (
                   <p className="text-center text-[11.5px] text-kin-muted mt-2">
                     <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
                       A
@@ -701,6 +766,8 @@ export default function TaskDetailPage() {
                       D
                     </kbd>{" "}
                     {tr("chat.deny")}
+                    {" · "}
+                    {tr("question.hintKeys")}
                   </p>
                 )}
                 <div ref={bottomRef} />

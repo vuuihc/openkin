@@ -194,6 +194,47 @@ func (s *server) handleToolsList(req rpcRequest) rpcResponse {
 						"additionalProperties": true,
 					},
 				},
+				{
+					"name": "ask_user_question",
+					"description": "Ask the user a structured clarifying question with 2–6 options when requirements are ambiguous, multiple reasonable approaches exist, or the user should own a decision. Not for routine tool permission (use approve for that).",
+					"inputSchema": map[string]any{
+						"type":                 "object",
+						"additionalProperties": false,
+						"required":             []string{"question", "options"},
+						"properties": map[string]any{
+							"question": map[string]any{
+								"type":        "string",
+								"description": "The full question to present to the user",
+							},
+							"header": map[string]any{
+								"type":        "string",
+								"description": "Short label for the question card (e.g. Auth method)",
+							},
+							"multiSelect": map[string]any{
+								"type":        "boolean",
+								"description": "When true, the user may pick multiple options",
+							},
+							"options": map[string]any{
+								"type":     "array",
+								"minItems": 2,
+								"maxItems": 6,
+								"items": map[string]any{
+									"type":                 "object",
+									"additionalProperties": false,
+									"required":             []string{"label"},
+									"properties": map[string]any{
+										"label": map[string]any{
+											"type": "string",
+										},
+										"description": map[string]any{
+											"type": "string",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -207,36 +248,200 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) rpcRespons
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return rpcErr(req.ID, -32602, "invalid params: "+err.Error())
 	}
-	if params.Name != "approve" {
+	switch params.Name {
+	case "approve":
+		return s.callApprove(ctx, req.ID, params.Arguments)
+	case "ask_user_question":
+		return s.callAskUserQuestion(ctx, req.ID, params.Arguments)
+	default:
 		return rpcErr(req.ID, -32602, "unknown tool: "+params.Name)
 	}
-	if len(params.Arguments) == 0 {
-		params.Arguments = json.RawMessage(`{}`)
+}
+
+func (s *server) callApprove(ctx context.Context, id json.RawMessage, arguments json.RawMessage) rpcResponse {
+	if len(arguments) == 0 {
+		arguments = json.RawMessage(`{}`)
 	}
 
 	// POST /internal/approvals
-	approvalID, err := s.postApproval(ctx, params.Arguments)
+	approvalID, err := s.postApproval(ctx, arguments)
 	if err != nil {
 		s.logf("post approval: %v", err)
 		// Fail closed: deny so the agent does not hang forever.
 		// Distinct message from a human deny so operators can tell
 		// "bridge/task_id broken" from "user tapped Deny".
-		return toolResult(req.ID, denyJSONMsg("approval request failed: "+err.Error()))
+		return toolResult(id, denyJSONMsg("approval request failed: "+err.Error()))
 	}
 
 	// Long-poll until decided.
 	decision, err := s.waitDecision(ctx, approvalID)
 	if err != nil {
 		s.logf("wait decision: %v", err)
-		return toolResult(req.ID, denyJSONMsg("approval wait failed: "+err.Error()))
+		return toolResult(id, denyJSONMsg("approval wait failed: "+err.Error()))
 	}
 
 	switch decision {
 	case "approved":
-		return toolResult(req.ID, allowJSON(params.Arguments))
+		return toolResult(id, allowJSON(arguments))
 	default:
 		// denied, expired, or anything else → deny
-		return toolResult(req.ID, denyJSON())
+		return toolResult(id, denyJSON())
+	}
+}
+
+func (s *server) callAskUserQuestion(ctx context.Context, id json.RawMessage, arguments json.RawMessage) rpcResponse {
+	// Fail-open neutral fallback for any bridge/timeout/interrupt path.
+	fallback := `{"selected":[],"note":"no response — proceed with your best judgement"}`
+
+	var args struct {
+		Question    string `json:"question"`
+		Header      string `json:"header"`
+		MultiSelect bool   `json:"multiSelect"`
+		Options     []struct {
+			Label       string `json:"label"`
+			Description string `json:"description"`
+		} `json:"options"`
+	}
+	if len(arguments) == 0 {
+		return toolResult(id, fallback)
+	}
+	if err := json.Unmarshal(arguments, &args); err != nil {
+		s.logf("ask_user_question args: %v", err)
+		return toolResult(id, fallback)
+	}
+	if strings.TrimSpace(args.Question) == "" || len(args.Options) < 2 {
+		s.logf("ask_user_question: need question and >=2 options")
+		return toolResult(id, fallback)
+	}
+
+	questionID, err := s.postUserQuestion(ctx, args.Question, args.Header, args.MultiSelect, args.Options)
+	if err != nil {
+		s.logf("post user question: %v", err)
+		return toolResult(id, fallback)
+	}
+
+	respText, err := s.waitUserQuestionAnswer(ctx, questionID)
+	if err != nil {
+		s.logf("wait user question: %v", err)
+		return toolResult(id, fallback)
+	}
+	if respText == "" {
+		return toolResult(id, fallback)
+	}
+	return toolResult(id, respText)
+}
+
+func (s *server) postUserQuestion(ctx context.Context, question, header string, multi bool, options []struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}) (string, error) {
+	opts := make([]map[string]any, 0, len(options))
+	for _, o := range options {
+		m := map[string]any{"label": o.Label}
+		if o.Description != "" {
+			m["description"] = o.Description
+		}
+		opts = append(opts, m)
+	}
+	reqBody := map[string]any{
+		"task_id":      s.taskID,
+		"question":     question,
+		"header":       header,
+		"options":      opts,
+		"multi_select": multi,
+	}
+	if s.executionID != "" {
+		reqBody["execution_id"] = s.executionID
+	}
+	if s.executionAgent != "" {
+		reqBody["execution_agent"] = s.executionAgent
+	}
+	if s.executionStep > 0 {
+		reqBody["execution_step"] = s.executionStep
+	}
+	if s.executionModel != "" {
+		reqBody["execution_model"] = s.executionModel
+	}
+	body, _ := json.Marshal(reqBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.daemon+"/internal/user-questions", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	req = req.WithContext(cctx)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("POST /internal/user-questions: %s: %s", resp.Status, truncate(string(data), 200))
+	}
+	var q struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(data, &q); err != nil {
+		return "", err
+	}
+	if q.ID == "" {
+		return "", fmt.Errorf("empty user question id")
+	}
+	s.logf("created user question %s", q.ID)
+	return q.ID, nil
+}
+
+func (s *server) waitUserQuestionAnswer(ctx context.Context, id string) (string, error) {
+	for {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		url := fmt.Sprintf("%s/internal/user-questions/%s/wait?timeout=30", s.daemon, id)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Authorization", "Bearer "+s.token)
+
+		cctx, cancel := context.WithTimeout(ctx, 35*time.Second)
+		req = req.WithContext(cctx)
+		resp, err := s.client.Do(req)
+		cancel()
+		if err != nil {
+			s.logf("user question wait poll error: %v", err)
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(time.Second):
+				continue
+			}
+		}
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return "", fmt.Errorf("wait: %s: %s", resp.Status, truncate(string(data), 200))
+		}
+		var q struct {
+			Status   string          `json:"status"`
+			Response json.RawMessage `json:"response"`
+		}
+		if err := json.Unmarshal(data, &q); err != nil {
+			return "", err
+		}
+		if q.Status == "" || q.Status == "pending" {
+			continue
+		}
+		// answered or expired — return response JSON or empty for fail-open
+		if q.Status == "expired" || len(q.Response) == 0 {
+			return "", nil
+		}
+		s.logf("user question %s status=%s", id, q.Status)
+		return string(q.Response), nil
 	}
 }
 

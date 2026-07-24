@@ -16,7 +16,7 @@
 用户拥有的 Kin Core（local-first daemon）
   ├── Agent 插件注册表            ← 编译期插件（Kin / Claude Code / Codex …）；host 可互换
   ├── Agent 适配层               ← 各插件的进程 runner 与归一化事件
-  ├── 任务引擎 + 确认            ← 派发、监控、批准、审计
+  ├── 任务引擎 + 确认/提问         ← 派发、监控、批准、提问、审计
   ├── Provider / 费用层          ← 按任务、按模型的用量与花费
   ├── 远程访问（梯子）           ← 局域网 → tailnet / Funnel；绝不做 Kin 云
   ├── Artifacts（近端）          ← 会话可读产物入库、阅读器；多端读同一 daemon
@@ -46,7 +46,7 @@
 
 - Kin daemon 通过**适配器**包住外部 coding agent：Claude Code / Codex / Grok 为一等公民（Tier 1）；已验证无头 CLI 走声明式通用适配器（Tier 2）；更广的 skills 目录仅做存在性探测 + 安装链接（Tier 3）；可选 raw PTY 跑用户显式 shell 命令
 - 任务生命周期：派发 / 流式进度 / 取消 / 历史
-- **确认收件箱**：agent 的权限请求推送到桌面与手机，每次决定都有审计记录
+- **确认收件箱**：权限请求与澄清问题推送到桌面与手机，每次决定/回答都有审计记录
 - 费用透明：按任务、按 Provider 的 token 与花费
 - 远程访问梯子（§5）：局域网扫码 → 内嵌 tailnet + Funnel → 完整 tailnet
 - 导出；核心使用不需要任何 Kin 账户
@@ -84,6 +84,7 @@
 | **任务** | 一次有目标的 agent 工作单元（派发、流式输出、确认、结果） |
 | **适配器** | 把外部 agent CLI 接到统一的任务 / 事件 / 确认接口 |
 | **确认** | 在产生外部影响前的人工决定；记入审计 |
+| **UserQuestion** | 回合中的结构化澄清问题（选项 + 可选自由文本）；与权限模式无关；任务状态为 `waiting_input`（见 ADR 0010） |
 | **费用记录** | 任务与 Provider 上的 token 与花费；本地价格表；每 agent 每日用量上限（仅展示） |
 | **Provider 配置** | 端点与能力；密钥在系统密钥体系，不进日志 |
 | **Artifact**（近端） | 会话可读交付物（md/html/…）；文件为真源；元数据含来源任务与状态（`proposed|saved|archived`） |

@@ -16,7 +16,7 @@ Exploratory drafts and implementation diaries do not live in this repo. This is 
 User-owned Kin Core (local-first daemon)
   ├── Agent plugin registry     ← compiled plugins (Kin, Claude Code, Codex, …); interchangeable hosts
   ├── Agent adapters            ← process runners + normalized events for each plugin
-  ├── Task engine + approvals   ← dispatch, watch, approve, audit
+  ├── Task engine + approvals/questions ← dispatch, watch, approve, ask, audit
   ├── Provider / cost layer     ← usage and spend per task and model
   ├── Remote access (ladder)    ← LAN → tailnet / Funnel; never a Kin cloud
   ├── Artifacts (near-term)     ← session deliverables library + reader; multi-device via same daemon
@@ -46,7 +46,7 @@ Entry point: **dispatch, watch, and approve agent tasks from any device** — se
 
 - Kin daemon **adapters** wrap external coding agents: Claude Code / Codex / Grok as first-class (Tier 1); declarative generic CLI adapters for verified headless tools (Tier 2); presence + install links for the broader skills catalog (Tier 3); optional raw PTY for explicit shell commands
 - Task lifecycle: dispatch / streaming progress / cancel / history
-- **Approval inbox**: permission requests on desktop and phone; every decision audited
+- **Approval inbox**: permission requests and clarifying questions on desktop and phone; every decision/answer audited
 - Cost transparency: tokens and spend per task and provider
 - Remote access ladder (§5): LAN QR → embedded tailnet + Funnel → full tailnet
 - Export; core use without any Kin account
@@ -84,6 +84,7 @@ Even if users only see the console first, these names keep their meaning in late
 | **Task** | One goal-directed unit of agent work (dispatch, stream, approvals, result) |
 | **Adapter** | Bridges an external agent CLI to unified task / event / approval APIs |
 | **Approval** | A human decision before external effects; written to the audit log |
+| **UserQuestion** | A structured clarifying question mid-turn (options + optional free text); independent of permission mode; task status `waiting_input` (see ADR 0010) |
 | **Cost record** | Tokens and spend on tasks and providers; local price table; per-agent daily caps (advisory) |
 | **Provider config** | Endpoints and capabilities; secrets in the OS secret store, never in logs |
 | **Artifact** (near-term) | Readable session deliverable (md/html/…); files are truth; metadata holds source task and status (`proposed|saved|archived`) |

@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 9
+const schemaVersion = 10
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -60,6 +60,21 @@ CREATE TABLE approvals (
 );
 
 CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
+
+CREATE TABLE user_questions (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT NOT NULL REFERENCES tasks(id),
+  payload         TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  response        TEXT,
+  answered_via    TEXT,
+  created_at      INTEGER NOT NULL,
+  answered_at     INTEGER,
+  execution_id    TEXT,
+  execution_agent TEXT,
+  execution_step  INTEGER,
+  execution_model TEXT
+);
 
 CREATE TABLE kin_messages (
   task_id  TEXT NOT NULL REFERENCES tasks(id),
@@ -274,7 +289,7 @@ CREATE INDEX IF NOT EXISTS idx_project_recycles_pending ON project_recycles(proj
 // Migration 009 adds nullable execution attribution columns to approvals.
 // Applied conditionally (missing columns only) so fresh DBs whose migration001
 // already includes the columns and legacy fixtures without an approvals table
-// both advance to user_version=9 cleanly.
+// both advance to user_version=10 cleanly.
 
 func (s *Store) migrate() error {
 	var v int
@@ -493,6 +508,38 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 009: %w", err)
+		}
+		v = 9
+	}
+
+	if v == 9 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 010: %w", err)
+		}
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS user_questions (
+  id              TEXT PRIMARY KEY,
+  task_id         TEXT NOT NULL REFERENCES tasks(id),
+  payload         TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending',
+  response        TEXT,
+  answered_via    TEXT,
+  created_at      INTEGER NOT NULL,
+  answered_at     INTEGER,
+  execution_id    TEXT,
+  execution_agent TEXT,
+  execution_step  INTEGER,
+  execution_model TEXT
+)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 010 user_questions: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 10`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 010: %w", err)
 		}
 	}
 	return nil

@@ -25,6 +25,7 @@ const (
 	StatusQueued          = "queued"
 	StatusRunning         = "running"
 	StatusWaitingApproval = "waiting_approval"
+	StatusWaitingInput    = "waiting_input"
 	StatusSucceeded       = "succeeded"
 	StatusFailed          = "failed"
 	StatusCanceled        = "canceled"
@@ -103,7 +104,8 @@ type Engine struct {
 	entropy         ioReader
 
 	// Approval long-poll waiters (approval id → channels).
-	approvalWaiters map[string][]chan store.Approval
+	approvalWaiters     map[string][]chan store.Approval
+	userQuestionWaiters map[string][]chan store.UserQuestion
 	// clock and approvalTTL are injectable for tests.
 	clock       func() time.Time
 	approvalTTL time.Duration
@@ -149,6 +151,7 @@ func NewEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		cancel:              cancel,
 		entropy:             rand.Reader,
 		approvalWaiters:     make(map[string][]chan store.Approval),
+		userQuestionWaiters: make(map[string][]chan store.UserQuestion),
 		approvalTTL:         store.DefaultApprovalTTL,
 	}
 }

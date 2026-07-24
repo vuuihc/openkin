@@ -144,6 +144,40 @@ export type Approval = {
   task_agent?: string;
 };
 
+export type UserQuestionOption = {
+  label: string;
+  description?: string;
+};
+
+export type UserQuestionPayload = {
+  question: string;
+  header?: string;
+  options: UserQuestionOption[];
+  multi_select?: boolean;
+};
+
+export type UserQuestionResponse = {
+  selected: string[];
+  other_text?: string;
+};
+
+export type UserQuestion = {
+  id: string;
+  task_id: string;
+  payload: UserQuestionPayload | unknown;
+  status: string;
+  response?: UserQuestionResponse | unknown | null;
+  answered_via?: string | null;
+  created_at: number;
+  answered_at?: number | null;
+  execution_id?: string | null;
+  execution_agent?: string | null;
+  execution_step?: number | null;
+  execution_model?: string | null;
+  task_title?: string;
+  task_agent?: string;
+};
+
 export type CreateTaskBody = {
   /** Optional — daemon picks default available agent when omitted. */
   agent?: string;
@@ -359,6 +393,43 @@ export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
 export function listApprovals(status?: string): Promise<Approval[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
   return apiFetch<Approval[]>(`/api/approvals${q}`);
+}
+
+export function listUserQuestions(status?: string): Promise<UserQuestion[]> {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiFetch<UserQuestion[]>(`/api/user-questions${q}`);
+}
+
+export function answerUserQuestion(
+  id: string,
+  body: { selected?: string[]; other_text?: string },
+): Promise<UserQuestion> {
+  return apiFetch<UserQuestion>(`/api/user-questions/${encodeURIComponent(id)}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      selected: body.selected ?? [],
+      other_text: body.other_text ?? "",
+    }),
+  });
+}
+
+export function parseUserQuestionPayload(payload: unknown): UserQuestionPayload {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const optionsRaw = Array.isArray(p.options) ? p.options : [];
+  const options: UserQuestionOption[] = optionsRaw.map((o) => {
+    const item = (o ?? {}) as Record<string, unknown>;
+    return {
+      label: String(item.label ?? ""),
+      description: item.description != null ? String(item.description) : undefined,
+    };
+  }).filter((o) => o.label);
+  return {
+    question: String(p.question ?? ""),
+    header: p.header != null ? String(p.header) : undefined,
+    options,
+    multi_select: Boolean(p.multi_select ?? p.multiSelect),
+  };
 }
 
 export type Artifact = {

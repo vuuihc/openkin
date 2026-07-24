@@ -97,6 +97,11 @@ func (b *Bus) PublishApproval(a store.Approval) {
 	b.Publish(WSMessage{Kind: "approval_update", Data: a})
 }
 
+// PublishUserQuestion broadcasts a user_question_update.
+func (b *Bus) PublishUserQuestion(q store.UserQuestion) {
+	b.Publish(WSMessage{Kind: "user_question_update", Data: q})
+}
+
 // Marshal is a helper for tests.
 func Marshal(v any) json.RawMessage {
 	b, _ := json.Marshal(v)

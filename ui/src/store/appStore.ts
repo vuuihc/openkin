@@ -10,7 +10,8 @@ export type WSMessage =
   | { kind: "task_update"; data: unknown }
   | { kind: "task_deleted"; data: unknown }
   | { kind: "event"; data: unknown }
-  | { kind: "approval_update"; data: unknown };
+  | { kind: "approval_update"; data: unknown }
+  | { kind: "user_question_update"; data: unknown };
 
 export type WSStatus = "connecting" | "connected" | "disconnected";
 

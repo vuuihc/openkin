@@ -2,6 +2,7 @@ const STYLES: Record<string, string> = {
   queued: "bg-zinc-800 text-zinc-300 border-zinc-600",
   running: "bg-sky-950 text-sky-300 border-sky-700",
   waiting_approval: "bg-amber-950 text-amber-300 border-amber-700",
+  waiting_input: "bg-indigo-950 text-indigo-300 border-indigo-700",
   succeeded: "bg-emerald-950 text-emerald-300 border-emerald-700",
   failed: "bg-red-950 text-red-300 border-red-800",
   canceled: "bg-zinc-800 text-zinc-400 border-zinc-600",

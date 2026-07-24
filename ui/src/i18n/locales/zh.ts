@@ -124,6 +124,17 @@ const zh = {
     yoloHint: "跳过权限确认 — 仅用于可信环境",
     sessionLocked: "本会话已锁定",
   },
+  question: {
+    cardTitle: "需要你的回答",
+    fallback: "请选择一个选项",
+    other: "其他",
+    otherPlaceholder: "输入自定义回答…",
+    submit: "提交",
+    submitting: "提交中…",
+    answerFailed: "提交回答失败",
+    hintKeys: "1–9 选择 · Enter 提交",
+  },
+
   chat: {
     thinking: "思考中…",
     streaming: "生成中",
@@ -413,6 +424,8 @@ const zh = {
     title: "收件箱",
     loading: "加载中…",
     noneWaiting: "没有待审批项",
+    approvalsSection: "审批",
+    questionsSection: "提问",
     waiting: "{count} 项待审批",
     allClear: "全部处理完了",
     allClearHint: "当 agent 需要权限时，会在这里一键批准或拒绝。",

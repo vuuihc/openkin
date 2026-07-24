@@ -141,6 +141,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/recycles/{id}/suggestions/{index}/ignore", s.handleIgnoreRecycleSuggestion)
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
+		r.Get("/api/user-questions", s.handleListUserQuestions)
+		r.Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/git/branches", s.handleGitBranches)
 		r.Post("/api/git/checkout", s.handleGitCheckout)
@@ -186,6 +188,8 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.Auth.Middleware)
 		r.Post("/internal/approvals", s.handleInternalCreateApproval)
 		r.Get("/internal/approvals/{id}/wait", s.handleInternalWaitApproval)
+		r.Post("/internal/user-questions", s.handleInternalCreateUserQuestion)
+		r.Get("/internal/user-questions/{id}/wait", s.handleInternalWaitUserQuestion)
 	})
 
 	// Integrated terminal: local desktop only. Keep these routes outside the
@@ -619,6 +623,98 @@ func (s *Server) handleInternalWaitApproval(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, http.StatusOK, a)
 }
+
+
+func (s *Server) handleListUserQuestions(w http.ResponseWriter, r *http.Request) {
+	opts := store.ListUserQuestionsOpts{
+		Status: r.URL.Query().Get("status"),
+	}
+	list, err := s.Engine.ListUserQuestions(r.Context(), opts)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if list == nil {
+		list = []store.UserQuestion{}
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleAnswerUserQuestion(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body task.AnswerUserQuestionRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if len(body.Selected) == 0 && strings.TrimSpace(body.OtherText) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected or other_text is required"})
+		return
+	}
+	q, err := s.Engine.AnswerUserQuestion(r.Context(), id, body, "web")
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrAlreadyAnswered) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "already answered"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, q)
+}
+
+func (s *Server) handleInternalCreateUserQuestion(w http.ResponseWriter, r *http.Request) {
+	var req task.CreateUserQuestionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	q, err := s.Engine.RequestUserQuestion(r.Context(), req)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+		return
+	}
+	if errors.Is(err, task.ErrConflict) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, q)
+}
+
+func (s *Server) handleInternalWaitUserQuestion(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	timeout := 30 * time.Second
+	if v := r.URL.Query().Get("timeout"); v != "" {
+		sec, err := strconv.Atoi(v)
+		if err != nil || sec < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid timeout"})
+			return
+		}
+		if sec > 30 {
+			sec = 30
+		}
+		timeout = time.Duration(sec) * time.Second
+	}
+	q, err := s.Engine.WaitUserQuestion(r.Context(), id, timeout)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, q)
+}
+
 
 func (s *Server) handleRecentCwds(w http.ResponseWriter, r *http.Request) {
 	cwds, err := s.Engine.RecentCwds(r.Context(), 15)

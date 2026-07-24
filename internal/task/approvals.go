@@ -20,6 +20,9 @@ var ErrConflict = errors.New("conflict")
 // ErrAlreadyDecided is returned when deciding a non-pending approval.
 var ErrAlreadyDecided = errors.New("approval already decided")
 
+// ErrAlreadyAnswered is returned when answering a non-pending user question.
+var ErrAlreadyAnswered = errors.New("user question already answered")
+
 // CreateApprovalRequest is the body for POST /internal/approvals.
 // Execution fields are optional and identify the concrete adapter run that
 // requested the approval. Parent TaskID remains required for lifecycle.
@@ -88,7 +91,7 @@ func (e *Engine) RequestApproval(ctx context.Context, req CreateApprovalRequest)
 		return store.Approval{}, err
 	}
 	switch t.Status {
-	case StatusRunning, StatusWaitingApproval:
+	case StatusRunning, StatusWaitingApproval, StatusWaitingInput:
 		// ok
 	default:
 		return store.Approval{}, fmt.Errorf("%w: task status %s cannot request approval", ErrConflict, t.Status)
@@ -203,10 +206,11 @@ func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Ap
 
 	// Resume task to running if still waiting (process is blocked on MCP).
 	t, err := e.store.GetTask(ctx, a.TaskID)
-	if err == nil && t.Status == StatusWaitingApproval {
-		// Only resume if no other pending approvals for this task.
+	if err == nil && (t.Status == StatusWaitingApproval || t.Status == StatusWaitingInput) {
+		// Only resume if no other pending approvals or user questions for this task.
 		pending, _ := e.store.ListPendingForTask(ctx, a.TaskID)
-		if len(pending) == 0 {
+		pendingQ, _ := e.store.ListPendingUserQuestionsForTask(ctx, a.TaskID)
+		if len(pending) == 0 && len(pendingQ) == 0 {
 			status := StatusRunning
 			_ = e.store.UpdateTask(ctx, a.TaskID, store.TaskPatch{Status: &status})
 			if t2, err := e.store.GetTask(ctx, a.TaskID); err == nil {
@@ -339,6 +343,7 @@ func (e *Engine) StartExpiryLoop(ctx context.Context, interval time.Duration) {
 				return
 			case <-t.C:
 				_, _ = e.ExpireStale(context.Background())
+				_, _ = e.ExpireStaleUserQuestions(context.Background())
 			}
 		}
 	}()
@@ -419,7 +424,7 @@ func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpReques
 	switch t.Status {
 	case StatusSucceeded, StatusFailed, StatusCanceled:
 		return e.applyFollowUp(ctx, id, t, req, false /*interrupted*/)
-	case StatusRunning, StatusWaitingApproval, StatusQueued:
+	case StatusRunning, StatusWaitingApproval, StatusWaitingInput, StatusQueued:
 		return e.interruptAndFollowUp(ctx, id, t, req)
 	default:
 		return store.Task{}, fmt.Errorf("%w: task status %s cannot accept prompt", ErrConflict, t.Status)
@@ -439,6 +444,12 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
 		for _, a := range pending {
 			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "web")
+		}
+	}
+	// Resolve pending user questions the same way so ask_user_question long-polls unblock.
+	if pending, err := e.store.ListPendingUserQuestionsForTask(ctx, id); err == nil {
+		for _, q := range pending {
+			_, _ = e.AnswerUserQuestion(ctx, q.ID, AnswerUserQuestionRequest{}, "interrupt")
 		}
 	}
 
