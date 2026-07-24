@@ -226,8 +226,12 @@ export function buildChatItems(
     switch (ev.type) {
       case "message": {
         const partial = Boolean(p.partial);
-        const role = String(p.role ?? "assistant");
-        const sp = role === "user" ? "user" : speaker;
+        // Speaker is authoritative: resolveSpeaker already maps real/legacy
+        // user turns to "user". A stamped worker/host echo carries role:"user"
+        // on brief echoes, tool_results, and skill preambles but keeps its agent
+        // speaker + task-only visibility — those must not be forced into the
+        // main "user" column.
+        const sp = speaker;
         let text =
           extractText(p.content) ||
           (typeof p.text === "string" ? p.text : "");

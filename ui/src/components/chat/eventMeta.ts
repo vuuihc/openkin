@@ -128,6 +128,9 @@ export function resolveSpeaker(
       if (s) return s;
     }
   }
+  // Legacy fallback only: reached when no explicit speaker/agent is stamped.
+  // Real user turns and stamped workers/host echoes both carry a speaker and
+  // return above, so this never reclaims a role:"user" tool_result / echo.
   if (p.role === "user") return "user";
   // Narrow legacy path: older rows sometimes used source as agent identity.
   if (typeof p.source === "string") {

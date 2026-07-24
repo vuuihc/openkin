@@ -611,9 +611,27 @@ func (e *Engine) emitError(ctx context.Context, taskID, msg string) {
 }
 
 // stampSpeaker tags events for the user-facing main agent / single-agent runs.
-// Does not force task-only visibility (workers use stampWorker).
+// A host adapter's role:"user" events are input echoes (prompt replay,
+// tool_result blocks, skill preambles), never the agent's own answer — mark
+// them task-only so they stay out of the main chat. The real user turn is
+// emitted separately with speaker="user" and never flows through here.
 func stampSpeaker(raw json.RawMessage, agent, model string, exec adapter.ExecutionRef) json.RawMessage {
-	return stampAgent(raw, agent, model, false, exec)
+	return stampAgent(raw, agent, model, isUserRoleEcho(raw), exec)
+}
+
+// isUserRoleEcho reports whether an adapter payload is a role:"user" message,
+// i.e. model input replayed in the stream rather than the agent's output.
+func isUserRoleEcho(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var m struct {
+		Role string `json:"role"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(m.Role), "user")
 }
 
 // stampWorker tags sub-agent events as task-only (hidden from main chat column).
