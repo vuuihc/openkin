@@ -36,6 +36,7 @@ import {
   type Task,
   type TaskEvent,
   type TaskUsage,
+  type Upload,
   type UserQuestion,
 } from "../api/client";
 import RecycleReviewCard from "../components/project/RecycleReviewCard";
@@ -64,6 +65,11 @@ import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { normalizePermissionMode } from "../lib/permissionMode";
+import {
+  clearFollowUpDraft,
+  getFollowUpDraft,
+  setFollowUpDraft,
+} from "../lib/followUpDraft";
 import { modelsForAgent } from "../lib/agentModels";
 import { subscribeWS, useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
@@ -72,8 +78,16 @@ import { displayUserPrompt } from "../lib/attachments";
  * Single-column chat: user talks to the session host; @agents are task workers.
  * Full event stream in the main column (no inspector three-pane).
  */
-export default function TaskDetailPage() {
-  const { id = "" } = useParams();
+type TaskDetailPageProps = {
+  /** Fixed task id when hosted in a keep-alive cache (Chrome-tab style). */
+  taskId?: string;
+  /** Whether this instance is the visible session. */
+  active?: boolean;
+};
+
+export default function TaskDetailPage({ taskId, active = true }: TaskDetailPageProps = {}) {
+  const { id: paramId = "" } = useParams();
+  const id = taskId || paramId;
   const navigate = useNavigate();
   const [task, setTask] = useState<Task | null>(null);
   const [usage, setUsage] = useState<TaskUsage | null>(null);
@@ -85,6 +99,9 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [composerModel, setComposerModel] = useState("");
+  // Latest follow-up draft fields for this task (localStorage is source of truth).
+  const draftPromptRef = useRef("");
+  const draftAttachmentsRef = useRef<Upload[]>([]);
   const [stopping, setStopping] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
@@ -102,6 +119,11 @@ export default function TaskDetailPage() {
   const [recycleError, setRecycleError] = useState<string | null>(null);
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** User is near the bottom → stick to new content. */
+  const stickToBottomRef = useRef(true);
+  /** First paint of this mounted instance: jump to bottom once (no animation). */
+  const didInitialScrollRef = useRef(false);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
@@ -192,6 +214,7 @@ export default function TaskDetailPage() {
     setFilesOpen(false);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
+    stickToBottomRef.current = true;
     void load();
     void loadUsage();
     listAgents()
@@ -288,9 +311,50 @@ export default function TaskDetailPage() {
     });
   }, [id, loadUsage]);
 
+  const isNearBottom = useCallback((el: HTMLElement, threshold = 96) => {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+  }, []);
+
+  const onChatScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = isNearBottom(el);
+  }, [isNearBottom]);
+
+  // This mounted instance only: first content paint jumps to bottom (instant).
+  // Keep-alive reuses the instance later, so the DOM scroll position stays put — no save/restore.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [events, approvals, userQuestions, sending]);
+    if (!active) return;
+    if (didInitialScrollRef.current) return;
+    if (loading || !task) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const node = scrollRef.current;
+        if (!node || didInitialScrollRef.current) return;
+        node.scrollTop = node.scrollHeight;
+        stickToBottomRef.current = true;
+        didInitialScrollRef.current = true;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [active, loading, task, events.length]);
+
+  // Follow new content only when user was already at bottom, or just sent a message.
+  useEffect(() => {
+    if (!active) return;
+    if (!didInitialScrollRef.current) return;
+    if (!(stickToBottomRef.current || sending)) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    stickToBottomRef.current = true;
+  }, [active, events, approvals, userQuestions, sending]);
 
   const needsYou = useMemo(() => {
     const a = approvals.map((item) => ({
@@ -372,6 +436,24 @@ export default function TaskDetailPage() {
     setComposerModel((task.model || "").trim());
   }, [task?.id, task?.model]);
 
+  // Keep refs aligned when navigating between tasks.
+  useEffect(() => {
+    if (!id) return;
+    const draft = getFollowUpDraft(id);
+    draftPromptRef.current = draft.prompt;
+    draftAttachmentsRef.current = draft.attachments;
+  }, [id]);
+
+  function persistFollowUpDraft(
+    prompt: string,
+    attachments = draftAttachmentsRef.current,
+  ) {
+    if (!id) return;
+    draftPromptRef.current = prompt;
+    draftAttachmentsRef.current = attachments;
+    setFollowUpDraft(id, { prompt, attachments });
+  }
+
   async function onComposer(text: string) {
     if (!task) return;
     setSending(true);
@@ -384,11 +466,15 @@ export default function TaskDetailPage() {
         picked !== current ? { model: picked } : undefined;
       const t = await followUpPrompt(task.id, text, modelOpts);
       setTask(t);
+      clearFollowUpDraft(task.id);
+      draftPromptRef.current = "";
+      draftAttachmentsRef.current = [];
       if (!isTerminal(task.status)) {
         pushToast(tr("task.interruptedGuide"), "info");
       }
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : tr("task.sendFailed"), "error");
+      // Re-throw so Composer restores the cleared input + draft, and shows the toast.
+      throw err instanceof Error ? err : new Error(tr("task.sendFailed"));
     } finally {
       setSending(false);
     }
@@ -608,6 +694,7 @@ export default function TaskDetailPage() {
     agents.find((agent) => agent.id === task.agent)?.name ??
     agentDisplayName(task.agent || "kin");
   const hostAgentAvatar = agentAvatarMeta(task.agent || "kin");
+  const followUpDraft = getFollowUpDraft(task.id);
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex relative">
@@ -720,7 +807,11 @@ export default function TaskDetailPage() {
           actionsBusy={reviewBusy}
         />
 
-        <div className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0">
+        <div
+          ref={scrollRef}
+          onScroll={onChatScroll}
+          className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
+        >
           <ChatStream
             events={events}
             onOpenPath={onOpenWorkspacePath}
@@ -823,16 +914,23 @@ export default function TaskDetailPage() {
               </div>
             )}
             <Composer
+              key={task.id}
               agents={agents}
               hostAgentId={task.agent || ""}
               busy={sending}
               running={!terminal}
               stopping={stopping}
               disabled={sending || stopping}
+              initialValue={followUpDraft.prompt}
+              initialAttachments={followUpDraft.attachments}
               placeholder={
                 !terminal
                   ? tr("composer.guideWhileRunning")
                   : tr("composer.followUpPlaceholder", { name: hostAgentName })
+              }
+              onValueChange={(v) => persistFollowUpDraft(v)}
+              onAttachmentsChange={(atts) =>
+                persistFollowUpDraft(draftPromptRef.current, atts)
               }
               onSubmit={onComposer}
               onStop={onStop}

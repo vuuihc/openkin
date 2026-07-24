@@ -204,6 +204,9 @@ export default function Composer({
     // Sending is allowed with only attachments (no text), but never mid-upload.
     if ((!text && attachments.length === 0) || disabled || busy || stopping || uploading) return;
     const payload = withAttachments(text);
+    // Snapshot so a failed send can restore the composer + draft persistence.
+    const prevValue = value;
+    const prevAttachments = attachments;
     // Revoke previews after we capture payload.
     for (const a of attachments) {
       if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
@@ -218,6 +221,13 @@ export default function Composer({
     try {
       await onSubmit(payload);
     } catch (err) {
+      // Restore text/attachments so the user does not lose a failed follow-up.
+      // Drop blob previews (already revoked); remote upload urls still work.
+      const restored = prevAttachments.map(({ previewUrl: _p, ...rest }) => rest);
+      setValue(prevValue);
+      onValueChange?.(prevValue);
+      setAttachments(restored);
+      onAttachmentsChange?.(restored);
       // Parent handlers usually toast; never let an unhandled rejection
       // leave the composer in a cleared-but-failed state without feedback.
       useAppStore
