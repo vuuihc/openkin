@@ -60,6 +60,7 @@ func GenericInvocations() map[string]Invocation {
 		},
 		"pi": {
 			Mode:              "json",
+			BinCandidates:     []string{"pi"},
 			Args:              []string{"-p", "{{prompt}}", "--mode", "json"},
 			NeedsVerification: true,
 		},

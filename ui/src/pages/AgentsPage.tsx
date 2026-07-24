@@ -319,17 +319,20 @@ export default function AgentsPage() {
               <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
                 {tr("usage.dailySpend")}
               </div>
-              <div className="flex items-end gap-1.5 h-28">
+              <div className="flex items-stretch gap-1.5 h-28">
                 {byDay.length === 0 && (
                   <p className="text-sm text-kin-muted">{tr("usage.noData")}</p>
                 )}
                 {byDay.map(([date, cost]) => (
                   <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                    <div
-                      className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
-                      style={{ height: `${Math.max(4, (cost / maxDay) * 100)}%` }}
-                      title={`${date}: ${formatCost(cost)}`}
-                    />
+                    {/* Bar track: definite height so the bar's % resolves against it. */}
+                    <div className="flex-1 w-full flex items-end justify-center min-h-0">
+                      <div
+                        className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
+                        style={{ height: `${Math.max(2, (cost / maxDay) * 100)}%` }}
+                        title={`${date}: ${formatCost(cost)}`}
+                      />
+                    </div>
                     <span className="text-[10px] text-kin-muted truncate w-full text-center">
                       {date.slice(5)}
                     </span>
