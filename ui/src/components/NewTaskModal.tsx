@@ -9,6 +9,18 @@ import {
   type Task,
 } from "../api/client";
 import { useAppStore } from "../store/appStore";
+import { useT } from "../i18n/react";
+import {
+  agentCatalogState,
+  openInstallURL,
+  sortAgentCatalog,
+} from "../lib/agentCatalog";
+import {
+  getDraftPermissionMode,
+  setDraftPermissionMode,
+  type PermissionMode,
+} from "../lib/permissionMode";
+import PermissionModePicker from "./chat/PermissionModePicker";
 
 type Props = {
   open: boolean;
@@ -33,6 +45,7 @@ export default function NewTaskModal({
   onOptimisticFail,
   initialPrompt,
 }: Props) {
+  const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agent, setAgent] = useState<string>(""); // empty = auto
@@ -42,6 +55,7 @@ export default function NewTaskModal({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showAgent, setShowAgent] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() => getDraftPermissionMode());
 
   useEffect(() => {
     if (!open) return;
@@ -67,6 +81,7 @@ export default function NewTaskModal({
 
   if (!open) return null;
 
+  const catalog = sortAgentCatalog(agents);
   const available = agents.filter((a) => a.available);
   const defaultAgent = available.find((a) => a.default) ?? available[0];
 
@@ -82,9 +97,10 @@ export default function NewTaskModal({
       return;
     }
     const body = {
-      ...(agent ? { agent } : {}),
       cwd: cwd.trim(),
       prompt: prompt.trim(),
+      permission_mode: permissionMode,
+      ...(agent ? { agent } : {}),
     };
     const tempId = `opt_${Date.now()}_${++optSeq}`;
     const optimistic = optimisticTask({
@@ -146,30 +162,68 @@ export default function NewTaskModal({
             Agents
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {agents.length === 0 && (
+            {catalog.length === 0 && (
               <span className="text-[12.5px] text-kin-muted">Detecting…</span>
             )}
-            {agents.map((a) => (
-              <span
-                key={a.id}
-                className={[
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium border",
-                  a.available
-                    ? "border-kin-blue/30 bg-kin-blue-soft text-kin-blue"
-                    : "border-[var(--kin-hairline)] text-kin-muted",
-                ].join(" ")}
-                title={a.available ? a.binary : a.reason || "not installed"}
-              >
+            {catalog.map((a) => {
+              const state = agentCatalogState(a);
+              const isRunnable = state === "native" || state === "generic";
+              const badge =
+                state === "generic"
+                  ? tr("agentCatalog.generic")
+                  : state === "verifying"
+                    ? tr("agentCatalog.verifying")
+                    : state === "not_installed"
+                      ? tr("agentCatalog.notInstalled")
+                      : state === "unavailable"
+                        ? tr("agentCatalog.unavailable")
+                        : null;
+              const title =
+                state === "generic"
+                  ? tr("agentCatalog.genericHint")
+                  : state === "verifying"
+                    ? tr("agentCatalog.verifyingHint")
+                    : a.available
+                      ? a.binary || a.name
+                      : a.reason || tr("agentCatalog.notInstalled");
+              return (
                 <span
+                  key={a.id}
                   className={[
-                    "w-1.5 h-1.5 rounded-full",
-                    a.available ? "bg-kin-green" : "bg-kin-muted",
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium border",
+                    isRunnable
+                      ? "border-kin-blue/30 bg-kin-blue-soft text-kin-blue"
+                      : "border-[var(--kin-hairline)] text-kin-muted",
                   ].join(" ")}
-                />
-                {a.name}
-                {a.default && a.available ? " · default" : ""}
-              </span>
-            ))}
+                  title={title}
+                >
+                  <span
+                    className={[
+                      "inline-block h-1.5 w-1.5 rounded-full",
+                      isRunnable ? "bg-kin-green" : "bg-kin-muted",
+                    ].join(" ")}
+                  />
+                  {a.name}
+                  {a.default && isRunnable ? " · default" : ""}
+                  {badge ? (
+                    <span className="text-[10px] opacity-80">· {badge}</span>
+                  ) : null}
+                  {state === "not_installed" && a.install_url ? (
+                    <button
+                      type="button"
+                      className="text-[10px] text-kin-blue hover:underline"
+                      title={tr("agentCatalog.installHint")}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openInstallURL(a.install_url);
+                      }}
+                    >
+                      {tr("agentCatalog.install")}
+                    </button>
+                  ) : null}
+                </span>
+              );
+            })}
           </div>
           <p className="mt-2 text-[12px] text-kin-secondary">
             新建任务不强制选 agent — 默认用{" "}
@@ -192,9 +246,16 @@ export default function NewTaskModal({
               className="kin-input min-h-[40px] mt-2"
             >
               <option value="">Auto ({defaultAgent?.id ?? "none"})</option>
-              {available.map((a) => (
-                <option key={a.id} value={a.id}>
+              {catalog.map((a) => (
+                <option key={a.id} value={a.id} disabled={!a.available}>
                   {a.name} ({a.id})
+                  {!a.available
+                    ? a.installed
+                      ? ` — ${tr("agentCatalog.verifying")}`
+                      : ` — ${tr("agentCatalog.notInstalled")}`
+                    : agentCatalogState(a) === "generic"
+                      ? ` — ${tr("agentCatalog.generic")}`
+                      : ""}
                 </option>
               ))}
             </select>
@@ -217,6 +278,20 @@ export default function NewTaskModal({
             ))}
           </datalist>
         </label>
+
+        <div className="block space-y-1.5">
+          <span className="text-xs font-medium text-kin-secondary">Permission mode</span>
+          <PermissionModePicker
+            value={permissionMode}
+            onChange={(m) => {
+              setPermissionMode(m);
+              setDraftPermissionMode(m);
+            }}
+          />
+          {agent && agents.find((a) => a.id === agent && agentCatalogState(a) === "generic") ? (
+            <p className="text-[11px] text-kin-muted">{tr("agentCatalog.genericHint")}</p>
+          ) : null}
+        </div>
 
         <label className="block space-y-1.5">
           <span className="text-xs font-medium text-kin-secondary">Prompt</span>

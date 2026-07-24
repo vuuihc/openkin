@@ -44,7 +44,7 @@
 
 **MVP 范围内**
 
-- Kin daemon 通过**适配器**包住外部 coding agent：Claude Code 与 Codex 为一等公民，通用 PTY 兜底任意 CLI
+- Kin daemon 通过**适配器**包住外部 coding agent：Claude Code / Codex / Grok 为一等公民（Tier 1）；已验证无头 CLI 走声明式通用适配器（Tier 2）；更广的 skills 目录仅做存在性探测 + 安装链接（Tier 3）；可选 raw PTY 跑用户显式 shell 命令
 - 任务生命周期：派发 / 流式进度 / 取消 / 历史
 - **确认收件箱**：agent 的权限请求推送到桌面与手机，每次决定都有审计记录
 - 费用透明：按任务、按 Provider 的 token 与花费

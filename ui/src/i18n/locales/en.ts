@@ -673,6 +673,17 @@ const en: MessageTree = {
     closeFailed: "Failed to close session",
     resize: "Resize",
   },
+  agentCatalog: {
+    native: "Native",
+    generic: "Generic mode",
+    genericHint: "No per-tool approvals — pick Accept Edits or YOLO for this task.",
+    verifying: "Detected · verifying",
+    verifyingHint: "Kin is verifying headless launch for this agent.",
+    notInstalled: "Not installed",
+    install: "Install",
+    installHint: "Open install docs in your browser",
+    unavailable: "Unavailable",
+  },
   common: {
     unknown: "unknown",
     loading: "Loading…",

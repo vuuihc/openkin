@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vuuihc/kin/internal/adapter/detect"
 	"github.com/vuuihc/kin/internal/api"
 	"github.com/vuuihc/kin/internal/notify"
 	"github.com/vuuihc/kin/internal/provider"
@@ -209,7 +210,7 @@ func ServeWith(version string, flags ServeFlags) error {
 			cli, err := provider.NewClient(cfg)
 			return cli, cfg, err
 		},
-		NetworkMode:  mode,
+		NetworkMode: mode,
 		// Probe provider subscription windows (5h/weekly) from the tokens the
 		// Claude Code and Codex CLIs already store. Cached 60s to avoid
 		// hammering providers (and spending Codex quota) on every page view.
@@ -218,6 +219,7 @@ func ServeWith(version string, flags ServeFlags) error {
 			pref, _ := st.GetSetting(context.Background(), "agent.default")
 			list := reg.List(context.Background(), strings.TrimSpace(pref))
 			out := make([]api.AgentInfo, 0, len(list))
+			seen := make(map[string]bool, len(list))
 			for _, i := range list {
 				caps := make([]string, 0, len(i.Capabilities))
 				for _, c := range i.Capabilities {
@@ -233,7 +235,35 @@ func ServeWith(version string, flags ServeFlags) error {
 					Available:    i.Available,
 					Reason:       i.Reason,
 					Default:      i.Default,
+					InstallURL:   detect.InstallURL(i.ID),
 				})
+				seen[i.ID] = true
+			}
+			// Merge full skills discovery catalog so the UI can show
+			// presence-only / not-installed agents with install CTAs.
+			for _, p := range detect.ScanPresence(strings.TrimSpace(pref)) {
+				if seen[p.ID] {
+					continue
+				}
+				reason := p.Reason
+				if reason == "" {
+					if p.Installed {
+						reason = "installed; no known headless CLI mode"
+					} else {
+						reason = "not installed"
+					}
+				}
+				out = append(out, api.AgentInfo{
+					ID:         p.ID,
+					Name:       p.Name,
+					Kind:       "cli",
+					Binary:     p.Binary,
+					Installed:  p.Installed,
+					Available:  false, // presence-only / Tier 3
+					Reason:     reason,
+					InstallURL: detect.InstallURL(p.ID),
+				})
+				seen[p.ID] = true
 			}
 			return out
 		},

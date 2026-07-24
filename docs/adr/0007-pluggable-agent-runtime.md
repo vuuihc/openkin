@@ -30,3 +30,8 @@ Kin historically treated itself as a special engine identity: default host, orch
 - Adding an agent is one factory + one composition-root registration line.
 - Engine/API/UI must not grow new `switch agentID` behavior switches.
 - Hosts without `orchestrate` still work; multi-agent turns use deterministic waves and summary.
+
+## Follow-up
+
+Tier 2 generic CLI agents (`internal/adapter/genericcli`, ADR 0009) register through the same factory composition root without engine ID switches. Presence-only catalog entries remain non-runnable until an invocation row exists and passes smoke tests.
+

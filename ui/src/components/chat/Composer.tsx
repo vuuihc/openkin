@@ -9,6 +9,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { agentDisplayName } from "../../lib/agentMention";
+import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
 import { IconFile, IconImage, IconSend, IconStop, IconX } from "../icons";
 
@@ -392,6 +393,9 @@ export default function Composer({
                   {hostAgentId && a.id === hostAgentId
                     ? ` · ${tr("composer.roleMain")}`
                     : ` · ${tr("composer.roleWorker")}`}
+                  {agentCatalogState(a) === "generic"
+                    ? ` · ${tr("agentCatalog.generic")}`
+                    : ""}
                 </span>
               </button>
             );

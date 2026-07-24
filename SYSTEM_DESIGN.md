@@ -44,7 +44,7 @@ Entry point: **dispatch, watch, and approve agent tasks from any device** — se
 
 **In MVP scope**
 
-- Kin daemon **adapters** wrap external coding agents: Claude Code and Codex as first-class; generic PTY fallback for any CLI
+- Kin daemon **adapters** wrap external coding agents: Claude Code / Codex / Grok as first-class (Tier 1); declarative generic CLI adapters for verified headless tools (Tier 2); presence + install links for the broader skills catalog (Tier 3); optional raw PTY for explicit shell commands
 - Task lifecycle: dispatch / streaming progress / cancel / history
 - **Approval inbox**: permission requests on desktop and phone; every decision audited
 - Cost transparency: tokens and spend per task and provider

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -404,5 +405,36 @@ func TestDeleteTask(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("second delete: %d", rr.Code)
+	}
+}
+
+func TestGenericCLIPermissionGate(t *testing.T) {
+	s := &Server{}
+	err := s.validateGenericCLIPermission(context.Background(), "gemini-cli", "default")
+	if err == nil {
+		t.Fatal("expected error for default mode")
+	}
+	if err := s.validateGenericCLIPermission(context.Background(), "gemini-cli", "yolo"); err != nil {
+		t.Fatalf("yolo: %v", err)
+	}
+	if err := s.validateGenericCLIPermission(context.Background(), "gemini-cli", "accept_edits"); err != nil {
+		t.Fatalf("accept_edits: %v", err)
+	}
+	if err := s.validateGenericCLIPermission(context.Background(), "claude-code", "default"); err != nil {
+		t.Fatalf("native should pass: %v", err)
+	}
+	if err := s.validateGenericCLIPermission(context.Background(), "", "default"); err != nil {
+		t.Fatalf("empty agent: %v", err)
+	}
+}
+
+func TestAgentInfoInstallURLJSON(t *testing.T) {
+	info := AgentInfo{ID: "cursor", Name: "Cursor", InstallURL: "https://cursor.com"}
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"install_url":"https://cursor.com"`) {
+		t.Fatalf("json=%s", b)
 	}
 }

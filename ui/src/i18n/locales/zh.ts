@@ -665,6 +665,17 @@ const zh = {
     closeFailed: "关闭会话失败",
     resize: "调整大小",
   },
+  agentCatalog: {
+    native: "原生",
+    generic: "通用模式",
+    genericHint: "无逐条审批 — 请为该任务选择「接受编辑」或 YOLO。",
+    verifying: "已识别 · 验证中",
+    verifyingHint: "Kin 正在验证该 agent 的无头调用方式。",
+    notInstalled: "未安装",
+    install: "去安装",
+    installHint: "在浏览器中打开安装文档",
+    unavailable: "不可用",
+  },
   common: {
     unknown: "未知",
     loading: "加载中…",

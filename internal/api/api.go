@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"nhooyr.io/websocket"
 
+	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/adapter/detect"
 	"github.com/vuuihc/kin/internal/notify"
 	"github.com/vuuihc/kin/internal/provider"
@@ -38,6 +39,8 @@ type AgentInfo struct {
 	Available    bool     `json:"available"`
 	Default      bool     `json:"default"`
 	Reason       string   `json:"reason,omitempty"`
+	// InstallURL is an official homepage/install doc for agents not present locally.
+	InstallURL string `json:"install_url,omitempty"`
 	// Models contains only choices supported by a trustworthy local source or
 	// stable CLI aliases. The task routing catalog is intentionally not exposed.
 	Models          []AgentModelOption `json:"models,omitempty"`
@@ -302,6 +305,10 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
+	if err := s.validateGenericCLIPermission(r.Context(), req.Agent, req.PermissionMode); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	// Best-effort project context inject. Failures never block task creation.
 	s.maybeInjectProjectContext(r.Context(), &req)
 	t, err := s.Engine.Create(r.Context(), req)
@@ -310,6 +317,24 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// validateGenericCLIPermission rejects Tier-2 agents under default permission mode.
+// Those agents have no Kin approval channel and require accept_edits or yolo.
+func (s *Server) validateGenericCLIPermission(ctx context.Context, agentID, permissionMode string) error {
+	_ = ctx
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" || !detect.IsGenericCLI(agentID) {
+		return nil
+	}
+	perm := adapter.NormalizePermissionMode(permissionMode)
+	if perm == adapter.PermissionAcceptEdits || perm == adapter.PermissionYOLO {
+		return nil
+	}
+	return fmt.Errorf(
+		"agent %q cannot use Kin approval inbox; choose permission_mode accept_edits or yolo",
+		agentID,
+	)
 }
 
 func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {

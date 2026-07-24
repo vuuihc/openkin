@@ -173,6 +173,8 @@ export type AgentInfo = {
   available: boolean;
   default: boolean;
   reason?: string;
+  /** Official install/homepage URL when the agent is not installed locally. */
+  install_url?: string;
   /** Locally configured/discovered choices or stable CLI aliases. */
   models?: AgentModelOption[];
   model_list_source: "configured" | "discovered" | "recommended" | "none";

@@ -17,6 +17,11 @@ import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import { useT } from "../i18n/react";
+import {
+  agentCatalogState,
+  openInstallURL,
+  sortAgentCatalog,
+} from "../lib/agentCatalog";
 import { modelsForAgent } from "../lib/agentModels";
 import {
   agentAvatarMeta,
@@ -310,6 +315,11 @@ export default function NewChatPage() {
                     {av.initials}
                   </span>
                   {a.name}
+                  {agentCatalogState(a) === "generic" && (
+                    <span className="text-[10px] text-kin-muted" title={tr("agentCatalog.genericHint")}>
+                      {tr("agentCatalog.generic")}
+                    </span>
+                  )}
                   {active && (
                     <span className="text-[10px] text-kin-blue">
                       {tr("newChat.roleHost")}
@@ -318,6 +328,48 @@ export default function NewChatPage() {
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {sortAgentCatalog(agents).some(
+          (a) => !a.available && (a.install_url || a.installed),
+        ) && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2 max-w-lg">
+            {sortAgentCatalog(agents)
+              .filter((a) => !a.available)
+              .slice(0, 16)
+              .map((a) => {
+                const state = agentCatalogState(a);
+                return (
+                  <span
+                    key={a.id}
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--kin-hairline)] px-2 py-0.5 text-[11px] text-kin-muted"
+                    title={
+                      state === "verifying"
+                        ? tr("agentCatalog.verifyingHint")
+                        : a.reason || tr("agentCatalog.notInstalled")
+                    }
+                  >
+                    {a.name}
+                    <span className="opacity-80">
+                      ·{" "}
+                      {state === "verifying"
+                        ? tr("agentCatalog.verifying")
+                        : tr("agentCatalog.notInstalled")}
+                    </span>
+                    {state === "not_installed" && a.install_url ? (
+                      <button
+                        type="button"
+                        className="text-kin-blue hover:underline"
+                        title={tr("agentCatalog.installHint")}
+                        onClick={() => openInstallURL(a.install_url)}
+                      >
+                        {tr("agentCatalog.install")}
+                      </button>
+                    ) : null}
+                  </span>
+                );
+              })}
           </div>
         )}
 

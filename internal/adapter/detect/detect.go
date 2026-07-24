@@ -75,15 +75,22 @@ type Spec struct {
 // Catalog is the built-in set of adapters Kin knows how to launch.
 // Derived from SkillsDiscoveryCatalog entries with RunnableHint (plus grok).
 func Catalog() []Spec {
+	generic := GenericInvocations()
 	var out []Spec
 	for _, d := range SkillsDiscoveryCatalog() {
 		if !d.RunnableHint {
-			continue
+			if _, ok := generic[d.ID]; !ok {
+				continue
+			}
+		}
+		bins := append([]string(nil), d.Bins...)
+		if inv, ok := generic[d.ID]; ok && len(inv.BinCandidates) > 0 {
+			bins = append([]string(nil), inv.BinCandidates...)
 		}
 		out = append(out, Spec{
 			ID:       d.ID,
 			Name:     d.Name,
-			Bins:     append([]string(nil), d.Bins...),
+			Bins:     bins,
 			EnvBin:   d.EnvBin,
 			Priority: d.Priority,
 		})
@@ -108,12 +115,17 @@ func Scan(defaultPref string) []Info {
 	for _, sp := range specs {
 		path, reason := resolveBinary(sp.EnvBin, sp.Bins)
 		inst := path != ""
+		available := inst
+		if inv, ok := GenericInvocations()[sp.ID]; ok && inv.NeedsVerification && inst {
+			available = false
+			reason = "detected; awaiting Kin maintainer smoke test before enabling"
+		}
 		info := Info{
 			ID:        sp.ID,
 			Name:      sp.Name,
 			Binary:    path,
 			Installed: inst,
-			Available: inst,
+			Available: available,
 			Reason:    reason,
 		}
 		if !inst && reason == "" {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/vuuihc/kin/internal/adapter/claudecode"
 	"github.com/vuuihc/kin/internal/adapter/codex"
+	"github.com/vuuihc/kin/internal/adapter/detect"
+	"github.com/vuuihc/kin/internal/adapter/genericcli"
 	"github.com/vuuihc/kin/internal/adapter/grok"
 	"github.com/vuuihc/kin/internal/adapter/kinagent"
 	"github.com/vuuihc/kin/internal/adapter/rawpty"
@@ -16,6 +18,7 @@ import (
 
 // buildAgentRegistry is the composition root for built-in agent plugins.
 // One registration line per plugin is acceptable; behavioral ID switches are not.
+// Tier-2 generic CLI agents are assembled from detect.GenericInvocations().
 func buildAgentRegistry(
 	ctx context.Context,
 	st *store.Store,
@@ -31,6 +34,27 @@ func buildAgentRegistry(
 		codex.NewPluginFactory(),
 		grok.NewPluginFactory(),
 	}
+
+	// Native first-class adapters — skip when assembling generic factories.
+	native := map[string]bool{
+		"kin":         true,
+		"claude-code": true,
+		"codex":       true,
+		"grok":        true,
+		"rawpty":      true,
+	}
+	invocations := detect.GenericInvocations()
+	for _, spec := range detect.SkillsDiscoveryCatalog() {
+		if native[spec.ID] {
+			continue
+		}
+		inv, ok := invocations[spec.ID]
+		if !ok {
+			continue
+		}
+		factories = append(factories, genericcli.NewPluginFactory(spec, inv))
+	}
+
 	if os.Getenv("KIN_ENABLE_RAWPTY") == "1" {
 		factories = append(factories, rawpty.NewPluginFactory())
 	}
