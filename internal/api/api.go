@@ -624,7 +624,6 @@ func (s *Server) handleInternalWaitApproval(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, a)
 }
 
-
 func (s *Server) handleListUserQuestions(w http.ResponseWriter, r *http.Request) {
 	opts := store.ListUserQuestionsOpts{
 		Status: r.URL.Query().Get("status"),
@@ -714,7 +713,6 @@ func (s *Server) handleInternalWaitUserQuestion(w http.ResponseWriter, r *http.R
 	}
 	writeJSON(w, http.StatusOK, q)
 }
-
 
 func (s *Server) handleRecentCwds(w http.ResponseWriter, r *http.Request) {
 	cwds, err := s.Engine.RecentCwds(r.Context(), 15)

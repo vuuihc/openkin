@@ -195,7 +195,7 @@ func (s *server) handleToolsList(req rpcRequest) rpcResponse {
 					},
 				},
 				{
-					"name": "ask_user_question",
+					"name":        "ask_user_question",
 					"description": "Ask the user a structured clarifying question with 2–6 options when requirements are ambiguous, multiple reasonable approaches exist, or the user should own a decision. Not for routine tool permission (use approve for that).",
 					"inputSchema": map[string]any{
 						"type":                 "object",

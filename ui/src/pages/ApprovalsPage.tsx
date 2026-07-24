@@ -227,19 +227,19 @@ export default function ApprovalsPage() {
             <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
               {tr("inbox.approvalsSection")}
             </div>
-          <ul className="space-y-3.5">
-            {items.map((a, i) => (
-              <li key={a.id}>
-                <ApprovalCard
-                  approval={a}
-                  focused={i === focusIdx}
-                  busy={busy[a.id] ?? null}
-                  onApprove={() => void onDecide(a.id, "approved")}
-                  onDeny={() => void onDecide(a.id, "denied")}
-                />
-              </li>
-            ))}
-          </ul>
+            <ul className="space-y-3.5">
+              {items.map((a, i) => (
+                <li key={a.id}>
+                  <ApprovalCard
+                    approval={a}
+                    focused={i === focusIdx}
+                    busy={busy[a.id] ?? null}
+                    onApprove={() => void onDecide(a.id, "approved")}
+                    onDeny={() => void onDecide(a.id, "denied")}
+                  />
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

@@ -99,9 +99,9 @@ type Engine struct {
 	criticalPersistFail map[string]error
 	// persistGaps tracks disposable drops so recovery can emit a diagnostic.
 	persistGaps map[string]*persistGap
-	ctx             context.Context
-	cancel          context.CancelFunc
-	entropy         ioReader
+	ctx         context.Context
+	cancel      context.CancelFunc
+	entropy     ioReader
 
 	// Approval long-poll waiters (approval id → channels).
 	approvalWaiters     map[string][]chan store.Approval
@@ -558,6 +558,12 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
 		for _, a := range pending {
 			_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "web")
+		}
+	}
+	// Resolve pending user questions the same way (ADR 0010).
+	if pending, err := e.store.ListPendingUserQuestionsForTask(ctx, id); err == nil {
+		for _, q := range pending {
+			_, _ = e.AnswerUserQuestion(ctx, q.ID, AnswerUserQuestionRequest{}, "interrupt")
 		}
 	}
 

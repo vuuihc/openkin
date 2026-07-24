@@ -223,7 +223,8 @@ export type WSMessage =
   | { kind: "task_update"; data: Task }
   | { kind: "task_deleted"; data: { id: string } }
   | { kind: "event"; data: TaskEvent }
-  | { kind: "approval_update"; data: Approval };
+  | { kind: "approval_update"; data: Approval }
+  | { kind: "user_question_update"; data: UserQuestion };
 
 export function listTasks(params?: {
   status?: string;

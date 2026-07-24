@@ -266,3 +266,58 @@ func TestFollowUpInterruptResolvesUserQuestion(t *testing.T) {
 		t.Fatalf("via=%v want interrupt", waited.AnsweredVia)
 	}
 }
+
+
+func TestCancelResolvesUserQuestion(t *testing.T) {
+	ctx := context.Background()
+	e, _ := testEngine(t, 4, longRunningAdapter())
+
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+
+	q, err := e.RequestUserQuestion(ctx, CreateUserQuestionRequest{
+		TaskID: task.ID, Question: "Cancel me?",
+		Options: []UserQuestionOption{{Label: "A"}, {Label: "B"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	var waited store.UserQuestion
+	var waitErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		waited, waitErr = e.WaitUserQuestion(ctx, q.ID, 5*time.Second)
+	}()
+	time.Sleep(30 * time.Millisecond)
+
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	if waitErr != nil {
+		t.Fatal(waitErr)
+	}
+	if waited.Status != store.UQStatusAnswered {
+		t.Fatalf("status=%s want answered (interrupt via cancel)", waited.Status)
+	}
+	if waited.AnsweredVia == nil || *waited.AnsweredVia != "interrupt" {
+		t.Fatalf("via=%v want interrupt", waited.AnsweredVia)
+	}
+
+	// Must not remain pending in list.
+	pending, err := e.ListUserQuestions(ctx, store.ListUserQuestionsOpts{Status: store.UQStatusPending})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pending {
+		if p.ID == q.ID {
+			t.Fatalf("question still pending after cancel: %+v", p)
+		}
+	}
+}

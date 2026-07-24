@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type UserQuestion,
   parseUserQuestionPayload,
@@ -46,6 +46,37 @@ export default function UserQuestionCard({
     if (!canSubmit) return;
     onAnswer({ selected, other_text: otherText.trim() });
   }
+
+  // Number keys 1–9 toggle options; Enter submits when the card is focused
+  // and the event is not already handled by a form control.
+  useEffect(() => {
+    if (!focused || busy) return;
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+        // Still allow Enter-to-submit from the Other input.
+        if (e.key === "Enter" && t.tagName === "INPUT") {
+          e.preventDefault();
+          submit();
+        }
+        return;
+      }
+      if (e.key >= "1" && e.key <= "9") {
+        const idx = Number(e.key) - 1;
+        const opt = payload.options[idx];
+        if (opt) {
+          e.preventDefault();
+          toggle(opt.label);
+        }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        submit();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- submit/toggle close over latest selected
+  }, [focused, busy, payload.options, multi, selected, otherText]);
 
   return (
     <div
