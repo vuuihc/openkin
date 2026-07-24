@@ -2,7 +2,7 @@
 
 **Status:** Accepted (P0 implemented; P1+ not started)
 **Date:** 2026-03-22
-**Related:** [TODO.md](../TODO.md) · [plan](../plans/project-one-pager.md) · [Kin role / coaching loop](../plans/project-agent-role-design.md) · ADR 0002 (session context) · ADR 0003 (Artifacts) · PRINCIPLE §5.11 / §6.2.1 · SYSTEM_DESIGN §2
+**Related:** [ADR 0013 Prompt Recipes](./0013-prompt-recipes.md) · [TODO.md](../TODO.md) · [plan](../plans/project-one-pager.md) · [Kin role / coaching loop](../plans/project-agent-role-design.md) · ADR 0002 (session context) · ADR 0003 (Artifacts) · PRINCIPLE §5.11 / §6.2.1 · SYSTEM_DESIGN §2
 
 ## Context
 

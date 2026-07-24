@@ -12,6 +12,8 @@ export default {
         kin: {
           bg: "var(--kin-bg)",
           elevated: "var(--kin-elevated)",
+          // Solid floating surface (modals/cards). Never leave undefined — missing token = transparent.
+          panel: "var(--kin-panel)",
           sidebar: "var(--kin-sidebar)",
           chat: "var(--kin-chat)",
           inspector: "var(--kin-inspector)",
@@ -23,6 +25,8 @@ export default {
           secondary: "var(--kin-secondary)",
           tertiary: "var(--kin-tertiary)",
           muted: "var(--kin-muted)",
+          // Alias used by primary action buttons across project/routines pages.
+          accent: "#0A84FF",
           blue: "#0A84FF",
           "blue-soft": "rgba(10, 132, 255, 0.14)",
           orange: "#FF9F0A",

@@ -18,7 +18,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
 import SettingsPage from "./pages/SettingsPage";
-import TaskDetailPage from "./pages/TaskDetailPage";
+import TaskSessionHost from "./pages/TaskSessionHost";
 import TasksPage from "./pages/TasksPage";
 import TrayPage from "./pages/TrayPage";
 import AgentsPage from "./pages/AgentsPage";
@@ -122,13 +122,19 @@ export default function App() {
     <>
       <AppShell pendingCount={pendingCount} routineUnreadCount={routineUnreadCount}>
         <ErrorBoundary>
+          {/*
+            Session keep-alive lives outside <Routes> so /tasks/:id → /new
+            does not unmount the chat DOM (Chrome-tab style scroll retention).
+          */}
+          <TaskSessionHost />
           <Routes>
             <Route path="/" element={<Navigate to="/new" replace />} />
             <Route path="/new" element={<NewChatPage />} />
             <Route path="/inbox" element={<ApprovalsPage />} />
             <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
             <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/tasks/:id" element={<TaskDetailPage />} />
+            {/* Task detail UI is rendered by TaskSessionHost above. */}
+            <Route path="/tasks/:id" element={null} />
             <Route path="/artifacts" element={<ArtifactsPage />} />
             <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
             <Route path="/projects" element={<ProjectsPage />} />

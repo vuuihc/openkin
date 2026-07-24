@@ -161,6 +161,10 @@ Stable entrances: **Ask · Plan · Do · Read/Artifacts · Remember · Review ·
 
 Advanced concepts (many agents, workflows, skills, nodes, providers) expose gradually. Users may own a complex system without managing it every day.
 
+**Prefer simple implementations too.** Application-level behaviors (session wrap-up, cover write-back, coaching nudges, project memory tidying) should start as reviewable prompts / in-conversation flows—not as hard-coded APIs, tables, state machines, and dedicated UI entities. Reserve hard-coded paths for: permission and safety boundaries, durable sources of truth, stream/task protocols, and contracts a prompt cannot reliably guarantee.
+
+Counter-example: a dedicated recycle table + REST + review card for “write wrap-up into the One-Pager” is heavier, harder to understand, and harder to maintain than asking Kin in the chat to update the cover.
+
 ### 5.6 Memory must be governable
 
 Memory is not only chat logs or a vector DB. Distinguish at least:
@@ -432,7 +436,7 @@ Every major feature/architecture answers:
 
 - **Ownership:** vendor lock-in? export/migrate? works without official servers?
 - **Continuity:** works after model change? same Kin after device change? upgrade keeps history?
-- **Simplicity:** must users understand it? hideable by defaults? harming primary UX for niche power?
+- **Simplicity:** must users understand it? hideable by defaults? harming primary UX for niche power? can a prompt / existing agent loop express it without a new hard-coded product entity (API, table, state machine)?
 - **Explainability:** why this action? what info used? can wrong state be fixed?
 - **Safety:** worst failure? undo? least privilege? unnecessary data to the model?
 - **Openness:** third-party replaceable parts? clear specs? hidden private deps?

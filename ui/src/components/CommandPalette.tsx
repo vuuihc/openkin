@@ -10,14 +10,19 @@ import { useNavigate } from "react-router-dom";
 import {
   getToken,
   isTerminal,
+  listProjects,
   listTasks,
+  type Project,
   type Task,
 } from "../api/client";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { projectLabel } from "../lib/paths";
+import { listRecipes, type RecipeId } from "../recipes/catalog";
+import { launchRecipe } from "../recipes/launch";
 import { IconAgents, IconPlus, IconSearch, IconSettings, IconTasks } from "./icons";
 import { displayUserPrompt } from "../lib/attachments";
+import { useAppStore } from "../store/appStore";
 
 type Props = {
   open: boolean;
@@ -46,7 +51,7 @@ function highlight(text: string, q: string): ReactNode {
 
 /**
  * ⌘K / Ctrl+K command palette (design 2b).
- * Sections: Actions · Chats (tasks) · Navigation.
+ * Sections: Actions · Project recipes · Chats · Navigation.
  */
 export default function CommandPalette({
   open,
@@ -57,17 +62,30 @@ export default function CommandPalette({
 }: Props) {
   const navigate = useNavigate();
   const tr = useT();
+  const pushToast = useAppStore((s) => s.pushToast);
   const [query, setQuery] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [active, setActive] = useState(0);
+  const [launchingRecipe, setLaunchingRecipe] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    if (!getToken()) return;
+    if (!getToken()) {
+      setTasks([]);
+      setProjects([]);
+      return;
+    }
     try {
-      setTasks(await listTasks({ limit: 80 }));
+      const [taskList, projectList] = await Promise.all([
+        listTasks({ limit: 80 }),
+        listProjects("active").catch(() => [] as Project[]),
+      ]);
+      setTasks(Array.isArray(taskList) ? taskList : []);
+      setProjects(Array.isArray(projectList) ? projectList : []);
     } catch {
       setTasks([]);
+      setProjects([]);
     }
   }, []);
 
@@ -159,6 +177,60 @@ export default function CommandPalette({
 
     const actions: Item[] = baseActions.filter((a) => match(a.label));
 
+    // Most recently active project with a root — recipes launch normal tasks (ADR 0013).
+    const recipeProject = [...projects]
+      .filter((p) => (p.roots?.[0] || "").trim())
+      .sort((a, b) => (b.last_active_at || 0) - (a.last_active_at || 0))[0];
+
+    const runRecipe = (id: RecipeId) => {
+      if (!recipeProject || launchingRecipe) return;
+      const cwd = (recipeProject.roots?.[0] || "").trim();
+      if (!cwd) {
+        pushToast(tr("projects.continueNeedRoot"), "error");
+        return;
+      }
+      setLaunchingRecipe(true);
+      void launchRecipe({
+        id,
+        cwd,
+        project_id: recipeProject.id,
+        ctx: {
+          project_name: recipeProject.name,
+          project_id: recipeProject.id,
+          cwd,
+          mode: recipeProject.mode,
+        },
+      })
+        .then((task) => {
+          onClose();
+          navigate(`/tasks/${task.id}`);
+        })
+        .catch((e) => {
+          pushToast(
+            e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"),
+            "error",
+          );
+        })
+        .finally(() => setLaunchingRecipe(false));
+    };
+
+    const recipeActions: Item[] = recipeProject
+      ? listRecipes()
+          .map((r) => ({
+            kind: "action" as const,
+            id: `recipe:${r.id}`,
+            label: `${(tr as (k: string) => string)(r.titleKey)} · ${recipeProject.name}`,
+            hint: tr("projects.recipeSection"),
+            run: () => runRecipe(r.id),
+          }))
+          .filter(
+            (a) =>
+              match(a.label) ||
+              match(a.hint || "") ||
+              match(recipeProject.name),
+          )
+      : [];
+
     const chats: Item[] = tasks
       .filter((t) => {
         const title = t.title || displayUserPrompt(t.prompt || "");
@@ -176,12 +248,15 @@ export default function CommandPalette({
           : `${t.status} · ${t.agent}`,
       }));
 
-    return [...actions, ...chats];
+    return [...actions, ...recipeActions, ...chats];
   }, [
+    launchingRecipe,
     navigate,
     onClose,
     onNewChat,
     onToggleTerminal,
+    projects,
+    pushToast,
     query,
     tasks,
     terminalAvailable,

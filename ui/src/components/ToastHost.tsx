@@ -15,10 +15,11 @@ export default function ToastHost() {
         <div
           key={t.id}
           className={[
-            "pointer-events-auto w-full max-w-md rounded-xl border px-4 py-3 text-sm shadow-lg flex items-start justify-between gap-3",
+            // Solid opaque surfaces only — opacity modifiers on CSS vars often paint transparent.
+            "pointer-events-auto w-full max-w-md rounded-xl border px-4 py-3 text-sm shadow-window flex items-start justify-between gap-3",
             t.tone === "error"
-              ? "border-red-900/60 bg-red-950/95 text-red-100"
-              : "border-surface-border bg-surface-raised/95 text-zinc-100",
+              ? "border-kin-red/50 bg-[#3a1214] text-[#ffd7d5]"
+              : "border-kin-hairline-strong bg-kin-elevated text-kin-text",
           ].join(" ")}
           role="status"
         >
@@ -26,7 +27,7 @@ export default function ToastHost() {
           <button
             type="button"
             onClick={() => dismiss(t.id)}
-            className="shrink-0 min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-zinc-400 hover:text-zinc-100"
+            className="shrink-0 min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-kin-muted hover:text-kin-text"
             aria-label="Dismiss"
           >
             ×

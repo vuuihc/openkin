@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"strings"
-	"unicode"
 )
 
 // OnePagerDigestMaxRunes is the default budget for project context injection.
@@ -289,18 +288,14 @@ func OnePagerDigest(md string, maxRunes int) string {
 	return trimRunes(s, maxRunes)
 }
 
-// ModeStrategyLine is a short coaching hint for the given project mode.
+// ModeStrategyLine is a single light inject hint. Detailed coaching belongs in
+// the One-Pager / recipes (ADR 0013), not hard-coded mode taxonomies.
 func ModeStrategyLine(mode string) string {
-	switch mode {
-	case ProjectModeLearn:
-		return "Mode focus: can the user explain, apply, and transfer what was learned?"
-	case ProjectModeExplore:
-		return "Mode focus: surface hypotheses, evidence, and counter-examples; avoid premature lock-in."
-	case ProjectModeMaintain:
-		return "Mode focus: root cause, low-risk recovery, and regression protection."
-	default:
-		return "Mode focus: acceptance criteria, shortest delivery path, and risks."
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		mode = ProjectModeShip
 	}
+	return "Mode focus: use cover Focus/Next; prefer the smallest useful next step (mode=" + mode + ")."
 }
 
 // BuildContinuePrompt wraps user intent with project context for new tasks.
@@ -336,202 +331,6 @@ func BuildContinuePrompt(projectName, mode, onePagerMarkdown, userPrompt string)
 		out.WriteString("Continue the Current Focus. Prefer the smallest useful next step; do not rewrite the North Star unless I ask.")
 	}
 	return out.String()
-}
-
-// Recycle suggestion targets (user-facing patch surface).
-const (
-	RecycleTargetConclusions   = "conclusions"
-	RecycleTargetOpenQuestions = "open_questions"
-	RecycleTargetNext          = "next"
-	RecycleTargetFocus         = "focus"
-)
-
-// ValidRecycleTarget reports whether target is writable via recycle accept.
-func ValidRecycleTarget(target string) bool {
-	switch target {
-	case RecycleTargetConclusions, RecycleTargetOpenQuestions, RecycleTargetNext, RecycleTargetFocus:
-		return true
-	default:
-		return false
-	}
-}
-
-// ApplyRecycleSuggestion patches markdown for one accepted suggestion.
-// For next: returns ok=false when resulting list would exceed 3 without user edit.
-func ApplyRecycleSuggestion(md, target, text string) (string, error) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return md, fmt.Errorf("empty suggestion text")
-	}
-	if !ValidRecycleTarget(target) {
-		return md, fmt.Errorf("invalid target %q", target)
-	}
-	// Focus replaces whole section body.
-	if target == RecycleTargetFocus {
-		return replaceSectionBody(md, []string{"Current Focus", "当前焦点"}, text, false)
-	}
-
-	headingAliases := map[string][]string{
-		RecycleTargetConclusions:   {"结论", "Conclusions", "结论与发现"},
-		RecycleTargetOpenQuestions: {"未决问题", "Open Questions", "Open questions"},
-		RecycleTargetNext:          {"下一步（你写的）", "Next", "下一步"},
-	}
-	aliases := headingAliases[target]
-	sections := ParseOnePagerSections(md)
-	curBody := sectionPick(sections, aliases...)
-	if target == RecycleTargetNext {
-		existing := ParseListItems(curBody, 1000)
-		// If already 3 and new text is not already present, refuse auto-trim.
-		norm := normalizeSuggestionText(text)
-		for _, e := range existing {
-			if normalizeSuggestionText(e) == norm {
-				// Idempotent: already present.
-				return md, nil
-			}
-		}
-		if len(existing) >= 3 {
-			return md, fmt.Errorf("next already has %d items; edit to free a slot before accepting", len(existing))
-		}
-		// Append as numbered item.
-		item := fmt.Sprintf("%d. %s", len(existing)+1, text)
-		newBody := appendListLine(curBody, item, true)
-		return replaceSectionBody(md, aliases, newBody, true)
-	}
-
-	// Conclusions / open questions: append bullet.
-	item := "- " + text
-	// Dedup within section.
-	for _, e := range ParseListItems(curBody, 1000) {
-		if normalizeSuggestionText(e) == normalizeSuggestionText(text) {
-			return md, nil
-		}
-	}
-	newBody := appendListLine(curBody, item, false)
-	return replaceSectionBody(md, aliases, newBody, true)
-}
-
-func appendListLine(body, item string, numbered bool) string {
-	_ = numbered
-	body = strings.TrimRight(body, "\n")
-	// Drop lone empty placeholders like "- " or "1. "
-	lines := strings.Split(body, "\n")
-	var kept []string
-	for _, ln := range lines {
-		t := strings.TrimSpace(ln)
-		if t == "" || t == "-" || t == "*" || t == "1." || t == "2." || t == "3." {
-			continue
-		}
-		// Empty numbered/bullet
-		if trimListMarker(t) == "" {
-			continue
-		}
-		kept = append(kept, ln)
-	}
-	kept = append(kept, item)
-	return strings.Join(kept, "\n") + "\n"
-}
-
-// replaceSectionBody replaces the first matching ## section body.
-// If createIfMissing and section not found, appends the section at end (before auto block if present).
-func replaceSectionBody(md string, aliases []string, newBody string, createIfMissing bool) (string, error) {
-	md = strings.ReplaceAll(md, "\r\n", "\n")
-	newBody = strings.TrimSpace(newBody)
-	if newBody != "" && !strings.HasSuffix(newBody, "\n") {
-		newBody += "\n"
-	}
-
-	lines := strings.Split(md, "\n")
-	headingIdx := -1
-	headingName := ""
-	for i, line := range lines {
-		if !strings.HasPrefix(line, "## ") {
-			continue
-		}
-		name := strings.TrimSpace(strings.TrimPrefix(line, "## "))
-		for _, a := range aliases {
-			if name == a {
-				headingIdx = i
-				headingName = name
-				break
-			}
-		}
-		if headingIdx >= 0 {
-			break
-		}
-	}
-	if headingIdx < 0 {
-		if !createIfMissing {
-			return md, fmt.Errorf("section not found")
-		}
-		// Prefer insert before kin:auto block.
-		headingName = aliases[0]
-		block := fmt.Sprintf("## %s\n%s\n", headingName, newBody)
-		if idx := strings.Index(md, "<!-- kin:auto:start -->"); idx >= 0 {
-			return md[:idx] + block + md[idx:], nil
-		}
-		if strings.TrimSpace(md) == "" {
-			return block, nil
-		}
-		if !strings.HasSuffix(md, "\n") {
-			md += "\n"
-		}
-		return md + "\n" + block, nil
-	}
-
-	// Find end of section: next ## or EOF (but keep trailing content).
-	end := len(lines)
-	for j := headingIdx + 1; j < len(lines); j++ {
-		if strings.HasPrefix(lines[j], "## ") {
-			end = j
-			break
-		}
-		// Stop before H1? unlikely mid-file.
-		if strings.HasPrefix(lines[j], "# ") && !strings.HasPrefix(lines[j], "## ") {
-			end = j
-			break
-		}
-	}
-	var b strings.Builder
-	for i := 0; i <= headingIdx; i++ {
-		b.WriteString(lines[i])
-		b.WriteByte('\n')
-	}
-	b.WriteString(newBody)
-	if !strings.HasSuffix(newBody, "\n") {
-		b.WriteByte('\n')
-	}
-	for i := end; i < len(lines); i++ {
-		b.WriteString(lines[i])
-		if i+1 < len(lines) {
-			b.WriteByte('\n')
-		}
-	}
-	// Preserve final newline style loosely.
-	out := b.String()
-	if strings.HasSuffix(md, "\n") && !strings.HasSuffix(out, "\n") {
-		out += "\n"
-	}
-	_ = headingName
-	return out, nil
-}
-
-// normalizeSuggestionText is used for single-batch dedupe.
-func normalizeSuggestionText(s string) string {
-	s = strings.TrimSpace(strings.ToLower(s))
-	var b strings.Builder
-	prevSpace := false
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			if !prevSpace {
-				b.WriteByte(' ')
-				prevSpace = true
-			}
-			continue
-		}
-		prevSpace = false
-		b.WriteRune(r)
-	}
-	return strings.TrimSpace(b.String())
 }
 
 func trimRunes(s string, max int) string {

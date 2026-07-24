@@ -13,6 +13,9 @@ These instructions apply to the entire repository. A more deeply nested
   product boundaries or persistence models.
 - Preserve unrelated working-tree changes. Never reset, overwrite, or silently
   reformat work that is outside the assigned task.
+- Prefer existing repo scripts under `scripts/` and Makefile targets over
+  inventing ad-hoc shell pipelines. Check `scripts/` and `Makefile` before
+  rebuilding, packaging, or restarting local tooling.
 
 ## Agent best practices
 
@@ -26,6 +29,13 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
 3. **Smallest reversible step.** Ship one independently verifiable concern at a
    time (API, storage, UI, docs stay consistent within that concern). Avoid
    speculative abstractions and drive-by cleanups.
+3a. **Prompt before product machinery.** For application-layer behavior
+   (coaching, wrap-up, memory tidying, cover suggestions), prefer a reviewable
+   prompt or in-session flow over hard-coded APIs, tables, state machines, and
+   dedicated UI. Hard-code only permission/safety boundaries, durable sources of
+   truth, stream/task protocols, and contracts a model cannot reliably guarantee.
+   If a feature needs all of schema + REST + special UI to do what a prompt could
+   do, stop and simplify. See `PRINCIPLE.md` §5.5 and the technical decision filter.
 4. **Tests as the contract.** Add or update tests with behavior changes.
    Reproduce bugs with a failing test when practical; only then fix.
 5. **Verify, do not assume.** Run the narrowest relevant checks while iterating,
@@ -65,7 +75,9 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
 3. Break work into the smallest independently verifiable modules. Keep API,
    storage, UI, and documentation changes consistent with one another.
 4. Prefer focused changes over broad cleanup. Do not add speculative
-   abstractions or dependencies.
+   abstractions or dependencies. Do not hard-code application workflows that a
+   prompt + existing agent loop can express more simply (see Agent best
+   practices §3a and PRINCIPLE §5.5).
 5. Add or update tests with behavior changes. Reproduce bugs with a failing
    test when practical.
 6. Run the narrowest relevant checks while iterating, then the full applicable
@@ -139,6 +151,25 @@ make test
   and narrow widths when browser tooling is available.
 - Report any check that could not run, including the reason and residual risk.
 
+## Desktop rebuild
+
+When the user asks to rebuild desktop, or after a UI / daemon change needs a
+fresh Electron shell:
+
+- **Always use the repo script.** Run `./scripts/desktop-rebuild.sh` or
+  `make desktop-rebuild` from the primary checkout. Do **not** hand-roll the
+  sequence (UI embed → `kin` binary → kill daemon/Electron → relaunch) as
+  separate ad-hoc commands when this script exists.
+- The script already: builds Vite UI into `web/dist`, builds `./kin` with the
+  new embed, stops anything on `:7777`, stops this repo's Kin/Electron, then
+  launches desktop (`npm run dev`).
+- Use `make desktop-dev` only when you intentionally want backend + Electron
+  without a full UI re-embed cycle (see Makefile comments).
+- Use `make desktop-dist` only for packaged `.dmg` under
+  `desktop/dist-electron/`.
+- Report script failures and residual risk; do not silently fall back to a
+  partial manual rebuild unless the script is broken and you are fixing it.
+
 ## Feature completion gate
 
 After a **feature or user-visible change set** is implemented and its relevant
@@ -172,7 +203,8 @@ checks pass, do **not** stop at self-review. Finish with this gate in order:
    work.
 6. **Repackage desktop.** Run `./scripts/desktop-rebuild.sh` (or
    `make desktop-rebuild`) from the primary checkout so the Electron shell
-   picks up the new UI embed and `kin` binary. Report rebuild failures and
+   picks up the new UI embed and `kin` binary. Do not substitute a hand-rolled
+   UI/kin/Electron pipeline for this script. Report rebuild failures and
    residual risk if the script cannot run in the current environment.
 
 Scope notes:
@@ -214,7 +246,7 @@ Scope notes:
   explicitly requested or required by the release process.
 - After a UI or daemon change lands on `main`, run `./scripts/desktop-rebuild.sh`
   (or `make desktop-rebuild`) from the primary checkout so desktop picks up the
-  new embed and binary.
+  new embed and binary. Prefer this script over any manual rebuild steps.
 - End with a clean working tree when all visible files are in scope. Otherwise,
   list every intentional uncommitted or ignored exception.
 

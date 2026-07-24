@@ -244,8 +244,9 @@ func autoSuggestions(p Pulse, proj store.Project) string {
 			lines = append(lines, fmt.Sprintf("%d. 次模块 `%s`：是否需要单独会话��避免和主线缠在一起。", len(lines)+1, p.TopPaths[1].Path))
 		}
 	}
-	if proj.SoftProgress == store.SoftProgressFog || proj.SoftProgress == "" {
-		lines = append(lines, fmt.Sprintf("%d. 更新封面「项目描述 / North Star」，把雾里状态写成一句话目标。", len(lines)+1))
+	// soft_progress enum is legacy metadata; prefer cover text over coaching taxonomy (ADR 0013).
+	if len(lines) == 0 {
+		lines = append(lines, fmt.Sprintf("%d. 更新封面「项目描述 / North Star / Current Focus」，写成一句话主线。", len(lines)+1))
 	}
 	if len(lines) == 0 {
 		lines = append(lines, "1. 维护 Current Focus：只保留一条主线。")

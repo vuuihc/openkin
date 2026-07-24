@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ApiError,
   formatCost,
@@ -253,9 +253,166 @@ export default function AgentsPage() {
     }
   }
 
+
+  type AgentSortKey =
+    | "name"
+    | "status"
+    | "version"
+    | "auth"
+    | "cost"
+    | "tokens"
+    | "tasks"
+    | "cache"
+    | "costPerTask"
+    | "tokensPerTask";
+
+  const [sortKey, setSortKey] = useState<AgentSortKey>("cost");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(key: AgentSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return;
+    }
+    const numeric: AgentSortKey[] = [
+      "cost",
+      "tokens",
+      "tasks",
+      "cache",
+      "costPerTask",
+      "tokensPerTask",
+    ];
+    setSortKey(key);
+    setSortDir(numeric.includes(key) ? "desc" : "asc");
+  }
+
+  const sortedCatalog = useMemo(() => {
+    const statusRank = (a: AgentInfo) => {
+      switch (agentCatalogState(a)) {
+        case "native":
+          return 0;
+        case "generic":
+          return 1;
+        case "verifying":
+          return 2;
+        case "unavailable":
+          return 3;
+        default:
+          return 4;
+      }
+    };
+    const authRank = (status: string | undefined) => {
+      switch (status) {
+        case "signed_in":
+          return 0;
+        case "not_signed_in":
+          return 1;
+        default:
+          return 2;
+      }
+    };
+    const list = [...catalog];
+    const dir = sortDir === "asc" ? 1 : -1;
+    list.sort((a, b) => {
+      const ua = usageByAgent.get(a.id);
+      const ub = usageByAgent.get(b.id);
+      const ma = mgmtById.get(a.id);
+      const mb = mgmtById.get(b.id);
+      let cmp = 0;
+      switch (sortKey) {
+        case "name":
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case "status":
+          cmp = statusRank(a) - statusRank(b);
+          if (cmp === 0) cmp = a.name.localeCompare(b.name);
+          break;
+        case "version":
+          cmp = (ma?.version || "").localeCompare(mb?.version || "");
+          if (cmp === 0) cmp = a.name.localeCompare(b.name);
+          break;
+        case "auth":
+          cmp = authRank(ma?.auth_status) - authRank(mb?.auth_status);
+          if (cmp === 0) cmp = a.name.localeCompare(b.name);
+          break;
+        case "cost":
+          cmp = (ua?.cost ?? 0) - (ub?.cost ?? 0);
+          break;
+        case "tokens":
+          cmp = (ua?.tokens ?? 0) - (ub?.tokens ?? 0);
+          break;
+        case "tasks":
+          cmp = (ua?.tasks ?? 0) - (ub?.tasks ?? 0);
+          break;
+        case "cache": {
+          const ca =
+            ua && ua.cacheEligible > 0 ? ua.cacheRead / ua.cacheEligible : -1;
+          const cb =
+            ub && ub.cacheEligible > 0 ? ub.cacheRead / ub.cacheEligible : -1;
+          cmp = ca - cb;
+          break;
+        }
+        case "costPerTask": {
+          const ca = ua && ua.tasks > 0 ? ua.cost / ua.tasks : -1;
+          const cb = ub && ub.tasks > 0 ? ub.cost / ub.tasks : -1;
+          cmp = ca - cb;
+          break;
+        }
+        case "tokensPerTask": {
+          const ca = ua && ua.tasks > 0 ? ua.tokens / ua.tasks : -1;
+          const cb = ub && ub.tasks > 0 ? ub.tokens / ub.tasks : -1;
+          cmp = ca - cb;
+          break;
+        }
+      }
+      if (cmp !== 0) return cmp * dir;
+      const costCmp = (ub?.cost ?? 0) - (ua?.cost ?? 0);
+      if (costCmp !== 0) return costCmp;
+      return a.name.localeCompare(b.name);
+    });
+    return list;
+  }, [catalog, sortKey, sortDir, usageByAgent, mgmtById]);
+
+  function sortIndicator(key: AgentSortKey): string {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? " ↑" : " ↓";
+  }
+
+  function SortTh({
+    colKey,
+    children,
+    className = "",
+    align = "left",
+  }: {
+    colKey: AgentSortKey;
+    children: ReactNode;
+    className?: string;
+    align?: "left" | "right";
+  }) {
+    const active = sortKey === colKey;
+    return (
+      <th
+        className={`px-3 py-2.5 font-semibold whitespace-nowrap ${
+          align === "right" ? "text-right" : "text-left"
+        } ${className}`}
+      >
+        <button
+          type="button"
+          onClick={() => toggleSort(colKey)}
+          className={`inline-flex items-center gap-0.5 hover:text-kin-text ${
+            active ? "text-kin-text" : "text-kin-muted"
+          }`}
+        >
+          {children}
+          <span className="tabular-nums text-[10px] w-3">{sortIndicator(colKey)}</span>
+        </button>
+      </th>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
-      <div className="max-w-[720px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h1 className="text-[22px] font-semibold tracking-tight">{tr("agents.title")}</h1>
           <div className="flex flex-wrap items-center gap-2">
@@ -353,9 +510,45 @@ export default function AgentsPage() {
         )}
 
         {agents !== null && (
-          <div className="mt-6 rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden">
-            <div className="divide-y divide-[var(--kin-hairline)]">
-              {catalog.map((a) => {
+          <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated">
+            <table className="w-full min-w-[980px] text-left text-[13px]">
+              <thead className="bg-[var(--kin-fill)]/60 text-[11px] uppercase tracking-wide text-kin-muted">
+                <tr>
+                  <SortTh colKey="name">{tr("agents.colName")}</SortTh>
+                  <SortTh colKey="status">{tr("agents.colStatus")}</SortTh>
+                  <SortTh colKey="version">{tr("agents.version")}</SortTh>
+                  <SortTh colKey="auth">{tr("agents.colAuth")}</SortTh>
+                  <SortTh colKey="cost" align="right">
+                    {tr("usage.spend")}
+                  </SortTh>
+                  <SortTh colKey="tokens" align="right">
+                    {tr("usage.tokens")}
+                  </SortTh>
+                  <SortTh colKey="tasks" align="right">
+                    {tr("usage.tasks")}
+                  </SortTh>
+                  <SortTh colKey="cache" align="right">
+                    {tr("agents.effCache")}
+                  </SortTh>
+                  <SortTh colKey="costPerTask" align="right">
+                    {tr("agents.effCostPerTask")}
+                  </SortTh>
+                  <SortTh colKey="tokensPerTask" align="right">
+                    {tr("agents.effTokensPerTask")}
+                  </SortTh>
+                  <th className="px-3 py-2.5 font-semibold text-left whitespace-nowrap text-kin-muted">
+                    {tr("usage.limitSpend")}
+                  </th>
+                  <th className="px-3 py-2.5 font-semibold text-left whitespace-nowrap text-kin-muted">
+                    {tr("usage.windowsTitle")}
+                  </th>
+                  <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap text-kin-muted">
+                    {tr("agents.actions")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--kin-hairline)]">
+                {sortedCatalog.map((a) => {
                 const state = agentCatalogState(a);
                 const m = mgmtById.get(a.id);
                 const usage = usageByAgent.get(a.id);
@@ -391,118 +584,125 @@ export default function AgentsPage() {
                     : state === "generic"
                       ? tr("agentCatalog.generic")
                       : null;
+                const cacheHit =
+                  usage && usage.cacheEligible > 0
+                    ? usage.cacheRead / usage.cacheEligible
+                    : null;
                 return (
-                  <div
-                    key={a.id}
-                    className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-[14px]">{a.name}</span>
-                        {kindBadge ? (
-                          <span className="rounded-full border border-[var(--kin-hairline)] px-1.5 py-0.5 text-[10px] text-kin-muted">
-                            {kindBadge}
-                          </span>
-                        ) : null}
+                  <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]/30">
+                    <td className="px-3 py-3 min-w-[160px]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium text-kin-text">{a.name}</span>
                         {a.default ? (
-                          <span className="rounded-full bg-kin-blue-soft px-1.5 py-0.5 text-[10px] font-medium text-kin-blue">
+                          <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-[10px] font-semibold text-kin-blue">
                             {tr("agents.isDefault")}
                           </span>
                         ) : null}
+                        {kindBadge ? (
+                          <span
+                            className="rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-[10px] font-semibold text-kin-secondary"
+                            title={
+                              state === "generic"
+                                ? tr("agentCatalog.genericHint")
+                                : undefined
+                            }
+                          >
+                            {kindBadge}
+                          </span>
+                        ) : null}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-kin-secondary">
-                        <span title={a.reason || undefined}>{statusLabel(a)}</span>
-                        <span>
-                          {tr("agents.version")}: {m?.version || "—"}
-                        </span>
-                        <span title={tr("agents.authHint")}>{authLabel(m?.auth_status)}</span>
-                      </div>
-                      {usage ? (
-                        <div className="flex flex-col gap-0.5 text-[12px] text-kin-secondary">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="tabular-nums font-medium text-kin-text">
-                              {formatCost(usage.cost)}
+                      {a.id !== a.name ? (
+                        <div className="mt-0.5 font-mono text-[11px] text-kin-muted">{a.id}</div>
+                      ) : null}
+                    </td>
+                    <td
+                      className="px-3 py-3 whitespace-nowrap text-kin-secondary"
+                      title={a.reason || undefined}
+                    >
+                      {statusLabel(a)}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap tabular-nums text-kin-secondary">
+                      {m?.version || "—"}
+                    </td>
+                    <td
+                      className="px-3 py-3 whitespace-nowrap text-kin-secondary"
+                      title={tr("agents.authHint")}
+                    >
+                      {authLabel(m?.auth_status)}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums font-medium text-kin-text">
+                      {usage ? formatCost(usage.cost) : "—"}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      {usage ? formatTokenCount(usage.tokens) : "—"}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      {usage ? usage.tasks : "—"}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      {pct(cacheHit)}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      {usage && usage.tasks > 0 ? formatCost(usage.cost / usage.tasks) : "—"}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      {usage && usage.tasks > 0
+                        ? formatTokenCount(usage.tokens / usage.tasks)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-3 min-w-[140px]">
+                      <div className="flex flex-col gap-1">
+                        {spendProgress && limitStatus?.limit_spend_usd != null ? (
+                          <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
+                            <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
+                              <span
+                                className={`block h-full rounded-full ${barBgClass}`}
+                                style={{ width: `${spendProgress.barPct}%` }}
+                              />
                             </span>
                             <span className="tabular-nums">
-                              {tr("usage.taskCount", { count: usage.tasks })}
-                            </span>
-                            <span className="tabular-nums">{formatTokenCount(usage.tokens)}</span>
-                          </div>
-                          {usage.tasks > 0 ? (
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kin-muted">
-                              <EffStat
-                                value={formatCost(usage.cost / usage.tasks)}
-                                label={tr("agents.effCostPerTask")}
-                              />
-                              <EffStat
-                                value={formatTokenCount(usage.tokens / usage.tasks)}
-                                label={tr("agents.effTokensPerTask")}
-                              />
-                              <EffStat
-                                value={pct(
-                                  usage.cacheEligible > 0
-                                    ? usage.cacheRead / usage.cacheEligible
-                                    : null,
-                                )}
-                                label={tr("agents.effCache")}
-                              />
-                              <EffStat
-                                value={(usage.requests / usage.tasks).toFixed(1)}
-                                label={tr("agents.effReqPerTask")}
-                              />
-                              <EffStat
-                                value={pct(usage.tokens > 0 ? usage.output / usage.tokens : null)}
-                                label={tr("agents.effOutputShare")}
-                              />
-                              <EffStat
-                                value={pct(usage.output > 0 ? usage.reasoning / usage.output : null)}
-                                label={tr("agents.effReasoning")}
-                              />
-                            </div>
-                          ) : null}
-                          {spendProgress && limitStatus?.limit_spend_usd != null && (
-                            <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
-                              <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
-                                <span
-                                  className={`block h-full rounded-full ${barBgClass}`}
-                                  style={{ width: `${spendProgress.barPct}%` }}
-                                />
-                              </span>
                               {formatLimitLabel(
                                 limitStatus.used_spend_usd,
                                 limitStatus.limit_spend_usd,
                                 "spend",
                               )}
                             </span>
-                          )}
-                          {tokensProgress && limitStatus?.limit_tokens != null && (
-                            <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
-                              <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
-                                <span
-                                  className={`block h-full rounded-full ${barBgClass}`}
-                                  style={{ width: `${tokensProgress.barPct}%` }}
-                                />
-                              </span>
+                          </span>
+                        ) : null}
+                        {tokensProgress && limitStatus?.limit_tokens != null ? (
+                          <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
+                            <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
+                              <span
+                                className={`block h-full rounded-full ${barBgClass}`}
+                                style={{ width: `${tokensProgress.barPct}%` }}
+                              />
+                            </span>
+                            <span className="tabular-nums">
                               {formatLimitLabel(
                                 limitStatus.used_tokens,
                                 limitStatus.limit_tokens,
                                 "tokens",
                               )}
                             </span>
-                          )}
-                        </div>
-                      ) : null}
+                          </span>
+                        ) : null}
+                        {!spendProgress && !tokensProgress ? (
+                          <span className="text-[11px] text-kin-muted">—</span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 min-w-[160px]">
                       {agentWindow?.error ? (
                         <div className="text-[11px] text-kin-muted">{agentWindow.error}</div>
                       ) : agentWindow && agentWindow.windows.length > 0 ? (
                         <div className="flex flex-col gap-1 text-[11px] text-kin-secondary">
                           {agentWindow.plan ? (
                             <span className="text-[10px] uppercase tracking-wide text-kin-muted">
-                              {tr("usage.windowsTitle")} · {agentWindow.plan}
+                              {agentWindow.plan}
                             </span>
                           ) : null}
                           {agentWindow.windows.map((w) => {
-                            const pct = Math.min(100, Math.max(0, w.used_percent));
+                            const winPct = Math.min(100, Math.max(0, w.used_percent));
                             const barClass =
                               w.status === "over"
                                 ? "bg-[var(--kin-red,#ff453a)]"
@@ -511,75 +711,84 @@ export default function AgentsPage() {
                                   : "bg-kin-blue/70";
                             return (
                               <span key={w.kind} className="flex items-center gap-1.5">
-                                <span className="w-10 shrink-0 text-kin-muted">
+                                <span className="w-8 shrink-0 text-kin-muted">
                                   {w.kind === "5h"
                                     ? tr("usage.window5h")
                                     : tr("usage.windowWeekly")}
                                 </span>
-                                <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
+                                <span className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
                                   <span
                                     className={`block h-full rounded-full ${barClass}`}
-                                    style={{ width: `${pct}%` }}
+                                    style={{ width: `${winPct}%` }}
                                   />
                                 </span>
                                 <span className="tabular-nums">{Math.round(w.used_percent)}%</span>
                                 {w.reset_at > 0 ? (
                                   <span className="text-[10px] text-kin-muted">
-                                    · {tr("usage.windowResets", { time: formatResetIn(w.reset_at) })}
+                                    · {formatResetIn(w.reset_at)}
                                   </span>
                                 ) : null}
                               </span>
                             );
                           })}
                         </div>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
-                      {a.available && !a.default ? (
-                        <button
-                          type="button"
-                          className="text-[12px] text-kin-blue hover:underline"
-                          onClick={() => void onSetDefault(a.id)}
-                        >
-                          {tr("agents.setDefault")}
-                        </button>
-                      ) : null}
-                      {!a.installed && a.install_url ? (
-                        <button
-                          type="button"
-                          className="text-[12px] text-kin-blue hover:underline"
-                          title={tr("agentCatalog.installHint")}
-                          onClick={() => openInstallURL(a.install_url)}
-                        >
-                          {tr("agentCatalog.install")}
-                        </button>
-                      ) : null}
-                      {m?.install_cmd ? (
-                        <button
-                          type="button"
-                          className="text-[12px] text-kin-secondary hover:underline"
-                          onClick={() => void copyText(m.install_cmd!)}
-                        >
-                          {tr("agents.copyInstall")}
-                        </button>
-                      ) : null}
-                      {m?.update_cmd && a.installed ? (
-                        <button
-                          type="button"
-                          className="text-[12px] text-kin-secondary hover:underline"
-                          onClick={() => void copyText(m.update_cmd!)}
-                        >
-                          {tr("agents.copyUpdate")}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
+                      ) : (
+                        <span className="text-[11px] text-kin-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {a.available && !a.default ? (
+                          <button
+                            type="button"
+                            className="text-[12px] text-kin-blue hover:underline"
+                            onClick={() => void onSetDefault(a.id)}
+                          >
+                            {tr("agents.setDefault")}
+                          </button>
+                        ) : null}
+                        {!a.installed && a.install_url ? (
+                          <button
+                            type="button"
+                            className="text-[12px] text-kin-blue hover:underline"
+                            title={tr("agentCatalog.installHint")}
+                            onClick={() => openInstallURL(a.install_url)}
+                          >
+                            {tr("agentCatalog.install")}
+                          </button>
+                        ) : null}
+                        {m?.install_cmd ? (
+                          <button
+                            type="button"
+                            className="text-[12px] text-kin-secondary hover:underline"
+                            onClick={() => void copyText(m.install_cmd!)}
+                          >
+                            {tr("agents.copyInstall")}
+                          </button>
+                        ) : null}
+                        {m?.update_cmd && a.installed ? (
+                          <button
+                            type="button"
+                            className="text-[12px] text-kin-secondary hover:underline"
+                            onClick={() => void copyText(m.update_cmd!)}
+                          >
+                            {tr("agents.copyUpdate")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
                 );
               })}
-              {catalog.length === 0 && (
-                <p className="px-4 py-6 text-sm text-kin-muted">{tr("usage.noAgentUsage")}</p>
-              )}
-            </div>
+                {sortedCatalog.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="px-4 py-6 text-sm text-kin-muted">
+                      {tr("usage.noAgentUsage")}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -587,15 +796,6 @@ export default function AgentsPage() {
   );
 }
 
-/** One compact "value label" efficiency stat in an agent row. */
-function EffStat({ value, label }: { value: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1">
-      <span className="tabular-nums font-medium text-kin-secondary">{value}</span>
-      {label}
-    </span>
-  );
-}
 
 /** Format a 0..1 ratio as a rounded percent, or "—" when not available. */
 function pct(x: number | null): string {

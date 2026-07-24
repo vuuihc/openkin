@@ -577,36 +577,6 @@ export type ProjectByRoot = Project & {
   one_pager_updated_at?: number;
 };
 
-export type RecycleEvidence = {
-  kind: "task" | "artifact" | "file" | string;
-  id?: string;
-  label?: string;
-  path?: string;
-};
-
-export type RecycleSuggestion = {
-  target: "conclusions" | "open_questions" | "next" | "focus" | string;
-  text: string;
-  reason?: string;
-  evidence?: RecycleEvidence[];
-  confidence?: "low" | "medium" | "high" | string;
-  status: "pending" | "accepted" | "accepted_edited" | "ignored" | string;
-  final_text?: string;
-  accepted_at?: number | null;
-  ignored_at?: number | null;
-};
-
-export type ProjectRecycle = {
-  id: string;
-  project_id: string;
-  task_id: string;
-  base_one_pager_updated_at: number;
-  summary: string;
-  suggestions: RecycleSuggestion[];
-  status: "pending" | "resolved" | string;
-  created_at: number;
-  resolved_at?: number | null;
-};
 
 export function listProjects(status: string = "active"): Promise<Project[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
@@ -646,23 +616,6 @@ export function getProjectPulse(
   );
 }
 
-
-export function summarizeProject(
-  id: string,
-  body: { apply?: boolean; window_days?: number } = {},
-): Promise<{
-  proposal: string;
-  markdown: string;
-  pulse: ProjectPulse;
-  applied: boolean;
-  updated_at: number;
-}> {
-  return apiFetch(`/api/projects/${encodeURIComponent(id)}/summarize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
 
 export function refreshProjectPulse(
   id: string,
@@ -766,83 +719,6 @@ export function findProjectByRoot(path: string): Promise<ProjectByRoot> {
   );
 }
 
-export function createTaskRecycle(taskId: string): Promise<ProjectRecycle> {
-  return apiFetch<ProjectRecycle>(
-    `/api/tasks/${encodeURIComponent(taskId)}/recycle`,
-    { method: "POST" },
-  );
-}
-
-export function getTaskRecycle(taskId: string): Promise<ProjectRecycle> {
-  return apiFetch<ProjectRecycle>(
-    `/api/tasks/${encodeURIComponent(taskId)}/recycle`,
-  );
-}
-
-export function listProjectRecycles(
-  projectId: string,
-  opts?: { status?: string; limit?: number },
-): Promise<ProjectRecycle[]> {
-  const q = new URLSearchParams();
-  if (opts?.status) q.set("status", opts.status);
-  if (opts?.limit) q.set("limit", String(opts.limit));
-  const qs = q.toString();
-  return apiFetch<ProjectRecycle[]>(
-    `/api/projects/${encodeURIComponent(projectId)}/recycles${qs ? `?${qs}` : ""}`,
-  );
-}
-
-export function acceptRecycleSuggestion(
-  recycleId: string,
-  index: number,
-  body: { final_text?: string; one_pager_updated_at?: number },
-): Promise<{
-  recycle: ProjectRecycle;
-  markdown?: string;
-  updated_at?: number;
-  idempotent?: boolean;
-}> {
-  return apiFetch(
-    `/api/recycles/${encodeURIComponent(recycleId)}/suggestions/${index}/accept`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-}
-
-export function ignoreRecycleSuggestion(
-  recycleId: string,
-  index: number,
-): Promise<{ recycle: ProjectRecycle; idempotent?: boolean }> {
-  return apiFetch(
-    `/api/recycles/${encodeURIComponent(recycleId)}/suggestions/${index}/ignore`,
-    { method: "POST" },
-  );
-}
-
-export function continueProject(
-  id: string,
-  body: {
-    prompt?: string;
-    agent?: string;
-    model?: string;
-    title?: string;
-    permission_mode?: string;
-    workspace_mode?: string;
-    cwd?: string;
-  } = {},
-): Promise<Task> {
-  return apiFetch<Task>(
-    `/api/projects/${encodeURIComponent(id)}/continue`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
-}
 
 export type Routine = {
   id: string;

@@ -77,15 +77,20 @@ func TestProjectsOnePagerCRUD(t *testing.T) {
 		t.Fatalf("put %d %s", rr.Code, rr.Body.String())
 	}
 
-	// Continue requires cwd + engine — should create task linked to project.
-	contBody, _ := json.Marshal(map[string]any{"cwd": repo})
-	req = httptest.NewRequest(http.MethodPost, "/api/projects/"+id+"/continue", bytes.NewReader(contBody))
+	// Creating a task with project_id injects One-Pager context (ADR 0013 recipes).
+	createBody, _ := json.Marshal(map[string]any{
+		"cwd":        repo,
+		"prompt":     "continue focus",
+		"project_id": id,
+		"agent":      "claude-code",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/tasks", bytes.NewReader(createBody))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("continue %d %s", rr.Code, rr.Body.String())
+		t.Fatalf("create task %d %s", rr.Code, rr.Body.String())
 	}
 	var task map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &task); err != nil {
@@ -96,7 +101,7 @@ func TestProjectsOnePagerCRUD(t *testing.T) {
 	}
 	prompt, _ := task["prompt"].(string)
 	if prompt == "" || !bytes.Contains([]byte(prompt), []byte("Project: Demo")) {
-		t.Fatalf("continue prompt missing context: %q", prompt)
+		t.Fatalf("create task prompt missing project inject: %q", prompt)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/projects/"+id+"/tasks", nil)
@@ -278,7 +283,7 @@ func TestFindProjectByRootIncludesSummary(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &op)
 	md := op["markdown"].(string)
 	// Replace focus section content by put
-	md = strings.Replace(md, "当下唯一主线（越短越好）。", "Ship recycle path", 1)
+	md = strings.Replace(md, "当下唯一主线（越短越好）。", "Ship focus path", 1)
 	md = strings.Replace(md, "你为什么做这个项目（用户主权；刷新不会改这里）。", "Users finish sessions with a cover update", 1)
 	putBody, _ := json.Marshal(map[string]any{"markdown": md, "updated_at": int64(op["updated_at"].(float64))})
 	req = httptest.NewRequest(http.MethodPut, "/api/projects/"+id+"/one-pager", bytes.NewReader(putBody))

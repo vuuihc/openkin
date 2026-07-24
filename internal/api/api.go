@@ -89,7 +89,7 @@ type Server struct {
 	UsageWindows *usagewindows.Service
 
 	// ProviderResolve returns the active cognition provider for short LLM jobs
-	// (project cover summarize, titles, …). May be nil.
+	// (chat titles, model routing, …). May be nil.
 	ProviderResolve func(ctx context.Context) (provider.Client, provider.Config, error)
 
 	// M3 connection metadata for Settings (set by server.Serve).
@@ -143,10 +143,6 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
 		r.Post("/api/tasks/{id}/fork", s.handleFork)
-		r.Post("/api/tasks/{id}/recycle", s.handleCreateTaskRecycle)
-		r.Get("/api/tasks/{id}/recycle", s.handleGetTaskRecycle)
-		r.Post("/api/recycles/{id}/suggestions/{index}/accept", s.handleAcceptRecycleSuggestion)
-		r.Post("/api/recycles/{id}/suggestions/{index}/ignore", s.handleIgnoreRecycleSuggestion)
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
 		r.Get("/api/user-questions", s.handleListUserQuestions)
@@ -182,11 +178,8 @@ func (s *Server) Handler() http.Handler {
 		r.Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
 		r.Get("/api/projects/{id}/pulse", s.handleGetProjectPulse)
 		r.Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
-		r.Post("/api/projects/{id}/summarize", s.handleSummarizeProject)
 		r.Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
 		r.Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
-		r.Post("/api/projects/{id}/continue", s.handleContinueProject)
-		r.Get("/api/projects/{id}/recycles", s.handleListProjectRecycles)
 		r.Get("/api/routines", s.handleListRoutines)
 		r.Post("/api/routines", s.handleCreateRoutine)
 		r.Get("/api/routines/unread-count", s.handleRoutineUnreadCount)

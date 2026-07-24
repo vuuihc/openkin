@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
-  continueProject,
   getOnePager,
   getProject,
   getProjectPulse,
@@ -11,8 +10,6 @@ import {
   patchProject,
   putOnePager,
   refreshProjectPulse,
-  summarizeProject,
-  listProjectRecycles,
   listRoutines,
   createRoutine,
   type Artifact,
@@ -21,10 +18,9 @@ import {
   type Project,
   type ProjectMode,
   type ProjectPulse,
-  type ProjectRecycle,
 } from "../api/client";
+import { launchRecipe } from "../recipes/launch";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
-import RecycleReviewCard from "../components/project/RecycleReviewCard";
 import { IconBack } from "../components/icons";
 import Markdown from "../components/Markdown";
 import Heatmap from "../components/project/Heatmap";
@@ -64,7 +60,6 @@ export default function ProjectDetailPage() {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [pulse, setPulse] = useState<ProjectPulse | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [summarizing, setSummarizing] = useState(false);
   const [windowDays, setWindowDays] = useState(90);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,22 +74,18 @@ export default function ProjectDetailPage() {
   const [routineInterval, setRoutineInterval] = useState(86400);
   const [creatingRoutine, setCreatingRoutine] = useState(false);
 
-  const [proposal, setProposal] = useState<string | null>(null);
   const [summary, setSummary] = useState<OnePagerSummary | null>(null);
-  const [recycles, setRecycles] = useState<ProjectRecycle[]>([]);
-  const [reviewRecycle, setReviewRecycle] = useState<ProjectRecycle | null>(null);
   const slow = useSlowHint(loading);
 
   const load = useCallback(async () => {
     if (!getToken() || !id) return;
     setLoading(true);
     try {
-      const [p, op, arts, pu, recs] = await Promise.all([
+      const [p, op, arts, pu] = await Promise.all([
         getProject(id),
         getOnePager(id),
         listProjectArtifacts(id, 20).catch(() => [] as Artifact[]),
         getProjectPulse(id, windowDays).catch(() => null),
-        listProjectRecycles(id, { limit: 10 }).catch(() => [] as ProjectRecycle[]),
       ]);
       setProject(p);
       setMarkdown(op.markdown);
@@ -103,7 +94,7 @@ export default function ProjectDetailPage() {
       setArtifacts(arts);
       setPulse(pu);
       setSummary(op.one_pager_summary ?? null);
-      setRecycles(recs);
+
       try {
         const rs = (await listRoutines({ project_id: id, limit: 50 })) as Routine[];
         setProjectRoutines(Array.isArray(rs) ? rs : []);
@@ -176,78 +167,41 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const onSummarize = async (apply: boolean) => {
-    if (!id) return;
-    setSummarizing(true);
-    try {
-      const res = await summarizeProject(id, {
-        apply,
-        window_days: windowDays,
-      });
-      setProposal(res.proposal);
-      setPulse(res.pulse);
-      if (apply) {
-        setMarkdown(res.markdown);
-        setDraft(res.markdown);
-        setUpdatedAt(res.updated_at);
-        setEditing(false);
-        pushToast(tr("projects.summarizeApplied"));
-      } else {
-        pushToast(tr("projects.summarizeReady"));
-      }
-    } catch (e) {
-      pushToast(
-        e instanceof Error ? e.message : tr("projects.summarizeFailed"),
-        "error",
-      );
-    } finally {
-      setSummarizing(false);
-    }
-  };
+  const recipeCtx = () => ({
+    project_name: project?.name,
+    project_id: id,
+    cwd: project?.roots?.[0],
+    mode: project?.mode,
+  });
 
-  const onApplyProposal = async () => {
-    if (!id || !proposal) return;
-    setSummarizing(true);
-    try {
-      const autoMatch = markdown.match(
-        /<!-- kin:auto:start -->[\s\S]*?<!-- kin:auto:end -->/,
-      );
-      const auto = autoMatch?.[0] ?? "";
-      const next = proposal.trim() + (auto ? "\n\n" + auto + "\n" : "\n");
-      const op = await putOnePager(id, next, updatedAt || undefined);
-      setMarkdown(op.markdown);
-      setDraft(op.markdown);
-      setUpdatedAt(op.updated_at);
-      setEditing(false);
-      setProposal(null);
-      pushToast(tr("projects.summarizeApplied"));
-    } catch (e) {
-      setDraft(proposal);
-      setEditing(true);
-      pushToast(
-        e instanceof Error ? e.message : tr("projects.summarizeFailed"),
-        "error",
-      );
-    } finally {
-      setSummarizing(false);
+  const onLaunchRecipe = async (
+    recipeId: "focus.continue" | "cover.update" | "project.memory.tidy",
+  ) => {
+    if (!project || !id) return;
+    const cwd = (project.roots?.[0] || "").trim();
+    if (!cwd) {
+      pushToast(tr("projects.continueNeedRoot"), "error");
+      return;
     }
-  };
-
-  const onContinue = async () => {
-    if (!id || !project) return;
     setContinuing(true);
     try {
-      const t = await continueProject(id, { cwd: project.roots?.[0] });
+      const t = await launchRecipe({
+        id: recipeId,
+        cwd,
+        project_id: id,
+        ctx: recipeCtx(),
+      });
       navigate(`/tasks/${t.id}`);
     } catch (e) {
       pushToast(
-        e instanceof Error ? e.message : tr("projects.continueFailed"),
+        e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"),
         "error",
       );
     } finally {
       setContinuing(false);
     }
   };
+
 
   const onModeChange = async (mode: ProjectMode) => {
     if (!id) return;
@@ -259,15 +213,6 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const onSoftProgress = async (soft: string) => {
-    if (!id) return;
-    try {
-      const p = await patchProject(id, { soft_progress: soft });
-      setProject(p);
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : "failed", "error");
-    }
-  };
 
 
   const onCreateRoutine = async () => {
@@ -373,34 +318,32 @@ export default function ProjectDetailPage() {
               <option value="explore">{tr("projects.modeExplore")}</option>
               <option value="maintain">{tr("projects.modeMaintain")}</option>
             </select>
-            <select
-              className="rounded-lg border border-kin-border bg-transparent px-2 py-1.5 text-[12.5px] text-kin-text"
-              value={project.soft_progress || ""}
-              onChange={(e) => void onSoftProgress(e.target.value)}
-            >
-              <option value="">{tr("projects.softProgress")}</option>
-              <option value="fog">{tr("projects.softFog")}</option>
-              <option value="can_explain">{tr("projects.softCanExplain")}</option>
-              <option value="can_build">{tr("projects.softCanBuild")}</option>
-              <option value="can_ship">{tr("projects.softCanShip")}</option>
-              <option value="can_teach">{tr("projects.softCanTeach")}</option>
-            </select>
             <button
               type="button"
-              disabled={summarizing}
+              disabled={continuing}
               className="rounded-lg border border-kin-border px-3 py-1.5 text-[13px] text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
-              onClick={() => void onSummarize(false)}
+              onClick={() => void onLaunchRecipe("cover.update")}
               title={tr("projects.summarizeHint")}
             >
-              {summarizing ? tr("projects.summarizing") : tr("projects.summarize")}
+              {continuing ? tr("projects.recipeLaunching") : tr("projects.summarize")}
             </button>
             <button
               type="button"
               disabled={continuing}
               className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
-              onClick={() => void onContinue()}
+              onClick={() => void onLaunchRecipe("focus.continue")}
+              title={tr("projects.continueHint")}
             >
-              {tr("projects.continueFocus")}
+              {continuing ? tr("projects.recipeLaunching") : tr("projects.continueFocus")}
+            </button>
+            <button
+              type="button"
+              disabled={continuing}
+              className="rounded-lg border border-kin-border px-3 py-1.5 text-[13px] text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+              onClick={() => void onLaunchRecipe("project.memory.tidy")}
+              title={tr("projects.memoryTidyHint")}
+            >
+              {continuing ? tr("projects.recipeLaunching") : tr("projects.memoryTidy")}
             </button>
             <button
               type="button"
@@ -450,78 +393,9 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        <section className="mb-4 grid gap-3 md:grid-cols-2">
+        <section className="mb-4">
           <ProjectSummaryCard project={project} summary={summary} />
-          <div className="rounded-2xl border border-[var(--kin-hairline)] bg-kin-panel/80 px-4 py-3">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-kin-secondary">
-              {tr("projects.pendingRecycles")}
-            </div>
-            {recycles.filter((r) => r.status === "pending").length === 0 ? (
-              <p className="mt-2 text-[12.5px] text-kin-secondary">
-                {tr("projects.noPendingRecycles")}
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-2">
-                {recycles
-                  .filter((r) => r.status === "pending")
-                  .map((r) => (
-                    <li
-                      key={r.id}
-                      className="rounded-xl border border-[var(--kin-hairline)] px-3 py-2"
-                    >
-                      <div className="text-[12.5px] text-kin-text">
-                        {r.summary || tr("task.recycleEmptySummary")}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="text-[12px] text-kin-accent hover:underline"
-                          onClick={() => setReviewRecycle(r)}
-                        >
-                          {tr("task.recycle")}
-                        </button>
-                        <Link
-                          to={`/tasks/${encodeURIComponent(r.task_id)}`}
-                          className="text-[12px] text-kin-secondary hover:underline"
-                        >
-                          {tr("projects.openRecycleTask")}
-                        </Link>
-                      </div>
-                    </li>
-                  ))}
-              </ul>
-            )}
-            {recycles.find((r) => r.status === "resolved") ? (
-              <div className="mt-3 border-t border-[var(--kin-hairline)] pt-2">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-kin-muted">
-                  {tr("projects.lastRecycle")}
-                </div>
-                <p className="mt-1 text-[12.5px] text-kin-secondary">
-                  {
-                    recycles.find((r) => r.status === "resolved")?.summary ||
-                    tr("task.recycleEmptySummary")
-                  }
-                </p>
-              </div>
-            ) : null}
-          </div>
         </section>
-
-        {reviewRecycle ? (
-          <section className="mb-4">
-            <RecycleReviewCard
-              recycle={reviewRecycle}
-              onChange={(next) => {
-                setReviewRecycle(next);
-                setRecycles((prev) =>
-                  prev.map((r) => (r.id === next.id ? next : r)),
-                );
-              }}
-              onClose={() => setReviewRecycle(null)}
-              onConflict={() => pushToast(tr("task.recycleConflict"), "error")}
-            />
-          </section>
-        ) : null}
 
         <section className="mb-4 rounded-xl border border-kin-border bg-kin-panel p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -591,52 +465,6 @@ export default function ProjectDetailPage() {
           )}
         </section>
 
-        {proposal && (
-          <section className="mb-4 rounded-xl border border-kin-accent/40 bg-kin-panel p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-[13px] font-medium text-kin-text">
-                  {tr("projects.proposalTitle")}
-                </div>
-                <p className="mt-0.5 text-[12px] text-kin-secondary">
-                  {tr("projects.proposalHint")}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={summarizing}
-                  className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
-                  onClick={() => void onApplyProposal()}
-                >
-                  {tr("projects.applyProposal")}
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-[13px] text-kin-secondary"
-                  onClick={() => {
-                    setDraft(proposal);
-                    setEditing(true);
-                    setProposal(null);
-                  }}
-                >
-                  {tr("projects.editProposal")}
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg px-3 py-1.5 text-[13px] text-kin-secondary"
-                  onClick={() => setProposal(null)}
-                >
-                  {tr("projects.dismissProposal")}
-                </button>
-              </div>
-            </div>
-            <div className="max-h-[280px] overflow-y-auto kin-scroll rounded-lg border border-kin-border/60 p-3">
-              <Markdown text={proposal} />
-            </div>
-          </section>
-        )}
-
         <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
           <section className="rounded-xl border border-kin-border bg-kin-panel p-4 min-h-[320px]">
             <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-kin-secondary">
@@ -690,8 +518,8 @@ export default function ProjectDetailPage() {
     </div>
 
       {showRoutineModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-[var(--kin-hairline)] bg-kin-panel p-5 shadow-window">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-kin-hairline-strong bg-kin-elevated p-5 shadow-window">
             <h2 className="text-[16px] font-semibold text-kin-text">{tr("routines.createTitle")}</h2>
             <label className="mt-4 block text-[12px] text-kin-secondary">
               {tr("routines.titleLabel")}

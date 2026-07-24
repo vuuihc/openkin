@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,18 +29,14 @@ import {
   listUserQuestions,
   restoreTaskWorkspace,
   retryTask,
-  createTaskRecycle,
-  getTaskRecycle,
   type AgentInfo,
   type Approval,
-  type ProjectRecycle,
   type Task,
   type TaskEvent,
   type TaskUsage,
   type Upload,
   type UserQuestion,
 } from "../api/client";
-import RecycleReviewCard from "../components/project/RecycleReviewCard";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
@@ -85,7 +82,7 @@ type TaskDetailPageProps = {
   active?: boolean;
 };
 
-export default function TaskDetailPage({ taskId, active = true }: TaskDetailPageProps = {}) {
+export default function TaskDetailPage({ taskId, active = true }: TaskDetailPageProps) {
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
   const navigate = useNavigate();
@@ -113,10 +110,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [reviewBusy, setReviewBusy] = useState(false);
-  const [recycle, setRecycle] = useState<ProjectRecycle | null>(null);
-  const [recycleOpen, setRecycleOpen] = useState(false);
-  const [recycleLoading, setRecycleLoading] = useState(false);
-  const [recycleError, setRecycleError] = useState<string | null>(null);
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -161,34 +154,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       setLoading(false);
     }
   }, [id]);
-
-  // Restore pending/resolved wrap-up for project tasks.
-  useEffect(() => {
-    if (!task?.project_id || !id) {
-      setRecycle(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const rec = await getTaskRecycle(id);
-        if (!cancelled) {
-          setRecycle(rec);
-          if (rec.status === "pending") setRecycleOpen(true);
-        }
-      } catch (e) {
-        if (cancelled) return;
-        if (e instanceof ApiError && e.status === 404) {
-          setRecycle(null);
-          return;
-        }
-        // Non-fatal: wrap-up is optional.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [id, task?.project_id]);
 
   const loadUsage = useCallback(async () => {
     if (!getToken()) return;
@@ -251,7 +216,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         if (data?.id && data.id === id) {
           setTask(null);
           setError(tr("task.notFound"));
-          navigate("/");
+          // Only the visible session should hijack routing.
+          if (active) navigate("/");
         }
         return;
       }
@@ -309,7 +275,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         });
       }
     });
-  }, [id, loadUsage]);
+  }, [id, loadUsage, active]);
 
   const isNearBottom = useCallback((el: HTMLElement, threshold = 96) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
@@ -321,40 +287,82 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     stickToBottomRef.current = isNearBottom(el);
   }, [isNearBottom]);
 
-  // This mounted instance only: first content paint jumps to bottom (instant).
-  // Keep-alive reuses the instance later, so the DOM scroll position stays put — no save/restore.
-  useEffect(() => {
-    if (!active) return;
+  // First paint of this mounted instance jumps to bottom (instant, no smooth slide).
+  // Keep-alive reuses the instance later; DOM scrollTop stays put — no save/restore.
+  // Do not finalize until the scroller has a real viewport height and is actually at bottom
+  // (or the thread is short enough that there is no overflow).
+  useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
     if (loading || !task) return;
     const el = scrollRef.current;
     if (!el) return;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const node = scrollRef.current;
-        if (!node || didInitialScrollRef.current) return;
-        node.scrollTop = node.scrollHeight;
-        stickToBottomRef.current = true;
+
+    const tryJump = (): boolean => {
+      if (didInitialScrollRef.current) return true;
+      const node = scrollRef.current;
+      if (!node) return false;
+      // Flex chain not ready yet — keep waiting (ResizeObserver / rAF will retry).
+      if (node.clientHeight <= 0) return false;
+
+      node.scrollTop = node.scrollHeight;
+      stickToBottomRef.current = true;
+
+      const overflow = node.scrollHeight - node.clientHeight;
+      const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+      // Short thread (no overflow) or successfully pinned to bottom.
+      if (overflow <= 1 || distance <= 4) {
         didInitialScrollRef.current = true;
+        return true;
+      }
+      return false;
+    };
+
+    if (tryJump()) return;
+
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      if (tryJump()) {
+        ro.disconnect();
+        if (raf) cancelAnimationFrame(raf);
+        return;
+      }
+      if (raf) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (tryJump()) ro.disconnect();
       });
     });
+    ro.observe(el);
+    if (el.firstElementChild instanceof Element) {
+      ro.observe(el.firstElementChild);
+    }
+
+    // Fallback so a flaky layout never leaves the user stuck at the top.
+    const timer = window.setTimeout(() => {
+      const node = scrollRef.current;
+      if (!node || didInitialScrollRef.current) return;
+      node.scrollTop = node.scrollHeight;
+      stickToBottomRef.current = true;
+      didInitialScrollRef.current = true;
+      ro.disconnect();
+    }, 1000);
+
     return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2) cancelAnimationFrame(raf2);
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
     };
-  }, [active, loading, task, events.length]);
+  }, [loading, task, events.length]);
 
   // Follow new content only when user was already at bottom, or just sent a message.
-  useEffect(() => {
-    if (!active) return;
+  // Also runs while keep-alive-hidden (background tab left at bottom stays at bottom).
+  useLayoutEffect(() => {
     if (!didInitialScrollRef.current) return;
     if (!(stickToBottomRef.current || sending)) return;
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     stickToBottomRef.current = true;
-  }, [active, events, approvals, userQuestions, sending]);
+  }, [events, approvals, userQuestions, sending]);
 
   const needsYou = useMemo(() => {
     const a = approvals.map((item) => ({
@@ -373,6 +381,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }, [approvals, userQuestions]);
 
   useEffect(() => {
+    if (!active) return;
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
@@ -393,7 +402,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [needsYou, focusIdx]);
+  }, [active, needsYou, focusIdx]);
 
   async function onDecide(approvalId: string, decision: "approved" | "denied") {
     setBusy((b) => ({ ...b, [approvalId]: decision }));
@@ -618,26 +627,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }
 
 
-  async function onRecycle() {
-    if (!task?.project_id || recycleLoading) return;
-    setRecycleLoading(true);
-    setRecycleError(null);
-    setRecycleOpen(true);
-    try {
-      const rec = await createTaskRecycle(task.id);
-      setRecycle(rec);
-    } catch (e) {
-      setRecycleError(
-        e instanceof Error ? e.message : tr("task.recycleGenerateFailed"),
-      );
-    } finally {
-      setRecycleLoading(false);
-    }
-  }
-
-  const canRecycle =
-    !!task?.project_id &&
-    (events.length > 0 || !!(task?.prompt || "").trim());
 
 
   if (loading) {
@@ -756,17 +745,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             >
               <IconTrash size={13} />
             </button>
-            {canRecycle ? (
-              <button
-                type="button"
-                onClick={() => void onRecycle()}
-                disabled={recycleLoading}
-                className="inline-flex items-center gap-1 rounded-md border border-kin-accent/40 bg-kin-accent/10 px-2 py-1 text-[12px] text-kin-text hover:bg-kin-accent/15 disabled:opacity-40"
-                title={tr("task.recycle")}
-              >
-                {recycleLoading ? tr("task.recycleGenerating") : tr("task.recycle")}
-              </button>
-            ) : null}
             {task.project_id ? (
               <Link
                 to={`/projects/${encodeURIComponent(task.project_id)}`}
@@ -870,49 +848,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
         <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
           <div className="max-w-[720px] mx-auto space-y-2">
-            {(recycleOpen || recycleLoading || recycleError) && (
-              <div className="space-y-2">
-                {recycleLoading && !recycle ? (
-                  <div className="rounded-2xl border border-kin-accent/30 bg-kin-panel px-4 py-3 text-[12.5px] text-kin-secondary">
-                    {tr("task.recycleGenerating")}
-                  </div>
-                ) : null}
-                {recycleError ? (
-                  <div className="rounded-2xl border border-red-500/30 bg-kin-panel px-4 py-3">
-                    <p className="text-[12.5px] text-red-500/90">{recycleError}</p>
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        type="button"
-                        className="text-[12px] text-kin-accent hover:underline"
-                        onClick={() => void onRecycle()}
-                      >
-                        {tr("task.recycleRetry")}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-[12px] text-kin-muted hover:underline"
-                        onClick={() => {
-                          setRecycleError(null);
-                          setRecycleOpen(false);
-                        }}
-                      >
-                        {tr("common.close")}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-                {recycle ? (
-                  <RecycleReviewCard
-                    recycle={recycle}
-                    onChange={setRecycle}
-                    onClose={() => setRecycleOpen(false)}
-                    onConflict={() =>
-                      pushToast(tr("task.recycleConflict"), "error")
-                    }
-                  />
-                ) : null}
-              </div>
-            )}
             <Composer
               key={task.id}
               agents={agents}

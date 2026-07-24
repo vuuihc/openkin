@@ -128,7 +128,8 @@ Goal: keep the cover warm without turning work into status theater.
 
 Interaction contract: Kin remains one identity. The main agent works against North Star / Current Focus; mode-specific coaching stays low-frequency, and the session-end deputy-editor proposes only 0–3 evidence-backed patches. See [Kin role / coaching loop](./plans/project-agent-role-design.md).
 
-- [ ] **Session-end recycle card** (long sessions or manual 收工 only)
+- [x] ~~**Session-end recycle card**~~ **RETIRED** — hard-coded recycle API/UI removed; prefer prompt/session flow or later project memory (see PRINCIPLE §5.5)
+- [x] **Prompt recipes migration** (continue/summarize → task+recipe) | [ADR 0013](./adr/0013-prompt-recipes.md) · [plan](./plans/2026-07-25-prompt-recipes-migration.md)
   - One-line session summary (editable)
   - Propose 0–3 One-Pager patches (conclusions / open / next)
   - Optional Focus update suggestion

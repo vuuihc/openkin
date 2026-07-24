@@ -200,9 +200,6 @@ export default function ProjectsPage() {
                       <span className="rounded-md bg-[var(--kin-fill-strong)] px-1.5 py-0.5">
                         {modeLabel(p.mode, tr)}
                       </span>
-                      {p.soft_progress && (
-                        <span>{p.soft_progress.replaceAll("_", " ")}</span>
-                      )}
                       {p.roots?.[0] && (
                         <span
                           className="truncate max-w-[240px]"

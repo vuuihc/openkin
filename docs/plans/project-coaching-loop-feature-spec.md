@@ -10,6 +10,8 @@
 
 **相关决策：** [ADR 0008](../adr/0008-project-one-pager.md) · [Project + One-Pager](./project-one-pager.md)
 
+> **2026-07-25 supersession:** Hard-coded session「收工」/ recycle suggestion APIs are retired. Application-layer coaching extends via **Prompt Recipes + Task** — see [ADR 0013](../adr/0013-prompt-recipes.md) and [migration plan](./2026-07-25-prompt-recipes-migration.md). This spec remains historical context for One-Pager inject and product intent; do not implement §收工 REST as specified below.
+
 ## 1. 这次要交付什么
 
 让 Kin 在项目会话里自然使用 One-Pager，并在用户主动收工时，把本次真实结果整理成最多 3 条可审核建议。用户可以采纳、编辑后采纳或忽略；普通任务不因项目功能而变慢或被阻塞。
