@@ -428,6 +428,85 @@ export function buildChatItems(
 }
 
 /**
+ * Merge consecutive progress groups + interstitial narration messages within
+ * one agent turn into a single collapsible block. A long multi-phase run
+ * (tools -> status text -> tools -> status text -> ...) otherwise stacks
+ * several "done" cards that read as noise once finished; merging them lets
+ * the whole run collapse to one summary line (still expandable to see every
+ * step in order). The turn's actual final reply -- the trailing message
+ * right before the next user turn / end of transcript -- is left untouched.
+ */
+export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
+  type Mergeable = ProgressItem | Extract<ChatItem, { kind: "message" }>;
+  const isMergeable = (item: ChatItem): item is Mergeable =>
+    item.kind === "progress" ||
+    (item.kind === "message" && item.speaker !== "user");
+
+  const out: ChatItem[] = [];
+  let buffer: Mergeable[] = [];
+
+  const flush = () => {
+    if (buffer.length === 0) return;
+    // The trailing message of a run is the turn's real reply -- keep it
+    // visible on its own; only merge what led up to it.
+    let tail: Mergeable | null = null;
+    let mergeable = buffer;
+    const last = buffer[buffer.length - 1];
+    if (last.kind === "message") {
+      tail = last;
+      mergeable = buffer.slice(0, -1);
+    }
+    const hasProgress = mergeable.some((part) => part.kind === "progress");
+    if (!hasProgress || mergeable.length <= 1) {
+      out.push(...mergeable);
+    } else {
+      out.push(mergeProgressParts(mergeable));
+    }
+    if (tail) out.push(tail);
+    buffer = [];
+  };
+
+  for (const item of items) {
+    if (isMergeable(item)) {
+      buffer.push(item);
+      continue;
+    }
+    flush();
+    out.push(item);
+  }
+  flush();
+  return out;
+}
+
+function mergeProgressParts(
+  parts: (ProgressItem | Extract<ChatItem, { kind: "message" }>)[],
+): ProgressItem {
+  const steps: ProgressStep[] = [];
+  for (const part of parts) {
+    if (part.kind === "progress") {
+      steps.push(...part.steps);
+    } else {
+      steps.push({
+        kind: "note",
+        key: part.key,
+        speaker: part.speaker,
+        model: part.model,
+        text: part.text,
+        status: part.partial ? "running" : "done",
+      });
+    }
+  }
+  const anchor = parts.find((part) => part.kind === "progress") ?? parts[0];
+  return {
+    kind: "progress",
+    key: `merge-${parts[0].key}`,
+    speaker: anchor.speaker,
+    model: anchor.model,
+    steps,
+  };
+}
+
+/**
  * Group flat chat items into turns:
  * - each user message is its own turn
  * - consecutive agent content (messages + progress + errors/meta) after a

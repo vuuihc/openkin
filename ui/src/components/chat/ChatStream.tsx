@@ -22,6 +22,7 @@ import {
   buildChatItems,
   findSpeakerModel,
   groupIntoTurns,
+  mergeProcessRuns,
   normalizeModel,
   prettyToolName,
   type ChatItem,
@@ -87,7 +88,10 @@ export default function ChatStream({
   );
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(
-    () => buildChatItems(events, hostSpeaker, hostModel, !loading),
+    () =>
+      mergeProcessRuns(
+        buildChatItems(events, hostSpeaker, hostModel, !loading),
+      ),
     [events, locale, hostSpeaker, hostModel, loading],
   );
   const turns = useMemo(

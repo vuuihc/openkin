@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../../api/client";
-import { buildChatItems, groupIntoTurns } from "./transcriptProjection";
+import {
+  buildChatItems,
+  groupIntoTurns,
+  mergeProcessRuns,
+  type ChatItem,
+  type ProgressItem,
+} from "./transcriptProjection";
 
 function ev(seq: number, type: string, payload: unknown): TaskEvent {
   return {
@@ -478,5 +484,85 @@ describe("transcriptProjection", () => {
         items: [{ kind: "message", speaker: "future-agent", text: "on it" }],
       },
     ]);
+  });
+});
+
+describe("mergeProcessRuns", () => {
+  function progress(key: string, status: "running" | "done" | "error" = "done"): ProgressItem {
+    return {
+      kind: "progress",
+      key,
+      speaker: "kin",
+      steps: [
+        { kind: "tool", key: `${key}-t`, speaker: "kin", name: "bash", summary: "bash", status },
+      ],
+    };
+  }
+
+  function message(key: string, text: string, partial = false): ChatItem {
+    return { kind: "message", key, speaker: "kin", text, partial };
+  }
+
+  it("merges a run of progress + narration messages, keeping the final reply separate", () => {
+    const items: ChatItem[] = [
+      progress("p1"),
+      message("m1", "Plan loaded."),
+      progress("p2"),
+      message("m2", "Implementing changes."),
+      message("final", "Here is the summary."),
+    ];
+
+    const merged = mergeProcessRuns(items);
+
+    expect(merged).toHaveLength(2);
+    expect(merged[0].kind).toBe("progress");
+    const mergedProgress = merged[0] as ProgressItem;
+    expect(mergedProgress.steps.map((s) => s.kind)).toEqual([
+      "tool",
+      "note",
+      "tool",
+      "note",
+    ]);
+    expect(mergedProgress.steps[1]).toMatchObject({
+      kind: "note",
+      text: "Plan loaded.",
+    });
+    expect(merged[1]).toMatchObject({
+      kind: "message",
+      text: "Here is the summary.",
+    });
+  });
+
+  it("leaves a single progress card untouched", () => {
+    const items: ChatItem[] = [progress("p1"), message("final", "done")];
+    const merged = mergeProcessRuns(items);
+    expect(merged).toEqual(items);
+  });
+
+  it("does not merge across a user message", () => {
+    const items: ChatItem[] = [
+      { kind: "message", key: "u1", speaker: "user", text: "hi" },
+      progress("p1"),
+      message("m1", "working"),
+      progress("p2"),
+      message("final", "done"),
+    ];
+
+    const merged = mergeProcessRuns(items);
+    expect(merged[0]).toMatchObject({ kind: "message", speaker: "user" });
+    expect(merged[1].kind).toBe("progress");
+    expect(merged[2]).toMatchObject({ kind: "message", text: "done" });
+  });
+
+  it("keeps a still-streaming trailing message live instead of merging it", () => {
+    const items: ChatItem[] = [
+      progress("p1"),
+      message("m1", "working"),
+      message("live", "typing...", true),
+    ];
+
+    const merged = mergeProcessRuns(items);
+    expect(merged).toHaveLength(2);
+    expect(merged[1]).toMatchObject({ key: "live", partial: true });
   });
 });
