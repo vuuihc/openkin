@@ -602,21 +602,27 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	runPrompt := prompt
 	targetReg, _ := e.agents.Get(targetAgent)
 	canResume := targetReg.Descriptor.Has(agent.CapabilityResume)
+	// Kin-style managed transcript: SessionHooks + private kin_messages (session_ref
+	// alone is not enough — Kin's session_id is synthetic and carries no history).
+	managedTranscript := targetReg.Sessions != nil
+	hasManagedHistory := managedTranscript && e.hostTranscriptNonEmpty(ctx, id)
 	// Model switch clears session continuity: adapters must see TaskSpec.Model on a
 	// fresh Start rather than a resume that silently keeps the old model.
-	sameAgentResume := !handoff && !interrupted && !orchestrate && !modelSwitch && canResume &&
-		t.SessionRef != nil && *t.SessionRef != "" && fromAgent == targetAgent
-	// Kin-style managed transcript: no engine session_ref but SessionHooks present.
-	managedTranscript := targetReg.Sessions != nil
-	if !handoff && !interrupted && !orchestrate && !modelSwitch && managedTranscript && fromAgent == targetAgent {
-		// Live user turn only; plugin loads prior messages from private storage.
-		sameAgentResume = true
-		runPrompt = prompt
-	} else if sameAgentResume {
+	sameAgentResume := !handoff && !interrupted && !orchestrate && !modelSwitch && canResume && fromAgent == targetAgent
+	if managedTranscript {
+		// Resume only when private transcript has history. Empty after orchestrate
+		// clear (or never seeded) must rebuild a sealed pack from events.
+		sameAgentResume = sameAgentResume && hasManagedHistory
+	} else {
+		sameAgentResume = sameAgentResume && t.SessionRef != nil && *t.SessionRef != ""
+	}
+	if sameAgentResume {
+		// Live user turn only; CLI resumes via session_ref / Kin loads private messages.
 		runPrompt = prompt
 	} else {
 		ctxBlock := e.handoffContext(ctx, id)
-		needContext := handoff || t.SessionRef == nil || *t.SessionRef == "" || managedTranscript || interrupted || orchestrate || modelSwitch
+		needContext := handoff || interrupted || orchestrate || modelSwitch || managedTranscript ||
+			t.SessionRef == nil || *t.SessionRef == ""
 		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript || modelSwitch) {
 			runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
 			if interrupted {
@@ -630,6 +636,7 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 				e.resetAgentSession(ctx, targetAgent, id)
 			}
 		} else if managedTranscript {
+			// Empty-history pack rebuild: keep table empty / clear any partial state.
 			e.resetAgentSession(ctx, targetAgent, id)
 		}
 	}
@@ -1228,6 +1235,16 @@ func lastUserTextUpTo(evs []store.Event, maxSeq int) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// hostTranscriptNonEmpty reports whether the host plugin's durable transcript
+// for this task has at least one message (currently kin_messages).
+func (e *Engine) hostTranscriptNonEmpty(ctx context.Context, taskID string) bool {
+	if e == nil || e.store == nil {
+		return false
+	}
+	msgs, err := e.store.LoadKinMessages(ctx, taskID)
+	return err == nil && len(msgs) > 0
 }
 
 // handoffContext builds a short transcript excerpt for cross-agent (or no-session) continues.

@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 10
+const schemaVersion = 11
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -32,7 +32,11 @@ CREATE TABLE tasks (
   workspace_scope TEXT NOT NULL DEFAULT '.',
   workspace_base_oid TEXT NOT NULL DEFAULT '',
   workspace_branch TEXT NOT NULL DEFAULT '',
-  project_id TEXT
+  project_id TEXT,
+  routine_id TEXT,
+  routine_noteworthy INTEGER NOT NULL DEFAULT 0,
+  routine_tldr TEXT NOT NULL DEFAULT '',
+  routine_unread INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE events (
@@ -168,6 +172,26 @@ CREATE INDEX idx_project_recycles_project ON project_recycles(project_id, create
 CREATE INDEX idx_project_recycles_pending ON project_recycles(project_id, status, created_at DESC);
 
 CREATE INDEX idx_tasks_project ON tasks(project_id, id DESC);
+
+CREATE TABLE routines (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT REFERENCES projects(id),
+  cwd              TEXT NOT NULL,
+  agent            TEXT NOT NULL,
+  permission_mode  TEXT NOT NULL DEFAULT 'default',
+  prompt           TEXT NOT NULL,
+  interval_secs    INTEGER NOT NULL,
+  enabled          INTEGER NOT NULL DEFAULT 1,
+  last_run_at      INTEGER,
+  next_due_at      INTEGER NOT NULL,
+  consec_failures  INTEGER NOT NULL DEFAULT 0,
+  created_at       INTEGER NOT NULL,
+  title            TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_routines_due ON routines(enabled, next_due_at);
+CREATE INDEX idx_routines_project ON routines(project_id);
+CREATE INDEX idx_tasks_routine ON tasks(routine_id, id DESC);
+CREATE INDEX idx_tasks_routine_unread ON tasks(routine_unread, id DESC) WHERE routine_id IS NOT NULL;
 `
 
 const migration002 = `
@@ -540,6 +564,74 @@ func (s *Store) migrate() error {
 		}
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 010: %w", err)
+		}
+		v = 10
+	}
+
+	if v == 10 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 011: %w", err)
+		}
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS routines (
+  id               TEXT PRIMARY KEY,
+  project_id       TEXT REFERENCES projects(id),
+  cwd              TEXT NOT NULL,
+  agent            TEXT NOT NULL,
+  permission_mode  TEXT NOT NULL DEFAULT 'default',
+  prompt           TEXT NOT NULL,
+  interval_secs    INTEGER NOT NULL,
+  enabled          INTEGER NOT NULL DEFAULT 1,
+  last_run_at      INTEGER,
+  next_due_at      INTEGER NOT NULL,
+  consec_failures  INTEGER NOT NULL DEFAULT 0,
+  created_at       INTEGER NOT NULL,
+  title            TEXT NOT NULL DEFAULT ''
+)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 011 routines: %w", err)
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_routines_due ON routines(enabled, next_due_at)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 011 routines due index: %w", err)
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_routines_project ON routines(project_id)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 011 routines project index: %w", err)
+		}
+		for _, col := range []struct{ name, def string }{
+			{"routine_id", "TEXT REFERENCES routines(id)"},
+			{"routine_noteworthy", "INTEGER NOT NULL DEFAULT 0"},
+			{"routine_tldr", "TEXT NOT NULL DEFAULT ''"},
+			{"routine_unread", "INTEGER NOT NULL DEFAULT 0"},
+		} {
+			var n int
+			q := fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = '%s'`, col.name)
+			if err := tx.QueryRow(q).Scan(&n); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("check %s column: %w", col.name, err)
+			}
+			if n == 0 {
+				if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE tasks ADD COLUMN %s %s`, col.name, col.def)); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("add %s column: %w", col.name, err)
+				}
+			}
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_routine ON tasks(routine_id, id DESC)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 011 tasks routine index: %w", err)
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_routine_unread ON tasks(routine_unread, id DESC) WHERE routine_id IS NOT NULL`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 011 tasks routine unread index: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 11`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 011: %w", err)
 		}
 	}
 	return nil

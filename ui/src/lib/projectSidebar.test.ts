@@ -120,6 +120,41 @@ describe("groupByProject", () => {
     expect(groups.map((g) => g.cwd)).toEqual(["/beta", "/gamma"]);
   });
 
+
+  it("orders sessions inside a project by local last-interact", () => {
+    const sameProject = [
+      task({ id: "older-open", cwd: "/alpha", created_at: 100, finished_at: 100 }),
+      task({ id: "newer-run", cwd: "/alpha", created_at: 200, finished_at: 300 }),
+      task({ id: "mid", cwd: "/alpha", created_at: 150, finished_at: 250 }),
+    ];
+    // Without local interact: finished_at wins → newer-run, mid, older-open
+    const baseline = groupByProject(sameProject, {
+      sortMode: "recent",
+      pinned: [],
+      archived: [],
+      lastInteracted: {},
+      sessionLastInteracted: {},
+    });
+    expect(baseline[0].items.map((x) => x.id)).toEqual(["newer-run", "mid", "older-open"]);
+
+    // Opening older-open should float it above server activity.
+    const afterOpen = groupByProject(sameProject, {
+      sortMode: "recent",
+      pinned: [],
+      archived: [],
+      lastInteracted: {},
+      sessionLastInteracted: { "older-open": 999 },
+    });
+    expect(afterOpen[0].items.map((x) => x.id)).toEqual(["older-open", "newer-run", "mid"]);
+  });
+
+  it("taskActivityAt prefers local session last-interact over server timestamps", () => {
+    const t = task({ id: "s1", cwd: "/p", created_at: 10, started_at: 20, finished_at: 30 });
+    expect(taskActivityAt(t, {})).toBe(30);
+    expect(taskActivityAt(t, { s1: 50 })).toBe(50);
+    expect(taskActivityAt(t, { s1: 15 })).toBe(30);
+  });
+
   it("keeps more than 8 sessions per project (sidebar collapses, not data)", () => {
     const many = Array.from({ length: 12 }, (_, i) =>
       task({

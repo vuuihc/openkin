@@ -3,6 +3,7 @@ import type { TaskEvent } from "../api/client";
 import Markdown from "./Markdown";
 import { useT } from "../i18n/react";
 import { friendlyErrorLabel } from "../lib/friendlyError";
+import { displayUserPrompt } from "../lib/attachments";
 
 type Props = {
   events: TaskEvent[];
@@ -186,7 +187,10 @@ function buildRows(events: TaskEvent[]): Row[] {
       case "message": {
         const partial = Boolean(p.partial);
         const role = String(p.role ?? "assistant");
-        const text = extractText(p.content);
+        let text = extractText(p.content);
+        if (role === "user" && text) {
+          text = displayUserPrompt(text);
+        }
         if (partial) {
           streamBuf += text;
           streamKey = `s-${ev.seq}`;

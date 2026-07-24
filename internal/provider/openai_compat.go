@@ -107,8 +107,11 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 			ToolCallID: m.ToolCallID,
 			ToolCalls:  m.ToolCalls,
 		}
-		// OpenAI: assistant tool_calls turns often send content=null.
-		if m.Role == RoleAssistant && len(m.ToolCalls) > 0 && m.Content == "" {
+		// Multimodal parts (vision) take precedence over plain text Content.
+		if len(m.Parts) > 0 {
+			om.Content = m.Parts
+		} else if m.Role == RoleAssistant && len(m.ToolCalls) > 0 && m.Content == "" {
+			// OpenAI: assistant tool_calls turns often send content=null.
 			om.Content = nil
 		} else {
 			om.Content = m.Content

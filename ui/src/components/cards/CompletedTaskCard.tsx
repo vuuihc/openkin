@@ -1,5 +1,6 @@
 import { formatCost, formatElapsed, type Task } from "../../api/client";
 import { IconCheck, IconStar } from "../icons";
+import { displayUserPrompt } from "../../lib/attachments";
 
 type Props = {
   task: Task;
@@ -30,7 +31,7 @@ export default function CompletedTaskCard({
       >
         <IconCheck size={14} className="text-kin-green flex-none" />
         <span className="text-[13px] text-kin-text truncate flex-1">
-          {task.title || task.prompt}
+          {task.title || displayUserPrompt(task.prompt || "")}
         </span>
         <span className="text-[11.5px] text-kin-muted tabular-nums flex-none">
           {meta}
@@ -57,7 +58,7 @@ export default function CompletedTaskCard({
               className={ok ? "text-kin-green flex-none" : "text-kin-red flex-none"}
             />
             <span className="text-[13.5px] font-semibold text-kin-text truncate">
-              {task.title || task.prompt}
+              {task.title || displayUserPrompt(task.prompt || "")}
             </span>
             <span className="ml-auto text-[11.5px] text-kin-muted tabular-nums flex-none">
               {meta}

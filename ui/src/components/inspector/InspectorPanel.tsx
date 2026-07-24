@@ -8,6 +8,7 @@ import {
 } from "../../api/client";
 import { useAppStore } from "../../store/appStore";
 import Transcript from "../Transcript";
+import { displayUserPrompt } from "../../lib/attachments";
 
 type Props = {
   task: Task;
@@ -47,7 +48,7 @@ export default function InspectorPanel({
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[14px] font-semibold text-kin-text truncate">
-              {task.title || task.prompt}
+              {task.title || displayUserPrompt(task.prompt || "")}
             </div>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-kin-secondary tabular-nums">
               <span>

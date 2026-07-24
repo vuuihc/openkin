@@ -111,6 +111,38 @@ func (s *Sender) NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, stat
 	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
 }
 
+// NotifyRoutine pushes a noteworthy routine report (or is a no-op when noteworthy is false).
+func (s *Sender) NotifyRoutine(ctx context.Context, taskID, title, tldr string, noteworthy bool) {
+	if !noteworthy {
+		return
+	}
+	if title == "" {
+		title = "Routine report"
+	}
+	body := tldr
+	if body == "" {
+		body = "A routine has something for you"
+	}
+	link := s.DeepLink(ctx, "/routines")
+	if taskID != "" {
+		link = s.DeepLink(ctx, "/tasks/"+url.PathEscape(taskID))
+	}
+	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
+}
+
+// NotifyRoutineFailure pushes a one-shot circuit-breaker alert.
+func (s *Sender) NotifyRoutineFailure(ctx context.Context, routineID, title, message string) {
+	if title == "" {
+		title = "Routine disabled"
+	}
+	body := message
+	if body == "" {
+		body = "Routine auto-disabled after repeated failures"
+	}
+	link := s.DeepLink(ctx, "/routines")
+	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
+}
+
 // Send posts to all configured channels (fire-and-forget goroutine).
 func (s *Sender) Send(ctx context.Context, p Payload) {
 	if s == nil || s.Store == nil {

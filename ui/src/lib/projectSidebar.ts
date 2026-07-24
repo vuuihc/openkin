@@ -21,6 +21,8 @@ const SORT_KEY = "kin_project_sort_mode";
 const PINNED_KEY = "kin_pinned_projects";
 const ARCHIVED_KEY = "kin_archived_projects";
 const INTERACT_KEY = "kin_project_last_interacted";
+const SESSION_INTERACT_KEY = "kin_session_last_interacted";
+const SESSION_INTERACT_MAX = 500;
 
 const listeners = new Set<() => void>();
 
@@ -206,11 +208,61 @@ export function touchProject(cwd: string, at = Date.now()): void {
   emit();
 }
 
-/** Max activity timestamp for a single task (ms). */
-export function taskActivityAt(task: Task): number {
+function readSessionLastInteractedMap(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(SESSION_INTERACT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "number" && Number.isFinite(v) && k) out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeSessionLastInteractedMap(map: Record<string, number>): void {
+  // Cap growth: keep the most recent SESSION_INTERACT_MAX entries.
+  let entries = Object.entries(map);
+  if (entries.length > SESSION_INTERACT_MAX) {
+    entries.sort((a, b) => b[1] - a[1]);
+    entries = entries.slice(0, SESSION_INTERACT_MAX);
+    map = Object.fromEntries(entries);
+  }
+  try {
+    localStorage.setItem(SESSION_INTERACT_KEY, JSON.stringify(map));
+  } catch {
+    // ignore quota / private mode
+  }
+  emit();
+}
+
+/**
+ * Bump a session's last-interact time so same-project sessions reorder by recency.
+ * Used when the user opens a session or a follow-up/run updates it.
+ */
+export function touchSession(taskId: string, at = Date.now()): void {
+  if (!taskId) return;
+  const map = readSessionLastInteractedMap();
+  if ((map[taskId] ?? 0) >= at) return;
+  map[taskId] = at;
+  writeSessionLastInteractedMap(map);
+}
+
+/** Max activity timestamp for a single task (ms). Includes local open/follow-up. */
+export function taskActivityAt(
+  task: Task,
+  sessionLastInteracted?: Record<string, number>,
+): number {
   let t = task.created_at || 0;
   if (task.started_at != null && task.started_at > t) t = task.started_at;
   if (task.finished_at != null && task.finished_at > t) t = task.finished_at;
+  const localMap = sessionLastInteracted ?? readSessionLastInteractedMap();
+  const local = localMap[task.id] ?? 0;
+  if (local > t) t = local;
   return t;
 }
 
@@ -219,6 +271,8 @@ export type GroupByProjectPrefs = {
   pinned?: string[];
   archived?: string[];
   lastInteracted?: Record<string, number>;
+  /** Per-session last open / follow-up (ms). */
+  sessionLastInteracted?: Record<string, number>;
   /**
    * When true (default), archived projects are omitted from the result.
    * Pass false to build the archived section.
@@ -240,6 +294,7 @@ export function groupByProject(
   const pinnedList = prefs?.pinned ?? getPinnedProjects();
   const archivedList = prefs?.archived ?? getArchivedProjects();
   const lastMap = prefs?.lastInteracted ?? readLastInteractedMap();
+  const sessionMap = prefs?.sessionLastInteracted ?? readSessionLastInteractedMap();
   const includeArchived = prefs?.includeArchived ?? false;
   const onlyArchived = prefs?.onlyArchived ?? false;
 
@@ -266,11 +321,15 @@ export function groupByProject(
     // Keep full sorted list; Sidebar ProjectBlock collapses to a preview + scroll.
     const sortedItems = items
       .slice()
-      .sort((a, b) => taskActivityAt(b) - taskActivityAt(a) || b.created_at - a.created_at);
+      .sort(
+        (a, b) =>
+          taskActivityAt(b, sessionMap) - taskActivityAt(a, sessionMap) ||
+          b.created_at - a.created_at,
+      );
     let lastTask = 0;
     let created = Number.POSITIVE_INFINITY;
     for (const t of items) {
-      const act = taskActivityAt(t);
+      const act = taskActivityAt(t, sessionMap);
       if (act > lastTask) lastTask = act;
       if (t.created_at > 0 && t.created_at < created) created = t.created_at;
     }

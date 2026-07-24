@@ -5,6 +5,7 @@ import {
   type Task,
 } from "../../api/client";
 import { IconTerminal } from "../icons";
+import { displayUserPrompt } from "../../lib/attachments";
 
 type Props = {
   task: Task;
@@ -57,7 +58,7 @@ export default function RunningTaskCard({
             ].join(" ")}
           />
           <span className="text-[14px] font-semibold text-kin-text truncate">
-            {task.title || task.prompt}
+            {task.title || displayUserPrompt(task.prompt || "")}
           </span>
           <span className="text-[10.5px] font-semibold tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5 flex-none">
             {task.agent}

@@ -5,6 +5,8 @@ import {
   getToken,
   listApprovals,
   type Approval,
+  getRoutineUnreadCount,
+  type Task,
 } from "./api/client";
 import ConnectScreen from "./components/ConnectScreen";
 import AppShell from "./components/layout/AppShell";
@@ -20,6 +22,7 @@ import TaskDetailPage from "./pages/TaskDetailPage";
 import TasksPage from "./pages/TasksPage";
 import TrayPage from "./pages/TrayPage";
 import AgentsPage from "./pages/AgentsPage";
+import RoutinesPage from "./pages/RoutinesPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { dispatchWS, useAppStore } from "./store/appStore";
 
@@ -28,6 +31,7 @@ export default function App() {
   const requireToken = useAppStore((s) => s.requireToken);
   const setAuthOk = useAppStore((s) => s.setAuthOk);
   const [pendingCount, setPendingCount] = useState(0);
+  const [routineUnreadCount, setRoutineUnreadCount] = useState(0);
   const location = useLocation();
   const isTray = location.pathname === "/tray";
 
@@ -45,6 +49,12 @@ export default function App() {
     try {
       const list = await listApprovals("pending");
       setPendingCount(list.length);
+    } catch {
+      // badge is best-effort
+    }
+    try {
+      const { count } = await getRoutineUnreadCount();
+      setRoutineUnreadCount(count);
     } catch {
       // badge is best-effort
     }
@@ -67,6 +77,12 @@ export default function App() {
             return Math.max(0, n - 1);
           });
           void refreshCount();
+        }
+        if (msg.kind === "task_update") {
+          const t = msg.data as Task;
+          if (t.routine_id) {
+            void refreshCount();
+          }
         }
       },
       onOpen: () => {
@@ -104,7 +120,7 @@ export default function App() {
 
   return (
     <>
-      <AppShell pendingCount={pendingCount}>
+      <AppShell pendingCount={pendingCount} routineUnreadCount={routineUnreadCount}>
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Navigate to="/new" replace />} />
@@ -118,6 +134,7 @@ export default function App() {
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/routines" element={<RoutinesPage />} />
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/new" replace />} />

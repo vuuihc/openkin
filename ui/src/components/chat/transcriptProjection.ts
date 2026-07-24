@@ -5,6 +5,7 @@ import {
   isProgressMessageMeta,
   resolveSpeaker,
 } from "./eventMeta";
+import { displayUserPrompt } from "../../lib/attachments";
 
 export type ToolStep = {
   kind: "tool";
@@ -227,9 +228,13 @@ export function buildChatItems(
         const partial = Boolean(p.partial);
         const role = String(p.role ?? "assistant");
         const sp = role === "user" ? "user" : speaker;
-        const text =
+        let text =
           extractText(p.content) ||
           (typeof p.text === "string" ? p.text : "");
+        // Never show local upload paths in the chat timeline.
+        if (sp === "user" && text) {
+          text = displayUserPrompt(text);
+        }
         // Skip legacy expanded tool dumps from older kinagent builds.
         if (isLegacyToolDumpMessage(text)) {
           flushStream();

@@ -15,13 +15,33 @@ const (
 	RoleAssistant = "assistant"
 )
 
+// ContentPart is one piece of multimodal message content (OpenAI-compatible).
+// Text parts carry plain text; image_url parts carry a remote URL or data URI.
+type ContentPart struct {
+	Type     string    `json:"type"` // "text" | "image_url"
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+// ImageURL is the OpenAI vision image payload.
+type ImageURL struct {
+	// URL is https://... or data:image/...;base64,...
+	URL string `json:"url"`
+	// Detail is optional: "auto" | "low" | "high".
+	Detail string `json:"detail,omitempty"`
+}
+
 // Message is one chat turn (optionally with tool calls / tool results).
+// For text-only turns set Content. For vision/multimodal user turns set Parts
+// (preferred by the OpenAI-compat transport when non-empty); Content remains a
+// text fallback used for persistence and non-vision providers.
 type Message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	Name       string     `json:"name,omitempty"` // tool name when role=tool (some providers)
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role       string        `json:"role"`
+	Content    string        `json:"content,omitempty"`
+	Parts      []ContentPart `json:"-"`              // transport-only; not persisted as JSON blob
+	Name       string        `json:"name,omitempty"` // tool name when role=tool (some providers)
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
 }
 
 // ChatRequest is a chat completion request.

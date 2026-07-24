@@ -16,6 +16,7 @@ import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { DRAFT_PATH } from "../lib/draftChat";
 import { subscribeWS, useAppStore } from "../store/appStore";
+import { displayUserPrompt } from "../lib/attachments";
 
 type Filter = "all" | "running" | "done";
 
@@ -94,7 +95,7 @@ export default function TasksPage() {
   }, [tasks]);
 
   async function handleDelete(task: Task) {
-    const title = (task.title || task.prompt || task.id).trim();
+    const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
     const ok = window.confirm(
       tr("tasks.deleteConfirm") + (title ? `\n\n${title}` : ""),
     );
@@ -193,7 +194,7 @@ export default function TasksPage() {
                         to={`/tasks/${t.id}`}
                         className="font-medium text-kin-text hover:text-kin-blue"
                       >
-                        {t.title || t.prompt}
+                        {t.title || displayUserPrompt(t.prompt || "")}
                       </Link>
                     </td>
                     <td className="px-3 py-3 text-kin-secondary hidden sm:table-cell">

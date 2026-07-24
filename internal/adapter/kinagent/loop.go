@@ -186,18 +186,25 @@ func buildInitialMessages(system, userPrompt string, prior []provider.Message) [
 	out := make([]provider.Message, 0, len(prior)+2)
 	out = append(out, provider.Message{Role: provider.RoleSystem, Content: system})
 	if len(prior) == 0 {
-		out = append(out, provider.Message{Role: provider.RoleUser, Content: userPrompt})
+		out = append(out, expandUserMessage(userPrompt))
 		return out
 	}
 	for _, m := range prior {
 		if m.Role == provider.RoleSystem {
 			continue
 		}
+		// Re-hydrate vision parts from the original attachment block (Parts are
+		// transport-only and not stored in kin_messages).
+		if m.Role == provider.RoleUser && len(m.Parts) == 0 && m.Content != "" {
+			out = append(out, expandUserMessage(m.Content))
+			continue
+		}
 		out = append(out, m)
 	}
 	// Append the live user turn only — do not rebuild the whole history blob.
+	// Re-expand attachments so vision parts are available even on follow-ups.
 	if strings.TrimSpace(userPrompt) != "" {
-		out = append(out, provider.Message{Role: provider.RoleUser, Content: userPrompt})
+		out = append(out, expandUserMessage(userPrompt))
 	}
 	return out
 }
@@ -216,7 +223,7 @@ func runChatOnly(
 	}
 	msgs := []provider.Message{
 		{Role: provider.RoleSystem, Content: system},
-		{Role: provider.RoleUser, Content: userPrompt},
+		expandUserMessage(userPrompt),
 	}
 	promptChars := estimateMessagesChars(msgs)
 	chatCtx := withProviderRetryHints(ctx, ch)

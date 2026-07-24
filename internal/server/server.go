@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,6 +23,7 @@ import (
 	"github.com/vuuihc/kin/internal/provider"
 	"github.com/vuuihc/kin/internal/remote"
 	remotetsnet "github.com/vuuihc/kin/internal/remote/tsnet"
+	"github.com/vuuihc/kin/internal/routines"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
 	"github.com/vuuihc/kin/internal/terminal"
@@ -151,7 +153,13 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 	}
 
-	eng := task.NewEngine(st, reg, task.NewBus(), task.DefaultMaxConcurrent)
+	maxConcurrent := task.DefaultMaxConcurrent
+	if v, err := st.GetSetting(ctx, "task.max_concurrent"); err == nil {
+		if n, perr := strconv.Atoi(strings.TrimSpace(v)); perr == nil && n > 0 {
+			maxConcurrent = n
+		}
+	}
+	eng := task.NewEngine(st, reg, task.NewBus(), maxConcurrent)
 	wsMgr := workspace.NewManager(stateDir)
 	eng.SetWorkspaceRuntime(wsMgr)
 	defer eng.Close()
@@ -163,6 +171,8 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	eng.StartExpiryLoop(context.Background(), time.Minute)
+	// Routines ticker (ADR 0011): due routines → Engine.Create on shared FIFO.
+	(&routines.Scheduler{Store: st, Engine: eng}).StartLoop(context.Background(), routines.DefaultTickInterval)
 
 	notifier := &notify.Sender{Store: st}
 	eng.SetNotifier(notifier)

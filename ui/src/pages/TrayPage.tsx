@@ -14,6 +14,7 @@ import {
 import { shortPath } from "../lib/paths";
 import { IconFile, IconKin } from "../components/icons";
 import { subscribeWS, useAppStore } from "../store/appStore";
+import { displayUserPrompt } from "../lib/attachments";
 
 /**
  * Menu-bar tray popover (design 2a) — 360×480 control-center panel.
@@ -232,7 +233,7 @@ export default function TrayPage() {
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-semibold truncate">
-                    {t.title || t.prompt}
+                    {t.title || displayUserPrompt(t.prompt || "")}
                   </div>
                   <div className="text-[11px] text-kin-tertiary mt-0.5">
                     {t.agent} · {t.status}
@@ -265,7 +266,7 @@ export default function TrayPage() {
                   onClick={() => openMain(`/tasks/${t.id}`)}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)] text-left"
                 >
-                  <span className="truncate flex-1">{t.title || t.prompt}</span>
+                  <span className="truncate flex-1">{t.title || displayUserPrompt(t.prompt || "")}</span>
                   <span className="tabular-nums text-kin-muted flex-none">
                     {formatCost(t.cost_usd)}
                   </span>

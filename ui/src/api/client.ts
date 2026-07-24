@@ -116,6 +116,11 @@ export type Task = {
   workspace_mode?: string | null;
   workspace_root?: string | null;
   execution_cwd?: string | null;
+  /** ADR 0011 routine run tag; empty for interactive tasks. */
+  routine_id?: string;
+  routine_noteworthy?: boolean;
+  routine_tldr?: string;
+  routine_unread?: boolean;
 };
 
 export type TaskEvent = {
@@ -837,6 +842,114 @@ export function continueProject(
       body: JSON.stringify(body),
     },
   );
+}
+
+export type Routine = {
+  id: string;
+  project_id?: string;
+  cwd: string;
+  agent: string;
+  permission_mode: string;
+  prompt: string;
+  interval_secs: number;
+  enabled: boolean;
+  last_run_at?: number | null;
+  next_due_at: number;
+  consec_failures: number;
+  created_at: number;
+  title: string;
+};
+
+export type CreateRoutineBody = {
+  title?: string;
+  project_id?: string;
+  cwd: string;
+  agent?: string;
+  permission_mode?: string;
+  prompt: string;
+  interval_secs: number;
+  enabled?: boolean;
+  next_due_at?: number;
+};
+
+export type PatchRoutineBody = {
+  title?: string;
+  project_id?: string;
+  cwd?: string;
+  agent?: string;
+  permission_mode?: string;
+  prompt?: string;
+  interval_secs?: number;
+  enabled?: boolean;
+  next_due_at?: number;
+};
+
+export function listRoutines(params?: {
+  project_id?: string;
+  enabled?: boolean;
+  limit?: number;
+  runs?: boolean;
+}): Promise<Routine[] | { routines: Routine[]; runs: Task[] }> {
+  const q = new URLSearchParams();
+  if (params?.project_id) q.set("project_id", params.project_id);
+  if (params?.enabled != null) q.set("enabled", params.enabled ? "true" : "false");
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.runs) q.set("runs", "1");
+  const qs = q.toString();
+  return apiFetch(`/api/routines${qs ? `?${qs}` : ""}`);
+}
+
+export function getRoutine(id: string): Promise<Routine> {
+  return apiFetch<Routine>(`/api/routines/${encodeURIComponent(id)}`);
+}
+
+export function createRoutine(body: CreateRoutineBody): Promise<Routine> {
+  return apiFetch<Routine>("/api/routines", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function patchRoutine(id: string, body: PatchRoutineBody): Promise<Routine> {
+  return apiFetch<Routine>(`/api/routines/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteRoutine(id: string): Promise<void> {
+  return apiFetch<void>(`/api/routines/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function runRoutineNow(id: string): Promise<Task> {
+  return apiFetch<Task>(`/api/routines/${encodeURIComponent(id)}/run-now`, {
+    method: "POST",
+  });
+}
+
+export function getRoutineUnreadCount(): Promise<{ count: number }> {
+  return apiFetch<{ count: number }>("/api/routines/unread-count");
+}
+
+export function markRoutineRunRead(taskId: string): Promise<Task> {
+  return apiFetch<Task>(
+    `/api/routines/runs/${encodeURIComponent(taskId)}/read`,
+    { method: "POST" },
+  );
+}
+
+export function markAllRoutineRunsRead(): Promise<{ marked: number }> {
+  return apiFetch<{ marked: number }>("/api/routines/mark-all-read", {
+    method: "POST",
+  });
+}
+
+export function listRoutineRuns(limit = 50): Promise<Task[]> {
+  return apiFetch<{ routines: Routine[]; runs: Task[] }>(
+    `/api/routines?runs=1&runs_limit=${limit}`,
+  ).then((r) => r.runs ?? []);
 }
 
 

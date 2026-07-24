@@ -369,6 +369,11 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		}
 	}
 	e.emitSpeakerMessage(ctx, id, main, "assistant", summary, "orchestrator", "summary")
+	// Re-seed host durable transcript (e.g. kin_messages) so the next same-host
+	// follow-up can resume with this turn instead of only the live user line.
+	// Orchestrate clears plugin session state at follow-up entry; without a seed
+	// the host would claim "no prior context" after @worker completed.
+	e.seedHostTranscriptAfterOrchestration(ctx, id, main, UserTurnPrompt(t.Prompt), summary)
 
 	res, _ := json.Marshal(map[string]any{
 		"source":   "orchestrator",
@@ -423,6 +428,40 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool)
 	e.clearPersistTracking(id)
 	_, _ = e.finish(ctx, id, final, nil, nil)
 	e.pump()
+}
+
+// seedHostTranscriptAfterOrchestration writes a minimal host-facing transcript
+// (live user turn + orchestration summary) into the durable messages store so
+// managed-transcript hosts (Kin) can same-agent resume after multi-@ runs.
+// Best-effort: failures leave the next follow-up on the sealed-pack fallback.
+func (e *Engine) seedHostTranscriptAfterOrchestration(ctx context.Context, taskID, host, userTurn, summary string) {
+	if e == nil || e.store == nil {
+		return
+	}
+	reg, ok := e.agents.Get(host)
+	if !ok || reg.Sessions == nil {
+		// Only hosts with plugin-private session state need a durable seed.
+		return
+	}
+	userTurn = strings.TrimSpace(userTurn)
+	summary = strings.TrimSpace(summary)
+	if userTurn == "" && summary == "" {
+		return
+	}
+	msgs := make([]store.KinMessage, 0, 2)
+	if userTurn != "" {
+		msgs = append(msgs, store.KinMessage{Role: "user", Content: userTurn})
+	}
+	if summary != "" {
+		msgs = append(msgs, store.KinMessage{Role: "assistant", Content: summary})
+	}
+	if err := e.store.ReplaceKinMessages(ctx, taskID, msgs); err != nil {
+		// Non-fatal: next follow-up falls back to sealed pack when transcript empty.
+		payload, _ := json.Marshal(map[string]string{
+			"message": fmt.Sprintf("seed host transcript after orchestration failed: %v", err),
+		})
+		_, _ = e.appendEventLocked(ctx, taskID, "error", payload)
+	}
 }
 
 // forwardWorkerEvents copies adapter events onto the parent task, stamping speaker.

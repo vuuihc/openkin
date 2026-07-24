@@ -90,6 +90,12 @@ type Task struct {
 
 	// Optional project association (ADR 0008). Empty = not linked.
 	ProjectID string `json:"project_id,omitempty"`
+
+	// Optional routine association (ADR 0011). Empty = interactive task.
+	RoutineID         string `json:"routine_id,omitempty"`
+	RoutineNoteworthy bool   `json:"routine_noteworthy,omitempty"`
+	RoutineTLDR       string `json:"routine_tldr,omitempty"`
+	RoutineUnread     bool   `json:"routine_unread,omitempty"`
 }
 
 // EffectiveCwd returns the path adapters and workspace file APIs should use.
@@ -218,6 +224,13 @@ type ListTasksOpts struct {
 	// Query is a case-insensitive substring match on title, prompt, cwd, agent, id.
 	// Empty = no text filter. LIKE metacharacters are escaped.
 	Query string
+	// RoutineID filters tasks spawned by a routine. Special values:
+	//   ""  = no filter
+	//   "*" = any non-null routine_id (routine runs feed)
+	//   id  = that routine only
+	RoutineID string
+	// RoutineUnreadOnly keeps only unread routine runs (implies routine runs).
+	RoutineUnreadOnly bool
 }
 
 func scanTask(scanner interface {
@@ -232,6 +245,9 @@ func scanTask(scanner interface {
 	var workspaceMode, sourceRoot, workspaceRoot, executionCwd sql.NullString
 	var workspaceScope, baseOID, branch sql.NullString
 	var projectID sql.NullString
+	var routineID sql.NullString
+	var routineNoteworthy, routineUnread int
+	var routineTLDR sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
 		&model, &sessionRef, &permissionMode, &t.Status,
@@ -239,6 +255,7 @@ func scanTask(scanner interface {
 		&t.CreatedAt, &startedAt, &finishedAt,
 		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
 		&workspaceScope, &baseOID, &branch, &projectID,
+		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 	); err != nil {
 		return Task{}, err
 	}
@@ -275,6 +292,14 @@ func scanTask(scanner interface {
 	if projectID.Valid {
 		t.ProjectID = projectID.String
 	}
+	if routineID.Valid {
+		t.RoutineID = routineID.String
+	}
+	t.RoutineNoteworthy = routineNoteworthy != 0
+	if routineTLDR.Valid {
+		t.RoutineTLDR = routineTLDR.String
+	}
+	t.RoutineUnread = routineUnread != 0
 	if model.Valid {
 		t.Model = &model.String
 	}
@@ -297,7 +322,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -327,6 +352,14 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 	if opts.ProjectID != "" {
 		b.WriteString(` AND project_id = ?`)
 		args = append(args, opts.ProjectID)
+	}
+	if opts.RoutineUnreadOnly {
+		b.WriteString(` AND routine_id IS NOT NULL AND routine_unread = 1`)
+	} else if opts.RoutineID == "*" {
+		b.WriteString(` AND routine_id IS NOT NULL`)
+	} else if opts.RoutineID != "" {
+		b.WriteString(` AND routine_id = ?`)
+		args = append(args, opts.RoutineID)
 	}
 	if opts.Before != "" {
 		b.WriteString(` AND id < ?`)
@@ -456,20 +489,34 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if t.ProjectID != "" {
 		projectID = t.ProjectID
 	}
+	var routineID any
+	if t.RoutineID != "" {
+		routineID = t.RoutineID
+	}
+	noteworthy := 0
+	if t.RoutineNoteworthy {
+		noteworthy = 1
+	}
+	unread := 0
+	if t.RoutineUnread {
+		unread = 1
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tasks (
 			id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
 			exit_code, tokens_in, tokens_out, cost_usd,
 			created_at, started_at, finished_at,
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
-			workspace_scope, workspace_base_oid, workspace_branch, project_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			workspace_scope, workspace_base_oid, workspace_branch, project_id,
+			routine_id, routine_noteworthy, routine_tldr, routine_unread
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
 		t.CreatedAt, t.StartedAt, t.FinishedAt,
 		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
+		routineID, noteworthy, t.RoutineTLDR, unread,
 	)
 	if err != nil {
 		return fmt.Errorf("insert task: %w", err)
@@ -479,24 +526,28 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 
 // TaskPatch is a partial update applied by the engine.
 type TaskPatch struct {
-	Status          *string
-	Title           *string
-	Agent           *string
-	SessionRef      *string
-	ClearSessionRef bool // sets session_ref NULL (handoff across agents)
-	Prompt          *string
-	Model           *string // set task model for subsequent turns
-	ClearModel      bool    // sets model NULL
-	PermissionMode  *string
-	ExitCode        *int
-	ClearExitCode   bool
-	TokensIn        *int
-	TokensOut       *int
-	CostUSD         *float64
-	StartedAt       *int64
-	FinishedAt      *int64
-	ClearFinishedAt bool
-	ProjectID       *string // set or clear (empty string clears)
+	Status            *string
+	Title             *string
+	Agent             *string
+	SessionRef        *string
+	ClearSessionRef   bool // sets session_ref NULL (handoff across agents)
+	Prompt            *string
+	Model             *string // set task model for subsequent turns
+	ClearModel        bool    // sets model NULL
+	PermissionMode    *string
+	ExitCode          *int
+	ClearExitCode     bool
+	TokensIn          *int
+	TokensOut         *int
+	CostUSD           *float64
+	StartedAt         *int64
+	FinishedAt        *int64
+	ClearFinishedAt   bool
+	ProjectID         *string // set or clear (empty string clears)
+	RoutineID         *string // set or clear (empty string clears)
+	RoutineNoteworthy *bool
+	RoutineTLDR       *string
+	RoutineUnread     *bool
 }
 
 // UpdateTask applies a patch to a task row.
@@ -571,6 +622,34 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 			sets = append(sets, "project_id = ?")
 			args = append(args, *p.ProjectID)
 		}
+	}
+	if p.RoutineID != nil {
+		if *p.RoutineID == "" {
+			sets = append(sets, "routine_id = NULL")
+		} else {
+			sets = append(sets, "routine_id = ?")
+			args = append(args, *p.RoutineID)
+		}
+	}
+	if p.RoutineNoteworthy != nil {
+		v := 0
+		if *p.RoutineNoteworthy {
+			v = 1
+		}
+		sets = append(sets, "routine_noteworthy = ?")
+		args = append(args, v)
+	}
+	if p.RoutineTLDR != nil {
+		sets = append(sets, "routine_tldr = ?")
+		args = append(args, *p.RoutineTLDR)
+	}
+	if p.RoutineUnread != nil {
+		v := 0
+		if *p.RoutineUnread {
+			v = 1
+		}
+		sets = append(sets, "routine_unread = ?")
+		args = append(args, v)
 	}
 	if len(sets) == 0 {
 		return nil

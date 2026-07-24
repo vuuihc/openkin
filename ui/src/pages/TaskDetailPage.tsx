@@ -66,6 +66,7 @@ import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { normalizePermissionMode } from "../lib/permissionMode";
 import { modelsForAgent } from "../lib/agentModels";
 import { subscribeWS, useAppStore } from "../store/appStore";
+import { displayUserPrompt } from "../lib/attachments";
 
 /**
  * Single-column chat: user talks to the session host; @agents are task workers.
@@ -409,7 +410,7 @@ export default function TaskDetailPage() {
 
   async function onDelete() {
     if (!task) return;
-    const title = (task.title || task.prompt || task.id).trim();
+    const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
     const ok = window.confirm(
       tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""),
     );
@@ -624,7 +625,7 @@ export default function TaskDetailPage() {
           </Link>
           <div className="min-w-0 flex-1">
             <div className="text-[13.5px] font-semibold text-kin-text truncate">
-              {task.title || task.prompt}
+              {task.title || displayUserPrompt(task.prompt || "")}
             </div>
           </div>
           <div
@@ -723,7 +724,7 @@ export default function TaskDetailPage() {
           <ChatStream
             events={events}
             onOpenPath={onOpenWorkspacePath}
-            fallbackUserPrompt={task.prompt}
+            fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
             loading={!terminal}
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}

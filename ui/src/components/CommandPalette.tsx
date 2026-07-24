@@ -17,6 +17,7 @@ import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { projectLabel } from "../lib/paths";
 import { IconAgents, IconPlus, IconSearch, IconSettings, IconTasks } from "./icons";
+import { displayUserPrompt } from "../lib/attachments";
 
 type Props = {
   open: boolean;
@@ -160,7 +161,7 @@ export default function CommandPalette({
 
     const chats: Item[] = tasks
       .filter((t) => {
-        const title = t.title || t.prompt;
+        const title = t.title || displayUserPrompt(t.prompt || "");
         const proj = projectLabel(t.cwd);
         return match(title) || match(proj) || match(t.agent) || match(t.status);
       })
@@ -169,7 +170,7 @@ export default function CommandPalette({
         kind: "task" as const,
         id: t.id,
         task: t,
-        label: `${projectLabel(t.cwd)}: ${t.title || t.prompt}`,
+        label: `${projectLabel(t.cwd)}: ${t.title || displayUserPrompt(t.prompt || "")}`,
         hint: isTerminal(t.status)
           ? t.status
           : `${t.status} · ${t.agent}`,

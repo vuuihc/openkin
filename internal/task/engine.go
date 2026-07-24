@@ -31,8 +31,10 @@ const (
 	StatusCanceled        = "canceled"
 )
 
-// DefaultMaxConcurrent is the FIFO concurrency limit (spec §5).
-const DefaultMaxConcurrent = 4
+// DefaultMaxConcurrent is the FIFO concurrency limit (spec §5) applied when
+// the task.max_concurrent setting is unset or invalid. It bounds concurrent
+// top-level tasks (not sub-agent fan-out within a single orchestrated task).
+const DefaultMaxConcurrent = 16
 
 // CreateRequest is the body for POST /api/tasks.
 // Agent is optional: empty → engine picks default available agent.
@@ -45,6 +47,8 @@ type CreateRequest struct {
 	PermissionMode string                  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
 	WorkspaceMode  workspace.RequestedMode `json:"workspace_mode,omitempty"`  // auto | shared | worktree
 	ProjectID      string                  `json:"project_id,omitempty"`      // optional project link (ADR 0008)
+	// RoutineID tags the task as a routine run (ADR 0011). Empty = interactive.
+	RoutineID string `json:"routine_id,omitempty"`
 	// UserPrompt is the original user text shown in the chat timeline when Prompt
 	// has been wrapped with project context. Empty → use Prompt.
 	UserPrompt string `json:"-"`
@@ -425,6 +429,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		Status:         StatusQueued,
 		CreatedAt:      now,
 		ProjectID:      projectID,
+		RoutineID:      strings.TrimSpace(req.RoutineID),
 	}
 
 	meta, err := e.prepareWorkspace(ctx, id, req.Cwd, req.WorkspaceMode)
@@ -810,9 +815,9 @@ func (e *Engine) startOne(id string) {
 	}
 	execRef.ID = eid
 	spec := adapter.TaskSpec{
-		ID:             t.ID,
-		Agent:          t.Agent,
-		Cwd:            t.EffectiveCwd(),
+		ID:    t.ID,
+		Agent: t.Agent,
+		Cwd:   t.EffectiveCwd(),
 		// Language policy is runtime-only: store keeps the raw user prompt;
 		// adapters receive a wrapped copy so Claude Code / etc. match the user.
 		Prompt:         withReplyLanguage(t.Prompt, UserTurnPrompt(t.Prompt)),
@@ -1109,7 +1114,10 @@ func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, c
 	}
 	e.bus.PublishTask(t)
 	// Terminal statuses: succeeded | failed | canceled (spec §8).
-	if e.notify != nil && (status == StatusSucceeded || status == StatusFailed || status == StatusCanceled) {
+	if t.RoutineID != "" {
+		// Routines own their notify path (noteworthy / circuit-breaker only).
+		e.onRoutineTerminal(ctx, t, status)
+	} else if e.notify != nil && (status == StatusSucceeded || status == StatusFailed || status == StatusCanceled) {
 		e.notify.NotifyTaskTerminal(ctx, t.ID, t.Title, status)
 	}
 	return t, nil

@@ -618,3 +618,67 @@ func TestOpenAICompatOnContentDeltaIgnoredWithoutStream(t *testing.T) {
 		t.Fatal("OnContentDelta must not fire for non-stream chat")
 	}
 }
+
+
+func TestOpenAICompatMultimodalImageParts(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "vision-test",
+			"choices": []map[string]any{
+				{"finish_reason": "stop", "message": map[string]string{"role": "assistant", "content": "I see a pixel"}},
+			},
+			"usage": map[string]int{"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+		})
+	}))
+	defer srv.Close()
+
+	c, err := NewClient(Config{Kind: "openai-compatible", BaseURL: srv.URL + "/v1", Model: "vision-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Chat(context.Background(), ChatRequest{
+		Messages: []Message{{
+			Role:    RoleUser,
+			Content: "what is this?",
+			Parts: []ContentPart{
+				{Type: "text", Text: "what is this?"},
+				{Type: "image_url", ImageURL: &ImageURL{URL: "data:image/png;base64,aaa", Detail: "auto"}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Content != "I see a pixel" {
+		t.Fatalf("content = %q", resp.Content)
+	}
+	msgs, _ := gotBody["messages"].([]any)
+	if len(msgs) != 1 {
+		t.Fatalf("messages = %#v", gotBody["messages"])
+	}
+	m0, _ := msgs[0].(map[string]any)
+	content, ok := m0["content"].([]any)
+	if !ok {
+		t.Fatalf("content should be array, got %#v", m0["content"])
+	}
+	if len(content) != 2 {
+		t.Fatalf("parts = %#v", content)
+	}
+	p0, _ := content[0].(map[string]any)
+	if p0["type"] != "text" || p0["text"] != "what is this?" {
+		t.Fatalf("text part = %#v", p0)
+	}
+	p1, _ := content[1].(map[string]any)
+	if p1["type"] != "image_url" {
+		t.Fatalf("image part = %#v", p1)
+	}
+	iu, _ := p1["image_url"].(map[string]any)
+	if iu["url"] != "data:image/png;base64,aaa" {
+		t.Fatalf("image_url = %#v", iu)
+	}
+}

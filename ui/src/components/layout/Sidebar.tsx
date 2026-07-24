@@ -11,6 +11,7 @@ import {
   subscribeProjectSidebar,
   toggleProjectPinned,
   touchProject,
+  touchSession,
   unarchiveProject,
   type ProjectGroup,
   type ProjectSortMode,
@@ -22,6 +23,7 @@ import {
   sessionStatusDotClass,
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
+import { displayUserPrompt } from "../../lib/attachments";
 import {
   IconArchive,
   IconFile,
@@ -34,6 +36,7 @@ import {
   IconSort,
   IconTrash,
   IconAgents,
+  IconRoutines,
 } from "../icons";
 
 type Props = {
@@ -42,6 +45,7 @@ type Props = {
   /** Highlight the draft / New chat entry. */
   draftActive?: boolean;
   pendingCount: number;
+  routineUnreadCount?: number;
   weekCost?: number | null;
   onNewChat: () => void;
   /** New session scoped to a project cwd (Claude/Codex style). */
@@ -70,6 +74,7 @@ export default function Sidebar({
   selectedTaskId,
   draftActive,
   pendingCount,
+  routineUnreadCount = 0,
   weekCost,
   onNewChat,
   onNewSessionInProject,
@@ -143,6 +148,9 @@ export default function Sidebar({
 
     // Already decided for this selection (including "was open while running").
     if (handledSelectionRef.current === selectedTaskId) return;
+
+    // First time we resolve this navigation: bump session recency for in-project sort.
+    touchSession(selectedTaskId);
 
     if (isTerminal(t.status)) {
       markSessionViewed(t.id);
@@ -425,7 +433,22 @@ export default function Sidebar({
         >
           <IconArtifacts size={15} />
           {tr("nav.artifacts")}
-        </NavLink>        <NavLink
+        </NavLink>                <NavLink
+          to="/routines"
+          onClick={onCloseMobile}
+          className={({ isActive }) =>
+            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
+          }
+        >
+          <IconRoutines size={15} />
+          <span className="flex-1">{tr("nav.routines")}</span>
+          {routineUnreadCount > 0 && (
+            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-[10px] font-semibold text-white flex items-center justify-center tabular-nums">
+              {routineUnreadCount > 99 ? "99+" : routineUnreadCount}
+            </span>
+          )}
+        </NavLink>
+<NavLink
           to="/agents"
           onClick={onCloseMobile}
           className={({ isActive }) =>
@@ -627,7 +650,7 @@ function ProjectBlock({
                     dot ?? "bg-transparent",
                   ].join(" ")}
                 />
-                <span className="truncate flex-1 min-w-0">{t.title || t.prompt}</span>
+                <span className="truncate flex-1 min-w-0">{t.title || displayUserPrompt(t.prompt || "")}</span>
               </NavLink>
               {onDeleteSession && (
                 <button

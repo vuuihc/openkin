@@ -22,10 +22,12 @@ import Sidebar from "./Sidebar";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { contextCwd, isTerminalToggle } from "../../lib/terminal";
+import { displayUserPrompt } from "../../lib/attachments";
 
 type Props = {
   children: ReactNode;
   pendingCount: number;
+  routineUnreadCount?: number;
 };
 
 function taskIdFromPath(pathname: string): string | null {
@@ -37,7 +39,7 @@ function taskIdFromPath(pathname: string): string | null {
  * Desktop: sidebar + main. Mobile: hamburger drawer + full-width main.
  * New chat → navigate to DRAFT_PATH (no modal).
  */
-export default function AppShell({ children, pendingCount }: Props) {
+export default function AppShell({ children, pendingCount, routineUnreadCount = 0 }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const tr = useT();
@@ -78,7 +80,7 @@ export default function AppShell({ children, pendingCount }: Props) {
 
   const handleDeleteSession = useCallback(
     async (task: Task) => {
-      const title = (task.title || task.prompt || task.id).trim();
+      const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
       const ok = window.confirm(
         tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""),
       );
@@ -242,6 +244,7 @@ export default function AppShell({ children, pendingCount }: Props) {
         selectedTaskId={selectedTaskId}
         draftActive={draftActive}
         pendingCount={pendingCount}
+        routineUnreadCount={routineUnreadCount}
         weekCost={weekCost}
         onNewChat={openNewChat}
         onNewSessionInProject={openNewSessionInProject}
