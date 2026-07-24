@@ -10,9 +10,10 @@ import {
 } from "../api/client";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
+import { Link } from "react-router-dom";
 import {
   agentCatalogState,
-  openInstallURL,
+  runnableAgents,
   sortAgentCatalog,
 } from "../lib/agentCatalog";
 import {
@@ -81,8 +82,8 @@ export default function NewTaskModal({
 
   if (!open) return null;
 
-  const catalog = sortAgentCatalog(agents);
-  const available = agents.filter((a) => a.available);
+  const catalog = sortAgentCatalog(runnableAgents(agents));
+  const available = runnableAgents(agents);
   const defaultAgent = available.find((a) => a.default) ?? available[0];
 
   function onSubmit(e: FormEvent) {
@@ -168,24 +169,9 @@ export default function NewTaskModal({
             {catalog.map((a) => {
               const state = agentCatalogState(a);
               const isRunnable = state === "native" || state === "generic";
-              const badge =
-                state === "generic"
-                  ? tr("agentCatalog.generic")
-                  : state === "verifying"
-                    ? tr("agentCatalog.verifying")
-                    : state === "not_installed"
-                      ? tr("agentCatalog.notInstalled")
-                      : state === "unavailable"
-                        ? tr("agentCatalog.unavailable")
-                        : null;
+              const badge = state === "generic" ? tr("agentCatalog.generic") : null;
               const title =
-                state === "generic"
-                  ? tr("agentCatalog.genericHint")
-                  : state === "verifying"
-                    ? tr("agentCatalog.verifyingHint")
-                    : a.available
-                      ? a.binary || a.name
-                      : a.reason || tr("agentCatalog.notInstalled");
+                state === "generic" ? tr("agentCatalog.genericHint") : a.binary || a.name;
               return (
                 <span
                   key={a.id}
@@ -208,24 +194,19 @@ export default function NewTaskModal({
                   {badge ? (
                     <span className="text-[10px] opacity-80">· {badge}</span>
                   ) : null}
-                  {state === "not_installed" && a.install_url ? (
-                    <button
-                      type="button"
-                      className="text-[10px] text-kin-blue hover:underline"
-                      title={tr("agentCatalog.installHint")}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openInstallURL(a.install_url);
-                      }}
-                    >
-                      {tr("agentCatalog.install")}
-                    </button>
-                  ) : null}
                 </span>
               );
             })}
           </div>
+          {agents.some((a) => !a.available) ? (
+            <div className="mt-2">
+              <Link to="/agents" className="text-[12px] text-kin-blue hover:underline" onClick={onClose}>
+                {tr("agents.manageLink")}
+              </Link>
+            </div>
+          ) : null}
           <p className="mt-2 text-[12px] text-kin-secondary">
+
             新建任务不强制选 agent — 默认用{" "}
             <b className="text-kin-text font-semibold">
               {defaultAgent?.name ?? "—"}
@@ -247,15 +228,11 @@ export default function NewTaskModal({
             >
               <option value="">Auto ({defaultAgent?.id ?? "none"})</option>
               {catalog.map((a) => (
-                <option key={a.id} value={a.id} disabled={!a.available}>
+                <option key={a.id} value={a.id}>
                   {a.name} ({a.id})
-                  {!a.available
-                    ? a.installed
-                      ? ` — ${tr("agentCatalog.verifying")}`
-                      : ` — ${tr("agentCatalog.notInstalled")}`
-                    : agentCatalogState(a) === "generic"
-                      ? ` — ${tr("agentCatalog.generic")}`
-                      : ""}
+                  {agentCatalogState(a) === "generic"
+                    ? ` — ${tr("agentCatalog.generic")}`
+                    : ""}
                 </option>
               ))}
             </select>

@@ -16,7 +16,7 @@ import {
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { projectLabel } from "../lib/paths";
-import { IconPlus, IconSearch, IconSettings, IconTasks, IconUsage } from "./icons";
+import { IconAgents, IconPlus, IconSearch, IconSettings, IconTasks } from "./icons";
 
 type Props = {
   open: boolean;
@@ -128,7 +128,7 @@ export default function CommandPalette({
         label: tr("palette.openUsage"),
         run: () => {
           onClose();
-          navigate("/usage");
+          navigate("/agents");
         },
       },
       {
@@ -275,7 +275,7 @@ export default function CommandPalette({
                       ) : item.id === "tasks" ? (
                         <IconTasks size={16} />
                       ) : item.id === "usage" ? (
-                        <IconUsage size={16} />
+                        <IconAgents size={16} />
                       ) : item.id === "settings" ? (
                         <IconSettings size={16} />
                       ) : (

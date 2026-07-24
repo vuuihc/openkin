@@ -19,7 +19,7 @@ import SettingsPage from "./pages/SettingsPage";
 import TaskDetailPage from "./pages/TaskDetailPage";
 import TasksPage from "./pages/TasksPage";
 import TrayPage from "./pages/TrayPage";
-import UsagePage from "./pages/UsagePage";
+import AgentsPage from "./pages/AgentsPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { dispatchWS, useAppStore } from "./store/appStore";
 
@@ -117,7 +117,8 @@ export default function App() {
             <Route path="/artifacts/:id" element={<ArtifactDetailPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
-            <Route path="/usage" element={<UsagePage />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/new" replace />} />
           </Routes>

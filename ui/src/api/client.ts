@@ -219,6 +219,21 @@ export function listAgents(): Promise<AgentInfo[]> {
   return apiFetch<AgentInfo[]>("/api/agents");
 }
 
+/** Best-effort install/auth/version metadata from GET /api/agents/management. */
+export type AgentManagement = {
+  id: string;
+  version?: string;
+  auth_status: "signed_in" | "not_signed_in" | "unknown";
+  auth_detail?: string;
+  install_cmd?: string;
+  update_cmd?: string;
+};
+
+export function listAgentManagement(refresh = false): Promise<AgentManagement[]> {
+  const q = refresh ? "?refresh=1" : "";
+  return apiFetch<AgentManagement[]>(`/api/agents/management${q}`);
+}
+
 export type WSMessage =
   | { kind: "task_update"; data: Task }
   | { kind: "task_deleted"; data: { id: string } }

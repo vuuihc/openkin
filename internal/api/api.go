@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -77,6 +78,12 @@ type Server struct {
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
 
+	// mgmtCache caches version/auth probes for GET /api/agents/management.
+	// Lazily created; process-local only. mgmtCacheMu guards the lazy init
+	// since Handler() serves concurrent requests.
+	mgmtCache   *detect.ManagementCache
+	mgmtCacheMu sync.Mutex
+
 	// UsageWindows probes provider subscription rate-limit windows (5h/weekly).
 	// May be nil (feature disabled); the handler then returns an empty list.
 	UsageWindows *usagewindows.Service
@@ -121,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware)
 		r.Get("/api/agents", s.handleListAgents)
+		r.Get("/api/agents/management", s.handleAgentsManagement)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
@@ -301,6 +309,59 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		list = []AgentInfo{}
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleAgentsManagement(w http.ResponseWriter, r *http.Request) {
+	agents := s.managementAgentInfos()
+	cache := s.managementCache()
+	if r.URL.Query().Get("refresh") == "1" {
+		cache.Invalidate()
+	}
+	key := detect.ManagementCacheKey(agents)
+	writeJSON(w, http.StatusOK, cache.Get(key, agents))
+}
+
+func (s *Server) managementCache() *detect.ManagementCache {
+	s.mgmtCacheMu.Lock()
+	defer s.mgmtCacheMu.Unlock()
+	if s.mgmtCache == nil {
+		s.mgmtCache = detect.NewManagementCache(0)
+	}
+	return s.mgmtCache
+}
+
+func (s *Server) managementAgentInfos() []detect.Info {
+	if s.ListAgents != nil {
+		list := s.ListAgents()
+		out := make([]detect.Info, 0, len(list))
+		for _, a := range list {
+			out = append(out, detect.Info{
+				ID:        a.ID,
+				Name:      a.Name,
+				Binary:    a.Binary,
+				Installed: a.Installed,
+				Available: a.Available,
+				Default:   a.Default,
+				Reason:    a.Reason,
+			})
+		}
+		return out
+	}
+	if s.Engine != nil {
+		def := s.Engine.DefaultAgent()
+		var out []detect.Info
+		for _, id := range s.Engine.AgentIDs() {
+			out = append(out, detect.Info{
+				ID:        id,
+				Name:      id,
+				Installed: true,
+				Available: true,
+				Default:   id == def,
+			})
+		}
+		return out
+	}
+	return detect.Scan("")
 }
 
 func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {

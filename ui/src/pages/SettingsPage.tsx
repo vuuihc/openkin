@@ -25,9 +25,10 @@ import {
 } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
+import { Link } from "react-router-dom";
 import {
   agentCatalogState,
-  openInstallURL,
+  runnableAgents,
   sortAgentCatalog,
 } from "../lib/agentCatalog";
 
@@ -561,20 +562,16 @@ export default function SettingsPage() {
             className="kin-input min-h-[44px]"
           >
             <option value="">{tr("settings.provider.autoOption")}</option>
-            {sortAgentCatalog(agentList).map((a) => {
+            {sortAgentCatalog(runnableAgents(agentList)).map((a) => {
               const state = agentCatalogState(a);
               let suffix = "";
-              if (!a.available) {
-                if (state === "verifying") suffix = tr("agentCatalog.verifying");
-                else if (state === "not_installed") suffix = tr("agentCatalog.notInstalled");
-                else suffix = tr("settings.provider.unavailable").replace(/^\s*—\s*/, "");
-              } else if (a.default) {
+              if (a.default) {
                 suffix = tr("settings.provider.currentDefault").replace(/^\s*—\s*/, "");
               } else if (state === "generic") {
                 suffix = tr("agentCatalog.generic");
               }
               return (
-                <option key={a.id} value={a.id} disabled={!a.available}>
+                <option key={a.id} value={a.id}>
                   {a.name} ({a.id})
                   {suffix ? ` — ${suffix}` : ""}
                 </option>
@@ -584,24 +581,11 @@ export default function SettingsPage() {
           <span className="text-[11px] text-kin-muted">
             {tr("settings.provider.defaultAgentHint")}
           </span>
-          {sortAgentCatalog(agentList).some((a) => !a.installed && a.install_url) && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {sortAgentCatalog(agentList)
-                .filter((a) => !a.installed && a.install_url)
-                .slice(0, 12)
-                .map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    className="text-[11px] text-kin-blue hover:underline"
-                    title={tr("agentCatalog.installHint")}
-                    onClick={() => openInstallURL(a.install_url)}
-                  >
-                    {tr("agentCatalog.install")} {a.name}
-                  </button>
-                ))}
-            </div>
-          )}
+          {agentList.some((a) => !a.available) ? (
+            <Link to="/agents" className="text-[11px] text-kin-blue hover:underline pt-1">
+              {tr("agents.manageLink")}
+            </Link>
+          ) : null}
         </label>
         <button
           type="button"

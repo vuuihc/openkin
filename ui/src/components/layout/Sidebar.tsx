@@ -32,7 +32,7 @@ import {
   IconSettings,
   IconSort,
   IconTrash,
-  IconUsage,
+  IconAgents,
 } from "../icons";
 
 type Props = {
@@ -373,14 +373,14 @@ export default function Sidebar({
           <IconArtifacts size={15} />
           {tr("nav.artifacts")}
         </NavLink>        <NavLink
-          to="/usage"
+          to="/agents"
           onClick={onCloseMobile}
           className={({ isActive }) =>
             [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
           }
         >
-          <IconUsage size={15} />
-          <span className="flex-1">{tr("nav.usage")}</span>
+          <IconAgents size={15} />
+          <span className="flex-1">{tr("nav.agents")}</span>
           {weekCost != null && weekCost > 0 && (
             <span className="text-[11px] text-kin-muted tabular-nums">
               {formatCost(weekCost)}

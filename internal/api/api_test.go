@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/kin/internal/adapter/detect"
 	"github.com/vuuihc/kin/internal/remote"
 	"github.com/vuuihc/kin/internal/store"
 	"github.com/vuuihc/kin/internal/task"
@@ -344,6 +345,52 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 	}
 	if got := list[1].ModelListStatus; got != "default_only" || len(list[1].Models) != 0 {
 		t.Fatalf("codex model list status=%q models=%+v", got, list[1].Models)
+	}
+}
+
+
+func TestAgentsManagement(t *testing.T) {
+	s, token := newTestServer(t)
+	s.ListAgents = func() []AgentInfo {
+		return []AgentInfo{
+			{ID: "claude-code", Name: "Claude Code", Available: true, Installed: true, Binary: "/usr/bin/claude", Kind: "cli"},
+			{ID: "cursor", Name: "Cursor", Available: false, Installed: false, InstallURL: "https://cursor.com", Kind: "cli"},
+		}
+	}
+	old := detect.RunVersion
+	detect.RunVersion = func(ctx context.Context, binary, flag string) (string, error) {
+		return "claude 1.0.0", nil
+	}
+	t.Cleanup(func() { detect.RunVersion = old })
+
+	home := t.TempDir()
+	oldHome := detect.HomeDir
+	detect.HomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { detect.HomeDir = oldHome })
+
+	h := s.Handler()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents/management", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var list []detect.ManagementInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len=%d body=%s", len(list), rr.Body.String())
+	}
+	if list[0].ID != "claude-code" || list[0].Version != "claude 1.0.0" {
+		t.Fatalf("claude row=%+v", list[0])
+	}
+	if list[0].InstallCmd == "" {
+		t.Fatalf("expected install_cmd on claude: %+v", list[0])
+	}
+	if list[1].ID != "cursor" {
+		t.Fatalf("cursor row=%+v", list[1])
 	}
 }
 
