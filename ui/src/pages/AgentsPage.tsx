@@ -37,6 +37,13 @@ import {
   type CacheStatus,
 } from "../lib/usage";
 
+/** Maps an agent id to the subscription-window provider that bills it. */
+const PROVIDER_BY_AGENT: Record<string, string> = {
+  "claude-code": "claude",
+  codex: "codex",
+  grok: "grok",
+};
+
 /**
  * Agents management console with folded-in usage overview.
  */
@@ -170,6 +177,19 @@ export default function AgentsPage() {
     return m;
   }, [limitStatuses]);
 
+  // Subscription windows are keyed by provider; map them onto their agent id
+  // so each agent row can show its own 5h/weekly quota inline.
+  const windowsByAgent = useMemo(() => {
+    const byProvider = new Map<string, UsageWindowProvider>();
+    for (const p of windows) byProvider.set(p.provider, p);
+    const m = new Map<string, UsageWindowProvider>();
+    for (const [agentId, provider] of Object.entries(PROVIDER_BY_AGENT)) {
+      const p = byProvider.get(provider);
+      if (p) m.set(agentId, p);
+    }
+    return m;
+  }, [windows]);
+
 
   async function onRecheck() {
     setRechecking(true);
@@ -266,6 +286,60 @@ export default function AgentsPage() {
           </div>
         )}
 
+        {rows && (
+          <div className="mt-6 space-y-6">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { label: tr("usage.spend"), value: formatCost(totals.cost) },
+                { label: tr("usage.tokens"), value: formatTokenCount(totals.tokens) },
+                {
+                  label: tr("usage.cacheHitRate"),
+                  value: cacheRateLabel(
+                    totals.status,
+                    totals.cacheEligible > 0 ? totals.cacheRead / totals.cacheEligible : null,
+                  ),
+                },
+                { label: tr("usage.tasks"), value: String(totals.tasks) },
+              ].map((c) => (
+                <div
+                  key={c.label}
+                  className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
+                >
+                  <div className="text-[11px] text-kin-muted font-semibold uppercase tracking-wide">
+                    {c.label}
+                  </div>
+                  <div className="mt-1 text-[22px] font-semibold tabular-nums tracking-tight">
+                    {c.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+                {tr("usage.dailySpend")}
+              </div>
+              <div className="flex items-end gap-1.5 h-28">
+                {byDay.length === 0 && (
+                  <p className="text-sm text-kin-muted">{tr("usage.noData")}</p>
+                )}
+                {byDay.map(([date, cost]) => (
+                  <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                    <div
+                      className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
+                      style={{ height: `${Math.max(4, (cost / maxDay) * 100)}%` }}
+                      title={`${date}: ${formatCost(cost)}`}
+                    />
+                    <span className="text-[10px] text-kin-muted truncate w-full text-center">
+                      {date.slice(5)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {agents !== null && (
           <div className="mt-6 rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden">
             <div className="divide-y divide-[var(--kin-hairline)]">
@@ -273,6 +347,7 @@ export default function AgentsPage() {
                 const state = agentCatalogState(a);
                 const m = mgmtById.get(a.id);
                 const usage = usageByAgent.get(a.id);
+                const agentWindow = windowsByAgent.get(a.id);
                 const limitStatus = limitsByAgent.get(a.id);
                 const spendProgress =
                   limitStatus?.limit_spend_usd != null
@@ -373,6 +448,47 @@ export default function AgentsPage() {
                           )}
                         </div>
                       ) : null}
+                      {agentWindow?.error ? (
+                        <div className="text-[11px] text-kin-muted">{agentWindow.error}</div>
+                      ) : agentWindow && agentWindow.windows.length > 0 ? (
+                        <div className="flex flex-col gap-1 text-[11px] text-kin-secondary">
+                          {agentWindow.plan ? (
+                            <span className="text-[10px] uppercase tracking-wide text-kin-muted">
+                              {tr("usage.windowsTitle")} · {agentWindow.plan}
+                            </span>
+                          ) : null}
+                          {agentWindow.windows.map((w) => {
+                            const pct = Math.min(100, Math.max(0, w.used_percent));
+                            const barClass =
+                              w.status === "over"
+                                ? "bg-[var(--kin-red,#ff453a)]"
+                                : w.status === "warn"
+                                  ? "bg-[var(--kin-yellow,#ffd60a)]"
+                                  : "bg-kin-blue/70";
+                            return (
+                              <span key={w.kind} className="flex items-center gap-1.5">
+                                <span className="w-10 shrink-0 text-kin-muted">
+                                  {w.kind === "5h"
+                                    ? tr("usage.window5h")
+                                    : tr("usage.windowWeekly")}
+                                </span>
+                                <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
+                                  <span
+                                    className={`block h-full rounded-full ${barClass}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </span>
+                                <span className="tabular-nums">{Math.round(w.used_percent)}%</span>
+                                {w.reset_at > 0 ? (
+                                  <span className="text-[10px] text-kin-muted">
+                                    · {tr("usage.windowResets", { time: formatResetIn(w.reset_at) })}
+                                  </span>
+                                ) : null}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
                       {a.available && !a.default ? (
@@ -421,140 +537,6 @@ export default function AgentsPage() {
               )}
             </div>
           </div>
-        )}
-
-        {rows && (
-          <>
-            <div className="mt-10 text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-              {tr("agents.overview")}
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {[
-                { label: tr("usage.spend"), value: formatCost(totals.cost) },
-                { label: tr("usage.tokens"), value: formatTokenCount(totals.tokens) },
-                {
-                  label: tr("usage.cacheHitRate"),
-                  value: cacheRateLabel(
-                    totals.status,
-                    totals.cacheEligible > 0
-                      ? totals.cacheRead / totals.cacheEligible
-                      : null,
-                  ),
-                },
-                { label: tr("usage.tasks"), value: String(totals.tasks) },
-              ].map((c) => (
-                <div
-                  key={c.label}
-                  className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
-                >
-                  <div className="text-[11px] text-kin-muted font-semibold uppercase tracking-wide">
-                    {c.label}
-                  </div>
-                  <div className="mt-1 text-[22px] font-semibold tabular-nums tracking-tight">
-                    {c.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {windows.length > 0 && (
-              <div className="mt-8">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
-                  {tr("usage.windowsTitle")}
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {windows.map((p) => (
-                    <div
-                      key={p.provider}
-                      className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold capitalize">{p.provider}</span>
-                        {p.plan && (
-                          <span className="text-[11px] text-kin-muted uppercase tracking-wide">
-                            {p.plan}
-                          </span>
-                        )}
-                      </div>
-                      {p.error ? (
-                        <p className="mt-2 text-[12px] text-kin-muted">{p.error}</p>
-                      ) : (
-                        <div className="mt-2 space-y-2">
-                          {p.windows.map((w) => {
-                            const pct = Math.min(100, Math.max(0, w.used_percent));
-                            const barClass =
-                              w.status === "over"
-                                ? "bg-[var(--kin-red,#ff453a)]"
-                                : w.status === "warn"
-                                  ? "bg-[var(--kin-yellow,#ffd60a)]"
-                                  : "bg-kin-blue/80";
-                            const textClass =
-                              w.status === "over"
-                                ? "text-[var(--kin-red,#ff453a)]"
-                                : w.status === "warn"
-                                  ? "text-[var(--kin-yellow,#ffd60a)]"
-                                  : "text-kin-muted";
-                            return (
-                              <div key={w.kind}>
-                                <div className="flex items-center justify-between text-[12px]">
-                                  <span className="text-kin-secondary">
-                                    {w.kind === "5h"
-                                      ? tr("usage.window5h")
-                                      : tr("usage.windowWeekly")}
-                                  </span>
-                                  <span className={`tabular-nums ${textClass}`}>
-                                    {Math.round(w.used_percent)}%
-                                  </span>
-                                </div>
-                                <span className="mt-1 block h-1.5 w-full overflow-hidden rounded-full bg-[var(--kin-hairline)]">
-                                  <span
-                                    className={`block h-full rounded-full ${barClass}`}
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </span>
-                                {w.reset_at > 0 && (
-                                  <span className="mt-0.5 block text-[10px] text-kin-muted">
-                                    {tr("usage.windowResets", {
-                                      time: formatResetIn(w.reset_at),
-                                    })}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-8">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
-                {tr("usage.dailySpend")}
-              </div>
-              <div className="flex items-end gap-1.5 h-28">
-                {byDay.length === 0 && (
-                  <p className="text-sm text-kin-muted">{tr("usage.noData")}</p>
-                )}
-                {byDay.map(([date, cost]) => (
-                  <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-                    <div
-                      className="w-full max-w-[28px] rounded-t bg-kin-blue/80"
-                      style={{ height: `${Math.max(4, (cost / maxDay) * 100)}%` }}
-                      title={`${date}: ${formatCost(cost)}`}
-                    />
-                    <span className="text-[10px] text-kin-muted truncate w-full text-center">
-                      {date.slice(5)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-
-          </>
         )}
       </div>
     </div>
