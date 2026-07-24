@@ -716,7 +716,12 @@ func buildWorkerBriefMode(plan DelegatePlan, step DelegateStep, prior []string, 
 		b.WriteString("\n")
 	}
 	b.WriteString("\nRespond now with findings only.\n")
-	return b.String()
+	// Match the original user turn's language for any user-visible findings.
+	live := strings.TrimSpace(plan.Raw)
+	if live == "" {
+		live = step.Instruction
+	}
+	return withReplyLanguage(b.String(), live)
 }
 
 // isWorkerMetaOutput detects when a worker "answered" with role/meta chatter

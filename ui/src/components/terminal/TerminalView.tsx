@@ -222,13 +222,21 @@ export default function TerminalView({
     });
 
     terminal.attachCustomKeyEventHandler((event) => {
+      // xterm invokes this for keydown, keypress, and keyup. Clipboard side
+      // effects must run once (keydown only). Returning false only skips
+      // xterm's own handling — also preventDefault so the browser paste/copy
+      // event does not fire a second time into the xterm textarea.
+      const isKeyDown = event.type === "keydown";
       if (event.ctrlKey && !event.metaKey && event.code === "Backquote") {
         return false;
       }
       if (event.metaKey && event.code === "KeyC") {
         const selection = terminal.getSelection();
         if (selection) {
-          void navigator.clipboard?.writeText(selection).catch(() => undefined);
+          if (isKeyDown) {
+            event.preventDefault();
+            void navigator.clipboard?.writeText(selection).catch(() => undefined);
+          }
           return false;
         }
       }
@@ -238,10 +246,13 @@ export default function TerminalView({
       ) {
         const readText = navigator.clipboard?.readText;
         if (!readText) return true;
-        void readText.call(navigator.clipboard).then(
-          (text) => terminalRef.current?.paste(text),
-          () => undefined,
-        );
+        if (isKeyDown) {
+          event.preventDefault();
+          void readText.call(navigator.clipboard).then(
+            (text) => terminalRef.current?.paste(text),
+            () => undefined,
+          );
+        }
         return false;
       }
       return true;

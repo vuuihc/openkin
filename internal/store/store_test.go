@@ -1,11 +1,12 @@
 package store
 
 import (
-	"errors"
-	"encoding/json"
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestOpenAndMigrate(t *testing.T) {
@@ -241,5 +242,87 @@ func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
 	}
 	if err := s.DeleteTask(ctx, task.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second DeleteTask: %v", err)
+	}
+}
+
+
+func TestListTasksQuery(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	tasks := []Task{
+		{ID: "01QUERYTEST0000000000001", Title: "Fix sidebar limit", Agent: "kin", Cwd: "/Users/me/kin", Prompt: "raise the task list cap", Status: "succeeded", CreatedAt: now},
+		{ID: "01QUERYTEST0000000000002", Title: "Write docs", Agent: "codex", Cwd: "/Users/me/other", Prompt: "readme polish", Status: "succeeded", CreatedAt: now + 1},
+		{ID: "01QUERYTEST0000000000003", Title: "Unrelated", Agent: "claude", Cwd: "/tmp/demo", Prompt: "hello world", Status: "queued", CreatedAt: now + 2},
+	}
+	for _, task := range tasks {
+		if err := s.InsertTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Match title
+	got, err := s.ListTasks(ctx, ListTasksOpts{Query: "sidebar", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != tasks[0].ID {
+		t.Fatalf("title match: %+v", got)
+	}
+
+	// Match cwd basename
+	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "/Users/me/kin", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != tasks[0].ID {
+		t.Fatalf("cwd match: %+v", got)
+	}
+
+	// Match agent
+	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "codex", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != tasks[1].ID {
+		t.Fatalf("agent match: %+v", got)
+	}
+
+	// Case-insensitive ASCII
+	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "SIDEBAR", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("case-insensitive: %+v", got)
+	}
+
+	// LIKE metacharacters treated literally
+	if err := s.InsertTask(ctx, Task{
+		ID: "01QUERYTEST0000000000004", Title: "100% done", Agent: "kin", Cwd: "/x", Prompt: "a_b", Status: "queued", CreatedAt: now + 3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "100%", Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "01QUERYTEST0000000000004" {
+		t.Fatalf("literal percent: %+v", got)
+	}
+
+	// Empty query returns all (up to limit)
+	got, err = s.ListTasks(ctx, ListTasksOpts{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("empty query len=%d want 4", len(got))
 	}
 }

@@ -59,8 +59,11 @@ func TestKinFollowUpUsesLivePromptOnly(t *testing.T) {
 		t.Fatalf("expected second start, specs=%d", len(specs))
 	}
 	last := specs[len(specs)-1]
-	if last.Prompt != "second question" {
-		t.Fatalf("adapter prompt=%q", last.Prompt)
+	if !strings.HasPrefix(last.Prompt, "second question") {
+		t.Fatalf("adapter prompt should start with live turn, got %q", last.Prompt)
+	}
+	if !strings.Contains(last.Prompt, replyLanguageInstruction(responseLanguageEnglish)) {
+		t.Fatalf("adapter prompt missing English reply policy: %q", last.Prompt)
 	}
 }
 

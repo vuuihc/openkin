@@ -257,6 +257,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	opts := store.ListTasksOpts{
 		Status: q.Get("status"),
 		Before: q.Get("before"),
+		Query:  q.Get("q"),
 	}
 	if lim := q.Get("limit"); lim != "" {
 		n, err := strconv.Atoi(lim)
