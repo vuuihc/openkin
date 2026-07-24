@@ -31,10 +31,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
 5. **Verify, do not assume.** Run the narrowest relevant checks while iterating,
    then the full applicable suite before handoff. Report any check that could
    not run, with residual risk.
-6. **Commit when a unit of work is done.** After a feature, fix, or module is
-   complete and its checks pass, create an atomic Git commit immediately—do not
-   wait for a reminder. Do not commit known-failing work unless the user
-   explicitly requests a checkpoint.
+6. **Gate, then commit.** After a feature, fix, or module is complete and its
+   checks pass, run the Feature completion gate (advanced-model review and
+   fixes, commit, merge to `main`, desktop rebuild)—do not wait for a reminder.
+   Do not commit known-failing work unless the user explicitly requests a
+   checkpoint.
 7. **Clear commit messages.** Use Conventional Commits that explain *why*, not
    only *what* changed. Prefer:
    - `feat(scope): …` / `fix(scope): …` / `refactor(scope): …` /
@@ -64,9 +65,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
    test when practical.
 5. Run the narrowest relevant checks while iterating, then the full applicable
    verification before completion.
-6. After a module is complete and its checks pass, automatically create an
-   atomic Git commit with a clear Conventional Commit message; do not wait for
-   a separate reminder. Do not commit known failing work unless the user
+6. After a feature/module is complete and its checks pass, run the **Feature
+   completion gate** (high-model `@codex`/`@claude` review → fix until no
+   blocker/major issues → commit → merge into `main` →
+   `./scripts/desktop-rebuild.sh`). Do not skip review or leave finished work
+   only on a side branch. Do not commit known failing work unless the user
    explicitly requests a checkpoint.
 
 ## Go conventions
@@ -131,10 +134,51 @@ make test
   and narrow widths when browser tooling is available.
 - Report any check that could not run, including the reason and residual risk.
 
+## Feature completion gate
+
+After a **feature or user-visible change set** is implemented and its relevant
+checks pass, do **not** stop at self-review. Finish with this gate in order:
+
+1. **High-model automated review.** Invoke a sub-agent with an advanced model
+   (`@codex` or `@claude`, preferring the highest available tier such as
+   Codex high / Claude Opus-class) to review the full diff and nearby call
+   sites. Ask for correctness, regressions, security, missing tests, API/UI
+   contract drift, and residual risk. Prefer a structured severity report
+   (`blocker` / `major` / `nit`).
+2. **Fix review findings.** Address every `blocker` and `major` item. Re-run
+   the relevant tests/build. Request another review pass after material fixes.
+   Repeat until the latest review reports **no blocker or major issues**.
+   Nits may be fixed in the same pass or deferred with an explicit note in the
+   commit body / handoff.
+3. **Commit.** Create atomic Conventional Commit(s) for the reviewed work (and
+   `web/dist/` when the shipped console changed). Do not commit known-failing
+   work.
+4. **Merge into `main`.** Integrate the finished work into the repository
+   `main` branch (fast-forward or merge from the task/work branch as
+   appropriate). Do not leave a completed feature only on a side branch.
+   Push to `origin` only when the user or release process requires it; local
+   `main` must still contain the merge.
+5. **Repackage desktop.** Run `./scripts/desktop-rebuild.sh` (or
+   `make desktop-rebuild`) so the Electron shell picks up the new UI embed and
+   `kin` binary. Report rebuild failures and residual risk if the script cannot
+   run in the current environment.
+
+Scope notes:
+
+- Apply this gate to coherent feature/fix deliveries, not to every tiny
+  exploratory edit mid-iteration.
+- Docs-only or pure chore changes may skip desktop rebuild when no binary or
+  UI embed changed; still commit (and merge to `main` when that was the goal).
+- If sub-agent review is unavailable, say so explicitly, fall back to a
+  thorough self-review checklist, and list residual risk—do not silently skip
+  the rest of the gate (commit / merge / rebuild).
+
 ## Git discipline
 
-- **Done means committed:** when a coherent unit of work is finished and
-  verified, commit it in the same session with a clear message.
+- **Done means reviewed, committed, merged, and rebuilt:** when a coherent
+  feature is finished and verified, complete the Feature completion gate in the
+  same session (high-model review, fix majors, commit, merge to `main`,
+  `./scripts/desktop-rebuild.sh` when binary/UI changed).
 - Use atomic Conventional Commit messages such as `feat(api): ...`,
   `fix(provider): ...`, `test(task): ...`, and `docs: ...`. Subject in
   imperative mood; add a body for non-obvious motivation or tradeoffs.
@@ -146,6 +190,11 @@ make test
   as an immediately adjacent `build(web)` commit.
 - Do not amend commits created by another person or agent. Do not rebase shared
   branches, force-push, or push to a remote unless explicitly requested.
+- Merge finished feature/task branches into local `main` as part of the
+  Feature completion gate. Push to `origin` only when explicitly requested or
+  required by the release process.
+- After a UI or daemon change lands on `main`, run `./scripts/desktop-rebuild.sh`
+  (or `make desktop-rebuild`) so desktop picks up the new embed and binary.
 - End with a clean working tree when all visible files are in scope. Otherwise,
   list every intentional uncommitted or ignored exception.
 
