@@ -112,6 +112,9 @@ export default function AgentsPage() {
         cacheRead: number;
         cacheEligible: number;
         input: number;
+        output: number;
+        requests: number;
+        reasoning: number;
         statuses: Set<string>;
       }
     >();
@@ -123,6 +126,9 @@ export default function AgentsPage() {
         cacheRead: 0,
         cacheEligible: 0,
         input: 0,
+        output: 0,
+        requests: 0,
+        reasoning: 0,
         statuses: new Set<string>(),
       };
       cur.tasks += r.tasks;
@@ -131,6 +137,9 @@ export default function AgentsPage() {
       cur.cacheRead += r.cache_read_tokens;
       cur.cacheEligible += r.cache_eligible_input_tokens;
       cur.input += r.tokens_in;
+      cur.output += r.tokens_out;
+      cur.requests += r.request_count;
+      cur.reasoning += r.reasoning_output_tokens;
       cur.statuses.add(r.cache_status);
       m.set(r.agent, cur);
     }
@@ -419,6 +428,38 @@ export default function AgentsPage() {
                             </span>
                             <span className="tabular-nums">{formatTokenCount(usage.tokens)}</span>
                           </div>
+                          {usage.tasks > 0 ? (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-kin-muted">
+                              <EffStat
+                                value={formatCost(usage.cost / usage.tasks)}
+                                label={tr("agents.effCostPerTask")}
+                              />
+                              <EffStat
+                                value={formatTokenCount(usage.tokens / usage.tasks)}
+                                label={tr("agents.effTokensPerTask")}
+                              />
+                              <EffStat
+                                value={pct(
+                                  usage.cacheEligible > 0
+                                    ? usage.cacheRead / usage.cacheEligible
+                                    : null,
+                                )}
+                                label={tr("agents.effCache")}
+                              />
+                              <EffStat
+                                value={(usage.requests / usage.tasks).toFixed(1)}
+                                label={tr("agents.effReqPerTask")}
+                              />
+                              <EffStat
+                                value={pct(usage.tokens > 0 ? usage.output / usage.tokens : null)}
+                                label={tr("agents.effOutputShare")}
+                              />
+                              <EffStat
+                                value={pct(usage.output > 0 ? usage.reasoning / usage.output : null)}
+                                label={tr("agents.effReasoning")}
+                              />
+                            </div>
+                          ) : null}
                           {spendProgress && limitStatus?.limit_spend_usd != null && (
                             <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
                               <span className="w-24 h-1.5 rounded-full bg-[var(--kin-fill)] overflow-hidden shrink-0">
@@ -544,6 +585,22 @@ export default function AgentsPage() {
       </div>
     </div>
   );
+}
+
+/** One compact "value label" efficiency stat in an agent row. */
+function EffStat({ value, label }: { value: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className="tabular-nums font-medium text-kin-secondary">{value}</span>
+      {label}
+    </span>
+  );
+}
+
+/** Format a 0..1 ratio as a rounded percent, or "—" when not available. */
+function pct(x: number | null): string {
+  if (x == null || Number.isNaN(x)) return "—";
+  return `${Math.round(x * 100)}%`;
 }
 
 function aggregateCacheStatus(statuses: Set<string>): CacheStatus {
