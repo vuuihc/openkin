@@ -813,7 +813,9 @@ func (e *Engine) startOne(id string) {
 		ID:             t.ID,
 		Agent:          t.Agent,
 		Cwd:            t.EffectiveCwd(),
-		Prompt:         t.Prompt,
+		// Language policy is runtime-only: store keeps the raw user prompt;
+		// adapters receive a wrapped copy so Claude Code / etc. match the user.
+		Prompt:         withReplyLanguage(t.Prompt, UserTurnPrompt(t.Prompt)),
 		Model:          model,
 		SessionRef:     sessionRef,
 		PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),

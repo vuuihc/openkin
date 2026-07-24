@@ -332,3 +332,52 @@ func TestBuildUserFacingSummaryLanguageAndFallback(t *testing.T) {
 		})
 	}
 }
+
+func TestWithReplyLanguageHostAndIdempotent(t *testing.T) {
+	zh := withReplyLanguage("请修复登录问题", "请修复登录问题")
+	if !strings.Contains(zh, replyLanguageInstruction(responseLanguageChinese)) {
+		t.Fatalf("chinese policy missing: %q", zh)
+	}
+	if !strings.HasPrefix(zh, "请修复登录问题") {
+		t.Fatalf("live turn should stay first: %q", zh)
+	}
+	// Idempotent: wrapping twice must not duplicate.
+	zh2 := withReplyLanguage(zh, "请修复登录问题")
+	if zh2 != zh {
+		t.Fatalf("second wrap changed prompt:\n1: %q\n2: %q", zh, zh2)
+	}
+
+	en := withReplyLanguage("Fix the login bug", "Fix the login bug")
+	if !strings.Contains(en, replyLanguageInstruction(responseLanguageEnglish)) {
+		t.Fatalf("english policy missing: %q", en)
+	}
+
+	// Explicit override wins over Han detection.
+	override := withReplyLanguage("请修复登录问题，用英文回答", "请修复登录问题，用英文回答")
+	if !strings.Contains(override, replyLanguageInstruction(responseLanguageEnglish)) {
+		t.Fatalf("explicit english override missing: %q", override)
+	}
+	if strings.Contains(override, replyLanguageInstruction(responseLanguageChinese)) {
+		t.Fatalf("should not also inject chinese: %q", override)
+	}
+
+	// Detection uses live turn only — English wrapper + Chinese live → Chinese.
+	handoff := "Continue this Kin task.\n\nUser request:\n请继续"
+	wrapped := withReplyLanguage(handoff, "请继续")
+	if !strings.Contains(wrapped, replyLanguageInstruction(responseLanguageChinese)) {
+		t.Fatalf("handoff should follow live Chinese turn: %q", wrapped)
+	}
+}
+
+func TestBuildWorkerBriefIncludesReplyLanguage(t *testing.T) {
+	plan := DelegatePlan{Raw: "请调研登录失败原因"}
+	step := DelegateStep{Agent: "claude-code", Instruction: "查日志"}
+	got := buildWorkerBrief(plan, step, nil, 1, 1)
+	if !strings.Contains(got, replyLanguageInstruction(responseLanguageChinese)) {
+		t.Fatalf("worker brief missing chinese policy:\n%s", got)
+	}
+	if !strings.Contains(got, "Respond now with findings only.") {
+		t.Fatalf("worker brief missing findings rule:\n%s", got)
+	}
+}
+

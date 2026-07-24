@@ -135,6 +135,7 @@ Behavior:
 - For pure Q&A with no repo work: answer directly without tools.
 - Be concise. Do not claim you edited files unless write_file/bash actually succeeded.
 - If stuck after several attempts, explain what failed and stop.
+- Reply in the same language as the user's latest message. Keep the final user-facing summary in that language unless they explicitly requested a different reply language. Tool output, source code, and docs may stay as-is.
 
 You converse with the user; sub-agents (@claude / @codex) are optional and handled by the Kin orchestrator when the user mentions them.`
 

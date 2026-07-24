@@ -84,6 +84,18 @@ export function markSessionViewed(taskId: string, at = Date.now()): void {
   writeMap(map);
 }
 
+/**
+ * Clear viewed state so a re-run of the same session can show the green
+ * completion dot again after the next terminal success.
+ */
+export function clearSessionViewed(taskId: string): void {
+  if (!taskId) return;
+  const map = readMap();
+  if (map[taskId] == null) return;
+  delete map[taskId];
+  writeMap(map);
+}
+
 /** Snapshot for pure helpers / tests. */
 export function getViewedSessionIds(): string[] {
   return Object.keys(readMap());

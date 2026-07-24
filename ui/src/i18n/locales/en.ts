@@ -31,6 +31,9 @@ const en: MessageTree = {
     archivedProjects: "Archived",
     archivedEmpty: "No archived projects",
     openCover: "One-Pager cover",
+    searchSessions: "Search sessions…",
+    searchEmpty: "No sessions match “{query}”",
+    searchHint: "Searching all sessions",
     archiveConfirm: "Remove “{project}” from the sidebar? Tasks are kept and can be restored anytime.",
   },
   home: {

@@ -92,8 +92,10 @@ export class Notifier {
     const n = new Notification({
       title,
       body,
-      silent: true, // quieter than approvals
-      urgency: "low",
+      // Audible: silent+low was effectively invisible on macOS when Kin is
+      // frontmost / banners are brief. Still lower urgency than approvals.
+      silent: false,
+      urgency: "normal",
     });
     n.on("click", () => {
       this.cb.openTask(t.id);

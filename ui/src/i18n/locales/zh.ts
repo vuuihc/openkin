@@ -29,6 +29,9 @@ const zh = {
     archivedProjects: "已归档",
     archivedEmpty: "没有已归档的项目",
     openCover: "项目封面（One-Pager）",
+    searchSessions: "搜索会话…",
+    searchEmpty: "没有匹配「{query}」的会话",
+    searchHint: "搜索全部会话",
     archiveConfirm: "将「{project}」从侧栏移除？任务不会删除，可随时恢复。",
   },
   home: {

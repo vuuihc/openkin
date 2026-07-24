@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getViewedSessionIds,
   isSessionViewed,
+  clearSessionViewed,
   markSessionViewed,
   sessionStatusDotClass,
 } from "./sessionViewed";
@@ -60,5 +61,18 @@ describe("markSessionViewed / isSessionViewed", () => {
     // second mark is a no-op (does not throw / change id list)
     markSessionViewed("t1", 2000);
     expect(getViewedSessionIds()).toEqual(["t1"]);
+  });
+});
+
+describe("clearSessionViewed", () => {
+  it("removes viewed so the green dot can return", () => {
+    markSessionViewed("t1", 1000);
+    expect(isSessionViewed("t1")).toBe(true);
+    clearSessionViewed("t1");
+    expect(isSessionViewed("t1")).toBe(false);
+    expect(getViewedSessionIds()).toEqual([]);
+    // no-op when already clear
+    clearSessionViewed("t1");
+    expect(isSessionViewed("t1")).toBe(false);
   });
 });

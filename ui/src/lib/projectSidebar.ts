@@ -263,10 +263,10 @@ export function groupByProject(
     if (onlyArchived && !archived) continue;
     if (!onlyArchived && !includeArchived && archived) continue;
 
+    // Keep full sorted list; Sidebar ProjectBlock collapses to a preview + scroll.
     const sortedItems = items
       .slice()
-      .sort((a, b) => taskActivityAt(b) - taskActivityAt(a) || b.created_at - a.created_at)
-      .slice(0, 8);
+      .sort((a, b) => taskActivityAt(b) - taskActivityAt(a) || b.created_at - a.created_at);
     let lastTask = 0;
     let created = Number.POSITIVE_INFINITY;
     for (const t of items) {

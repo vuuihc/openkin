@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -13,6 +14,7 @@ import {
   type Task,
 } from "../../api/client";
 import { DRAFT_PATH, setDraftCwd, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
+import { clearSessionViewed } from "../../lib/sessionViewed";
 import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { subscribeWS, useAppStore } from "../../store/appStore";
@@ -44,6 +46,10 @@ export default function AppShell({ children, pendingCount }: Props) {
   const desktop = isKinDesktop();
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchQueryRef = useRef("");
+  searchQueryRef.current = searchQuery;
+  const [searchLoading, setSearchLoading] = useState(false);
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -91,13 +97,22 @@ export default function AppShell({ children, pendingCount }: Props) {
     [location.pathname, navigate, pushToast, tr],
   );
 
-  const loadTasks = useCallback(async () => {
+  const tasksFetchSeq = useRef(0);
+  const loadTasks = useCallback(async (q?: string) => {
     if (!getToken()) return;
+    const query = (q ?? "").trim();
+    const seq = ++tasksFetchSeq.current;
     try {
-      const list = await listTasks({ limit: 100 });
+      if (query) setSearchLoading(true);
+      const list = await listTasks(
+        query ? { limit: 200, q: query } : { limit: 100 },
+      );
+      if (seq !== tasksFetchSeq.current) return; // stale response
       setTasks(list);
     } catch {
       // best-effort sidebar
+    } finally {
+      if (seq === tasksFetchSeq.current) setSearchLoading(false);
     }
   }, []);
 
@@ -113,21 +128,51 @@ export default function AppShell({ children, pendingCount }: Props) {
   }, []);
 
   useEffect(() => {
-    void loadTasks();
     void loadUsage();
-  }, [loadTasks, loadUsage]);
+  }, [loadUsage]);
 
   useEffect(() => {
     if (reconnectGen === 0) return;
-    void loadTasks();
+    void loadTasks(searchQueryRef.current);
   }, [reconnectGen, loadTasks]);
 
+  // Debounced session list load. Empty q = recent 100; non-empty = full-library search.
   useEffect(() => {
+    if (!getToken()) return;
+    const q = searchQuery.trim();
+    if (!q) {
+      void loadTasks();
+      return;
+    }
+    setSearchLoading(true);
+    const t = window.setTimeout(() => {
+      void loadTasks(q);
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [searchQuery, loadTasks]);
+
+  useEffect(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const matches = (task: Task) => {
+      if (!q) return true;
+      const hay = [task.title, task.prompt, task.cwd, task.agent, task.id]
+        .filter(Boolean)
+        .join("\n")
+        .toLowerCase();
+      return hay.includes(q);
+    };
     return subscribeWS((msg) => {
       if (msg.kind === "task_update") {
         const t = msg.data as Task;
+        // Re-run / follow-up: allow the green completion dot to return.
+        if (t.status === "running" || t.status === "queued") {
+          clearSessionViewed(t.id);
+        }
         setTasks((prev) => {
           const rest = prev.filter((x) => x.id !== t.id);
+          if (q && !matches(t)) {
+            return rest;
+          }
           return [t, ...rest].sort((a, b) => b.created_at - a.created_at);
         });
         return;
@@ -138,7 +183,7 @@ export default function AppShell({ children, pendingCount }: Props) {
         setTasks((prev) => prev.filter((x) => x.id !== data.id));
       }
     });
-  }, []);
+  }, [searchQuery]);
 
   // Subscribe to draft cwd changes
   useEffect(() => {
@@ -203,6 +248,9 @@ export default function AppShell({ children, pendingCount }: Props) {
         onDeleteSession={(task) => void handleDeleteSession(task)}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        searchLoading={searchLoading}
       />
 
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">

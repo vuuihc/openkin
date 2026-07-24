@@ -249,11 +249,55 @@ func lastExplicitResponseLanguage(prompt string) (responseLanguage, bool) {
 	return responseLanguageEnglish, true
 }
 
+// synthesisLanguageInstruction is the short control-plane line used by host
+// synthesis prompts (and recognized by responseLanguageForPrompt).
 func synthesisLanguageInstruction(lang responseLanguage) string {
+	return replyLanguageInstruction(lang)
+}
+
+// replyLanguageInstruction is the engine-wide user-facing language policy.
+// Appended to host single-agent prompts and worker briefs so Claude Code /
+// Codex / Kin all reply in the live user turn's language by default.
+func replyLanguageInstruction(lang responseLanguage) string {
 	if lang == responseLanguageChinese {
-		return "Respond directly to the user in Chinese."
+		return "Respond directly to the user in Chinese. Keep the final user-facing summary in Chinese unless they explicitly requested a different reply language. Tool output, source code, and docs may stay as-is."
 	}
-	return "Respond directly to the user in English."
+	return "Respond directly to the user in English. Keep the final user-facing summary in English unless they explicitly requested a different reply language. Tool output, source code, and docs may stay as-is."
+}
+
+// withReplyLanguage appends the language policy once. Detection uses only the
+// live user turn (UserTurnPrompt) so handoff wrappers and prior context do not
+// flip the language. Safe to call on already-wrapped prompts.
+func withReplyLanguage(prompt, liveUserTurn string) string {
+	prompt = strings.TrimRight(prompt, " \t\r\n")
+	if prompt == "" {
+		return prompt
+	}
+	lang := responseLanguageForPrompt(liveUserTurn)
+	instr := replyLanguageInstruction(lang)
+	if strings.Contains(prompt, instr) {
+		return prompt
+	}
+	// Drop a previously injected short/long instruction so re-wrap stays clean.
+	for _, stale := range []string{
+		replyLanguageInstruction(responseLanguageChinese),
+		replyLanguageInstruction(responseLanguageEnglish),
+		"Respond directly to the user in Chinese.",
+		"Respond directly to the user in English.",
+	} {
+		if stale == instr {
+			continue
+		}
+		if i := strings.LastIndex(prompt, "\n\n"+stale); i >= 0 && i+2+len(stale) == len(prompt) {
+			prompt = strings.TrimRight(prompt[:i], " \t\r\n")
+		} else if strings.HasSuffix(prompt, stale) {
+			prompt = strings.TrimRight(prompt[:len(prompt)-len(stale)], " \t\r\n")
+		}
+	}
+	if strings.HasSuffix(prompt, instr) {
+		return prompt
+	}
+	return prompt + "\n\n" + instr
 }
 
 // cleanUserFacingSynthesis removes control-plane labels and recoverability
