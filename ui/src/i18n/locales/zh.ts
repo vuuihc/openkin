@@ -106,12 +106,12 @@ const zh = {
   modelPicker: {
     label: "模型",
     default: "默认",
-    defaultHint: "使用 agent CLI 默认模型",
+    defaultHint: "使用 Agent 或 Provider 默认模型",
     sessionHint: "对下一轮生效",
     custom: "自定义模型…",
     customLabel: "自定义模型 ID",
     customPlaceholder: "模型 ID 或别名",
-    defaultOnly: "仅 Agent 默认模型",
+    defaultOnly: "仅 Agent/Provider 默认模型",
     source: {
       configured: "已配置",
       discovered: "已发现",

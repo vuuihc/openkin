@@ -600,7 +600,8 @@ func friendlyErrorMessage(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "timed out"
 	}
-	s := strings.ToLower(err.Error())
+	raw := err.Error()
+	s := strings.ToLower(raw)
 	switch {
 	case strings.Contains(s, "context canceled"),
 		strings.Contains(s, "context cancelled"),
@@ -612,9 +613,29 @@ func friendlyErrorMessage(err error) string {
 	case strings.Contains(s, "context deadline exceeded"),
 		strings.Contains(s, "client.timeout"):
 		return "timed out"
+	case looksLikeUnknownModelErr(s):
+		return raw + "\n\nHint: Kin uses the Cognition provider model from Settings, not the host Agent's model. " +
+			"Set provider.model to a model your endpoint supports, or delegate with @kin[model-id]."
 	default:
-		return err.Error()
+		return raw
 	}
+}
+
+func looksLikeUnknownModelErr(s string) bool {
+	if strings.Contains(s, "model") && (strings.Contains(s, "does not exist") ||
+		strings.Contains(s, "not found") ||
+		strings.Contains(s, "not have access") ||
+		strings.Contains(s, "unknown model") ||
+		strings.Contains(s, "invalid model") ||
+		strings.Contains(s, "model_not_found")) {
+		return true
+	}
+	// Common proxy shape: HTTP 404 + not-found code around chat/completions.
+	if strings.Contains(s, "provider http 404") && (strings.Contains(s, "not-found") ||
+		strings.Contains(s, "not found") || strings.Contains(s, "model")) {
+		return true
+	}
+	return false
 }
 
 func emitErr(ch chan<- adapter.Event, msg string) {

@@ -119,6 +119,29 @@ func (c ModelCatalog) Normalize(agent, freeText string) (string, bool) {
 	return "", false
 }
 
+// TierOf returns the tier of a model id/alias for the given agent, or "".
+func (c ModelCatalog) TierOf(agent, freeText string) ModelTier {
+	id, ok := c.Normalize(agent, freeText)
+	if !ok {
+		id = strings.TrimSpace(freeText)
+	}
+	if id == "" {
+		return ""
+	}
+	q := normText(id)
+	for _, s := range c[agent] {
+		if normText(s.ID) == q {
+			return s.Tier
+		}
+		for _, a := range s.Aliases {
+			if normText(a) == q {
+				return s.Tier
+			}
+		}
+	}
+	return ""
+}
+
 // PickByTier returns the catalog model for agent at the requested tier.
 // Falls back to the nearest available tier (smart→balanced→fast and back) so a
 // preference always resolves to something the agent can run.

@@ -158,11 +158,53 @@ func (d ModelDirective) resolveModel(agent string, planner bool, cat ModelCatalo
 	return ""
 }
 
+// normalizeOrRaw maps free text to a catalog id for agent.
+// Unknown names pass through only when they look like concrete model ids
+// (contain a provider-style separator or a long enough id). Short aliases
+// like "opus" that only exist on another agent must not leak across agents.
 func normalizeOrRaw(cat ModelCatalog, agent, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
 	if id, ok := cat.Normalize(agent, raw); ok {
 		return id
 	}
-	return raw
+	// Cross-agent alias leakage guard: bare short tokens that fail Normalize
+	// for this agent are dropped so callers fall through to adapter defaults.
+	// Explicit full ids (with / or long dotted names) still pass through.
+	if looksLikeConcreteModelID(raw) {
+		return raw
+	}
+	return ""
+}
+
+func looksLikeConcreteModelID(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	// provider/model or org/model paths
+	if strings.Contains(s, "/") {
+		return true
+	}
+	hasSep := strings.ContainsAny(s, "-._")
+	hasDigit := false
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			hasDigit = true
+			break
+		}
+	}
+	// "gpt-5.5", "o4-mini", "grok-4", "claude-opus-4-8" — keep.
+	// Bare aliases like "opus"/"sonnet"/"haiku"/"max" — drop.
+	if hasSep && hasDigit {
+		return true
+	}
+	if hasSep && len(s) >= 10 {
+		return true
+	}
+	return false
 }
 
 // ApplyTo fills each step's Model where empty, honoring precedence. Steps that

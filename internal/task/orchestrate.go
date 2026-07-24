@@ -913,10 +913,11 @@ func effectiveStepModel(t store.Task, step DelegateStep) string {
 		}
 		return m
 	}
-	// Same-agent model-switch workers always carry an explicit model; do not
-	// fall back to the host task model for those (would defeat the switch).
-	// Cross-agent workers without a model still inherit the task selection.
-	if t.Model != nil {
+	// Same-agent only: host model may apply (model-switch workers always set
+	// step.Model explicitly; this covers residual same-agent steps).
+	// Cross-agent workers must NOT inherit the host model — Claude aliases
+	// like "opus" are invalid on Kin/provider and other backends.
+	if step.Agent == t.Agent && t.Model != nil {
 		return strings.TrimSpace(*t.Model)
 	}
 	return ""

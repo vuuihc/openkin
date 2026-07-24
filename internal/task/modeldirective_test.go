@@ -144,3 +144,22 @@ func TestBuildRoleSplitPlan(t *testing.T) {
 		t.Fatalf("agents=%q/%q", plan.Steps[0].Agent, plan.Steps[1].Agent)
 	}
 }
+
+func TestNormalizeOrRawDropsShortCrossAgentAlias(t *testing.T) {
+	cat := BuiltinCatalog()
+	// "opus" is a Claude alias; must not pass through for kin.
+	if got := normalizeOrRaw(cat, "kin", "opus"); got != "" {
+		t.Fatalf("kin+opus = %q want empty", got)
+	}
+	// Same alias normalizes for claude-code.
+	if got := normalizeOrRaw(cat, "claude-code", "opus"); got != "claude-opus-4-8" {
+		t.Fatalf("claude opus = %q", got)
+	}
+	// Explicit full ids still pass for unknown agents/catalog gaps.
+	if got := normalizeOrRaw(cat, "kin", "provider/my-model"); got != "provider/my-model" {
+		t.Fatalf("concrete id = %q", got)
+	}
+	if got := normalizeOrRaw(cat, "codex", "gpt-5.5"); got != "gpt-5.5" {
+		t.Fatalf("gpt-5.5 = %q", got)
+	}
+}

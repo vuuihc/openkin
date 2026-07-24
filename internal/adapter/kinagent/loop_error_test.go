@@ -28,6 +28,13 @@ func TestFriendlyErrorMessageCanceled(t *testing.T) {
 		},
 		{"deadline", context.DeadlineExceeded, "timed out"},
 		{"other", errors.New("provider HTTP 500 boom"), "provider HTTP 500 boom"},
+		{
+			"unknown model 404",
+			errors.New(`provider HTTP 404 (https://grok-proxy.example.com/v1/chat/completions): {"code":"not-found","error":"The model opus does not exist or your team does not have access to it."}`),
+			`provider HTTP 404 (https://grok-proxy.example.com/v1/chat/completions): {"code":"not-found","error":"The model opus does not exist or your team does not have access to it."}` +
+				"\n\nHint: Kin uses the Cognition provider model from Settings, not the host Agent's model. " +
+				"Set provider.model to a model your endpoint supports, or delegate with @kin[model-id].",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

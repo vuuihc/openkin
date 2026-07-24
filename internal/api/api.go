@@ -1209,6 +1209,12 @@ func applyAgentModelList(info *AgentInfo) {
 		info.Models = nil
 		info.ModelListSource = "none"
 		info.ModelListStatus = "default_only"
+	case "kin":
+		// Kin runs on the Cognition provider; model comes from Settings
+		// (provider.model), not Claude-style short aliases.
+		info.Models = nil
+		info.ModelListSource = "none"
+		info.ModelListStatus = "default_only"
 	default:
 		info.ModelListSource = "none"
 		info.ModelListStatus = "unavailable"

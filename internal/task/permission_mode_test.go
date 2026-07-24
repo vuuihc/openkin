@@ -192,7 +192,7 @@ func TestOrchestratedWorkersReceivePerStepModels(t *testing.T) {
 	}
 }
 
-func TestOrchestratedWorkerModelFallsBackToTaskModel(t *testing.T) {
+func TestOrchestratedWorkerModelDoesNotInheritHostModel(t *testing.T) {
 	ctx := context.Background()
 	kinAd := &fakeAdapter{events: successEvents()}
 	codexAd := &fakeAdapter{events: successEvents()}
@@ -201,9 +201,11 @@ func TestOrchestratedWorkerModelFallsBackToTaskModel(t *testing.T) {
 	e.putAdapter("codex", codexAd)
 	e.SetDefaultAgentFn(func() string { return "kin" })
 
-	fallback := "gpt-fallback"
+	// Host model must not leak to a different worker agent (Claude/Kin aliases
+	// are invalid on other backends). Empty worker model → adapter default.
+	hostModel := "opus"
 	t1, err := e.Create(ctx, CreateRequest{
-		Agent: "kin", Cwd: "/tmp", Prompt: "@codex review it", Model: &fallback,
+		Agent: "kin", Cwd: "/tmp", Prompt: "@codex review it", Model: &hostModel,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +215,33 @@ func TestOrchestratedWorkerModelFallsBackToTaskModel(t *testing.T) {
 	codexAd.mu.Lock()
 	got := codexAd.lastSpec.Model
 	codexAd.mu.Unlock()
-	if got != fallback {
-		t.Fatalf("codex model=%q want fallback %q", got, fallback)
+	if got != "" {
+		t.Fatalf("codex model=%q want empty (adapter default), not host %q", got, hostModel)
+	}
+}
+
+func TestOrchestratedKinWorkerDoesNotInheritClaudeOpus(t *testing.T) {
+	ctx := context.Background()
+	claudeAd := &fakeAdapter{events: successEvents()}
+	kinAd := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, claudeAd)
+	e.putAdapter("claude-code", claudeAd)
+	e.putAdapter("kin", kinAd)
+	e.SetDefaultAgentFn(func() string { return "claude-code" })
+
+	opus := "opus"
+	t1, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "@kin compare with main", Model: &opus,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusSucceeded, 3*time.Second)
+
+	kinAd.mu.Lock()
+	got := kinAd.lastSpec.Model
+	kinAd.mu.Unlock()
+	if got != "" {
+		t.Fatalf("kin worker model=%q want empty (provider default), not inherited %q", got, opus)
 	}
 }

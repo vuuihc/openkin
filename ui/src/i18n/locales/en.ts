@@ -110,12 +110,12 @@ const en: MessageTree = {
   modelPicker: {
     label: "Model",
     default: "Default",
-    defaultHint: "Use the agent CLI default model",
+    defaultHint: "Use the agent or provider default model",
     sessionHint: "Applies to the next turn",
     custom: "Custom model…",
     customLabel: "Custom model ID",
     customPlaceholder: "Model ID or alias",
-    defaultOnly: "Agent default only",
+    defaultOnly: "Agent/provider default only",
     source: {
       configured: "Configured",
       discovered: "Discovered",

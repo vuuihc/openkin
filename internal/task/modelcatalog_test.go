@@ -66,3 +66,16 @@ func TestNormalizeTier(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogTierOf(t *testing.T) {
+	c := BuiltinCatalog()
+	if got := c.TierOf("claude-code", "opus"); got != TierSmart {
+		t.Fatalf("TierOf opus = %q want smart", got)
+	}
+	if got := c.TierOf("claude-code", "haiku"); got != TierFast {
+		t.Fatalf("TierOf haiku = %q want fast", got)
+	}
+	if got := c.TierOf("kin", "opus"); got != "" {
+		t.Fatalf("TierOf kin/opus = %q want empty", got)
+	}
+}
