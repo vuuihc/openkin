@@ -548,5 +548,12 @@ Detection sources:
 - error/result free text (`HTTP 429`, `usage limit`, `try again in …`)
 - Kin provider 429 via `emitErr` enrichment
 
-Timers are process-local (lost on daemon restart); the card remains and the user can still Continue manually.
+Timers are process-local; on daemon restart `Recover` re-arms waiting (and default-wait open) cards that still have `reset_at`.
+
+### Defaults & settings (follow-up)
+
+- Global setting `limit_policy`: `wait` (default) | `ask` | `switch`.
+- `limit_policy.fallback_agents`: optional JSON array for switch order.
+- On `limit_hit` with policy `wait`, engine auto-arms Wait without a click.
+- Start-time preflight uses `usagewindows` (Claude/Codex): if the window is already `over`, fail with `limit_hit` and skip launching the CLI.
 

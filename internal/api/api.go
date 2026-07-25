@@ -842,6 +842,8 @@ type settingsResponse struct {
 	ProviderStream   string `json:"provider.stream"`
 	ProviderActiveID string `json:"provider.active_id"`
 	AgentDefault     string `json:"agent.default"`
+	LimitPolicy      string `json:"limit_policy"`
+	LimitFallback    string `json:"limit_policy.fallback_agents"`
 	NetworkMode      string `json:"network_mode"`
 	ConnectURL       string `json:"connect_url"`
 	Token            string `json:"token"`
@@ -849,17 +851,19 @@ type settingsResponse struct {
 
 // Allowed settings keys for PUT (subset of store keys).
 var puttableSettings = map[string]bool{
-	"notify.bark_url":   true,
-	"notify.ntfy_topic": true,
-	"ui.base_url":       true,
-	"price_table":       true,
-	"agent_limits":      true,
-	"provider.kind":     true,
-	"provider.base_url": true,
-	"provider.api_key":  true,
-	"provider.model":    true,
-	"provider.stream":   true,
-	"agent.default":     true,
+	"notify.bark_url":              true,
+	"notify.ntfy_topic":            true,
+	"ui.base_url":                  true,
+	"price_table":                  true,
+	"agent_limits":                 true,
+	"provider.kind":                true,
+	"provider.base_url":            true,
+	"provider.api_key":             true,
+	"provider.model":               true,
+	"provider.stream":              true,
+	"agent.default":                true,
+	"limit_policy":                 true,
+	"limit_policy.fallback_agents": true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -933,6 +937,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		ProviderStream:   provStream,
 		ProviderActiveID: provActive,
 		AgentDefault:     get("agent.default"),
+		LimitPolicy:      firstNonEmpty(get(task.KeyLimitPolicy), task.LimitPolicyWait),
+		LimitFallback:    get(task.KeyLimitFallbackAgents),
 		NetworkMode:      s.NetworkMode,
 		ConnectURL:       connect,
 		Token:            tok,
@@ -1012,6 +1018,23 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			if _, err := store.ParseAgentLimits(v); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 				return
+			}
+		}
+		if k == task.KeyLimitPolicy {
+			v = task.NormalizeLimitPolicy(v)
+		}
+		if k == task.KeyLimitFallbackAgents {
+			v = strings.TrimSpace(v)
+			if v != "" && v != "[]" {
+				var ids []string
+				if err := json.Unmarshal([]byte(v), &ids); err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "limit_policy.fallback_agents must be a JSON array of agent ids"})
+					return
+				}
+				// Canonical compact form.
+				if b, err := json.Marshal(ids); err == nil {
+					v = string(b)
+				}
 			}
 		}
 		if k == "agent.default" {

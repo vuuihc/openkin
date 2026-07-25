@@ -1002,6 +1002,8 @@ export type Settings = {
   "provider.stream"?: string;
   "provider.active_id": string;
   "agent.default": string;
+  limit_policy?: string;
+  "limit_policy.fallback_agents"?: string;
   network_mode: string;
   connect_url: string;
   token: string;
@@ -1020,6 +1022,8 @@ export type SettingsUpdate = Partial<
     | "provider.api_key"
     | "provider.model"
     | "agent.default"
+    | "limit_policy"
+    | "limit_policy.fallback_agents"
   >
 > & {
   "provider.clear_api_key"?: string;

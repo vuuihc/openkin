@@ -598,6 +598,16 @@ const en: MessageTree = {
       save: "Save limits",
       invalidJson: "agent_limits must be valid JSON",
     },
+    limitPolicy: {
+      heading: "Rate-limit policy",
+      desc: "Default behavior when Claude / Codex hit subscription limits. Default is wait and auto-continue.",
+      wait: "Wait & auto-continue (recommended)",
+      ask: "Ask every time",
+      switch: "Auto-switch to another agent",
+      fallback: "Switch preference (JSON array)",
+      fallbackHint: 'e.g. ["codex","kin"]. Empty uses available agent order.',
+      save: "Save rate-limit policy",
+    },
   },
   palette: {
     title: "Command palette",

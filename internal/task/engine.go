@@ -116,6 +116,8 @@ type Engine struct {
 
 	// limitWaitCancel holds in-memory auto-continue timers after rate limits.
 	limitWaitCancel map[string]context.CancelFunc
+	// usageWindows optionally probes Claude/Codex subscription windows for preflight.
+	usageWindows UsageWindowProber
 
 	// defaultPreference optional; returns configured preferred agent id only.
 	// Readiness/fallback is owned by the registry.
@@ -312,6 +314,8 @@ func (e *Engine) Recover(ctx context.Context) error {
 			e.bus.PublishTask(t)
 		}
 	}
+	// Re-arm Wait timers for failed tasks left in limit waiting state.
+	e.recoverLimitWaits(ctx)
 	return nil
 }
 
@@ -841,6 +845,32 @@ func (e *Engine) startOne(id string) {
 		Execution:      execRef,
 	}
 
+	// Preflight: if subscription window is already exhausted, fail with limit_hit
+	// instead of starting a doomed CLI process.
+	if info, blocked := e.preflightUsageLimit(ctx, t.Agent); blocked {
+		payload, _ := json.Marshal(map[string]any{
+			"kind":     adapter.RateLimitKind,
+			"message":  info.Message,
+			"provider": info.Provider,
+			"agent":    t.Agent,
+			"reset_at": info.ResetAt,
+			"window":   info.Window,
+			"source":   "usage_window",
+		})
+		if w := e.eventWriter(); w != nil {
+			if ev, err := w.AppendEvent(ctx, id, "error", payload); err == nil {
+				e.bus.PublishEvent(ev)
+			}
+		}
+		_, _ = e.finish(ctx, id, StatusFailed, nil, nil)
+		e.handleNewLimitHit(ctx, id, t.Agent, info)
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
+
 	h, err := ad.Start(ctx, spec)
 	if err != nil {
 		_, _ = e.failStart(ctx, id, err.Error())
@@ -861,7 +891,9 @@ func (e *Engine) startOne(id string) {
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
-	payload, _ := json.Marshal(map[string]string{"message": msg})
+	m := map[string]any{"message": msg}
+	m = adapter.EnrichErrorPayload(m)
+	payload, _ := json.Marshal(m)
 	if w := e.eventWriter(); w != nil {
 		ev, err := w.AppendEvent(ctx, id, "error", payload)
 		if err == nil {
@@ -869,6 +901,13 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 		}
 	}
 	t, err := e.finish(ctx, id, StatusFailed, nil, nil)
+	if info, ok := adapter.DetectRateLimitPayload(payload); ok {
+		agentID := ""
+		if err == nil {
+			agentID = t.Agent
+		}
+		e.handleNewLimitHit(ctx, id, agentID, info)
+	}
 	e.mu.Lock()
 	e.active--
 	delete(e.handles, id)
@@ -1069,15 +1108,21 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		exitCode = ec.ExitCode()
 	}
 	// Surface rate-limit cards before finishing so UI sees them with the failed status.
+	agentID := ""
+	if t, err := e.store.GetTask(ctx, id); err == nil {
+		agentID = t.Agent
+	}
 	if final == StatusFailed {
-		agentID := ""
-		if t, err := e.store.GetTask(ctx, id); err == nil {
-			agentID = t.Agent
-		}
 		e.scanAndEmitLimitHit(ctx, id, agentID)
 	}
 	e.clearPersistTracking(id)
 	_, _ = e.finish(ctx, id, final, exitCode, nil)
+	// After failed finish, apply default wait/switch policy on the open limit card.
+	if final == StatusFailed {
+		if info, _, ok := e.latestOpenLimitHit(ctx, id); ok {
+			e.applyLimitPolicy(ctx, id, agentID, info)
+		}
+	}
 	e.pump()
 }
 

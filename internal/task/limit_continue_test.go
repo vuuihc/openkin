@@ -36,7 +36,7 @@ func (a *multiRunAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (ada
 					"message":  "You've hit your usage limit. Try again in 1 minutes.",
 					"kind":     "rate_limited",
 					"provider": "claude",
-					"reset_at": time.Now().Add(30 * time.Second).Unix(),
+					"reset_at": time.Now().Add(200 * time.Millisecond).Unix(),
 				}),
 			}
 			ch <- adapter.Event{
@@ -70,6 +70,13 @@ func mustJSON(v any) json.RawMessage {
 	return b
 }
 
+func setLimitPolicy(t *testing.T, e *Engine, policy string) {
+	t.Helper()
+	if err := e.store.SetSetting(context.Background(), KeyLimitPolicy, policy); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func limitTestEngine(t *testing.T, adapters map[string]adapter.Adapter) *Engine {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
@@ -88,6 +95,7 @@ func limitTestEngine(t *testing.T, adapters map[string]adapter.Adapter) *Engine 
 func TestLimitHitEmittedOnRateLimit(t *testing.T) {
 	ad := &multiRunAdapter{}
 	e := limitTestEngine(t, map[string]adapter.Adapter{"claude-code": ad})
+	setLimitPolicy(t, e, LimitPolicyAsk)
 	ctx := context.Background()
 
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "do work"})
@@ -121,6 +129,7 @@ func TestLimitHitEmittedOnRateLimit(t *testing.T) {
 func TestLimitContinueContinueRetries(t *testing.T) {
 	ad := &multiRunAdapter{}
 	e := limitTestEngine(t, map[string]adapter.Adapter{"claude-code": ad})
+	setLimitPolicy(t, e, LimitPolicyAsk)
 	ctx := context.Background()
 
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "do work"})
@@ -154,6 +163,7 @@ func TestLimitContinueSwitchHandoff(t *testing.T) {
 		"claude-code": ad,
 		"codex":       codex,
 	})
+	setLimitPolicy(t, e, LimitPolicyAsk)
 	ctx := context.Background()
 
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "do work"})
@@ -178,6 +188,7 @@ func TestLimitContinueSwitchHandoff(t *testing.T) {
 func TestLimitContinueWaitArmsTimer(t *testing.T) {
 	ad := &multiRunAdapter{}
 	e := limitTestEngine(t, map[string]adapter.Adapter{"claude-code": ad})
+	// Default policy is wait: auto-arm on failure using reset_at from the error.
 	ctx := context.Background()
 
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "do work"})
@@ -186,15 +197,10 @@ func TestLimitContinueWaitArmsTimer(t *testing.T) {
 	}
 	_ = waitStatus(t, e, task.ID, StatusFailed, 3*time.Second)
 
-	// reset in the past so grace (2s) alone governs the wait.
-	resetAt := time.Now().Add(-1 * time.Second).Unix()
-	if _, err := e.LimitContinue(ctx, task.ID, LimitContinueRequest{Action: "wait", ResetAt: resetAt}); err != nil {
-		t.Fatal(err)
-	}
-
-	final := waitStatus(t, e, task.ID, StatusSucceeded, 6*time.Second)
+	// Auto-continue: short reset_at (~200ms) + 2s grace.
+	final := waitStatus(t, e, task.ID, StatusSucceeded, 8*time.Second)
 	if final.Status != StatusSucceeded {
-		t.Fatalf("status=%s after wait auto-continue", final.Status)
+		t.Fatalf("status=%s after default wait auto-continue", final.Status)
 	}
 	if ad.calls < 2 {
 		t.Fatalf("calls=%d", ad.calls)
@@ -204,6 +210,7 @@ func TestLimitContinueWaitArmsTimer(t *testing.T) {
 func TestLimitContinueDismiss(t *testing.T) {
 	ad := &multiRunAdapter{}
 	e := limitTestEngine(t, map[string]adapter.Adapter{"claude-code": ad})
+	setLimitPolicy(t, e, LimitPolicyAsk)
 	ctx := context.Background()
 
 	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "do work"})

@@ -591,6 +591,16 @@ const zh = {
       save: "保存上限",
       invalidJson: "agent_limits 必须是合法的 JSON",
     },
+    limitPolicy: {
+      heading: "限流策略",
+      desc: "Claude / Codex 额度用尽时的默认行为。默认等待恢复后自动继续。",
+      wait: "等待并自动继续（推荐）",
+      ask: "每次询问",
+      switch: "自动切换到其他 agent",
+      fallback: "切换优先顺序（JSON 数组）",
+      fallbackHint: '例如 ["codex","kin"]。留空则按可用 agent 顺序。',
+      save: "保存限流策略",
+    },
   },
   palette: {
     title: "命令面板",
