@@ -1,4 +1,6 @@
-# Kin MVP Tech Spec
+# OpenKin MVP Tech Spec
+
+**Project / brand:** OpenKin · **Product subject:** Kin · **CLI:** `kin` (alias: `ok`)
 
 **Status:** v0.1 — implementation contract for the MVP (the agent console)  
 **Audience:** the implementing engineer/agent. Follow this document literally. Where it says MUST/MUST NOT, do not improvise.  

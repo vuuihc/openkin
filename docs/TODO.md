@@ -1,6 +1,7 @@
-# Kin TODO
+# OpenKin TODO
 
 **Status:** living backlog (not a calendar)
+**Project / brand:** OpenKin · **Product subject:** Kin · **CLI:** `kin` (alias: `ok`)
 **Related:** [SYSTEM_DESIGN.md](../SYSTEM_DESIGN.md) · [PRINCIPLE.md](../PRINCIPLE.md) · [ADR 0003](./adr/0003-artifacts-and-reader.md) · [ADR 0008](./adr/0008-project-one-pager.md)
 
 This file tracks **near-term product work after the MVP agent console**. MVP milestones M0–M4 remain in [MVP_TECH_SPEC.md](./MVP_TECH_SPEC.md).

@@ -1,11 +1,14 @@
-# Kin Development Guide
+# OpenKin Development Guide
 
 These instructions apply to the entire repository. A more deeply nested
 `AGENTS.md` may add or override rules for its subtree.
 
 ## Project orientation
 
-- Kin is a Go daemon and CLI with a React/TypeScript console and an Electron
+- **OpenKin** is the project/brand; **Kin** is the product subject (local agent).
+  CLI binary is `kin` (optional alias: `ok`). Data dir remains `~/.kin` unless a
+  migration is explicitly planned.
+- OpenKin is a Go daemon and CLI with a React/TypeScript console and an Electron
   desktop shell.
 - Backend code lives under `cmd/` and `internal/`; console source lives under
   `ui/`; the embedded production console is generated into `web/dist/`.

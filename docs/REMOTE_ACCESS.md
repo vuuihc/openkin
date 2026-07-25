@@ -1,6 +1,6 @@
-# Remote access
+# OpenKin remote access
 
-Kin is a **single HTTP port** (default `7777`) with token auth on every request. Any tunnel, reverse proxy, or VPN that can forward plain HTTP to that port works — Kin does not special-case vendors beyond the optional Tailscale/tsnet plug-in.
+OpenKin (`kin` daemon) is a **single HTTP port** (default `7777`) with token auth on every request. Any tunnel, reverse proxy, or VPN that can forward plain HTTP to that port works — Kin does not special-case vendors beyond the optional Tailscale/tsnet plug-in.
 
 | Rung | Command | Who can reach it |
 |------|---------|------------------|

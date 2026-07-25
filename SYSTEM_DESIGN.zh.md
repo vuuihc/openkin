@@ -1,12 +1,13 @@
-# Kin 系统设计
+# OpenKin 系统设计
 
 [English](./SYSTEM_DESIGN.md)
 
 **状态：** Draft v0.3 — 方向说明，不是 API 合同
+**项目 / 品牌：** OpenKin · **产品主体：** Kin · **CLI：** `kin`（别名：`ok`）
 **依据：** [PRINCIPLE.zh.md](./PRINCIPLE.zh.md) · [English](./PRINCIPLE.md) — §12 控制台优先；v0.3 起在记忆之前增加 Artifacts 切片（见 §2、§7）
 **主张：** Your agent. Your memory. Any model.
 
-探索性草稿与实现日记不放在本仓库。本文是**对外**架构快照：帮助判断 Kin 是否适合你，而不是内部工作备忘录。
+探索性草稿与实现日记不放在本仓库。本文是**对外**架构快照：帮助判断 OpenKin 是否适合你，而不是内部工作备忘录。
 
 ---
 
@@ -34,7 +35,7 @@
 | 权限渐进 | 外部影响需可授权、可审计 |
 | 默认做小 | 可选层是以后的事，不是 v1 实体（[§5.11](./PRINCIPLE.zh.md)） |
 
-**定位。** 两家厂商都已提供远程控制：Claude Code 的 Remote Control 把每条消息经由 Anthropic 云中继；Codex 的设备控制通过 OpenAI 账号同步状态，且宿主机必须运行其桌面 App。结构上都是单厂商、厂商云居中。Kin 是跨 agent、self-hosted 的另一条路：**在你自己的网络上，用一个控制台管理你所有的 agent。**
+**定位。** 两家厂商都已提供远程控制：Claude Code 的 Remote Control 把每条消息经由 Anthropic 云中继；Codex 的设备控制通过 OpenAI 账号同步状态，且宿主机必须运行其桌面 App。结构上都是单厂商、厂商云居中。OpenKin 是跨 agent、self-hosted 的另一条路：**在你自己的网络上，用一个控制台管理你所有的 agent。**
 
 ---
 

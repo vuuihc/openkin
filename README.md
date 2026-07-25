@@ -1,14 +1,27 @@
-# Kin
+# OpenKin
 
 [中文](./README.zh.md)
 
-> One console for all your coding agents. Self-hosted. Any device.
-
-Dispatch, watch, and approve agent tasks — Claude Code, Codex, any CLI — from your phone or any device, over your own network. No vendor relay, no Kin account. Growing into a local-first personal agent whose memory you own.
+> **OpenKin** — local-first multi-agent console & personal coach.  
+> CLI: `kin` (alias: `ok`)
 
 ```text
+One console for all your coding agents. Self-hosted. Any device.
 Your agent. Your memory. Any model.
 ```
+
+Dispatch, watch, and approve agent tasks — Claude Code, Codex, any CLI — from your phone or any device, over your own network. No vendor relay, no OpenKin account. Growing into a local-first personal agent (**Kin**) whose memory you own.
+
+**Naming**
+
+| Layer | Name | Notes |
+|-------|------|--------|
+| Project / brand | **OpenKin** | Searchable open-source name |
+| Product subject | **Kin** | The continuous local agent you own |
+| CLI | `kin` | Optional alias: `ok` |
+| Data dir (today) | `~/.kin` | Unchanged for compatibility |
+
+> **Not the same product as** [Kin / mykin.ai](https://mykin.ai) (commercial personal-AI companion app for iOS/Android). OpenKin is an independent open-source project.
 
 ## Docs
 
@@ -27,7 +40,7 @@ MVP agent console (daemon + web UI) is implemented. A macOS menu-bar **desktop s
 - **Cross-agent console** — dispatch / monitor / approve Claude Code, Codex, or any CLI agent from one place
 - **Self-hosted remote** — LAN → tailnet / Funnel ladder; traffic never routed through an agent vendor's cloud
 - **Cost transparency** — tokens and spend per task, per provider
-- **User-owned** — local-first; no Kin account; export and leave
+- **User-owned** — local-first; no OpenKin account; export and leave
 - **Artifacts, next** — keep readable session deliverables (study notes, HTML) in a local library with a reader; see [docs/TODO.md](./docs/TODO.md)
 - **Memory, later (v2)** — governed memory that travels across agents and models
 - **Small by default** — do not multiply entities without necessity; grow from real pain ([PRINCIPLE §5.11](./PRINCIPLE.md))

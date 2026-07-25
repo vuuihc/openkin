@@ -375,6 +375,8 @@ Cannot verify tray clicks or Notification UI without a human. Programmatic check
 ## Multi-agent orchestration (mixed mode)
 
 - **Trigger:** only explicit `@worker` tokens in the *current user message* (`UserTurnPrompt`). Prior transcript / handoff wrappers must not re-fan-out.
+- **Same-agent split:** multiple `@kin` (or other host) steps in one message fan out **inside this task**; a single bare `@host` does not self-delegate.
+- **No API spawn:** Kin agent must not `POST /api/tasks` (or equivalent) to open sidebar sessions for the user — bash tool blocks that path; system prompt forbids it. User creates sessions; orchestrator handles `@mentions`.
 - **Mixed modes:** round N can `@claude` + `@codex`; round N+1 with no `@` stays on the selected session host alone.
 - **Main chat UI:** orchestrator/delegate lines + host messages are user-facing; worker CLI text/tools are task-only (hidden from the main column).
 - **Approvals:** `/internal/*` loopback check uses the TCP peer captured *before* `RealIP`, so `X-Forwarded-For` cannot break the MCP approve bridge. Permission allow path also accepts `tool_input` / `arguments` keys.

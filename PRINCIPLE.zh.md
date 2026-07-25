@@ -1,11 +1,13 @@
-# Kin 产品指导纲领
+# OpenKin 产品指导纲领
 
 [English](./PRINCIPLE.md)
 
 
 **状态：** Draft v0.1
 **项目性质：** 开源、Local-first、跨设备、模型无关的个人 Agent
-**名称：** Kin
+**项目 / 品牌：** OpenKin
+**产品主体：** Kin（你拥有的、连续存在的本地 Agent）
+**CLI：** `kin`（别名：`ok`）
 **产品主张：**
 
 > Your agent. Your memory. Any model.
@@ -13,6 +15,10 @@
 中文表述：
 
 > 属于你的个人 Agent。保留你的记忆和习惯，不依附于任何模型厂商。
+
+**一句话定位：** 本地优先的多 Agent 控制台与场景教练——跨设备、跨模型，仍是同一个 Kin。
+
+> 不是 Kin / mykin.ai（商业 Personal AI 陪伴应用）。OpenKin 是独立开源项目。
 
 ---
 
@@ -1010,7 +1016,7 @@ Kin 的对外表达应当：
 
 推荐的产品文案：
 
-> Kin is a local-first personal agent that carries your memory, habits, and capabilities across devices and models.
+> OpenKin is a local-first multi-agent console and personal coach: one Kin that carries your memory, habits, and capabilities across devices and models.
 
 更简洁的版本：
 
@@ -1018,11 +1024,11 @@ Kin 的对外表达应当：
 
 仓库简介可以写为：
 
-> An open-source, local-first personal agent that keeps your memory, habits, tools, and identity independent from any model provider.
+> OpenKin — open-source, local-first multi-agent console & coach. CLI: `kin` (alias: `ok`). Not the same product as mykin.ai (commercial Kin personal-AI app).
 
 中文简介：
 
-> Kin 是一个开源、本地优先、跨设备、模型无关的个人 Agent。它保留你的记忆、习惯、工具和身份，不依附于任何模型厂商。
+> OpenKin 是一个开源、本地优先的多 Agent 控制台与个人教练。产品主体叫 Kin：保留你的记忆、习惯、工具和身份，不依附于任何模型厂商。命令行：`kin`（别名 `ok`）。
 
 ---
 

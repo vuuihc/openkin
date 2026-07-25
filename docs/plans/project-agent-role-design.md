@@ -1,4 +1,4 @@
-# Kin 在项目中的角色与教练循环
+# OpenKin / Kin 在项目中的角色与教练循环
 
 **状态：** Proposed（Project P1/P2 的交互设计，不代表已实现）
 

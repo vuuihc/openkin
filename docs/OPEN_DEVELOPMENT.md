@@ -3,9 +3,10 @@
 [中文要点](#中文要点)
 
 **Status:** Draft v0.1  
+**Project / brand:** OpenKin · **Product subject:** Kin · **CLI:** `kin` (alias: `ok`)  
 **Default docs language:** English (optional `.zh.md` companions)
 
-How Kin practices “build in public” without turning the repo into a stream of half-finished thoughts.
+How OpenKin practices “build in public” without turning the repo into a stream of half-finished thoughts.
 
 Aligned with [PRINCIPLE §5.11](../PRINCIPLE.md) (small by default) and [§10](../PRINCIPLE.md) (real open core).
 
@@ -29,7 +30,7 @@ It does **not** mean every sketch, strategy debate, or personal note is public.
 | Changelog / demos when something runs | Dogfood transcripts, personal memory dumps |
 | Issues for bugs and accepted work | API keys, private user data |
 
-> Publish if a stranger can correctly decide whether Kin is for them.  
+> Publish if a stranger can correctly decide whether OpenKin is for them.  
 > Hold back if they would only watch you reverse the decision next week.
 
 ---

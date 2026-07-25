@@ -1,12 +1,13 @@
-# Kin System Design
+# OpenKin System Design
 
 [中文](./SYSTEM_DESIGN.zh.md)
 
 **Status:** Draft v0.3 — direction, not an API contract
+**Project / brand:** OpenKin · **Product subject:** Kin · **CLI:** `kin` (alias: `ok`)
 **Based on:** [PRINCIPLE.md](./PRINCIPLE.md) · [中文](./PRINCIPLE.zh.md) — console-first §12; v0.3 inserts an Artifacts slice before Memory (see §2, §7)
 **Promise:** Your agent. Your memory. Any model.
 
-Exploratory drafts and implementation diaries do not live in this repo. This is a **public** architecture snapshot: enough to decide whether Kin is for you—not an internal working memo.
+Exploratory drafts and implementation diaries do not live in this repo. This is a **public** architecture snapshot: enough to decide whether OpenKin is for you—not an internal working memo.
 
 ---
 
@@ -34,7 +35,7 @@ User-owned Kin Core (local-first daemon)
 | Progressive authority | External effects are authorizable and auditable |
 | Small by default | Optional layers are later, not v1 entities ([§5.11](./PRINCIPLE.md)) |
 
-**Positioning.** Both major vendors already ship remote control: Claude Code Remote Control relays every message through Anthropic’s cloud; Codex device control syncs via an OpenAI account and requires their desktop app on the host. Structurally: single-vendor, vendor cloud in the middle. Kin is the cross-agent, self-hosted alternative: **one console for all your agents, on your own network.**
+**Positioning.** Both major vendors already ship remote control: Claude Code Remote Control relays every message through Anthropic’s cloud; Codex device control syncs via an OpenAI account and requires their desktop app on the host. Structurally: single-vendor, vendor cloud in the middle. OpenKin is the cross-agent, self-hosted alternative: **one console for all your agents, on your own network.**
 
 ---
 

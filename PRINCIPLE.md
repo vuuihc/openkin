@@ -1,13 +1,19 @@
-# Kin Product Principles
+# OpenKin Product Principles
 
 [中文](./PRINCIPLE.zh.md)
 
 **Status:** Draft v0.1
 **Nature:** Open-source, local-first, cross-device, model-agnostic personal agent
-**Name:** Kin
+**Project / brand:** OpenKin
+**Product subject:** Kin (the continuous local agent you own)
+**CLI:** `kin` (alias: `ok`)
 **Promise:**
 
 > Your agent. Your memory. Any model.
+
+**Positioning (short):** local-first multi-agent console & personal coach — one Kin across devices and models.
+
+> Not the same product as Kin / mykin.ai (commercial personal-AI companion for iOS/Android). OpenKin is an independent open-source project.
 
 ---
 
@@ -470,13 +476,13 @@ Ultimate check:
 
 Restrained, clear, engineering-credible. No inflated “autonomous intelligence,” no false full automation, no “replace humans” story. Emphasize ownership, continuity, openness, real capability.
 
-> Kin is a local-first personal agent that carries your memory, habits, and capabilities across devices and models.
+> OpenKin is a local-first multi-agent console and personal coach: one Kin that carries your memory, habits, and capabilities across devices and models.
 
 Shorter: **One Kin. Every device. Any model.**
 
 Repo blurb:
 
-> An open-source, local-first personal agent that keeps your memory, habits, tools, and identity independent from any model provider.
+> OpenKin — open-source, local-first multi-agent console & coach. CLI: `kin` (alias: `ok`). Memory, habits, tools, and identity stay independent from any model provider. Not the same product as mykin.ai (commercial Kin personal-AI app).
 
 ---
 
