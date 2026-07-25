@@ -81,6 +81,9 @@ type Manager struct {
 	sessions   map[string]*session
 	closed     bool
 	closeOnce  sync.Once
+	// shutdownWG tracks in-flight session shutdowns started by Remove so
+	// Close can still wait for process-group cleanup after the map entry is gone.
+	shutdownWG sync.WaitGroup
 	reaperStop chan struct{}
 	reaperDone chan struct{}
 }
@@ -224,15 +227,26 @@ func (m *Manager) Resize(id string, cols, rows uint16) error {
 
 func (m *Manager) Remove(id string) error {
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return ErrClosed
+	}
 	current, ok := m.sessions[id]
 	if ok {
 		delete(m.sessions, id)
+		// Shutdown can take up to the SIGTERM→SIGKILL grace period. Do not block
+		// the HTTP DELETE / UI tab close path on process exit.
+		m.shutdownWG.Add(1)
 	}
 	m.mu.Unlock()
 	if !ok {
 		return ErrNotFound
 	}
-	return current.shutdown()
+	go func() {
+		defer m.shutdownWG.Done()
+		_ = current.shutdown()
+	}()
+	return nil
 }
 
 func (m *Manager) Close() error {
@@ -264,6 +278,8 @@ func (m *Manager) Close() error {
 		for err := range errs {
 			closeErr = errors.Join(closeErr, err)
 		}
+		// Wait for any Remove-started shutdowns that raced ahead of Close.
+		m.shutdownWG.Wait()
 		<-m.reaperDone
 	})
 	return closeErr

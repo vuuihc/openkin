@@ -169,26 +169,44 @@ export default function TerminalPanel({ open, cwd, onClose }: Props) {
   );
 
   const handleCloseSession = useCallback(
-    async (id: string) => {
+    (id: string) => {
       autoCreateAttemptedRef.current = true;
       setCloseError(null);
-      try {
-        await deleteTerminalSession(id);
-        setSessions((previous) => {
-          const removedIndex = previous.findIndex((session) => session.id === id);
-          const remaining = previous.filter((session) => session.id !== id);
-          if (activeSessionId === id) {
-            const nextIndex = Math.min(
-              Math.max(removedIndex, 0),
-              remaining.length - 1,
-            );
-            setActiveSessionId(remaining[nextIndex]?.id ?? null);
-          }
-          return remaining;
-        });
-      } catch {
+      // Optimistically drop the tab so close feels instant; process teardown
+      // can take up to the backend SIGTERM→SIGKILL grace period.
+      setSessions((previous) => {
+        const removedIndex = previous.findIndex((session) => session.id === id);
+        const remaining = previous.filter((session) => session.id !== id);
+        if (activeSessionId === id) {
+          const nextIndex = Math.min(
+            Math.max(removedIndex, 0),
+            remaining.length - 1,
+          );
+          setActiveSessionId(remaining[nextIndex]?.id ?? null);
+        }
+        return remaining;
+      });
+      void deleteTerminalSession(id).catch(() => {
         setCloseError(tr("terminal.closeFailed"));
-      }
+        void listTerminalSessions()
+          .then((remote) => {
+            setSessions(
+              remote.map((session) => ({
+                ...session,
+                connectionStatus: "disconnected" as const,
+              })),
+            );
+            setActiveSessionId((current) => {
+              if (current && remote.some((session) => session.id === current)) {
+                return current;
+              }
+              return remote[0]?.id ?? null;
+            });
+          })
+          .catch(() => {
+            // Keep the optimistic UI; the error banner already surfaces failure.
+          });
+      });
     },
     [activeSessionId, tr],
   );
