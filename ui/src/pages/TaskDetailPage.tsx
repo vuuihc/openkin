@@ -67,6 +67,11 @@ import {
   getFollowUpDraft,
   setFollowUpDraft,
 } from "../lib/followUpDraft";
+import {
+  clearSessionScroll,
+  getSessionScroll,
+  setSessionScroll,
+} from "../lib/sessionScroll";
 import { modelsForAgent } from "../lib/agentModels";
 import { subscribeWS, useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
@@ -110,6 +115,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [reviewBusy, setReviewBusy] = useState(false);
+  /** Hide scroller until first position is applied — avoids top→bottom flash. */
+  const [scrollReady, setScrollReady] = useState(false);
   const maxSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -117,6 +124,16 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const stickToBottomRef = useRef(true);
   /** First paint of this mounted instance: jump to bottom once (no animation). */
   const didInitialScrollRef = useRef(false);
+  /**
+   * Last known scrollTop while this pane was visible.
+   * display:none (keep-alive hide) resets DOM scrollTop, so we restore from here.
+   */
+  const savedScrollTopRef = useRef<number | null>(
+    id ? getSessionScroll(id) : null,
+  );
+  const markScrollReady = useCallback(() => {
+    setScrollReady((prev) => (prev ? prev : true));
+  }, []);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
@@ -285,17 +302,32 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     const el = scrollRef.current;
     if (!el) return;
     stickToBottomRef.current = isNearBottom(el);
-  }, [isNearBottom]);
+    // Only record while laid out — hidden (display:none) panes report 0.
+    if (active && el.clientHeight > 0) {
+      savedScrollTopRef.current = el.scrollTop;
+      if (id) setSessionScroll(id, el.scrollTop);
+    }
+  }, [isNearBottom, active, id]);
 
-  // First paint of this mounted instance jumps to bottom (instant, no smooth slide).
-  // Keep-alive reuses the instance later; DOM scrollTop stays put — no save/restore.
-  // Do not finalize until the scroller has a real viewport height and is actually at bottom
-  // (or the thread is short enough that there is no overflow).
+  // First paint of this mounted instance: restore saved scroll, else jump to bottom.
+  // Instant scrollTop (no smooth). Scroller stays invisible until positioned (scrollReady).
+  // Keep-alive hides with display:none which clears DOM scrollTop — we re-apply from
+  // savedScrollTopRef / localStorage on activate (see effect below).
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
     if (loading || !task) return;
     const el = scrollRef.current;
     if (!el) return;
+
+    const saved =
+      savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
+
+    const finalize = (node: HTMLElement) => {
+      didInitialScrollRef.current = true;
+      savedScrollTopRef.current = node.scrollTop;
+      if (id) setSessionScroll(id, node.scrollTop);
+      markScrollReady();
+    };
 
     const tryJump = (): boolean => {
       if (didInitialScrollRef.current) return true;
@@ -304,6 +336,17 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       // Flex chain not ready yet — keep waiting (ResizeObserver / rAF will retry).
       if (node.clientHeight <= 0) return false;
 
+      if (saved != null) {
+        // Direct assignment — no smooth scroll animation.
+        node.scrollTop = saved;
+        stickToBottomRef.current = isNearBottom(node);
+        const overflow = node.scrollHeight - node.clientHeight;
+        // Content still loading (too short to reach saved) — wait for more layout.
+        if (overflow + 1 < saved && overflow > 1) return false;
+        finalize(node);
+        return true;
+      }
+
       node.scrollTop = node.scrollHeight;
       stickToBottomRef.current = true;
 
@@ -311,7 +354,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
       // Short thread (no overflow) or successfully pinned to bottom.
       if (overflow <= 1 || distance <= 4) {
-        didInitialScrollRef.current = true;
+        finalize(node);
         return true;
       }
       return false;
@@ -340,9 +383,14 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     const timer = window.setTimeout(() => {
       const node = scrollRef.current;
       if (!node || didInitialScrollRef.current) return;
-      node.scrollTop = node.scrollHeight;
-      stickToBottomRef.current = true;
-      didInitialScrollRef.current = true;
+      if (saved != null) {
+        node.scrollTop = saved;
+        stickToBottomRef.current = isNearBottom(node);
+      } else {
+        node.scrollTop = node.scrollHeight;
+        stickToBottomRef.current = true;
+      }
+      finalize(node);
       ro.disconnect();
     }, 1000);
 
@@ -351,18 +399,69 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       if (raf) cancelAnimationFrame(raf);
       window.clearTimeout(timer);
     };
-  }, [loading, task, events.length]);
+  }, [loading, task, events.length, id, isNearBottom, markScrollReady]);
+
+  // After display:none hide, re-apply scroll in useLayoutEffect (before paint).
+  // Instant scrollTop only — no smooth animation, no top→bottom slide.
+  useLayoutEffect(() => {
+    if (!active) return;
+    if (!didInitialScrollRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const apply = (): boolean => {
+      const node = scrollRef.current;
+      if (!node || node.clientHeight <= 0) return false;
+      if (stickToBottomRef.current) {
+        node.scrollTop = node.scrollHeight;
+      } else {
+        const saved =
+          savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
+        if (saved != null) node.scrollTop = saved;
+      }
+      stickToBottomRef.current = isNearBottom(node);
+      savedScrollTopRef.current = node.scrollTop;
+      if (id) setSessionScroll(id, node.scrollTop);
+      markScrollReady();
+      return true;
+    };
+
+    if (apply()) return;
+
+    // Layout not ready yet — keep hidden until we can place scroll.
+    setScrollReady(false);
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      if (apply()) {
+        ro.disconnect();
+        if (raf) cancelAnimationFrame(raf);
+      } else {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          if (apply()) ro.disconnect();
+        });
+      }
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [active, id, isNearBottom, markScrollReady]);
 
   // Follow new content only when user was already at bottom, or just sent a message.
-  // Also runs while keep-alive-hidden (background tab left at bottom stays at bottom).
+  // Skip while keep-alive-hidden (clientHeight 0); stickToBottomRef keeps intent for restore.
+  // Instant pin — never smooth-scroll the main transcript.
   useLayoutEffect(() => {
     if (!didInitialScrollRef.current) return;
     if (!(stickToBottomRef.current || sending)) return;
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || el.clientHeight <= 0) return;
     el.scrollTop = el.scrollHeight;
     stickToBottomRef.current = true;
-  }, [events, approvals, userQuestions, sending]);
+    savedScrollTopRef.current = el.scrollTop;
+    if (id) setSessionScroll(id, el.scrollTop);
+  }, [events, approvals, userQuestions, sending, id]);
 
   const needsYou = useMemo(() => {
     const a = approvals.map((item) => ({
@@ -513,6 +612,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setDeleting(true);
     try {
       await deleteTask(task.id);
+      clearSessionScroll(task.id);
+      clearFollowUpDraft(task.id);
       pushToast(tr("task.deleted"), "info");
       navigate("/");
     } catch (err) {
@@ -788,7 +889,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         <div
           ref={scrollRef}
           onScroll={onChatScroll}
-          className="flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
+          className={
+            scrollReady
+              ? "flex-1 overflow-y-auto kin-scroll py-5 min-h-0"
+              : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
+          }
         >
           <ChatStream
             events={events}

@@ -13,7 +13,7 @@ import TaskDetailPage from "./TaskDetailPage";
  * App-level keep-alive for recent task sessions (Chrome-tab style).
  *
  * Stays mounted across route changes (e.g. /tasks/x → /new → /tasks/x).
- * Scroll lives in the DOM — no save/restore of scrollTop.
+ * Hidden panes use display:none (clears scrollTop); TaskDetailPage saves/restores it.
  */
 export default function TaskSessionHost() {
   const { pathname } = useLocation();
