@@ -9,31 +9,30 @@ import (
 
 	"github.com/vuuihc/kin/internal/adapter/detect"
 	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/kin/internal/store"
 )
 
 // PluginFactory registers one Tier-2 generic CLI agent from catalog + invocation.
 type PluginFactory struct {
-	spec detect.DiscoverySpec
-	inv  detect.Invocation
-	// LookPath is overridable in tests.
+	Spec     detect.DiscoverySpec
+	Inv      detect.Invocation
 	LookPath func(file string) (string, error)
+	// Store, when set, lets Status honor local smoke results over NeedsVerification.
+	Store *store.Store
 }
 
 // NewPluginFactory returns a factory for one generic CLI agent.
 func NewPluginFactory(spec detect.DiscoverySpec, inv detect.Invocation) *PluginFactory {
-	return &PluginFactory{spec: spec, inv: inv}
+	return &PluginFactory{Spec: spec, Inv: inv}
 }
 
 // Descriptor implements agent.Factory.
 func (f *PluginFactory) Descriptor() agent.Descriptor {
-	caps := []agent.Capability{agent.CapabilityRun}
-	// Resume is only declared when we have a known resume flag path (none today).
 	return agent.Descriptor{
-		ID:           f.spec.ID,
-		Name:         f.spec.Name,
+		ID:           f.Spec.ID,
+		Name:         f.Spec.Name,
 		Kind:         agent.KindCLI,
-		Priority:     f.spec.Priority,
-		Capabilities: caps,
+		Capabilities: []agent.Capability{agent.CapabilityRun},
 	}
 }
 
@@ -44,30 +43,32 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 	if look == nil {
 		look = exec.LookPath
 	}
-	ad := &Adapter{
-		ID:       f.spec.ID,
-		Name:     f.spec.Name,
-		Inv:      f.inv,
-		Bins:     append([]string(nil), f.spec.Bins...),
-		EnvBin:   f.spec.EnvBin,
+	adapter := &Adapter{
+		ID:       f.Spec.ID,
+		Inv:      f.Inv,
 		LookPath: look,
+		EnvBin:   f.Spec.EnvBin,
+		Bins:     f.Spec.Bins,
 	}
-	desc := f.Descriptor()
-	inv := f.inv
-	spec := f.spec
+	st := f.Store
+	inv := f.Inv
+	spec := f.Spec
 	return agent.Registration{
-		Descriptor: desc,
-		Runner:     ad,
-		Status: func(context.Context) agent.Status {
-			return statusFor(spec, inv, look)
+		Descriptor: f.Descriptor(),
+		Runner:     adapter,
+		Status: func(c context.Context) agent.Status {
+			return statusFor(c, spec, inv, look, st)
 		},
 	}, nil
 }
 
-func statusFor(spec detect.DiscoverySpec, inv detect.Invocation, look func(string) (string, error)) agent.Status {
-	if look == nil {
-		look = exec.LookPath
-	}
+func statusFor(
+	ctx context.Context,
+	spec detect.DiscoverySpec,
+	inv detect.Invocation,
+	look func(string) (string, error),
+	st *store.Store,
+) agent.Status {
 	path, reason := resolveStatusBinary(spec, inv, look)
 	if path == "" {
 		if reason == "" {
@@ -75,6 +76,31 @@ func statusFor(spec detect.DiscoverySpec, inv detect.Invocation, look func(strin
 		}
 		return agent.Status{Installed: false, Available: false, Reason: reason}
 	}
+
+	// Local smoke success overrides static NeedsVerification.
+	if st != nil {
+		if r, ok, err := st.GetAgentSmoke(ctx, spec.ID); err == nil && ok {
+			if r.OK {
+				return agent.Status{
+					Installed: true,
+					Available: true,
+					Binary:    path,
+					Reason:    "smoke ok",
+				}
+			}
+			detail := strings.TrimSpace(r.Detail)
+			if detail == "" {
+				detail = "smoke failed"
+			}
+			return agent.Status{
+				Installed: true,
+				Available: false,
+				Binary:    path,
+				Reason:    "smoke failed: " + detail,
+			}
+		}
+	}
+
 	if inv.NeedsVerification {
 		return agent.Status{
 			Installed: true,

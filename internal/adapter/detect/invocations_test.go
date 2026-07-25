@@ -2,43 +2,42 @@ package detect
 
 import "testing"
 
-func TestGenericInvocationsCoverRequiredAgents(t *testing.T) {
+func TestGenericInvocationsRequiredIDs(t *testing.T) {
 	inv := GenericInvocations()
 	required := []string{"gemini-cli", "qwen-code", "aider-desk", "qoder", "opencode", "pi"}
 	for _, id := range required {
-		got, ok := inv[id]
-		if !ok {
-			t.Fatalf("missing invocation for %s", id)
+		if _, ok := inv[id]; !ok {
+			t.Fatalf("missing invocation %q", id)
 		}
-		if got.Mode != "json" && got.Mode != "text" {
-			t.Fatalf("%s mode=%q", id, got.Mode)
+	}
+}
+
+func TestGenericInvocationsModes(t *testing.T) {
+	for id, inv := range GenericInvocations() {
+		if inv.Mode != "json" && inv.Mode != "text" {
+			t.Fatalf("%s: bad mode %q", id, inv.Mode)
 		}
-		if len(got.Args) == 0 {
-			t.Fatalf("%s has empty Args", id)
+		if len(inv.Args) == 0 {
+			t.Fatalf("%s: empty Args", id)
 		}
 		hasPrompt := false
-		for _, a := range got.Args {
+		for _, a := range inv.Args {
 			if a == "{{prompt}}" {
 				hasPrompt = true
 				break
 			}
 		}
 		if !hasPrompt {
-			t.Fatalf("%s Args missing {{prompt}}: %v", id, got.Args)
+			t.Fatalf("%s: Args must include {{prompt}}", id)
 		}
 	}
 }
 
 func TestGenericInvocationsNeedsVerification(t *testing.T) {
-	inv := GenericInvocations()
-	for _, id := range []string{"qoder", "opencode", "pi"} {
-		if !inv[id].NeedsVerification {
-			t.Fatalf("%s should NeedsVerification", id)
-		}
-	}
-	for _, id := range []string{"gemini-cli", "qwen-code", "aider-desk"} {
-		if inv[id].NeedsVerification {
-			t.Fatalf("%s should not NeedsVerification", id)
+	// Default policy: every Tier-2 launch line stays unavailable until smoke-tested.
+	for id, inv := range GenericInvocations() {
+		if !inv.NeedsVerification {
+			t.Fatalf("%s should NeedsVerification by default", id)
 		}
 	}
 }

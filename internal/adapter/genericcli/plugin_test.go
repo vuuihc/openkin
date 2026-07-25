@@ -3,10 +3,13 @@ package genericcli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vuuihc/kin/internal/adapter/detect"
 	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/kin/internal/store"
 )
 
 func TestPluginFactoryDescriptor(t *testing.T) {
@@ -87,5 +90,74 @@ func TestPluginStatusAvailable(t *testing.T) {
 	st := reg.Status(context.Background())
 	if !st.Installed || !st.Available || st.Binary != "/bin/gemini" {
 		t.Fatalf("%+v", st)
+	}
+}
+
+func TestPluginStatusSmokeOKOverridesVerification(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	if err := st.SetAgentSmoke(ctx, "pi", store.AgentSmokeResult{OK: true, Binary: "/usr/bin/pi"}); err != nil {
+		t.Fatal(err)
+	}
+	spec := detect.DiscoverySpec{ID: "pi", Name: "Pi", Bins: []string{"pi"}}
+	inv := detect.Invocation{
+		Mode:              "json",
+		Args:              []string{"-p", "{{prompt}}"},
+		NeedsVerification: true,
+	}
+	f := NewPluginFactory(spec, inv)
+	f.Store = st
+	f.LookPath = func(file string) (string, error) {
+		if file == "pi" {
+			return "/usr/bin/pi", nil
+		}
+		return "", fmt.Errorf("not found")
+	}
+	reg, err := f.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stt := reg.Status(ctx)
+	if !stt.Installed || !stt.Available {
+		t.Fatalf("%+v", stt)
+	}
+}
+
+func TestPluginStatusSmokeFailKeepsUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	if err := st.SetAgentSmoke(ctx, "pi", store.AgentSmokeResult{OK: false, Detail: "boom"}); err != nil {
+		t.Fatal(err)
+	}
+	spec := detect.DiscoverySpec{ID: "pi", Name: "Pi", Bins: []string{"pi"}}
+	inv := detect.Invocation{NeedsVerification: true, Args: []string{"{{prompt}}"}}
+	f := NewPluginFactory(spec, inv)
+	f.Store = st
+	f.LookPath = func(file string) (string, error) {
+		if file == "pi" {
+			return "/usr/bin/pi", nil
+		}
+		return "", fmt.Errorf("not found")
+	}
+	reg, err := f.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stt := reg.Status(ctx)
+	if !stt.Installed || stt.Available {
+		t.Fatalf("%+v", stt)
+	}
+	if !strings.Contains(stt.Reason, "smoke failed") {
+		t.Fatalf("reason=%q", stt.Reason)
 	}
 }

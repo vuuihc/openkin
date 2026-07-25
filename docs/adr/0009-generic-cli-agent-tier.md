@@ -13,7 +13,7 @@ Kin already ships first-class process adapters for Claude Code, Codex, and Grok 
 1. Introduce **Tier 2** agents launched by a single declarative adapter package: `internal/adapter/genericcli`.
 2. Hand-maintain `detect.GenericInvocations()` (argv templates, auto-confirm flags/env, mode `json`|`text`) and `detect.InstallURL()` (homepage/install docs). Do not edit generated `skills_catalog.go` for these tables.
 3. Composition root (`internal/server/agents.go`) auto-registers one factory per invocation entry; no global enable switch.
-4. **Default available** when the binary is on PATH and `NeedsVerification` is false. `NeedsVerification` is the only human gate for unsmoke-tested launch lines (`qoder` / `opencode` / `pi` initially).
+4. **Default unavailable** for all Tier-2 launch lines: every `GenericInvocations` entry sets `NeedsVerification: true`. Binary on PATH ⇒ installed/listed, but `available` stays false until a maintainer flips the flag after smoke-testing (or a future in-app smoke probe persists success). PATH presence alone never enables new-chat/task dispatch.
 5. Tier 2 agents declare only `run` (optionally `resume` later). No `approvals`, `tools`, or `orchestrate`.
 6. **Permission gate**: create-task rejects Tier 2 under `permission_mode=default` because there is no Kin approval channel; require `accept_edits` or `yolo` so the CLI's own auto-confirm flags/env can apply.
 7. `GET /api/agents` merges registry entries with the full skills discovery catalog and `install_url`, so the UI can show four states: native / generic / verifying / not installed.
@@ -27,5 +27,5 @@ Kin already ships first-class process adapters for Claude Code, Codex, and Grok 
 ## Consequences
 
 - Adding a Tier 2 agent is one row in `invocations.go` (+ optional install URL).
-- Smoke-test failures stay offline via `NeedsVerification` until maintainers flip the flag.
+- All Tier-2 agents stay offline via `NeedsVerification: true` until smoke succeeds. Operators can run `POST /api/agents/smoke` (Agents page **验证可用性**) which probes **installed** generics only, persists results in settings key `agent_smoke`, and plugin `Status` treats smoke OK as `available`.
 - UI must not filter the catalog to runnable-only when presenting discovery; task dispatch still requires `available`.

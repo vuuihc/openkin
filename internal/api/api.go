@@ -78,6 +78,9 @@ type Server struct {
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
 
+	// SmokeAgents runs headless probes for installed Tier-2 agents (optional).
+	SmokeAgents SmokeAgents
+
 	// mgmtCache caches version/auth probes for GET /api/agents/management.
 	// Lazily created; process-local only. mgmtCacheMu guards the lazy init
 	// since Handler() serves concurrent requests.
@@ -129,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 		r.Use(s.Auth.Middleware)
 		r.Get("/api/agents", s.handleListAgents)
 		r.Get("/api/agents/management", s.handleAgentsManagement)
+		r.Post("/api/agents/smoke", s.handleAgentsSmoke)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)

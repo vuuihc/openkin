@@ -277,6 +277,9 @@ func ServeWith(version string, flags ServeFlags) error {
 			}
 			return out
 		},
+		SmokeAgents: func(c context.Context, ids []string) []api.AgentSmokeResult {
+			return api.RunGenericCLISmoke(c, st, ids)
+		},
 	}
 
 	handler := srvAPI.Handler()

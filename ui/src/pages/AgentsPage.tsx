@@ -8,6 +8,7 @@ import {
   getUsageWindows,
   listAgentManagement,
   listAgents,
+  smokeAgents,
   updateSettings,
   type AgentInfo,
   type AgentLimitStatus,
@@ -57,6 +58,7 @@ export default function AgentsPage() {
   const [mgmt, setMgmt] = useState<AgentManagement[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  const [smoking, setSmoking] = useState(false);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint((rows === null || agents === null) && !error);
@@ -206,6 +208,27 @@ export default function AgentsPage() {
       await load(true);
     } finally {
       setRechecking(false);
+    }
+  }
+
+  async function onSmoke() {
+    setSmoking(true);
+    try {
+      // Only installed Tier-2 agents are probed server-side; pass empty = all installed.
+      const { results } = await smokeAgents();
+      const ran = results.filter((r) => !r.skipped);
+      const ok = ran.filter((r) => r.ok).length;
+      const fail = ran.filter((r) => !r.ok).length;
+      const skipped = results.filter((r) => r.skipped).length;
+      pushToast(
+        tr("agents.smokeDone", { ok: String(ok), fail: String(fail), skipped: String(skipped) }),
+        fail > 0 ? "error" : "info",
+      );
+      await load(false);
+    } catch (e) {
+      pushToast(e instanceof ApiError ? e.message : String(e), "error");
+    } finally {
+      setSmoking(false);
     }
   }
 
@@ -419,10 +442,19 @@ export default function AgentsPage() {
             <button
               type="button"
               className="kin-btn-secondary min-h-[40px] px-3 text-[13px]"
-              disabled={rechecking}
+              disabled={rechecking || smoking}
               onClick={() => void onRecheck()}
             >
               {rechecking ? tr("common.loading") : tr("agents.recheckAll")}
+            </button>
+            <button
+              type="button"
+              className="kin-btn-secondary min-h-[40px] px-3 text-[13px]"
+              disabled={smoking || rechecking}
+              title={tr("agents.smokeHint")}
+              onClick={() => void onSmoke()}
+            >
+              {smoking ? tr("agents.smoking") : tr("agents.smokeAll")}
             </button>
             <select
               value={days}

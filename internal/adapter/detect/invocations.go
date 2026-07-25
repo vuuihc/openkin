@@ -6,43 +6,50 @@ type Invocation struct {
 	// Mode is "json" (NDJSON / single JSON object on stdout) or "text" (PTY).
 	Mode string
 	// BinCandidates overrides/extends DiscoverySpec.Bins when non-empty
-	// (e.g. qoder → qodercli, qoder).
+	// (e.g. qodercli vs qoder). Empty → use DiscoverySpec.Bins only.
 	BinCandidates []string
-	// Args is an argv template. Tokens: {{prompt}} {{model}}.
+	// Args is the argv template after the binary. "{{prompt}}" is replaced with the task prompt.
 	Args []string
-	// ModelFlag, when non-empty, is appended as [ModelFlag, model] when a model is set.
+	// ModelFlag, when non-empty, is appended as ModelFlag, model before Args when a model is set.
 	ModelFlag string
-	// CwdFlag, when non-empty, is appended as [CwdFlag, cwd]. Empty → cmd.Dir only.
+	// CwdFlag, when non-empty, is appended as CwdFlag, cwd when the task has a working directory.
 	CwdFlag string
-	// AutoConfirmFlags are appended for headless auto-approve (accept_edits / yolo only).
+	// AutoConfirmFlags are always appended (yolo / yes-always style).
 	AutoConfirmFlags []string
-	// AutoConfirmEnv is merged into the process env for the same permission modes.
+	// AutoConfirmEnv is merged into the process environment for auto-approve modes.
 	AutoConfirmEnv map[string]string
 	// NeedsVerification marks known-but-unverified invocations: registered but not Available.
+	// Default for all Tier-2 entries is true until a maintainer smoke-tests the launch line
+	// (or a future in-app smoke probe persists success). Flip to false only after verification.
 	NeedsVerification bool
 }
 
 // GenericInvocations returns the Tier-2 declarative launch table.
 // Agents listed here are assembled as genericcli factories by the composition root.
+// Every entry defaults to NeedsVerification: true so PATH presence alone never enables
+// the agent in new-chat / task dispatch.
 func GenericInvocations() map[string]Invocation {
 	return map[string]Invocation{
 		"gemini-cli": {
-			Mode:             "json",
-			Args:             []string{"--prompt", "{{prompt}}", "--output-format", "json"},
-			ModelFlag:        "-m",
-			AutoConfirmFlags: []string{"--yolo"},
+			Mode:              "json",
+			Args:              []string{"--prompt", "{{prompt}}", "--output-format", "json"},
+			ModelFlag:         "-m",
+			AutoConfirmFlags:  []string{"--yolo"},
+			NeedsVerification: true,
 		},
 		"qwen-code": {
-			Mode:             "json",
-			Args:             []string{"-p", "{{prompt}}", "--output-format", "json"},
-			ModelFlag:        "-m",
-			AutoConfirmFlags: []string{"--yolo"},
+			Mode:              "json",
+			Args:              []string{"-p", "{{prompt}}", "--output-format", "json"},
+			ModelFlag:         "-m",
+			AutoConfirmFlags:  []string{"--yolo"},
+			NeedsVerification: true,
 		},
 		"aider-desk": {
-			Mode:             "text",
-			Args:             []string{"--message", "{{prompt}}", "--no-show-release-notes"},
-			ModelFlag:        "--model",
-			AutoConfirmFlags: []string{"--yes-always"},
+			Mode:              "text",
+			Args:              []string{"--message", "{{prompt}}", "--no-show-release-notes"},
+			ModelFlag:         "--model",
+			AutoConfirmFlags:  []string{"--yes-always"},
+			NeedsVerification: true,
 		},
 		"qoder": {
 			Mode:              "json",

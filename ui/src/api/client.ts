@@ -239,6 +239,28 @@ export function listAgentManagement(refresh = false): Promise<AgentManagement[]>
   return apiFetch<AgentManagement[]>(`/api/agents/management${q}`);
 }
 
+/** One agent headless smoke outcome from POST /api/agents/smoke. */
+export type AgentSmokeResult = {
+  id: string;
+  name?: string;
+  skipped?: boolean;
+  ok: boolean;
+  installed: boolean;
+  available: boolean;
+  binary?: string;
+  detail?: string;
+  checked_at?: number;
+};
+
+/** Run headless smoke for installed Tier-2 generic CLI agents (empty ids = all installed). */
+export function smokeAgents(ids?: string[]): Promise<{ results: AgentSmokeResult[] }> {
+  return apiFetch<{ results: AgentSmokeResult[] }>("/api/agents/smoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(ids && ids.length ? { ids } : {}),
+  });
+}
+
 export type WSMessage =
   | { kind: "task_update"; data: Task }
   | { kind: "task_deleted"; data: { id: string } }

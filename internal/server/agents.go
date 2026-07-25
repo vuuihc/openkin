@@ -52,7 +52,9 @@ func buildAgentRegistry(
 		if !ok {
 			continue
 		}
-		factories = append(factories, genericcli.NewPluginFactory(spec, inv))
+		f := genericcli.NewPluginFactory(spec, inv)
+		f.Store = st
+		factories = append(factories, f)
 	}
 
 	if os.Getenv("KIN_ENABLE_RAWPTY") == "1" {
