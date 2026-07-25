@@ -215,6 +215,9 @@ type ListTasksOpts struct {
 	Limit     int    // 0 = default 50
 	Before    string // ULID cursor: only tasks with id < before
 	ProjectID string // empty = all; filter by project
+	// Query is a case-insensitive substring match on title, prompt, cwd, agent, id.
+	// Empty = no text filter. LIKE metacharacters are escaped.
+	Query string
 }
 
 func scanTask(scanner interface {
@@ -296,6 +299,14 @@ func scanTask(scanner interface {
 
 const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id`
 
+// escapeLike escapes \, %, and _ so user input is treated as a literal substring.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
 // ListTasks returns tasks ordered by id descending (ULID ≈ time).
 func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, error) {
 	limit := opts.Limit
@@ -320,6 +331,21 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 	if opts.Before != "" {
 		b.WriteString(` AND id < ?`)
 		args = append(args, opts.Before)
+	}
+	if q := strings.TrimSpace(opts.Query); q != "" {
+		// Bound runaway queries from the UI search box.
+		if len(q) > 200 {
+			q = q[:200]
+		}
+		pat := "%" + escapeLike(q) + "%"
+		b.WriteString(` AND (
+			title LIKE ? ESCAPE '\' OR
+			prompt LIKE ? ESCAPE '\' OR
+			cwd LIKE ? ESCAPE '\' OR
+			agent LIKE ? ESCAPE '\' OR
+			id LIKE ? ESCAPE '\'
+		)`)
+		args = append(args, pat, pat, pat, pat, pat)
 	}
 	b.WriteString(` ORDER BY id DESC LIMIT ?`)
 	args = append(args, limit)

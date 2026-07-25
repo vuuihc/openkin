@@ -230,11 +230,14 @@ export function listTasks(params?: {
   status?: string;
   limit?: number;
   before?: string;
+  /** Case-insensitive substring match (title/prompt/cwd/agent/id). */
+  q?: string;
 }): Promise<Task[]> {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
   if (params?.limit) q.set("limit", String(params.limit));
   if (params?.before) q.set("before", params.before);
+  if (params?.q?.trim()) q.set("q", params.q.trim());
   const qs = q.toString();
   return apiFetch<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);
 }

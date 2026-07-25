@@ -119,4 +119,26 @@ describe("groupByProject", () => {
     });
     expect(groups.map((g) => g.cwd)).toEqual(["/beta", "/gamma"]);
   });
+
+  it("keeps more than 8 sessions per project (sidebar collapses, not data)", () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      task({
+        id: String(i + 1),
+        cwd: "/alpha",
+        created_at: i + 1,
+        started_at: i + 1,
+      }),
+    );
+    const groups = groupByProject(many, {
+      sortMode: "recent",
+      pinned: [],
+      archived: [],
+      lastInteracted: {},
+    });
+    expect(groups).toHaveLength(1);
+    expect(groups[0].items).toHaveLength(12);
+    // still sorted by activity desc
+    expect(groups[0].items[0].id).toBe("12");
+    expect(groups[0].items[11].id).toBe("1");
+  });
 });

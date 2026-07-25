@@ -29,6 +29,7 @@ import {
   IconInbox,
   IconPin,
   IconPlus,
+  IconSearch,
   IconSettings,
   IconSort,
   IconTrash,
@@ -50,6 +51,10 @@ type Props = {
   /** Mobile drawer open. Desktop always visible. */
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  /** Controlled session search (server-side fuzzy over all tasks). */
+  searchQuery?: string;
+  onSearchQueryChange?: (q: string) => void;
+  searchLoading?: boolean;
 };
 
 /** Normalize path for cwd comparison across platforms. */
@@ -71,6 +76,9 @@ export default function Sidebar({
   onDeleteSession,
   mobileOpen,
   onCloseMobile,
+  searchQuery = "",
+  onSearchQueryChange,
+  searchLoading = false,
 }: Props) {
   const tr = useT();
   const navigate = useNavigate();
@@ -220,6 +228,30 @@ export default function Sidebar({
         </button>
       </div>
 
+      <div className="px-3 pb-2">
+        <label className="relative flex items-center">
+          <IconSearch
+            size={13}
+            className="absolute left-2.5 text-kin-muted pointer-events-none"
+          />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => onSearchQueryChange?.(e.target.value)}
+            placeholder={tr("nav.searchSessions")}
+            aria-label={tr("nav.searchSessions")}
+            className="w-full h-[32px] pl-8 pr-2 rounded-[8px] bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-[12.5px] text-kin-text placeholder:text-kin-muted outline-none transition-colors"
+          />
+        </label>
+        {searchQuery.trim() && (
+          <div className="mt-1 px-0.5 text-[11px] text-kin-muted">
+            {searchLoading
+              ? tr("common.loading")
+              : tr("nav.searchHint")}
+          </div>
+        )}
+      </div>
+
       <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-3">
         <button
           type="button"
@@ -245,7 +277,9 @@ export default function Sidebar({
 
         {groups.length === 0 && archivedGroups.length === 0 && (
           <div className="px-2 py-4 text-[12.5px] text-kin-muted leading-relaxed">
-            {tr("nav.emptyHint")}
+            {searchQuery.trim()
+              ? tr("nav.searchEmpty", { query: searchQuery.trim() })
+              : tr("nav.emptyHint")}
           </div>
         )}
 
@@ -460,6 +494,7 @@ function ProjectBlock({
   mode: "active" | "archived";
 }) {
   const navigate = useNavigate();
+
   const openCover = async () => {
     try {
       const p = await ensureProject({ path: g.cwd, name: g.label });
@@ -544,7 +579,7 @@ function ProjectBlock({
         <DraftRow active={draftRowActive} label={draftLabel} onClick={onDraftClick} />
       )}
 
-      <div className="space-y-0.5">
+      <div className="space-y-0.5 max-h-[min(280px,40vh)] overflow-y-auto kin-scroll pr-0.5">
         {g.items.map((t) => {
           const active = t.id === selectedTaskId;
           const dot = sessionStatusDotClass(t.status, isSessionViewed(t.id));
@@ -594,6 +629,7 @@ function ProjectBlock({
           );
         })}
       </div>
+
     </div>
   );
 }
