@@ -359,7 +359,7 @@ export default function Sidebar({
         )}
 
         {archivedGroups.length > 0 && (
-          <div className="pt-1 border-t border-kin-border/60">
+          <div className="pt-1 border-t border-kin-border">
             <button
               type="button"
               onClick={() => setArchivedOpen((o) => !o)}
