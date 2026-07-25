@@ -673,6 +673,14 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 }
 
 // Get returns a task by id.
+// PublishTask re-broadcasts a task row (e.g. after out-of-band field updates).
+func (e *Engine) PublishTask(t store.Task) {
+	if e == nil || e.bus == nil {
+		return
+	}
+	e.bus.PublishTask(t)
+}
+
 func (e *Engine) Get(ctx context.Context, id string) (store.Task, error) {
 	return e.store.GetTask(ctx, id)
 }
@@ -875,6 +883,16 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	for ev := range h.Events() {
 		// Persist first, then broadcast (spec §3). Stamp speaker for chat UI.
 		payload := stampSpeaker(ev.Payload, speaker, model, exec)
+		// Steer interrupt aborts the in-flight turn with a cancel error; that is
+		// expected and must not surface as a red "已取消" bubble while the new guide runs.
+		if ev.Type == "error" && errorPayloadIsCancel(payload) {
+			e.mu.Lock()
+			_, steer := e.pendingFollowUp[id]
+			e.mu.Unlock()
+			if steer {
+				continue
+			}
+		}
 		var (
 			stored            store.Event
 			updatedTask       *store.Task
@@ -1236,4 +1254,26 @@ func applyWorkspaceMetadata(t *store.Task, meta workspace.Metadata) {
 	}
 	t.WorkspaceBaseOID = meta.BaseOID
 	t.WorkspaceBranch = meta.Branch
+}
+
+// errorPayloadIsCancel reports whether an adapter error payload is a benign
+// abort/cancel token (steer interrupt, user stop) rather than a real failure.
+func errorPayloadIsCancel(payload json.RawMessage) bool {
+	var m struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return false
+	}
+	s := strings.ToLower(strings.TrimSpace(m.Message))
+	switch {
+	case s == "canceled", s == "cancelled", s == "context canceled", s == "context cancelled":
+		return true
+	case strings.Contains(s, "stream error") && strings.Contains(s, "cancel"):
+		return true
+	case strings.Contains(s, "cancel") && strings.Contains(s, "received from peer"):
+		return true
+	default:
+		return false
+	}
 }

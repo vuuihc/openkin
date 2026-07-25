@@ -487,6 +487,33 @@ describe("transcriptProjection", () => {
   });
 });
 
+
+  it("suppresses cancel error events from steer interrupts", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          content: [{ type: "text", text: "do X" }],
+        }),
+        ev(2, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          input: { command: "echo hi" },
+        }),
+        ev(3, "error", { message: "canceled" }),
+        ev(4, "message", {
+          role: "user",
+          content: [{ type: "text", text: "do Y instead" }],
+          source: "interrupt",
+        }),
+      ],
+      "kin",
+    );
+    expect(items.some((i) => i.kind === "error")).toBe(false);
+    expect(items.filter((i) => i.kind === "message").map((i) => (i as any).text || (i as any).role)).toBeTruthy();
+  });
+
 describe("mergeProcessRuns", () => {
   function progress(key: string, status: "running" | "done" | "error" = "done"): ProgressItem {
     return {

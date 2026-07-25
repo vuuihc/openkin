@@ -1,4 +1,5 @@
 import type { TaskEvent } from "../../api/client";
+import { isCancelNoise } from "../../lib/friendlyError";
 import { t } from "../../i18n";
 import {
   decodeCanonicalEventMeta,
@@ -380,16 +381,22 @@ export function buildChatItems(
         });
         break;
       }
-      case "error":
+      case "error": {
+        // Steer/interrupt aborts emit "canceled" — not a real failure for the UI.
+        const errMsg = String(p.message ?? "error");
+        if (isCancelNoise(errMsg)) {
+          break;
+        }
         flushStream();
         streamNoteKey = null;
         progressRef.current = null;
         items.push({
           kind: "error",
           key: `err-${ev.seq}`,
-          message: String(p.message ?? "error"),
+          message: errMsg,
         });
         break;
+      }
       case "task_started":
         break;
       case "result": {

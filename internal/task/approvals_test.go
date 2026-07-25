@@ -240,6 +240,22 @@ func TestFollowUpInterruptRequeues(t *testing.T) {
 	if hangThenOK.starts < 2 {
 		t.Fatalf("expected second start after interrupt, starts=%d", hangThenOK.starts)
 	}
+	// Steer cancel must not persist a red "canceled" error bubble.
+	evs, err := e.Events(ctx, t1.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range evs {
+		if ev.Type != "error" {
+			continue
+		}
+		var m map[string]any
+		_ = json.Unmarshal(ev.Payload, &m)
+		msg, _ := m["message"].(string)
+		if errorPayloadIsCancel(ev.Payload) || strings.EqualFold(msg, "canceled") {
+			t.Fatalf("steer interrupt must not persist cancel error event: %s", string(ev.Payload))
+		}
+	}
 }
 
 // hangThenOKAdapter first Start hangs until canceled; subsequent Starts succeed.
@@ -261,6 +277,9 @@ func (a *hangThenOKAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (a
 		if n == 1 {
 			select {
 			case <-h.cancelCh:
+				// Mirror kinagent: abort emits a cancel error before result.
+				ch <- adapter.Event{Type: "error", Payload: json.RawMessage(`{"message":"canceled"}`)}
+				ch <- adapter.Event{Type: "result", Payload: json.RawMessage(`{"is_error":true}`)}
 				return
 			case <-time.After(5 * time.Second):
 				return

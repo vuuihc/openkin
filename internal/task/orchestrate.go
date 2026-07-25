@@ -477,7 +477,17 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 
 	for ev := range h.Events() {
 		payload := stampWorker(ev.Payload, agent, model, exec)
-		_, _ = e.appendEventLocked(ctx, taskID, ev.Type, payload)
+		// Same as runLoop: steer interrupt cancel errors must not land in the transcript.
+		skipPersist := false
+		if ev.Type == "error" && errorPayloadIsCancel(payload) {
+			e.mu.Lock()
+			_, steer := e.pendingFollowUp[taskID]
+			e.mu.Unlock()
+			skipPersist = steer
+		}
+		if !skipPersist {
+			_, _ = e.appendEventLocked(ctx, taskID, ev.Type, payload)
+		}
 		switch ev.Type {
 		case "message":
 			if t := extractFinalWorkerText(ev.Payload); t != "" {
@@ -490,7 +500,9 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 				resultText = t
 			}
 		case "error":
-			isErr = true
+			if !skipPersist {
+				isErr = true
+			}
 		}
 
 		e.mu.Lock()

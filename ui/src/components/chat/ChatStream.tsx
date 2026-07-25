@@ -645,30 +645,35 @@ function ProgressCard({
     el.scrollTop = el.scrollHeight;
   }, [stepsSig, steps.length, running, expanded]);
 
+  // Only all-failed runs are "hard fail" (red). Mixed tool exits are expected
+  // exploration noise — keep the card muted gray so one bad step does not
+  // paint the whole turn as a failure.
+  const hardFail = !running && failed > 0 && done === 0;
+  const mixed = !running && failed > 0 && done > 0;
+
   const summary = (() => {
     if (running) return tr("chat.progress.summaryRunning", { count });
-    if (failed > 0 && done === 0)
-      return tr("chat.progress.summaryFailed", { count });
-    if (failed > 0)
+    if (hardFail) return tr("chat.progress.summaryFailed", { count });
+    if (mixed)
       return tr("chat.progress.summaryMixed", { done, failed, count });
     return tr("chat.progress.summaryDone", { count });
   })();
 
   const statusTone = running
     ? "border-kin-blue/25 bg-kin-blue-soft/30"
-    : failed > 0
+    : hardFail
       ? "border-kin-red/25 bg-[rgba(255,69,58,.05)]"
       : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]";
 
   const badgeLabel = running
     ? tr("chat.progress.running")
-    : failed > 0
+    : hardFail
       ? tr("chat.progress.failed")
       : tr("chat.progress.done");
 
   const badgeTone = running
     ? "bg-kin-blue/15 text-kin-blue"
-    : failed > 0
+    : hardFail
       ? "bg-kin-red/15 text-kin-red"
       : "bg-[var(--kin-fill-strong)] text-kin-muted";
 
@@ -781,7 +786,7 @@ function NoteStepRow({
 
   const statusDot =
     note.status === "error"
-      ? "bg-kin-red"
+      ? "bg-zinc-500"
       : note.status === "running"
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
@@ -872,7 +877,7 @@ function ToolStepRow({
 
   const statusDot =
     tool.status === "error"
-      ? "bg-kin-red"
+      ? "bg-zinc-500"
       : tool.status === "running"
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
