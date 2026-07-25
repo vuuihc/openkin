@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
+import MermaidBlock from "./MermaidBlock";
 
 /**
- * Lightweight markdown renderer (no extra deps).
- * Supports: headings, fenced code, paragraphs, lists, blockquotes,
- * hr, GFM tables, links, bold, italic, inline code.
+ * Lightweight markdown renderer (no extra deps beyond optional Mermaid).
+ * Supports: headings, fenced code, mermaid diagrams, paragraphs, lists,
+ * blockquotes, hr, GFM tables, links, bold, italic, inline code.
  */
 export default function Markdown({
   text,
@@ -25,6 +26,9 @@ export default function Markdown({
     >
       {blocks.map((b, i) => {
         if (b.type === "code") {
+          if (isMermaidLang(b.lang)) {
+            return <MermaidBlock key={i} code={b.value} />;
+          }
           return (
             <pre
               key={i}
@@ -144,6 +148,18 @@ export default function Markdown({
   );
 }
 
+function isMermaidLang(lang?: string): boolean {
+  if (!lang) return false;
+  const l = lang.trim().toLowerCase();
+  // Common aliases used by docs / GitHub / Obsidian.
+  return (
+    l === "mermaid" ||
+    l === "mmd" ||
+    l.startsWith("mermaid ") ||
+    l.startsWith("mermaid{")
+  );
+}
+
 type Block =
   | { type: "p" | "h1" | "h2" | "h3"; value: string }
   | { type: "code"; value: string; lang?: string }
@@ -256,22 +272,21 @@ function splitBlocks(src: string): Block[] {
   return out;
 }
 
-function isTableHeader(line: string): boolean {
+function isTableRow(line: string): boolean {
   const t = line.trim();
   return t.includes("|") && !isTableDivider(t);
 }
 
-function isTableDivider(line: string): boolean {
-  const t = line.trim();
-  if (!t.includes("|") && !t.includes("-")) return false;
-  // | --- | :---: | ---: |
-  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(t);
+function isTableHeader(line: string): boolean {
+  return isTableRow(line);
 }
 
-function isTableRow(line: string): boolean {
+function isTableDivider(line: string): boolean {
+  // e.g. | --- | :---: | ---: |
   const t = line.trim();
-  if (!t || isTableDivider(t)) return false;
-  return t.includes("|");
+  if (!t.includes("-")) return false;
+  // Must look like a GFM separator row.
+  return /^\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(t);
 }
 
 function splitTableRow(line: string): string[] {
@@ -281,40 +296,39 @@ function splitTableRow(line: string): string[] {
   return t.split("|").map((c) => c.trim());
 }
 
+const INLINE_RE =
+  /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;
+
 function inline(s: string): ReactNode[] {
-  // Links [text](url), bold **x** / __x__, italic *x* / _x_, inline `code`
   const parts: ReactNode[] = [];
-  const re =
-    /(\[[^\]]+\]\([^)\s]+\)|\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_\s][^_]*_)/g;
   let last = 0;
-  let m: RegExpExecArray | null;
   let key = 0;
+  let m: RegExpExecArray | null;
+  const re = new RegExp(INLINE_RE.source, "g");
   while ((m = re.exec(s))) {
     if (m.index > last) parts.push(s.slice(last, m.index));
     const tok = m[0];
     if (tok.startsWith("[") && tok.includes("](")) {
-      const lm = tok.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
+      const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
       if (lm) {
         const href = lm[2];
         const safe =
-          href.startsWith("http://") ||
-          href.startsWith("https://") ||
-          href.startsWith("mailto:");
-        parts.push(
-          safe ? (
+          /^(https?:|mailto:|\/|#)/i.test(href) || href.startsWith("./") || href.startsWith("../");
+        if (safe) {
+          parts.push(
             <a
               key={key++}
               href={href}
-              target="_blank"
-              rel="noreferrer noopener"
+              target={href.startsWith("http") ? "_blank" : undefined}
+              rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
               className="text-kin-blue underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
             >
               {lm[1]}
-            </a>
-          ) : (
-            <span key={key++}>{lm[1]}</span>
-          ),
-        );
+            </a>,
+          );
+        } else {
+          parts.push(<span key={key++}>{lm[1]}</span>);
+        }
       } else {
         parts.push(tok);
       }

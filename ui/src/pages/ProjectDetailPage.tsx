@@ -22,6 +22,10 @@ import {
 import { launchRecipe } from "../recipes/launch";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import { IconBack } from "../components/icons";
+import RoutineScheduleFields, {
+  defaultNextRunLocal,
+  parseLocalDateTime,
+} from "../components/routine/RoutineScheduleFields";
 import Markdown from "../components/Markdown";
 import Heatmap from "../components/project/Heatmap";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
@@ -72,6 +76,7 @@ export default function ProjectDetailPage() {
   const [routineTitle, setRoutineTitle] = useState("");
   const [routinePrompt, setRoutinePrompt] = useState("");
   const [routineInterval, setRoutineInterval] = useState(86400);
+  const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
   const [creatingRoutine, setCreatingRoutine] = useState(false);
 
   const [summary, setSummary] = useState<OnePagerSummary | null>(null);
@@ -226,6 +231,7 @@ export default function ProjectDetailPage() {
     if (!prompt) return;
     setCreatingRoutine(true);
     try {
+      const nextMs = parseLocalDateTime(routineNextLocal);
       const r = await createRoutine({
         title: routineTitle.trim() || undefined,
         project_id: id,
@@ -233,6 +239,7 @@ export default function ProjectDetailPage() {
         prompt,
         interval_secs: routineInterval,
         agent: "kin",
+        ...(nextMs != null ? { next_due_at: nextMs } : {}),
       });
       setProjectRoutines((list) => [r, ...list]);
       setShowRoutineModal(false);
@@ -540,19 +547,15 @@ export default function ProjectDetailPage() {
                 className="mt-1 w-full resize-y rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[13px] text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
-            <label className="mt-3 block text-[12px] text-kin-secondary">
-              {tr("routines.intervalLabel")}
-              <select
-                value={routineInterval}
-                onChange={(e) => setRoutineInterval(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[13px] text-kin-text outline-none"
-              >
-                <option value={3600}>{tr("routines.interval1h")}</option>
-                <option value={21600}>{tr("routines.interval6h")}</option>
-                <option value={86400}>{tr("routines.interval1d")}</option>
-                <option value={604800}>{tr("routines.interval1w")}</option>
-              </select>
-            </label>
+            <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 px-3 py-2.5">
+              <RoutineScheduleFields
+                intervalSecs={routineInterval}
+                onIntervalChange={setRoutineInterval}
+                nextRunLocal={routineNextLocal}
+                onNextRunLocalChange={setRoutineNextLocal}
+                disabled={creatingRoutine}
+              />
+            </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"

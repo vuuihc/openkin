@@ -63,6 +63,15 @@ export default function App() {
   useEffect(() => {
     if (auth.status !== "ok") return;
     void refreshCount();
+  }, [refreshCount, auth.status, location.pathname]);
+
+  useEffect(() => {
+    if (auth.status !== "ok") return;
+    const onUnread = () => {
+      void refreshCount();
+    };
+    window.addEventListener("kin:routine-unread-changed", onUnread);
+    return () => window.removeEventListener("kin:routine-unread-changed", onUnread);
   }, [refreshCount, auth.status]);
 
   useEffect(() => {

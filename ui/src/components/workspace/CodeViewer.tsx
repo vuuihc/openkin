@@ -2,6 +2,7 @@ import {
   Component,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -15,6 +16,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import type { FileDiffSnippet } from "../../lib/changedFiles";
+import Markdown from "../Markdown";
 import { IconCheck, IconChevron, IconX } from "../icons";
 import OpenInMenu from "./OpenInMenu";
 import "./monacoSetup";
@@ -41,6 +43,9 @@ type Props = {
   onSaved?: (updated: TaskWorkspaceFileResponse) => void;
 };
 
+type MdViewMode = "preview" | "code";
+type DiffLayout = "inline" | "sideBySide";
+
 const EDITOR_OPTIONS = {
   readOnly: true,
   minimap: { enabled: false },
@@ -56,14 +61,12 @@ const EDITOR_OPTIONS = {
   },
 };
 
-const DIFF_OPTIONS = {
-  ...EDITOR_OPTIONS,
-  renderSideBySide: true,
-  originalEditable: false,
-  readOnly: true,
-  renderIndicators: true,
-  ignoreTrimWhitespace: false,
-};
+const MD_EXT_RE = /\.(md|mdx|markdown|mkd|mkdn|mdown)$/i;
+
+function isMarkdownPath(filePath: string | null | undefined): boolean {
+  if (!filePath) return false;
+  return MD_EXT_RE.test(filePath);
+}
 
 export default function CodeViewer({
   path,
@@ -81,30 +84,38 @@ export default function CodeViewer({
   onSaved,
 }: Props) {
   const t = useT();
-  const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(
-    null,
-  );
-
-  // Editing state. `draft` is the working copy; the server content on `file`
-  // is the baseline we diff against to know if there are unsaved changes.
   const [draft, setDraft] = useState("");
-  const [saveState, setSaveState] = useState<
-    "idle" | "saving" | "saved" | "error"
-  >("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
+    "idle",
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
-  const saveRef = useRef<(() => void) | null>(null);
-
-  // Reset the draft to the freshly-loaded server content whenever the open
-  // file (path or content) changes, e.g. after navigation or a successful save.
+  // Markdown files default to rendered preview; user can switch to source.
+  const [mdView, setMdView] = useState<MdViewMode>("preview");
+  // Diff defaults to same-file (inline) layout.
+  const [diffLayout, setDiffLayout] = useState<DiffLayout>("inline");
   const serverContent = file?.content ?? "";
+  const saveRef = useRef<(() => void) | null>(null);
+  const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
+
+  // Reset draft + view modes when the open path changes.
   useEffect(() => {
     setDraft(serverContent);
     setSaveState("idle");
     setSaveError(null);
-  }, [path, serverContent]);
+    setMdView("preview");
+    setDiffLayout("inline");
+  }, [path]); // eslint-disable-line react-hooks/exhaustive-deps -- only on path change
 
-  // Drop the editor handle when leaving diff mode / switching path so
-  // stale goToDiff calls never target a disposed instance.
+  // Keep draft in sync when server content refreshes for the same path
+  // (e.g. after agent write) and the user has not started editing.
+  useEffect(() => {
+    if (saveState === "idle" || saveState === "saved") {
+      setDraft(serverContent);
+      if (saveState === "saved") setSaveState("idle");
+    }
+  }, [serverContent]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Drop the ref when the path changes so stale goToDiff calls never target a disposed instance.
   useEffect(() => {
     return () => {
       diffEditorRef.current = null;
@@ -155,6 +166,18 @@ export default function CodeViewer({
     });
   }, []);
 
+  const diffOptions = useMemo(
+    () => ({
+      ...EDITOR_OPTIONS,
+      renderSideBySide: diffLayout === "sideBySide",
+      originalEditable: false,
+      readOnly: true,
+      renderIndicators: true,
+      ignoreTrimWhitespace: false,
+    }),
+    [diffLayout],
+  );
+
   if (!path) {
     return (
       <div className="h-full flex items-center justify-center text-sm text-kin-muted px-6 text-center">
@@ -167,10 +190,19 @@ export default function CodeViewer({
   const useDiff = Boolean(
     diff && (diff.original.length > 0 || diff.modified.length > 0),
   );
+  const isMd = isMarkdownPath(path);
+  // Markdown preview is only available in plain (non-diff) view.
+  const showMdPreview = isMd && !useDiff && mdView === "preview" && Boolean(file);
   // Editing is only offered in the plain file view. Diffs stay read-only, and a
   // truncated file must not be saved or we would clobber the unseen tail.
+  // Markdown preview mode is also non-editable (switch to Code to edit).
   const canEdit = Boolean(
-    editable && taskId && file && !useDiff && !file.truncated,
+    editable &&
+      taskId &&
+      file &&
+      !useDiff &&
+      !file.truncated &&
+      !(isMd && mdView === "preview"),
   );
   // Keep the last good file mounted while a new path loads so Monaco is not
   // disposed/recreated on every navigation. Only blank the editor on hard error
@@ -179,6 +211,10 @@ export default function CodeViewer({
   const showError = Boolean(error) && !loading;
   const showInitialLoading = loading && !file && !useDiff;
   const openRoot = file?.root || cwd || "";
+  const modifiedContent =
+    file?.content != null && file.content.length > 0
+      ? file.content
+      : diff?.modified ?? "";
 
   return (
     <div className="h-full min-h-0 flex flex-col">
@@ -195,6 +231,42 @@ export default function CodeViewer({
           </span>
         )}
         <div className="ml-auto flex items-center gap-2 shrink-0">
+          {useDiff && (
+            <div
+              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
+              role="group"
+              aria-label={t("workspace.viewer.diffLayout")}
+            >
+              <button
+                type="button"
+                onClick={() => setDiffLayout("inline")}
+                aria-pressed={diffLayout === "inline"}
+                title={t("workspace.viewer.diffInline")}
+                className={[
+                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  diffLayout === "inline"
+                    ? "bg-kin-blue/20 text-kin-blue"
+                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                ].join(" ")}
+              >
+                {t("workspace.viewer.diffInline")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDiffLayout("sideBySide")}
+                aria-pressed={diffLayout === "sideBySide"}
+                title={t("workspace.viewer.diffSideBySide")}
+                className={[
+                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  diffLayout === "sideBySide"
+                    ? "bg-kin-blue/20 text-kin-blue"
+                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                ].join(" ")}
+              >
+                {t("workspace.viewer.diffSideBySide")}
+              </button>
+            </div>
+          )}
           {useDiff && (
             <div
               className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
@@ -219,6 +291,42 @@ export default function CodeViewer({
                 className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
               >
                 <IconChevron size={13} className="rotate-90" />
+              </button>
+            </div>
+          )}
+          {isMd && !useDiff && file && (
+            <div
+              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
+              role="group"
+              aria-label={t("workspace.viewer.mdView")}
+            >
+              <button
+                type="button"
+                onClick={() => setMdView("preview")}
+                aria-pressed={mdView === "preview"}
+                title={t("workspace.viewer.preview")}
+                className={[
+                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  mdView === "preview"
+                    ? "bg-kin-blue/20 text-kin-blue"
+                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                ].join(" ")}
+              >
+                {t("workspace.viewer.preview")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMdView("code")}
+                aria-pressed={mdView === "code"}
+                title={t("workspace.viewer.code")}
+                className={[
+                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  mdView === "code"
+                    ? "bg-kin-blue/20 text-kin-blue"
+                    : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
+                ].join(" ")}
+              >
+                {t("workspace.viewer.code")}
               </button>
             </div>
           )}
@@ -313,18 +421,13 @@ export default function CodeViewer({
             fallback={<FallbackPre text={diff.modified || diff.original} />}
           >
             <DiffEditor
+              key={`diff-${diffLayout}-${path}`}
               height="100%"
               theme="vs-dark"
               language={languageForPath(path)}
               original={diff.original}
-              modified={
-                // Prefer live file content as the modified side when we have it
-                // (write tools often only store the new body in the event).
-                file?.content != null && file.content.length > 0
-                  ? file.content
-                  : diff.modified
-              }
-              options={DIFF_OPTIONS}
+              modified={modifiedContent}
+              options={diffOptions}
               onMount={onDiffMount}
               loading={
                 <div className="h-full flex items-center justify-center text-sm text-kin-muted">
@@ -334,7 +437,13 @@ export default function CodeViewer({
             />
           </MonacoSafe>
         )}
-        {showEditor && !useDiff && file && (
+        {showEditor && !useDiff && file && showMdPreview && (
+          <div className="h-full overflow-auto kin-scroll px-5 py-4">
+            {/* Prefer draft so unsaved Code-mode edits still preview correctly. */}
+            <Markdown text={draft || file.content} />
+          </div>
+        )}
+        {showEditor && !useDiff && file && !showMdPreview && (
           <MonacoSafe fallback={<FallbackPre text={file.content} />}>
             <Editor
               height="100%"
@@ -397,7 +506,9 @@ function languageForPath(filePath: string): string {
   if (name.endsWith(".rs")) return "rust";
   if (name.endsWith(".py")) return "python";
   if (name.endsWith(".json")) return "json";
-  if (name.endsWith(".md")) return "markdown";
+  if (name.endsWith(".md") || name.endsWith(".mdx") || name.endsWith(".markdown")) {
+    return "markdown";
+  }
   if (name.endsWith(".css")) return "css";
   if (name.endsWith(".html")) return "html";
   if (name.endsWith(".xml")) return "xml";

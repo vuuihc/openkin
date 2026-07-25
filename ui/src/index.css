@@ -222,3 +222,15 @@ body {
     color: var(--kin-text);
   }
 }
+
+/* Mermaid diagrams rendered inside Markdown */
+.kin-mermaid svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
+.kin-md .kin-mermaid {
+  margin: 0.25rem 0;
+}
+
