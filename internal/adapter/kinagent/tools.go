@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -269,6 +270,23 @@ func (e *toolEnv) bash(ctx context.Context, command string) (string, error) {
 	cmd := exec.CommandContext(cctx, "bash", "-lc", command)
 	cmd.Dir = e.Root
 	cmd.Env = append(os.Environ(), "PWD="+e.Root)
+	// Run bash in its own process group so that on timeout/cancel we can kill
+	// the whole tree, not just the bash leader. A command like `ssh` (or any
+	// grandchild that inherits our stdout/stderr pipe) would otherwise keep the
+	// pipe open after bash is killed, so the copy goroutines in cmd.Wait never
+	// see EOF and cmd.Run blocks forever — freezing the session even though the
+	// context timeout already fired.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			// Negative pid => signal the entire process group.
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	// Backstop: if a grandchild still holds the output pipe open after the kill,
+	// force the pipes closed so cmd.Run returns instead of hanging.
+	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
