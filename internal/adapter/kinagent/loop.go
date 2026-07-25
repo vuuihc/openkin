@@ -56,6 +56,9 @@ func runAgentLoop(
 	// Routine mid-loop rewrite of older tools is forbidden (ADR 0002 Policy K).
 	const softMsgChars = 100_000
 	contextRetryUsed := false
+	usedTools := false
+	emptyFinalRetryUsed := false
+	forceTextOnly := false
 
 	for {
 		if aborted(ctx, cancel) {
@@ -69,11 +72,16 @@ func runAgentLoop(
 		promptChars := estimateMessagesChars(messages)
 		chatCtx := withProviderRetryHints(ctx, ch)
 		onDelta, flushDelta := streamContentDeltaEmitter(ch, "kin")
+		toolChoice := "auto"
+		if forceTextOnly {
+			// After tools, empty stop: one continuation that must produce user text.
+			toolChoice = "none"
+		}
 		resp, err := client.Chat(chatCtx, provider.ChatRequest{
 			Model:          model,
 			Messages:       messages,
 			Tools:          tools,
-			ToolChoice:     "auto",
+			ToolChoice:     toolChoice,
 			OnContentDelta: onDelta,
 		})
 		flushDelta()
@@ -118,20 +126,36 @@ func runAgentLoop(
 		}
 
 		if len(resp.ToolCalls) == 0 {
-			// Done.
+			// Done — unless tools already ran and the model returned an empty stop.
+			// Some models/providers finish the tool loop with content="" even when a
+			// user-facing summary is still required; one forced text continuation
+			// recovers that path instead of surfacing the placeholder as normal UX.
 			if strings.TrimSpace(resp.Content) == "" {
+				if usedTools && !emptyFinalRetryUsed {
+					emptyFinalRetryUsed = true
+					forceTextOnly = true
+					log.Printf("kinagent: empty final content after tools; requesting user-facing summary (one retry)")
+					messages = append(messages, provider.Message{
+						Role:    provider.RoleUser,
+						Content: emptyFinalContinuationPrompt,
+					})
+					continue
+				}
+				log.Printf("kinagent: agent finished with empty content (used_tools=%v empty_retry_used=%v)",
+					usedTools, emptyFinalRetryUsed)
 				emitMsg(ch, "kin", "(agent finished with no message)")
 			}
 			// Append final assistant text so follow-ups see it in the durable prefix.
-			if strings.TrimSpace(resp.Content) != "" || len(resp.ToolCalls) == 0 {
-				messages = append(messages, provider.Message{
-					Role:    provider.RoleAssistant,
-					Content: resp.Content,
-				})
-			}
+			messages = append(messages, provider.Message{
+				Role:    provider.RoleAssistant,
+				Content: resp.Content,
+			})
 			emitResult(ch, false, lastModel, totalIn, totalOut, totalCached)
 			return messages
 		}
+
+		usedTools = true
+		forceTextOnly = false
 
 		// Record assistant tool_calls turn.
 		messages = append(messages, provider.Message{
@@ -369,6 +393,10 @@ func aborted(ctx context.Context, cancel <-chan struct{}) bool {
 		return false
 	}
 }
+
+// emptyFinalContinuationPrompt is injected once when the model stops with empty
+// content after tool results. It asks for a user-visible summary without tools.
+const emptyFinalContinuationPrompt = "Please provide a concise final answer for the user based on the tool results above. Do not call tools. Reply with the user-facing summary only."
 
 func emitMsg(ch chan<- adapter.Event, agent, text string) {
 	payload, _ := json.Marshal(map[string]any{
