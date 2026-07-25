@@ -70,6 +70,7 @@ export default function Composer({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
+  const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -354,6 +355,9 @@ export default function Composer({
     }
   }
 
+  const expanded =
+    Boolean(value.trim()) || attachments.length > 0 || focused || uploading;
+
   return (
     <form onSubmit={submit} className="relative">
       {menu === "slash" && (
@@ -413,7 +417,12 @@ export default function Composer({
         </div>
       )}
 
-      <div className="rounded-[13px] border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-3 py-2.5 focus-within:border-kin-blue/40">
+      <div
+        className={[
+          "rounded-[13px] border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] focus-within:border-kin-blue/40 transition-[padding] duration-150",
+          expanded ? "px-3 py-2.5" : "px-2.5 py-1.5",
+        ].join(" ")}
+      >
         {attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {attachments.map((a) => {
@@ -473,6 +482,13 @@ export default function Composer({
           className="hidden"
           onChange={(e) => void addFiles(e.target.files)}
         />
+        <div
+          className={
+            expanded
+              ? "flex flex-col"
+              : "flex items-center gap-1.5"
+          }
+        >
         <textarea
           ref={textareaRef}
           rows={1}
@@ -509,30 +525,55 @@ export default function Composer({
           }}
           onKeyDown={onKeyDown}
           onInput={adjustTextareaHeight}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           placeholder={resolvedPlaceholder}
-          className="kin-scroll w-full resize-none bg-transparent text-[14px] leading-[1.45] text-kin-text placeholder:text-kin-muted outline-none min-h-[44px] max-h-[min(40vh,280px)] overflow-y-auto"
+          className={[
+            "kin-scroll resize-none bg-transparent text-[14px] text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
+            expanded
+              ? "w-full min-h-[44px] leading-[1.45]"
+              : "flex-1 min-w-0 min-h-[28px] leading-[1.35]",
+          ].join(" ")}
         />
-        <div className="mt-2.5 flex items-center gap-1.5">
+        <div
+          className={[
+            "flex items-center gap-1.5",
+            expanded ? "mt-2" : "mt-0 flex-none",
+          ].join(" ")}
+        >
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={disabled || busy || stopping || uploading}
-            className="w-7 h-7 -ml-1 rounded-lg text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center disabled:opacity-40"
+            className={[
+              "rounded-lg text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center disabled:opacity-40",
+              expanded ? "w-7 h-7 -ml-1" : "w-6 h-6",
+            ].join(" ")}
             aria-label={tr("composer.attachFile")}
             title={tr("composer.attachFile")}
           >
-            <IconImage size={15} />
+            <IconImage size={expanded ? 15 : 14} />
           </button>
           {uploading && (
             <span className="text-[11.5px] text-kin-muted">{tr("composer.uploading")}</span>
           )}
-          <span className="text-[11.5px] text-kin-muted inline-flex items-center gap-1">
+          <span
+            className={[
+              "text-[11.5px] text-kin-muted items-center gap-1",
+              expanded ? "inline-flex" : "hidden",
+            ].join(" ")}
+          >
             <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
               @
             </kbd>
             {tr("composer.agent")}
           </span>
-          <span className="text-[11.5px] text-kin-muted hidden sm:inline-flex items-center gap-1">
+          <span
+            className={[
+              "text-[11.5px] text-kin-muted items-center gap-1",
+              expanded ? "hidden sm:inline-flex" : "hidden",
+            ].join(" ")}
+          >
             <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
               ⌘↵
             </kbd>
@@ -573,6 +614,7 @@ export default function Composer({
               <IconSend size={15} strokeWidth={2} />
             </button>
           ) : null}
+        </div>
         </div>
       </div>
     </form>

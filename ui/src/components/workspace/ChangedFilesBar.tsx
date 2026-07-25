@@ -19,10 +19,12 @@ type Props = {
   onDiscardAll?: () => void | Promise<void>;
   actionsBusy?: boolean;
   className?: string;
+  /** bar = chat-column strip; card = side-rail panel (Codex-style). */
+  variant?: "bar" | "card";
 };
 
 /**
- * Collapsed-by-default summary of files the agent wrote/edited.
+ * Summary of files the agent wrote/edited.
  * Header: "modified N files, +x −y". Click expands the workspace dual-pane
  * (left = changed-file list, right = diff detail with hunk navigation).
  */
@@ -35,6 +37,7 @@ export default function ChangedFilesBar({
   onDiscardAll,
   actionsBusy = false,
   className,
+  variant = "bar",
 }: Props) {
   const t = useT();
   const [dismissed, setDismissed] = useState(false);
@@ -74,6 +77,8 @@ export default function ChangedFilesBar({
 
   const labelCount = mutated.length;
   const showBulk = reviewActions && mutated.length > 0;
+  const isCard = variant === "card";
+  const preview = ordered.slice(0, isCard ? 6 : 0);
 
   const handleKeepAll = async () => {
     try {
@@ -102,13 +107,171 @@ export default function ChangedFilesBar({
   };
 
   /** Open the dual-pane diff panel, focusing the heaviest mutation first. */
-  const openDiffPanel = () => {
-    const first = ordered[0];
-    if (first) {
-      onOpenPath(first.path);
+  const openDiffPanel = (path?: string) => {
+    if (path) {
+      onOpenPath(path);
+    } else {
+      const first = ordered[0];
+      if (first) onOpenPath(first.path);
     }
     onOpenPanel?.();
   };
+
+  const bulkActions = showBulk ? (
+    <div className="flex-none flex items-center gap-1.5 flex-wrap justify-end">
+      {confirmDiscard ? (
+        <>
+          <span className="hidden sm:inline text-[11px] text-kin-muted mr-0.5">
+            {t("workspace.changed.discardConfirmShort")}
+          </span>
+          <button
+            type="button"
+            disabled={actionsBusy}
+            onClick={() => void handleDiscardAll()}
+            className="kin-btn-deny !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+          >
+            {t("workspace.changed.discardConfirm")}
+          </button>
+          <button
+            type="button"
+            disabled={actionsBusy}
+            onClick={() => setConfirmDiscard(false)}
+            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+          >
+            {t("workspace.changed.discardCancel")}
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            disabled={actionsBusy}
+            onClick={() => void handleDiscardAll()}
+            title={t("workspace.changed.discardAllHint")}
+            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+          >
+            <IconX size={12} className="opacity-80" />
+            {t("workspace.changed.discardAll")}
+          </button>
+          <button
+            type="button"
+            disabled={actionsBusy}
+            onClick={() => void handleKeepAll()}
+            title={t("workspace.changed.keepAllHint")}
+            className="kin-btn-primary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+          >
+            <IconCheck size={12} />
+            {t("workspace.changed.keepAll")}
+          </button>
+        </>
+      )}
+    </div>
+  ) : null;
+
+  if (isCard) {
+    return (
+      <div
+        className={[
+          "rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden",
+          className ?? "",
+        ].join(" ")}
+      >
+        <div className="flex items-start gap-2 px-3 py-2 border-b border-[var(--kin-hairline)]">
+          <button
+            type="button"
+            onClick={() => openDiffPanel()}
+            title={t("workspace.changed.expand")}
+            className="flex-1 min-w-0 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <IconChevron
+                size={12}
+                className="flex-none text-kin-muted rotate-90"
+              />
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
+                {t("workspace.changed.cardTitle")}
+              </span>
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 min-w-0 pl-[18px]">
+              <span className="text-[12.5px] font-semibold text-kin-text truncate">
+                {t("workspace.changed.reviewTitle", { count: labelCount })}
+              </span>
+              {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
+                <span className="flex-none text-[12px] font-mono tabular-nums">
+                  <DeltaInline
+                    additions={stats.additions}
+                    deletions={stats.deletions}
+                  />
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 pl-[18px] text-[11px] text-kin-muted">
+              {t("workspace.changed.expand")}
+            </div>
+          </button>
+          {!showBulk && (
+            <button
+              type="button"
+              onClick={() => setDismissed(true)}
+              aria-label={t("workspace.changed.dismiss")}
+              className="flex-none p-1 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
+            >
+              <IconX size={13} />
+            </button>
+          )}
+        </div>
+
+        <ul className="max-h-48 overflow-y-auto kin-scroll py-1">
+          {preview.map((f) => {
+            const name = f.path.split(/[\\/]/).pop() || f.path;
+            const dir = f.path.slice(0, Math.max(0, f.path.length - name.length));
+            return (
+              <li key={`${f.action}:${f.path}:${f.seq}`}>
+                <button
+                  type="button"
+                  onClick={() => openDiffPanel(f.path)}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)] transition-colors"
+                  title={f.path}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] font-medium text-kin-text">
+                      {name}
+                    </span>
+                    {dir ? (
+                      <span className="block truncate text-[10.5px] font-mono text-kin-muted">
+                        {dir}
+                      </span>
+                    ) : null}
+                  </span>
+                  {(f.additions != null || f.deletions != null) && (
+                    <span className="flex-none text-[11px] font-mono tabular-nums">
+                      <DeltaInline
+                        additions={f.additions ?? 0}
+                        deletions={f.deletions ?? 0}
+                      />
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+          {ordered.length > preview.length && (
+            <li className="px-3 py-1.5 text-[11px] text-kin-muted">
+              {t("workspace.changed.moreFiles", {
+                count: ordered.length - preview.length,
+              })}
+            </li>
+          )}
+        </ul>
+
+        {bulkActions && (
+          <div className="px-3 py-2 border-t border-[var(--kin-hairline)]">
+            {bulkActions}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -118,10 +281,10 @@ export default function ChangedFilesBar({
         className ?? "",
       ].join(" ")}
     >
-      <div className="px-4 sm:px-5 py-2.5 flex items-center gap-2 min-w-0">
+      <div className="px-4 sm:px-5 py-2 flex items-center gap-2 min-w-0">
         <button
           type="button"
-          onClick={openDiffPanel}
+          onClick={() => openDiffPanel()}
           title={t("workspace.changed.expand")}
           className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
         >
@@ -150,56 +313,7 @@ export default function ChangedFilesBar({
           </span>
         </button>
 
-        {showBulk && (
-          <div className="flex-none flex items-center gap-1.5">
-            {confirmDiscard ? (
-              <>
-                <span className="hidden sm:inline text-[11px] text-kin-muted mr-0.5">
-                  {t("workspace.changed.discardConfirmShort")}
-                </span>
-                <button
-                  type="button"
-                  disabled={actionsBusy}
-                  onClick={() => void handleDiscardAll()}
-                  className="kin-btn-deny !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
-                >
-                  {t("workspace.changed.discardConfirm")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionsBusy}
-                  onClick={() => setConfirmDiscard(false)}
-                  className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
-                >
-                  {t("workspace.changed.discardCancel")}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={actionsBusy}
-                  onClick={() => void handleDiscardAll()}
-                  title={t("workspace.changed.discardAllHint")}
-                  className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
-                >
-                  <IconX size={12} className="opacity-80" />
-                  {t("workspace.changed.discardAll")}
-                </button>
-                <button
-                  type="button"
-                  disabled={actionsBusy}
-                  onClick={() => void handleKeepAll()}
-                  title={t("workspace.changed.keepAllHint")}
-                  className="kin-btn-primary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
-                >
-                  <IconCheck size={12} />
-                  {t("workspace.changed.keepAll")}
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        {bulkActions}
 
         {!showBulk && (
           <button

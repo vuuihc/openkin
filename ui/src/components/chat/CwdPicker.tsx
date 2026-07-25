@@ -9,6 +9,8 @@ type Props = {
   onChange: (cwd: string) => void;
   /** Once a real task has started, cwd is locked. */
   locked?: boolean;
+  /** Single-row footer: tighter path chip. */
+  compact?: boolean;
   className?: string;
 };
 
@@ -17,7 +19,7 @@ type Props = {
  * - Electron: native macOS/Windows/Linux folder dialog via window.kinDesktop
  * - Browser: manual path + recent cwds (web cannot expose absolute paths)
  */
-export default function CwdPicker({ cwd, onChange, locked, className }: Props) {
+export default function CwdPicker({ cwd, onChange, locked, compact, className }: Props) {
   const tr = useT();
   const [editing, setEditing] = useState(false);
   const [dirs, setDirs] = useState<string[]>([]);
@@ -69,19 +71,29 @@ export default function CwdPicker({ cwd, onChange, locked, className }: Props) {
     return (
       <div
         className={[
-          "flex items-center gap-2 text-[12px] text-kin-muted px-0.5",
+          "flex items-center text-kin-muted min-w-0",
+          compact ? "gap-1.5 text-[11px] px-0" : "gap-2 text-[12px] px-0.5",
           className,
         ].join(" ")}
-        title={cwd}
+        title={cwd ? `${cwd}${compact ? ` · ${tr("cwd.locked")}` : ""}` : undefined}
       >
         <FolderIcon />
-        <span className="font-medium text-kin-secondary">{projectLabel(cwd)}</span>
-        <span className="truncate font-mono text-[11px] opacity-80">
-          {shortPath(cwd, 48)}
+        <span className="font-medium text-kin-secondary shrink-0">
+          {projectLabel(cwd)}
         </span>
-        <span className="ml-auto text-[10.5px] uppercase tracking-wide opacity-70">
-          {tr("cwd.locked")}
+        <span
+          className={[
+            "truncate font-mono opacity-80",
+            compact ? "text-[10.5px]" : "text-[11px]",
+          ].join(" ")}
+        >
+          {shortPath(cwd, compact ? 28 : 48)}
         </span>
+        {!compact && (
+          <span className="ml-auto text-[10.5px] uppercase tracking-wide opacity-70">
+            {tr("cwd.locked")}
+          </span>
+        )}
       </div>
     );
   }
@@ -135,7 +147,8 @@ export default function CwdPicker({ cwd, onChange, locked, className }: Props) {
   return (
     <div
       className={[
-        "flex items-center gap-2 text-[12px] text-kin-muted px-0.5 rounded-md",
+        "flex items-center text-kin-muted rounded-md min-w-0",
+        compact ? "gap-1.5 text-[11px] px-0" : "gap-2 text-[12px] px-0.5",
         className,
       ].join(" ")}
     >
@@ -146,7 +159,10 @@ export default function CwdPicker({ cwd, onChange, locked, className }: Props) {
           if (desktop) void openNativePicker();
           else setEditing(true);
         }}
-        className="flex-1 min-w-0 flex items-center gap-2 text-left hover:text-kin-secondary py-1 rounded-md hover:bg-[var(--kin-fill)] transition-colors disabled:opacity-50"
+        className={[
+          "min-w-0 flex items-center text-left rounded-md hover:text-kin-secondary hover:bg-[var(--kin-fill)] transition-colors disabled:opacity-50",
+          compact ? "gap-1.5 py-0.5 px-1 flex-none max-w-full" : "gap-2 py-1 flex-1",
+        ].join(" ")}
         title={
           cwd
             ? tr("cwd.workingDir", { path: cwd })
@@ -162,7 +178,7 @@ export default function CwdPicker({ cwd, onChange, locked, className }: Props) {
               {projectLabel(cwd)}
             </span>
             <span className="truncate font-mono text-[11px] opacity-80">
-              {shortPath(cwd, 48)}
+              {shortPath(cwd, compact ? 28 : 48)}
             </span>
           </>
         ) : (

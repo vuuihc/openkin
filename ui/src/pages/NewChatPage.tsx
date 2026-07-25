@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
+  createRoutine,
   createTask,
   findProjectByRoot,
   listAgents,
@@ -15,6 +16,10 @@ import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
+import RoutineScheduleFields, {
+  defaultNextRunLocal,
+  parseLocalDateTime,
+} from "../components/routine/RoutineScheduleFields";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import { useT } from "../i18n/react";
 import { agentCatalogState } from "../lib/agentCatalog";
@@ -59,6 +64,10 @@ export default function NewChatPage() {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     () => getDraftPermissionMode(),
   );
+  const [asRoutine, setAsRoutine] = useState(false);
+  const [routineInterval, setRoutineInterval] = useState(86400);
+  const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
+
   const [selectedModel, setSelectedModel] = useState("");
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedHost, setSelectedHost] = useState<string>("");
@@ -196,6 +205,42 @@ export default function NewChatPage() {
     if (!raw) return;
     if (!cwd.trim()) {
       pushToast(tr("newChat.chooseCwd"), "error");
+      return;
+    }
+
+    if (asRoutine) {
+      setSending(true);
+      setDraftPrompt(raw);
+      try {
+        const nextMs = parseLocalDateTime(routineNextLocal);
+        const titleRunes = Array.from(raw);
+        const title =
+          titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : raw;
+        const routine = await createRoutine({
+          title,
+          cwd: cwd.trim(),
+          prompt: raw,
+          interval_secs: routineInterval,
+          agent: mainAgentId || undefined,
+          permission_mode: permissionMode,
+          project_id: project?.id,
+          ...(nextMs != null ? { next_due_at: nextMs } : {}),
+        });
+        clearDraftPrompt();
+        setAsRoutine(false);
+        navigate(`/routines`, { replace: true, state: { createdId: routine.id } });
+        pushToast(tr("routines.created"), "info");
+      } catch (err) {
+        const msg =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : tr("routines.actionFailed");
+        pushToast(msg, "error");
+      } finally {
+        setSending(false);
+      }
       return;
     }
     if (available.length === 0) {
@@ -373,8 +418,8 @@ export default function NewChatPage() {
         </div>
       </div>
 
-      <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
-        <div className="max-w-[720px] mx-auto space-y-2">
+      <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+        <div className="max-w-[720px] mx-auto space-y-1.5">
           {hints.length > 0 && (
             <div className="text-[11.5px] text-kin-muted px-0.5">
               {tr("newChat.tip", {
@@ -389,42 +434,89 @@ export default function NewChatPage() {
             disabled={sending}
             initialValue={initialValue}
             initialAttachments={initialAttachments}
-            placeholder={tr("newChat.placeholder", { name: mainAgentName })}
+            placeholder={asRoutine ? tr("routines.promptPlaceholder") : tr("newChat.placeholder", { name: mainAgentName })}
             onAttachmentsChange={setDraftAttachments}
             onValueChange={setDraftPrompt}
             onSubmit={onSubmit}
           />
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">
+          <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
             <PermissionModePicker
               value={permissionMode}
               disabled={sending}
+              compact
               onChange={(m) => {
                 setPermissionMode(m);
                 setDraftPermissionMode(m);
               }}
             />
-            <ModelPicker
-              key={mainAgentId}
-              value={selectedModel}
-              models={modelsForAgent(available, mainAgentId)}
-              source={mainAgentMeta?.model_list_source}
-              status={mainAgentMeta?.model_list_status}
-              disabled={sending}
-              onChange={setSelectedModel}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+            {!asRoutine && (
+              <>
+                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                  ·
+                </span>
+                <ModelPicker
+                  key={mainAgentId}
+                  value={selectedModel}
+                  models={modelsForAgent(available, mainAgentId)}
+                  source={mainAgentMeta?.model_list_source}
+                  status={mainAgentMeta?.model_list_status}
+                  disabled={sending}
+                  compact
+                  onChange={setSelectedModel}
+                />
+              </>
+            )}
+            <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+              ·
+            </span>
+            <label
+              className={[
+                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] cursor-pointer select-none transition-colors flex-none",
+                asRoutine
+                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
+              ].join(" ")}
+              title={tr("routines.asRoutineHint")}
+            >
+              <input
+                type="checkbox"
+                className="accent-[var(--kin-blue,#3b82f6)]"
+                checked={asRoutine}
+                disabled={sending}
+                onChange={(e) => setAsRoutine(e.target.checked)}
+              />
+              <span>{tr("routines.asRoutine")}</span>
+            </label>
+            <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+              ·
+            </span>
             <CwdPicker
-              className="flex-1 min-w-[12rem]"
+              className="min-w-0 max-w-[min(40%,18rem)]"
               cwd={cwd}
               locked={false}
+              compact
               onChange={(v) => {
                 setCwd(v);
                 setDraftCwd(v);
               }}
             />
-            <BranchPicker cwd={cwd} className="flex-none" />
+            <BranchPicker cwd={cwd} compact className="flex-none" />
           </div>
+          {asRoutine && (
+            <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
+              <div className="mb-2 text-[11.5px] font-medium text-kin-blue">
+                {tr("routines.routineModeOn")}
+              </div>
+              <RoutineScheduleFields
+                compact
+                disabled={sending}
+                intervalSecs={routineInterval}
+                onIntervalChange={setRoutineInterval}
+                nextRunLocal={routineNextLocal}
+                onNextRunLocalChange={setRoutineNextLocal}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

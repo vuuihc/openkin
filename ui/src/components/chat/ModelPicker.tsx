@@ -12,6 +12,8 @@ type Props = {
   /** When true, picker is display-only (session locked). */
   locked?: boolean;
   disabled?: boolean;
+  /** Single-row footer: hide labels / secondary hints. */
+  compact?: boolean;
   onChange: (modelId: string) => void;
 };
 
@@ -26,6 +28,7 @@ export default function ModelPicker({
   status,
   locked,
   disabled,
+  compact,
   onChange,
 }: Props) {
   const tr = useT();
@@ -43,14 +46,19 @@ export default function ModelPicker({
     : status === "default_only" ? tr("modelPicker.defaultOnly") : "";
 
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      <span className="text-[11.5px] text-kin-muted flex-none">
-        {tr("modelPicker.label")}
-      </span>
+    <div className={["flex items-center min-w-0", compact ? "gap-1.5" : "gap-2"].join(" ")}>
+      {!compact && (
+        <span className="text-[11.5px] text-kin-muted flex-none">
+          {tr("modelPicker.label")}
+        </span>
+      )}
       <select
         className={[
-          "max-w-[14rem] truncate rounded-lg border border-[var(--kin-hairline-strong)]",
-          "bg-transparent px-2 py-1 text-[11.5px] font-medium text-kin-secondary",
+          compact ? "max-w-[9.5rem]" : "max-w-[14rem]",
+          "truncate rounded-lg border border-[var(--kin-hairline-strong)]",
+          compact
+            ? "bg-transparent px-1.5 py-0.5 text-[11px] font-medium text-kin-secondary"
+            : "bg-transparent px-2 py-1 text-[11.5px] font-medium text-kin-secondary",
           "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
         ].join(" ")}
@@ -79,7 +87,10 @@ export default function ModelPicker({
       </select>
       {(custom || currentIsCustom) && !readOnly && (
         <input
-          className="w-44 rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-2 py-1 text-[11.5px] text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-blue/40"
+          className={[
+            compact ? "w-28 px-1.5 py-0.5 text-[11px]" : "w-44 px-2 py-1 text-[11.5px]",
+            "rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
+          ].join(" ")}
           value={current}
           placeholder={tr("modelPicker.customPlaceholder")}
           aria-label={tr("modelPicker.customLabel")}
@@ -87,8 +98,10 @@ export default function ModelPicker({
         />
       )}
       {currentIsCustom && readOnly && <span className="text-[11.5px] text-kin-secondary truncate">{current}</span>}
-      {sourceLabel && <span className="text-[11px] text-kin-muted truncate">{sourceLabel}</span>}
-      {locked && (
+      {sourceLabel && !compact && (
+        <span className="text-[11px] text-kin-muted truncate">{sourceLabel}</span>
+      )}
+      {locked && !compact && (
         <span className="text-[11px] text-kin-muted truncate">
           {tr("modelPicker.sessionHint")}
         </span>

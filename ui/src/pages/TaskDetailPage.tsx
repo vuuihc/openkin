@@ -20,6 +20,7 @@ import {
   followUpPrompt,
   forkTask,
   getTask,
+  markRoutineRunRead,
   getTaskUsage,
   getToken,
   isTerminal,
@@ -78,7 +79,7 @@ import { displayUserPrompt } from "../lib/attachments";
 
 /**
  * Single-column chat: user talks to the session host; @agents are task workers.
- * Full event stream in the main column (no inspector three-pane).
+ * Main chat column + optional right rail (usage / diffs on xl+).
  */
 type TaskDetailPageProps = {
   /** Fixed task id when hosted in a keep-alive cache (Chrome-tab style). */
@@ -225,6 +226,20 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       .then((qs) => setUserQuestions(qs.filter((q) => q.task_id === id)))
       .catch(() => undefined);
   }, [reconnectGen, id, loadUsage]);
+
+  // Opening a routine run marks it read (clears sidebar blue pill).
+  useEffect(() => {
+    if (!task?.routine_id || !task.routine_unread) return;
+    const id = task.id;
+    void markRoutineRunRead(id)
+      .then((t) => {
+        setTask((prev) =>
+          prev && prev.id === id ? { ...prev, ...t, routine_unread: false } : prev,
+        );
+        window.dispatchEvent(new Event("kin:routine-unread-changed"));
+      })
+      .catch(() => undefined);
+  }, [task?.id, task?.routine_id, task?.routine_unread]);
 
   useEffect(() => {
     return subscribeWS((msg) => {
@@ -874,17 +889,19 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           </div>
         </div>
 
-        <TaskUsageSummary usage={usage} loading={usageLoading} />
-
-        <ChangedFilesBar
-          files={changedFiles}
-          onOpenPath={onOpenWorkspacePath}
-          onOpenPanel={openFilesPanel}
-          reviewActions={terminal}
-          onKeepAll={onKeepAllChanges}
-          onDiscardAll={onDiscardAllChanges}
-          actionsBusy={reviewBusy}
-        />
+        {/* Narrow viewports: keep compact chips so usage/diff stay reachable without the rail. */}
+        <div className="xl:hidden flex-none border-b border-[var(--kin-hairline)]">
+          <TaskUsageSummary usage={usage} loading={usageLoading} />
+          <ChangedFilesBar
+            files={changedFiles}
+            onOpenPath={onOpenWorkspacePath}
+            onOpenPanel={openFilesPanel}
+            reviewActions={terminal}
+            onKeepAll={onKeepAllChanges}
+            onDiscardAll={onDiscardAllChanges}
+            actionsBusy={reviewBusy}
+          />
+        </div>
 
         <div
           ref={scrollRef}
@@ -951,8 +968,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           />
         </div>
 
-        <div className="flex-none px-4 sm:px-7 pb-4 sm:pb-5 pt-2">
-          <div className="max-w-[720px] mx-auto space-y-2">
+        <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+          <div className="max-w-[720px] mx-auto space-y-1.5">
             <Composer
               key={task.id}
               agents={agents}
@@ -975,33 +992,67 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               onSubmit={onComposer}
               onStop={onStop}
             />
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-0.5">
+            <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
               <PermissionModePicker
                 value={normalizePermissionMode(task.permission_mode)}
                 locked
+                compact
                 onChange={() => undefined}
               />
+              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                ·
+              </span>
               <ModelPicker
                 value={composerModel}
                 models={modelsForAgent(agents, task.agent || "")}
                 source={agents.find((agent) => agent.id === task.agent)?.model_list_source}
                 status={agents.find((agent) => agent.id === task.agent)?.model_list_status}
                 disabled={sending || stopping}
+                compact
                 onChange={setComposerModel}
               />
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                ·
+              </span>
               <CwdPicker
-                className="flex-1 min-w-[12rem]"
+                className="min-w-0 max-w-[min(40%,18rem)]"
                 cwd={task.cwd}
                 locked
+                compact
                 onChange={() => undefined}
               />
-              <BranchPicker cwd={task.cwd} locked className="flex-none" />
+              <BranchPicker
+                cwd={task.cwd}
+                locked
+                compact
+                className="flex-none"
+              />
             </div>
           </div>
         </div>
       </div>
+
+      {/* Session side rail — usage + diffs (Codex-style), frees chat vertical space. */}
+      <aside
+        className="hidden xl:flex w-[272px] 2xl:w-[300px] flex-none flex-col gap-2.5 border-l border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/40 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
+        aria-label={tr("task.sessionRail")}
+      >
+        <TaskUsageSummary
+          usage={usage}
+          loading={usageLoading}
+          variant="card"
+        />
+        <ChangedFilesBar
+          files={changedFiles}
+          onOpenPath={onOpenWorkspacePath}
+          onOpenPanel={openFilesPanel}
+          reviewActions={terminal}
+          onKeepAll={onKeepAllChanges}
+          onDiscardAll={onDiscardAllChanges}
+          actionsBusy={reviewBusy}
+          variant="card"
+        />
+      </aside>
 
       {filesOpen && (
         <div

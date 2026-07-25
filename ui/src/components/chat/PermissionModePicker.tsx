@@ -9,6 +9,8 @@ type Props = {
   /** When true, mode is session-scoped (already created task) and cannot change. */
   locked?: boolean;
   disabled?: boolean;
+  /** Single-row footer: hide labels / locked hint. */
+  compact?: boolean;
   onChange: (mode: PermissionMode) => void;
 };
 
@@ -22,6 +24,7 @@ export default function PermissionModePicker({
   value,
   locked,
   disabled,
+  compact,
   onChange,
 }: Props) {
   const tr = useT();
@@ -40,10 +43,12 @@ export default function PermissionModePicker({
   } as const;
 
   return (
-    <div className="flex items-center gap-2 min-w-0">
-      <span className="text-[11.5px] text-kin-muted flex-none">
-        {tr("permission.label")}
-      </span>
+    <div className={["flex items-center min-w-0", compact ? "gap-1.5" : "gap-2"].join(" ")}>
+      {!compact && (
+        <span className="text-[11.5px] text-kin-muted flex-none">
+          {tr("permission.label")}
+        </span>
+      )}
       <div
         className={[
           "inline-flex items-center rounded-lg border border-[var(--kin-hairline-strong)] p-0.5 gap-0.5",
@@ -51,7 +56,11 @@ export default function PermissionModePicker({
         ].join(" ")}
         role="group"
         aria-label={tr("permission.label")}
-        title={tr(hintKey[mode])}
+        title={
+          compact
+            ? `${tr("permission.label")}: ${tr(labelKey[mode])}${locked ? ` · ${tr("permission.sessionLocked")}` : ""}`
+            : tr(hintKey[mode])
+        }
       >
         {OPTIONS.map((opt) => {
           const active = mode === opt;
@@ -63,7 +72,7 @@ export default function PermissionModePicker({
               disabled={readOnly}
               onClick={() => onChange(opt)}
               className={[
-                "px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors",
+                compact ? "px-1.5 py-0.5 rounded-md text-[11px] font-medium transition-colors" : "px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors",
                 active
                   ? yolo
                     ? "bg-[rgba(255,159,10,.18)] text-[#ffb340]"
@@ -79,7 +88,7 @@ export default function PermissionModePicker({
           );
         })}
       </div>
-      {locked && (
+      {locked && !compact && (
         <span className="text-[11px] text-kin-muted truncate">
           {tr("permission.sessionLocked")}
         </span>

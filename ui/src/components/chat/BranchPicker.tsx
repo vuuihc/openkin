@@ -12,6 +12,8 @@ type Props = {
   cwd: string;
   /** When true, branch can be viewed but not switched (e.g. task already started). */
   locked?: boolean;
+  /** Single-row footer: hide branch label. */
+  compact?: boolean;
   className?: string;
 };
 
@@ -19,7 +21,7 @@ type Props = {
  * Git branch display + switcher next to the working-directory control.
  * Hidden when cwd is empty or not a git repository.
  */
-export default function BranchPicker({ cwd, locked, className }: Props) {
+export default function BranchPicker({ cwd, locked, compact, className }: Props) {
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [status, setStatus] = useState<GitBranchStatus | null>(null);
@@ -121,13 +123,17 @@ export default function BranchPicker({ cwd, locked, className }: Props) {
   return (
     <div
       ref={rootRef}
-      className={["relative flex items-center gap-1.5 min-w-0", className ?? ""].join(
-        " ",
-      )}
+      className={[
+        "relative flex items-center min-w-0",
+        compact ? "gap-1" : "gap-1.5",
+        className ?? "",
+      ].join(" ")}
     >
-      <span className="text-[11.5px] text-kin-muted flex-none">
-        {tr("branch.label")}
-      </span>
+      {!compact && (
+        <span className="text-[11.5px] text-kin-muted flex-none">
+          {tr("branch.label")}
+        </span>
+      )}
       <button
         type="button"
         disabled={busy}
@@ -137,9 +143,11 @@ export default function BranchPicker({ cwd, locked, className }: Props) {
           void load(cwd);
         }}
         className={[
-          "inline-flex items-center gap-1.5 min-w-0 max-w-full rounded-lg border",
+          "inline-flex items-center min-w-0 max-w-full rounded-lg border",
           "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]",
-          "px-2 py-0.5 text-[11.5px] font-medium transition-colors",
+          compact
+            ? "gap-1 px-1.5 py-0.5 text-[11px] font-medium transition-colors"
+            : "gap-1.5 px-2 py-0.5 text-[11.5px] font-medium transition-colors",
           "hover:border-kin-blue/40 hover:text-kin-secondary",
           open ? "border-kin-blue/50 text-kin-blue" : "text-kin-secondary",
           busy ? "opacity-60" : "",
