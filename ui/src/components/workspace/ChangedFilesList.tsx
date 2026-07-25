@@ -31,6 +31,16 @@ export default function ChangedFilesList({
     return [...mut].sort(bySeq);
   }, [files]);
 
+  // Hooks must run unconditionally. Returning above these when the list is
+  // empty caused React minified error #300 ("Rendered fewer hooks than
+  // expected") as the list flipped between empty and non-empty.
+  const selectedKey = selectedPath ? normalizeKey(selectedPath) : "";
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedKey]);
+
   if (ordered.length === 0) {
     return (
       <div className="h-full flex items-center justify-center px-4 text-center text-[12px] text-kin-muted">
@@ -38,13 +48,6 @@ export default function ChangedFilesList({
       </div>
     );
   }
-
-  const selectedKey = selectedPath ? normalizeKey(selectedPath) : "";
-  const activeRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: "nearest" });
-  }, [selectedKey]);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto kin-scroll">
