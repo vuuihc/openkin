@@ -47,6 +47,78 @@ func TestCreateDefaultPermissionMode(t *testing.T) {
 	}
 }
 
+// A follow-up may change the permission mode for this and subsequent turns.
+// Unlike a model switch it must not reset session continuity.
+func TestFollowUpUpdatesPermissionMode(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+
+	t1, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusSucceeded, 2*time.Second)
+	if t1.PermissionMode != adapter.PermissionDefault {
+		t.Fatalf("initial permission_mode=%q want default", t1.PermissionMode)
+	}
+
+	yolo := adapter.PermissionYOLO
+	if _, err := e.FollowUpWith(ctx, t1.ID, FollowUpRequest{
+		Prompt: "second", PermissionMode: &yolo,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	done := waitStatus(t, e, t1.ID, StatusSucceeded, 2*time.Second)
+	if done.PermissionMode != adapter.PermissionYOLO {
+		t.Fatalf("permission_mode after follow-up=%q want yolo", done.PermissionMode)
+	}
+
+	// The new mode must reach the next adapter run, and that run must be a resume
+	// (session ref carried into the spec) — a permission change is not a transcript
+	// switch, so unlike a model switch it must not force a fresh session. Assert on
+	// the second spec directly: the post-run stored ref would be repopulated by the
+	// replayed session_id regardless, so it cannot distinguish resume from reset.
+	ad.mu.Lock()
+	started := ad.started
+	last := ad.lastSpec.PermissionMode
+	resumeRef := ad.lastSpec.SessionRef
+	ad.mu.Unlock()
+	if started < 2 {
+		t.Fatalf("expected a second start, got %d", started)
+	}
+	if last != adapter.PermissionYOLO {
+		t.Fatalf("follow-up spec.PermissionMode=%q want yolo", last)
+	}
+	if resumeRef != "s1" {
+		t.Fatalf("follow-up spec.SessionRef=%q want s1 (resume preserved)", resumeRef)
+	}
+}
+
+// A follow-up that normalizes an alias persists the canonical mode.
+func TestFollowUpNormalizesPermissionMode(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+
+	t1, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusSucceeded, 2*time.Second)
+
+	alias := "acceptEdits"
+	if _, err := e.FollowUpWith(ctx, t1.ID, FollowUpRequest{
+		Prompt: "second", PermissionMode: &alias,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	done := waitStatus(t, e, t1.ID, StatusSucceeded, 2*time.Second)
+	if done.PermissionMode != adapter.PermissionAcceptEdits {
+		t.Fatalf("permission_mode=%q want accept_edits (normalized)", done.PermissionMode)
+	}
+}
+
 // Session permission mode is applied to the main agent run.
 func TestSingleAgentReceivesPermissionMode(t *testing.T) {
 	ctx := context.Background()

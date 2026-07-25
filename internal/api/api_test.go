@@ -348,7 +348,6 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 	}
 }
 
-
 func TestAgentsManagement(t *testing.T) {
 	s, token := newTestServer(t)
 	s.ListAgents = func() []AgentInfo {
@@ -476,6 +475,59 @@ func TestGenericCLIPermissionGate(t *testing.T) {
 	}
 }
 
+// A follow-up must re-validate the effective (agent, permission) so a mid-conversation
+// change cannot leave a Tier-2 generic CLI running under "default" (no approval channel).
+func TestFollowUpPermissionGate(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	now := store.NowMilli()
+
+	post := func(id, bodyJSON string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+id+"/prompt",
+			bytes.NewBufferString(bodyJSON))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Terminal task already on a generic CLI under yolo (valid). Insert directly to
+	// bypass create-time validation and set up the mid-conversation scenario.
+	genID := "01GENERICCLI0000000000000001"
+	if err := s.Store.InsertTask(ctx, store.Task{
+		ID: genID, Title: "t", Agent: "gemini-cli", Cwd: "/tmp", Prompt: "p",
+		PermissionMode: adapter.PermissionYOLO,
+		Status:         task.StatusSucceeded, CreatedAt: now, FinishedAt: &now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Empty-agent branch: switching that generic CLI to default must be rejected.
+	if rr := post(genID, `{"prompt":"x","permission_mode":"default"}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("switch generic CLI to default: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Native task under default; handoff to a generic CLI without a permission field
+	// must be rejected too (effective permission = current default).
+	natID := "01NATIVETODEFAULT00000000001"
+	if err := s.Store.InsertTask(ctx, store.Task{
+		ID: natID, Title: "t", Agent: "claude-code", Cwd: "/tmp", Prompt: "p",
+		PermissionMode: adapter.PermissionDefault,
+		Status:         task.StatusSucceeded, CreatedAt: now, FinishedAt: &now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rr := post(natID, `{"prompt":"x","agent":"gemini-cli"}`); rr.Code != http.StatusBadRequest {
+		t.Fatalf("handoff to generic CLI under default: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// A plain follow-up (no agent, no permission) on the native task must not be gated.
+	if rr := post(natID, `{"prompt":"keep going"}`); rr.Code != http.StatusOK {
+		t.Fatalf("plain follow-up should pass: code=%d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
 func TestAgentInfoInstallURLJSON(t *testing.T) {
 	info := AgentInfo{ID: "cursor", Name: "Cursor", InstallURL: "https://cursor.com"}
 	b, err := json.Marshal(info)
@@ -486,7 +538,6 @@ func TestAgentInfoInstallURLJSON(t *testing.T) {
 		t.Fatalf("json=%s", b)
 	}
 }
-
 
 func TestUserQuestionsAPI(t *testing.T) {
 	_, token := newTestServer(t)
@@ -662,4 +713,3 @@ func TestUserQuestionsAPI(t *testing.T) {
 		t.Fatalf("status=%s want pending", pending.Status)
 	}
 }
-

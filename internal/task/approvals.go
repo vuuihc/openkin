@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vuuihc/kin/internal/adapter"
 	"github.com/vuuihc/kin/internal/agent"
 	"github.com/vuuihc/kin/internal/sessionctx"
 	"github.com/vuuihc/kin/internal/store"
@@ -656,6 +657,12 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 		patch.ClearModel = true
 	} else if setModel {
 		patch.Model = &resolvedModel
+	}
+	// Permission mode is per-turn like model, but it is not part of transcript
+	// identity: changing it keeps session continuity (no ClearSessionRef).
+	if req.PermissionMode != nil {
+		perm := adapter.NormalizePermissionMode(*req.PermissionMode)
+		patch.PermissionMode = &perm
 	}
 	// Fresh sessions for multi-@, handoff, or model switch.
 	if orchestrate || modelSwitch {

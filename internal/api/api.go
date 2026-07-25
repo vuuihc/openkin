@@ -484,6 +484,40 @@ func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
+	// The effective (agent, permission) for this turn must be honorable: Tier-2
+	// generic CLIs have no Kin approval channel and cannot run under "default".
+	// Validate whenever the follow-up could change either — a permission switch
+	// (PermissionMode set) or a handoff (Agent set) — resolving the unspecified
+	// side from the current task so a handoff cannot slip a generic CLI onto the
+	// task's existing default mode without a gate.
+	if body.PermissionMode != nil || strings.TrimSpace(body.Agent) != "" {
+		agentID := strings.TrimSpace(body.Agent)
+		permMode := ""
+		if body.PermissionMode != nil {
+			permMode = *body.PermissionMode
+		}
+		if agentID == "" || body.PermissionMode == nil {
+			cur, err := s.Engine.Get(r.Context(), id)
+			if errors.Is(err, store.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+				return
+			}
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			if agentID == "" {
+				agentID = cur.Agent
+			}
+			if body.PermissionMode == nil {
+				permMode = cur.PermissionMode
+			}
+		}
+		if err := s.validateGenericCLIPermission(r.Context(), agentID, permMode); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	t, err := s.Engine.FollowUpWith(r.Context(), id, body)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})

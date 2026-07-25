@@ -58,10 +58,13 @@ type CreateRequest struct {
 // Agent optional: when set to a different agent, hand off (clear session, inject context).
 // Model optional: when set, updates the task model for this and subsequent turns
 // (same-agent resume uses the new model on the next adapter Start).
+// PermissionMode optional: when set, updates the task permission mode for this and
+// subsequent turns. Unlike a model switch it does not reset session continuity.
 type FollowUpRequest struct {
-	Prompt string  `json:"prompt"`
-	Agent  string  `json:"agent,omitempty"`
-	Model  *string `json:"model,omitempty"`
+	Prompt         string  `json:"prompt"`
+	Agent          string  `json:"agent,omitempty"`
+	Model          *string `json:"model,omitempty"`
+	PermissionMode *string `json:"permission_mode,omitempty"`
 }
 
 // Notifier is optional fire-and-forget push for approvals / task finish (M3).

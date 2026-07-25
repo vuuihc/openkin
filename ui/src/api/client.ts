@@ -385,13 +385,22 @@ export function deleteTask(id: string): Promise<void> {
 export function followUpPrompt(
   id: string,
   prompt: string,
-  opts?: { agent?: string; model?: string },
+  opts?: { agent?: string; model?: string; permission_mode?: string },
 ): Promise<Task> {
-  const body: { prompt: string; agent?: string; model?: string } = { prompt };
+  const body: {
+    prompt: string;
+    agent?: string;
+    model?: string;
+    permission_mode?: string;
+  } = { prompt };
   if (opts?.agent) body.agent = opts.agent;
   // Include model when the caller opts in (empty string clears task model).
   if (opts && "model" in opts && opts.model !== undefined) {
     body.model = (opts.model || "").trim();
+  }
+  // Include permission mode only when the caller opts in (mid-conversation change).
+  if (opts?.permission_mode !== undefined) {
+    body.permission_mode = opts.permission_mode;
   }
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/prompt`, {
     method: "POST",

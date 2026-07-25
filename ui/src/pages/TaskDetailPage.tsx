@@ -62,7 +62,10 @@ import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
-import { normalizePermissionMode } from "../lib/permissionMode";
+import {
+  normalizePermissionMode,
+  type PermissionMode,
+} from "../lib/permissionMode";
 import {
   clearFollowUpDraft,
   getFollowUpDraft,
@@ -102,6 +105,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [composerModel, setComposerModel] = useState("");
+  const [composerPermission, setComposerPermission] =
+    useState<PermissionMode>("default");
   // Latest follow-up draft fields for this task (localStorage is source of truth).
   const draftPromptRef = useRef("");
   const draftAttachmentsRef = useRef<Upload[]>([]);
@@ -559,6 +564,12 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setComposerModel((task.model || "").trim());
   }, [task?.id, task?.model]);
 
+  // Keep permission picker aligned with the task's effective mode.
+  useEffect(() => {
+    if (!task) return;
+    setComposerPermission(normalizePermissionMode(task.permission_mode));
+  }, [task?.id, task?.permission_mode]);
+
   // Keep refs aligned when navigating between tasks.
   useEffect(() => {
     if (!id) return;
@@ -582,12 +593,19 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setSending(true);
     try {
       // Non-terminal: backend interrupts the current turn then re-queues with this guide.
-      // Include model when the picker differs from the task (or any explicit selection).
+      // Send model / permission only when the picker differs from the task.
       const picked = composerModel.trim();
       const current = (task.model || "").trim();
-      const modelOpts =
-        picked !== current ? { model: picked } : undefined;
-      const t = await followUpPrompt(task.id, text, modelOpts);
+      const currentPerm = normalizePermissionMode(task.permission_mode);
+      const opts: { model?: string; permission_mode?: string } = {};
+      if (picked !== current) opts.model = picked;
+      if (composerPermission !== currentPerm)
+        opts.permission_mode = composerPermission;
+      const t = await followUpPrompt(
+        task.id,
+        text,
+        Object.keys(opts).length ? opts : undefined,
+      );
       setTask(t);
       clearFollowUpDraft(task.id);
       draftPromptRef.current = "";
@@ -994,10 +1012,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             />
             <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
               <PermissionModePicker
-                value={normalizePermissionMode(task.permission_mode)}
-                locked
+                value={composerPermission}
+                disabled={sending || stopping}
                 compact
-                onChange={() => undefined}
+                onChange={setComposerPermission}
               />
               <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
                 ·
