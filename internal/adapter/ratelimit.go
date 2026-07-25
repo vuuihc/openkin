@@ -30,6 +30,19 @@ type RateLimitInfo struct {
 // RateLimitKind is the stable error kind string used in event payloads.
 const RateLimitKind = "rate_limited"
 
+// RateLimitStatusIsLimited reports whether a provider-reported rate-limit status
+// actually means the request was blocked. Claude Code sends status=allowed (and
+// allowed_warning when nearing the cap) on informational events; only rejected
+// (or an unknown/absent status, kept conservative) counts as a real limit.
+func RateLimitStatusIsLimited(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "allowed", "allowed_warning", "ok", "under_limit":
+		return false
+	default:
+		return true
+	}
+}
+
 var (
 	// Matches phrases that almost always mean provider quota / subscription limits.
 	rateLimitPhrase = regexp.MustCompile(`(?i)(` +
@@ -105,6 +118,12 @@ func DetectRateLimitPayload(raw json.RawMessage) (RateLimitInfo, bool) {
 
 	// Nested rate_limit_info (Claude Code rate_limit_event).
 	if nested, ok := m["rate_limit_info"].(map[string]any); ok {
+		// Claude Code emits these periodically as usage telemetry, not only on
+		// failure. status=allowed means the request went through; treating it as
+		// a limit would surface a bogus "额度受限" card mid-run.
+		if !RateLimitStatusIsLimited(stringField(nested, "status")) {
+			return RateLimitInfo{}, false
+		}
 		info := RateLimitInfo{
 			Kind:     RateLimitKind,
 			Provider: firstNonEmpty(stringField(m, "provider"), "claude"),

@@ -3,7 +3,7 @@
  * One user message → one agent reply column (single left avatar). Intermediate
  * multi-agent / tool steps collapse into a fixed-height progress box.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TaskEvent } from "../../api/client";
 import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
@@ -334,6 +334,27 @@ function AgentTurn({
 }) {
   const tr = useT();
   const meta = agentAvatarMeta(speaker);
+
+  // Post-conclusion collapse: hide process steps when task is done.
+  const lastMsgIdx = (() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it.kind === "message" && !it.partial) return i;
+    }
+    return -1;
+  })();
+  const hasRunningProgress = items.some(
+    (x) =>
+      x.kind === "progress" &&
+      x.steps.some((s) => s.status === "running"),
+  );
+  const isConcluded = !loading && !hasRunningProgress && lastMsgIdx >= 0;
+  const hasProcessBeforeConclusion =
+    isConcluded &&
+    items.slice(0, lastMsgIdx).some(
+      (x) => x.kind === "progress" || x.kind === "error" || x.kind === "meta",
+    );
+  const [processExpanded, setProcessExpanded] = useState(false);
   // Show the name once at the top of the column (not on every sub-block).
   const hasPartial = items.some((i) => i.kind === "message" && i.partial);
 
@@ -360,6 +381,11 @@ function AgentTurn({
             </span>
           )}
         </div>
+
+        {isConcluded && hasProcessBeforeConclusion ? (
+          <>
+            {processExpanded ? (
+              <>
 
         {items.map((item) => {
           switch (item.kind) {
@@ -461,17 +487,36 @@ function AgentTurn({
             }
             case "progress": {
               const globalIdx = allItems.indexOf(item);
-              const stepRunning = item.steps.some(
+              const hasAnyRunning = item.steps.some(
                 (x) => x.status === "running",
               );
               const live = loading && globalIdx === lastItemIdx;
+              const running = hasAnyRunning || live;
+
+              const noteSteps = item.steps.filter(
+                (s): s is NoteStep => s.kind === "note",
+              );
+              const toolSteps = item.steps.filter(
+                (s): s is ToolStep => s.kind === "tool",
+              );
+
               return (
-                <ProgressCard
-                  key={item.key}
-                  item={item}
-                  running={stepRunning || live}
-                  onOpenPath={onOpenPath}
-                />
+                <Fragment key={item.key}>
+                  {noteSteps.map((note) => (
+                    <InlineNoteRow
+                      key={note.key}
+                      note={note}
+                      running={running && note.status === "running"}
+                    />
+                  ))}
+                  {toolSteps.length > 0 && (
+                    <ProgressCard
+                      item={{ ...item, steps: toolSteps }}
+                      running={running}
+                      onOpenPath={onOpenPath}
+                    />
+                  )}
+                </Fragment>
               );
             }
             case "error":
@@ -495,9 +540,215 @@ function AgentTurn({
           }
         })}
 
+              </>
+            ) : (
+              (() => {
+                const final = items[lastMsgIdx];
+                if (final && final.kind === "message") {
+                  return (
+                    <div
+                      key={final.key}
+                      className="group/msg space-y-1 rounded-lg"
+                    >
+                      <Markdown text={final.text} />
+                    </div>
+                  );
+                }
+                return null;
+              })()
+            )}
+            <ProcessCollapseBar
+              expanded={processExpanded}
+              onToggle={() => setProcessExpanded((v) => !v)}
+            />
+          </>
+        ) : (
+          <>
+
+        {items.map((item) => {
+          switch (item.kind) {
+            case "message": {
+              const canSave =
+                !!onSaveArtifact &&
+                !item.partial &&
+                item.text.trim().length > 0;
+              const canRetryFork =
+                showMessageActions &&
+                !item.partial &&
+                typeof item.seq === "number";
+              const canCopy = !item.partial && item.text.trim().length > 0;
+              return (
+                <div
+                  key={item.key}
+                  className={[
+                    "group/msg space-y-1 rounded-lg",
+                    selectionMode && selectedKeys.has(item.key)
+                      ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2"
+                      : "",
+                  ].join(" ")}
+                >
+                  {selectionMode && (
+                    <MessageSelectionControl
+                      role="assistant"
+                      selected={selectedKeys.has(item.key)}
+                      onToggle={() => onToggleSelection(item.key)}
+                    />
+                  )}
+                  <MessageBody text={item.text} partial={item.partial} />
+                  {(canRetryFork || canSave || canCopy) && (
+                    <div
+                      className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100 transition-opacity"
+                      role="group"
+                      aria-label={tr("task.actions")}
+                    >
+                      {canRetryFork && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={actionsBusy}
+                            title={tr("task.retryTitle")}
+                            onClick={() => onRetry?.(item.seq!)}
+                            className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                          >
+                            {tr("task.retry")}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={actionsBusy}
+                            title={tr("task.forkTitle")}
+                            onClick={() => onFork?.(item.seq!)}
+                            className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                          >
+                            {tr("task.fork")}
+                          </button>
+                        </>
+                      )}
+                      {canCopy && (
+                        <>
+                          <button
+                            type="button"
+                            title={tr("chat.message.copyTitle")}
+                            aria-label={tr("chat.message.copyTitle")}
+                            onClick={() => onCopyMessage(item.text)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                          >
+                            <IconCopy size={13} />
+                            {tr("chat.message.copy")}
+                          </button>
+                          <button
+                            type="button"
+                            title={tr("chat.message.shareTitle")}
+                            aria-label={tr("chat.message.shareTitle")}
+                            onClick={() => onShareMessage(item.key)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                          >
+                            <IconShare size={13} />
+                            {tr("chat.message.share")}
+                          </button>
+                        </>
+                      )}
+                      {canSave && (
+                        <button
+                          type="button"
+                          disabled={actionsBusy}
+                          title={tr("task.saveArtifactTitle")}
+                          onClick={() => onSaveArtifact?.(item.text)}
+                          className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                        >
+                          {tr("task.saveArtifact")}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            case "progress": {
+              const globalIdx = allItems.indexOf(item);
+              const hasAnyRunning = item.steps.some(
+                (x) => x.status === "running",
+              );
+              const live = loading && globalIdx === lastItemIdx;
+              const running = hasAnyRunning || live;
+
+              const noteSteps = item.steps.filter(
+                (s): s is NoteStep => s.kind === "note",
+              );
+              const toolSteps = item.steps.filter(
+                (s): s is ToolStep => s.kind === "tool",
+              );
+
+              return (
+                <Fragment key={item.key}>
+                  {noteSteps.map((note) => (
+                    <InlineNoteRow
+                      key={note.key}
+                      note={note}
+                      running={running && note.status === "running"}
+                    />
+                  ))}
+                  {toolSteps.length > 0 && (
+                    <ProgressCard
+                      item={{ ...item, steps: toolSteps }}
+                      running={running}
+                      onOpenPath={onOpenPath}
+                    />
+                  )}
+                </Fragment>
+              );
+            }
+            case "error":
+              return (
+                <div
+                  key={item.key}
+                  className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-[13.5px] text-kin-red"
+                >
+                  {item.message}
+                </div>
+              );
+            case "meta":
+              return (
+                <p
+                  key={item.key}
+                  className="text-[11.5px] text-kin-muted"
+                >
+                  {item.label}
+                </p>
+              );
+          }
+        })}
+
+          </>
+        )}
+
         {showThinking && !hasPartial && <ThinkingDots />}
       </div>
     </div>
+  );
+}
+
+/** Collapse bar shown between process items and final conclusion. */
+function ProcessCollapseBar({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const tr = useT();
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] text-left text-[12px] text-kin-muted hover:bg-[var(--kin-elevated)] transition-colors cursor-pointer"
+    >
+      <span className="flex-1">
+        {expanded ? tr("chat.progress.hideProcess") : tr("chat.progress.showProcess")}
+      </span>
+      <span className="text-[10px] text-kin-muted/60">
+        {expanded ? "▲" : "▼"}
+      </span>
+    </button>
   );
 }
 
@@ -763,6 +1014,43 @@ function ProgressCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Inline agent progress report shown outside the tool card. */
+function InlineNoteRow({
+  note,
+  running,
+}: {
+  note: NoteStep;
+  running: boolean;
+}) {
+  const meta = agentAvatarMeta(note.speaker);
+  const text = note.text || "";
+  if (!text.trim()) return null;
+
+  return (
+    <div className="flex items-start gap-2 py-0.5">
+      <span
+        className={`flex-none mt-0.5 w-5 h-5 rounded-[4px] flex items-center justify-center text-[9px] font-bold ${meta.className}`}
+        title={agentIdentityTitle(meta.label, note.model)}
+      >
+        {meta.initials}
+      </span>
+      <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] font-medium leading-[13px] text-kin-muted truncate max-w-[50%]">
+            {meta.label}
+          </span>
+          {running && (
+            <span className="flex-none w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
+          )}
+        </div>
+        <p className="text-[12px] leading-relaxed text-kin-secondary mt-0.5 line-clamp-2">
+          {text}
+        </p>
+      </div>
     </div>
   );
 }

@@ -199,6 +199,8 @@ const zh = {
       summaryDone: "完成 · {count} 步",
       summaryFailed: "失败 · {count} 步",
       summaryMixed: "{done} 完成 · {failed} 失败 · 共 {count} 步",
+      showProcess: "查看执行过程",
+      hideProcess: "隐藏执行过程",
       step: "步骤 {n}",
       lines: "{n} 行",
     },

@@ -85,6 +85,22 @@ func TestDetectRateLimitPayloadClaudeEvent(t *testing.T) {
 	}
 }
 
+func TestDetectRateLimitPayloadClaudeEventAllowed(t *testing.T) {
+	for _, status := range []string{"allowed", "allowed_warning"} {
+		raw, _ := json.Marshal(map[string]any{
+			"type": "rate_limit_event",
+			"rate_limit_info": map[string]any{
+				"status":   status,
+				"resetsAt": float64(1710000000),
+				"window":   "5h",
+			},
+		})
+		if info, ok := DetectRateLimitPayload(raw); ok {
+			t.Fatalf("status=%q should not be a limit, got %+v", status, info)
+		}
+	}
+}
+
 func TestEnrichErrorPayload(t *testing.T) {
 	p := map[string]any{"message": "HTTP 429 rate limited"}
 	out := EnrichErrorPayload(p)

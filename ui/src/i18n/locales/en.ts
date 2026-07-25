@@ -203,6 +203,8 @@ const en: MessageTree = {
       summaryDone: "Done · {count} steps",
       summaryFailed: "Failed · {count} steps",
       summaryMixed: "{done} done · {failed} failed · {count} steps",
+      showProcess: "Show process",
+      hideProcess: "Hide process",
       step: "Step {n}",
       lines: "{n} lines",
     },

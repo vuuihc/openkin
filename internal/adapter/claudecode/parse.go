@@ -270,6 +270,11 @@ func parseRateLimitEvent(raw map[string]json.RawMessage, line string) []adapter.
 		var infoMap map[string]any
 		if err := json.Unmarshal(raw["rate_limit_info"], &infoMap); err == nil {
 			payloadIn["rate_limit_info"] = infoMap
+			// Informational usage telemetry (status=allowed / allowed_warning):
+			// drop it instead of raising a red error bubble mid-run.
+			if s, _ := infoMap["status"].(string); !adapter.RateLimitStatusIsLimited(s) {
+				return nil
+			}
 		}
 	}
 	info, ok := adapter.DetectRateLimitPayload(mustMarshal(payloadIn))

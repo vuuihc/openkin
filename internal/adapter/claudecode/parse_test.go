@@ -86,6 +86,13 @@ func TestParseLineNeverPanics(t *testing.T) {
 }
 
 
+func TestParseRateLimitEventAllowedIsDropped(t *testing.T) {
+	line := `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1710000000,"window":"5h"}}`
+	if got := ParseLine(line); len(got) != 0 {
+		t.Fatalf("expected no events for status=allowed, got=%+v", got)
+	}
+}
+
 func TestParseRateLimitEvent(t *testing.T) {
 	line := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1710000000,"window":"5h"},"message":"limit"}`
 	got := ParseLine(line)
