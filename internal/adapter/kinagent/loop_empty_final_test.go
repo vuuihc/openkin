@@ -52,7 +52,6 @@ func collectLoopEvents(ch <-chan adapter.Event, timeout time.Duration) []adapter
 			}
 			out = append(out, ev)
 			if ev.Type == "result" || ev.Type == "error" {
-				// Drain briefly for any trailing events, then return.
 				drain := time.After(20 * time.Millisecond)
 				for {
 					select {
@@ -101,12 +100,13 @@ func messageTexts(events []adapter.Event) []string {
 	return texts
 }
 
-func TestRunAgentLoopEmptyFinalAfterToolsRetries(t *testing.T) {
+func TestRunAgentLoopEmptyAfterToolsContinues(t *testing.T) {
 	cwd := t.TempDir()
 	tc := provider.ToolCall{ID: "call_1", Type: "function"}
 	tc.Function.Name = "list_dir"
 	tc.Function.Arguments = `{"path":"."}`
 
+	// Second empty stop after tools should inject continue; third can answer.
 	finalAnswer := "Directory is empty; nothing to note."
 	client := &scriptedChatClient{
 		resps: []*provider.ChatResponse{
@@ -117,7 +117,7 @@ func TestRunAgentLoopEmptyFinalAfterToolsRetries(t *testing.T) {
 				Usage:        provider.Usage{PromptTokens: 10, CompletionTokens: 5},
 			},
 			{
-				Content:      "", // empty stop after tools — should trigger retry
+				Content:      "",
 				FinishReason: "stop",
 				Usage:        provider.Usage{PromptTokens: 20, CompletionTokens: 1},
 			},
@@ -165,25 +165,83 @@ func TestRunAgentLoopEmptyFinalAfterToolsRetries(t *testing.T) {
 	}
 	client.mu.Unlock()
 	if nreq != 3 {
-		t.Fatalf("expected 3 Chat calls (tool + empty stop + retry), got %d", nreq)
+		t.Fatalf("expected 3 Chat calls (tool + empty stop + continue), got %d", nreq)
 	}
-	if last.ToolChoice != "none" {
-		t.Fatalf("retry ToolChoice=%q want none", last.ToolChoice)
+	// Continue keeps tools available (auto), not force text-only.
+	if last.ToolChoice != "auto" {
+		t.Fatalf("continue ToolChoice=%q want auto", last.ToolChoice)
 	}
-	// Continuation user prompt should be present before the final reply.
-	var sawContinuation bool
+	var sawContinue bool
 	for _, m := range finalMsgs {
-		if m.Role == provider.RoleUser && strings.Contains(m.Content, "final answer") {
-			sawContinuation = true
+		if m.Role == provider.RoleUser && strings.Contains(strings.ToLower(m.Content), "continue") {
+			sawContinue = true
 		}
 	}
-	if !sawContinuation {
-		t.Fatalf("expected continuation user prompt in persisted messages: %+v", finalMsgs)
+	if !sawContinue {
+		t.Fatalf("expected continue user prompt in persisted messages: %+v", finalMsgs)
 	}
 	lastMsg := finalMsgs[len(finalMsgs)-1]
 	if lastMsg.Role != provider.RoleAssistant || !strings.Contains(lastMsg.Content, finalAnswer) {
 		t.Fatalf("final durable assistant msg = %+v", lastMsg)
 	}
+}
+
+func TestRunAgentLoopEmptyAfterToolsContinueCanCallMoreTools(t *testing.T) {
+	cwd := t.TempDir()
+	tc1 := provider.ToolCall{ID: "call_1", Type: "function"}
+	tc1.Function.Name = "list_dir"
+	tc1.Function.Arguments = `{"path":"."}`
+	tc2 := provider.ToolCall{ID: "call_2", Type: "function"}
+	tc2.Function.Name = "list_dir"
+	tc2.Function.Arguments = `{"path":"."}`
+
+	client := &scriptedChatClient{
+		resps: []*provider.ChatResponse{
+			{
+				Content:      "",
+				FinishReason: "tool_calls",
+				ToolCalls:    []provider.ToolCall{tc1},
+			},
+			// Empty stop — continue nudge once.
+			{Content: "", FinishReason: "stop"},
+			// After continue, model decides more tools are needed.
+			{
+				Content:      "",
+				FinishReason: "tool_calls",
+				ToolCalls:    []provider.ToolCall{tc2},
+			},
+			{Content: "Still empty after re-check.", FinishReason: "stop"},
+		},
+	}
+
+	ch := make(chan adapter.Event, 64)
+	cancel := make(chan struct{})
+	done := make(chan []provider.Message, 1)
+	go func() {
+		msgs := runAgentLoop(context.Background(), client, "m", "sys", "list", cwd, "t", nil, nil, ch, cancel)
+		done <- msgs
+		close(ch)
+	}()
+	events := collectLoopEvents(ch, 3*time.Second)
+	finalMsgs := <-done
+
+	texts := messageTexts(events)
+	joined := strings.Join(texts, "\n")
+	if strings.Contains(joined, "(agent finished with no message)") {
+		t.Fatalf("unexpected placeholder: %v", texts)
+	}
+	if !strings.Contains(joined, "Still empty after re-check.") {
+		t.Fatalf("expected post-continue tool path answer; texts=%v", texts)
+	}
+	client.mu.Lock()
+	nreq := len(client.reqs)
+	client.mu.Unlock()
+	if nreq != 4 {
+		t.Fatalf("expected 4 Chat calls, got %d", nreq)
+	}
+	// empty continue is only once: second empty stop after more tools should NOT re-nudge forever.
+	// Here we never hit a second empty after the second tool path because final has content.
+	_ = finalMsgs
 }
 
 func TestRunAgentLoopEmptyFinalWithoutToolsNoRetry(t *testing.T) {
@@ -216,11 +274,11 @@ func TestRunAgentLoopEmptyFinalWithoutToolsNoRetry(t *testing.T) {
 	nreq := len(client.reqs)
 	client.mu.Unlock()
 	if nreq != 1 {
-		t.Fatalf("should not retry when tools were never used; Chat calls=%d", nreq)
+		t.Fatalf("should not continue when tools were never used; Chat calls=%d", nreq)
 	}
 }
 
-func TestRunAgentLoopEmptyFinalRetryExhausted(t *testing.T) {
+func TestRunAgentLoopEmptyContinueExhausted(t *testing.T) {
 	cwd := t.TempDir()
 	tc := provider.ToolCall{ID: "call_1", Type: "function"}
 	tc.Function.Name = "list_dir"
@@ -234,7 +292,7 @@ func TestRunAgentLoopEmptyFinalRetryExhausted(t *testing.T) {
 				ToolCalls:    []provider.ToolCall{tc},
 			},
 			{Content: "", FinishReason: "stop"},
-			{Content: "", FinishReason: "stop"}, // retry still empty
+			{Content: "", FinishReason: "stop"}, // continue still empty
 		},
 	}
 	ch := make(chan adapter.Event, 32)
@@ -257,6 +315,6 @@ func TestRunAgentLoopEmptyFinalRetryExhausted(t *testing.T) {
 	nreq := len(client.reqs)
 	client.mu.Unlock()
 	if nreq != 3 {
-		t.Fatalf("expected exactly one empty-final retry (3 Chat calls), got %d", nreq)
+		t.Fatalf("expected exactly one empty-continue (3 Chat calls), got %d", nreq)
 	}
 }
