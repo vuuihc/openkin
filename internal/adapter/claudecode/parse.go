@@ -3,6 +3,7 @@ package claudecode
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/vuuihc/kin/internal/adapter"
 )
@@ -35,9 +36,10 @@ func ParseLine(line string) []adapter.Event {
 		return parseStreamEvent(raw)
 	case "result":
 		return parseResult(raw, line)
+	case "rate_limit_event":
+		return parseRateLimitEvent(raw, line)
 	default:
-		// Known-unknown types (rate_limit_event, etc.): drop silently.
-		// Spec: never crash on unknown JSON.
+		// Unknown types: drop silently. Spec: never crash on unknown JSON.
 		return nil
 	}
 }
@@ -229,11 +231,92 @@ func parseResult(raw map[string]json.RawMessage, line string) []adapter.Event {
 	// Pass through raw for debugging.
 	out["raw"] = json.RawMessage(line)
 
+	// If the result is an error that looks like a rate limit, stamp kind/reset_at.
+	isErr := false
+	switch v := out["is_error"].(type) {
+	case bool:
+		isErr = v
+	}
+	if isErr {
+		msg, _ := out["result"].(string)
+		if msg == "" {
+			msg, _ = full["result"].(string)
+		}
+		if info, ok := adapter.DetectRateLimitMessage(msg); ok {
+			out["kind"] = adapter.RateLimitKind
+			out["message"] = info.Message
+			if info.ResetAt > 0 {
+				out["reset_at"] = info.ResetAt
+			}
+			out["provider"] = "claude"
+		}
+	}
+
 	events := make([]adapter.Event, 0, 2)
 	if usageEvent != nil {
 		events = append(events, *usageEvent)
 	}
 	return append(events, adapter.Event{Type: "result", Payload: mustMarshal(out)})
+}
+
+func parseRateLimitEvent(raw map[string]json.RawMessage, line string) []adapter.Event {
+	// Prefer structured rate_limit_info when present; fall back to free text.
+	payloadIn := map[string]any{
+		"type":     "rate_limit_event",
+		"message":  jsonString(raw["message"]),
+		"provider": "claude",
+	}
+	if len(raw["rate_limit_info"]) > 0 {
+		var infoMap map[string]any
+		if err := json.Unmarshal(raw["rate_limit_info"], &infoMap); err == nil {
+			payloadIn["rate_limit_info"] = infoMap
+		}
+	}
+	info, ok := adapter.DetectRateLimitPayload(mustMarshal(payloadIn))
+	if !ok {
+		// Still surface something usable if the event is clearly a limit signal.
+		info = adapter.RateLimitInfo{
+			Kind:     adapter.RateLimitKind,
+			Provider: "claude",
+			Message:  "rate limited",
+			Source:   "rate_limit_event",
+		}
+	}
+	if info.Provider == "" {
+		info.Provider = "claude"
+	}
+	if info.Source == "" {
+		info.Source = "rate_limit_event"
+	}
+	payload := map[string]any{
+		"kind":     adapter.RateLimitKind,
+		"message":  info.Message,
+		"provider": info.Provider,
+		"source":   info.Source,
+	}
+	if info.ResetAt > 0 {
+		payload["reset_at"] = info.ResetAt
+	}
+	if info.Window != "" {
+		payload["window"] = info.Window
+	}
+	// Keep raw for diagnostics.
+	payload["raw"] = json.RawMessage(line)
+	return []adapter.Event{{
+		Type:    "error",
+		Payload: mustMarshal(payload),
+	}}
+}
+
+func jsonString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	return strings.Trim(string(raw), "\"")
 }
 
 func rawOutput(line string) adapter.Event {

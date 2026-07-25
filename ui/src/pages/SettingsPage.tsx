@@ -40,6 +40,8 @@ export default function SettingsPage() {
   const [baseURL, setBaseURL] = useState("");
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
+  const [limitPolicy, setLimitPolicy] = useState("wait");
+  const [limitFallbackText, setLimitFallbackText] = useState("[]");
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [activeProviderId, setActiveProviderId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null); // null = closed, "" = new
@@ -71,6 +73,8 @@ export default function SettingsPage() {
       setNtfy(s["notify.ntfy_topic"] ?? "");
       setBaseURL(s["ui.base_url"] ?? "");
       setAgentDefault(s["agent.default"] ?? "");
+      setLimitPolicy((s.limit_policy as string) || "wait");
+      setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
       setActiveProviderId(s["provider.active_id"] ?? "");
       try {
         const reg = await listProviders();
@@ -135,10 +139,14 @@ export default function SettingsPage() {
         price_table: priceTable,
         agent_limits: agentLimitsText,
         "agent.default": agentDefault.trim(),
+        limit_policy: limitPolicy,
+        "limit_policy.fallback_agents": limitFallbackText.trim() || "[]",
       };
       const s = await updateSettings(body);
       setSettings(s);
       setAgentDefault(s["agent.default"] ?? "");
+      setLimitPolicy((s.limit_policy as string) || "wait");
+      setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
       try {
         setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
@@ -858,6 +866,54 @@ export default function SettingsPage() {
         </div>
       </section>
 
+
+      {/* Rate-limit policy */}
+      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          {tr("settings.limitPolicy.heading")}
+        </h2>
+        <p className="text-xs text-kin-muted">{tr("settings.limitPolicy.desc")}</p>
+        <div className="flex flex-col gap-2">
+          {(
+            [
+              ["wait", "settings.limitPolicy.wait"],
+              ["ask", "settings.limitPolicy.ask"],
+              ["switch", "settings.limitPolicy.switch"],
+            ] as const
+          ).map(([value, labelKey]) => (
+            <label key={value} className="flex items-center gap-2 text-[13px] text-kin-secondary cursor-pointer">
+              <input
+                type="radio"
+                name="limit_policy"
+                value={value}
+                checked={limitPolicy === value}
+                onChange={() => setLimitPolicy(value)}
+              />
+              {tr(labelKey)}
+            </label>
+          ))}
+        </div>
+        {limitPolicy === "switch" ? (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] text-kin-muted">{tr("settings.limitPolicy.fallback")}</span>
+            <input
+              value={limitFallbackText}
+              onChange={(e) => setLimitFallbackText(e.target.value)}
+              className="kin-input font-mono text-xs"
+              spellCheck={false}
+            />
+            <span className="text-[11px] text-kin-muted">{tr("settings.limitPolicy.fallbackHint")}</span>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save()}
+          className="kin-btn-primary disabled:opacity-50"
+        >
+          {busy ? tr("settings.saving") : tr("settings.limitPolicy.save")}
+        </button>
+      </section>
       {/* Agent usage limits */}
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">

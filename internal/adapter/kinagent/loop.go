@@ -660,7 +660,12 @@ func looksLikeUnknownModelErr(s string) bool {
 }
 
 func emitErr(ch chan<- adapter.Event, msg string) {
-	payload, _ := json.Marshal(map[string]string{"message": msg})
+	m := map[string]any{"message": msg}
+	m = adapter.EnrichErrorPayload(m)
+	if _, ok := m["kind"]; ok {
+		m["provider"] = "kin"
+	}
+	payload, _ := json.Marshal(m)
 	ch <- adapter.Event{Type: "error", Payload: payload}
 }
 

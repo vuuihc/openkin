@@ -528,3 +528,32 @@ add form. Default agent save is separate from provider CRUD.
 - `PUT /api/settings` `agent.default` must name a **registered + runnable** Kin adapter; empty clears auto mode. Discovery-only ids (e.g. openclaw when no adapter) are rejected with 400.
 - First-class runnable hints today: `claude-code`, `codex`, `grok` (same as process adapters).
 
+## Semi-auto rate-limit Wait / Continue (2026-07-25)
+
+When an adapter run fails with a provider rate-limit / quota signal, the engine
+emits a `limit_hit` event (structured: `kind=rate_limited`, optional `reset_at`).
+
+UI renders a Limit card on the task with:
+
+- **Wait & auto-continue** — arms an in-memory timer until `reset_at` (+2s grace), then `Retry`s the last user turn on the same agent
+- **Retry now** — immediate `Retry`
+- **Switch to &lt;agent&gt;** — `FollowUp` handoff with the last user prompt
+- **Dismiss** — marks the card dismissed
+
+API: `POST /api/tasks/{id}/limit/continue` body `{action, agent?, reset_at?}`.
+
+Detection sources:
+
+- Claude Code `rate_limit_event` JSON lines (previously dropped)
+- error/result free text (`HTTP 429`, `usage limit`, `try again in …`)
+- Kin provider 429 via `emitErr` enrichment
+
+Timers are process-local; on daemon restart `Recover` re-arms waiting (and default-wait open) cards that still have `reset_at`.
+
+### Defaults & settings (follow-up)
+
+- Global setting `limit_policy`: `wait` (default) | `ask` | `switch`.
+- `limit_policy.fallback_agents`: optional JSON array for switch order.
+- On `limit_hit` with policy `wait`, engine auto-arms Wait without a click.
+- Start-time preflight uses `usagewindows` (Claude/Codex): if the window is already `over`, fail with `limit_hit` and skip launching the CLI.
+

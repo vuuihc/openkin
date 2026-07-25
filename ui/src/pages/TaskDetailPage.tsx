@@ -28,10 +28,12 @@ import {
   listApprovals,
   listEvents,
   listUserQuestions,
+  limitContinue,
   restoreTaskWorkspace,
   retryTask,
   type AgentInfo,
   type Approval,
+  type LimitHit,
   type Task,
   type TaskEvent,
   type TaskUsage,
@@ -39,6 +41,7 @@ import {
   type UserQuestion,
 } from "../api/client";
 import ApprovalCard from "../components/cards/ApprovalCard";
+import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import Composer from "../components/chat/Composer";
@@ -115,6 +118,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [actionBusy, setActionBusy] = useState(false);
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
+  const [limitBusy, setLimitBusy] = useState<string | null>(null);
   const [focusIdx, setFocusIdx] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -483,6 +487,25 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     if (id) setSessionScroll(id, el.scrollTop);
   }, [events, approvals, userQuestions, sending, id]);
 
+
+  const latestLimitHit = useMemo(() => {
+    let lastUserSeq = 0;
+    for (const ev of events) {
+      if (ev.type !== "message") continue;
+      const p = (ev.payload ?? {}) as Record<string, unknown>;
+      if (p.role === "user" || p.speaker === "user") lastUserSeq = ev.seq;
+    }
+    let hit: { seq: number; payload: LimitHit } | null = null;
+    for (const ev of events) {
+      if (ev.type !== "limit_hit" || ev.seq <= lastUserSeq) continue;
+      const p = (ev.payload ?? {}) as LimitHit;
+      hit = { seq: ev.seq, payload: p };
+    }
+    if (!hit) return null;
+    // Terminal cards still render (actions hide themselves inside LimitCard).
+    return hit;
+  }, [events]);
+
   const needsYou = useMemo(() => {
     const a = approvals.map((item) => ({
       kind: "approval" as const,
@@ -522,6 +545,30 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [active, needsYou, focusIdx]);
+
+
+  async function onLimitAction(
+    action: "wait" | "continue" | "switch" | "dismiss",
+    agent?: string,
+  ) {
+    if (!task) return;
+    const busyKey = action === "switch" && agent ? `switch:${agent}` : action;
+    setLimitBusy(busyKey);
+    try {
+      const t = await limitContinue(task.id, {
+        action,
+        ...(agent ? { agent } : {}),
+        ...(action === "wait" && latestLimitHit?.payload.reset_at
+          ? { reset_at: latestLimitHit.payload.reset_at }
+          : {}),
+      });
+      setTask(t);
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : tr("limit.actionFailed"), "error");
+    } finally {
+      setLimitBusy(null);
+    }
+  }
 
   async function onDecide(approvalId: string, decision: "approved" | "denied") {
     setBusy((b) => ({ ...b, [approvalId]: decision }));
@@ -966,6 +1013,20 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                     )}
                   </div>
                 ))}
+                {latestLimitHit && task && (
+                  <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
+                    <LimitCard
+                      hit={latestLimitHit.payload}
+                      hostAgentId={task.agent || ""}
+                      agents={agents}
+                      busy={limitBusy}
+                      onWait={() => void onLimitAction("wait")}
+                      onContinue={() => void onLimitAction("continue")}
+                      onSwitch={(agentId) => void onLimitAction("switch", agentId)}
+                      onDismiss={() => void onLimitAction("dismiss")}
+                    />
+                  </div>
+                )}
                 {needsYou.length > 0 && (
                   <p className="text-center text-[11.5px] text-kin-muted mt-2">
                     <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">

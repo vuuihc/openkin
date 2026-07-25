@@ -198,6 +198,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	mode := networkMode(flags)
 	terminals := newTerminalManager(terminal.DetectProfiles)
 	defer terminals.Close()
+	// Share the same window prober with the engine for start-time preflight + auto-wait.
+	usageWin := usagewindows.New(60*time.Second, &usagewindows.ClaudeProber{}, &usagewindows.CodexProber{})
+	eng.SetUsageWindows(usageWin)
+
 	srvAPI := &api.Server{
 		Store:        st,
 		Auth:         auth,
@@ -224,7 +228,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		// Probe provider subscription windows (5h/weekly) from the tokens the
 		// Claude Code and Codex CLIs already store. Cached 60s to avoid
 		// hammering providers (and spending Codex quota) on every page view.
-		UsageWindows: usagewindows.New(60*time.Second, &usagewindows.ClaudeProber{}, &usagewindows.CodexProber{}),
+		UsageWindows: usageWin,
 		ListAgents: func() []api.AgentInfo {
 			pref, _ := st.GetSetting(context.Background(), "agent.default")
 			list := reg.List(context.Background(), strings.TrimSpace(pref))
