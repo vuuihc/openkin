@@ -289,6 +289,32 @@ func TestManagerRemoveStopsSessionAndDoesNotReuseID(t *testing.T) {
 	}
 }
 
+func TestManagerRemoveReturnsBeforeSlowShutdown(t *testing.T) {
+	manager := newTestManager(t)
+	cwd := t.TempDir()
+	info, err := manager.Create(CreateRequest{ProfileID: "sh", Cwd: cwd, Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	// Ignore SIGTERM so shutdown must wait for the 5s SIGKILL path.
+	if err := manager.Write(info.ID, []byte("trap '' TERM; while :; do sleep 1; done\n")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	// Give the shell a moment to install the trap before we signal it.
+	time.Sleep(200 * time.Millisecond)
+
+	start := time.Now()
+	if err := manager.Remove(info.ID); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("Remove() took %v, want quick return without waiting for process exit", elapsed)
+	}
+	if sessions := manager.List(); len(sessions) != 0 {
+		t.Fatalf("List() after Remove = %+v, want empty", sessions)
+	}
+}
+
 func TestManagerCloseTerminatesSessionsAndRejectsCreate(t *testing.T) {
 	manager := newTestManager(t)
 	cwd := t.TempDir()
