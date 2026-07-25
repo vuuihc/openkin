@@ -173,7 +173,27 @@ func TestHasDelegateWorkers_sameAgentModelSwitch(t *testing.T) {
 
 func TestIsDelegateWorkerStep_modelAliasCase(t *testing.T) {
 	s := DelegateStep{Agent: "claude-code", Model: "Opus"}
-	if isDelegateWorkerStep(s, "claude-code", "opus") {
+	if isDelegateWorkerStep(s, "claude-code", "opus", 1) {
 		t.Fatal("case-insensitive same model should not fan out")
+	}
+}
+
+
+func TestHasDelegateWorkers_sameAgentMultiStep(t *testing.T) {
+	plan := DelegatePlan{Steps: []DelegateStep{
+		{Agent: "kin", Instruction: "do A"},
+		{Agent: "kin", Instruction: "do B"},
+	}}
+	if !plan.HasDelegateWorkers("kin", "") {
+		t.Fatal("two @kin steps must fan out inside the same task")
+	}
+	if !plan.HasDelegateWorkers("kin", "grok-4.5") {
+		t.Fatal("two @kin steps must fan out even when host model is set")
+	}
+	single := DelegatePlan{Steps: []DelegateStep{
+		{Agent: "kin", Instruction: "continue"},
+	}}
+	if single.HasDelegateWorkers("kin", "grok-4.5") {
+		t.Fatal("single bare @kin must not self-delegate")
 	}
 }

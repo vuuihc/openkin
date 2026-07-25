@@ -69,15 +69,18 @@ func (p DelegatePlan) HasWorkersOtherThan(host string) bool {
 // under the given host. A step is a worker when:
 //   - it targets a different agent than the host, or
 //   - it targets the host agent but carries an explicit model that differs from
-//     the host task model (same-agent model switch, e.g. Opus plan → Haiku exec).
+//     the host task model (same-agent model switch, e.g. Opus plan → Haiku exec), or
+//   - the plan has multiple steps on the host agent (same-agent work split,
+//     e.g. "@kin do A @kin do B" — fan-out inside this task, not new sessions).
 //
-// Bare @host mentions without a model (or with the same model as the host) are
-// not self-delegation.
+// A single bare @host mention without a model (or with the same model as the host)
+// is not self-delegation.
 func (p DelegatePlan) HasDelegateWorkers(host, hostModel string) bool {
 	host = strings.TrimSpace(host)
 	hostModel = strings.TrimSpace(hostModel)
+	n := len(p.Steps)
 	for _, s := range p.Steps {
-		if isDelegateWorkerStep(s, host, hostModel) {
+		if isDelegateWorkerStep(s, host, hostModel, n) {
 			return true
 		}
 	}
@@ -85,14 +88,19 @@ func (p DelegatePlan) HasDelegateWorkers(host, hostModel string) bool {
 }
 
 // isDelegateWorkerStep reports whether step should run as a worker under host.
-func isDelegateWorkerStep(s DelegateStep, host, hostModel string) bool {
+// planStepCount is the number of steps in the full plan (before filtering).
+func isDelegateWorkerStep(s DelegateStep, host, hostModel string, planStepCount int) bool {
 	if strings.TrimSpace(s.Agent) == "" {
 		return false
 	}
 	if s.Agent != host {
 		return true
 	}
-	// Same agent as host: only fan out when the step requests a different model.
+	// Same agent as host: multi-step @host split is real parallel/serial work.
+	if planStepCount > 1 {
+		return true
+	}
+	// Single same-agent step: only fan out when the step requests a different model.
 	stepModel := strings.TrimSpace(s.Model)
 	if stepModel == "" {
 		return false

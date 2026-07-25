@@ -1,6 +1,7 @@
 package kinagent
 
 import (
+	"context"
 	"bytes"
 	"encoding/json"
 	"os"
@@ -155,5 +156,41 @@ func TestEmitToolResultTruncationUTF8(t *testing.T) {
 	}
 	if bytes.Contains(raw, []byte(`\ufffd`)) || bytes.Contains(raw, []byte("\ufffd")) {
 		t.Fatalf("json contains replacement: %s", raw[len(raw)-80:])
+	}
+}
+
+
+func TestBlockedTaskSpawnCommand(t *testing.T) {
+	cases := []struct {
+		cmd   string
+		block bool
+	}{
+		{`curl -X POST http://127.0.0.1:7777/api/tasks -d '{}'`, true},
+		{`TOKEN=$(cat ~/.kin/token); curl -s -H "Authorization: Bearer $TOKEN" -X POST http://127.0.0.1:7777/api/tasks -d @-`, true},
+		{`curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:7777/api/tasks/01ABC"`, false},
+		{`curl -s http://127.0.0.1:7777/api/tasks`, false},
+		{`go test ./internal/task/`, false},
+		{`kin task create --prompt hi`, true},
+	}
+	for _, tc := range cases {
+		got := blockedTaskSpawnCommand(tc.cmd)
+		if tc.block && got == "" {
+			t.Fatalf("expected block for %q", tc.cmd)
+		}
+		if !tc.block && got != "" {
+			t.Fatalf("unexpected block for %q: %s", tc.cmd, got)
+		}
+	}
+}
+
+func TestBashBlocksTaskSpawn(t *testing.T) {
+	dir := t.TempDir()
+	env, err := newToolEnv(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = env.bash(context.Background(), `curl -X POST http://127.0.0.1:7777/api/tasks -d '{}'`)
+	if err == nil || !strings.Contains(err.Error(), "blocked:") {
+		t.Fatalf("want blocked error, got %v", err)
 	}
 }

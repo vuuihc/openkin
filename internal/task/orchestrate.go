@@ -31,10 +31,12 @@ func (e *Engine) shouldOrchestrate(t store.Task) (DelegatePlan, bool) {
 	}
 	if plan.HasDelegateWorkers(t.Agent, hostModel) {
 		var steps []DelegateStep
+		planN := len(plan.Steps)
 		for _, s := range plan.SubSteps() {
 			// Bare @host (same model) is redundant routing, not a second worker.
 			// Same agent with an explicit different model is a model-switch worker.
-			if !isDelegateWorkerStep(s, t.Agent, hostModel) {
+			// Multiple @host steps are a same-agent work split inside this task.
+			if !isDelegateWorkerStep(s, t.Agent, hostModel, planN) {
 				continue
 			}
 			if e.HasAgent(s.Agent) {

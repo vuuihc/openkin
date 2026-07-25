@@ -231,10 +231,38 @@ func (e *toolEnv) sessionSearch(ctx context.Context, query string, limit int) (s
 	return e.Search.Search(ctx, e.TaskID, query, limit)
 }
 
+
+// blockedTaskSpawnCommand rejects shell that creates top-level Kin tasks/sessions.
+// Multi-agent work must use @mentions so the engine orchestrates inside this task.
+func blockedTaskSpawnCommand(command string) string {
+	c := strings.ToLower(command)
+	compact := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r', '\\', '"', '\'':
+			return -1
+		default:
+			return r
+		}
+	}, c)
+
+	if strings.Contains(compact, "post") && strings.Contains(compact, "/api/tasks") {
+		return "blocked: do not create top-level Kin tasks/sessions via the API. " +
+			"Parallel work stays in this chat via @agent mentions (e.g. @kin A @kin B). " +
+			"Ask the user to re-send with @mentions, or do the work yourself."
+	}
+	if strings.Contains(c, "kin ") && (strings.Contains(c, " task create") || strings.Contains(c, " tasks create") || strings.Contains(c, " create-task")) {
+		return "blocked: do not spawn Kin tasks via CLI. Use @agent mentions in this chat for parallel work."
+	}
+	return ""
+}
+
 func (e *toolEnv) bash(ctx context.Context, command string) (string, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return "", fmt.Errorf("command is required")
+	}
+	if reason := blockedTaskSpawnCommand(command); reason != "" {
+		return "", fmt.Errorf("%s", reason)
 	}
 	cctx, cancel := context.WithTimeout(ctx, bashTimeout)
 	defer cancel()
