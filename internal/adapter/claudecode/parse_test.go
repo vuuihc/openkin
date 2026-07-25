@@ -84,3 +84,22 @@ func TestParseLineNeverPanics(t *testing.T) {
 		_ = ParseLine(in)
 	}
 }
+
+
+func TestParseRateLimitEvent(t *testing.T) {
+	line := `{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1710000000,"window":"5h"},"message":"limit"}`
+	got := ParseLine(line)
+	if len(got) != 1 || got[0].Type != "error" {
+		t.Fatalf("got=%+v", got)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(got[0].Payload, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["kind"] != "rate_limited" {
+		t.Fatalf("kind=%v payload=%s", m["kind"], string(got[0].Payload))
+	}
+	if int64(m["reset_at"].(float64)) != 1710000000 {
+		t.Fatalf("reset_at=%v", m["reset_at"])
+	}
+}

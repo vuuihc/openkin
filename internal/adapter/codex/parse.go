@@ -148,14 +148,19 @@ func parseTurnFailed(raw map[string]json.RawMessage) []adapter.Event {
 	if err := json.Unmarshal(raw["error"], &errObj); err == nil && errObj.Message != "" {
 		msg = errObj.Message
 	}
+	payload := map[string]any{
+		"subtype":  "turn.failed",
+		"is_error": true,
+		"result":   msg,
+		"message":  msg,
+	}
+	payload = adapter.EnrichErrorPayload(payload)
+	if _, ok := payload["kind"]; ok {
+		payload["provider"] = "codex"
+	}
 	return []adapter.Event{{
-		Type: "result",
-		Payload: mustMarshal(map[string]any{
-			"subtype":  "turn.failed",
-			"is_error": true,
-			"result":   msg,
-			"message":  msg,
-		}),
+		Type:    "result",
+		Payload: mustMarshal(payload),
 	}}
 }
 
@@ -169,9 +174,14 @@ func parseError(raw map[string]json.RawMessage) []adapter.Event {
 	if isReconnectNotice(msg) {
 		return []adapter.Event{rawOutput(msg)}
 	}
+	payload := map[string]any{"message": msg}
+	payload = adapter.EnrichErrorPayload(payload)
+	if _, ok := payload["kind"]; ok {
+		payload["provider"] = "codex"
+	}
 	return []adapter.Event{{
 		Type:    "error",
-		Payload: mustMarshal(map[string]string{"message": msg}),
+		Payload: mustMarshal(payload),
 	}}
 }
 

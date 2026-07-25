@@ -146,6 +146,7 @@ func (s *Server) Handler() http.Handler {
 		r.Delete("/api/tasks/{id}", s.handleDeleteTask)
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
+		r.Post("/api/tasks/{id}/limit/continue", s.handleLimitContinue)
 		r.Post("/api/tasks/{id}/fork", s.handleFork)
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.Post("/api/approvals/{id}/decision", s.handleDecision)
@@ -565,6 +566,37 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleLimitContinue(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body task.LimitContinueRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+	}
+	t, err := s.Engine.LimitContinue(r.Context(), id, body)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if errors.Is(err, task.ErrConflict) || errors.Is(err, task.ErrNotTerminal) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		// Validation-ish errors (bad action, missing agent) → 400
+		msg := err.Error()
+		if strings.Contains(msg, "invalid action") || strings.Contains(msg, "required") || strings.Contains(msg, "unknown or unavailable") || strings.Contains(msg, "already") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": msg})
 		return
 	}
 	writeJSON(w, http.StatusOK, t)

@@ -131,6 +131,21 @@ export type TaskEvent = {
   payload: unknown;
 };
 
+/** Payload for event type "limit_hit" (provider rate limit / quota). */
+export type LimitHit = {
+  kind?: string;
+  message?: string;
+  agent?: string;
+  provider?: string;
+  reset_at?: number;
+  window?: string;
+  status?: "open" | "waiting" | "continued" | "switched" | "dismissed" | string;
+  source?: string;
+  to_agent?: string;
+  replaces_seq?: number;
+};
+
+
 export type Approval = {
   id: string;
   task_id: string;
@@ -415,6 +430,19 @@ export function retryTask(
 }
 
 /** Branch a new task from a transcript prefix (optionally continue with prompt). */
+/** Continue after a provider rate-limit: wait | continue | switch | dismiss. */
+export function limitContinue(
+  id: string,
+  body: { action: "wait" | "continue" | "switch" | "dismiss"; agent?: string; reset_at?: number },
+): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/limit/continue`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+
 export function forkTask(
   id: string,
   opts?: { from_seq?: number; prompt?: string; agent?: string },

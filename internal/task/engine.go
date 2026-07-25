@@ -114,6 +114,9 @@ type Engine struct {
 	clock       func() time.Time
 	approvalTTL time.Duration
 
+	// limitWaitCancel holds in-memory auto-continue timers after rate limits.
+	limitWaitCancel map[string]context.CancelFunc
+
 	// defaultPreference optional; returns configured preferred agent id only.
 	// Readiness/fallback is owned by the registry.
 	defaultPreference agentDefaultPreference
@@ -157,6 +160,7 @@ func NewEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		approvalWaiters:     make(map[string][]chan store.Approval),
 		userQuestionWaiters: make(map[string][]chan store.UserQuestion),
 		approvalTTL:         store.DefaultApprovalTTL,
+		limitWaitCancel:     make(map[string]context.CancelFunc),
 	}
 }
 
@@ -550,6 +554,7 @@ func (e *Engine) resolveModelDirective(ctx context.Context, t store.Task) (Model
 
 // Cancel requests cancellation. Queued → canceled; running/waiting_approval → SIGTERM/SIGKILL.
 func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
+	e.cancelLimitWait(id)
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
@@ -620,6 +625,7 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 // Delete permanently removes a task and its history after canceling any
 // in-flight work. Isolated worktrees are cleaned up when possible.
 func (e *Engine) Delete(ctx context.Context, id string) error {
+	e.cancelLimitWait(id)
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return err
@@ -941,6 +947,14 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			}
 		}
 		e.bus.PublishEvent(stored)
+		// Fast-path: surface rate-limit cards as soon as the adapter reports them.
+		if stored.Type == "error" || stored.Type == "result" {
+			agentID := ""
+			if t, err := e.store.GetTask(ctx, id); err == nil {
+				agentID = t.Agent
+			}
+			e.maybeEmitLimitHit(ctx, id, agentID, stored.Payload, stored.Type)
+		}
 		e.maybeEmitPersistDiagnostic(ctx, id)
 		if updatedTask != nil {
 			e.bus.PublishTask(*updatedTask)
@@ -1053,6 +1067,14 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	type exitCoder interface{ ExitCode() *int }
 	if ec, ok := h.(exitCoder); ok {
 		exitCode = ec.ExitCode()
+	}
+	// Surface rate-limit cards before finishing so UI sees them with the failed status.
+	if final == StatusFailed {
+		agentID := ""
+		if t, err := e.store.GetTask(ctx, id); err == nil {
+			agentID = t.Agent
+		}
+		e.scanAndEmitLimitHit(ctx, id, agentID)
 	}
 	e.clearPersistTracking(id)
 	_, _ = e.finish(ctx, id, final, exitCode, nil)

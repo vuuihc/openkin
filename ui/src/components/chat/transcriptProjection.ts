@@ -424,6 +424,9 @@ export function buildChatItems(
           label: t("chat.needsApproval"),
         });
         break;
+      case "limit_hit":
+        // Rendered as LimitCard in TaskDetailPage, not as transcript text.
+        break;
       default:
         break;
     }
