@@ -93,9 +93,9 @@ type Task struct {
 
 	// Optional routine association (ADR 0011). Empty = interactive task.
 	RoutineID         string `json:"routine_id,omitempty"`
-	RoutineNoteworthy bool   `json:"routine_noteworthy,omitempty"`
+	RoutineNoteworthy bool   `json:"routine_noteworthy"`
 	RoutineTLDR       string `json:"routine_tldr,omitempty"`
-	RoutineUnread     bool   `json:"routine_unread,omitempty"`
+	RoutineUnread     bool   `json:"routine_unread"`
 }
 
 // EffectiveCwd returns the path adapters and workspace file APIs should use.

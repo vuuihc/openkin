@@ -122,3 +122,69 @@ func TestRoutinesCRUDAndRunNow(t *testing.T) {
 	}
 	_ = time.Second // silence unused in case
 }
+
+func TestMarkRoutineRunReadClearsUnread(t *testing.T) {
+	s, st := newRoutinesTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+
+	if err := st.InsertRoutine(ctx, store.Routine{
+		ID: "r1", Cwd: t.TempDir(), Agent: "kin", Prompt: "p",
+		IntervalSecs: 60, Enabled: true, NextDueAt: now, CreatedAt: now, Title: "T",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertTask(ctx, store.Task{
+		ID: "task-unread", Title: "run", Agent: "kin", Cwd: "/tmp", Prompt: "p",
+		Status: "succeeded", CreatedAt: now, RoutineID: "r1",
+		RoutineUnread: true, RoutineNoteworthy: true, RoutineTLDR: "hi",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// unread count = 1
+	req := httptest.NewRequest(http.MethodGet, "/api/routines/unread-count", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unread status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var count struct {
+		Count int `json:"count"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &count)
+	if count.Count != 1 {
+		t.Fatalf("count=%d want 1", count.Count)
+	}
+
+	// mark read
+	req = httptest.NewRequest(http.MethodPost, "/api/routines/runs/task-unread/read", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("mark-read status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var task store.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.RoutineUnread {
+		t.Fatalf("response still unread: %+v", task)
+	}
+	// JSON must include routine_unread:false (not omitempty-elided)
+	if !bytes.Contains(rr.Body.Bytes(), []byte(`"routine_unread":false`)) {
+		t.Fatalf("body missing routine_unread false: %s", rr.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/routines/unread-count", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	_ = json.Unmarshal(rr.Body.Bytes(), &count)
+	if count.Count != 0 {
+		t.Fatalf("count after mark=%d want 0", count.Count)
+	}
+}

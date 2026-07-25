@@ -283,6 +283,10 @@ func (s *Server) handleMarkRoutineRunRead(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]string{"ok": "true"})
 		return
 	}
+	// Push task_update so sidebar unread pill and feed cards clear.
+	if s.Engine != nil {
+		s.Engine.PublishTask(t)
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 

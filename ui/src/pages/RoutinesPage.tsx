@@ -2,21 +2,34 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
+  createRoutine,
   deleteRoutine,
   getToken,
   isTerminal,
+  listAgents,
   listRoutineRuns,
   listRoutines,
   markAllRoutineRunsRead,
   markRoutineRunRead,
   patchRoutine,
   runRoutineNow,
+  type AgentInfo,
   type Routine,
   type Task,
 } from "../api/client";
+import CwdPicker from "../components/chat/CwdPicker";
+import PermissionModePicker from "../components/chat/PermissionModePicker";
+import RoutineScheduleFields, {
+  defaultNextRunLocal,
+  parseLocalDateTime,
+} from "../components/routine/RoutineScheduleFields";
 import { SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
+import {
+  getDraftPermissionMode,
+  type PermissionMode,
+} from "../lib/permissionMode";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
 function formatWhen(ms?: number | null): string {
@@ -35,9 +48,32 @@ function formatInterval(secs: number): string {
   return `${Math.round(secs / 86400)}d`;
 }
 
+function statusLabel(
+  status: string,
+  tr: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  switch (status) {
+    case "queued":
+      return tr("routines.statusQueued");
+    case "running":
+      return tr("routines.statusRunning");
+    case "succeeded":
+      return tr("routines.statusSucceeded");
+    case "failed":
+      return tr("routines.statusFailed");
+    case "canceled":
+      return tr("routines.statusCanceled");
+    case "waiting_approval":
+    case "waiting_input":
+      return tr("routines.statusWaiting");
+    default:
+      return status;
+  }
+}
+
 /**
- * Global Routines inbox — reverse-chron runs feed + per-routine controls.
- * Read surface of ADR 0011 (write lives on ProjectDetail).
+ * Global Routines inbox — create + reverse-chron runs feed + controls.
+ * Create reuses New-chat controls (cwd / permission / schedule).
  */
 export default function RoutinesPage() {
   const tr = useT();
@@ -46,20 +82,42 @@ export default function RoutinesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showSilent, setShowSilent] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const pushToast = useAppStore((s) => s.pushToast);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const slow = useSlowHint(loading);
 
+  // Create form (mirrors New chat footer controls)
+  const [cwd, setCwd] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [title, setTitle] = useState("");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
+    getDraftPermissionMode(),
+  );
+  const [intervalSecs, setIntervalSecs] = useState(86400);
+  const [nextRunLocal, setNextRunLocal] = useState(() => defaultNextRunLocal());
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [agentId, setAgentId] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const load = useCallback(async () => {
     if (!getToken()) return;
     try {
-      const [rs, feed] = await Promise.all([
+      const [rs, feed, agentList] = await Promise.all([
         listRoutines({ limit: 100 }) as Promise<Routine[]>,
         listRoutineRuns(80),
+        listAgents().catch(() => [] as AgentInfo[]),
       ]);
       setRoutines(Array.isArray(rs) ? rs : []);
       setRuns(feed);
+      setAgents(agentList);
+      setAgentId((cur) => {
+        if (cur) return cur;
+        const available = agentList.filter((a) => a.available);
+        const def = available.find((a) => a.default) ?? available[0];
+        return def?.id ?? "";
+      });
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
@@ -97,6 +155,11 @@ export default function RoutinesPage() {
   const silent = useMemo(
     () => runs.filter((r) => isTerminal(r.status) && !r.routine_noteworthy),
     [runs],
+  );
+
+  const availableAgents = useMemo(
+    () => agents.filter((a) => a.available),
+    [agents],
   );
 
   const onToggle = async (r: Routine) => {
@@ -140,7 +203,13 @@ export default function RoutinesPage() {
   const onMarkRead = async (taskId: string) => {
     try {
       const t = await markRoutineRunRead(taskId);
-      setRuns((prev) => prev.map((x) => (x.id === taskId ? { ...x, ...t } : x)));
+      // Explicit false: API used to omit false bools via omitempty.
+      setRuns((prev) =>
+        prev.map((x) =>
+          x.id === taskId ? { ...x, ...t, routine_unread: false } : x,
+        ),
+      );
+      window.dispatchEvent(new Event("kin:routine-unread-changed"));
     } catch {
       /* best-effort */
     }
@@ -150,8 +219,48 @@ export default function RoutinesPage() {
     try {
       await markAllRoutineRunsRead();
       setRuns((prev) => prev.map((x) => ({ ...x, routine_unread: false })));
+      // Nudge App badge (mark-all has no per-task WS storm).
+      window.dispatchEvent(new Event("kin:routine-unread-changed"));
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+    }
+  };
+
+  const onCreate = async () => {
+    const p = prompt.trim();
+    if (!p) {
+      pushToast(tr("routines.needPrompt"), "error");
+      return;
+    }
+    if (!cwd.trim()) {
+      pushToast(tr("routines.needCwd"), "error");
+      return;
+    }
+    setCreating(true);
+    try {
+      const nextMs = parseLocalDateTime(nextRunLocal);
+      const titleRunes = Array.from(title.trim() || p);
+      const resolvedTitle =
+        titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : titleRunes.join("");
+      const r = await createRoutine({
+        title: resolvedTitle,
+        cwd: cwd.trim(),
+        prompt: p,
+        interval_secs: intervalSecs,
+        agent: agentId || undefined,
+        permission_mode: permissionMode,
+        ...(nextMs != null ? { next_due_at: nextMs } : {}),
+      });
+      setRoutines((list) => [r, ...list]);
+      setShowCreate(false);
+      setPrompt("");
+      setTitle("");
+      setNextRunLocal(defaultNextRunLocal());
+      pushToast(tr("routines.created"), "info");
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -164,14 +273,124 @@ export default function RoutinesPage() {
           </h1>
           <p className="mt-1 text-[13px] text-kin-secondary">{tr("routines.subtitle")}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void onMarkAllRead()}
-          className="shrink-0 rounded-lg border border-[var(--kin-hairline)] px-3 py-1.5 text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)]"
-        >
-          {tr("routines.markAllRead")}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowCreate((v) => !v)}
+            className={[
+              "rounded-lg px-3 py-1.5 text-[12.5px] font-medium",
+              showCreate
+                ? "border border-[var(--kin-hairline)] text-kin-secondary"
+                : "bg-kin-accent text-white",
+            ].join(" ")}
+          >
+            {showCreate ? tr("routines.cancel") : tr("routines.createEntry")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void onMarkAllRead()}
+            className="rounded-lg border border-[var(--kin-hairline)] px-3 py-1.5 text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)]"
+          >
+            {tr("routines.markAllRead")}
+          </button>
+        </div>
       </div>
+
+      {showCreate && (
+        <section className="mt-5 rounded-2xl border border-kin-blue/30 bg-kin-blue/[0.04] p-4">
+          <div className="text-[14px] font-medium text-kin-text">
+            {tr("routines.createPanelTitle")}
+          </div>
+          <p className="mt-1 text-[12.5px] text-kin-secondary">
+            {tr("routines.createPanelHint")}
+          </p>
+
+          <label className="mt-4 block text-[12px] text-kin-secondary">
+            {tr("routines.titleLabel")}
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={tr("routines.titlePlaceholder")}
+              disabled={creating}
+              className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[13px] text-kin-text outline-none focus:border-kin-blue/40"
+            />
+          </label>
+
+          <label className="mt-3 block text-[12px] text-kin-secondary">
+            {tr("routines.promptLabel")}
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={tr("routines.promptPlaceholder")}
+              rows={4}
+              disabled={creating}
+              className="mt-1 w-full resize-y rounded-xl border border-[var(--kin-hairline)] bg-kin-panel px-3 py-2.5 text-[13.5px] text-kin-text outline-none focus:border-kin-blue/40"
+            />
+          </label>
+
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <PermissionModePicker
+              value={permissionMode}
+              disabled={creating}
+              onChange={setPermissionMode}
+            />
+            {availableAgents.length > 0 && (
+              <label className="inline-flex items-center gap-2 text-[12px] text-kin-secondary">
+                <span className="text-kin-muted">agent</span>
+                <select
+                  value={agentId}
+                  disabled={creating}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1 text-[12.5px] text-kin-text"
+                >
+                  {availableAgents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+
+          <div className="mt-3">
+            <CwdPicker
+              className="w-full"
+              cwd={cwd}
+              locked={false}
+              onChange={setCwd}
+            />
+          </div>
+
+          <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 px-3 py-2.5">
+            <RoutineScheduleFields
+              intervalSecs={intervalSecs}
+              onIntervalChange={setIntervalSecs}
+              nextRunLocal={nextRunLocal}
+              onNextRunLocalChange={setNextRunLocal}
+              disabled={creating}
+            />
+          </div>
+
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-lg px-3 py-1.5 text-[13px] text-kin-secondary"
+              onClick={() => setShowCreate(false)}
+            >
+              {tr("routines.cancel")}
+            </button>
+            <button
+              type="button"
+              disabled={creating || !prompt.trim() || !cwd.trim()}
+              className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+              onClick={() => void onCreate()}
+            >
+              {tr("routines.createAndOpen")}
+            </button>
+          </div>
+        </section>
+      )}
 
       {loading && (
         <div className="mt-8">
@@ -196,6 +415,15 @@ export default function RoutinesPage() {
               <div className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-12 text-center">
                 <p className="text-base font-medium text-kin-text">{tr("routines.emptyFeed")}</p>
                 <p className="mt-1 text-sm text-kin-secondary">{tr("routines.emptyFeedHint")}</p>
+                {!showCreate && (
+                  <button
+                    type="button"
+                    className="mt-4 rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white"
+                    onClick={() => setShowCreate(true)}
+                  >
+                    {tr("routines.createEntry")}
+                  </button>
+                )}
               </div>
             ) : (
               <ul className="space-y-3">
@@ -342,7 +570,7 @@ function RunCard({
                 {tr("routines.noteworthy")}
               </span>
             )}
-            <span className="text-[11px] text-kin-muted">{run.status}</span>
+            <span className="text-[11px] text-kin-muted">{statusLabel(run.status, tr)}</span>
           </div>
           {run.routine_tldr && (
             <p className="mt-1 text-[13px] text-kin-secondary">{run.routine_tldr}</p>
