@@ -393,7 +393,7 @@ export default function WorkspacePanel({
           onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH, true)}
         />
 
-        <div className="flex-1 min-w-0 min-h-0 bg-[#111214] flex flex-col">
+        <div className="flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex flex-col">
           <CodeViewer
             path={selectedPath}
             file={file}
