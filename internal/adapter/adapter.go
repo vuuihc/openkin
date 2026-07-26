@@ -51,4 +51,5 @@ type TaskSpec struct {
 	SessionRef     string // non-empty → resume
 	PermissionMode string // default | accept_edits | yolo (see Permission* constants)
 	Execution      ExecutionRef
+	RunMeta        RunMetadata
 }

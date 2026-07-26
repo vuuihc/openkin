@@ -47,6 +47,8 @@ func Build(ctx context.Context, factories ...Factory) (*Registry, error) {
 		if err := validateRegistration(desc, reg); err != nil {
 			return nil, err
 		}
+		// Wrap runner with cwd validation (ADR 0014)
+		reg.Runner = wrapRunner(reg.Runner)
 		// Prefer descriptor from factory as source of truth for static fields.
 		reg.Descriptor = normalizeDescriptor(desc)
 		// Prefer Runner/Controller/Sessions/Status from Open; fill ID if empty.
@@ -121,7 +123,7 @@ func NewRegistry(entries ...Entry) (*Registry, error) {
 		}
 		reg := Registration{
 			Descriptor: normalizeDescriptor(desc),
-			Runner:     e.Runner,
+			Runner:     wrapRunner(e.Runner),
 			Controller: e.Controller,
 			Sessions:   e.Sessions,
 			Status:     status,
@@ -129,6 +131,8 @@ func NewRegistry(entries ...Entry) (*Registry, error) {
 		if err := validateRegistration(desc, reg); err != nil {
 			return nil, err
 		}
+		// Wrap runner with cwd validation (ADR 0014)
+		reg.Runner = wrapRunner(reg.Runner)
 		byID[desc.ID] = reg
 	}
 	order := make([]string, 0, len(byID))
@@ -328,4 +332,13 @@ func (r *Registry) Has(id string) bool {
 	}
 	_, ok := r.byID[id]
 	return ok
+}
+
+
+// wrapRunner wraps an adapter with cwd validation if non-nil.
+func wrapRunner(r adapter.Adapter) adapter.Adapter {
+	if r == nil {
+		return nil
+	}
+	return adapter.WithCwdValidation(r)
 }
