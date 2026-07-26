@@ -155,7 +155,7 @@ Artifacts 的多端阅读走同一梯子：**手机打开的是你的 daemon 上
 | Daemon | Go，单静态二进制；纯 Go SQLite（无 CGO）；内嵌 Web 控制台；内建 tsnet |
 | 桌面壳 | Electron；daemon 作为受管 sidecar；托盘、原生通知批确认、自动更新 |
 | 本地终端 | 仅 Electron 主窗口；临时 PTY 会话使用同时校验 Kin token 与真实 loopback TCP 对端的 HTTP/WebSocket 路由，绝不经局域网、Tailnet 或 Funnel 暴露 |
-| 任务工作区 | 干净 Git 任务默认使用 Kin 自有 worktree；回合 checkpoint 使用可删除的 Kin 私有 Git 对象；非 Git/脏工作区在 auto 模式下仍为 shared |
+| 任务工作区 | Task 可跨越零个或多个 Kin 自有工作区代际；支持延迟提升的适配器在已发布任务续聊时先以只读方式使用当前源检出，并在首次请求写入时自动创建新代际；最终 diff 按代际保持不可变且可寻址 |
 | UI | React + Tailwind 一套代码，Electron 窗口与手机 Web 共用 |
 | API 契约 | OpenAPI 单一来源；代码生成 Go handler 与 TS 类型 |
 | 分发 | 桌面 .dmg / .exe 双击；headless 机器 `curl \| sh` 或 brew |

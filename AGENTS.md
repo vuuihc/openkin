@@ -46,9 +46,11 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
    not run, with residual risk.
 6. **Worktree, gate, then land.** Develop features in a dedicated worktree
    when practical. After checks pass, run the Feature completion gate
-   (advanced-model review and fixes, commit, merge to `main`, remove the
-   worktree, desktop rebuild)—do not wait for a reminder. Do not commit
-   known-failing work unless the user explicitly requests a checkpoint.
+   (advanced-model review and fixes, commit, integrate/release, desktop
+   rebuild)—do not wait for a reminder. In a Kin-managed workspace exposing
+   `mcp__kin__complete_workspace`, let Kin integrate and release; never remove
+   the current Kin worktree yourself. Do not commit known-failing work unless
+   the user explicitly requests a checkpoint.
 7. **Clear commit messages.** Use Conventional Commits that explain *why*, not
    only *what* changed. Prefer:
    - `feat(scope): …` / `fix(scope): …` / `refactor(scope): …` /
@@ -87,8 +89,10 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
    verification before completion.
 7. After a feature/module is complete and its checks pass, run the **Feature
    completion gate** (high-model `@codex`/`@claude` review → fix until no
-   blocker/major issues → commit → merge into `main` → remove the feature
-   worktree → `./scripts/desktop-rebuild.sh`). Do not skip review or leave
+   blocker/major issues → commit → integrate/release → desktop rebuild). In a
+   Kin-managed workspace exposing `mcp__kin__complete_workspace`, call it after
+   committing and let Kin perform integration and release. Without that tool,
+   use the manual merge/remove steps below. Do not skip review or leave
    finished work only on a side branch. Do not commit known failing work unless
    the user explicitly requests a checkpoint.
 
@@ -192,18 +196,21 @@ checks pass, do **not** stop at self-review. Finish with this gate in order:
 3. **Commit.** Create atomic Conventional Commit(s) for the reviewed work (and
    `web/dist/` when the shipped console changed). Do not commit known-failing
    work. Prefer committing **inside the feature worktree** on its branch.
-4. **Merge into `main`.** From the primary repository checkout, integrate the
-   finished branch into `main` (fast-forward preferred; merge commit when
-   needed). Do not leave a completed feature only on a side branch. Push to
-   `origin` only when the user or release process requires it; local `main`
-   must still contain the merge.
-5. **Remove the feature worktree.** After the merge is on `main` and the
-   working tree is clean of needed changes, delete the development worktree
-   (`git worktree remove <path>`, then delete the feature branch if it is fully
-   merged and no longer needed). Do not leave orphaned worktrees or merged
-   task branches cluttering the machine. If removal fails (dirty tree, lock,
-   path in use), stop, report the blocker, and do not force-delete uncommitted
-   work.
+4. **Integrate into `main`.** In a Kin-managed workspace exposing
+   `mcp__kin__complete_workspace`, call that tool and end the turn; Kin owns the
+   final snapshot, fast-forward integration, and lifecycle events. Otherwise,
+   from the primary repository checkout, integrate the finished branch into
+   `main` (fast-forward preferred; merge commit when needed). Do not leave a
+   completed feature only on a side branch. Push to `origin` only when the user
+   or release process requires it; local `main` must still contain the merge.
+5. **Release the feature worktree.** Kin-managed agents must not remove their
+   current worktree or branch; Kin releases both only after its durable
+   integration record. Without the lifecycle tool, after the merge is on
+   `main` and the working tree is clean of needed changes, delete the
+   development worktree (`git worktree remove <path>`, then delete the feature
+   branch if it is fully merged and no longer needed). If removal fails (dirty
+   tree, lock, path in use), stop, report the blocker, and do not force-delete
+   uncommitted work.
 6. **Repackage desktop.** Run `./scripts/desktop-rebuild.sh` (or
    `make desktop-rebuild`) from the primary checkout so the Electron shell
    picks up the new UI embed and `kin` binary. Do not substitute a hand-rolled
@@ -215,22 +222,23 @@ Scope notes:
 - Apply this gate to coherent feature/fix deliveries, not to every tiny
   exploratory edit mid-iteration.
 - **Default isolation:** start feature work in a worktree; land on `main` only
-  through the merge step above; always tear down that worktree after a
-  successful merge.
+  through the integration step above. Kin tears down Kin-managed generations;
+  otherwise remove the external worktree manually after a successful merge.
 - Docs-only or pure chore changes may skip worktree creation and desktop
   rebuild when no binary or UI embed changed; still commit (and merge to
   `main` when that was the goal).
 - If sub-agent review is unavailable, say so explicitly, fall back to a
   thorough self-review checklist, and list residual risk—do not silently skip
-  the rest of the gate (commit / merge / worktree removal / rebuild).
+  the rest of the gate (commit / integration / release / rebuild).
 
 ## Git discipline
 
-- **Done means reviewed, committed, merged, cleaned up, and rebuilt:** when a
+- **Done means reviewed, committed, integrated, released, and rebuilt:** when a
   coherent feature is finished and verified, complete the Feature completion
-  gate in the same session (high-model review, fix majors, commit, merge to
-  `main`, remove the feature worktree, `./scripts/desktop-rebuild.sh` when
-  binary/UI changed).
+  gate in the same session (high-model review, fix majors, commit,
+  integrate/release through `mcp__kin__complete_workspace` when exposed or the
+  manual fallback otherwise, and `./scripts/desktop-rebuild.sh` when binary/UI
+  changed).
 - Use atomic Conventional Commit messages such as `feat(api): ...`,
   `fix(provider): ...`, `test(task): ...`, and `docs: ...`. Subject in
   imperative mood; add a body for non-obvious motivation or tradeoffs.
@@ -243,10 +251,11 @@ Scope notes:
 - Do not amend commits created by another person or agent. Do not rebase shared
   branches, force-push, or push to a remote unless explicitly requested.
 - Prefer developing on a dedicated worktree/branch rather than dirtying the
-  primary `main` checkout. Merge finished feature/task branches into local
-  `main` as part of the Feature completion gate, then remove that worktree
-  (and the merged branch when appropriate). Push to `origin` only when
-  explicitly requested or required by the release process.
+  primary `main` checkout. Integrate finished feature/task branches into local
+  `main` as part of the Feature completion gate. Let Kin release Kin-managed
+  workspaces; otherwise remove the worktree and merged branch manually. Push
+  to `origin` only when explicitly requested or required by the release
+  process.
 - After a UI or daemon change lands on `main`, run `./scripts/desktop-rebuild.sh`
   (or `make desktop-rebuild`) from the primary checkout so desktop picks up the
   new embed and binary. Prefer this script over any manual rebuild steps.

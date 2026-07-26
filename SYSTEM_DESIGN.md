@@ -155,7 +155,7 @@ Current choices; may change with evidence. The one invariant: **UI talks to the 
 | Daemon | Go, single static binary; pure-Go SQLite (no CGO); embeds the web console; tsnet built in |
 | Desktop shell | Electron; daemon as supervised sidecar; tray, native notifications for approvals, auto-update |
 | Local terminal | Electron main window only; ephemeral PTY sessions use token-authenticated, true-loopback-only HTTP/WebSocket routes and are never exposed through LAN, Tailnet, or Funnel |
-| Task workspaces | Clean Git tasks default to Kin-owned worktrees; turn checkpoints use deletable Kin-private Git objects; non-Git/dirty auto mode remains shared |
+| Task workspaces | Tasks outlive zero or more Kin-owned workspace generations; lazy-capable adapters start released follow-ups read-only on the current source checkout and auto-promote on the first requested write, while final diffs remain immutable and addressable by generation |
 | UI | One React + Tailwind codebase for the Electron window and the phone web console |
 | API contract | OpenAPI as single source; codegen for Go handlers and TS types |
 | Distribution | .dmg / .exe double-click for desktops; `curl \| sh` or brew for headless boxes |

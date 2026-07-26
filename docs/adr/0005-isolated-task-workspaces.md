@@ -1,6 +1,6 @@
 # ADR 0005: Isolated Git task workspaces and private checkpoints
 
-**Status:** Accepted
+**Status:** Accepted; workspace ownership and retention lifecycle superseded in part by [ADR 0014](./0014-workspace-generations-and-lazy-promotion.md)
 **Date:** 2026-07-18
 **Related:** [Desktop core workflows design](../plans/2026-07-18-desktop-core-workflows-design.md) · [Implementation plan](../plans/2026-07-18-desktop-core-workflows.md) · [PRINCIPLE.md](../../PRINCIPLE.md) §5.9–§5.11
 
