@@ -50,6 +50,7 @@ const en: MessageTree = {
     mainAgent: "Host agent · {name}",
     mainAgentHint: "(configure a ready host agent)",
     hostPicker: "Session host",
+    hostPickerHint: "Switch the host agent and model below",
     roleHost: "host",
     heroSubtitleHost: "{name} hosts this session. @mentions assign workers without switching host.",
     heroTitle: "Talk to {name}, orchestrate your agents",
@@ -638,6 +639,9 @@ const en: MessageTree = {
     browseForFolder: "Browse for a folder",
     setCwd: "Set working directory",
     typePath: "Type path manually",
+    copy: "Copy",
+    copied: "Path copied",
+    copyFailed: "Failed to copy path",
   },
   branch: {
     label: "Branch",

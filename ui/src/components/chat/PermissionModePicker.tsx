@@ -42,13 +42,35 @@ export default function PermissionModePicker({
     yolo: "permission.yoloHint",
   } as const;
 
+  if (compact) {
+    return (
+      <select
+        className={[
+          "max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-[11px] font-medium",
+          "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
+          mode === "yolo" ? "text-[#ffb340]" : "text-kin-secondary",
+          readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
+        ].join(" ")}
+        value={mode}
+        disabled={readOnly}
+        aria-label={tr("permission.label")}
+        title={`${tr("permission.label")}: ${tr(labelKey[mode])}${locked ? ` · ${tr("permission.sessionLocked")}` : ""}`}
+        onChange={(e) => onChange(e.target.value as PermissionMode)}
+      >
+        {OPTIONS.map((opt) => (
+          <option key={opt} value={opt}>
+            {tr(labelKey[opt])}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
   return (
-    <div className={["flex items-center min-w-0", compact ? "gap-1.5" : "gap-2"].join(" ")}>
-      {!compact && (
-        <span className="text-[11.5px] text-kin-muted flex-none">
-          {tr("permission.label")}
-        </span>
-      )}
+    <div className="flex items-center min-w-0 gap-2">
+      <span className="text-[11.5px] text-kin-muted flex-none">
+        {tr("permission.label")}
+      </span>
       <div
         className={[
           "inline-flex items-center rounded-lg border border-[var(--kin-hairline-strong)] p-0.5 gap-0.5",
@@ -56,11 +78,7 @@ export default function PermissionModePicker({
         ].join(" ")}
         role="group"
         aria-label={tr("permission.label")}
-        title={
-          compact
-            ? `${tr("permission.label")}: ${tr(labelKey[mode])}${locked ? ` · ${tr("permission.sessionLocked")}` : ""}`
-            : tr(hintKey[mode])
-        }
+        title={tr(hintKey[mode])}
       >
         {OPTIONS.map((opt) => {
           const active = mode === opt;
@@ -72,7 +90,7 @@ export default function PermissionModePicker({
               disabled={readOnly}
               onClick={() => onChange(opt)}
               className={[
-                compact ? "px-1.5 py-0.5 rounded-md text-[11px] font-medium transition-colors" : "px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors",
+                "px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors",
                 active
                   ? yolo
                     ? "bg-[rgba(255,159,10,.18)] text-[#ffb340]"
@@ -88,7 +106,7 @@ export default function PermissionModePicker({
           );
         })}
       </div>
-      {locked && !compact && (
+      {locked && (
         <span className="text-[11px] text-kin-muted truncate">
           {tr("permission.sessionLocked")}
         </span>

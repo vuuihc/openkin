@@ -47,6 +47,7 @@ const zh = {
     mainAgent: "主持 agent · {name}",
     mainAgentHint: "（配置一个可用的主持 agent）",
     hostPicker: "会话主持",
+    hostPickerHint: "可在下方切换主持 agent 与模型",
     roleHost: "主持",
     heroSubtitleHost: "{name} 主持本会话。@提及只指定 worker，不会切换主持。",
     heroTitle: "和 {name} 对话，编排你的 agent",
@@ -631,6 +632,9 @@ const zh = {
     browseForFolder: "浏览文件夹",
     setCwd: "设置工作目录",
     typePath: "手动输入路径",
+    copy: "复制",
+    copied: "已复制路径",
+    copyFailed: "复制路径失败",
   },
   branch: {
     label: "分支",

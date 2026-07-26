@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { recentCwds } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { isKinDesktop, pickDirectory } from "../../lib/desktop";
 import { projectLabel, shortPath } from "../../lib/paths";
+import { useAppStore } from "../../store/appStore";
 
 type Props = {
   cwd: string;
@@ -75,20 +77,12 @@ export default function CwdPicker({ cwd, onChange, locked, compact, className }:
           compact ? "gap-1.5 text-[11px] px-0" : "gap-2 text-[12px] px-0.5",
           className,
         ].join(" ")}
-        title={cwd ? `${cwd}${compact ? ` · ${tr("cwd.locked")}` : ""}` : undefined}
       >
         <FolderIcon />
         <span className="font-medium text-kin-secondary shrink-0">
           {projectLabel(cwd)}
         </span>
-        <span
-          className={[
-            "truncate font-mono opacity-80",
-            compact ? "text-[10.5px]" : "text-[11px]",
-          ].join(" ")}
-        >
-          {shortPath(cwd, compact ? 28 : 48)}
-        </span>
+        {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
         {!compact && (
           <span className="ml-auto text-[10.5px] uppercase tracking-wide opacity-70">
             {tr("cwd.locked")}
@@ -161,7 +155,7 @@ export default function CwdPicker({ cwd, onChange, locked, compact, className }:
         }}
         className={[
           "min-w-0 flex items-center text-left rounded-md hover:text-kin-secondary hover:bg-[var(--kin-fill)] transition-colors disabled:opacity-50",
-          compact ? "gap-1.5 py-0.5 px-1 flex-none max-w-full" : "gap-2 py-1 flex-1",
+          compact ? "gap-1.5 py-0.5 px-1 flex-none" : "gap-2 py-1 flex-none",
         ].join(" ")}
         title={
           cwd
@@ -173,20 +167,16 @@ export default function CwdPicker({ cwd, onChange, locked, compact, className }:
       >
         <FolderIcon />
         {cwd ? (
-          <>
-            <span className="font-medium text-kin-secondary">
-              {projectLabel(cwd)}
-            </span>
-            <span className="truncate font-mono text-[11px] opacity-80">
-              {shortPath(cwd, compact ? 28 : 48)}
-            </span>
-          </>
+          <span className="font-medium text-kin-secondary">
+            {projectLabel(cwd)}
+          </span>
         ) : (
           <span className="text-kin-orange">
             {desktop ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
           </span>
         )}
       </button>
+      {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
 
       {desktop ? (
         <>
@@ -229,6 +219,123 @@ function processPlaceholder(): string {
   const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
   if (/Win/i.test(ua)) return "C:\\Users\\…\\project";
   return "/Users/…/project";
+}
+
+/**
+ * Abbreviated path with a hover card showing the full, copyable path.
+ * Portaled to <body> — the footer row scrolls horizontally
+ * (overflow-x-auto), which would otherwise clip an absolutely-positioned
+ * child on the vertical axis too.
+ */
+function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
+  const tr = useT();
+  const pushToast = useAppStore((s) => s.pushToast);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const [rect, setRect] = useState<{ left: number; bottom: number } | null>(null);
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current != null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function cancelHide() {
+    if (closeTimerRef.current != null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }
+
+  function show() {
+    cancelHide();
+    const r = anchorRef.current?.getBoundingClientRect();
+    if (r) {
+      const cardWidth = 340;
+      const left = Math.min(
+        Math.max(8, r.left),
+        Math.max(8, window.innerWidth - cardWidth - 8),
+      );
+      setRect({ left, bottom: window.innerHeight - r.top + 4 });
+    }
+  }
+
+  function scheduleHide() {
+    cancelHide();
+    closeTimerRef.current = window.setTimeout(() => setRect(null), 120);
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(cwd);
+      pushToast(tr("cwd.copied"), "info");
+    } catch {
+      pushToast(tr("cwd.copyFailed"), "error");
+    }
+  }
+
+  return (
+    <span
+      ref={anchorRef}
+      className="relative min-w-0 flex-1 truncate rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-blue/50"
+      role="button"
+      tabIndex={0}
+      aria-label={`${tr("cwd.workingDir", { path: cwd })}. ${tr("cwd.copy")}`}
+      title={cwd}
+      onMouseEnter={show}
+      onMouseLeave={scheduleHide}
+      onFocus={show}
+      onBlur={scheduleHide}
+      onClick={() => void copy()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          void copy();
+        } else if (event.key === "Escape") {
+          cancelHide();
+          setRect(null);
+        }
+      }}
+    >
+      <span
+        className={[
+          "truncate font-mono opacity-80",
+          compact ? "text-[10.5px]" : "text-[11px]",
+        ].join(" ")}
+      >
+        {shortPath(cwd, compact ? 18 : 48)}
+      </span>
+      {rect &&
+        createPortal(
+          <span
+            className="fixed z-50 flex max-w-[340px] items-center gap-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-2 py-1 shadow-lg"
+            style={{ left: rect.left, bottom: rect.bottom }}
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
+            onFocus={cancelHide}
+            onBlur={scheduleHide}
+          >
+            <span className="max-w-[280px] truncate font-mono text-[11px] text-kin-secondary">
+              {cwd}
+            </span>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                void copy();
+              }}
+              className="flex-none text-[10.5px] font-medium text-kin-blue hover:underline"
+            >
+              {tr("cwd.copy")}
+            </button>
+          </span>,
+          document.body,
+        )}
+    </span>
+  );
 }
 
 function FolderIcon() {

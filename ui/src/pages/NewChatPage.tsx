@@ -15,14 +15,14 @@ import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
-import ModelPicker from "../components/chat/ModelPicker";
+import AgentModelPicker from "../components/chat/AgentModelPicker";
+import { IconRoutines } from "../components/icons";
 import RoutineScheduleFields, {
   defaultNextRunLocal,
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import { useT } from "../i18n/react";
-import { agentCatalogState } from "../lib/agentCatalog";
 import { modelsForAgent } from "../lib/agentModels";
 import {
   agentAvatarMeta,
@@ -327,49 +327,9 @@ export default function NewChatPage() {
         </p>
 
         {available.length > 1 && (
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2 max-w-lg">
-            <span className="text-[11px] uppercase tracking-wide text-kin-muted mr-1">
-              {tr("newChat.hostPicker")}
-            </span>
-            {available.map((a) => {
-              const active = a.id === mainAgentId;
-              const av = agentAvatarMeta(a.id);
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedHost(a.id);
-                    setSelectedModel("");
-                  }}
-                  className={[
-                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors",
-                    active
-                      ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
-                      : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
-                  ].join(" ")}
-                  title={a.name}
-                >
-                  <span
-                    className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-semibold ${av.className}`}
-                  >
-                    {av.initials}
-                  </span>
-                  {a.name}
-                  {agentCatalogState(a) === "generic" && (
-                    <span className="text-[10px] text-kin-muted" title={tr("agentCatalog.genericHint")}>
-                      {tr("agentCatalog.generic")}
-                    </span>
-                  )}
-                  {active && (
-                    <span className="text-[10px] text-kin-blue">
-                      {tr("newChat.roleHost")}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          <p className="mt-2 text-[11.5px] text-kin-muted">
+            {tr("newChat.hostPickerHint")}
+          </p>
         )}
 
         {agents.some((a) => !a.available) && (
@@ -454,39 +414,40 @@ export default function NewChatPage() {
                 <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
                   ·
                 </span>
-                <ModelPicker
+                <AgentModelPicker
                   key={mainAgentId}
-                  value={selectedModel}
+                  agents={available}
+                  agentValue={mainAgentId}
+                  onAgentChange={(id) => {
+                    setSelectedHost(id);
+                    setSelectedModel("");
+                  }}
+                  modelValue={selectedModel}
                   models={modelsForAgent(available, mainAgentId)}
-                  source={mainAgentMeta?.model_list_source}
-                  status={mainAgentMeta?.model_list_status}
                   disabled={sending}
-                  compact
-                  onChange={setSelectedModel}
+                  onModelChange={setSelectedModel}
                 />
               </>
             )}
             <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
               ·
             </span>
-            <label
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => setAsRoutine((v) => !v)}
+              aria-pressed={asRoutine}
+              aria-label={tr("routines.asRoutine")}
+              title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
               className={[
-                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] cursor-pointer select-none transition-colors flex-none",
+                "inline-flex items-center justify-center rounded-full border w-[26px] h-[26px] flex-none transition-colors disabled:opacity-50",
                 asRoutine
-                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-blue"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
               ].join(" ")}
-              title={tr("routines.asRoutineHint")}
             >
-              <input
-                type="checkbox"
-                className="accent-[var(--kin-blue,#3b82f6)]"
-                checked={asRoutine}
-                disabled={sending}
-                onChange={(e) => setAsRoutine(e.target.checked)}
-              />
-              <span>{tr("routines.asRoutine")}</span>
-            </label>
+              <IconRoutines size={13} />
+            </button>
             <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
               ·
             </span>

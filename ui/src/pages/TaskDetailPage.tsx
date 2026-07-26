@@ -1111,9 +1111,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         </div>
       </div>
 
-      {/* Session side rail — usage + diffs (Codex-style), frees chat vertical space. */}
+      {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
       <aside
-        className="hidden xl:flex w-[272px] 2xl:w-[300px] flex-none flex-col gap-2.5 border-l border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/40 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
+        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/95 backdrop-blur-md shadow-lg px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
         aria-label={tr("task.sessionRail")}
       >
         <TaskUsageSummary
