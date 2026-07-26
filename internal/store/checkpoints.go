@@ -9,22 +9,23 @@ import (
 
 // TaskCheckpoint is a private turn snapshot for an isolated task workspace.
 type TaskCheckpoint struct {
-	TaskID    string `json:"task_id"`
-	EventSeq  int    `json:"event_seq"`
-	HeadOID   string `json:"head_oid"`
-	TreeOID   string `json:"tree_oid"`
-	SizeBytes int64  `json:"size_bytes"`
-	CreatedAt int64  `json:"created_at"`
+	TaskID      string `json:"task_id"`
+	EventSeq    int    `json:"event_seq"`
+	HeadOID     string `json:"head_oid"`
+	TreeOID     string `json:"tree_oid"`
+	SizeBytes   int64  `json:"size_bytes"`
+	CreatedAt   int64  `json:"created_at"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 
-const checkpointColumns = `task_id, event_seq, head_oid, tree_oid, size_bytes, created_at`
+const checkpointColumns = `task_id, event_seq, head_oid, tree_oid, size_bytes, created_at, workspace_id`
 
 func scanCheckpoint(scanner interface {
 	Scan(dest ...any) error
 }) (TaskCheckpoint, error) {
 	var cp TaskCheckpoint
 	if err := scanner.Scan(
-		&cp.TaskID, &cp.EventSeq, &cp.HeadOID, &cp.TreeOID, &cp.SizeBytes, &cp.CreatedAt,
+		&cp.TaskID, &cp.EventSeq, &cp.HeadOID, &cp.TreeOID, &cp.SizeBytes, &cp.CreatedAt, &cp.WorkspaceID,
 	); err != nil {
 		return TaskCheckpoint{}, err
 	}
@@ -40,14 +41,15 @@ func (s *Store) PutCheckpoint(ctx context.Context, cp TaskCheckpoint) error {
 		return fmt.Errorf("event_seq must be >= 0")
 	}
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO task_checkpoints (task_id, event_seq, head_oid, tree_oid, size_bytes, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO task_checkpoints (task_id, event_seq, head_oid, tree_oid, size_bytes, created_at, workspace_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(task_id, event_seq) DO UPDATE SET
 			head_oid = excluded.head_oid,
 			tree_oid = excluded.tree_oid,
 			size_bytes = excluded.size_bytes,
-			created_at = excluded.created_at
-	`, cp.TaskID, cp.EventSeq, cp.HeadOID, cp.TreeOID, cp.SizeBytes, cp.CreatedAt)
+			created_at = excluded.created_at,
+			workspace_id = excluded.workspace_id
+	`, cp.TaskID, cp.EventSeq, cp.HeadOID, cp.TreeOID, cp.SizeBytes, cp.CreatedAt, cp.WorkspaceID)
 	if err != nil {
 		return fmt.Errorf("put checkpoint: %w", err)
 	}

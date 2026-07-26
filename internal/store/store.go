@@ -87,6 +87,8 @@ type Task struct {
 	WorkspaceScope      string `json:"workspace_scope,omitempty"`
 	WorkspaceBaseOID    string `json:"workspace_base_oid,omitempty"`
 	WorkspaceBranch     string `json:"workspace_branch,omitempty"`
+	WorkspacePolicy     string `json:"workspace_policy,omitempty"`
+	CurrentWorkspaceID  string `json:"current_workspace_id,omitempty"`
 
 	// Optional project association (ADR 0008). Empty = not linked.
 	ProjectID string `json:"project_id,omitempty"`
@@ -256,6 +258,7 @@ func scanTask(scanner interface {
 		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
 		&workspaceScope, &baseOID, &branch, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
+		&t.WorkspacePolicy, &t.CurrentWorkspaceID,
 	); err != nil {
 		return Task{}, err
 	}
@@ -322,7 +325,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {

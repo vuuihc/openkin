@@ -291,3 +291,61 @@ func openSQLite(path string) (*sql.DB, error) {
 	}
 	return db, nil
 }
+
+func TestCheckpointCarriesWorkspaceID(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	task := Task{
+		ID: "01CHKWSP00000000000000001", Title: "t", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "queued", CreatedAt: NowMilli(),
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	cp := TaskCheckpoint{
+		TaskID: task.ID, EventSeq: 1, HeadOID: "aaa", TreeOID: "t1",
+		SizeBytes: 10, CreatedAt: NowMilli(), WorkspaceID: "ws:g1",
+	}
+	if err := s.PutCheckpoint(ctx, cp); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetCheckpoint(ctx, task.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorkspaceID != "ws:g1" {
+		t.Fatalf("workspace_id=%q want %q", got.WorkspaceID, "ws:g1")
+	}
+
+	// UPSERT with same workspace_id
+	cp.HeadOID = "aab"
+	if err := s.PutCheckpoint(ctx, cp); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetCheckpoint(ctx, task.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorkspaceID != "ws:g1" || got.HeadOID != "aab" {
+		t.Fatalf("%+v", got)
+	}
+
+	// GetCheckpointForWorkspace (from workspaces.go)
+	_, err = s.GetCheckpointForWorkspace(ctx, task.ID, 1, "ws:g1")
+	if err != nil {
+		t.Fatalf("GetCheckpointForWorkspace: %v", err)
+	}
+
+	// Wrong workspace should return ErrNotFound
+	_, err = s.GetCheckpointForWorkspace(ctx, task.ID, 1, "ws:other")
+	if err == nil {
+		t.Fatal("expected error for wrong workspace_id")
+	}
+}

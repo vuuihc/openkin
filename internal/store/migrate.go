@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 12
+const schemaVersion = 13
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -126,12 +126,13 @@ CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, mod
 CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_seq);
 
 CREATE TABLE task_checkpoints (
-  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  event_seq  INTEGER NOT NULL,
-  head_oid   TEXT NOT NULL,
-  tree_oid   TEXT NOT NULL,
-  size_bytes INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
+  task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_seq    INTEGER NOT NULL,
+  head_oid     TEXT NOT NULL,
+  tree_oid     TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (task_id, event_seq)
 );
 CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id, event_seq);
@@ -178,6 +179,68 @@ CREATE INDEX idx_routines_due ON routines(enabled, next_due_at);
 CREATE INDEX idx_routines_project ON routines(project_id);
 CREATE INDEX idx_tasks_routine ON tasks(routine_id, id DESC);
 CREATE INDEX idx_tasks_routine_unread ON tasks(routine_unread, id DESC) WHERE routine_id IS NOT NULL;
+;
+
+CREATE TABLE IF NOT EXISTS task_workspaces (
+  id                    TEXT NOT NULL,
+  task_id               TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  generation            INTEGER NOT NULL,
+  state                 TEXT NOT NULL,
+  source_root           TEXT NOT NULL,
+  scope                 TEXT NOT NULL DEFAULT '.',
+  target_branch         TEXT NOT NULL DEFAULT '',
+  workspace_branch      TEXT NOT NULL DEFAULT '',
+  physical_root         TEXT NOT NULL DEFAULT '',
+  execution_cwd         TEXT NOT NULL DEFAULT '',
+  base_oid              TEXT NOT NULL DEFAULT '',
+  review_base_oid       TEXT NOT NULL DEFAULT '',
+  final_head_oid        TEXT NOT NULL DEFAULT '',
+  final_tree_oid        TEXT NOT NULL DEFAULT '',
+  integrated_oid        TEXT NOT NULL DEFAULT '',
+  requested_execution_id TEXT NOT NULL DEFAULT '',
+  requested_user_event_seq INTEGER NOT NULL DEFAULT 0,
+  completed_execution_id TEXT NOT NULL DEFAULT '',
+  failure_reason        TEXT NOT NULL DEFAULT '',
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  integrated_at         INTEGER,
+  released_at           INTEGER,
+  UNIQUE(task_id, generation),
+  UNIQUE(id, task_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS task_workspaces_one_open
+ON task_workspaces(task_id)
+WHERE state IN (
+  'provisioning', 'ready', 'active',
+  'finalizing', 'integrated', 'merge_blocked', 'finalize_blocked',
+  'legacy_pending'
+);
+
+CREATE INDEX IF NOT EXISTS task_workspaces_task_generation
+ON task_workspaces(task_id, generation);
+
+CREATE TABLE IF NOT EXISTS task_turn_workspaces (
+  task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_event_seq INTEGER NOT NULL,
+  workspace_id   TEXT,
+  access         TEXT NOT NULL CHECK (
+    access IN ('pending_isolation', 'source_read_only', 'writable', 'shared')
+  ),
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  CHECK (
+    (access IN ('pending_isolation', 'source_read_only', 'shared') AND workspace_id IS NULL)
+    OR (access = 'writable' AND workspace_id IS NOT NULL)
+  ),
+  PRIMARY KEY(task_id, user_event_seq),
+  FOREIGN KEY(task_id, user_event_seq) REFERENCES events(task_id, seq) ON DELETE CASCADE,
+  FOREIGN KEY(workspace_id, task_id) REFERENCES task_workspaces(id, task_id)
+);
+
+ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
+ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
+
 `
 
 const migration002 = `
@@ -246,12 +309,13 @@ ALTER TABLE tasks ADD COLUMN workspace_base_oid TEXT NOT NULL DEFAULT '';
 ALTER TABLE tasks ADD COLUMN workspace_branch TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE task_checkpoints (
-  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  event_seq  INTEGER NOT NULL,
-  head_oid   TEXT NOT NULL,
-  tree_oid   TEXT NOT NULL,
-  size_bytes INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
+  task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_seq    INTEGER NOT NULL,
+  head_oid     TEXT NOT NULL,
+  tree_oid     TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (task_id, event_seq)
 );
 CREATE INDEX idx_task_checkpoints_task ON task_checkpoints(task_id, event_seq);
@@ -628,6 +692,166 @@ func (s *Store) migrate() error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 012: %w", err)
 		}
+		v = 12
 	}
+
+	if v == 12 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 013: %w", err)
+		}
+
+		// Create task_workspaces table for workspace generations (ADR 0014)
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS task_workspaces (
+  id                    TEXT NOT NULL,
+  task_id               TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  generation            INTEGER NOT NULL,
+  state                 TEXT NOT NULL,
+  source_root           TEXT NOT NULL,
+  scope                 TEXT NOT NULL DEFAULT '.',
+  target_branch         TEXT NOT NULL DEFAULT '',
+  workspace_branch      TEXT NOT NULL DEFAULT '',
+  physical_root         TEXT NOT NULL DEFAULT '',
+  execution_cwd         TEXT NOT NULL DEFAULT '',
+  base_oid              TEXT NOT NULL DEFAULT '',
+  review_base_oid       TEXT NOT NULL DEFAULT '',
+  final_head_oid        TEXT NOT NULL DEFAULT '',
+  final_tree_oid        TEXT NOT NULL DEFAULT '',
+  integrated_oid        TEXT NOT NULL DEFAULT '',
+  requested_execution_id TEXT NOT NULL DEFAULT '',
+  requested_user_event_seq INTEGER NOT NULL DEFAULT 0,
+  completed_execution_id TEXT NOT NULL DEFAULT '',
+  failure_reason        TEXT NOT NULL DEFAULT '',
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  integrated_at         INTEGER,
+  released_at           INTEGER,
+  UNIQUE(task_id, generation),
+  UNIQUE(id, task_id)
+)
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 create task_workspaces: %w", err)
+		}
+
+		if _, err := tx.Exec(`
+CREATE UNIQUE INDEX IF NOT EXISTS task_workspaces_one_open
+ON task_workspaces(task_id)
+WHERE state IN (
+  'provisioning', 'ready', 'active',
+  'finalizing', 'integrated', 'merge_blocked', 'finalize_blocked',
+  'legacy_pending'
+)
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 task_workspaces one_open index: %w", err)
+		}
+
+		if _, err := tx.Exec(`
+CREATE INDEX IF NOT EXISTS task_workspaces_task_generation
+ON task_workspaces(task_id, generation)
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 task_workspaces generation index: %w", err)
+		}
+
+		// Create task_turn_workspaces table
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS task_turn_workspaces (
+  task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_event_seq INTEGER NOT NULL,
+  workspace_id   TEXT,
+  access         TEXT NOT NULL CHECK (
+    access IN ('pending_isolation', 'source_read_only', 'writable', 'shared')
+  ),
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  CHECK (
+    (access IN ('pending_isolation', 'source_read_only', 'shared') AND workspace_id IS NULL)
+    OR (access = 'writable' AND workspace_id IS NOT NULL)
+  ),
+  PRIMARY KEY(task_id, user_event_seq),
+  FOREIGN KEY(task_id, user_event_seq) REFERENCES events(task_id, seq) ON DELETE CASCADE,
+  FOREIGN KEY(workspace_id, task_id) REFERENCES task_workspaces(id, task_id)
+)
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 create task_turn_workspaces: %w", err)
+		}
+
+		// Add columns to tasks table
+		if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto'`); err != nil {
+
+			// Ignore error if column already exists or table is missing
+			_ = err
+		}
+		if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT ''`); err != nil {
+
+			// Ignore error if column already exists or table is missing
+			_ = err
+		}
+
+		// Add workspace_id column to task_checkpoints (created in migration 005).
+		// Ignore error if table doesn't exist (test schemas may not have it).
+		_, _ = tx.Exec(`ALTER TABLE task_checkpoints ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''`)
+
+		// Backfill: create legacy_pending generations for existing worktree tasks
+		if _, err := tx.Exec(`
+INSERT INTO task_workspaces (
+  id, task_id, generation, state, source_root, scope,
+  workspace_branch, physical_root, execution_cwd, base_oid,
+  created_at, updated_at
+)
+SELECT
+  id || ':g1', id, 1, 'legacy_pending',
+  workspace_source_root, workspace_scope,
+  workspace_branch, workspace_root, execution_cwd, workspace_base_oid,
+  created_at, created_at
+FROM tasks
+WHERE workspace_mode = 'worktree' AND workspace_root <> ''
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 backfill legacy worktree: %w", err)
+		}
+
+		if _, err := tx.Exec(`
+UPDATE tasks
+SET current_workspace_id = id || ':g1', workspace_policy = 'worktree'
+WHERE workspace_mode = 'worktree' AND workspace_root <> ''
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 set legacy current_workspace_id: %w", err)
+		}
+
+		if _, err := tx.Exec(`
+UPDATE tasks
+SET workspace_policy = 'shared'
+WHERE workspace_mode <> 'worktree'
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 013 set shared policy: %w", err)
+		}
+		// Update existing checkpoints to reference their legacy workspace
+		// Ignore error if table does not exist (test schemas may not have it).
+		_, _ = tx.Exec(`UPDATE task_checkpoints
+SET workspace_id = (
+  SELECT current_workspace_id FROM tasks WHERE id = task_checkpoints.task_id
+)
+WHERE workspace_id = '' AND EXISTS (
+  SELECT 1 FROM tasks WHERE id = task_checkpoints.task_id AND current_workspace_id <> ''
+)
+`)
+
+
+		if _, err := tx.Exec(`PRAGMA user_version = 13`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 013: %w", err)
+		}
+	}
+
 	return nil
 }
