@@ -282,3 +282,27 @@ export function IconMore(p: IconProps) {
     </>,
   );
 }
+
+/** Animated spinning loader icon. */
+export function IconSpinner({
+  className = "",
+  size = 16,
+  strokeWidth = 2,
+}: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`animate-spin ${className}`}
+      aria-hidden
+    >
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
+  );
+}

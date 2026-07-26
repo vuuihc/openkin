@@ -107,6 +107,7 @@ const en: MessageTree = {
     fileTooLarge: "{name} exceeds size limit (max {max} MiB)",
     mentionNav: "navigate",
     mentionSelect: "select",
+    sending: "Sending…",
   },
   modelPicker: {
     label: "Model",

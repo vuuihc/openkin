@@ -103,6 +103,7 @@ const zh = {
     fileTooLarge: "{name} 超过大小限制（最大 {max} MiB）",
     mentionNav: "选择",
     mentionSelect: "确认",
+    sending: "正在发送…",
   },
   modelPicker: {
     label: "模型",

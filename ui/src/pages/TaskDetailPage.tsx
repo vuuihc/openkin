@@ -954,8 +954,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           </div>
         </div>
 
-        {/* Below the rail breakpoint: keep compact chips (tap to expand into the full-screen panel) so usage/diff stay reachable without squeezing the chat. */}
-        <div className="min-[1600px]:hidden flex-none border-b border-[var(--kin-hairline)]">
+        {/* Narrow viewports: keep compact chips so usage/diff stay reachable without the rail. */}
+        <div className="xl:hidden flex-none border-b border-[var(--kin-hairline)]">
           <TaskUsageSummary usage={usage} loading={usageLoading} />
           <ChangedFilesBar
             files={changedFiles}
@@ -981,7 +981,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             events={events}
             onOpenPath={onOpenWorkspacePath}
             fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-            loading={!terminal}
+            loading={!terminal || sending}
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}
             hostModel={task.model}

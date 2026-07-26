@@ -11,7 +11,7 @@ import { useT } from "../../i18n/react";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
-import { IconFile, IconImage, IconSend, IconStop, IconX } from "../icons";
+import { IconFile, IconImage, IconSend, IconSpinner, IconStop, IconX } from "../icons";
 
 type Props = {
   placeholder?: string;
@@ -598,9 +598,9 @@ export default function Composer({
                 (!value.trim() && attachments.length === 0)
               }
               className="ml-auto w-7 h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
-              aria-label={tr("composer.send")}
+              aria-label={busy ? tr("composer.sending") : tr("composer.send")}
             >
-              <IconSend size={15} strokeWidth={2} />
+              {busy ? <IconSpinner size={15} strokeWidth={2} /> : <IconSend size={15} strokeWidth={2} />}
             </button>
           )}
           {running && value.trim() ? (
@@ -611,7 +611,7 @@ export default function Composer({
               aria-label={tr("composer.sendGuide")}
               title={tr("composer.sendGuide")}
             >
-              <IconSend size={15} strokeWidth={2} />
+              {busy ? <IconSpinner size={15} strokeWidth={2} /> : <IconSend size={15} strokeWidth={2} />}
             </button>
           ) : null}
         </div>
