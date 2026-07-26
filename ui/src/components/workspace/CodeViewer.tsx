@@ -402,7 +402,7 @@ export default function CodeViewer({
 
       <div className="flex-1 min-h-0 relative">
         {showInitialLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-kin-muted bg-[#111214]/80">
+          <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-kin-secondary bg-[var(--kin-bg)]">
             {t("workspace.viewer.loading")}
           </div>
         )}
