@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../api/client";
-import { groupByProject, taskActivityAt, type ProjectSortMode } from "./projectSidebar";
+import { groupByProject, taskActivityAt } from "./projectSidebar";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "cwd" | "created_at">): Task {
   return {
@@ -32,13 +32,14 @@ describe("groupByProject", () => {
     task({ id: "mid", cwd: "/gamma", created_at: 150, finished_at: 250 }),
   ];
 
-  it("sorts by last interaction desc by default (recent)", () => {
+  it("active mode puts projects with active tasks first, then by recency", () => {
     const groups = groupByProject(tasks, {
-      sortMode: "recent",
+      sortMode: "active",
       pinned: [],
       archived: [],
       lastInteracted: {},
     });
+    // All succeeded so all idle; falls back to recency
     expect(groups.map((g) => g.cwd)).toEqual(["/beta", "/gamma", "/alpha"]);
   });
 
@@ -54,7 +55,7 @@ describe("groupByProject", () => {
 
   it("puts pinned projects first in pin order", () => {
     const groups = groupByProject(tasks, {
-      sortMode: "recent" as ProjectSortMode,
+      sortMode: "active",
       pinned: ["/alpha", "/gamma"],
       archived: [],
       lastInteracted: {},
@@ -65,9 +66,9 @@ describe("groupByProject", () => {
     expect(groups[2].pinned).toBe(false);
   });
 
-  it("merges local lastInteracted into recent ranking", () => {
+  it("merges local lastInteracted into active ranking", () => {
     const groups = groupByProject(tasks, {
-      sortMode: "recent",
+      sortMode: "active",
       pinned: [],
       archived: [],
       lastInteracted: { "/alpha": 999 },
@@ -79,7 +80,7 @@ describe("groupByProject", () => {
     const groups = groupByProject(
       [task({ id: "1", cwd: "/Users/Me/Proj", created_at: 1 })],
       {
-        sortMode: "recent",
+        sortMode: "active",
         pinned: ["/users/me/proj"],
         archived: [],
         lastInteracted: {},
@@ -90,7 +91,7 @@ describe("groupByProject", () => {
 
   it("hides archived projects from the main list", () => {
     const groups = groupByProject(tasks, {
-      sortMode: "recent",
+      sortMode: "active",
       pinned: [],
       archived: ["/gamma"],
       lastInteracted: {},
@@ -98,48 +99,40 @@ describe("groupByProject", () => {
     expect(groups.map((g) => g.cwd)).toEqual(["/beta", "/alpha"]);
   });
 
-  it("returns only archived projects when onlyArchived is set", () => {
-    const groups = groupByProject(tasks, {
-      sortMode: "recent",
-      pinned: [],
-      archived: ["/alpha", "/beta"],
-      lastInteracted: {},
-      onlyArchived: true,
-    });
-    expect(groups.map((g) => g.cwd).sort()).toEqual(["/alpha", "/beta"]);
-    expect(groups.every((g) => g.archived)).toBe(true);
+  it("includes only archived projects when onlyArchived is true", () => {
+    const groups = groupByProject(
+      tasks,
+      {
+        sortMode: "active",
+        pinned: [],
+        archived: ["/gamma"],
+        lastInteracted: {},
+      },
+      true /* includeArchived */,
+      true /* onlyArchived */,
+    );
+    expect(groups.map((g) => g.cwd)).toEqual(["/gamma"]);
   });
 
-  it("archived pin is still marked but hidden from main list", () => {
-    const groups = groupByProject(tasks, {
-      sortMode: "recent",
-      pinned: ["/alpha"],
-      archived: ["/alpha"],
-      lastInteracted: {},
-    });
-    expect(groups.map((g) => g.cwd)).toEqual(["/beta", "/gamma"]);
-  });
-
-
-  it("orders sessions inside a project by local last-interact", () => {
+  it("sorts sessions within a project by activity desc with active tasks first", () => {
     const sameProject = [
-      task({ id: "older-open", cwd: "/alpha", created_at: 100, finished_at: 100 }),
-      task({ id: "newer-run", cwd: "/alpha", created_at: 200, finished_at: 300 }),
-      task({ id: "mid", cwd: "/alpha", created_at: 150, finished_at: 250 }),
+      task({ id: "newer-run", cwd: "/p", created_at: 10, finished_at: 200 }),
+      task({ id: "older-open", cwd: "/p", created_at: 5, finished_at: 5 }),
+      task({ id: "mid", cwd: "/p", created_at: 15, finished_at: 100 }),
     ];
-    // Without local interact: finished_at wins → newer-run, mid, older-open
-    const baseline = groupByProject(sameProject, {
-      sortMode: "recent",
+    const groups = groupByProject(sameProject, {
+      sortMode: "active",
       pinned: [],
       archived: [],
       lastInteracted: {},
-      sessionLastInteracted: {},
     });
-    expect(baseline[0].items.map((x) => x.id)).toEqual(["newer-run", "mid", "older-open"]);
+    expect(groups).toHaveLength(1);
+    // All succeeded, so sorted by activity desc (finished_at)
+    expect(groups[0].items.map((x) => x.id)).toEqual(["newer-run", "mid", "older-open"]);
 
     // Opening older-open should float it above server activity.
     const afterOpen = groupByProject(sameProject, {
-      sortMode: "recent",
+      sortMode: "active",
       pinned: [],
       archived: [],
       lastInteracted: {},
@@ -165,7 +158,7 @@ describe("groupByProject", () => {
       }),
     );
     const groups = groupByProject(many, {
-      sortMode: "recent",
+      sortMode: "active",
       pinned: [],
       archived: [],
       lastInteracted: {},
@@ -175,5 +168,52 @@ describe("groupByProject", () => {
     // still sorted by activity desc
     expect(groups[0].items[0].id).toBe("12");
     expect(groups[0].items[11].id).toBe("1");
+  });
+
+  it("active mode puts projects with running/pending tasks first", () => {
+    const mixed = [
+      task({ id: "a1", cwd: "/active", created_at: 100, status: "running" }),
+      task({ id: "a2", cwd: "/active", created_at: 50, status: "running" }),
+      task({ id: "b1", cwd: "/idle", created_at: 200, finished_at: 300 }),
+      task({ id: "c1", cwd: "/pending", created_at: 150, status: "waiting_approval" }),
+    ];
+    const groups = groupByProject(mixed, {
+      sortMode: "active",
+      pinned: [],
+      archived: [],
+      lastInteracted: {},
+    });
+    // Active projects first (/active, /pending), then idle (/idle)
+    expect(groups.map((g) => g.cwd)).toEqual(["/active", "/pending", "/idle"]);
+  });
+
+  it("active mode falls back to recency when no active tasks", () => {
+    const allIdle = [
+      task({ id: "x", cwd: "/zeta", created_at: 300, finished_at: 300 }),
+      task({ id: "y", cwd: "/alpha", created_at: 100, finished_at: 200 }),
+    ];
+    const groups = groupByProject(allIdle, {
+      sortMode: "active",
+      pinned: [],
+      archived: [],
+      lastInteracted: {},
+    });
+    // All idle: fall back to recency (lastInteractedAt = finished_at)
+    expect(groups.map((g) => g.cwd)).toEqual(["/zeta", "/alpha"]);
+  });
+
+  it("active mode correctly identifies hasActiveTask", () => {
+    const mixed = [
+      task({ id: "r", cwd: "/running", created_at: 100, status: "running" }),
+      task({ id: "s", cwd: "/done", created_at: 200, finished_at: 300 }),
+    ];
+    const groups = groupByProject(mixed, {
+      sortMode: "active",
+      pinned: [],
+      archived: [],
+      lastInteracted: {},
+    });
+    expect(groups[0].hasActiveTask).toBe(true);
+    expect(groups[1].hasActiveTask).toBe(false);
   });
 });

@@ -23,7 +23,7 @@ const en: MessageTree = {
     emptyHint: "Send a message and chats will appear under project groups",
     newSessionIn: "New session in {project}",
     sortProjects: "Sort projects",
-    sortByRecent: "Recent activity",
+    sortByActive: "Active first",
     sortByCreated: "Date created",
     pinProject: "Pin project",
     unpinProject: "Unpin project",

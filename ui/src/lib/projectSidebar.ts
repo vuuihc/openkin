@@ -3,7 +3,7 @@
 import { projectLabel } from "./paths";
 import type { Task } from "../api/client";
 
-export type ProjectSortMode = "recent" | "created";
+export type ProjectSortMode = "active" | "created";
 
 export type ProjectGroup = {
   label: string;
@@ -11,10 +11,12 @@ export type ProjectGroup = {
   items: Task[];
   pinned: boolean;
   archived: boolean;
-  /** ms — max task activity (+ local last interact) for recent sort */
+  /** ms — max task activity (+ local last interact); used as secondary sort in active mode */
   lastInteractedAt: number;
   /** ms — earliest task created_at for created sort */
   createdAt: number;
+  /** Whether this project has any non-terminal task (running / pending). */
+  hasActiveTask: boolean;
 };
 
 const SORT_KEY = "kin_project_sort_mode";
@@ -51,11 +53,11 @@ function normCwd(cwd: string): string {
 export function getProjectSortMode(): ProjectSortMode {
   try {
     const v = localStorage.getItem(SORT_KEY);
-    if (v === "recent" || v === "created") return v;
+    if (v === "active" || v === "created") return v;
   } catch {
     // ignore
   }
-  return "recent";
+  return "active";
 }
 
 export function setProjectSortMode(mode: ProjectSortMode): void {
@@ -72,8 +74,8 @@ function readStringList(key: string): string[] {
     const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x): x is string => typeof x === "string" && x.length > 0);
+    if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
+    return [];
   } catch {
     return [];
   }
@@ -83,12 +85,12 @@ function writeStringList(key: string, list: string[]): void {
   try {
     localStorage.setItem(key, JSON.stringify(list));
   } catch {
-    // ignore
+    // ignore quota / private mode
   }
   emit();
 }
 
-/** Pinned project cwds in pin order (original path casing preserved). */
+/** Pinned project cwds. Order = pin rank. */
 export function getPinnedProjects(): string[] {
   return readStringList(PINNED_KEY);
 }
@@ -98,7 +100,12 @@ export function isProjectPinned(cwd: string): boolean {
   return getPinnedProjects().some((p) => normCwd(p) === key);
 }
 
+/**
+ * Toggle pinned state. Returns true if now pinned, false if unpinned.
+ * Appending to the end of the pin list, so newest pin gets lowest rank.
+ */
 export function toggleProjectPinned(cwd: string): boolean {
+  if (!cwd) return false;
   const key = normCwd(cwd);
   const list = getPinnedProjects();
   const idx = list.findIndex((p) => normCwd(p) === key);
@@ -107,7 +114,7 @@ export function toggleProjectPinned(cwd: string): boolean {
     writeStringList(PINNED_KEY, list);
     return false;
   }
-  // Pinning an archived project also restores it to the main list.
+  // Unarchive when pinning.
   if (isProjectArchived(cwd)) {
     setProjectArchived(cwd, false);
   }
@@ -163,10 +170,10 @@ function readLastInteractedMap(): Record<string, number> {
     const raw = localStorage.getItem(INTERACT_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const out: Record<string, number> = {};
     for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+      if (typeof v === "number" && Number.isFinite(v) && k) out[normCwd(k)] = v;
     }
     return out;
   } catch {
@@ -174,38 +181,27 @@ function readLastInteractedMap(): Record<string, number> {
   }
 }
 
-export function getProjectLastInteracted(cwd: string): number {
-  const map = readLastInteractedMap();
-  return map[normCwd(cwd)] ?? 0;
-}
-
-/** Bump local last-interact time (e.g. open a chat under this project). */
-export function touchProject(cwd: string, at = Date.now()): void {
-  if (!cwd) return;
-  const map = readLastInteractedMap();
-  const key = normCwd(cwd);
-  // Skip no-op writes (same second) to avoid extra sidebar re-renders.
-  if ((map[key] ?? 0) >= at) {
-    // Still restore if user opened an archived project via deep link / tasks page.
-    if (isProjectArchived(cwd)) unarchiveProject(cwd);
-    return;
-  }
-  map[key] = at;
+function writeLastInteractedMap(map: Record<string, number>): void {
   try {
     localStorage.setItem(INTERACT_KEY, JSON.stringify(map));
   } catch {
     // ignore
   }
-  if (isProjectArchived(cwd)) {
-    // Opening a project restores it to the main list.
-    const list = getArchivedProjects().filter((p) => normCwd(p) !== key);
-    try {
-      localStorage.setItem(ARCHIVED_KEY, JSON.stringify(list));
-    } catch {
-      // ignore
-    }
-  }
   emit();
+}
+
+/**
+ * Bump the top-level project lastInteractedAt timestamp for the given cwd.
+ * Used when the user navigates to a project via cover page or opens a session
+ * outside the sidebar (so the sidebar re-orders on next render).
+ */
+export function touchProject(cwd: string, at = Date.now()): void {
+  if (!cwd) return;
+  const key = normCwd(cwd);
+  const map = readLastInteractedMap();
+  if ((map[key] ?? 0) >= at) return;
+  map[key] = at;
+  writeLastInteractedMap(map);
 }
 
 function readSessionLastInteractedMap(): Record<string, number> {
@@ -254,62 +250,59 @@ export function touchSession(taskId: string, at = Date.now()): void {
 
 /** Max activity timestamp for a single task (ms). Includes local open/follow-up. */
 export function taskActivityAt(
-  task: Task,
-  sessionLastInteracted?: Record<string, number>,
+  t: Task,
+  sessionMap: Record<string, number>,
 ): number {
-  let t = task.created_at || 0;
-  if (task.started_at != null && task.started_at > t) t = task.started_at;
-  if (task.finished_at != null && task.finished_at > t) t = task.finished_at;
-  const localMap = sessionLastInteracted ?? readSessionLastInteractedMap();
-  const local = localMap[task.id] ?? 0;
-  if (local > t) t = local;
-  return t;
+  const localTouch = sessionMap[t.id] ?? 0;
+  return Math.max(localTouch, t.finished_at ?? 0, t.started_at ?? 0, t.created_at ?? 0);
 }
 
-export type GroupByProjectPrefs = {
+function isActiveTask(t: Task): boolean {
+  return t.status !== "succeeded" && t.status !== "failed" && t.status !== "canceled";
+}
+
+export type ProjectSidebarPrefs = {
   sortMode?: ProjectSortMode;
-  pinned?: string[];
-  archived?: string[];
-  lastInteracted?: Record<string, number>;
-  /** Per-session last open / follow-up (ms). */
+  pinned: string[];
+  archived: string[];
+  lastInteracted: Record<string, number>;
+  /** Override session last-interact map (for tests). */
   sessionLastInteracted?: Record<string, number>;
-  /**
-   * When true (default), archived projects are omitted from the result.
-   * Pass false to build the archived section.
-   */
-  includeArchived?: boolean;
-  /** Only archived projects (for the archived section). */
-  onlyArchived?: boolean;
 };
 
 /**
  * Group tasks by project cwd, apply sort mode + pins (+ optional archive filter).
+ *
+ * @param includeArchived When true (default), archived projects are omitted from the result.
+ * @param onlyArchived    Pass false to build the archived section.
  * Pure when prefs are passed in (tests); otherwise reads localStorage.
  */
 export function groupByProject(
   tasks: Task[],
-  prefs?: GroupByProjectPrefs,
+  prefs?: ProjectSidebarPrefs | null,
+  includeArchived = true,
+  onlyArchived = false,
 ): ProjectGroup[] {
   const sortMode = prefs?.sortMode ?? getProjectSortMode();
-  const pinnedList = prefs?.pinned ?? getPinnedProjects();
-  const archivedList = prefs?.archived ?? getArchivedProjects();
+  const pinnedCwds = prefs?.pinned ?? getPinnedProjects();
+  const archivedCwds = prefs?.archived ?? getArchivedProjects();
   const lastMap = prefs?.lastInteracted ?? readLastInteractedMap();
   const sessionMap = prefs?.sessionLastInteracted ?? readSessionLastInteractedMap();
-  const includeArchived = prefs?.includeArchived ?? false;
-  const onlyArchived = prefs?.onlyArchived ?? false;
 
+  const archivedSet = new Set(archivedCwds.map(normCwd));
   const pinRank = new Map<string, number>();
-  pinnedList.forEach((p, i) => {
-    pinRank.set(normCwd(p), i);
-  });
-  const archivedSet = new Set(archivedList.map(normCwd));
+  pinnedCwds.forEach((c, i) => pinRank.set(normCwd(c), i));
 
+  // Group tasks by project (cwd).
   const map = new Map<string, Task[]>();
   for (const t of tasks) {
-    const key = t.cwd || "unknown";
-    const list = map.get(key) ?? [];
+    const key = t.cwd || "__root__";
+    let list = map.get(key);
+    if (!list) {
+      list = [];
+      map.set(key, list);
+    }
     list.push(t);
-    map.set(key, list);
   }
 
   const groups: ProjectGroup[] = [];
@@ -323,15 +316,19 @@ export function groupByProject(
       .slice()
       .sort(
         (a, b) =>
+          // Active tasks first
+          (isActiveTask(b) ? 1 : 0) - (isActiveTask(a) ? 1 : 0) ||
           taskActivityAt(b, sessionMap) - taskActivityAt(a, sessionMap) ||
           b.created_at - a.created_at,
       );
     let lastTask = 0;
     let created = Number.POSITIVE_INFINITY;
+    let hasActive = false;
     for (const t of items) {
       const act = taskActivityAt(t, sessionMap);
       if (act > lastTask) lastTask = act;
       if (t.created_at > 0 && t.created_at < created) created = t.created_at;
+      if (isActiveTask(t)) hasActive = true;
     }
     if (!Number.isFinite(created)) created = 0;
     const local = lastMap[normCwd(cwd)] ?? 0;
@@ -343,6 +340,7 @@ export function groupByProject(
       archived,
       lastInteractedAt: Math.max(lastTask, local),
       createdAt: created,
+      hasActiveTask: hasActive,
     });
   }
 
@@ -355,11 +353,16 @@ export function groupByProject(
         return (pinRank.get(normCwd(a.cwd)) ?? 0) - (pinRank.get(normCwd(b.cwd)) ?? 0);
       }
     }
-    if (sortMode === "created") {
-      const d = b.createdAt - a.createdAt;
+    // "active" mode: projects with active (running/pending) tasks first
+    if (sortMode === "active") {
+      if (a.hasActiveTask !== b.hasActiveTask) {
+        return a.hasActiveTask ? -1 : 1;
+      }
+      // Within the same tier, sort by recency
+      const d = b.lastInteractedAt - a.lastInteractedAt;
       if (d !== 0) return d;
     } else {
-      const d = b.lastInteractedAt - a.lastInteractedAt;
+      const d = b.createdAt - a.createdAt;
       if (d !== 0) return d;
     }
     return a.label.localeCompare(b.label);
