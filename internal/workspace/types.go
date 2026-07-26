@@ -80,3 +80,23 @@ var (
 	ErrInvalidTaskID         = errors.New("invalid task id")
 	ErrWorktreeExists        = errors.New("worktree path already exists")
 )
+
+// SourceMetadata captures the source repo state at preparation time.
+type SourceMetadata struct {
+	Cwd          string
+	SourceRoot   string
+	Scope        string
+	TargetBranch string
+	HeadOID      string
+	Dirty        bool
+}
+
+// Inspection describes a workspace generation's current state.
+type Inspection struct {
+	Exists       bool
+	Branch       string
+	Path         string
+	HeadOID      string
+	Dirty        bool
+	HasCheckpoint bool
+}

@@ -14,17 +14,23 @@ import (
 var taskIDPattern = regexp.MustCompile(`^[0-9A-HJKMNP-TV-Z]{26}$`)
 
 // worktreeBranch returns the Kin branch name for a task.
-func worktreeBranch(taskID string) string {
-	return "kin/task/" + strings.ToLower(taskID)
+func worktreeBranch(taskID string, generation int) string {
+	if generation <= 0 {
+		generation = 1
+	}
+	return "kin/task/" + strings.ToLower(taskID) + "/g" + fmt.Sprint(generation)
 }
 
 // worktreePath returns stateDir/worktrees/<taskID> after validating taskID.
-func (m *Manager) worktreePath(taskID string) (string, error) {
+func (m *Manager) worktreePath(taskID string, generation int) (string, error) {
 	if !taskIDPattern.MatchString(taskID) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidTaskID, taskID)
 	}
-	// Contain only the validated id under worktrees/.
-	return filepath.Join(m.stateDir, "worktrees", taskID), nil
+	if generation <= 0 {
+		generation = 1
+	}
+	// Use flat path under worktrees/<taskID>-gN
+	return filepath.Join(m.stateDir, "worktrees", taskID+"-g"+fmt.Sprint(generation)), nil
 }
 
 // Prepare resolves isolation for a new task and optionally creates a worktree.
@@ -111,7 +117,7 @@ func (m *Manager) Prepare(ctx context.Context, taskID, cwd string, requested Req
 }
 
 func (m *Manager) createWorktree(ctx context.Context, taskID string, probe ProbeResult) (Metadata, error) {
-	wtPath, err := m.worktreePath(taskID)
+	wtPath, err := m.worktreePath(taskID, 1)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -125,7 +131,7 @@ func (m *Manager) createWorktree(ctx context.Context, taskID string, probe Probe
 		return Metadata{}, fmt.Errorf("mkdir worktrees: %w", err)
 	}
 
-	branch := worktreeBranch(taskID)
+	branch := worktreeBranch(taskID, 1)
 	// 30s bound for worktree add.
 	addCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -169,7 +175,7 @@ func (m *Manager) CleanupPrepared(ctx context.Context, taskID string, meta Metad
 	if !taskIDPattern.MatchString(taskID) {
 		return fmt.Errorf("%w: %q", ErrInvalidTaskID, taskID)
 	}
-	wtPath, err := m.worktreePath(taskID)
+	wtPath, err := m.worktreePath(taskID, 1)
 	if err != nil {
 		return err
 	}

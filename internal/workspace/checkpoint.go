@@ -118,7 +118,7 @@ func (m *Manager) PrepareFork(ctx context.Context, newTaskID string, source Meta
 		return Metadata{}, ErrCheckpointUnavailable
 	}
 
-	wtPath, err := m.worktreePath(newTaskID)
+	wtPath, err := m.worktreePath(newTaskID, 1)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -131,7 +131,7 @@ func (m *Manager) PrepareFork(ctx context.Context, newTaskID string, source Meta
 		return Metadata{}, fmt.Errorf("mkdir worktrees: %w", err)
 	}
 
-	branch := worktreeBranch(newTaskID)
+	branch := worktreeBranch(newTaskID, 1)
 	addCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if _, err := m.git.Run(addCtx, source.SourceRoot, nil, ControlStdoutLimit,
@@ -210,7 +210,7 @@ func (m *Manager) validateIsolatedMetadata(taskID string, meta Metadata) error {
 	if !taskIDPattern.MatchString(taskID) {
 		return fmt.Errorf("%w: %q", ErrInvalidTaskID, taskID)
 	}
-	expected, err := m.worktreePath(taskID)
+	expected, err := m.worktreePath(taskID, 1)
 	if err != nil {
 		return err
 	}

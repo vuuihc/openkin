@@ -31,11 +31,11 @@ func TestPrepare_AutoCleanCreatesWorktree(t *testing.T) {
 	if meta.Mode != ResolvedWorktree {
 		t.Fatalf("mode=%s", meta.Mode)
 	}
-	wantRoot := filepath.Join(state, "worktrees", testTaskID)
+	wantRoot := filepath.Join(state, "worktrees", testTaskID+"-g1")
 	if !samePath(t, meta.Root, wantRoot) {
 		t.Fatalf("root=%s want %s", meta.Root, wantRoot)
 	}
-	if meta.Branch != "kin/task/"+strings.ToLower(testTaskID) {
+	if meta.Branch != "kin/task/"+strings.ToLower(testTaskID)+"/g1" {
 		t.Fatalf("branch=%s", meta.Branch)
 	}
 	if meta.Scope != "sub" {
@@ -117,7 +117,7 @@ func TestPrepare_ExplicitSharedNoWorktree(t *testing.T) {
 	if meta.BaseOID == "" {
 		t.Fatal("expected base oid when git available")
 	}
-	if _, err := os.Stat(filepath.Join(state, "worktrees", testTaskID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(state, "worktrees", testTaskID+"-g1")); !os.IsNotExist(err) {
 		t.Fatalf("worktree should not exist: %v", err)
 	}
 }
@@ -209,7 +209,7 @@ func TestPrepare_PreexistingWorktreeDir(t *testing.T) {
 	dir := t.TempDir()
 	initRepo(t, dir)
 	commitFile(t, dir, "f.txt", "a\n")
-	pre := filepath.Join(state, "worktrees", testTaskID)
+	pre := filepath.Join(state, "worktrees", testTaskID+"-g1")
 	if err := os.MkdirAll(pre, 0o700); err != nil {
 		t.Fatal(err)
 	}
