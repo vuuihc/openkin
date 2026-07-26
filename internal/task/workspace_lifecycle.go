@@ -185,6 +185,142 @@ func workspaceEventPayload(wsID string) json.RawMessage {
 }
 
 // CheckWorkspaceEventType checks if an event matches the expected workspace transition type.
+// reconcileWorkspaces checks all tasks with open workspace generations
+// after daemon restart and reconciles their physical state.
+func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
+	if e.store == nil {
+		return nil
+	}
+	if e.workspace == nil {
+		return nil // No workspace runtime available
+	}
+
+	// Get all tasks (this is a simplified approach; production would query by state)
+	tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Limit: 1000})
+	if err != nil {
+		return fmt.Errorf("list tasks for reconciliation: %w", err)
+	}
+
+	for _, t := range tasks {
+		ws, err := e.store.GetCurrentWorkspace(ctx, t.ID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				continue // No open workspace
+			}
+			continue // Skip on error
+		}
+
+		switch ws.State {
+		case store.WorkspaceActive:
+			// Active workspace after restart needs reconciliation
+			meta := workspaceMetadata(t)
+			if meta.Root != "" {
+				insp, err := e.workspace.InspectGeneration(ctx, meta)
+				if err == nil && !insp.Exists {
+					// Worktree missing - mark as orphaned
+					transition := store.WorkspaceTransition{
+						WorkspaceID: ws.ID,
+						TaskID:      t.ID,
+						FromStates:  []store.WorkspaceState{store.WorkspaceActive},
+						ToState:     store.WorkspaceOrphaned,
+					}
+					_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+				}
+			}
+
+		case store.WorkspaceFinalizing:
+			// Try to complete finalization
+			meta := workspaceMetadata(t)
+			if meta.Root != "" && meta.Branch != "" {
+				insp, err := e.workspace.InspectFinalizable(ctx, meta)
+				if err == nil && !insp.Dirty {
+					// Clean workspace - attempt finalization
+					res, err := e.workspace.FinalizeFastForward(ctx, meta, meta.Branch)
+					if err == nil {
+						// Update workspace to integrated
+						transition := store.WorkspaceTransition{
+							WorkspaceID: ws.ID,
+							TaskID:      t.ID,
+							FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+							ToState:     store.WorkspaceIntegrated,
+						}
+						if _, _, err := e.store.ApplyWorkspaceTransition(ctx, transition); err == nil {
+							_ = e.workspace.Release(ctx, meta)
+						}
+						_ = res
+					}
+				}
+			}
+
+		case store.WorkspaceProvisioning, store.WorkspaceReady:
+			// Stale provisioning - mark as orphaned
+			transition := store.WorkspaceTransition{
+				WorkspaceID: ws.ID,
+				TaskID:      t.ID,
+				FromStates:  []store.WorkspaceState{ws.State},
+				ToState:     store.WorkspaceOrphaned,
+			}
+			_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+		}
+	}
+	return nil
+}
+
+// FinalizeWorkspace marks a workspace as integrated and releases it.
+func (e *Engine) FinalizeWorkspace(ctx context.Context, taskID, wsID string) (store.WorkspaceGeneration, error) {
+	// Transition to integrated
+	transition := store.WorkspaceTransition{
+		WorkspaceID: wsID,
+		TaskID:      taskID,
+		FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+		ToState:     store.WorkspaceIntegrated,
+	}
+	ws, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
+	if err != nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("integrate workspace: %w", err)
+	}
+
+	// Release the physical worktree if runtime is available
+	if e.workspace != nil {
+		t, err := e.store.GetTask(ctx, taskID)
+		if err == nil {
+			meta := workspaceMetadata(t)
+			_ = e.workspace.Release(ctx, meta)
+		}
+	}
+
+	return ws, nil
+}
+
+// ReleaseWorkspace transitions a workspace to released state and cleans up.
+func (e *Engine) ReleaseWorkspace(ctx context.Context, taskID, wsID string) (store.WorkspaceGeneration, error) {
+	// Transition to released
+	transition := store.WorkspaceTransition{
+		WorkspaceID: wsID,
+		TaskID:      taskID,
+		FromStates:  []store.WorkspaceState{store.WorkspaceIntegrated, store.WorkspaceFinalizing},
+		ToState:     store.WorkspaceReleased,
+	}
+	ws, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
+	if err != nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("release workspace: %w", err)
+	}
+
+	// Clean up current workspace pointer
+	_ = e.store.ClearCurrentWorkspace(ctx, taskID, wsID)
+
+	// Release physical resources
+	if e.workspace != nil {
+		t, err := e.store.GetTask(ctx, taskID)
+		if err == nil {
+			meta := workspaceMetadata(t)
+			_ = e.workspace.ReleaseAndPrune(ctx, meta, taskID)
+		}
+	}
+
+	return ws, nil
+}
+
 func CheckWorkspaceEventType(ev store.Event, expectedType string) bool {
 	return ev.Type == expectedType
 }

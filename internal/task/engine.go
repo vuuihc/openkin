@@ -280,10 +280,17 @@ func (e *Engine) SetNotifier(n Notifier) { e.notify = n }
 // Optional: nil preserves shared cwd behavior for tests and headless paths.
 type WorkspaceRuntime interface {
 	Prepare(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
+	PrepareGeneration(ctx context.Context, taskID string, generation int, source workspace.SourceMetadata) (workspace.Metadata, error)
+	InspectGeneration(ctx context.Context, meta workspace.Metadata) (workspace.Inspection, error)
 	CleanupPrepared(ctx context.Context, taskID string, meta workspace.Metadata) error
 	Capture(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
+	CapturePrepared(ctx context.Context, meta workspace.Metadata, taskID string) (workspace.Checkpoint, error)
 	Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
+	InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error)
+	FinalizeFastForward(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
+	Release(ctx context.Context, meta workspace.Metadata) error
+	ReleaseAndPrune(ctx context.Context, meta workspace.Metadata, taskID string) error
 }
 
 // SetWorkspaceRuntime wires Git workspace isolation. Optional.
@@ -317,6 +324,17 @@ func (e *Engine) Recover(ctx context.Context) error {
 			e.bus.PublishTask(t)
 		}
 	}
+
+	// Reconcile workspace generations after restart
+	if err := e.reconcileWorkspaces(ctx); err != nil {
+		// Log but don't fail - recovery should still proceed
+		payload, _ := json.Marshal(map[string]string{"message": "workspace reconciliation: " + err.Error()})
+		ev, _ := e.store.AppendEvent(ctx, "__system__", "error", payload)
+		if ev.Seq > 0 {
+			e.bus.PublishEvent(ev)
+		}
+	}
+
 	// Re-arm Wait timers for failed tasks left in limit waiting state.
 	e.recoverLimitWaits(ctx)
 	return nil

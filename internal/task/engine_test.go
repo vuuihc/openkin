@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -701,6 +702,65 @@ func (f *fakeWorkspaceRuntime) PrepareFork(ctx context.Context, newTaskID string
 		BaseOID:    source.BaseOID,
 		Branch:     "kin/task/" + strings.ToLower(newTaskID),
 	}, nil
+}
+
+func (f *fakeWorkspaceRuntime) PrepareGeneration(ctx context.Context, taskID string, generation int, source workspace.SourceMetadata) (workspace.Metadata, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failPrep != nil {
+		return workspace.Metadata{}, f.failPrep
+	}
+	return workspace.Metadata{
+		Mode:       workspace.ResolvedWorktree,
+		SourceRoot: source.SourceRoot,
+		Root:       filepath.Join(source.SourceRoot, taskID+"-g"+fmt.Sprint(generation)),
+		Cwd:        filepath.Join(source.SourceRoot, taskID+"-g"+fmt.Sprint(generation), source.Scope),
+		Scope:      source.Scope,
+		BaseOID:    source.HeadOID,
+		Branch:     "kin/task/" + strings.ToLower(taskID) + "/g" + fmt.Sprint(generation),
+	}, nil
+}
+
+func (f *fakeWorkspaceRuntime) InspectGeneration(ctx context.Context, meta workspace.Metadata) (workspace.Inspection, error) {
+	return workspace.Inspection{
+		Exists: meta.Root != "",
+		Branch: meta.Branch,
+		Path:   meta.Root,
+	}, nil
+}
+
+func (f *fakeWorkspaceRuntime) CapturePrepared(ctx context.Context, meta workspace.Metadata, taskID string) (workspace.Checkpoint, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failCapture != nil {
+		return workspace.Checkpoint{}, f.failCapture
+	}
+	return workspace.Checkpoint{
+		TaskID:    taskID,
+		HeadOID:   "prepared-head",
+		TreeOID:   "prepared-tree",
+		SizeBytes: 100,
+		CreatedAt: time.Now().UnixMilli(),
+	}, nil
+}
+
+func (f *fakeWorkspaceRuntime) InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error) {
+	return workspace.FinalizeInspection{
+		HeadOID: meta.BaseOID,
+		TreeOID: "tree-oid",
+	}, nil
+}
+
+func (f *fakeWorkspaceRuntime) FinalizeFastForward(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error) {
+	return meta.BaseOID, nil
+}
+
+func (f *fakeWorkspaceRuntime) Release(ctx context.Context, meta workspace.Metadata) error {
+	return nil
+}
+
+func (f *fakeWorkspaceRuntime) ReleaseAndPrune(ctx context.Context, meta workspace.Metadata, taskID string) error {
+	return nil
 }
 
 func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {
