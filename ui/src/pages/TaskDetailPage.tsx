@@ -107,6 +107,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [awaitingReply, setAwaitingReply] = useState(false);
   const [composerModel, setComposerModel] = useState("");
   const [composerPermission, setComposerPermission] =
     useState<PermissionMode>("default");
@@ -272,6 +273,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       if (msg.kind === "event") {
         const ev = msg.data as TaskEvent;
         if (ev.task_id === id) {
+          // First assistant event clears awaitingReply (user sees thinking goes live).
+          if (ev.type !== "message" || parsePayloadSpeaker(ev.payload) !== "user") {
+            setAwaitingReply(false);
+          }
           // Cursor is highest contiguous seq, not max observed.
           const contiguous = maxSeq.current;
           const gap = hasSequenceGap(contiguous, ev.seq);
@@ -638,6 +643,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   async function onComposer(text: string) {
     if (!task) return;
     setSending(true);
+    setAwaitingReply(true);
     try {
       // Non-terminal: backend interrupts the current turn then re-queues with this guide.
       // Send model / permission only when the picker differs from the task.
@@ -981,7 +987,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             events={events}
             onOpenPath={onOpenWorkspacePath}
             fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
-            loading={!terminal || sending}
+            loading={!terminal || sending || awaitingReply}
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}
             hostModel={task.model}
@@ -1157,4 +1163,14 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       )}
     </div>
   );
+}
+
+/** Extract speaker from a raw event payload for awaitingReply detection. */
+function parsePayloadSpeaker(payload: unknown): string | undefined {
+  if (payload && typeof payload === 'object') {
+    const p = payload as Record<string, unknown>;
+    if (typeof p.speaker === 'string') return p.speaker;
+    if (typeof p.role === 'string') return p.role;
+  }
+  return undefined;
 }
