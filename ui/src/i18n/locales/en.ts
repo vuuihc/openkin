@@ -196,6 +196,8 @@ const en: MessageTree = {
       failed: "failed",
       details: "Details",
       hide: "Hide",
+      expand: "Expand",
+      collapsed: "{count} steps collapsed",
       input: "Input",
       output: "Output",
       summaryRunning: "Running · {count} steps",

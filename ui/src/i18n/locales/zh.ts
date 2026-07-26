@@ -192,6 +192,8 @@ const zh = {
       failed: "失败",
       details: "详情",
       hide: "收起",
+      expand: "展开",
+      collapsed: "已收起 {count} 步",
       input: "输入",
       output: "输出",
       summaryRunning: "执行中 · {count} 步",

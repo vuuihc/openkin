@@ -438,82 +438,91 @@ export function buildChatItems(
 }
 
 /**
- * Merge consecutive progress groups + interstitial narration messages within
- * one agent turn into a single collapsible block. A long multi-phase run
- * (tools -> status text -> tools -> status text -> ...) otherwise stacks
- * several "done" cards that read as noise once finished; merging them lets
- * the whole run collapse to one summary line (still expandable to see every
- * step in order). The turn's actual final reply -- the trailing message
- * right before the next user turn / end of transcript -- is left untouched.
+ * Merge consecutive progress items, then expand each merged result so that
+ * narration notes become standalone message blocks and tool blocks become
+ * independent progress cards.
+ *
+ * Result: an agent round that previously read as one giant card now reads as
+ *   [message] "I will first check…"
+ *   [progress] tool1 · tool2 · tool3
+ *   [message] "I have located…"
+ *   [progress] tool4 · tool5
  */
 export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
-  type Mergeable = ProgressItem | Extract<ChatItem, { kind: "message" }>;
-  const isMergeable = (item: ChatItem): item is Mergeable =>
-    item.kind === "progress" ||
-    (item.kind === "message" && item.speaker !== "user");
+  // Step 1: merge consecutive progress items (current logic)
+  const merged: ChatItem[] = [];
+  let buffer: ProgressItem[] = [];
 
-  const out: ChatItem[] = [];
-  let buffer: Mergeable[] = [];
-
-  const flush = () => {
+  const flushMerge = () => {
     if (buffer.length === 0) return;
-    // The trailing message of a run is the turn's real reply -- keep it
-    // visible on its own; only merge what led up to it.
-    let tail: Mergeable | null = null;
-    let mergeable = buffer;
-    const last = buffer[buffer.length - 1];
-    if (last.kind === "message") {
-      tail = last;
-      mergeable = buffer.slice(0, -1);
-    }
-    const hasProgress = mergeable.some((part) => part.kind === "progress");
-    if (!hasProgress || mergeable.length <= 1) {
-      out.push(...mergeable);
+    if (buffer.length === 1) {
+      merged.push(buffer[0]);
     } else {
-      out.push(mergeProgressParts(mergeable));
+      const steps: ProgressStep[] = [];
+      for (const p of buffer) steps.push(...p.steps);
+      const anchor = buffer[0];
+      merged.push({
+        kind: "progress",
+        key: \`merge-\${anchor.key}\`,
+        speaker: anchor.speaker,
+        model: anchor.model,
+        steps,
+      });
     }
-    if (tail) out.push(tail);
     buffer = [];
   };
 
   for (const item of items) {
-    if (isMergeable(item)) {
+    if (item.kind === "progress") {
       buffer.push(item);
       continue;
     }
-    flush();
-    out.push(item);
+    flushMerge();
+    merged.push(item);
   }
-  flush();
-  return out;
-}
+  flushMerge();
 
-function mergeProgressParts(
-  parts: (ProgressItem | Extract<ChatItem, { kind: "message" }>)[],
-): ProgressItem {
-  const steps: ProgressStep[] = [];
-  for (const part of parts) {
-    if (part.kind === "progress") {
-      steps.push(...part.steps);
-    } else {
-      steps.push({
-        kind: "note",
-        key: part.key,
-        speaker: part.speaker,
-        model: part.model,
-        text: part.text,
-        status: part.partial ? "running" : "done",
-      });
+  // Step 2: expand each merged progress item — notes become messages,
+  // contiguous tool blocks become individual progress items.
+  const out: ChatItem[] = [];
+  for (const item of merged) {
+    if (item.kind !== "progress") {
+      out.push(item);
+      continue;
     }
+    const steps = item.steps;
+    let toolBuf: ToolStep[] = [];
+    const flushTools = (speaker: string, model?: string) => {
+      if (toolBuf.length === 0) return;
+      out.push({
+        kind: "progress",
+        key: \`toolgrp-\${toolBuf[0].key}\`,
+        speaker,
+        model,
+        steps: toolBuf,
+      });
+      toolBuf = [];
+    };
+    for (const step of steps) {
+      if (step.kind === "note") {
+        flushTools(item.speaker, item.model);
+        // Convert note to a message item
+        out.push({
+          kind: "message",
+          key: step.key,
+          speaker: step.speaker,
+          model: step.model,
+          text: step.text,
+          partial: false,
+        });
+      } else {
+        // tool step
+        toolBuf.push(step);
+      }
+    }
+    flushTools(item.speaker, item.model);
   }
-  const anchor = parts.find((part) => part.kind === "progress") ?? parts[0];
-  return {
-    kind: "progress",
-    key: `merge-${parts[0].key}`,
-    speaker: anchor.speaker,
-    model: anchor.model,
-    steps,
-  };
+  return out;
 }
 
 /**
