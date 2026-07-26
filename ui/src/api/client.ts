@@ -1150,6 +1150,24 @@ export function activateProvider(id: string): Promise<ProvidersResponse> {
   );
 }
 
+export type ProviderModelsQuery = {
+  id?: string;
+  kind?: string;
+  base_url: string;
+  api_key?: string;
+};
+
+/** Discovers models the provider's base_url supports (GET {base_url}/models). */
+export function listProviderModels(
+  body: ProviderModelsQuery,
+): Promise<{ models: string[] }> {
+  return apiFetch<{ models: string[] }>("/api/providers/models", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export type NotifyChannelResult = {
   channel: string;
   ok: boolean;

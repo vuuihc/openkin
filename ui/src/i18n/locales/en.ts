@@ -519,6 +519,11 @@ const en: MessageTree = {
       apiKeyHint:
         "Stored in ~/.kin/kin.db. Leave unchanged to keep existing key; clear field and save to remove.",
       model: "Default model",
+      modelsFetch: "Fetch models",
+      modelsFetching: "Fetching…",
+      modelsNeedBaseUrl: "Enter a base URL first",
+      modelsEmpty: "No models returned by this endpoint",
+      modelsPick: "Pick from {count} models…",
       stream: "Stream responses",
       streamHint: "Stream tokens into the chat as they arrive (Kin agent). Also helps with gateway idle timeouts. Turn off if a proxy mishandles stream=true.",
       defaultAgent: "Default agent (no @mention)",

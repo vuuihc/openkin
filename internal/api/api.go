@@ -159,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 		r.Put("/api/settings", s.handlePutSettings)
 		r.Get("/api/providers", s.handleListProviders)
 		r.Post("/api/providers", s.handleCreateProvider)
+		r.Post("/api/providers/models", s.handleListProviderModels)
 		r.Put("/api/providers/{id}", s.handleUpdateProvider)
 		r.Delete("/api/providers/{id}", s.handleDeleteProvider)
 		r.Post("/api/providers/{id}/activate", s.handleActivateProvider)

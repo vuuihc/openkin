@@ -45,3 +45,9 @@ func SaveConfig(ctx context.Context, st *store.Store, cfg Config, clearAPIKey bo
 func looksMasked(s string) bool {
 	return strings.Contains(s, "…") || strings.Contains(s, "••••")
 }
+
+// LooksMaskedAPIKey reports whether s is a masked key echoed back from
+// GET /api/providers (see MaskAPIKey), not a real secret.
+func LooksMaskedAPIKey(s string) bool {
+	return looksMasked(s)
+}
