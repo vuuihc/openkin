@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -210,6 +211,69 @@ func TestUpdateProviderClearAPIKey(t *testing.T) {
 	}
 	if settings["provider.api_key"] != "" {
 		t.Fatalf("want cleared key, got %q", settings["provider.api_key"])
+	}
+}
+
+func TestListProviderModels(t *testing.T) {
+	_, token, h := testProviderServer(t)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("path %s", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-real" {
+			t.Fatalf("auth = %q", r.Header.Get("Authorization"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "model-a"}, {"id": "model-b"}},
+		})
+	}))
+	defer upstream.Close()
+
+	// Create a provider with a real key, so we can exercise masked-key resolution.
+	createBody := fmt.Sprintf(`{"name":"P","base_url":%q,"api_key":"sk-real","model":"model-a"}`, upstream.URL+"/v1")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/providers", bytes.NewReader([]byte(createBody)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var list providersResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	id := list.ActiveID
+	maskedKey := list.Providers[0].APIKey
+
+	// Fetch models by id, echoing back the masked key (as the UI would).
+	body := fmt.Sprintf(`{"id":%q,"base_url":%q,"api_key":%q}`, id, upstream.URL+"/v1", maskedKey)
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/providers/models", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("models: %d %s", rr.Code, rr.Body.String())
+	}
+	var res providerModelsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Models) != 2 || res.Models[0] != "model-a" || res.Models[1] != "model-b" {
+		t.Fatalf("models = %v", res.Models)
+	}
+
+	// Unsaved form (no id, explicit key) also works.
+	body = fmt.Sprintf(`{"base_url":%q,"api_key":"sk-real"}`, upstream.URL+"/v1")
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/providers/models", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("models (no id): %d %s", rr.Code, rr.Body.String())
 	}
 }
 

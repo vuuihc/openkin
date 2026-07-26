@@ -7,6 +7,7 @@ import {
   deleteProvider,
   getSettings,
   listAgents,
+  listProviderModels,
   listProviders,
   testNotify,
   updateProvider,
@@ -52,6 +53,9 @@ export default function SettingsPage() {
   const [provStream, setProvStream] = useState(false);
   const [provKeyDirty, setProvKeyDirty] = useState(false);
   const [provBusy, setProvBusy] = useState(false);
+  const [provModelOptions, setProvModelOptions] = useState<string[]>([]);
+  const [provModelLoading, setProvModelLoading] = useState(false);
+  const [provModelError, setProvModelError] = useState<string | null>(null);
   const [agentDefault, setAgentDefault] = useState("");
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +189,8 @@ export default function SettingsPage() {
     setProvStream(false);
     setProvKeyDirty(false);
     setReveal(false);
+    setProvModelOptions([]);
+    setProvModelError(null);
   };
 
   const openEditProvider = (p: ProviderEntry) => {
@@ -196,12 +202,42 @@ export default function SettingsPage() {
     setProvStream(!!p.stream);
     setProvKeyDirty(false);
     setReveal(false);
+    setProvModelOptions([]);
+    setProvModelError(null);
   };
 
   const closeProviderForm = () => {
     setEditingId(null);
     setProvKeyDirty(false);
     setReveal(false);
+    setProvModelOptions([]);
+    setProvModelError(null);
+  };
+
+  const fetchProviderModels = async () => {
+    if (!provBase.trim()) {
+      setProvModelError(tr("settings.provider.modelsNeedBaseUrl"));
+      return;
+    }
+    setProvModelLoading(true);
+    setProvModelError(null);
+    try {
+      const res = await listProviderModels({
+        id: editingId || undefined,
+        kind: "openai-compatible",
+        base_url: provBase.trim(),
+        api_key: provKeyDirty ? provKey.trim() : undefined,
+      });
+      setProvModelOptions(res.models ?? []);
+      if (!res.models?.length) {
+        setProvModelError(tr("settings.provider.modelsEmpty"));
+      }
+    } catch (e) {
+      setProvModelOptions([]);
+      setProvModelError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setProvModelLoading(false);
+    }
   };
 
   const saveProvider = async () => {
@@ -512,16 +548,58 @@ export default function SettingsPage() {
               </span>
             </label>
             <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.provider.model")}
-              </span>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-kin-secondary">
+                  {tr("settings.provider.model")}
+                </span>
+                <button
+                  type="button"
+                  disabled={provModelLoading}
+                  onClick={() => void fetchProviderModels()}
+                  className="text-[11px] text-kin-blue hover:underline disabled:opacity-50 shrink-0"
+                >
+                  {provModelLoading
+                    ? tr("settings.provider.modelsFetching")
+                    : tr("settings.provider.modelsFetch")}
+                </button>
+              </div>
               <input
                 type="text"
+                list="provider-model-options"
                 value={provModel}
                 onChange={(e) => setProvModel(e.target.value)}
                 placeholder="gpt-4.1-mini · grok-3 · llama3.2"
                 className="kin-input min-h-[44px] font-mono text-xs"
               />
+              <datalist id="provider-model-options">
+                {provModelOptions.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              {provModelError ? (
+                <span className="block text-[11px] text-kin-red">{provModelError}</span>
+              ) : null}
+              {provModelOptions.length > 0 ? (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) setProvModel(e.target.value);
+                  }}
+                  className="kin-input min-h-[40px] text-xs mt-1"
+                >
+                  <option value="">
+                    {tr("settings.provider.modelsPick").replace(
+                      "{count}",
+                      String(provModelOptions.length),
+                    )}
+                  </option>
+                  {provModelOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </label>
             <label className="flex items-start gap-2 cursor-pointer">
               <input

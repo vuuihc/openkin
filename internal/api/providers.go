@@ -142,6 +142,49 @@ func (s *Server) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// providerModelsBody is the body for POST /api/providers/models.
+// Used both for a saved entry (id set) and an in-progress add/edit form
+// (base_url/api_key set directly, before the entry is saved).
+type providerModelsBody struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+}
+
+type providerModelsResponse struct {
+	Models []string `json:"models"`
+}
+
+func (s *Server) handleListProviderModels(w http.ResponseWriter, r *http.Request) {
+	var body providerModelsBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	apiKey := body.APIKey
+	// A masked key (echoed back from GET /api/providers) or an omitted key on
+	// an existing entry means "use the stored secret", not "no secret".
+	if strings.TrimSpace(body.ID) != "" && (apiKey == "" || provider.LooksMaskedAPIKey(apiKey)) {
+		if reg, err := provider.LoadRegistry(r.Context(), s.Store); err == nil {
+			if e, ok := reg.ByID(body.ID); ok {
+				apiKey = e.APIKey
+			}
+		}
+	}
+	cfg := provider.Config{
+		Kind:    body.Kind,
+		BaseURL: body.BaseURL,
+		APIKey:  apiKey,
+	}.Normalize()
+	models, err := provider.ListModels(r.Context(), cfg)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, providerModelsResponse{Models: models})
+}
+
 type activateProviderBody struct {
 	// ID optional when path already has {id}; accepted for POST /api/providers/active.
 	ID string `json:"id"`
