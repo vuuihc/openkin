@@ -205,7 +205,7 @@ export default function Sidebar({
             >
               {(
                 [
-                  ["recent", "nav.sortByRecent"],
+                  ["active", "nav.sortByActive"],
                   ["created", "nav.sortByCreated"],
                 ] as const
               ).map(([mode, key]) => {

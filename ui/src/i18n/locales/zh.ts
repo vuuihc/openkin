@@ -21,7 +21,7 @@ const zh = {
     emptyHint: "发送第一条消息后，对话会出现在下方项目分组里",
     newSessionIn: "在 {project} 新建会话",
     sortProjects: "项目排序",
-    sortByRecent: "最近交互",
+    sortByActive: "活跃优先",
     sortByCreated: "创建时间",
     pinProject: "置顶项目",
     unpinProject: "取消置顶",
