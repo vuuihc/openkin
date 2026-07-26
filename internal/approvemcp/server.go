@@ -26,6 +26,7 @@ const (
 	EnvExecutionAgent = "KIN_EXECUTION_AGENT"
 	EnvExecutionStep  = "KIN_EXECUTION_STEP"
 	EnvExecutionModel = "KIN_EXECUTION_MODEL"
+	EnvKinExecutionCap = "KIN_EXECUTION_CAP"
 )
 
 // Run is the `kin approve-mcp` entrypoint. Logs protocol traffic to stderr only.
@@ -235,6 +236,34 @@ func (s *server) handleToolsList(req rpcRequest) rpcResponse {
 						},
 					},
 				},
+				{
+					"name":        "request_workspace",
+					"description": "Create a writable Kin workspace for the current task. Call once before any source modification while the current run is read-only.",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"reason": map[string]any{
+								"type":        "string",
+								"description": "Why the workspace is needed",
+							},
+						},
+						"additionalProperties": false,
+					},
+				},
+				{
+					"name":        "complete_workspace",
+					"description": "Mark the active workspace generation as ready for Kin to finalize and release.",
+					"inputSchema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"reason": map[string]any{
+								"type":        "string",
+								"description": "Optional completion reason",
+							},
+						},
+						"additionalProperties": false,
+					},
+				},
 			},
 		},
 	}
@@ -253,6 +282,10 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) rpcRespons
 		return s.callApprove(ctx, req.ID, params.Arguments)
 	case "ask_user_question":
 		return s.callAskUserQuestion(ctx, req.ID, params.Arguments)
+	case "request_workspace":
+		return s.callRequestWorkspace(ctx, req.ID, params.Arguments)
+	case "complete_workspace":
+		return s.callCompleteWorkspace(ctx, req.ID, params.Arguments)
 	default:
 		return rpcErr(req.ID, -32602, "unknown tool: "+params.Name)
 	}
@@ -573,6 +606,71 @@ func rpcErr(id json.RawMessage, code int, msg string) rpcResponse {
 		ID:      id,
 		Error:   &rpcError{Code: code, Message: msg},
 	}
+}
+
+
+func (s *server) callRequestWorkspace(ctx context.Context, id json.RawMessage, arguments json.RawMessage) rpcResponse {
+	_ = arguments
+	body, _ := json.Marshal(map[string]string{
+		"task_id":      s.taskID,
+		"execution_id": s.executionID,
+		"agent":        s.executionAgent,
+	})
+	req, err := http.NewRequestWithContext(ctx, "POST", s.daemon+"/api/tasks/"+s.taskID+"/workspace/request", bytes.NewReader(body))
+	if err != nil {
+		return toolResult(id, denyJSONMsg("internal error"))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.token)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		s.logf("request workspace: %v", err)
+		return toolResult(id, denyJSONMsg("workspace request failed"))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return toolResult(id, `{"status":"ok","message":"Writable workspace created. End this turn so Kin can resume in the workspace."}`)
+	}
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	msg := string(respBody)
+	if msg == "" {
+		msg = "workspace request failed"
+	}
+	return toolResult(id, denyJSONMsg(msg))
+}
+
+func (s *server) callCompleteWorkspace(ctx context.Context, id json.RawMessage, arguments json.RawMessage) rpcResponse {
+	_ = arguments
+	body, _ := json.Marshal(map[string]string{
+		"task_id":      s.taskID,
+		"execution_id": s.executionID,
+		"agent":        s.executionAgent,
+	})
+	req, err := http.NewRequestWithContext(ctx, "POST", s.daemon+"/api/tasks/"+s.taskID+"/workspace/complete", bytes.NewReader(body))
+	if err != nil {
+		return toolResult(id, denyJSONMsg("internal error"))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if s.token != "" {
+		req.Header.Set("Authorization", "Bearer "+s.token)
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		s.logf("complete workspace: %v", err)
+		return toolResult(id, denyJSONMsg("workspace completion failed"))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return toolResult(id, `{"status":"ok","message":"Workspace marked complete. Kin will finalize and release."}`)
+	}
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	msg := string(respBody)
+	if msg == "" {
+		msg = "workspace completion failed"
+	}
+	return toolResult(id, denyJSONMsg(msg))
 }
 
 // allowJSON builds Claude Code's expected permission response.
