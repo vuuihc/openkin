@@ -602,19 +602,12 @@ function ProgressCard({
 }) {
   const tr = useT();
   const steps = item.steps;
-  // Preserve the card's existing tool-failure semantics even though progress
-  // reports now live in the same ordered list as tools.
-  const toolSteps = steps.filter((x): x is ToolStep => x.kind === "tool");
-  const statusSteps = toolSteps.length > 0 ? toolSteps : steps;
-  const failed = statusSteps.filter((x) => x.status === "error").length;
-  const done = statusSteps.filter((x) => x.status === "done").length;
   const count = steps.length;
-
+  const [collapsed, setCollapsed] = useState(false);
   const [openStep, setOpenStep] = useState<string | null>(null);
 
-  // Only all-failed runs are "hard fail" (red). Mixed tool exits are expected
-  // exploration noise — keep the card muted gray so one bad step does not
-  // paint the whole turn as a failure.
+  const failed = steps.filter((x) => x.status === "error").length;
+  const done = steps.filter((x) => x.status === "done").length;
   const hardFail = !running && failed > 0 && done === 0;
   const mixed = !running && failed > 0 && done > 0;
 
@@ -646,7 +639,11 @@ function ProgressCard({
 
   return (
     <div className={`rounded-xl border ${statusTone} overflow-hidden`}>
-      <div className="flex items-center gap-2 px-3 py-2 text-[12.5px]">
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-left cursor-pointer hover:bg-[var(--kin-fill-strong)]/30 transition-colors"
+      >
         <span
           className={[
             "flex-none text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded",
@@ -665,10 +662,17 @@ function ProgressCard({
         <span className="break-words text-kin-text flex-1 min-w-0 font-medium">
           {summary}
         </span>
-      </div>
-      <div className="border-t border-[var(--kin-hairline)] bg-[var(--kin-elevated)]/30 divide-y divide-[var(--kin-hairline)]">
-        {steps.map((step, idx) =>
-          step.kind === "tool" ? (
+        <span className="flex-none text-[11px] text-kin-muted">
+          {collapsed ? tr("chat.progress.expand") : tr("chat.progress.hide")}
+        </span>
+      </button>
+      {collapsed ? (
+        <div className="border-t border-[var(--kin-hairline)] px-3 py-2 text-[11.5px] text-kin-muted italic">
+          // {tr("chat.progress.collapsed", { count })}
+        </div>
+      ) : (
+        <div className="border-t border-[var(--kin-hairline)] bg-[var(--kin-elevated)]/30 divide-y divide-[var(--kin-hairline)]">
+          {steps.map((step, idx) => (
             <ToolStepRow
               key={step.key}
               tool={step}
@@ -679,16 +683,9 @@ function ProgressCard({
                 setOpenStep((cur) => (cur === step.key ? null : step.key))
               }
             />
-          ) : (
-            <NoteStepRow
-              key={step.key}
-              note={step}
-              index={idx + 1}
-              hostSpeaker={item.speaker}
-            />
-          ),
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
