@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 const (

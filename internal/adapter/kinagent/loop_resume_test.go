@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 func TestBuildInitialMessagesColdStart(t *testing.T) {

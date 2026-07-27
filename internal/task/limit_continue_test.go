@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // multiRunAdapter fails with a rate-limit on the first Start, then succeeds.

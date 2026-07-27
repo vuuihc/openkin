@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // eventWriter is the narrow persistence seam for task events.

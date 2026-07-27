@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/task"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/task"
 )
 
 // handleRequestWorkspace handles POST /api/tasks/{taskID}/workspace/request

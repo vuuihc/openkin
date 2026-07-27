@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/notify"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/notify"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func TestParseReportSignalVariants(t *testing.T) {

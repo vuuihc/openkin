@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote"
 )
 
 func TestBuildServerPlumbsControlURL(t *testing.T) {

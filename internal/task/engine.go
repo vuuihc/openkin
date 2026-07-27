@@ -13,11 +13,11 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/provider"
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/workspace"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // Status values (spec §3 / §5).

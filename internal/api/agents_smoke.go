@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter/detect"
-	"github.com/vuuihc/kin/internal/adapter/genericcli"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter/genericcli"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // SmokeAgents runs headless smoke probes for installed Tier-2 generic CLI agents.

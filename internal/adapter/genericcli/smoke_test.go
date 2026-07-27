@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
 )
 
 func TestSmokeExitZero(t *testing.T) {

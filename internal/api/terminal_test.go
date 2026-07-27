@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/remote"
-	"github.com/vuuihc/kin/internal/terminal"
+	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/terminal"
 	"nhooyr.io/websocket"
 )
 

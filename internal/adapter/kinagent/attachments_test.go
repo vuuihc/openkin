@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 // 1x1 PNG

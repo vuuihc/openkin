@@ -14,7 +14,7 @@ import (
 
 	"tailscale.com/tsnet"
 
-	"github.com/vuuihc/kin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote"
 )
 
 // Transport binds via an embedded Tailscale node named "kin" (spec §7).

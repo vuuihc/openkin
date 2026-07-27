@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
 )
 
 // Controller is a read-only control-plane completion via Claude CLI.

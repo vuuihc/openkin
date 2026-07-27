@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func TestUsageSummaryAggregation(t *testing.T) {

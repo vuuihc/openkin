@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/workspace"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 type gitBranchesResponse = workspace.BranchStatus

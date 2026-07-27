@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func TestMergeAutoSection(t *testing.T) {

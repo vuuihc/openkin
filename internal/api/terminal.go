@@ -15,7 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"nhooyr.io/websocket"
 
-	"github.com/vuuihc/kin/internal/terminal"
+	"github.com/vuuihc/openkin/internal/terminal"
 )
 
 const terminalCreateBodyLimit = 16 << 10

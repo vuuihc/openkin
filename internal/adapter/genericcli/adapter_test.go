@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
 )
 
 func TestBuildArgsPromptAndFlags(t *testing.T) {

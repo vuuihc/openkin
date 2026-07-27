@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 // Adapter launches Grok CLI headless runs (`grok -p … --output-format streaming-json`).

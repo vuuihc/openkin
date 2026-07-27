@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // CreateUserQuestionRequest is the body for POST /internal/user-questions.

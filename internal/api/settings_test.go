@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/notify"
+	"github.com/vuuihc/openkin/internal/notify"
 )
 
 func TestSettingsGetPut(t *testing.T) {

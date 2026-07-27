@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/sessionctx"
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/workspace"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/sessionctx"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // ErrConflict is returned when a state transition is not allowed (HTTP 409).

@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // maxArtifactBytes caps a single artifact body (study primers can be large).

@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 // modelHintRE gates the (LLM-backed) directive extraction: only messages that

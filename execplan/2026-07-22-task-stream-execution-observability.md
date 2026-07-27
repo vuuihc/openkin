@@ -184,9 +184,9 @@ If a Kin task fails, its worktree and events remain available for diagnosis. Res
 Baseline evidence recorded before implementation:
 
     go test ./internal/task/... ./internal/store/... ./internal/api/...
-    ok github.com/vuuihc/kin/internal/task
-    ok github.com/vuuihc/kin/internal/store
-    ok github.com/vuuihc/kin/internal/api
+    ok github.com/vuuihc/openkin/internal/task
+    ok github.com/vuuihc/openkin/internal/store
+    ok github.com/vuuihc/openkin/internal/api
 
     cd ui && npm test -- --run
     Test Files 11 passed (11)

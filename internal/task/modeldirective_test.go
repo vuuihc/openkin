@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 // countingClient records how many times Chat is invoked (gating assertions).

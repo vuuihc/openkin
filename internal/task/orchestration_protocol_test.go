@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/openkin/internal/agent"
 )
 
 func TestValidateRefinedPlanOK(t *testing.T) {

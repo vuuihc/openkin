@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/workspace"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 func requireGitBin(t *testing.T) {

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/sessionctx"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/sessionctx"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // shouldOrchestrate reports whether this run should fan out to sub-agents

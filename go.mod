@@ -1,4 +1,4 @@
-module github.com/vuuihc/kin
+module github.com/vuuihc/openkin
 
 go 1.26.4
 

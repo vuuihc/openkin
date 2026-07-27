@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/provider"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // PluginConfig configures the Kin built-in plugin factory.

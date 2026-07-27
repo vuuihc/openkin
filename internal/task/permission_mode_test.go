@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 func TestCreateStoresPermissionMode(t *testing.T) {

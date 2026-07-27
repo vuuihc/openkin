@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/adapter/detect"
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func TestPluginFactoryDescriptor(t *testing.T) {

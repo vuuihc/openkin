@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 // Controller is a read-only control-plane completion for Kin.

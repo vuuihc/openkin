@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)

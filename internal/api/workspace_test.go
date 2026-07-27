@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func TestTaskWorkspaceList(t *testing.T) {

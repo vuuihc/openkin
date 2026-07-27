@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 // Adapter launches Codex CLI processes (`codex exec --json`).

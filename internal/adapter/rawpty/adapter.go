@@ -14,7 +14,7 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 // CoalesceInterval is the minimum interval between raw_output flushes (spec §4.4).

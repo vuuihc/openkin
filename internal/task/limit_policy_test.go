@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/usagewindows"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/usagewindows"
 )
 
 func TestNormalizeLimitPolicy(t *testing.T) {

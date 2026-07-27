@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // LimitContinueRequest is the body for POST /api/tasks/{id}/limit/continue.

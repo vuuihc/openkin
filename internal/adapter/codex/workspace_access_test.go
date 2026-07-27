@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 func TestReadOnlyArgvExcludesDangerousFlags(t *testing.T) {

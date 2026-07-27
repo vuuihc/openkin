@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/claudecode"
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/task"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter/claudecode"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/task"
 )
 
 // TestFakeAgentIntegration runs a task end-to-end with a shell script that

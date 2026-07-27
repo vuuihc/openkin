@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 // scriptedChatClient returns canned ChatResponse values in order.

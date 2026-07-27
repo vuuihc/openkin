@@ -24,7 +24,7 @@ The MVP in one sentence: a self-hosted daemon that wraps external coding agents 
 
 ```text
 kin/
-├── go.mod                    # module github.com/vuuihc/kin   (confirm path, §12)
+├── go.mod                    # module github.com/vuuihc/openkin   (confirm path, §12)
 ├── cmd/kin/main.go           # single binary: serve | run | approve-mcp | version
 ├── internal/
 │   ├── adapter/              # Adapter interface + implementations
@@ -272,7 +272,7 @@ Empty/error/loading states for every page. Approval decisions must be a single t
 
 Blocking items marked ⛔; the rest can land later.
 
-1. ⛔ **Go module path** — confirm `github.com/vuuihc/kin` (spec assumes it).
+1. ⛔ **Go module path** — confirm `github.com/vuuihc/openkin` (spec assumes it).
 2. ⛔ **Machine with Claude Code installed and authenticated** (`claude -p "say hi"` works) + a throwaway test repo directory agents may write to.
 3. ⛔ **License decision** — Apache-2.0 was "intended"; the implementation repo needs the LICENSE file on day one.
 4. **Tailscale account** (free tier) for M3; run the printed login URL once; enable Funnel for the tailnet when prompted (Tailscale admin console → DNS/Funnel policy).

@@ -10,7 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/openkin/internal/agent"
 )
 
 // RequiredStep is an immutable worker assignment from the deterministic parser.

@@ -17,16 +17,16 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"nhooyr.io/websocket"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/detect"
-	"github.com/vuuihc/kin/internal/notify"
-	"github.com/vuuihc/kin/internal/provider"
-	"github.com/vuuihc/kin/internal/remote"
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/task"
-	"github.com/vuuihc/kin/internal/terminal"
-	"github.com/vuuihc/kin/internal/usagewindows"
-	"github.com/vuuihc/kin/internal/workspace"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/notify"
+	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/task"
+	"github.com/vuuihc/openkin/internal/terminal"
+	"github.com/vuuihc/openkin/internal/usagewindows"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // AgentInfo is one discovered agent for GET /api/agents.

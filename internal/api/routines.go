@@ -11,8 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
 
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/task"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/task"
 )
 
 type createRoutineBody struct {

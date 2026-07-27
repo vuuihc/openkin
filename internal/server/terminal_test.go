@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/api"
-	"github.com/vuuihc/kin/internal/terminal"
+	"github.com/vuuihc/openkin/internal/api"
+	"github.com/vuuihc/openkin/internal/terminal"
 )
 
 func TestTerminalManagerInjectionAndCleanupUseSameInstance(t *testing.T) {

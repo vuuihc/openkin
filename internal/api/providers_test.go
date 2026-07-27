@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/remote"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func testProviderServer(t *testing.T) (*Server, string, http.Handler) {

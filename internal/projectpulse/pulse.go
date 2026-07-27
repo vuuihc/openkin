@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // DayCount is activity for one calendar day (UTC date key YYYY-MM-DD).

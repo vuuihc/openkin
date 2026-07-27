@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vuuihc/kin/internal/approvemcp"
-	"github.com/vuuihc/kin/internal/notify"
-	"github.com/vuuihc/kin/internal/remote"
-	"github.com/vuuihc/kin/internal/server"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/approvemcp"
+	"github.com/vuuihc/openkin/internal/notify"
+	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/server"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // version is reported by `kin version` and GET /api/version.

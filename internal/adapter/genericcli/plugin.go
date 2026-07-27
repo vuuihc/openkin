@@ -7,9 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/adapter/detect"
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // PluginFactory registers one Tier-2 generic CLI agent from catalog + invocation.

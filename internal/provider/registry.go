@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // Registry settings keys. The registry is the multi-provider source of truth;

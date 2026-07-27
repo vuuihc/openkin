@@ -3,8 +3,8 @@ package rawpty
 import (
 	"context"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/agent"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
 )
 
 // PluginFactory registers the opt-in raw PTY agent.

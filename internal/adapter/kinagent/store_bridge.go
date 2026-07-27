@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/provider"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // StoreTranscript adapts *store.Store to TranscriptStore + SessionSearcher.

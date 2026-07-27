@@ -18,8 +18,8 @@ import (
 
 	"github.com/creack/pty"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
 )
 
 // CoalesceInterval matches rawpty (100ms) for text-mode PTY flushes.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 func TestResolvePathSandbox(t *testing.T) {

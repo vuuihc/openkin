@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/store"
-	"github.com/vuuihc/kin/internal/task"
+	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/task"
 )
 
 // DefaultTickInterval is how often the scheduler scans for due routines.

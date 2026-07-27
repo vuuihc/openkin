@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
 )
 
 // SmokeTimeout is the per-agent headless probe budget.

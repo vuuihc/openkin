@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/provider"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 // AgentID is the engine / API agent key.

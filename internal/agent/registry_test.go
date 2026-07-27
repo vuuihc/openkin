@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 type stubAdapter struct{}

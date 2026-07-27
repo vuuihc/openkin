@@ -8,7 +8,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/vuuihc/kin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter"
 )
 
 // Capability describes what a plugin may do.

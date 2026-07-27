@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/adapter"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // ReportSignalTrailer is appended to routine prompts so agents self-report

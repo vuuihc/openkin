@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/vuuihc/kin/internal/adapter/claudecode"
-	"github.com/vuuihc/kin/internal/adapter/codex"
-	"github.com/vuuihc/kin/internal/adapter/detect"
-	"github.com/vuuihc/kin/internal/adapter/genericcli"
-	"github.com/vuuihc/kin/internal/adapter/grok"
-	"github.com/vuuihc/kin/internal/adapter/kinagent"
-	"github.com/vuuihc/kin/internal/adapter/rawpty"
-	"github.com/vuuihc/kin/internal/agent"
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/adapter/claudecode"
+	"github.com/vuuihc/openkin/internal/adapter/codex"
+	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter/genericcli"
+	"github.com/vuuihc/openkin/internal/adapter/grok"
+	"github.com/vuuihc/openkin/internal/adapter/kinagent"
+	"github.com/vuuihc/openkin/internal/adapter/rawpty"
+	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // buildAgentRegistry is the composition root for built-in agent plugins.

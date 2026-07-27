@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/vuuihc/kin/internal/store"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // SaveConfig writes the legacy single-slot provider settings.
