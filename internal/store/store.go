@@ -511,8 +511,9 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			created_at, started_at, finished_at,
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
 			workspace_scope, workspace_base_oid, workspace_branch, project_id,
-			routine_id, routine_noteworthy, routine_tldr, routine_unread
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			routine_id, routine_noteworthy, routine_tldr, routine_unread,
+			workspace_policy, current_workspace_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -520,6 +521,7 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
+		t.WorkspacePolicy, t.CurrentWorkspaceID,
 	)
 	if err != nil {
 		return fmt.Errorf("insert task: %w", err)

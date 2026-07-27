@@ -38,6 +38,11 @@ func New() *Adapter {
 // Follow-up (session_ref required):
 //
 //	codex exec resume <session_ref> --json "<prompt>"
+//
+// Workspace access modes (ADR 0014):
+//
+//	source_read_only → --sandbox read-only -c features.hooks=false
+//	writable         → existing permission-mode logic
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	bin := a.Binary
 	if bin == "" {
@@ -62,13 +67,19 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			args = append(args, "--model", spec.Model)
 		}
 	}
-	// Session permission mode (applies to new + resume).
-	switch adapter.NormalizePermissionMode(spec.PermissionMode) {
-	case adapter.PermissionYOLO:
-		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
-	case adapter.PermissionAcceptEdits:
-		// Auto-write inside workspace; still sandboxed.
-		args = append(args, "--sandbox", "workspace-write")
+
+	// Read-only workspace access: sandbox read-only, disable hooks.
+	if spec.RunMeta.WorkspaceAccess == adapter.AccessSourceReadOnly {
+		args = append(args, "--sandbox", "read-only", "-c", "features.hooks=false")
+	} else {
+		// Existing permission-mode logic for writable/shared access.
+		switch adapter.NormalizePermissionMode(spec.PermissionMode) {
+		case adapter.PermissionYOLO:
+			args = append(args, "--dangerously-bypass-approvals-and-sandbox")
+		case adapter.PermissionAcceptEdits:
+			// Auto-write inside workspace; still sandboxed.
+			args = append(args, "--sandbox", "workspace-write")
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, path, args...)

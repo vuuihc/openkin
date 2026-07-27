@@ -20,22 +20,11 @@ import (
 
 // Adapter launches Claude Code CLI processes.
 type Adapter struct {
-	// Binary is the path or name of the claude executable. Defaults to "claude".
-	// Tests inject a fake agent via this field.
-	Binary string
-	// LookPath, if set, is used instead of exec.LookPath (tests).
-	LookPath func(file string) (string, error)
-	// KinBinary is the absolute path to the kin binary for approve-mcp.
-	// Empty → os.Executable().
+	Binary    string
+	LookPath  func(file string) (string, error)
 	KinBinary string
-	// DaemonURL is the base URL for the daemon (e.g. http://127.0.0.1:7777).
-	// Required for the approval bridge; if empty, MCP config is omitted (tests).
 	DaemonURL string
-	// Token is the KIN auth token injected into the MCP server env.
-	// Prefer TokenFunc when the daemon may rotate tokens while running.
-	Token string
-	// TokenFunc, if set, is called at Start to resolve the current token
-	// (e.g. re-read ~/.kin/token after `kin token rotate`).
+	Token     string
 	TokenFunc func() string
 }
 
@@ -45,17 +34,11 @@ func New() *Adapter {
 }
 
 // Start implements adapter.Adapter.
-// Launch (M2 — with approval bridge):
 //
-//	claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages
-//	  --mcp-config <file> --permission-prompt-tool mcp__kin__approve
-//	  [--permission-mode <mode>] [--resume <session_ref>] [--model <model>]
+// Workspace access modes (ADR 0014):
 //
-// PermissionMode mapping:
-//
-//	default       → MCP approve bridge (when DaemonURL/Token set)
-//	accept_edits  → --permission-mode acceptEdits (+ MCP for other tools)
-//	yolo          → --dangerously-skip-permissions (no MCP)
+//	source_read_only → --permission-mode plan, restricted tools, no hooks
+//	writable         → existing permission-mode logic
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	bin := a.Binary
 	if bin == "" {
@@ -76,52 +59,58 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		"--verbose",
 		"--include-partial-messages",
 	}
-	perm := adapter.NormalizePermissionMode(spec.PermissionMode)
-
-	token := a.Token
-	if a.TokenFunc != nil {
-		if t := a.TokenFunc(); t != "" {
-			token = t
-		}
-	}
 
 	var mcpPath string
-	// YOLO: skip Kin MCP bridge and bypass Claude permission checks.
-	// Operator opted in via session permission mode.
-	if perm == adapter.PermissionYOLO {
-		// --allow-… unlocks the flag on newer Claude Code builds; both are safe.
+
+	// Read-only workspace access: plan mode with restricted tools.
+	if spec.RunMeta.WorkspaceAccess == adapter.AccessSourceReadOnly {
 		args = append(args,
-			"--allow-dangerously-skip-permissions",
-			"--dangerously-skip-permissions",
-			"--permission-mode", "bypassPermissions",
+			"--permission-mode", "plan",
+			"--allowedTools", "Read,Glob,Grep,mcp__kin__request_workspace,mcp__kin__ask_user_question",
+			"--disallowedTools", "Bash,Edit,Write,NotebookEdit,Agent",
 		)
-	} else if a.DaemonURL != "" && token != "" {
-		kinBin := a.KinBinary
-		if kinBin == "" {
-			kinBin, err = os.Executable()
-			if err != nil {
-				return nil, fmt.Errorf("resolve kin binary: %w", err)
-			}
-			kinBin, err = filepath.EvalSymlinks(kinBin)
-			if err != nil {
-				// Non-fatal: use unresolved path.
-				kinBin, _ = os.Executable()
+	} else {
+		perm := adapter.NormalizePermissionMode(spec.PermissionMode)
+
+		token := a.Token
+		if a.TokenFunc != nil {
+			if t := a.TokenFunc(); t != "" {
+				token = t
 			}
 		}
-		mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token, spec.Execution)
-		if err != nil {
-			return nil, fmt.Errorf("mcp config: %w", err)
-		}
-		args = append(args,
-			"--mcp-config", mcpPath,
-			"--permission-prompt-tool", "mcp__kin__approve",
-		)
-		if perm == adapter.PermissionAcceptEdits {
+
+		if perm == adapter.PermissionYOLO {
+			args = append(args,
+				"--allow-dangerously-skip-permissions",
+				"--dangerously-skip-permissions",
+				"--permission-mode", "bypassPermissions",
+			)
+		} else if a.DaemonURL != "" && token != "" {
+			kinBin := a.KinBinary
+			if kinBin == "" {
+				kinBin, err = os.Executable()
+				if err != nil {
+					return nil, fmt.Errorf("resolve kin binary: %w", err)
+				}
+				kinBin, err = filepath.EvalSymlinks(kinBin)
+				if err != nil {
+					kinBin, _ = os.Executable()
+				}
+			}
+			mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token, spec.Execution)
+			if err != nil {
+				return nil, fmt.Errorf("mcp config: %w", err)
+			}
+			args = append(args,
+				"--mcp-config", mcpPath,
+				"--permission-prompt-tool", "mcp__kin__approve",
+			)
+			if perm == adapter.PermissionAcceptEdits {
+				args = append(args, "--permission-mode", "acceptEdits")
+			}
+		} else if perm == adapter.PermissionAcceptEdits {
 			args = append(args, "--permission-mode", "acceptEdits")
 		}
-	} else if perm == adapter.PermissionAcceptEdits {
-		// No MCP bridge (tests / misconfig): still pass Claude permission mode.
-		args = append(args, "--permission-mode", "acceptEdits")
 	}
 
 	if spec.SessionRef != "" {
@@ -133,9 +122,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = spec.Cwd
-	// Isolate from interactive TTY assumptions; inherit env for auth.
 	cmd.Env = os.Environ()
-	// Detach from process group so Cancel can signal just this process tree on Unix.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
@@ -170,9 +157,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	}()
 	go func() {
 		defer wg.Done()
-		// Surface stderr as raw_output so operators can diagnose failures.
 		sc := bufio.NewScanner(stderr)
-		// Claude can emit large JSON lines; raise the token limit.
 		sc.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 		for sc.Scan() {
 			line := sc.Text()
@@ -208,9 +193,6 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	return h, nil
 }
 
-// writeMCPConfig writes a per-task MCP config JSON and returns its path.
-// Execution metadata is optional; when present it is passed to approve-mcp so
-// approvals can attribute the request to this adapter run. Token is never logged.
 func writeMCPConfig(kinBin, taskID, daemonURL, token string, exec adapter.ExecutionRef) (string, error) {
 	env := map[string]string{
 		"KIN_TASK_ID": taskID,
@@ -296,7 +278,6 @@ type handle struct {
 
 func (h *handle) Events() <-chan adapter.Event { return h.ch }
 
-// Cancel sends SIGTERM to the process group, then SIGKILL after 5s (spec §4).
 func (h *handle) Cancel() error {
 	h.cancelOnce.Do(func() {
 		h.mu.Lock()
@@ -306,7 +287,6 @@ func (h *handle) Cancel() error {
 		if h.cmd.Process == nil {
 			return
 		}
-		// Signal the whole process group (negative pid).
 		pgid := h.cmd.Process.Pid
 		_ = syscall.Kill(-pgid, syscall.SIGTERM)
 
@@ -321,21 +301,18 @@ func (h *handle) Cancel() error {
 	return nil
 }
 
-// Canceled reports whether Cancel was called.
 func (h *handle) Canceled() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.canceled
 }
 
-// ExitCode returns the process exit code after the Events channel has closed.
 func (h *handle) ExitCode() *int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.exitCode
 }
 
-// Ensure adapter.Event error payload helper is used when Start fails before process.
 func ErrorEvent(msg string) adapter.Event {
 	return adapter.Event{
 		Type:    "error",

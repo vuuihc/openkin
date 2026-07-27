@@ -73,15 +73,16 @@ func Build(ctx context.Context, factories ...Factory) (*Registry, error) {
 
 // Entry is a direct registration used by tests and migration helpers.
 type Entry struct {
-	ID         string
-	Name       string
-	Kind       Kind
-	Priority   int
-	Caps       []Capability
-	Runner     adapter.Adapter
-	Controller Controller
-	Sessions   SessionHooks
-	Status     func(context.Context) Status
+	ID            string
+	Name          string
+	Kind          Kind
+	Priority      int
+	Caps          []Capability
+	Runner        adapter.Adapter
+	Controller    Controller
+	Sessions      SessionHooks
+	Status        func(context.Context) Status
+	LazyWorkspace func(context.Context) LazyWorkspaceSupport
 }
 
 // NewRegistry builds a registry from explicit entries (tests / migration).
@@ -122,11 +123,12 @@ func NewRegistry(entries ...Entry) (*Registry, error) {
 			}
 		}
 		reg := Registration{
-			Descriptor: normalizeDescriptor(desc),
-			Runner:     wrapRunner(e.Runner),
-			Controller: e.Controller,
-			Sessions:   e.Sessions,
-			Status:     status,
+			Descriptor:    normalizeDescriptor(desc),
+			Runner:        wrapRunner(e.Runner),
+			Controller:    e.Controller,
+			Sessions:      e.Sessions,
+			Status:        status,
+			LazyWorkspace: e.LazyWorkspace,
 		}
 		if err := validateRegistration(desc, reg); err != nil {
 			return nil, err
@@ -203,7 +205,7 @@ func dedupeCaps(caps []Capability) []Capability {
 	// Stable preferred order.
 	pref := []Capability{
 		CapabilityRun, CapabilityResume, CapabilityTools,
-		CapabilityApprovals, CapabilityOrchestrate,
+		CapabilityApprovals, CapabilityOrchestrate, CapabilityLazyWorkspace,
 	}
 	for _, p := range pref {
 		for _, c := range caps {
@@ -325,6 +327,23 @@ func (r *Registry) ResetSession(ctx context.Context, id, taskID string) error {
 	return reg.Sessions.Reset(ctx, taskID)
 }
 
+// LazyWorkspaceSupport checks whether an agent supports lazy workspace promotion.
+// It first checks the static descriptor capability, then invokes the runtime probe.
+// Returns an unsupported zero value when either is absent.
+func (r *Registry) LazyWorkspaceSupport(ctx context.Context, agentID string) LazyWorkspaceSupport {
+	if r == nil {
+		return LazyWorkspaceSupport{}
+	}
+	reg, ok := r.byID[agentID]
+	if !ok || !reg.Descriptor.Has(CapabilityLazyWorkspace) {
+		return LazyWorkspaceSupport{}
+	}
+	if reg.LazyWorkspace == nil {
+		return LazyWorkspaceSupport{}
+	}
+	return reg.LazyWorkspace(ctx)
+}
+
 // Has reports whether an agent id is registered (regardless of readiness).
 func (r *Registry) Has(id string) bool {
 	if r == nil {
@@ -333,7 +352,6 @@ func (r *Registry) Has(id string) bool {
 	_, ok := r.byID[id]
 	return ok
 }
-
 
 // wrapRunner wraps an adapter with cwd validation if non-nil.
 func wrapRunner(r adapter.Adapter) adapter.Adapter {

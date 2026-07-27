@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -621,6 +622,15 @@ type prepareForkCall struct {
 	CP        workspace.Checkpoint
 }
 
+func (f *fakeWorkspaceRuntime) ResolveSource(ctx context.Context, cwd string) (workspace.SourceMetadata, error) {
+	return workspace.SourceMetadata{
+		Cwd:        cwd,
+		SourceRoot: cwd,
+		Scope:      ".",
+		HeadOID:    "deadbeef",
+	}, nil
+}
+
 func (f *fakeWorkspaceRuntime) Prepare(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error) {
 	f.mu.Lock()
 	f.prepares = append(f.prepares, prepareCall{TaskID: taskID, Cwd: cwd, Requested: requested})
@@ -631,11 +641,14 @@ func (f *fakeWorkspaceRuntime) Prepare(ctx context.Context, taskID, cwd string, 
 	if f.prepare != nil {
 		return f.prepare(ctx, taskID, cwd, requested)
 	}
+	root := filepath.Join(cwd, "wt-"+taskID)
+	cwdPath := filepath.Join(root, "sub")
+	_ = os.MkdirAll(cwdPath, 0o755)
 	return workspace.Metadata{
 		Mode:       workspace.ResolvedWorktree,
 		SourceRoot: cwd,
-		Root:       filepath.Join(cwd, "wt-"+taskID),
-		Cwd:        filepath.Join(cwd, "wt-"+taskID, "sub"),
+		Root:       root,
+		Cwd:        cwdPath,
 		Scope:      "sub",
 		BaseOID:    "deadbeef",
 		Branch:     "kin/task/" + strings.ToLower(taskID),
@@ -693,11 +706,13 @@ func (f *fakeWorkspaceRuntime) PrepareFork(ctx context.Context, newTaskID string
 		return f.prepareFork(ctx, newTaskID, source, cp)
 	}
 	root := filepath.Join(source.SourceRoot, "fork-"+newTaskID)
+	cwdPath := filepath.Join(root, source.Scope)
+	_ = os.MkdirAll(cwdPath, 0o755)
 	return workspace.Metadata{
 		Mode:       workspace.ResolvedWorktree,
 		SourceRoot: source.SourceRoot,
 		Root:       root,
-		Cwd:        filepath.Join(root, source.Scope),
+		Cwd:        cwdPath,
 		Scope:      source.Scope,
 		BaseOID:    source.BaseOID,
 		Branch:     "kin/task/" + strings.ToLower(newTaskID),
@@ -710,11 +725,14 @@ func (f *fakeWorkspaceRuntime) PrepareGeneration(ctx context.Context, taskID str
 	if f.failPrep != nil {
 		return workspace.Metadata{}, f.failPrep
 	}
+	root := filepath.Join(source.SourceRoot, taskID+"-g"+fmt.Sprint(generation))
+	cwdPath := filepath.Join(root, source.Scope)
+	_ = os.MkdirAll(cwdPath, 0o755)
 	return workspace.Metadata{
 		Mode:       workspace.ResolvedWorktree,
 		SourceRoot: source.SourceRoot,
-		Root:       filepath.Join(source.SourceRoot, taskID+"-g"+fmt.Sprint(generation)),
-		Cwd:        filepath.Join(source.SourceRoot, taskID+"-g"+fmt.Sprint(generation), source.Scope),
+		Root:       root,
+		Cwd:        cwdPath,
 		Scope:      source.Scope,
 		BaseOID:    source.HeadOID,
 		Branch:     "kin/task/" + strings.ToLower(taskID) + "/g" + fmt.Sprint(generation),
@@ -751,6 +769,14 @@ func (f *fakeWorkspaceRuntime) InspectFinalizable(ctx context.Context, meta work
 	}, nil
 }
 
+func (f *fakeWorkspaceRuntime) InspectIntegrationTarget(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error) {
+	return meta.BaseOID, nil
+}
+
+func (f *fakeWorkspaceRuntime) FastForward(ctx context.Context, meta workspace.Metadata, targetBranch, expectedSourceOID, finalHeadOID string) (string, error) {
+	return finalHeadOID, nil
+}
+
 func (f *fakeWorkspaceRuntime) FinalizeFastForward(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error) {
 	return meta.BaseOID, nil
 }
@@ -769,8 +795,9 @@ func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {
 	rt := &fakeWorkspaceRuntime{}
 	e.SetWorkspaceRuntime(rt)
 
+	cwd := t.TempDir()
 	task, err := e.Create(context.Background(), CreateRequest{
-		Agent: "claude-code", Cwd: "/proj", Prompt: "hi", WorkspaceMode: workspace.ModeWorktree,
+		Agent: "claude-code", Cwd: cwd, Prompt: "hi", WorkspaceMode: workspace.ModeWorktree,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -778,7 +805,7 @@ func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {
 	if len(rt.prepares) != 1 {
 		t.Fatalf("prepares=%d", len(rt.prepares))
 	}
-	if rt.prepares[0].Requested != workspace.ModeWorktree || rt.prepares[0].Cwd != "/proj" {
+	if rt.prepares[0].Requested != workspace.ModeWorktree || rt.prepares[0].Cwd != cwd {
 		t.Fatalf("%+v", rt.prepares[0])
 	}
 	if rt.prepares[0].TaskID != task.ID {
@@ -812,8 +839,9 @@ func TestCreateNilWorkspaceRuntimeShared(t *testing.T) {
 	ad := &fakeAdapter{events: successEvents()}
 	e, _ := testEngine(t, 4, ad)
 	// no SetWorkspaceRuntime
+	cwd := t.TempDir()
 	task, err := e.Create(context.Background(), CreateRequest{
-		Agent: "claude-code", Cwd: "/tmp/shared", Prompt: "hi",
+		Agent: "claude-code", Cwd: cwd, Prompt: "hi",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -821,14 +849,14 @@ func TestCreateNilWorkspaceRuntimeShared(t *testing.T) {
 	if task.WorkspaceMode != string(workspace.ResolvedShared) {
 		t.Fatalf("mode=%s", task.WorkspaceMode)
 	}
-	if task.EffectiveCwd() != "/tmp/shared" {
+	if task.EffectiveCwd() != cwd {
 		t.Fatalf("effective=%s", task.EffectiveCwd())
 	}
 	_ = waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
 	ad.mu.Lock()
 	spec := ad.lastSpec
 	ad.mu.Unlock()
-	if spec.Cwd != "/tmp/shared" {
+	if spec.Cwd != cwd {
 		t.Fatalf("adapter cwd=%q", spec.Cwd)
 	}
 }

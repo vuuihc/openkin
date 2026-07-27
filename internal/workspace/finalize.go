@@ -63,11 +63,9 @@ func (m *Manager) InspectFinalizable(ctx context.Context, meta Metadata) (Finali
 	}, nil
 }
 
-// FinalizeFastForward performs a fast-forward merge of the workspace branch
-// into the target branch, then removes the remote tracking reference.
-// Returns the resulting merge commit OID.
-// The source repository must not be dirty and the merge must be fast-forward.
-func (m *Manager) FinalizeFastForward(ctx context.Context, meta Metadata, targetBranch string) (string, error) {
+// InspectIntegrationTarget checks that the source repository is on the target
+// branch, is clean, and returns the current source HEAD as review_base_oid.
+func (m *Manager) InspectIntegrationTarget(ctx context.Context, meta Metadata, targetBranch string) (reviewBaseOID string, err error) {
 	if m == nil {
 		return "", fmt.Errorf("workspace manager is nil")
 	}
@@ -75,16 +73,7 @@ func (m *Manager) FinalizeFastForward(ctx context.Context, meta Metadata, target
 		return "", fmt.Errorf("git runner not available")
 	}
 
-	// Ensure empty hooks dir exists
 	hooksDir := m.emptyHooksDir()
-
-	// Get the workspace HEAD before merge
-	headOut, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
-		"-c", "core.hooksPath="+hooksDir, "rev-parse", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("get workspace HEAD: %w", err)
-	}
-	wsHead := strings.TrimSpace(string(headOut))
 
 	// Check source is clean
 	srcOut, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
@@ -96,36 +85,88 @@ func (m *Manager) FinalizeFastForward(ctx context.Context, meta Metadata, target
 		return "", fmt.Errorf("source repository is dirty")
 	}
 
-	// Verify fast-forward possibility
-	mergeBase, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
-		"-c", "core.hooksPath="+hooksDir, "merge-base", "--is-ancestor", wsHead, "HEAD")
+	// Check source is on the target branch
+	branchOut, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		// merge-base --is-ancestor exits with 1 if not ancestor
-		return "", fmt.Errorf("merge is not fast-forward: workspace HEAD is not ancestor of source HEAD")
+		return "", fmt.Errorf("get source branch: %w", err)
 	}
-	_ = mergeBase
-
-	// Fetch the workspace branch into the source
-	wsBranch := meta.Branch
-	if wsBranch == "" {
-		return "", fmt.Errorf("workspace branch is required")
+	currentBranch := strings.TrimSpace(string(branchOut))
+	if currentBranch != targetBranch {
+		return "", fmt.Errorf("source is on branch %q, expected %q", currentBranch, targetBranch)
 	}
 
-	// Use git fetch from the worktree to update the source
+	// Get source HEAD
+	headOut, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("get source HEAD: %w", err)
+	}
+
+	return strings.TrimSpace(string(headOut)), nil
+}
+
+// FastForward performs a fast-forward merge of the workspace into the source.
+// targetBranch: the source branch to merge into.
+// expectedSourceOID: the source HEAD expected before merge (review_base_oid).
+// finalHeadOID: the workspace HEAD to merge (must match current workspace tip).
+// Returns the resulting merge commit OID.
+func (m *Manager) FastForward(ctx context.Context, meta Metadata, targetBranch, expectedSourceOID, finalHeadOID string) (integratedOID string, err error) {
+	if m == nil {
+		return "", fmt.Errorf("workspace manager is nil")
+	}
+	if m.git == nil {
+		return "", fmt.Errorf("git runner not available")
+	}
+
+	hooksDir := m.emptyHooksDir()
+
+	// Verify workspace branch tip still equals finalHeadOID
+	wsHeadOut, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("get workspace HEAD: %w", err)
+	}
+	wsHead := strings.TrimSpace(string(wsHeadOut))
+	if wsHead != finalHeadOID {
+		return "", fmt.Errorf("workspace HEAD changed after snapshot: expected %s, got %s", finalHeadOID, wsHead)
+	}
+
+	// Check source is clean
+	srcOut, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "status", "--porcelain")
+	if err != nil {
+		return "", fmt.Errorf("check source status: %w", err)
+	}
+	if len(strings.TrimSpace(string(srcOut))) > 0 {
+		return "", fmt.Errorf("source repository is dirty")
+	}
+
+	// Verify source HEAD equals expectedSourceOID
+	srcHeadOut, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("get source HEAD: %w", err)
+	}
+	srcHead := strings.TrimSpace(string(srcHeadOut))
+	if srcHead != expectedSourceOID {
+		return "", fmt.Errorf("source HEAD changed: expected %s, got %s", expectedSourceOID, srcHead)
+	}
+
+	// Verify fast-forward possibility: source HEAD must be ancestor of workspace HEAD
 	_, err = m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
-		"-c", "core.hooksPath="+hooksDir, "fetch", "--no-tags", meta.Root,
-		wsBranch+":"+wsBranch)
+		"-c", "core.hooksPath="+hooksDir, "merge-base", "--is-ancestor", srcHead, finalHeadOID)
 	if err != nil {
-		return "", fmt.Errorf("fetch workspace branch: %w", err)
+		return "", fmt.Errorf("merge is not fast-forward: source HEAD is not ancestor of workspace HEAD")
 	}
 
-	// Fast-forward merge
-	out, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
-		"-c", "core.hooksPath="+hooksDir, "merge", "--ff-only", "--no-edit", wsBranch)
+	// Fast-forward merge using the exact OID.
+	// The OID is reachable from the shared object database (worktrees share objects).
+	_, err = m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "merge", "--ff-only", "--no-edit", finalHeadOID)
 	if err != nil {
 		return "", fmt.Errorf("fast-forward merge failed: %w", err)
 	}
-	_ = out
 
 	// Get the merge result OID
 	resultOut, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
@@ -136,28 +177,37 @@ func (m *Manager) FinalizeFastForward(ctx context.Context, meta Metadata, target
 	return strings.TrimSpace(string(resultOut)), nil
 }
 
+// FinalizeFastForward is a convenience wrapper that inspects the workspace
+// and performs a fast-forward merge. Kept for backward compatibility.
+func (m *Manager) FinalizeFastForward(ctx context.Context, meta Metadata, targetBranch string) (string, error) {
+	insp, err := m.InspectFinalizable(ctx, meta)
+	if err != nil {
+		return "", fmt.Errorf("inspect finalizable: %w", err)
+	}
+
+	reviewBase, err := m.InspectIntegrationTarget(ctx, meta, targetBranch)
+	if err != nil {
+		return "", fmt.Errorf("inspect integration target: %w", err)
+	}
+
+	return m.FastForward(ctx, meta, targetBranch, reviewBase, insp.HeadOID)
+}
+
 // RemoveWorktree removes the git worktree and its metadata.
-// Returns the path that was removed.
 func (m *Manager) RemoveWorktree(ctx context.Context, meta Metadata) error {
 	if m == nil {
 		return fmt.Errorf("workspace manager is nil")
 	}
-	// Remove the git worktree safely
 	hooksDir := m.emptyHooksDir()
 
-	// First try git worktree remove
 	_, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
 		"-c", "core.hooksPath="+hooksDir, "worktree", "remove", "--force", meta.Root)
 	if err != nil {
-		// If git worktree remove fails, try to remove the directory manually
 		_ = os.RemoveAll(meta.Root)
-
-		// Also prune stale worktree metadata
 		_, _ = m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
 			"-c", "core.hooksPath="+hooksDir, "worktree", "prune")
 	}
 
-	// Remove the branch reference
 	if meta.Branch != "" {
 		_, _ = m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
 			"-c", "core.hooksPath="+hooksDir, "branch", "-D", meta.Branch)
@@ -166,8 +216,7 @@ func (m *Manager) RemoveWorktree(ctx context.Context, meta Metadata) error {
 	return nil
 }
 
-// emptyHooksDir returns the path to the empty hooks directory,
-// creating it if necessary.
+// emptyHooksDir returns the path to the empty hooks directory.
 func (m *Manager) emptyHooksDir() string {
 	return filepath.Join(m.stateDir, "empty-hooks")
 }
@@ -182,7 +231,6 @@ func (m *Manager) EnsureEmptyHooks() error {
 }
 
 // Release removes the workspace worktree after finalization.
-// Returns the path that was cleaned up.
 func (m *Manager) Release(ctx context.Context, meta Metadata) error {
 	if m == nil {
 		return fmt.Errorf("workspace manager is nil")
@@ -191,7 +239,6 @@ func (m *Manager) Release(ctx context.Context, meta Metadata) error {
 		return fmt.Errorf("%w: cannot release shared workspace", ErrNotIsolated)
 	}
 
-	// Remove the worktree
 	if err := m.RemoveWorktree(ctx, meta); err != nil {
 		return fmt.Errorf("release workspace: %w", err)
 	}
@@ -205,7 +252,6 @@ func (m *Manager) ReleaseAndPrune(ctx context.Context, meta Metadata, taskID str
 		return err
 	}
 
-	// Clean up checkpoint objects
 	checkpointObjects := filepath.Join(m.stateDir, "checkpoints", taskID, "objects")
 	_ = os.RemoveAll(checkpointObjects)
 

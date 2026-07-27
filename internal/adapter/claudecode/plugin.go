@@ -42,9 +42,8 @@ func (f *PluginFactory) Descriptor() agent.Descriptor {
 			agent.CapabilityResume,
 			agent.CapabilityTools,
 			agent.CapabilityApprovals,
-			// Orchestrate is declared; controller enforces read-only flags.
-			// If installed CLI rejects control flags, callers should fall back.
 			agent.CapabilityOrchestrate,
+			agent.CapabilityLazyWorkspace,
 		},
 	}
 }
@@ -90,7 +89,42 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 			}
 			return agent.Status{Installed: true, Available: true, Binary: path}
 		},
+		LazyWorkspace: func(ctx context.Context) agent.LazyWorkspaceSupport {
+			return probeClaudeLazyWorkspace(ctx, bin, look)
+		},
 	}, nil
+}
+
+// probeClaudeLazyWorkspace checks whether the installed claude binary supports
+// --permission-mode plan and --allowedTools/--disallowedTools flags.
+func probeClaudeLazyWorkspace(ctx context.Context, bin string, look func(string) (string, error)) agent.LazyWorkspaceSupport {
+	path, err := look(bin)
+	if err != nil {
+		return agent.LazyWorkspaceSupport{
+			Supported: false,
+			Reason:    fmt.Sprintf("claude not found: %v", err),
+		}
+	}
+	// Probe: claude --help should mention --permission-mode
+	cmd := exec.CommandContext(ctx, path, "--help")
+	out, err := cmd.Output()
+	if err != nil {
+		return agent.LazyWorkspaceSupport{
+			Supported: false,
+			Reason:    fmt.Sprintf("claude --help failed: %v", err),
+		}
+	}
+	help := string(out)
+	if !strings.Contains(help, "--permission-mode") {
+		return agent.LazyWorkspaceSupport{
+			Supported: false,
+			Reason:    "claude does not support --permission-mode flag",
+		}
+	}
+	return agent.LazyWorkspaceSupport{
+		Supported: true,
+		Version:   "claude",
+	}
 }
 
 var _ adapter.Adapter = (*Adapter)(nil)

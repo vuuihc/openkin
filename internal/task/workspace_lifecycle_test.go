@@ -16,6 +16,8 @@ func TestEngineRequestWorkspace(t *testing.T) {
 	defer s.Close()
 	bus := NewBus()
 	eng := NewEngine(s, nil, bus, 1)
+	// Set up a fake workspace runtime so provisionWorkspace can create the worktree.
+	eng.SetWorkspaceRuntime(&fakeWorkspaceRuntime{})
 	ctx := context.Background()
 
 	task := store.Task{
@@ -40,7 +42,8 @@ func TestEngineRequestWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Request workspace promotion
+	// Request workspace promotion — should transition to ready (not active).
+	// startOne handles ready → active before the adapter starts.
 	req := WorkspaceIntentRequest{
 		TaskID:      task.ID,
 		ExecutionID: "exec-1",
@@ -50,8 +53,8 @@ func TestEngineRequestWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request workspace: %v", err)
 	}
-	if updated.State != store.WorkspaceActive {
-		t.Fatalf("state=%q want active", updated.State)
+	if updated.State != store.WorkspaceReady {
+		t.Fatalf("state=%q want ready", updated.State)
 	}
 }
 

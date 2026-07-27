@@ -19,11 +19,11 @@ const (
 
 // ReconcileReport summarizes reconciliation results.
 type ReconcileReport struct {
-	Outcome  ReconcileOutcome
-	State    string
-	TaskID   string
-	WSID     string
-	Message  string
+	Outcome ReconcileOutcome
+	State   string
+	TaskID  string
+	WSID    string
+	Message string
 }
 
 // ReconcileWorkspace checks a workspace generation's physical state and

@@ -19,7 +19,8 @@ const (
 	CapabilityResume      Capability = "resume"
 	CapabilityTools       Capability = "tools"
 	CapabilityApprovals   Capability = "approvals"
-	CapabilityOrchestrate Capability = "orchestrate"
+	CapabilityOrchestrate   Capability = "orchestrate"
+	CapabilityLazyWorkspace Capability = "lazy_workspace"
 )
 
 // Kind classifies how the agent is implemented.
@@ -102,13 +103,21 @@ type SessionHooks interface {
 	Reset(ctx context.Context, taskID string) error
 }
 
+// LazyWorkspaceSupport is the runtime probe result for lazy workspace capability.
+type LazyWorkspaceSupport struct {
+	Supported bool   `json:"supported"`
+	Version   string `json:"version,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 // Registration is one opened plugin instance.
 type Registration struct {
-	Descriptor Descriptor
-	Runner     adapter.Adapter
-	Controller Controller
-	Sessions   SessionHooks
-	Status     func(context.Context) Status
+	Descriptor    Descriptor
+	Runner        adapter.Adapter
+	Controller    Controller
+	Sessions      SessionHooks
+	Status        func(context.Context) Status
+	LazyWorkspace func(context.Context) LazyWorkspaceSupport
 }
 
 // Factory constructs a Registration for a built-in agent plugin.

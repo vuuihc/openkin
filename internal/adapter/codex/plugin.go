@@ -44,6 +44,7 @@ func (f *PluginFactory) Descriptor() agent.Descriptor {
 			agent.CapabilityResume,
 			agent.CapabilityTools,
 			agent.CapabilityOrchestrate,
+			agent.CapabilityLazyWorkspace,
 		},
 	}
 }
@@ -83,7 +84,42 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 			}
 			return agent.Status{Installed: true, Available: true, Binary: path}
 		},
+		LazyWorkspace: func(ctx context.Context) agent.LazyWorkspaceSupport {
+			return probeCodexLazyWorkspace(ctx, bin, look)
+		},
 	}, nil
+}
+
+// probeCodexLazyWorkspace checks whether the installed codex binary supports
+// --sandbox read-only and -c features.hooks=false flags.
+func probeCodexLazyWorkspace(ctx context.Context, bin string, look func(string) (string, error)) agent.LazyWorkspaceSupport {
+	path, err := look(bin)
+	if err != nil {
+		return agent.LazyWorkspaceSupport{
+			Supported: false,
+			Reason:    fmt.Sprintf("codex not found: %v", err),
+		}
+	}
+	// Probe: codex --help should mention --sandbox
+	cmd := exec.CommandContext(ctx, path, "--help")
+	out, err := cmd.Output()
+	if err != nil {
+		return agent.LazyWorkspaceSupport{
+			Supported: false,
+			Reason:    fmt.Sprintf("codex --help failed: %v", err),
+		}
+	}
+	help := string(out)
+	if !strings.Contains(help, "--sandbox") {
+		return agent.LazyWorkspaceSupport{
+			Supported: false,
+			Reason:    "codex does not support --sandbox flag",
+		}
+	}
+	return agent.LazyWorkspaceSupport{
+		Supported: true,
+		Version:   "codex",
+	}
 }
 
 var _ adapter.Adapter = (*Adapter)(nil)

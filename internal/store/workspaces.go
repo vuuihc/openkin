@@ -310,7 +310,7 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO events (task_id, seq, ts, type, payload)
 		VALUES (?, ?, ?, ?, ?)
-	`, taskID, nextSeq, now, "user_event", payload)
+	`, taskID, nextSeq, now, "message", payload)
 	if err != nil {
 		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("insert event: %w", err)
 	}
@@ -340,7 +340,7 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 	return Event{
 		TaskID: taskID,
 		Seq:    nextSeq,
-		Type:   "user_event",
+		Type:   "message",
 		TS:     now,
 		Payload: payload,
 	}, turn, nil

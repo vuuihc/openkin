@@ -279,6 +279,7 @@ func (e *Engine) SetNotifier(n Notifier) { e.notify = n }
 // WorkspaceRuntime prepares isolated task workspaces and (later) checkpoints.
 // Optional: nil preserves shared cwd behavior for tests and headless paths.
 type WorkspaceRuntime interface {
+	ResolveSource(ctx context.Context, cwd string) (workspace.SourceMetadata, error)
 	Prepare(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
 	PrepareGeneration(ctx context.Context, taskID string, generation int, source workspace.SourceMetadata) (workspace.Metadata, error)
 	InspectGeneration(ctx context.Context, meta workspace.Metadata) (workspace.Inspection, error)
@@ -288,6 +289,8 @@ type WorkspaceRuntime interface {
 	Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
 	InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error)
+	InspectIntegrationTarget(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
+	FastForward(ctx context.Context, meta workspace.Metadata, targetBranch, expectedSourceOID, finalHeadOID string) (string, error)
 	FinalizeFastForward(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
 	Release(ctx context.Context, meta workspace.Metadata) error
 	ReleaseAndPrune(ctx context.Context, meta workspace.Metadata, taskID string) error
@@ -461,9 +464,51 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		RoutineID:      strings.TrimSpace(req.RoutineID),
 	}
 
-	meta, err := e.prepareWorkspace(ctx, id, req.Cwd, req.WorkspaceMode)
-	if err != nil {
-		return store.Task{}, err
+	// Resolve workspace mode and policy.
+	workspaceMode := req.WorkspaceMode
+	if workspaceMode == "" {
+		workspaceMode = workspace.ModeAuto
+	}
+
+	// Check if agent supports lazy workspace promotion.
+	lazySupport := e.agents.LazyWorkspaceSupport(ctx, req.Agent)
+	useLazy := workspaceMode == workspace.ModeAuto && lazySupport.Supported && e.workspace != nil
+
+	var meta workspace.Metadata
+	var turnAccess string
+
+	if useLazy {
+		// Lazy: resolve source metadata, no worktree, source_read_only turn.
+		src, err := e.workspace.ResolveSource(ctx, req.Cwd)
+		if err != nil {
+			return store.Task{}, fmt.Errorf("resolve source: %w", err)
+		}
+		meta = workspace.Metadata{
+			Mode:       workspace.ResolvedWorktree,
+			SourceRoot: src.SourceRoot,
+			Root:       src.SourceRoot,
+			Cwd:        src.Cwd,
+			Scope:      src.Scope,
+			BaseOID:    src.HeadOID,
+			Branch:     src.TargetBranch,
+		}
+		t.WorkspacePolicy = string(store.WorkspacePolicyAuto)
+		turnAccess = string(adapter.AccessSourceReadOnly)
+	} else if workspaceMode == workspace.ModeShared {
+		meta, err = e.prepareWorkspace(ctx, id, req.Cwd, workspaceMode)
+		if err != nil {
+			return store.Task{}, err
+		}
+		t.WorkspacePolicy = string(store.WorkspacePolicyShared)
+		turnAccess = string(adapter.AccessShared)
+	} else {
+		// Eager worktree (auto non-lazy or explicit worktree).
+		meta, err = e.prepareWorkspace(ctx, id, req.Cwd, workspaceMode)
+		if err != nil {
+			return store.Task{}, err
+		}
+		t.WorkspacePolicy = string(store.WorkspacePolicyWorktree)
+		turnAccess = string(adapter.AccessPendingIsolation)
 	}
 	applyWorkspaceMetadata(&t, meta)
 
@@ -490,7 +535,12 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		"speaker": "user",
 		"source":  "create",
 	})
-	ev, err := e.appendEventLocked(ctx, id, "message", userPayload)
+	// Append user event with turn workspace binding.
+	turn := store.TaskTurnWorkspace{
+		TaskID: id,
+		Access: turnAccess,
+	}
+	ev, _, err := e.store.AppendUserEventWithTurnWorkspace(ctx, id, userPayload, turn)
 	if err != nil {
 		failed := StatusFailed
 		_ = e.store.UpdateTask(ctx, id, store.TaskPatch{Status: &failed})
@@ -602,6 +652,49 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 		}
 	}
 
+	// Workspace-aware cancel: handle provisioning and finalizing states.
+	if e.workspace != nil {
+		ws, wsErr := e.store.GetCurrentWorkspace(ctx, id)
+		if wsErr == nil {
+			switch ws.State {
+			case store.WorkspaceProvisioning:
+				// Cancel provisioning, clean up partial worktree, mark orphaned.
+				reason := "canceled during provisioning"
+				transition := store.WorkspaceTransition{
+					WorkspaceID: ws.ID,
+					TaskID:      id,
+					FromStates:  []store.WorkspaceState{store.WorkspaceProvisioning},
+					ToState:     store.WorkspaceOrphaned,
+					Patch: store.WorkspacePatch{
+						FailureReason: &reason,
+					},
+				}
+				if _, _, err := e.store.ApplyWorkspaceTransition(ctx, transition); err == nil {
+					// Clean up partial worktree if it exists
+					meta := workspaceMetadata(t)
+					if meta.Root != "" {
+						_ = e.workspace.Release(ctx, meta)
+					}
+				}
+
+			case store.WorkspaceFinalizing:
+				// Transition to finalize_blocked, clear completed_execution_id, retain worktree.
+				reason := "canceled during finalization"
+				transition := store.WorkspaceTransition{
+					WorkspaceID: ws.ID,
+					TaskID:      id,
+					FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+					ToState:     store.WorkspaceFinalizeBlocked,
+					Patch: store.WorkspacePatch{
+						FailureReason:        &reason,
+						CompletedExecutionID: strPtr(""),
+					},
+				}
+				_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+			}
+		}
+	}
+
 	e.mu.Lock()
 	// Remove from queue if present.
 	for i, qid := range e.queue {
@@ -624,9 +717,6 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 		for _, gh := range group {
 			_ = gh.Cancel()
 		}
-		// Status becomes canceled when the run loop observes channel close,
-		// or immediately if we prefer snappy UI — do both: mark canceled now
-		// and let run loop no-op if already terminal.
 		now := e.nowMilli()
 		status := StatusCanceled
 		if err := e.store.UpdateTask(ctx, id, store.TaskPatch{
@@ -648,7 +738,7 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 }
 
 // Delete permanently removes a task and its history after canceling any
-// in-flight work. Isolated worktrees are cleaned up when possible.
+// in-flight work. Workspace generations are cleaned up before metadata cascade.
 func (e *Engine) Delete(ctx context.Context, id string) error {
 	e.cancelLimitWait(id)
 	t, err := e.store.GetTask(ctx, id)
@@ -662,7 +752,6 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 		// already terminal
 	default:
 		if _, err := e.Cancel(ctx, id); err != nil {
-			// Race: became terminal between Get and Cancel.
 			if !errors.Is(err, ErrTerminal) && !strings.Contains(err.Error(), "already terminal") {
 				return err
 			}
@@ -685,16 +774,36 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 
 	e.resetAgentSession(ctx, t.Agent, id)
 
-	meta := workspace.Metadata{
-		Mode:       workspace.ResolvedMode(t.WorkspaceMode),
-		SourceRoot: t.WorkspaceSourceRoot,
-		Root:       t.WorkspaceRoot,
-		Cwd:        t.ExecutionCwd,
-		Scope:      t.WorkspaceScope,
-		BaseOID:    t.WorkspaceBaseOID,
-		Branch:     t.WorkspaceBranch,
+	// Clean up workspace generations before deleting metadata.
+	if e.workspace != nil {
+		generations, listErr := e.store.ListTaskWorkspaces(ctx, id)
+		if listErr == nil {
+			for _, ws := range generations {
+				meta := workspaceMetadata(t)
+				switch ws.State {
+				case store.WorkspaceIntegrated:
+					// Release integrated generations
+					_ = e.workspace.Release(ctx, meta)
+				case store.WorkspaceProvisioning, store.WorkspaceReady, store.WorkspaceActive,
+					store.WorkspaceFinalizing, store.WorkspaceMergeBlocked, store.WorkspaceFinalizeBlocked:
+					// Force-discard unintegrated Kin-contained generations
+					_ = e.workspace.Release(ctx, meta)
+				}
+			}
+		}
+	} else {
+		// Fallback: legacy cleanup
+		meta := workspace.Metadata{
+			Mode:       workspace.ResolvedMode(t.WorkspaceMode),
+			SourceRoot: t.WorkspaceSourceRoot,
+			Root:       t.WorkspaceRoot,
+			Cwd:        t.ExecutionCwd,
+			Scope:      t.WorkspaceScope,
+			BaseOID:    t.WorkspaceBaseOID,
+			Branch:     t.WorkspaceBranch,
+		}
+		e.cleanupPreparedWorkspace(id, meta)
 	}
-	e.cleanupPreparedWorkspace(id, meta)
 
 	if err := e.store.DeleteTask(ctx, id); err != nil {
 		return err
@@ -853,6 +962,51 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 	execRef.ID = eid
+	// Build RunMeta from current workspace state.
+	runMeta := adapter.RunMetadata{}
+	if t.CurrentWorkspaceID != "" {
+		ws, wsErr := e.store.GetCurrentWorkspace(ctx, t.ID)
+		if wsErr == nil {
+			switch ws.State {
+			case store.WorkspaceReady:
+				// Promote ready → active before starting.
+				transition := store.WorkspaceTransition{
+					WorkspaceID: ws.ID,
+					TaskID:      t.ID,
+					FromStates:  []store.WorkspaceState{store.WorkspaceReady},
+					ToState:     store.WorkspaceActive,
+				}
+				if _, _, actErr := e.store.ApplyWorkspaceTransition(ctx, transition); actErr == nil {
+					runMeta.WorkspaceID = ws.ID
+					runMeta.WorkspaceAccess = adapter.AccessWritable
+					runMeta.Generation = ws.Generation
+				} else {
+					// Log but continue — the turn will run read-only.
+					payload, _ := json.Marshal(map[string]string{"message": "failed to activate ready workspace: " + actErr.Error()})
+					if w := e.eventWriter(); w != nil {
+						_, _ = w.AppendEvent(ctx, id, "error", payload)
+					}
+				}
+			case store.WorkspaceActive:
+				runMeta.WorkspaceID = ws.ID
+				runMeta.WorkspaceAccess = adapter.AccessWritable
+				runMeta.Generation = ws.Generation
+			default:
+				// Other states (provisioning, finalizing, etc.) — leave as zero value.
+			}
+		}
+	}
+	if runMeta.WorkspaceAccess == "" {
+		// Determine access from task policy.
+		if t.WorkspacePolicy == string(store.WorkspacePolicyAuto) {
+			runMeta.WorkspaceAccess = adapter.AccessSourceReadOnly
+		} else if t.WorkspacePolicy == string(store.WorkspacePolicyShared) {
+			runMeta.WorkspaceAccess = adapter.AccessShared
+		} else {
+			runMeta.WorkspaceAccess = adapter.AccessWritable
+		}
+	}
+
 	spec := adapter.TaskSpec{
 		ID:    t.ID,
 		Agent: t.Agent,
@@ -864,6 +1018,7 @@ func (e *Engine) startOne(id string) {
 		SessionRef:     sessionRef,
 		PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 		Execution:      execRef,
+		RunMeta:        runMeta,
 	}
 
 	// Preflight: if subscription window is already exhausted, fail with limit_hit
@@ -908,7 +1063,7 @@ func (e *Engine) startOne(id string) {
 		e.mu.Unlock()
 	}
 
-	e.runLoop(id, h, t.Agent, model, execRef)
+	e.runLoop(id, h, t.Agent, model, execRef, runMeta)
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
@@ -937,7 +1092,7 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 	return t, err
 }
 
-func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, exec adapter.ExecutionRef) {
+func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, exec adapter.ExecutionRef, runMeta adapter.RunMetadata) {
 	ctx := context.Background()
 	var sawResult bool
 	var sawUsage bool
@@ -1079,6 +1234,23 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		return
 	}
 
+	// Lazy promotion: if a read-only turn created a ready workspace, re-queue
+	// without adding a duplicate user event so the next run starts writable.
+	if runMeta.WorkspaceAccess == adapter.AccessSourceReadOnly && !wasCanceled && !hasFollowUp {
+		ws, wsErr := e.store.GetCurrentWorkspace(ctx, id)
+		if wsErr == nil && ws.State == store.WorkspaceReady {
+			// Re-queue: set status back to queued so pump picks it up.
+			status := StatusQueued
+			patch := store.TaskPatch{Status: &status, ClearExitCode: true, ClearFinishedAt: true}
+			_ = e.store.UpdateTask(ctx, id, patch)
+			e.mu.Lock()
+			e.queue = append(e.queue, id)
+			e.mu.Unlock()
+			e.pump()
+			return
+		}
+	}
+
 	// Re-read status: Cancel may have already set canceled.
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
@@ -1137,6 +1309,31 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		e.scanAndEmitLimitHit(ctx, id, agentID)
 	}
 	e.clearPersistTracking(id)
+
+	// Workspace finalization: if the workspace is in finalizing state,
+	// run the full finalization pipeline before finishing the task.
+	if e.workspace != nil {
+		ws, wsErr := e.store.GetCurrentWorkspace(ctx, id)
+		if wsErr == nil && ws.State == store.WorkspaceFinalizing {
+			finalStatus, finalizeErr := e.finalizeWorkspace(ctx, id)
+			if finalizeErr != nil {
+				// Finalization failed but workspace retained for retry.
+				// The task fails but the workspace is in merge_blocked or finalize_blocked.
+				payload, _ := json.Marshal(map[string]string{
+					"message": "workspace finalization failed: " + finalizeErr.Error(),
+				})
+				if w := e.eventWriter(); w != nil {
+					if ev, err := w.AppendEvent(ctx, id, "error", payload); err == nil {
+						e.bus.PublishEvent(ev)
+					}
+				}
+				final = StatusFailed
+			} else {
+				final = finalStatus
+			}
+		}
+	}
+
 	_, _ = e.finish(ctx, id, final, exitCode, nil)
 	// After failed finish, apply default wait/switch policy on the open limit card.
 	if final == StatusFailed {

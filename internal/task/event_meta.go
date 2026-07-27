@@ -55,6 +55,7 @@ type EventAttribution struct {
 	Role       string
 	Visibility *Visibility
 	Execution  adapter.ExecutionRef
+	RunMeta    adapter.RunMetadata
 }
 
 // ApplyAttribution merges attribution into a payload map.
@@ -98,6 +99,19 @@ func ApplyAttribution(m map[string]any, attr EventAttribution) {
 		}
 	}
 	applyExecutionMeta(m, attr.Execution)
+	applyWorkspaceMeta(m, attr.RunMeta)
+}
+
+func applyWorkspaceMeta(m map[string]any, meta adapter.RunMetadata) {
+	if meta.WorkspaceID != "" {
+		m["workspace_id"] = meta.WorkspaceID
+	}
+	if meta.WorkspaceAccess != "" {
+		m["workspace_access"] = string(meta.WorkspaceAccess)
+	}
+	if meta.Generation > 0 {
+		m["workspace_generation"] = meta.Generation
+	}
 }
 
 // MarshalMessage builds a non-partial canonical message payload.
