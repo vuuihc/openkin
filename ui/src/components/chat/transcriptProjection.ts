@@ -42,15 +42,15 @@ export type ProgressItem = {
 
 export type ChatItem =
   | {
-      kind: "message";
-      key: string;
-      speaker: string;
-      model?: string;
-      text: string;
-      partial?: boolean;
-      /** Source event seq (for retry/fork). */
-      seq?: number;
-    }
+    kind: "message";
+    key: string;
+    speaker: string;
+    model?: string;
+    text: string;
+    partial?: boolean;
+    /** Source event seq (for retry/fork). */
+    seq?: number;
+  }
   | ProgressItem
   | { kind: "error"; key: string; message: string }
   | { kind: "meta"; key: string; label: string };
@@ -59,16 +59,16 @@ export type ChatItem =
 export type Turn =
   | { kind: "user"; item: Extract<ChatItem, { kind: "message" }> }
   | {
-      kind: "agent";
-      /** Host speaker for the shared left avatar. */
-      speaker: string;
-      model?: string;
-      items: ChatItem[];
-    }
+    kind: "agent";
+    /** Host speaker for the shared left avatar. */
+    speaker: string;
+    model?: string;
+    items: ChatItem[];
+  }
   | {
-      kind: "standalone";
-      item: Extract<ChatItem, { kind: "error" | "meta" }>;
-    };
+    kind: "standalone";
+    item: Extract<ChatItem, { kind: "error" | "meta" }>;
+  };
 
 /**
  * Project raw task events into the chat transcript model used by ChatStream.
@@ -337,10 +337,10 @@ export function buildChatItems(
         const content = p.content as Record<string, unknown> | undefined;
         const name = String(
           content?.name ??
-            p.name ??
-            p.tool_name ??
-            (p.item as { type?: string } | undefined)?.type ??
-            "tool",
+          p.name ??
+          p.tool_name ??
+          (p.item as { type?: string } | undefined)?.type ??
+          "tool",
         );
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
         const summary =
@@ -463,7 +463,7 @@ export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
       const anchor = buffer[0];
       merged.push({
         kind: "progress",
-        key: \`merge-\${anchor.key}\`,
+        key: `merge-${anchor.key}`,
         speaker: anchor.speaker,
         model: anchor.model,
         steps,
@@ -496,7 +496,7 @@ export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
       if (toolBuf.length === 0) return;
       out.push({
         kind: "progress",
-        key: \`toolgrp-\${toolBuf[0].key}\`,
+        key: `toolgrp-${toolBuf[0].key}`,
         speaker,
         model,
         steps: toolBuf,

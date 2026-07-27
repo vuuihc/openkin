@@ -105,7 +105,7 @@ export default function Sidebar({
   // prefsTick invalidates after localStorage updates (sort / pin / archive / interact).
   const groups = useMemo(() => groupByProject(tasks), [tasks, prefsTick]);
   const archivedGroups = useMemo(
-    () => groupByProject(tasks, { onlyArchived: true }),
+    () => groupByProject(tasks, null, false, true),
     [tasks, prefsTick],
   );
   const [sortMenuOpen, setSortMenuOpen] = useState(false);

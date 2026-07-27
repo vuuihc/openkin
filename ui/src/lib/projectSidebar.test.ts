@@ -19,9 +19,12 @@ describe("taskActivityAt", () => {
     expect(
       taskActivityAt(
         task({ id: "a", cwd: "/p", created_at: 10, started_at: 20, finished_at: 15 }),
+        {},
       ),
     ).toBe(20);
-    expect(taskActivityAt(task({ id: "b", cwd: "/p", created_at: 5 }))).toBe(5);
+    expect(
+      taskActivityAt(task({ id: "b", cwd: "/p", created_at: 5 }), {}),
+    ).toBe(5);
   });
 });
 

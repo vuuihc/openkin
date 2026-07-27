@@ -9,7 +9,7 @@ import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
-import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
+import { agentAvatarMeta } from "../../lib/agentMention";
 import { useAppStore } from "../../store/appStore";
 import { IconCopy, IconDownload, IconShare } from "../icons";
 import Markdown from "../Markdown";
@@ -26,7 +26,6 @@ import {
   normalizeModel,
   prettyToolName,
   type ChatItem,
-  type NoteStep,
   type ProgressItem,
   type ToolStep,
 } from "./transcriptProjection";
@@ -601,7 +600,11 @@ function ProgressCard({
   onOpenPath?: (path: string) => void;
 }) {
   const tr = useT();
-  const steps = item.steps;
+  // After mergeProcessRuns, progress items only contain tool steps; filter
+  // defensively so the type narrows to ToolStep for ToolStepRow.
+  const steps = item.steps.filter(
+    (s): s is ToolStep => s.kind === "tool",
+  );
   const count = steps.length;
   const [collapsed, setCollapsed] = useState(false);
   const [openStep, setOpenStep] = useState<string | null>(null);
@@ -662,15 +665,8 @@ function ProgressCard({
         <span className="break-words text-kin-text flex-1 min-w-0 font-medium">
           {summary}
         </span>
-        <span className="flex-none text-[11px] text-kin-muted">
-          {collapsed ? tr("chat.progress.expand") : tr("chat.progress.hide")}
-        </span>
       </button>
-      {collapsed ? (
-        <div className="border-t border-[var(--kin-hairline)] px-3 py-2 text-[11.5px] text-kin-muted italic">
-          // {tr("chat.progress.collapsed", { count })}
-        </div>
-      ) : (
+      {!collapsed && (
         <div className="border-t border-[var(--kin-hairline)] bg-[var(--kin-elevated)]/30 divide-y divide-[var(--kin-hairline)]">
           {steps.map((step, idx) => (
             <ToolStepRow
@@ -686,55 +682,6 @@ function ProgressCard({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function NoteStepRow({
-  note,
-  index,
-  hostSpeaker,
-}: {
-  note: NoteStep;
-  index: number;
-  hostSpeaker: string;
-}) {
-  const tr = useT();
-  const noteText = note.text ?? "";
-  const noteSpeaker = agentDisplayName(note.speaker);
-  const showSpeaker = noteSpeaker !== agentDisplayName(hostSpeaker);
-
-  const statusDot =
-    note.status === "error"
-      ? "bg-zinc-500"
-      : note.status === "running"
-        ? "bg-kin-blue animate-breathe"
-        : "bg-kin-green";
-
-  const statusText =
-    note.status === "error"
-      ? tr("chat.progress.failed")
-      : note.status === "running"
-        ? tr("chat.progress.running")
-        : tr("chat.progress.done");
-
-  return (
-    <div className="flex items-start gap-2 px-3 py-2 text-[12.5px]">
-      <span className="flex-none w-5 text-[10.5px] tabular-nums text-kin-muted pt-0.5">
-        {index}
-      </span>
-      <span
-        className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
-        title={statusText}
-      />
-      {showSpeaker && (
-        <span className="flex-none pt-px text-[11px] font-medium text-kin-muted">
-          {noteSpeaker}
-        </span>
-      )}
-      <div className="min-w-0 flex-1 text-kin-secondary leading-relaxed">
-        <Markdown text={noteText} />
-      </div>
     </div>
   );
 }
