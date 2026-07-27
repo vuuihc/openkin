@@ -125,6 +125,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [filesOpen, setFilesOpen] = useState(false);
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   /** Hide scroller until first position is applied — avoids top→bottom flash. */
   const [scrollReady, setScrollReady] = useState(false);
@@ -207,6 +208,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setFilesOpen(false);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
+    setSelectedWorkspaceId(null);
     stickToBottomRef.current = true;
     void load();
     void loadUsage();
@@ -771,6 +773,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
   function onOpenWorkspacePath(filePath: string) {
     if (!task) return;
+    // If the path is already a canonical repo-relative path, use it directly.
+    // Otherwise resolve against the task's cwd as legacy fallback.
     const next = toWorkspaceRelativePath(task.cwd, filePath);
     if (!next) {
       pushToast(tr("workspace.outsideWorkspace"), "error");
@@ -1153,6 +1157,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               openNonce={workspaceOpenNonce}
               events={events}
               changedFiles={changedFiles}
+              selectedWorkspaceId={selectedWorkspaceId}
+              onSelectWorkspace={setSelectedWorkspaceId}
               reviewActions={terminal}
               onDiscardAll={onDiscardAllChanges}
               actionsBusy={reviewBusy}

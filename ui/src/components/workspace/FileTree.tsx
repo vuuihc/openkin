@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ApiError, listTaskWorkspace, type TaskWorkspaceEntry } from "../../api/client";
+import {
+  ApiError,
+  listTaskWorkspace,
+  listWorkspaceTree,
+  type TaskWorkspaceEntry,
+  type WorkspaceTreeEntry,
+} from "../../api/client";
 import { t } from "../../i18n";
 import { useT } from "../../i18n/react";
 import { normalizeRelativePath } from "../../lib/paths";
@@ -12,6 +18,8 @@ type Props = {
   /** Bumps each time the user re-opens a path, forcing re-expansion. */
   openNonce?: number;
   onSelect: (path: string) => void;
+  /** When set, use generation-aware tree API instead of legacy workspace. */
+  workspaceId?: string | null;
 };
 
 type DirState = {
@@ -24,7 +32,7 @@ type DirState = {
 
 const ROOT = ".";
 
-export default function FileTree({ taskId, selectedPath, openPath, openNonce, onSelect }: Props) {
+export default function FileTree({ taskId, selectedPath, openPath, openNonce, onSelect, workspaceId }: Props) {
   useT();
   const [dirs, setDirs] = useState<Record<string, DirState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [ROOT]: true });
@@ -44,17 +52,41 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
       },
     }));
     try {
-      const res = await listTaskWorkspace(taskId, dirPath === ROOT ? undefined : dirPath);
-      setDirs((prev) => ({
-        ...prev,
-        [dirPath]: {
-          entries: res.entries,
-          loading: false,
-          loaded: true,
-          error: null,
-          truncated: Boolean(res.truncated),
-        },
-      }));
+      if (workspaceId) {
+        const res = await listWorkspaceTree(
+          taskId,
+          workspaceId,
+          dirPath === ROOT ? undefined : dirPath,
+        );
+        const entries: TaskWorkspaceEntry[] = res.entries.map((e: WorkspaceTreeEntry) => ({
+          name: e.name,
+          path: dirPath === ROOT ? e.name : `${dirPath}/${e.name}`,
+          type: e.type === "tree" ? "dir" : "file",
+          size: e.size,
+        }));
+        setDirs((prev) => ({
+          ...prev,
+          [dirPath]: {
+            entries,
+            loading: false,
+            loaded: true,
+            error: null,
+            truncated: false,
+          },
+        }));
+      } else {
+        const res = await listTaskWorkspace(taskId, dirPath === ROOT ? undefined : dirPath);
+        setDirs((prev) => ({
+          ...prev,
+          [dirPath]: {
+            entries: res.entries,
+            loading: false,
+            loaded: true,
+            error: null,
+            truncated: Boolean(res.truncated),
+          },
+        }));
+      }
     } catch (error) {
       setDirs((prev) => ({
         ...prev,
@@ -69,7 +101,7 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
     } finally {
       loadingRef.current.delete(dirPath);
     }
-  }, [taskId]);
+  }, [taskId, workspaceId]);
 
   useEffect(() => {
     loadingRef.current.clear();

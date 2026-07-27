@@ -325,6 +325,137 @@ export type TaskWorkspaceFileResponse = {
   content: string;
 };
 
+// ---- Workspace generations (ADR 0014) ----
+
+export type WorkspaceGeneration = {
+  id: string;
+  task_id: string;
+  generation: number;
+  state: string;
+  source_root: string;
+  scope: string;
+  target_branch?: string;
+  base_oid?: string;
+  review_base_oid?: string;
+  final_head_oid?: string;
+  final_tree_oid?: string;
+  integrated_oid?: string;
+  failure_reason?: string;
+  created_at: number;
+  updated_at: number;
+  integrated_at?: number | null;
+  released_at?: number | null;
+};
+
+export type WorkspaceTreeEntry = {
+  name: string;
+  type: "blob" | "tree";
+  size?: number;
+};
+
+export type WorkspaceTreeResponse = {
+  workspace_id?: string | null;
+  generation?: number | null;
+  view: "live" | "snapshot" | "source" | "base" | "final";
+  path: string;
+  entries: WorkspaceTreeEntry[];
+};
+
+export type WorkspaceFileResponse = {
+  workspace_id?: string | null;
+  generation?: number | null;
+  view: string;
+  path: string;
+  size: number;
+  truncated?: boolean;
+  content: string;
+};
+
+export type WorkspaceChange = {
+  path: string;
+  old_path?: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "binary";
+  additions?: number;
+  deletions?: number;
+  binary?: boolean;
+};
+
+export type WorkspaceDiffResponse = {
+  workspace_id?: string | null;
+  generation?: number | null;
+  view: string;
+  changes: WorkspaceChange[];
+};
+
+export function listTaskWorkspaces(
+  taskId: string,
+): Promise<WorkspaceGeneration[]> {
+  return apiFetch<WorkspaceGeneration[]>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspaces`,
+  );
+}
+
+export function listWorkspaceTree(
+  taskId: string,
+  workspaceId: string,
+  path?: string,
+  side?: string,
+): Promise<WorkspaceTreeResponse> {
+  const q = new URLSearchParams();
+  if (path && path !== ".") q.set("path", path);
+  if (side) q.set("side", side);
+  const qs = q.toString();
+  return apiFetch<WorkspaceTreeResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspaces/${encodeURIComponent(workspaceId)}/tree${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function readWorkspaceFile(
+  taskId: string,
+  workspaceId: string,
+  path: string,
+  side?: string,
+): Promise<WorkspaceFileResponse> {
+  const q = new URLSearchParams({ path });
+  if (side) q.set("side", side);
+  return apiFetch<WorkspaceFileResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${q.toString()}`,
+  );
+}
+
+export function getWorkspaceDiff(
+  taskId: string,
+  workspaceId: string,
+): Promise<WorkspaceDiffResponse> {
+  return apiFetch<WorkspaceDiffResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspaces/${encodeURIComponent(workspaceId)}/diff`,
+  );
+}
+
+export function listTaskSourceTree(
+  taskId: string,
+  path?: string,
+): Promise<WorkspaceTreeResponse> {
+  const q = new URLSearchParams();
+  if (path && path !== ".") q.set("path", path);
+  const qs = q.toString();
+  return apiFetch<WorkspaceTreeResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/source/tree${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function readTaskSourceFile(
+  taskId: string,
+  path: string,
+): Promise<WorkspaceFileResponse> {
+  const q = new URLSearchParams({ path });
+  return apiFetch<WorkspaceFileResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/source/file?${q.toString()}`,
+  );
+}
+
+// ---- Legacy workspace routes (delegate to current generation) ----
+
 export function listTaskWorkspace(
   taskId: string,
   path?: string,

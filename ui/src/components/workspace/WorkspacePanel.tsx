@@ -9,17 +9,22 @@ import {
 import {
   ApiError,
   readTaskWorkspaceFile,
+  readWorkspaceFile,
+  getWorkspaceDiff,
   type TaskEvent,
   type TaskWorkspaceFileResponse,
+  type WorkspaceFileResponse,
 } from "../../api/client";
 import { t } from "../../i18n";
 import { useT } from "../../i18n/react";
 import {
+  changedFilesFromDiff,
   extractChangedFiles,
   extractFileDiff,
   type ChangedFile,
   type FileDiffSnippet,
 } from "../../lib/changedFiles";
+import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath } from "../../lib/paths";
 import { IconPanel, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
@@ -39,6 +44,10 @@ type Props = {
    * Optional precomputed changed-file list. When omitted, derived from events.
    */
   changedFiles?: ChangedFile[];
+  /** Currently selected workspace generation ID (null = source / current project). */
+  selectedWorkspaceId?: string | null;
+  /** Called when the user picks a different workspace generation. */
+  onSelectWorkspace?: (id: string | null) => void;
   /** Isolated terminal task: enable keep/discard review actions. */
   reviewActions?: boolean;
   onDiscardAll?: () => void | Promise<void>;
@@ -92,6 +101,8 @@ export default function WorkspacePanel({
   onClose,
   events,
   changedFiles: changedFilesProp,
+  selectedWorkspaceId,
+  onSelectWorkspace,
   reviewActions = false,
   onDiscardAll,
   actionsBusy = false,
@@ -99,10 +110,12 @@ export default function WorkspacePanel({
   useT();
   const tr = useT();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [file, setFile] = useState<TaskWorkspaceFileResponse | null>(null);
+  const [file, setFile] = useState<TaskWorkspaceFileResponse | WorkspaceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissedPaths, setDismissedPaths] = useState<Set<string>>(() => new Set());
+  const [genDiffFiles, setGenDiffFiles] = useState<ChangedFile[]>([]);
+  const [, setGenDiffLoading] = useState(false);
   const requestRef = useRef(0);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
@@ -132,11 +145,44 @@ export default function WorkspacePanel({
     [persistSidebarWidth],
   );
 
+  // Fetch generation-aware diff when a workspace is selected.
+  useEffect(() => {
+    if (!selectedWorkspaceId) {
+      setGenDiffFiles([]);
+      return;
+    }
+    let cancelled = false;
+    setGenDiffLoading(true);
+    getWorkspaceDiff(taskId, selectedWorkspaceId)
+      .then((res) => {
+        if (cancelled) return;
+        setGenDiffFiles(
+          changedFilesFromDiff(
+            res.workspace_id ?? selectedWorkspaceId,
+            res.generation ?? 0,
+            res.changes,
+          ),
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGenDiffFiles([]);
+      })
+      .finally(() => {
+        if (!cancelled) setGenDiffLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, selectedWorkspaceId]);
+
   const changedFiles = useMemo(() => {
+    // When a workspace is selected, prefer the API diff as source of truth.
+    if (selectedWorkspaceId && genDiffFiles.length > 0) return genDiffFiles;
     if (changedFilesProp) return changedFilesProp;
     if (!events || events.length === 0) return [] as ChangedFile[];
     return extractChangedFiles(events);
-  }, [changedFilesProp, events]);
+  }, [changedFilesProp, events, selectedWorkspaceId, genDiffFiles]);
 
   const visibleChangedFiles = useMemo(
     () =>
@@ -179,7 +225,12 @@ export default function WorkspacePanel({
     setLoading(true);
     setError(null);
     try {
-      const next = await readTaskWorkspaceFile(taskId, path);
+      let next: TaskWorkspaceFileResponse | WorkspaceFileResponse;
+      if (selectedWorkspaceId) {
+        next = await readWorkspaceFile(taskId, selectedWorkspaceId, path);
+      } else {
+        next = await readTaskWorkspaceFile(taskId, path);
+      }
       if (requestRef.current !== reqID) return;
       setFile(next);
     } catch (err) {
@@ -191,7 +242,7 @@ export default function WorkspacePanel({
         setLoading(false);
       }
     }
-  }, [taskId]);
+  }, [taskId, selectedWorkspaceId]);
 
   useEffect(() => {
     requestRef.current += 1;
@@ -199,6 +250,7 @@ export default function WorkspacePanel({
     setFile(null);
     setLoading(false);
     setError(null);
+    setGenDiffFiles([]);
     userPickedTab.current = false;
   }, [cwd, taskId]);
 
@@ -253,8 +305,17 @@ export default function WorkspacePanel({
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconPanel size={14} className="text-kin-muted flex-none" />
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-semibold text-kin-text truncate">
-            {tr("workspace.title")}
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] font-semibold text-kin-text truncate">
+              {tr("workspace.title")}
+            </span>
+            {onSelectWorkspace && (
+              <WorkspaceGenerationPicker
+                taskId={taskId}
+                selectedId={selectedWorkspaceId ?? null}
+                onChange={onSelectWorkspace}
+              />
+            )}
           </div>
           <div className="text-[11px] text-kin-muted font-mono truncate" title={cwd}>
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
@@ -328,6 +389,7 @@ export default function WorkspacePanel({
                 openPath={openPath}
                 openNonce={openNonce}
                 onSelect={(path) => void loadFile(path)}
+                workspaceId={selectedWorkspaceId}
               />
             )}
           </div>
@@ -396,13 +458,13 @@ export default function WorkspacePanel({
         <div className="flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex flex-col">
           <CodeViewer
             path={selectedPath}
-            file={file}
+            file={normalizeFileResponse(file)}
             loading={loading}
             error={error}
             diff={enrichedDiff}
             cwd={cwd}
             taskId={taskId}
-            editable
+            editable={!selectedWorkspaceId}
             onSaved={(updated) => setFile(updated)}
             reviewActions={reviewActions && Boolean(selectedPath)}
             actionsBusy={actionsBusy}
@@ -427,6 +489,24 @@ export default function WorkspacePanel({
       </div>
     </div>
   );
+}
+
+/** Normalize WorkspaceFileResponse to TaskWorkspaceFileResponse shape for CodeViewer. */
+function normalizeFileResponse(
+  f: TaskWorkspaceFileResponse | WorkspaceFileResponse | null,
+): TaskWorkspaceFileResponse | null {
+  if (!f) return null;
+  // TaskWorkspaceFileResponse has root, path, size, truncated, content
+  if ("root" in f) return f as TaskWorkspaceFileResponse;
+  // WorkspaceFileResponse has workspace_id, generation, view, path, size, truncated, content
+  const wf = f as WorkspaceFileResponse;
+  return {
+    root: "",
+    path: wf.path,
+    size: wf.size,
+    truncated: wf.truncated ?? false,
+    content: wf.content,
+  };
 }
 
 function TabButton({

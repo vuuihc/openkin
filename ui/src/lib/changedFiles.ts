@@ -1,4 +1,4 @@
-import type { TaskEvent } from "../api/client";
+import type { TaskEvent, WorkspaceChange } from "../api/client";
 
 export type ChangedFileAction = "write" | "edit" | "delete" | "read" | "other";
 
@@ -16,7 +16,57 @@ export type ChangedFile = {
    */
   additions?: number;
   deletions?: number;
+  /** Workspace generation ID (set when derived from API diff). */
+  workspaceId?: string;
+  /** Workspace generation number (set when derived from API diff). */
+  generation?: number;
+  /** Git status from API diff (added|modified|deleted|renamed|binary). */
+  status?: string;
+  /** Previous path when renamed. */
+  oldPath?: string;
+  /** True when the file is binary. */
+  binary?: boolean;
 };
+
+/**
+ * Convert API WorkspaceChange items into ChangedFile entries.
+ * The API diff is the source of truth for generation-aware file browsing.
+ */
+export function changedFilesFromDiff(
+  workspaceId: string,
+  generation: number,
+  changes: WorkspaceChange[],
+): ChangedFile[] {
+  return changes.map((c) => ({
+    path: c.path,
+    action: gitStatusToAction(c.status),
+    tool: "git",
+    seq: 0,
+    additions: c.additions,
+    deletions: c.deletions,
+    workspaceId,
+    generation,
+    status: c.status,
+    oldPath: c.old_path,
+    binary: c.binary,
+  }));
+}
+
+function gitStatusToAction(status: string): ChangedFileAction {
+  switch (status) {
+    case "added":
+    case "modified":
+      return "write";
+    case "deleted":
+      return "delete";
+    case "renamed":
+      return "edit";
+    case "binary":
+      return "write";
+    default:
+      return "other";
+  }
+}
 
 /** Tools that mutate (or clearly target) workspace files. */
 const WRITE_TOOLS = new Set([

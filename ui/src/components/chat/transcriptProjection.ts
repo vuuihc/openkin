@@ -428,6 +428,28 @@ export function buildChatItems(
         // Rendered as LimitCard in TaskDetailPage, not as transcript text.
         break;
       default:
+        // Workspace lifecycle events (workspace_provisioning, workspace_ready, etc.)
+        if (typeof ev.type === "string" && ev.type.startsWith("workspace_")) {
+          flushStream();
+          streamNoteKey = null;
+          progressRef.current = null;
+          const wsId =
+            typeof p.workspace_id === "string" ? p.workspace_id : "";
+          const genNum =
+            typeof p.generation === "number"
+              ? p.generation
+              : typeof p.generation === "string"
+                ? parseInt(p.generation, 10)
+                : undefined;
+          const label = workspaceEventLabel(ev.type, wsId, genNum);
+          if (label) {
+            items.push({
+              kind: "meta",
+              key: `ws-${ev.seq}`,
+              label,
+            });
+          }
+        }
         break;
     }
   }
@@ -686,6 +708,47 @@ export function prettyToolName(name: string): string {
       return "glob";
     default:
       return name || "tool";
+  }
+}
+
+/**
+ * Map a workspace lifecycle event type to a human-readable label.
+ * Uses the i18n layer so labels follow the active locale.
+ */
+function workspaceEventLabel(
+  eventType: string,
+  workspaceId: string,
+  generation?: number,
+): string {
+  const genSuffix =
+    generation !== undefined && !isNaN(generation)
+      ? ` #${generation}`
+      : "";
+  const idSuffix = workspaceId ? ` (${workspaceId.slice(0, 8)})` : "";
+
+  switch (eventType) {
+    case "workspace_provisioning":
+      return `${t("workspace.generation.eventProvisioning")}${genSuffix}${idSuffix}`;
+    case "workspace_ready":
+      return `${t("workspace.generation.eventReady")}${genSuffix}${idSuffix}`;
+    case "workspace_active":
+      return `${t("workspace.generation.eventActive")}${genSuffix}${idSuffix}`;
+    case "workspace_finalizing":
+      return `${t("workspace.generation.eventFinalizing")}${genSuffix}${idSuffix}`;
+    case "workspace_integrated":
+      return `${t("workspace.generation.eventIntegrated")}${genSuffix}${idSuffix}`;
+    case "workspace_released":
+      return `${t("workspace.generation.eventReleased")}${genSuffix}${idSuffix}`;
+    case "workspace_merge_blocked":
+      return `${t("workspace.generation.eventMergeBlocked")}${genSuffix}${idSuffix}`;
+    case "workspace_finalize_blocked":
+      return `${t("workspace.generation.eventFinalizeBlocked")}${genSuffix}${idSuffix}`;
+    case "workspace_orphaned":
+      return `${t("workspace.generation.eventOrphaned")}${genSuffix}${idSuffix}`;
+    case "workspace_legacy_pending":
+      return `${t("workspace.generation.eventLegacyPending")}${genSuffix}${idSuffix}`;
+    default:
+      return "";
   }
 }
 
