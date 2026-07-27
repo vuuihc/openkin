@@ -25,18 +25,24 @@ export default function WorkspaceGenerationPicker({
 }: Props) {
   const t = useT();
   const [generations, setGenerations] = useState<WorkspaceGeneration[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setFetchError(false);
     listTaskWorkspaces(taskId)
       .then((list) => {
         if (cancelled) return;
         setGenerations(list);
+        setLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
-        setGenerations([]);
+        setFetchError(true);
+        setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -63,7 +69,15 @@ export default function WorkspaceGenerationPicker({
     return () => window.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  if (generations.length === 0) {
+  if (loading) {
+    return (
+      <span className="text-[11px] text-kin-muted animate-pulse">
+        {t("workspace.generation.source")}
+      </span>
+    );
+  }
+
+  if (fetchError || generations.length === 0) {
     return (
       <span className="text-[11px] text-kin-muted">
         {t("workspace.generation.source")}

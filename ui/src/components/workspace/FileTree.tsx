@@ -37,10 +37,12 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
   const [dirs, setDirs] = useState<Record<string, DirState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ [ROOT]: true });
   const loadingRef = useRef<Set<string>>(new Set());
+  const genRef = useRef(0);
 
   const loadDir = useCallback(async (dirPath: string) => {
     if (loadingRef.current.has(dirPath)) return;
     loadingRef.current.add(dirPath);
+    const gen = genRef.current;
     setDirs((prev) => ({
       ...prev,
       [dirPath]: {
@@ -64,6 +66,7 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
           type: e.type === "tree" ? "dir" : "file",
           size: e.size,
         }));
+        if (genRef.current !== gen) return;
         setDirs((prev) => ({
           ...prev,
           [dirPath]: {
@@ -76,6 +79,7 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
         }));
       } else {
         const res = await listTaskWorkspace(taskId, dirPath === ROOT ? undefined : dirPath);
+        if (genRef.current !== gen) return;
         setDirs((prev) => ({
           ...prev,
           [dirPath]: {
@@ -88,6 +92,7 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
         }));
       }
     } catch (error) {
+      if (genRef.current !== gen) return;
       setDirs((prev) => ({
         ...prev,
         [dirPath]: {
@@ -104,6 +109,7 @@ export default function FileTree({ taskId, selectedPath, openPath, openNonce, on
   }, [taskId, workspaceId]);
 
   useEffect(() => {
+    genRef.current += 1;
     loadingRef.current.clear();
     setDirs({});
     setExpanded({ [ROOT]: true });

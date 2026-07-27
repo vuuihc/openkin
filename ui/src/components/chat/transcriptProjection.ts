@@ -430,9 +430,6 @@ export function buildChatItems(
       default:
         // Workspace lifecycle events (workspace_provisioning, workspace_ready, etc.)
         if (typeof ev.type === "string" && ev.type.startsWith("workspace_")) {
-          flushStream();
-          streamNoteKey = null;
-          progressRef.current = null;
           const wsId =
             typeof p.workspace_id === "string" ? p.workspace_id : "";
           const genNum =
@@ -443,6 +440,9 @@ export function buildChatItems(
                 : undefined;
           const label = workspaceEventLabel(ev.type, wsId, genNum);
           if (label) {
+            flushStream();
+            streamNoteKey = null;
+            progressRef.current = null;
             items.push({
               kind: "meta",
               key: `ws-${ev.seq}`,

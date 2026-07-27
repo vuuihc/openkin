@@ -115,7 +115,7 @@ export default function WorkspacePanel({
   const [error, setError] = useState<string | null>(null);
   const [dismissedPaths, setDismissedPaths] = useState<Set<string>>(() => new Set());
   const [genDiffFiles, setGenDiffFiles] = useState<ChangedFile[]>([]);
-  const [, setGenDiffLoading] = useState(false);
+  const [genDiffLoaded, setGenDiffLoaded] = useState(false);
   const requestRef = useRef(0);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
@@ -152,7 +152,7 @@ export default function WorkspacePanel({
       return;
     }
     let cancelled = false;
-    setGenDiffLoading(true);
+    setGenDiffLoaded(false);
     getWorkspaceDiff(taskId, selectedWorkspaceId)
       .then((res) => {
         if (cancelled) return;
@@ -169,7 +169,7 @@ export default function WorkspacePanel({
         setGenDiffFiles([]);
       })
       .finally(() => {
-        if (!cancelled) setGenDiffLoading(false);
+        if (!cancelled) setGenDiffLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -178,11 +178,11 @@ export default function WorkspacePanel({
 
   const changedFiles = useMemo(() => {
     // When a workspace is selected, prefer the API diff as source of truth.
-    if (selectedWorkspaceId && genDiffFiles.length > 0) return genDiffFiles;
+    if (selectedWorkspaceId && genDiffLoaded) return genDiffFiles;
     if (changedFilesProp) return changedFilesProp;
     if (!events || events.length === 0) return [] as ChangedFile[];
     return extractChangedFiles(events);
-  }, [changedFilesProp, events, selectedWorkspaceId, genDiffFiles]);
+  }, [changedFilesProp, events, selectedWorkspaceId, genDiffFiles, genDiffLoaded]);
 
   const visibleChangedFiles = useMemo(
     () =>
