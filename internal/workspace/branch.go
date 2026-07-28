@@ -117,6 +117,30 @@ func parseBranchList(raw []byte, current string) []Branch {
 	return out
 }
 
+// CurrentBranch returns the current branch name for the repository at cwd.
+// Returns empty string for detached HEAD.
+func (m *Manager) CurrentBranch(ctx context.Context, cwd string) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("workspace manager is nil")
+	}
+	abs, err := resolveAbsDir(cwd)
+	if err != nil {
+		return "", err
+	}
+	if m.gitPath == "" || m.git == nil {
+		return "", fmt.Errorf("git binary not found")
+	}
+	out, err := m.git.Run(ctx, abs, nil, ControlStdoutLimit, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("resolve current branch: %w", err)
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "HEAD" {
+		return "", nil
+	}
+	return branch, nil
+}
+
 // CheckoutBranch switches the worktree at cwd to an existing local branch.
 // Refuses dirty worktrees and invalid branch names.
 func (m *Manager) CheckoutBranch(ctx context.Context, cwd, branch string) error {

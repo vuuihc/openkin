@@ -197,6 +197,19 @@ func (e *Engine) ensureWorkspace(ctx context.Context, req WorkspaceIntentRequest
 		ws.Scope = "."
 	}
 
+	// Resolve the real Git branch name so finalization can validate it.
+	if e.workspace != nil {
+		branch, err := e.workspace.CurrentBranch(ctx, ws.SourceRoot)
+		if err != nil {
+			return store.WorkspaceGeneration{}, fmt.Errorf("resolve target branch: %w", err)
+		}
+		branch = strings.TrimSpace(branch)
+		if branch == "" {
+			return store.WorkspaceGeneration{}, fmt.Errorf("source repository is in detached HEAD; writable workspace requires a target branch")
+		}
+		ws.TargetBranch = branch
+	}
+
 	if err := e.store.InsertWorkspace(ctx, ws); err != nil {
 		return store.WorkspaceGeneration{}, fmt.Errorf("insert workspace: %w", err)
 	}
@@ -252,9 +265,10 @@ func (e *Engine) provisionWorkspace(ctx context.Context, t store.Task, ws store.
 		FromStates:  []store.WorkspaceState{store.WorkspaceProvisioning},
 		ToState:     store.WorkspaceReady,
 		Patch: store.WorkspacePatch{
-			PhysicalRoot: &meta.Root,
-			ExecutionCwd: &meta.Cwd,
-			BaseOID:      &meta.BaseOID,
+			PhysicalRoot:    &meta.Root,
+			ExecutionCwd:    &meta.Cwd,
+			WorkspaceBranch: &meta.Branch,
+			BaseOID:         &meta.BaseOID,
 		},
 	}
 	updated, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
@@ -494,7 +508,17 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 		return StatusFailed, fmt.Errorf("get task: %w", err)
 	}
 
-	meta := workspaceMetadata(t)
+	// Build metadata from the generation, not the task, so finalization
+	// uses the generation's physical root and execution cwd.
+	meta := workspace.Metadata{
+		Mode:       workspace.ResolvedWorktree,
+		SourceRoot: ws.SourceRoot,
+		Root:       ws.PhysicalRoot,
+		Cwd:        ws.ExecutionCwd,
+		Scope:      ws.Scope,
+		BaseOID:    ws.BaseOID,
+		Branch:     ws.WorkspaceBranch,
+	}
 
 	// Step 1: Inspect finalizable workspace
 	insp, err := e.workspace.InspectFinalizable(ctx, meta)

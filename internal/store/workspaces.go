@@ -63,18 +63,19 @@ type WorkspaceGeneration struct {
 
 // TaskTurnWorkspace binds a user turn to a workspace generation and access level.
 type TaskTurnWorkspace struct {
-	TaskID     string    `json:"task_id"`
+	TaskID       string  `json:"task_id"`
 	UserEventSeq int     `json:"user_event_seq"`
-	WorkspaceID *string  `json:"workspace_id,omitempty"`
-	Access     string    `json:"access"` // pending_isolation, source_read_only, writable, shared
-	CreatedAt  int64     `json:"created_at"`
-	UpdatedAt  int64     `json:"updated_at"`
+	WorkspaceID  *string `json:"workspace_id,omitempty"`
+	Access       string  `json:"access"` // pending_isolation, source_read_only, writable, shared
+	CreatedAt    int64   `json:"created_at"`
+	UpdatedAt    int64   `json:"updated_at"`
 }
 
 // WorkspacePatch groups optional fields for a workspace state transition.
 type WorkspacePatch struct {
 	PhysicalRoot         *string
 	ExecutionCwd         *string
+	WorkspaceBranch      *string
 	BaseOID              *string
 	ReviewBaseOID        *string
 	FinalHeadOID         *string
@@ -105,11 +106,11 @@ type WorkspaceTransition struct {
 
 // WorkspaceReadyTransition contains data for promote-provisioning→ready transition.
 type WorkspaceReadyTransition struct {
-	WorkspaceID          string
-	TaskID               string
-	PhysicalRoot         string
-	ExecutionCwd         string
-	BaseOID              string
+	WorkspaceID           string
+	TaskID                string
+	PhysicalRoot          string
+	ExecutionCwd          string
+	BaseOID               string
 	RequestedUserEventSeq int
 }
 
@@ -338,10 +339,10 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 	}
 
 	return Event{
-		TaskID: taskID,
-		Seq:    nextSeq,
-		Type:   "message",
-		TS:     now,
+		TaskID:  taskID,
+		Seq:     nextSeq,
+		Type:    "message",
+		TS:      now,
 		Payload: payload,
 	}, turn, nil
 }
@@ -424,6 +425,7 @@ func (s *Store) ApplyWorkspaceTransition(
 	// Apply optional patch
 	if transition.Patch.PhysicalRoot != nil ||
 		transition.Patch.ExecutionCwd != nil ||
+		transition.Patch.WorkspaceBranch != nil ||
 		transition.Patch.BaseOID != nil ||
 		transition.Patch.ReviewBaseOID != nil ||
 		transition.Patch.FinalHeadOID != nil ||
@@ -444,6 +446,10 @@ func (s *Store) ApplyWorkspaceTransition(
 		if transition.Patch.ExecutionCwd != nil {
 			patchSet += "execution_cwd = ?,"
 			patchArgs = append(patchArgs, *transition.Patch.ExecutionCwd)
+		}
+		if transition.Patch.WorkspaceBranch != nil {
+			patchSet += "workspace_branch = ?,"
+			patchArgs = append(patchArgs, *transition.Patch.WorkspaceBranch)
 		}
 		if transition.Patch.BaseOID != nil {
 			patchSet += "base_oid = ?,"

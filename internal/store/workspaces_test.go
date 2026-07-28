@@ -604,11 +604,15 @@ func TestWorkspaceTransitionEventIsAtomic(t *testing.T) {
 	}
 
 	// ApplyWorkspaceTransition should atomically transition state and create event
+	workspaceBranch := "kin/task/atomic/g1"
 	transition := WorkspaceTransition{
 		WorkspaceID: ws.ID,
 		TaskID:      task.ID,
 		FromStates:  []WorkspaceState{WorkspaceProvisioning},
 		ToState:     WorkspaceReady,
+		Patch: WorkspacePatch{
+			WorkspaceBranch: &workspaceBranch,
+		},
 	}
 	updated, ev, err := s.ApplyWorkspaceTransition(ctx, transition)
 	if err != nil {
@@ -616,6 +620,9 @@ func TestWorkspaceTransitionEventIsAtomic(t *testing.T) {
 	}
 	if updated.State != WorkspaceReady {
 		t.Fatalf("state=%q want ready", updated.State)
+	}
+	if updated.WorkspaceBranch != workspaceBranch {
+		t.Fatalf("workspace_branch=%q want %q", updated.WorkspaceBranch, workspaceBranch)
 	}
 	if ev.Type != "workspace_ready" {
 		t.Fatalf("event type=%q", ev.Type)

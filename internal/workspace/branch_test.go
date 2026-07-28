@@ -64,6 +64,31 @@ func TestListBranchesNonGit(t *testing.T) {
 	}
 }
 
+func TestCurrentBranch(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	initRepo(t, dir)
+	commitFile(t, dir, "README", "hi\n")
+	m := NewManager(t.TempDir())
+
+	branch, err := m.CurrentBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch == "" {
+		t.Fatal("current branch is empty")
+	}
+
+	gitCmd(t, dir, "checkout", "--detach", "HEAD")
+	branch, err = m.CurrentBranch(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "" {
+		t.Fatalf("detached branch=%q want empty", branch)
+	}
+}
+
 func TestCheckoutBranch(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()

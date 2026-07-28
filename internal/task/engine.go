@@ -290,6 +290,7 @@ type WorkspaceRuntime interface {
 	PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
 	InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error)
 	InspectIntegrationTarget(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
+	CurrentBranch(ctx context.Context, cwd string) (string, error)
 	FastForward(ctx context.Context, meta workspace.Metadata, targetBranch, expectedSourceOID, finalHeadOID string) (string, error)
 	FinalizeFastForward(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
 	Release(ctx context.Context, meta workspace.Metadata) error
@@ -964,9 +965,11 @@ func (e *Engine) startOne(id string) {
 	execRef.ID = eid
 	// Build RunMeta from current workspace state.
 	runMeta := adapter.RunMetadata{}
+	var wsExecCwd string
 	if t.CurrentWorkspaceID != "" {
 		ws, wsErr := e.store.GetCurrentWorkspace(ctx, t.ID)
 		if wsErr == nil {
+			wsExecCwd = ws.ExecutionCwd
 			switch ws.State {
 			case store.WorkspaceReady:
 				// Promote ready → active before starting.
@@ -1009,11 +1012,12 @@ func (e *Engine) startOne(id string) {
 
 	cwd := t.EffectiveCwd()
 	// When a workspace generation is active and writable, run inside the
-	// worktree, not the source checkout.  The task's ExecutionCwd is set
-	// during workspace preparation and points to the generation worktree.
+	// worktree, not the source checkout.  Use the generation's ExecutionCwd
+	// which is set during workspace provisioning; t.ExecutionCwd may still
+	// point to the source checkout for lazy-promoted workspaces.
 	if runMeta.WorkspaceID != "" && runMeta.WorkspaceAccess == adapter.AccessWritable {
-		if wsCwd := t.ExecutionCwd; strings.TrimSpace(wsCwd) != "" {
-			cwd = wsCwd
+		if strings.TrimSpace(wsExecCwd) != "" {
+			cwd = wsExecCwd
 		}
 	}
 

@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/store"
@@ -55,6 +56,9 @@ func TestEngineRequestWorkspace(t *testing.T) {
 	}
 	if updated.State != store.WorkspaceReady {
 		t.Fatalf("state=%q want ready", updated.State)
+	}
+	if updated.WorkspaceBranch == "" {
+		t.Fatal("workspace branch was not persisted")
 	}
 }
 
@@ -192,6 +196,40 @@ func TestEnsureWorkspaceCreatesNewGeneration(t *testing.T) {
 	}
 	if ws.State != store.WorkspaceProvisioning {
 		t.Fatalf("state=%q want provisioning", ws.State)
+	}
+}
+
+func TestEnsureWorkspaceRejectsDetachedHead(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	eng := NewEngine(s, nil, NewBus(), 1)
+	eng.SetWorkspaceRuntime(&fakeWorkspaceRuntime{detached: true})
+	ctx := context.Background()
+
+	task := store.Task{
+		ID: "01DETACH000000000000000001", Title: "t", Agent: "claude-code",
+		Cwd: "/repo", Prompt: "p", Status: "running", CreatedAt: 1000,
+		WorkspacePolicy: "auto", WorkspaceSourceRoot: "/repo", WorkspaceScope: ".",
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = eng.ensureWorkspace(ctx, WorkspaceIntentRequest{
+		TaskID: task.ID, ExecutionID: "exec-1",
+	}, ProvisionFromHostRequest)
+	if err == nil || !strings.Contains(err.Error(), "detached HEAD") {
+		t.Fatalf("err=%v want detached HEAD rejection", err)
+	}
+	workspaces, err := s.ListTaskWorkspaces(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspaces) != 0 {
+		t.Fatalf("created %d workspace(s) after branch rejection", len(workspaces))
 	}
 }
 

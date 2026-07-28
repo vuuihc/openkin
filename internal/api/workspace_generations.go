@@ -394,7 +394,10 @@ func (s *Server) handleListSourceTree(w http.ResponseWriter, r *http.Request) {
 
 	reqPath := r.URL.Query().Get("path")
 	if reqPath == "" {
-		reqPath = "."
+		reqPath = t.WorkspaceScope
+		if reqPath == "" {
+			reqPath = "."
+		}
 	}
 
 	if err := validateScopePath(t.WorkspaceScope, reqPath); err != nil {
@@ -515,8 +518,10 @@ func validateScopePath(scope, reqPath string) error {
 	}
 	clean := path.Clean(reqPath)
 	scopeClean := path.Clean(scope)
-	// Reject "." when scope is not "." — it would read the entire repo root.
-	if clean == "." || clean == scopeClean || strings.HasPrefix(clean, scopeClean+"/") {
+	if clean == "." {
+		return fmt.Errorf("path %q is outside task scope %q", reqPath, scope)
+	}
+	if clean == scopeClean || strings.HasPrefix(clean, scopeClean+"/") {
 		return nil
 	}
 	return fmt.Errorf("path %q is outside task scope %q", reqPath, scope)
