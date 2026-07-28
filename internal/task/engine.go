@@ -1007,10 +1007,20 @@ func (e *Engine) startOne(id string) {
 		}
 	}
 
+	cwd := t.EffectiveCwd()
+	// When a workspace generation is active and writable, run inside the
+	// worktree, not the source checkout.  The task's ExecutionCwd is set
+	// during workspace preparation and points to the generation worktree.
+	if runMeta.WorkspaceID != "" && runMeta.WorkspaceAccess == adapter.AccessWritable {
+		if wsCwd := t.ExecutionCwd; strings.TrimSpace(wsCwd) != "" {
+			cwd = wsCwd
+		}
+	}
+
 	spec := adapter.TaskSpec{
 		ID:    t.ID,
 		Agent: t.Agent,
-		Cwd:   t.EffectiveCwd(),
+		Cwd:   cwd,
 		// Language policy is runtime-only: store keeps the raw user prompt;
 		// adapters receive a wrapped copy so Claude Code / etc. match the user.
 		Prompt:         withReplyLanguage(t.Prompt, UserTurnPrompt(t.Prompt)),

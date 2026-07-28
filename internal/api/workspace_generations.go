@@ -397,6 +397,11 @@ func (s *Server) handleListSourceTree(w http.ResponseWriter, r *http.Request) {
 		reqPath = "."
 	}
 
+	if err := validateScopePath(t.WorkspaceScope, reqPath); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+
 	if s.Workspace == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 		return
@@ -440,6 +445,11 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 	reqPath := strings.TrimSpace(r.URL.Query().Get("path"))
 	if reqPath == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
+		return
+	}
+
+	if err := validateScopePath(t.WorkspaceScope, reqPath); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -504,11 +514,9 @@ func validateScopePath(scope, reqPath string) error {
 		return nil
 	}
 	clean := path.Clean(reqPath)
-	if clean == "." {
-		return nil
-	}
 	scopeClean := path.Clean(scope)
-	if clean == scopeClean || strings.HasPrefix(clean, scopeClean+"/") {
+	// Reject "." when scope is not "." — it would read the entire repo root.
+	if clean == "." || clean == scopeClean || strings.HasPrefix(clean, scopeClean+"/") {
 		return nil
 	}
 	return fmt.Errorf("path %q is outside task scope %q", reqPath, scope)

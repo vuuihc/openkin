@@ -44,7 +44,6 @@ func (f *PluginFactory) Descriptor() agent.Descriptor {
 			agent.CapabilityResume,
 			agent.CapabilityTools,
 			agent.CapabilityOrchestrate,
-			agent.CapabilityLazyWorkspace,
 		},
 	}
 }

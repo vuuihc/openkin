@@ -62,6 +62,14 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 
 	var mcpPath string
 
+	// Resolve token for MCP config (used by both read-only and writable paths).
+	token := a.Token
+	if a.TokenFunc != nil {
+		if t := a.TokenFunc(); t != "" {
+			token = t
+		}
+	}
+
 	// Read-only workspace access: plan mode with restricted tools.
 	if spec.RunMeta.WorkspaceAccess == adapter.AccessSourceReadOnly {
 		args = append(args,
@@ -69,15 +77,30 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			"--allowedTools", "Read,Glob,Grep,mcp__kin__request_workspace,mcp__kin__ask_user_question",
 			"--disallowedTools", "Bash,Edit,Write,NotebookEdit,Agent",
 		)
+		// Mount MCP config so Claude can see Kin tools (request_workspace, ask_user_question).
+		if a.DaemonURL != "" && token != "" {
+			kinBin := a.KinBinary
+			if kinBin == "" {
+				kinBin, err = os.Executable()
+				if err != nil {
+					return nil, fmt.Errorf("resolve kin binary: %w", err)
+				}
+				kinBin, err = filepath.EvalSymlinks(kinBin)
+				if err != nil {
+					kinBin, _ = os.Executable()
+				}
+			}
+			mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token, spec.Execution)
+			if err != nil {
+				return nil, fmt.Errorf("mcp config: %w", err)
+			}
+			args = append(args,
+				"--mcp-config", mcpPath,
+				"--permission-prompt-tool", "mcp__kin__approve",
+			)
+		}
 	} else {
 		perm := adapter.NormalizePermissionMode(spec.PermissionMode)
-
-		token := a.Token
-		if a.TokenFunc != nil {
-			if t := a.TokenFunc(); t != "" {
-				token = t
-			}
-		}
 
 		if perm == adapter.PermissionYOLO {
 			args = append(args,

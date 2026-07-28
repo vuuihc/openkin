@@ -516,7 +516,7 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 	}
 
 	// Step 2: Inspect integration target
-	reviewBase, err := e.workspace.InspectIntegrationTarget(ctx, meta, t.WorkspaceScope)
+	reviewBase, err := e.workspace.InspectIntegrationTarget(ctx, meta, ws.TargetBranch)
 	if err != nil {
 		// If source is dirty or on wrong branch, block finalization
 		reason := err.Error()
