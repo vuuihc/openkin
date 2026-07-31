@@ -273,14 +273,16 @@ export type ProjectSidebarPrefs = {
 /**
  * Group tasks by project cwd, apply sort mode + pins (+ optional archive filter).
  *
- * @param includeArchived When true (default), archived projects are omitted from the result.
- * @param onlyArchived    Pass false to build the archived section.
+ * @param includeArchived When true, archived projects are kept in the result.
+ *                        Default false so the main sidebar list omits them
+ *                        (archived section calls with onlyArchived=true instead).
+ * @param onlyArchived    When true, return only archived projects.
  * Pure when prefs are passed in (tests); otherwise reads localStorage.
  */
 export function groupByProject(
   tasks: Task[],
   prefs?: ProjectSidebarPrefs | null,
-  includeArchived = true,
+  includeArchived = false,
   onlyArchived = false,
 ): ProjectGroup[] {
   const sortMode = prefs?.sortMode ?? getProjectSortMode();
@@ -312,13 +314,15 @@ export function groupByProject(
     if (!onlyArchived && !includeArchived && archived) continue;
 
     // Keep full sorted list; Sidebar ProjectBlock collapses to a preview + scroll.
+    // Sessions sorted by agent last-response time (finished_at), not user click time.
     const sortedItems = items
       .slice()
       .sort(
         (a, b) =>
           // Active tasks first
           (isActiveTask(b) ? 1 : 0) - (isActiveTask(a) ? 1 : 0) ||
-          taskActivityAt(b, sessionMap) - taskActivityAt(a, sessionMap) ||
+          (b.finished_at ?? 0) - (a.finished_at ?? 0) ||
+          (b.started_at ?? 0) - (a.started_at ?? 0) ||
           b.created_at - a.created_at,
       );
     let lastTask = 0;

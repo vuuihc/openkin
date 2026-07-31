@@ -209,6 +209,15 @@ export type CreateTaskBody = {
   permission_mode?: string;
   /** Optional project association (ADR 0008). */
   project_id?: string;
+  /** Optional dispatch selection for auto model routing. */
+  dispatch?: {
+    mode?: string;
+    team?: string;
+    objective?: string;
+    agent?: string;
+    provider?: string;
+    model?: string;
+  };
 };
 
 export type AgentModelOption = {
@@ -1216,6 +1225,13 @@ export function updateSettings(body: SettingsUpdate): Promise<Settings> {
   });
 }
 
+/** Model spec with tier and cost label for routing decisions. */
+export type ModelSpec = {
+  id: string;
+  tier: string;       // smart | balanced | fast | free
+  cost_label: string; // paid | company | free | unknown
+};
+
 /** One registered cognition provider (API key masked on read). */
 export type ProviderEntry = {
   id: string;
@@ -1226,6 +1242,9 @@ export type ProviderEntry = {
   model: string;
   stream?: boolean;
   active: boolean;
+  // Routing fields: agents this provider supports and model list for auto routing.
+  supports_agents?: string[];
+  models?: ModelSpec[];
 };
 
 export type ProvidersResponse = {
@@ -1243,6 +1262,9 @@ export type ProviderWrite = {
   stream?: boolean;
   active?: boolean;
   clear_api_key?: boolean;
+  // Routing fields.
+  supports_agents?: string[];
+  models?: ModelSpec[];
 };
 
 export function listProviders(): Promise<ProvidersResponse> {
@@ -1560,4 +1582,168 @@ export function optimisticTask(partial: {
     tokens_out: 0,
     created_at: now,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Routing API types and functions
+// ---------------------------------------------------------------------------
+
+export type RoutingAgentOption = {
+  id: string;
+  name: string;
+  supported_kinds: string[];
+  compatible_count: number;
+};
+
+export type RoutingProviderOption = {
+  id: string;
+  name: string;
+  kind: string;
+  enabled: boolean;
+  supports_agents: string[];
+  model_count: number;
+  models: ModelSpec[];
+};
+
+export type RoutingTeamOption = {
+  id: string;
+  name: string;
+  alias?: string;
+  enabled: boolean;
+  default_objective?: string;
+};
+
+export type RoutingOptions = {
+  agents: RoutingAgentOption[];
+  providers: RoutingProviderOption[];
+  teams: RoutingTeamOption[];
+  defaults: RoutingDefaults;
+};
+
+export type RoutingDefaults = {
+  enabled: boolean;
+  default_team: string;
+  objective: string;
+  max_attempts_per_step: number;
+  terminal_limit_policy: string;
+  manual_fallback: boolean;
+};
+
+export type RoutingProviderProfile = {
+  id: string;
+  name: string;
+  kind: string;
+  supports_agents: string[];
+  enabled: boolean;
+  models: RoutingModelSpec[];
+};
+
+export type RoutingModelSpec = {
+  id: string;
+  tier: string;
+  cost_label: string;
+};
+
+export type RoutingTeamProfile = {
+  id: string;
+  name: string;
+  alias?: string;
+  default_objective?: string;
+  enabled: boolean;
+  phases: Record<string, RoutingPhasePolicy>;
+};
+
+export type RoutingPhasePolicy = {
+  agent: string;
+  tier: string;
+  provider_priority: string[];
+  fallback: string[];
+};
+
+export type RoutingPreviewPhase = {
+  phase: string;
+  agent: string;
+  provider: string;
+  model: string;
+  tier: string;
+  status: string;
+  fallback_summary?: string;
+  skipped?: { provider: string; model: string; reason: string }[];
+};
+
+export type RoutingPreview = {
+  mode: string;
+  team?: string;
+  objective?: string;
+  agent?: string;
+  provider?: string;
+  model?: string;
+  phases: RoutingPreviewPhase[];
+  blocked: boolean;
+  blocked_reason?: string;
+};
+
+/** GET /api/routing/options — available agents, providers, teams, and defaults. */
+export function getRoutingOptions(): Promise<RoutingOptions> {
+  return apiFetch<RoutingOptions>("/api/routing/options");
+}
+
+/** GET /api/routing/preview — resolve a dispatch selection to a preview. */
+export function getRoutingPreview(params: {
+  mode: string;
+  team?: string;
+  objective?: string;
+  agent?: string;
+  provider?: string;
+  model?: string;
+}): Promise<RoutingPreview> {
+  const q = new URLSearchParams({ mode: params.mode });
+  if (params.team) q.set("team", params.team);
+  if (params.objective) q.set("objective", params.objective);
+  if (params.agent) q.set("agent", params.agent);
+  if (params.provider) q.set("provider", params.provider);
+  if (params.model) q.set("model", params.model);
+  return apiFetch<RoutingPreview>(`/api/routing/preview?${q.toString()}`);
+}
+
+/** GET /api/routing/defaults — routing defaults. */
+export function getRoutingDefaults(): Promise<RoutingDefaults> {
+  return apiFetch<RoutingDefaults>("/api/routing/defaults");
+}
+
+/** PUT /api/routing/defaults — update routing defaults. */
+export function updateRoutingDefaults(body: RoutingDefaults): Promise<RoutingDefaults> {
+  return apiFetch<RoutingDefaults>("/api/routing/defaults", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** GET /api/routing/profiles — team routing profiles. */
+export function getRoutingProfiles(): Promise<{ profiles: RoutingTeamProfile[] }> {
+  return apiFetch<{ profiles: RoutingTeamProfile[] }>("/api/routing/profiles");
+}
+
+/** PUT /api/routing/profiles — update team routing profiles. */
+export function updateRoutingProfiles(profiles: RoutingTeamProfile[]): Promise<{ profiles: RoutingTeamProfile[] }> {
+  return apiFetch<{ profiles: RoutingTeamProfile[] }>("/api/routing/profiles", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profiles }),
+  });
+}
+
+/** GET /api/routing/provider-profiles — routing provider profiles. */
+export function getRoutingProviderProfiles(): Promise<{ profiles: RoutingProviderProfile[] }> {
+  return apiFetch<{ profiles: RoutingProviderProfile[] }>("/api/routing/provider-profiles");
+}
+
+/** PUT /api/routing/provider-profiles — update routing provider profiles. */
+export function updateRoutingProviderProfiles(profiles: RoutingProviderProfile[]): Promise<{ profiles: RoutingProviderProfile[] }> {
+  return apiFetch<{ profiles: RoutingProviderProfile[] }>("/api/routing/provider-profiles", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ profiles }),
+  });
 }

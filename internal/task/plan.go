@@ -30,6 +30,8 @@ var genericDepRE = regexp.MustCompile(`(?i)(根据|基于|依赖|参考|承接|�
 type DelegateStep struct {
 	Agent       string // resolved agent id
 	Model       string // optional model id from @agent[model]
+	Provider    string // optional provider id from auto routing resolution
+	Phase       string // optional phase (plan/execute/review) from auto routing
 	Instruction string // text after the @mention until the next one
 	Mention     string // raw token as typed
 }

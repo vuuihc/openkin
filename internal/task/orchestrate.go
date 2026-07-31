@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/sessionctx"
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -152,70 +153,40 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		// Start all workers in the wave.
 		for i, si := range wave {
 			step := plan.Steps[si]
-			ad, ok := e.runnerFor(step.Agent)
-			if !ok {
-				e.emitError(ctx, id, fmt.Sprintf("%s has no runner", step.Agent))
-				failedByStep[si] = true
-				anyErr = true
-				continue
-			}
-			if ad == nil {
-				e.emitError(ctx, id, fmt.Sprintf("Agent %s is not available", step.Agent))
-				outs[i] = stepOut{idx: si, err: true}
-				anyErr = true
-				continue
-			}
 			brief := buildWorkerBrief(plan, step, priorList, si+1, len(plan.Steps))
-			model := effectiveStepModel(t, step)
-			// ID must be the real parent task id: Claude Code's approve-mcp
-			// posts KIN_TASK_ID to POST /internal/approvals, which looks up
-			// the tasks row. A synthetic "parent:agent:idx" id fails that
-			// lookup and fail-closes as "denied via Kin console".
-			// Each adapter start gets its own immutable execution id.
-			execRef := adapter.ExecutionRef{
-				Agent: step.Agent,
-				Model: model,
-				Step:  si + 1, // 1-based plan step index
-			}
-			eid, err := e.newID()
-			if err != nil {
-				e.emitError(ctx, id, fmt.Sprintf("%s execution id: %v", step.Agent, err))
-				outs[i] = stepOut{idx: si, text: "", err: true}
-				anyErr = true
-				continue
-			}
-			execRef.ID = eid
-			spec := adapter.TaskSpec{
-				ID:             t.ID,
-				Agent:          step.Agent,
-				Cwd:            t.EffectiveCwd(),
-				Prompt:         brief,
-				Model:          model,
-				SessionRef:     "",
-				PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
-				Execution:      execRef,
-			}
-			h, err := ad.Start(ctx, spec)
+
+			// Use fallback-aware start when routing metadata is present.
+			h, execRef, failedProviders, err := e.startWorkerWithFallback(ctx, id, t, step, brief, si)
 			if err != nil {
 				e.emitError(ctx, id, fmt.Sprintf("%s failed to start: %v", step.Agent, err))
 				outs[i] = stepOut{idx: si, err: true}
 				anyErr = true
 				continue
 			}
+
 			handles = append(handles, h)
+			// Update step provider/model from the resolved fallback chain.
+			if execRef.ProviderID != "" {
+				step.Provider = execRef.ProviderID
+			}
+			if execRef.Model != "" {
+				step.Model = execRef.Model
+			}
 			outs[i] = stepOut{idx: si} // placeholder; filled by goroutine
 
 			// Capture indices / step data for goroutine (incl. meta-output retry).
 			gi, gsi, gagent, gh := i, si, step.Agent, h
 			gstep := step
-			gmodel := model
-			gad := ad
+			gmodel := execRef.Model
+			gad, _ := e.runnerFor(step.Agent)
 			gprior := append([]string(nil), priorList...)
+			gbrief := brief
 			gexec := execRef
+			gfailedProviders := failedProviders
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				text, failed := e.forwardWorkerEvents(ctx, id, gagent, gmodel, gexec, gh)
+				text, failed, failure := e.forwardWorkerEvents(ctx, id, gagent, gmodel, gexec, gh)
 				// Workers sometimes leak role/meta chatter and end_turn without findings.
 				// Retry once with a tighter brief; if still meta, mark failed so the
 				// orchestrator does not present it as a successful answer.
@@ -230,9 +201,10 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 						// Parent task id stays stable for approval lookup; meta-retry
 						// gets a fresh execution id so attribution distinguishes runs.
 						retryExec := adapter.ExecutionRef{
-							Agent: gagent,
-							Model: gmodel,
-							Step:  gsi + 1,
+							Agent:      gagent,
+							Model:      gmodel,
+							Step:       gsi + 1,
+							ProviderID: gstep.Provider,
 						}
 						eid, err := e.newID()
 						if err != nil {
@@ -250,6 +222,9 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 								PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 								Execution:      retryExec,
 							}
+							if cfg, err := e.resolveProviderCfg(ctx, retryExec.ProviderID); err == nil && cfg.BaseURL != "" {
+								spec.ProviderCfg = &cfg
+							}
 							h2, err := gad.Start(ctx, spec)
 							if err != nil {
 								e.emitError(ctx, id, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
@@ -262,7 +237,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 								}
 								e.handles[id] = h2
 								e.mu.Unlock()
-								text2, failed2 := e.forwardWorkerEvents(ctx, id, gagent, gmodel, retryExec, h2)
+								text2, failed2, _ := e.forwardWorkerEvents(ctx, id, gagent, gmodel, retryExec, h2)
 								text, failed = text2, failed2
 							}
 						}
@@ -275,6 +250,54 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					text = "worker returned meta-only output (suppressed as non-answer)"
 					if snippet != "" {
 						text += ": " + snippet
+					}
+				}
+				// Runtime fallback: if the worker failed with a quota/rate-limit/transient
+				// error and the step has routing metadata, retry with the next provider.
+				if failed && routing.IsFallbackSafe(failure.Class) && gstep.Phase != "" && gstep.Provider != "" && e.routingResolver != nil {
+					prev := routing.Decision{
+						Agent:           gstep.Agent,
+						Provider:        gstep.Provider,
+						Model:           gmodel,
+						Phase:           routing.RoutePhase(gstep.Phase),
+						FailedProviders: gfailedProviders,
+					}
+					sel := parseDispatch(t.Dispatch)
+					prev.Team = sel.Team
+					prev.Objective = sel.Objective
+					if prev.Objective == "" {
+						prev.Objective = "balanced"
+					}
+					next, ok := e.routingResolver.Next(ctx, prev, failure)
+					if ok {
+						e.emitRouteFallback(ctx, id, failure, next)
+						retryStep := gstep
+						retryStep.Provider = next.Provider
+						retryStep.Model = next.Model
+						h2, exec2, _, err2 := e.startWorkerWithFallback(ctx, id, t, retryStep, gbrief, gsi)
+						if err2 == nil {
+							e.mu.Lock()
+							if e.handleGroups != nil {
+								e.handleGroups[id] = append(e.handleGroups[id], h2)
+							}
+							e.handles[id] = h2
+							e.mu.Unlock()
+							text2, failed2, _ := e.forwardWorkerEvents(ctx, id, gagent, next.Model, exec2, h2)
+							text, failed = text2, failed2
+						} else {
+							e.emitError(ctx, id, fmt.Sprintf("%s runtime fallback failed to start: %v", gagent, err2))
+						}
+					} else {
+						// No fallback candidate available; apply terminal_limit_policy.
+						defaults := e.loadRoutingDefaults()
+						switch defaults.TerminalLimitPolicy {
+						case "wait":
+							e.emitError(ctx, id, fmt.Sprintf("%s: all routing candidates exhausted; waiting for rate-limit window reset", gagent))
+						case "ask":
+							e.emitError(ctx, id, fmt.Sprintf("%s: all routing candidates exhausted; please choose a different provider/model manually", gagent))
+						default:
+							e.emitError(ctx, id, fmt.Sprintf("%s: all routing candidates exhausted", gagent))
+						}
 					}
 				}
 				outs[gi] = stepOut{idx: gsi, text: text, err: failed}
@@ -468,7 +491,9 @@ func (e *Engine) seedHostTranscriptAfterOrchestration(ctx context.Context, taskI
 
 // forwardWorkerEvents copies adapter events onto the parent task, stamping speaker.
 // Safe for concurrent waves (serialized via eventMu).
-func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model string, exec adapter.ExecutionRef, h adapter.RunHandle) (string, bool) {
+// Returns the worker summary text, whether it failed, and a classified failure
+// for fallback decisions (zero value when no fallback-relevant error occurred).
+func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model string, exec adapter.ExecutionRef, h adapter.RunHandle) (string, bool, routing.Failure) {
 	// Collect only final, user-facing findings for the orchestrator summary.
 	// Process chatter (partials / intermediate tool narration) stays on the event
 	// bus for the progress UI, but must not become the main-chat "结果".
@@ -476,6 +501,7 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 	var resultText string
 	sawResult := false
 	isErr := false
+	var lastErrMsg string
 
 	for ev := range h.Events() {
 		payload := stampWorker(ev.Payload, agent, model, exec)
@@ -501,9 +527,14 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 			if t := extractResultText(ev.Payload); t != "" {
 				resultText = t
 			}
+			// Capture result error message for fallback classification.
+			if isErr {
+				lastErrMsg = extractErrorMessage(ev.Payload)
+			}
 		case "error":
 			if !skipPersist {
 				isErr = true
+				lastErrMsg = extractErrorMessage(ev.Payload)
 			}
 		}
 
@@ -512,13 +543,20 @@ func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model s
 		e.mu.Unlock()
 		if canceled {
 			_ = h.Cancel()
-			return chooseWorkerSummary(resultText, finals), true
+			return chooseWorkerSummary(resultText, finals), true, routing.Failure{}
 		}
 	}
 	if !sawResult {
 		isErr = true
 	}
-	return chooseWorkerSummary(resultText, finals), isErr
+	summary := chooseWorkerSummary(resultText, finals)
+
+	// Classify the failure for fallback decisions.
+	var failure routing.Failure
+	if isErr && lastErrMsg != "" {
+		failure = routing.ClassifyFailure(fmt.Errorf("%s", lastErrMsg), exec.ProviderID, exec.Model)
+	}
+	return summary, isErr, failure
 }
 
 // chooseWorkerSummary prefers the adapter's terminal result text (Claude Code
@@ -567,6 +605,18 @@ func extractResultText(raw json.RawMessage) string {
 		if isErr, _ := m["is_error"].(bool); isErr {
 			return strings.TrimSpace(t)
 		}
+	}
+	return ""
+}
+
+// extractErrorMessage pulls the "message" field from a JSON payload.
+func extractErrorMessage(raw json.RawMessage) string {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return ""
+	}
+	if msg, ok := m["message"].(string); ok {
+		return strings.TrimSpace(msg)
 	}
 	return ""
 }
@@ -682,6 +732,9 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec ad
 	// Stamping always owns agent/speaker identity for this run.
 	m["agent"] = agent
 	m["speaker"] = agent
+	if providerID := strings.TrimSpace(exec.ProviderID); providerID != "" {
+		m["provider_id"] = providerID
+	}
 	if reported, ok := m["model"].(string); !ok || strings.TrimSpace(reported) == "" {
 		if model = strings.TrimSpace(model); model != "" {
 			m["model"] = model

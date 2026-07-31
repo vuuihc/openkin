@@ -16,6 +16,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -52,6 +53,8 @@ type CreateRequest struct {
 	// UserPrompt is the original user text shown in the chat timeline when Prompt
 	// has been wrapped with project context. Empty → use Prompt.
 	UserPrompt string `json:"-"`
+	// Dispatch is the optional dispatch selection for auto model routing.
+	Dispatch json.RawMessage `json:"dispatch,omitempty"`
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -125,6 +128,13 @@ type Engine struct {
 	// defaultPreference optional; returns configured preferred agent id only.
 	// Readiness/fallback is owned by the registry.
 	defaultPreference agentDefaultPreference
+
+	// routingResolver resolves provider/model for auto dispatch phases.
+	routingResolver routingResolver
+
+	// providerEntryResolver resolves a routing provider ID to its runtime
+	// config (API key, base URL, model).
+	providerEntryResolver func(ctx context.Context, providerID string) (adapter.ProviderConfig, error)
 }
 
 // tiny interface so tests can inject ULID entropy if needed.
@@ -267,6 +277,13 @@ type DefaultPreference func(ctx context.Context) (string, error)
 
 type agentDefaultPreference = DefaultPreference
 
+// routingResolver resolves provider/model for auto dispatch phases.
+type routingResolver interface {
+	Resolve(ctx context.Context, req routing.ResolveRequest) (routing.Decision, error)
+	Next(ctx context.Context, previous routing.Decision, failure routing.Failure) (routing.Decision, bool)
+	LookupProvider(ctx context.Context, providerID string) (routing.ProviderProfile, error)
+}
+
 // SetClock injects a clock for tests (approval expiry).
 func (e *Engine) SetClock(fn func() time.Time) { e.clock = fn }
 
@@ -376,6 +393,276 @@ func (e *Engine) SetDefaultAgentFn(fn func() string) {
 	e.defaultPreference = func(context.Context) (string, error) { return fn(), nil }
 }
 
+// SetRoutingResolver sets the resolver used for auto dispatch routing.
+func (e *Engine) SetRoutingResolver(rr routingResolver) {
+	e.routingResolver = rr
+}
+
+// SetProviderEntryResolver sets a function that resolves a routing provider
+// ID to its runtime config (API key, base URL, model).
+func (e *Engine) SetProviderEntryResolver(fn func(ctx context.Context, providerID string) (adapter.ProviderConfig, error)) {
+	e.providerEntryResolver = fn
+}
+
+// resolveProviderCfg resolves a provider ID to its runtime config.
+func (e *Engine) resolveProviderCfg(ctx context.Context, providerID string) (adapter.ProviderConfig, error) {
+	if e.providerEntryResolver == nil || providerID == "" {
+		return adapter.ProviderConfig{}, nil
+	}
+	cfg, err := e.providerEntryResolver(ctx, providerID)
+	if err != nil {
+		return adapter.ProviderConfig{}, fmt.Errorf("resolve provider config for %q: %w", providerID, err)
+	}
+	return cfg, nil
+}
+
+// resolveAutoRoute resolves each phase (plan/execute/review) for an auto
+// dispatch task using the routing resolver. It returns a DelegatePlan with
+// team-configured agents and the route decisions for audit.
+func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePlan, []routing.RouteDecision, error) {
+	sel := parseDispatch(t.Dispatch)
+	if sel.Mode != "auto" || sel.Team == "" {
+		// When dispatch is absent, try routing.defaults.
+		defaults := e.loadRoutingDefaults()
+		if !defaults.Enabled || defaults.DefaultTeam == "" {
+			return DelegatePlan{}, nil, fmt.Errorf("not an auto dispatch")
+		}
+		sel.Mode = "auto"
+		sel.Team = defaults.DefaultTeam
+		sel.Objective = defaults.Objective
+	}
+	if e.routingResolver == nil {
+		return DelegatePlan{}, nil, fmt.Errorf("routing resolver not configured")
+	}
+
+	objective := sel.Objective
+	if objective == "" {
+		objective = "balanced"
+	}
+
+	phases := []routing.RoutePhase{routing.PhasePlan, routing.PhaseExecute, routing.PhaseReview}
+	var steps []DelegateStep
+	var decisions []routing.RouteDecision
+
+	for _, phase := range phases {
+		req := routing.ResolveRequest{
+			TaskID:    t.ID,
+			Team:      sel.Team,
+			Objective: objective,
+			Phase:     phase,
+			Prompt:    UserTurnPrompt(t.Prompt),
+		}
+		dec, err := e.routingResolver.Resolve(ctx, req)
+		if err != nil {
+			// PhaseExecute is required; fail immediately if it cannot be resolved.
+			if phase == routing.PhaseExecute {
+				return DelegatePlan{}, nil, fmt.Errorf("required phase %q failed to resolve for team %q: %w", phase, sel.Team, err)
+			}
+			// Plan and Review are optional; skip and continue.
+			continue
+		}
+
+		instruction := phaseInstruction(phase, UserTurnPrompt(t.Prompt))
+		steps = append(steps, DelegateStep{
+			Agent:       dec.Agent,
+			Model:       dec.Model,
+			Provider:    dec.Provider,
+			Phase:       string(phase),
+			Instruction: instruction,
+			Mention:     "auto-" + string(phase),
+		})
+
+		decisions = append(decisions, routing.RouteDecision{
+			Type:      routing.RouteDecisionType,
+			Team:      sel.Team,
+			Objective: objective,
+			Phase:     phase,
+			Agent:     dec.Agent,
+			Provider:  dec.Provider,
+			Model:     dec.Model,
+			Tier:      dec.Tier,
+			Reason:    dec.Reason,
+			Skipped:   dec.Skipped,
+		})
+	}
+
+	if len(steps) == 0 {
+		return DelegatePlan{}, nil, fmt.Errorf("no resolvable phases for team %q", sel.Team)
+	}
+
+	plan := DelegatePlan{
+		Overview: UserTurnPrompt(t.Prompt),
+		Raw:      UserTurnPrompt(t.Prompt),
+		Steps:    steps,
+	}
+	return plan, decisions, nil
+}
+
+// phaseInstruction returns a default instruction for the given phase.
+func phaseInstruction(phase routing.RoutePhase, prompt string) string {
+	switch phase {
+	case routing.PhasePlan:
+		return "Create a concrete implementation plan only. Do not modify files or run commands. Output a clear step-by-step plan for: " + prompt
+	case routing.PhaseExecute:
+		return prompt
+	case routing.PhaseReview:
+		return "根据上一 agent 的工作结果做代码审查与验收：指出问题、确认是否完成用户目标，并给出简短总结。不要重复实现整套方案，除非发现严重缺陷必须修。"
+	default:
+		return prompt
+	}
+}
+
+// emitRouteDecision appends a route_decision event to the task event log.
+func (e *Engine) emitRouteDecision(ctx context.Context, taskID string, d routing.RouteDecision) {
+	payload, err := json.Marshal(d)
+	if err != nil {
+		return
+	}
+	if w := e.eventWriter(); w != nil {
+		if ev, err := w.AppendEvent(ctx, taskID, routing.RouteDecisionType, payload); err == nil {
+			e.bus.PublishEvent(ev)
+		}
+	}
+}
+
+// emitRouteFallback appends a route_fallback event to the task event log.
+func (e *Engine) emitRouteFallback(ctx context.Context, taskID string, f routing.Failure, next routing.Decision) {
+	d := routing.RouteDecision{
+		Type:      routing.RouteFallbackType,
+		Team:      next.Team,
+		Objective: next.Objective,
+		Phase:     next.Phase,
+		Agent:     next.Agent,
+		Provider:  next.Provider,
+		Model:     next.Model,
+		Tier:      next.Tier,
+		Reason:    next.Reason,
+		Skipped:   next.Skipped,
+		FallbackFrom: &routing.FallbackSource{
+			Provider: f.Provider,
+			Model:    f.Model,
+			Class:    string(f.Class),
+			Message:  f.Message,
+		},
+	}
+	payload, err := json.Marshal(d)
+	if err != nil {
+		return
+	}
+	if w := e.eventWriter(); w != nil {
+		if ev, err := w.AppendEvent(ctx, taskID, routing.RouteFallbackType, payload); err == nil {
+			e.bus.PublishEvent(ev)
+		}
+	}
+}
+
+// startWorkerWithFallback starts a worker with provider/model fallback support.
+// When the worker fails to start with a transient/quota error and the step has
+// routing metadata (Phase, Provider), it calls routingResolver.Next() to find
+// an alternative provider/model and retries up to maxAttempts times.
+func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t store.Task, step DelegateStep, brief string, si int) (adapter.RunHandle, adapter.ExecutionRef, []string, error) {
+	ad, ok := e.runnerFor(step.Agent)
+	if !ok {
+		return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s has no runner", step.Agent)
+	}
+	if ad == nil {
+		return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("agent %s is not available", step.Agent)
+	}
+
+	model := effectiveStepModel(t, step)
+	provider := step.Provider
+	phase := step.Phase
+
+	defaults := e.loadRoutingDefaults()
+	maxAttempts := defaults.MaxAttemptsPerStep
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+
+	var failedProviders []string
+
+	var lastDecision routing.Decision
+	attempt := 0
+
+	for {
+		attempt++
+		execRef := adapter.ExecutionRef{
+			Agent:      step.Agent,
+			Model:      model,
+			Step:       si + 1,
+			ProviderID: provider,
+		}
+		eid, err := e.newID()
+		if err != nil {
+			return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("execution id: %w", err)
+		}
+		execRef.ID = eid
+
+		spec := adapter.TaskSpec{
+			ID:             t.ID,
+			Agent:          step.Agent,
+			Cwd:            t.EffectiveCwd(),
+			Prompt:         brief,
+			Model:          model,
+			SessionRef:     "",
+			PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
+			Execution:      execRef,
+		}
+		if cfg, err := e.resolveProviderCfg(ctx, provider); err != nil {
+			return nil, adapter.ExecutionRef{}, nil, err
+		} else if cfg.BaseURL != "" {
+			spec.ProviderCfg = &cfg
+		}
+		h, err := ad.Start(ctx, spec)
+		if err == nil {
+			return h, execRef, nil, nil
+		}
+
+		if e.routingResolver == nil || phase == "" || provider == "" {
+			return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s failed to start: %w", step.Agent, err)
+		}
+
+		if attempt >= maxAttempts {
+			return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s failed to start after %d attempts: %w", step.Agent, attempt, err)
+		}
+
+		failedProviders = append(failedProviders, provider)
+		failure := routing.ClassifyFailure(err, provider, model)
+		if !routing.IsFallbackSafe(failure.Class) {
+			return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s failed to start (non-retryable): %w", step.Agent, err)
+		}
+
+		prev := lastDecision
+		if prev.Team == "" {
+			sel := parseDispatch(t.Dispatch)
+			prev = routing.Decision{
+				Agent:    step.Agent,
+				Provider: provider,
+				Model:    model,
+				Team:     sel.Team,
+				Phase:    routing.RoutePhase(phase),
+				Objective: func() string {
+					if sel.Objective != "" {
+						return sel.Objective
+					}
+					return "balanced"
+				}(),
+			}
+		}
+
+		next, ok := e.routingResolver.Next(ctx, prev, failure)
+		if !ok {
+			return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s failed to start and no fallback available: %w", step.Agent, err)
+		}
+
+		e.emitRouteFallback(ctx, taskID, failure, next)
+
+		model = next.Model
+		provider = next.Provider
+		lastDecision = next
+	}
+}
+
 // HasAgent reports whether an agent is registered (not necessarily ready).
 func (e *Engine) HasAgent(id string) bool {
 	return e.agents.Has(id)
@@ -384,6 +671,111 @@ func (e *Engine) HasAgent(id string) bool {
 // AgentIDs returns registered agent ids in registry order.
 func (e *Engine) AgentIDs() []string {
 	return e.agents.IDs()
+}
+
+// dispatchSelection is a minimal parse of the raw dispatch JSON.
+type dispatchSelection struct {
+	Mode      string `json:"mode"`
+	Team      string `json:"team,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Objective string `json:"objective,omitempty"`
+}
+
+// shouldAutoRoute reports whether the task has a valid auto dispatch
+// selection and the prompt looks like a coding task.
+func (e *Engine) shouldAutoRoute(t store.Task) bool {
+	var sel dispatchSelection
+	if len(t.Dispatch) > 0 {
+		if err := json.Unmarshal(t.Dispatch, &sel); err != nil {
+			return false
+		}
+	}
+	// When dispatch is absent or empty, fall back to routing.defaults.
+	if sel.Mode == "" || sel.Team == "" {
+		if e.store != nil {
+			defaults := e.loadRoutingDefaults()
+			if defaults.Enabled && defaults.DefaultTeam != "" {
+				sel.Mode = "auto"
+				sel.Team = defaults.DefaultTeam
+				sel.Objective = defaults.Objective
+			}
+		}
+	}
+	if !LooksLikeCodingTask(UserTurnPrompt(t.Prompt)) {
+		return false
+	}
+	return sel.Mode == "auto" && sel.Team != ""
+}
+
+// loadRoutingDefaults reads the routing defaults setting from the store.
+func (e *Engine) loadRoutingDefaults() routing.RoutingDefaults {
+	raw, err := e.store.GetSetting(context.Background(), "routing.defaults")
+	if err != nil {
+		return routing.DefaultRoutingDefaults()
+	}
+	if raw == "" {
+		return routing.DefaultRoutingDefaults()
+	}
+	var d routing.RoutingDefaults
+	if err := json.Unmarshal([]byte(raw), &d); err != nil {
+		return routing.DefaultRoutingDefaults()
+	}
+	return d
+}
+
+// parseDispatch parses the raw dispatch JSON and returns the selection.
+func parseDispatch(raw json.RawMessage) dispatchSelection {
+	if len(raw) == 0 {
+		return dispatchSelection{}
+	}
+	var sel dispatchSelection
+	_ = json.Unmarshal(raw, &sel)
+	return sel
+}
+
+// validateManualDispatch validates a manual dispatch selection against
+// routing profiles. It checks that the provider exists, supports the agent,
+// and lists the model.
+func (e *Engine) validateManualDispatch(ctx context.Context, sel dispatchSelection, taskID string) error {
+	if sel.Provider == "" || sel.Agent == "" {
+		return fmt.Errorf("manual dispatch: provider and agent are required")
+	}
+	if e.routingResolver == nil {
+		return nil
+	}
+	prof, err := e.routingResolver.LookupProvider(ctx, sel.Provider)
+	if err != nil {
+		return fmt.Errorf("manual dispatch: %w", err)
+	}
+	if !prof.Enabled {
+		return fmt.Errorf("manual dispatch: provider %q is disabled", sel.Provider)
+	}
+	if !routing.ProviderSupportsAgent(prof, sel.Agent) {
+		return fmt.Errorf("manual dispatch: provider %q does not support agent %q", sel.Provider, sel.Agent)
+	}
+	if sel.Model != "" {
+		modelFound := false
+		for _, m := range prof.Models {
+			if m.ID == sel.Model {
+				modelFound = true
+				break
+			}
+		}
+		if !modelFound {
+			return fmt.Errorf("manual dispatch: model %q is not listed under provider %q", sel.Model, sel.Provider)
+		}
+	}
+	// Emit route_decision for audit.
+	e.emitRouteDecision(ctx, taskID, routing.RouteDecision{
+		Type:     routing.RouteDecisionType,
+		Agent:    sel.Agent,
+		Provider: sel.Provider,
+		Model:    sel.Model,
+		Reason:   "manual dispatch",
+	})
+	return nil
 }
 
 // runnerFor returns the run adapter for id if registered.
@@ -415,6 +807,28 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	if req.Prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
 	}
+
+	// Parse dispatch selection and apply it to the request.
+	sel := parseDispatch(req.Dispatch)
+	switch sel.Mode {
+	case "manual":
+		// Manual dispatch: validate provider/agent/model matrix.
+		if sel.Agent != "" {
+			req.Agent = sel.Agent
+		}
+		if sel.Model != "" {
+			req.Model = &sel.Model
+		}
+		if sel.Provider == "" {
+			return store.Task{}, fmt.Errorf("manual dispatch requires a provider")
+		}
+	case "auto":
+		// Auto dispatch: keep the existing agent selection; the team and
+		// objective will be resolved by shouldAutoRoute at startOne time.
+	default:
+		// No dispatch or unknown mode: keep existing behavior.
+	}
+
 	if req.Agent == "" {
 		req.Agent = e.DefaultAgentContext(ctx)
 		if req.Agent == "" {
@@ -463,6 +877,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		CreatedAt:      now,
 		ProjectID:      projectID,
 		RoutineID:      strings.TrimSpace(req.RoutineID),
+		Dispatch:       req.Dispatch,
 	}
 
 	// Resolve workspace mode and policy.
@@ -516,6 +931,14 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	if err := e.store.InsertTask(ctx, t); err != nil {
 		e.cleanupPreparedWorkspace(id, meta)
 		return store.Task{}, err
+	}
+	// Validate manual dispatch against provider profiles after task ID is created.
+	if sel.Mode == "manual" {
+		if err := e.validateManualDispatch(ctx, sel, id); err != nil {
+			e.cleanupPreparedWorkspace(id, meta)
+			_ = e.store.DeleteTask(ctx, id)
+			return store.Task{}, err
+		}
 	}
 	if t.ProjectID != "" {
 		_ = e.store.TouchProjectActivity(ctx, t.ProjectID)
@@ -922,6 +1345,28 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 
+	// Auto routing: when routing is enabled with a valid auto dispatch,
+	// resolve each phase through the routing resolver and build a
+	// DelegatePlan that uses the team's phase agents.
+	if e.shouldAutoRoute(t) {
+		if e.routingResolver == nil {
+			// No resolver configured: fall back to single-agent path.
+		} else {
+			plan, decisions, err := e.resolveAutoRoute(ctx, t)
+			if err != nil {
+				_, _ = e.failStart(ctx, id, fmt.Sprintf("auto routing failed: %v", err))
+				return
+			}
+			if len(plan.Steps) > 0 {
+				for _, d := range decisions {
+					e.emitRouteDecision(ctx, t.ID, d)
+				}
+				e.runOrchestrated(id, t, plan)
+				return
+			}
+		}
+	}
+
 	// Bare single-agent turn with NL "smart plan / cheap exec": expand into a
 	// same-agent two-step plan (plan worker then exec worker) so models switch
 	// without requiring explicit @mentions.
@@ -1033,6 +1478,11 @@ func (e *Engine) startOne(id string) {
 		PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 		Execution:      execRef,
 		RunMeta:        runMeta,
+	}
+	if sel := parseDispatch(t.Dispatch); sel.Provider != "" {
+		if cfg, err := e.resolveProviderCfg(ctx, sel.Provider); err == nil && cfg.BaseURL != "" {
+			spec.ProviderCfg = &cfg
+		}
 	}
 
 	// Preflight: if subscription window is already exhausted, fail with limit_hit

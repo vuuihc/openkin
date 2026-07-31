@@ -30,6 +30,8 @@ type usagePayload struct {
 	InputSemantics        string   `json:"input_semantics"`
 	CostUSD               *float64 `json:"cost_usd"`
 	CostSource            string   `json:"cost_source"`
+	// ProviderID is set by the event stamping layer for routing attribution.
+	ProviderID string `json:"provider_id,omitempty"`
 }
 
 // NormalizeUsage converts a canonical adapter usage payload into the stable
@@ -54,6 +56,10 @@ func NormalizeUsage(defaultAgent, defaultModel string, raw json.RawMessage) (sto
 	}
 	if source := strings.TrimSpace(payload.Source); source != "" {
 		record.Provider = &source
+	}
+	// Prefer provider_id from event stamping (routing attribution) over source.
+	if pid := strings.TrimSpace(payload.ProviderID); pid != "" {
+		record.Provider = &pid
 	}
 	if model := firstUsageString(payload.Model, defaultModel); model != "" {
 		record.Model = &model

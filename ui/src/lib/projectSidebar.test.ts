@@ -133,7 +133,7 @@ describe("groupByProject", () => {
     // All succeeded, so sorted by activity desc (finished_at)
     expect(groups[0].items.map((x) => x.id)).toEqual(["newer-run", "mid", "older-open"]);
 
-    // Opening older-open should float it above server activity.
+    // Opening a session should NOT reorder it; sort stays by finished_at desc.
     const afterOpen = groupByProject(sameProject, {
       sortMode: "active",
       pinned: [],
@@ -141,7 +141,7 @@ describe("groupByProject", () => {
       lastInteracted: {},
       sessionLastInteracted: { "older-open": 999 },
     });
-    expect(afterOpen[0].items.map((x) => x.id)).toEqual(["older-open", "newer-run", "mid"]);
+    expect(afterOpen[0].items.map((x) => x.id)).toEqual(["newer-run", "mid", "older-open"]);
   });
 
   it("taskActivityAt prefers local session last-interact over server timestamps", () => {
@@ -186,8 +186,9 @@ describe("groupByProject", () => {
       archived: [],
       lastInteracted: {},
     });
-    // Active projects first (/active, /pending), then idle (/idle)
-    expect(groups.map((g) => g.cwd)).toEqual(["/active", "/pending", "/idle"]);
+    // Active projects first; within that tier, higher lastInteractedAt wins
+    // (/pending created_at=150 > /active created_at=100), then idle.
+    expect(groups.map((g) => g.cwd)).toEqual(["/pending", "/active", "/idle"]);
   });
 
   it("active mode falls back to recency when no active tasks", () => {

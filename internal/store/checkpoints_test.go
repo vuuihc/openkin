@@ -207,7 +207,8 @@ CREATE TABLE tasks (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER,
-  permission_mode TEXT NOT NULL DEFAULT 'default'
+  permission_mode TEXT NOT NULL DEFAULT 'default',
+  dispatch TEXT
 );
 CREATE TABLE events (
   task_id TEXT NOT NULL REFERENCES tasks(id),

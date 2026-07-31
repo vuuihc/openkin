@@ -146,6 +146,21 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = spec.Cwd
 	cmd.Env = os.Environ()
+	// Inject provider-specific env vars when routing selected a specific provider.
+	if spec.ProviderCfg != nil && spec.ProviderCfg.BaseURL != "" {
+		switch spec.ProviderCfg.Kind {
+		case "anthropic-compatible":
+			cmd.Env = append(cmd.Env, "ANTHROPIC_BASE_URL="+spec.ProviderCfg.BaseURL)
+			if spec.ProviderCfg.APIKey != "" {
+				cmd.Env = append(cmd.Env, "ANTHROPIC_API_KEY="+spec.ProviderCfg.APIKey)
+			}
+		case "openai-compatible":
+			cmd.Env = append(cmd.Env, "OPENAI_BASE_URL="+spec.ProviderCfg.BaseURL)
+			if spec.ProviderCfg.APIKey != "" {
+				cmd.Env = append(cmd.Env, "OPENAI_API_KEY="+spec.ProviderCfg.APIKey)
+			}
+		}
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
@@ -233,6 +248,9 @@ func writeMCPConfig(kinBin, taskID, daemonURL, token string, exec adapter.Execut
 	}
 	if model := strings.TrimSpace(exec.Model); model != "" {
 		env["KIN_EXECUTION_MODEL"] = model
+	}
+	if provider := strings.TrimSpace(exec.ProviderID); provider != "" {
+		env["KIN_PROVIDER_ID"] = provider
 	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{

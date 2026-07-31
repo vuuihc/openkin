@@ -427,6 +427,38 @@ export function buildChatItems(
       case "limit_hit":
         // Rendered as LimitCard in TaskDetailPage, not as transcript text.
         break;
+      case "route_decision":
+        flushStream();
+        streamNoteKey = null;
+        progressRef.current = null;
+        {
+          const team = typeof p.team === "string" ? p.team : "";
+          const phase = typeof p.phase === "string" ? p.phase : "";
+          const prov = typeof p.provider === "string" ? p.provider : "";
+          const mdl = typeof p.model === "string" ? p.model : "";
+          items.push({
+            kind: "meta",
+            key: `rd-${ev.seq}`,
+            label: `Routing: ${phase} → ${prov}/${mdl}${team ? ` (team: ${team})` : ""}`,
+          });
+        }
+        break;
+      case "route_fallback":
+        flushStream();
+        streamNoteKey = null;
+        progressRef.current = null;
+        {
+          const prov = typeof p.provider === "string" ? p.provider : "";
+          const mdl = typeof p.model === "string" ? p.model : "";
+          const from = p.fallback_from as Record<string, string> | undefined;
+          const fromStr = from ? `${from.provider}/${from.model}` : "unknown";
+          items.push({
+            kind: "meta",
+            key: `rf-${ev.seq}`,
+            label: `Fallback: ${fromStr} → ${prov}/${mdl}`,
+          });
+        }
+        break;
       default:
         // Workspace lifecycle events (workspace_provisioning, workspace_ready, etc.)
         if (typeof ev.type === "string" && ev.type.startsWith("workspace_")) {

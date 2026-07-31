@@ -135,7 +135,8 @@ CREATE TABLE tasks (
   workspace_scope TEXT,
   workspace_base_oid TEXT,
   workspace_branch TEXT,
-  project_id TEXT
+  project_id TEXT,
+  dispatch TEXT
 );
 CREATE TABLE approvals (
   id          TEXT PRIMARY KEY,

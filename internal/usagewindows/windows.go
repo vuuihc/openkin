@@ -15,6 +15,7 @@ package usagewindows
 import (
 	"context"
 	"sync"
+	"strings"
 	"time"
 )
 
@@ -134,4 +135,63 @@ func (s *Service) status(ctx context.Context, p Prober) Provider {
 		s.mu.Unlock()
 	}
 	return prov
+}
+
+// IsExhausted reports whether the given provider's subscription window is
+// exhausted. It maps routing provider IDs to the corresponding prober and
+// checks whether any window is over 100%. This is a best-effort check; false
+// means the window is either not exhausted or the check failed.
+func (s *Service) IsExhausted(ctx context.Context, providerID, agentID, kind string) bool {
+	// Map routing provider IDs to prober IDs.
+	proberID := providerToProberID(providerID, kind)
+	if proberID == "" {
+		return false
+	}
+	prov := s.status(ctx, &proberByID{id: proberID, probers: s.probers})
+	if prov.Error != "" {
+		return false
+	}
+	for _, w := range prov.Windows {
+		if w.Status == "over" {
+			return true
+		}
+	}
+	return false
+}
+
+// providerToProberID maps routing provider IDs to usage window prober IDs.
+func providerToProberID(providerID, kind string) string {
+	// Kind-based mapping provides more accurate prober identification.
+	switch kind {
+	case "subscription", "anthropic-compatible":
+		return "claude"
+	case "openai-compatible":
+		return "codex"
+	}
+	// Fall back to prefix-based mapping for unknown kinds.
+	switch {
+	case strings.HasPrefix(providerID, "claude"):
+		return "claude"
+	case strings.HasPrefix(providerID, "codex"):
+		return "codex"
+	default:
+		return ""
+	}
+}
+
+// proberByID is a synthetic Prober that looks up a cached prober by ID.
+type proberByID struct {
+	id      string
+	probers []Prober
+}
+
+func (p *proberByID) ID() string { return p.id }
+
+func (p *proberByID) Probe(ctx context.Context) (Provider, error) {
+	for _, pr := range p.probers {
+		if pr.ID() == p.id {
+			return pr.Probe(ctx)
+		}
+	}
+	return Provider{}, nil
 }

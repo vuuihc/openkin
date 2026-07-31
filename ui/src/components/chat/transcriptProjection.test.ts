@@ -530,40 +530,67 @@ describe("mergeProcessRuns", () => {
     return { kind: "message", key, speaker: "kin", text, partial };
   }
 
-  it("merges a run of progress + narration messages, keeping the final reply separate", () => {
+  function progressWithNotes(key: string, notes: string[]): ProgressItem {
+    return {
+      kind: "progress",
+      key,
+      speaker: "kin",
+      steps: [
+        { kind: "tool", key: `${key}-t1`, speaker: "kin", name: "bash", summary: "bash", status: "done" as const },
+        ...notes.map((text, i) => ({
+          kind: "note" as const,
+          key: `${key}-n${i}`,
+          speaker: "kin",
+          text,
+          status: "done" as const,
+        })),
+        { kind: "tool", key: `${key}-t2`, speaker: "kin", name: "read", summary: "read", status: "done" as const },
+      ],
+    };
+  }
+
+  it("expands narration notes into messages and keeps tool blocks as progress", () => {
+    // Product behavior (note-group split): a single progress card that mixed
+    // tools + narration becomes interleaved message/progress items so host
+    // narration stays readable next to worker tool runs.
     const items: ChatItem[] = [
-      progress("p1"),
-      message("m1", "Plan loaded."),
-      progress("p2"),
-      message("m2", "Implementing changes."),
+      progressWithNotes("p1", ["Plan loaded.", "Implementing changes."]),
       message("final", "Here is the summary."),
     ];
 
     const merged = mergeProcessRuns(items);
 
-    expect(merged).toHaveLength(2);
-    expect(merged[0].kind).toBe("progress");
-    const mergedProgress = merged[0] as ProgressItem;
-    expect(mergedProgress.steps.map((s) => s.kind)).toEqual([
-      "tool",
-      "note",
-      "tool",
-      "note",
+    expect(merged.map((x) => x.kind)).toEqual([
+      "progress",
+      "message",
+      "message",
+      "progress",
+      "message",
     ]);
-    expect(mergedProgress.steps[1]).toMatchObject({
-      kind: "note",
-      text: "Plan loaded.",
+    expect(merged[1]).toMatchObject({ kind: "message", text: "Plan loaded." });
+    expect(merged[2]).toMatchObject({
+      kind: "message",
+      text: "Implementing changes.",
     });
-    expect(merged[1]).toMatchObject({
+    expect(merged[4]).toMatchObject({
       kind: "message",
       text: "Here is the summary.",
     });
+    const firstTools = merged[0] as ProgressItem;
+    expect(firstTools.steps.every((s) => s.kind === "tool")).toBe(true);
   });
 
-  it("leaves a single progress card untouched", () => {
+  it("rewrites a single tool-only progress card key without changing shape", () => {
     const items: ChatItem[] = [progress("p1"), message("final", "done")];
     const merged = mergeProcessRuns(items);
-    expect(merged).toEqual(items);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({
+      kind: "progress",
+      key: "toolgrp-p1-t",
+      speaker: "kin",
+    });
+    expect((merged[0] as ProgressItem).steps).toEqual((items[0] as ProgressItem).steps);
+    expect(merged[1]).toEqual(items[1]);
   });
 
   it("does not merge across a user message", () => {
@@ -578,10 +605,17 @@ describe("mergeProcessRuns", () => {
     const merged = mergeProcessRuns(items);
     expect(merged[0]).toMatchObject({ kind: "message", speaker: "user" });
     expect(merged[1].kind).toBe("progress");
-    expect(merged[2]).toMatchObject({ kind: "message", text: "done" });
+    // Interleaved agent messages stay as messages (not folded into progress).
+    expect(merged.map((x) => (x.kind === "message" ? x.text : x.kind))).toEqual([
+      "hi",
+      "progress",
+      "working",
+      "progress",
+      "done",
+    ]);
   });
 
-  it("keeps a still-streaming trailing message live instead of merging it", () => {
+  it("keeps a still-streaming trailing message live instead of folding it", () => {
     const items: ChatItem[] = [
       progress("p1"),
       message("m1", "working"),
@@ -589,7 +623,161 @@ describe("mergeProcessRuns", () => {
     ];
 
     const merged = mergeProcessRuns(items);
-    expect(merged).toHaveLength(2);
-    expect(merged[1]).toMatchObject({ key: "live", partial: true });
+    expect(merged).toHaveLength(3);
+    expect(merged[0].kind).toBe("progress");
+    expect(merged[1]).toMatchObject({ key: "m1", text: "working", partial: false });
+    expect(merged[2]).toMatchObject({ key: "live", partial: true });
+  });
+
+  it("merges consecutive progress cards then splits notes inside", () => {
+    const a: ProgressItem = {
+      kind: "progress",
+      key: "a",
+      speaker: "kin",
+      steps: [
+        { kind: "tool", key: "a-t", speaker: "kin", name: "bash", summary: "bash", status: "done" },
+        { kind: "note", key: "a-n", speaker: "kin", text: "mid note", status: "done" },
+      ],
+    };
+    const b: ProgressItem = {
+      kind: "progress",
+      key: "b",
+      speaker: "kin",
+      steps: [
+        { kind: "tool", key: "b-t", speaker: "kin", name: "read", summary: "read", status: "done" },
+      ],
+    };
+    const merged = mergeProcessRuns([a, b, message("final", "done")]);
+    // Consecutive progresses merge first (a steps + b steps), then expand:
+    // tool(a) | note → message | tool(b) | final message
+    expect(merged.map((x) => x.kind)).toEqual([
+      "progress",
+      "message",
+      "progress",
+      "message",
+    ]);
+    expect(merged[1]).toMatchObject({ kind: "message", text: "mid note" });
+    expect(merged[3]).toMatchObject({ text: "done" });
+  });
+
+  // -- Route event rendering (US2, US6, US7: route_decision / route_fallback) --
+
+  it("renders route_decision as a meta item with phase, provider, model, and team", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "route_decision", {
+          phase: "execute",
+          provider: "prov-a",
+          model: "a-smart-1",
+          team: "t1",
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "meta",
+        key: "rd-1",
+        label: "Routing: execute → prov-a/a-smart-1 (team: t1)",
+      },
+    ]);
+  });
+
+  it("renders route_decision without team when team is missing", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "route_decision", {
+          phase: "plan",
+          provider: "prov-b",
+          model: "b-fast",
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "meta",
+        key: "rd-1",
+        label: "Routing: plan → prov-b/b-fast",
+      },
+    ]);
+  });
+
+  it("renders route_fallback as a meta item with source and destination", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "route_fallback", {
+          provider: "prov-b",
+          model: "b-smart",
+          fallback_from: { provider: "prov-a", model: "a-smart-1" },
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "meta",
+        key: "rf-1",
+        label: "Fallback: prov-a/a-smart-1 → prov-b/b-smart",
+      },
+    ]);
+  });
+
+  it("renders route_fallback with unknown source when fallback_from is missing", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "route_fallback", {
+          provider: "prov-c",
+          model: "c-free",
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "meta",
+        key: "rf-1",
+        label: "Fallback: unknown → prov-c/c-free",
+      },
+    ]);
+  });
+
+  it("route events flush the stream and do not leave a dangling progress", () => {
+    // A route_decision between two assistant messages should flush the
+    // streaming partial and appear as a standalone meta item.
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "partial",
+          partial: true,
+        }),
+        ev(2, "route_decision", {
+          phase: "review",
+          provider: "prov-a",
+          model: "a-smart-1",
+        }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "final answer",
+          partial: false,
+        }),
+      ],
+      "kin",
+    );
+
+    // Note: route_decision's flushStream only clears streaming progress buffers,
+    // not standalone message partials. The partial remains partial.
+    expect(items).toMatchObject([
+      { kind: "message", text: "partial" },
+      { kind: "meta", key: "rd-2", label: "Routing: review → prov-a/a-smart-1" },
+      { kind: "message", text: "final answer" },
+    ]);
   });
 });

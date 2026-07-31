@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 13
+const schemaVersion = 14
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -36,7 +36,8 @@ CREATE TABLE tasks (
   routine_id TEXT,
   routine_noteworthy INTEGER NOT NULL DEFAULT 0,
   routine_tldr TEXT NOT NULL DEFAULT '',
-  routine_unread INTEGER NOT NULL DEFAULT 0
+  routine_unread INTEGER NOT NULL DEFAULT 0,
+  dispatch TEXT
 );
 
 CREATE TABLE events (
@@ -843,7 +844,6 @@ WHERE workspace_id = '' AND EXISTS (
 )
 `)
 
-
 		if _, err := tx.Exec(`PRAGMA user_version = 13`); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("set user_version: %w", err)
@@ -851,6 +851,35 @@ WHERE workspace_id = '' AND EXISTS (
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 013: %w", err)
 		}
+		v = 13
+	}
+
+	if v == 13 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 014: %w", err)
+		}
+		// Add dispatch column to tasks table for auto model routing.
+		var n int
+		err = tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'dispatch'`).Scan(&n)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check dispatch column: %w", err)
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN dispatch TEXT`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add dispatch column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 14`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 014: %w", err)
+		}
+		v = 14
 	}
 
 	return nil

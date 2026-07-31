@@ -5,6 +5,7 @@ import {
   createRoutine,
   createTask,
   findProjectByRoot,
+  getRoutingOptions,
   listAgents,
   recentCwds,
   type AgentInfo,
@@ -16,6 +17,7 @@ import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import AgentModelPicker from "../components/chat/AgentModelPicker";
+import { DispatchSelector, defaultDispatchSelection, isDispatchReady, type DispatchSelection } from "../components/chat/DispatchSelector";
 import { IconRoutines } from "../components/icons";
 import RoutineScheduleFields, {
   defaultNextRunLocal,
@@ -70,7 +72,9 @@ export default function NewChatPage() {
 
   const [selectedModel, setSelectedModel] = useState("");
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [selectedHost, setSelectedHost] = useState<string>("");
+  const [selectedHost, setSelectedHost] = useState("");
+  const [dispatch, setDispatch] = useState<DispatchSelection>(defaultDispatchSelection);
+  const [dispatchPreviewBlocked, setDispatchPreviewBlocked] = useState(false);
   const [sending, setSending] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
   const [projectSummary, setProjectSummary] =
@@ -95,6 +99,13 @@ export default function NewChatPage() {
           if (next) setDraftCwd(next);
           return next;
         });
+      })
+      .catch(() => undefined);
+    getRoutingOptions()
+      .then((opts) => {
+        if (opts.defaults.enabled && opts.defaults.default_team) {
+          setDispatch({ mode: "auto", team: opts.defaults.default_team, objective: opts.defaults.objective || "balanced" });
+        }
       })
       .catch(() => undefined);
   }, []);
@@ -262,6 +273,15 @@ export default function NewChatPage() {
 
     // Keep full raw prompt so backend can parse multi-@ plans.
     const prompt = raw;
+
+    // Validate dispatch selection before submitting.
+    const dispatchReady = isDispatchReady(dispatch, dispatchPreviewBlocked);
+    if (dispatch.mode && !dispatchReady) {
+      pushToast(tr("newChat.dispatchIncomplete"), "error");
+      setSending(false);
+      return;
+    }
+
     setSending(true);
     setDraftPrompt(raw);
     try {
@@ -272,6 +292,7 @@ export default function NewChatPage() {
         permission_mode: permissionMode,
         project_id: project?.id,
         ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
+        ...(dispatchReady ? { dispatch: { mode: dispatch.mode, team: dispatch.team, objective: dispatch.objective, agent: dispatch.agent, provider: dispatch.provider, model: dispatch.model } } : {}),
       });
       clearDraftPrompt();
       navigate(`/tasks/${task.id}`, { replace: true });
@@ -418,7 +439,7 @@ export default function NewChatPage() {
                   key={mainAgentId}
                   agents={available}
                   agentValue={mainAgentId}
-                  onAgentChange={(id) => {
+                  onAgentChange={(id: string) => {
                     setSelectedHost(id);
                     setSelectedModel("");
                   }}
@@ -426,6 +447,15 @@ export default function NewChatPage() {
                   models={modelsForAgent(available, mainAgentId)}
                   disabled={sending}
                   onModelChange={setSelectedModel}
+                />
+                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                  ·
+                </span>
+                <DispatchSelector
+                  value={dispatch}
+                  onChange={setDispatch}
+                  disabled={sending}
+                  onPreviewBlocked={setDispatchPreviewBlocked}
                 />
               </>
             )}

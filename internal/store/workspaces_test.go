@@ -51,7 +51,8 @@ CREATE TABLE tasks (
   routine_id TEXT,
   routine_noteworthy INTEGER NOT NULL DEFAULT 0,
   routine_tldr TEXT NOT NULL DEFAULT '',
-  routine_unread INTEGER NOT NULL DEFAULT 0
+  routine_unread INTEGER NOT NULL DEFAULT 0,
+  dispatch TEXT
 );
 
 CREATE TABLE events (
@@ -143,8 +144,8 @@ CREATE TABLE task_checkpoints (
 	if err := s.DB().QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 13 {
-		t.Fatalf("user_version=%d want 13", v)
+	if v != 14 {
+		t.Fatalf("user_version=%d want 14", v)
 	}
 
 	// Worktree task: must have legacy_pending generation and worktree policy

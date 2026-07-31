@@ -90,6 +90,20 @@ func TestHealthAndTasks(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("health status %d", rr.Code)
 	}
+	var health map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &health); err != nil {
+		t.Fatalf("health json: %v body %s", err, rr.Body.String())
+	}
+	if health["ok"] != true {
+		t.Fatalf("health ok=%v", health["ok"])
+	}
+	if _, ok := health["bus_overflow"]; !ok {
+		t.Fatalf("health missing bus_overflow: %v", health)
+	}
+	// JSON numbers decode as float64.
+	if n, ok := health["bus_overflow"].(float64); !ok || n < 0 {
+		t.Fatalf("bus_overflow=%v (%T)", health["bus_overflow"], health["bus_overflow"])
+	}
 
 	rr = httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/tasks", nil))

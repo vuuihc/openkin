@@ -21,7 +21,12 @@ dev:
 test:
 	go test ./...
 	go vet ./...
-	cd ui && npm install && npx tsc --noEmit
+	cd ui && npm install && npx tsc --noEmit && npm test
+
+# Offline durable-log gate: seq gaps / empty transcripts / approval attribution.
+# Default DB: ~/.kin/kin.db  (override: make stream-health KIN_DB=/path)
+stream-health:
+	./scripts/stream-health-check.sh
 
 # --- Desktop shell (Electron; macOS arm64 only) ---
 # Dev: uses repo-root ./kin as sidecar. Does not package.

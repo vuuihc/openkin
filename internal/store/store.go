@@ -98,6 +98,9 @@ type Task struct {
 	RoutineNoteworthy bool   `json:"routine_noteworthy"`
 	RoutineTLDR       string `json:"routine_tldr,omitempty"`
 	RoutineUnread     bool   `json:"routine_unread"`
+
+	// Optional dispatch selection for auto model routing.
+	Dispatch json.RawMessage `json:"dispatch,omitempty"`
 }
 
 // EffectiveCwd returns the path adapters and workspace file APIs should use.
@@ -250,6 +253,7 @@ func scanTask(scanner interface {
 	var routineID sql.NullString
 	var routineNoteworthy, routineUnread int
 	var routineTLDR sql.NullString
+	var dispatch sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
 		&model, &sessionRef, &permissionMode, &t.Status,
@@ -259,6 +263,7 @@ func scanTask(scanner interface {
 		&workspaceScope, &baseOID, &branch, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 		&t.WorkspacePolicy, &t.CurrentWorkspaceID,
+		&dispatch,
 	); err != nil {
 		return Task{}, err
 	}
@@ -322,10 +327,13 @@ func scanTask(scanner interface {
 	if finishedAt.Valid {
 		t.FinishedAt = &finishedAt.Int64
 	}
+	if dispatch.Valid && dispatch.String != "" {
+		t.Dispatch = json.RawMessage(dispatch.String)
+	}
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, dispatch`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -512,8 +520,8 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
 			workspace_scope, workspace_base_oid, workspace_branch, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
-			workspace_policy, current_workspace_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			workspace_policy, current_workspace_id, dispatch
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -522,11 +530,21 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
 		t.WorkspacePolicy, t.CurrentWorkspaceID,
+		dispatchJSON(t.Dispatch),
 	)
 	if err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}
 	return nil
+}
+
+// dispatchJSON converts a json.RawMessage to a value suitable for SQL.
+// nil or empty returns nil (SQL NULL); otherwise returns the string.
+func dispatchJSON(d json.RawMessage) any {
+	if len(d) == 0 {
+		return nil
+	}
+	return string(d)
 }
 
 // TaskPatch is a partial update applied by the engine.
@@ -1087,7 +1105,9 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 type UsageRow struct {
 	Date  string `json:"date"` // YYYY-MM-DD (UTC)
 	Agent string `json:"agent"`
-	Tasks int    `json:"tasks"`
+	// Provider is the runtime provider id for routing attribution.
+	Provider string `json:"provider,omitempty"`
+	Tasks    int    `json:"tasks"`
 	UsageTotals
 }
 
@@ -1152,7 +1172,7 @@ func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) 
 		return nil, fmt.Errorf("usage summary: %w", err)
 	}
 	defer rows.Close()
-	type aggregateKey struct{ date, agent string }
+	type aggregateKey struct{ date, agent, provider string }
 	aggregates := map[aggregateKey]*usageAccumulator{}
 	tasksByKey := map[aggregateKey]map[string]struct{}{}
 	for rows.Next() {
@@ -1160,7 +1180,11 @@ func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) 
 		if err != nil {
 			return nil, fmt.Errorf("scan usage: %w", err)
 		}
-		key := aggregateKey{date: usageDate(r.OccurredAt), agent: r.Agent}
+		prov := ""
+		if r.Provider != nil {
+			prov = *r.Provider
+		}
+		key := aggregateKey{date: usageDate(r.OccurredAt), agent: r.Agent, provider: prov}
 		if aggregates[key] == nil {
 			aggregates[key] = &usageAccumulator{}
 			tasksByKey[key] = map[string]struct{}{}
@@ -1194,7 +1218,7 @@ func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) 
 		if err := legacyRows.Scan(&id, &agent, &in, &out, &cost, &created); err != nil {
 			return nil, fmt.Errorf("scan legacy usage task: %w", err)
 		}
-		key := aggregateKey{date: usageDate(created), agent: agent}
+		key := aggregateKey{date: usageDate(created), agent: agent, provider: ""}
 		if aggregates[key] == nil {
 			aggregates[key] = &usageAccumulator{}
 			tasksByKey[key] = map[string]struct{}{}
@@ -1209,10 +1233,13 @@ func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) 
 	out := make([]UsageRow, 0, len(aggregates))
 	for key, aggregate := range aggregates {
 		totals := aggregate.totals()
-		out = append(out, UsageRow{Date: key.date, Agent: key.agent, Tasks: len(tasksByKey[key]), UsageTotals: totals})
+		out = append(out, UsageRow{Date: key.date, Agent: key.agent, Provider: key.provider, Tasks: len(tasksByKey[key]), UsageTotals: totals})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Date == out[j].Date {
+			if out[i].Agent == out[j].Agent {
+				return out[i].Provider < out[j].Provider
+			}
 			return out[i].Agent < out[j].Agent
 		}
 		return out[i].Date > out[j].Date

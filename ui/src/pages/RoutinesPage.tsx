@@ -265,6 +265,7 @@ export default function RoutinesPage() {
   };
 
   return (
+    <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
     <div className="mx-auto max-w-3xl px-4 py-6 md:px-6">
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -426,30 +427,33 @@ export default function RoutinesPage() {
                 )}
               </div>
             ) : (
-              <ul className="space-y-3">
-                {noteworthy.map((run) => (
-                  <RunCard key={run.id} run={run} onMarkRead={onMarkRead} tr={tr} />
-                ))}
-              </ul>
-            )}
-
-            {silent.length > 0 && (
-              <div className="mt-4">
-                <button
-                  type="button"
-                  className="text-[12.5px] text-kin-secondary hover:text-kin-text"
-                  onClick={() => setShowSilent((v) => !v)}
-                >
-                  {showSilent
-                    ? tr("routines.hideSilent", { count: silent.length })
-                    : tr("routines.showSilent", { count: silent.length })}
-                </button>
-                {showSilent && (
-                  <ul className="mt-3 space-y-2 opacity-80">
-                    {silent.map((run) => (
-                      <RunCard key={run.id} run={run} onMarkRead={onMarkRead} tr={tr} quiet />
+              <div className="max-h-[min(360px,42vh)] overflow-y-auto kin-scroll rounded-2xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/30 p-2.5 sm:p-3">
+                {noteworthy.length > 0 && (
+                  <ul className="space-y-2.5">
+                    {noteworthy.map((run) => (
+                      <RunCard key={run.id} run={run} onMarkRead={onMarkRead} tr={tr} />
                     ))}
                   </ul>
+                )}
+                {silent.length > 0 && (
+                  <div className={noteworthy.length > 0 ? "mt-3" : undefined}>
+                    <button
+                      type="button"
+                      className="text-[12.5px] text-kin-secondary hover:text-kin-text"
+                      onClick={() => setShowSilent((v) => !v)}
+                    >
+                      {showSilent
+                        ? tr("routines.hideSilent", { count: silent.length })
+                        : tr("routines.showSilent", { count: silent.length })}
+                    </button>
+                    {showSilent && (
+                      <ul className="mt-3 space-y-2 opacity-80">
+                        {silent.map((run) => (
+                          <RunCard key={run.id} run={run} onMarkRead={onMarkRead} tr={tr} quiet />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -528,6 +532,7 @@ export default function RoutinesPage() {
           </section>
         </>
       )}
+    </div>
     </div>
   );
 }

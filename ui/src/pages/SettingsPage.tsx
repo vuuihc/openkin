@@ -13,10 +13,12 @@ import {
   updateProvider,
   updateSettings,
   type AgentInfo,
+  type ModelSpec,
   type ProviderEntry,
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { RoutingDefaultsSection, RoutingProfilesSection } from "../components/settings/RoutingSettings";
 import { useSlowHint } from "../hooks/useSlowHint";
 import {
   applyTheme,
@@ -56,6 +58,9 @@ export default function SettingsPage() {
   const [provModelOptions, setProvModelOptions] = useState<string[]>([]);
   const [provModelLoading, setProvModelLoading] = useState(false);
   const [provModelError, setProvModelError] = useState<string | null>(null);
+  const [provSupportsAgents, setProvSupportsAgents] = useState("");
+  const [provModels, setProvModels] = useState<ModelSpec[]>([]);
+  const [showRouting, setShowRouting] = useState(false);
   const [agentDefault, setAgentDefault] = useState("");
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +196,9 @@ export default function SettingsPage() {
     setReveal(false);
     setProvModelOptions([]);
     setProvModelError(null);
+    setProvSupportsAgents("");
+    setProvModels([]);
+    setShowRouting(false);
   };
 
   const openEditProvider = (p: ProviderEntry) => {
@@ -204,6 +212,9 @@ export default function SettingsPage() {
     setReveal(false);
     setProvModelOptions([]);
     setProvModelError(null);
+    setProvSupportsAgents((p.supports_agents || []).join(", "));
+    setProvModels(p.models || []);
+    setShowRouting((p.supports_agents?.length || 0) > 0 || (p.models?.length || 0) > 0);
   };
 
   const closeProviderForm = () => {
@@ -256,6 +267,12 @@ export default function SettingsPage() {
         stream: provStream,
         // New entries become active; edits keep current active selection.
         active: editingId === "" ? true : undefined,
+        // Routing fields.
+        supports_agents: provSupportsAgents
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        models: provModels,
       } as Parameters<typeof createProvider>[0];
       if (provKeyDirty) {
         if (!provKey.trim()) {
@@ -617,6 +634,108 @@ export default function SettingsPage() {
                 </span>
               </span>
             </label>
+            {/* Routing section (collapsible) */}
+            <div className="border-t border-[var(--kin-hairline)] pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRouting((v) => !v)}
+                className="flex items-center gap-1 text-xs font-medium text-kin-secondary hover:text-kin-blue"
+              >
+                <span className={`transition-transform ${showRouting ? "rotate-90" : ""}`}>▸</span>
+                {tr("settings.routing.heading")}
+              </button>
+              {showRouting && (
+                <div className="mt-2 space-y-3">
+                  <label className="block space-y-1">
+                    <span className="text-xs font-medium text-kin-secondary">
+                      {tr("settings.routing.supportsAgents")}
+                    </span>
+                    <input
+                      type="text"
+                      value={provSupportsAgents}
+                      onChange={(e) => setProvSupportsAgents(e.target.value)}
+                      className="kin-input min-h-[40px] font-mono text-xs"
+                      placeholder="claude-code, kin, codex"
+                    />
+                    <span className="text-[10px] text-kin-muted">
+                      Comma-separated agent IDs that can use this provider for auto routing
+                    </span>
+                  </label>
+                  {/* Model list for routing */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-kin-secondary">
+                        {tr("settings.routing.models")}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setProvModels([...provModels, { id: "", tier: "balanced", cost_label: "unknown" }])
+                        }
+                        className="text-[11px] text-kin-blue hover:underline"
+                      >
+                        {tr("settings.routing.addModel")}
+                      </button>
+                    </div>
+                    {provModels.map((m, i) => (
+                      <div key={i} className="rounded border border-[var(--kin-hairline)] p-2 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-kin-muted">Model {i + 1}</span>
+                          <button
+                            type="button"
+                            onClick={() => setProvModels(provModels.filter((_, j) => j !== i))}
+                            className="text-[10px] text-kin-red hover:underline"
+                          >
+                            remove
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={m.id}
+                          onChange={(e) => {
+                            const next = [...provModels];
+                            next[i] = { ...next[i], id: e.target.value };
+                            setProvModels(next);
+                          }}
+                          className="kin-input min-h-[32px] text-xs font-mono"
+                          placeholder="claude-sonnet-4-20250514"
+                        />
+                        <div className="flex gap-2">
+                          <select
+                            value={m.tier}
+                            onChange={(e) => {
+                              const next = [...provModels];
+                              next[i] = { ...next[i], tier: e.target.value };
+                              setProvModels(next);
+                            }}
+                            className="kin-input min-h-[32px] text-xs flex-1"
+                          >
+                            <option value="smart">smart</option>
+                            <option value="balanced">balanced</option>
+                            <option value="fast">fast</option>
+                            <option value="free">free</option>
+                          </select>
+                          <select
+                            value={m.cost_label}
+                            onChange={(e) => {
+                              const next = [...provModels];
+                              next[i] = { ...next[i], cost_label: e.target.value };
+                              setProvModels(next);
+                            }}
+                            className="kin-input min-h-[32px] text-xs flex-1"
+                          >
+                            <option value="paid">paid</option>
+                            <option value="company">company</option>
+                            <option value="free">free</option>
+                            <option value="unknown">unknown</option>
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -992,6 +1111,13 @@ export default function SettingsPage() {
           {busy ? tr("settings.saving") : tr("settings.limitPolicy.save")}
         </button>
       </section>
+
+      {/* Auto Model Routing — defaults */}
+      <RoutingDefaultsSection />
+
+      {/* Auto Model Routing — team profiles */}
+      <RoutingProfilesSection />
+
       {/* Agent usage limits */}
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">

@@ -21,11 +21,12 @@ jobs:
           cache: npm
           cache-dependency-path: ui/package-lock.json
 
-      - name: UI install + typecheck + build
+      - name: UI install + typecheck + unit tests + build
         working-directory: ui
         run: |
           npm install
           npx tsc --noEmit
+          npm test
           npx vite build
 
       - name: Go vet

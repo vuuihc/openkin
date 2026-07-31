@@ -173,6 +173,14 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/usage/limits", s.handleUsageLimits)
 		r.Get("/api/usage/windows", s.handleUsageWindows)
+		r.Get("/api/routing/options", s.handleGetRoutingOptions)
+		r.Get("/api/routing/preview", s.handleGetRoutingPreview)
+		r.Get("/api/routing/defaults", s.handleGetRoutingDefaults)
+		r.Put("/api/routing/defaults", s.handlePutRoutingDefaults)
+		r.Get("/api/routing/profiles", s.handleGetRoutingProfiles)
+		r.Put("/api/routing/profiles", s.handlePutRoutingProfiles)
+		r.Get("/api/routing/provider-profiles", s.handleGetProviderProfiles)
+		r.Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
 		r.Post("/api/uploads", s.handleUpload)
 		r.Get("/api/uploads/{name}", s.handleServeUpload)
 		r.Get("/api/artifacts", s.handleListArtifacts)
@@ -259,7 +267,14 @@ func isLoopbackRemote(remote string) bool {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	// ok stays true so process liveness probes remain simple; bus_overflow is a
+	// cumulative counter of slow WS subscribers dropped since process start
+	// (execplan stream observability continuous gate).
+	out := map[string]any{"ok": true, "bus_overflow": uint64(0)}
+	if s.Engine != nil {
+		out["bus_overflow"] = s.Engine.Bus().OverflowCount()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -385,7 +400,13 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	if err := s.validateGenericCLIPermission(r.Context(), req.Agent, req.PermissionMode); err != nil {
+	// Validate permission for the effective agent: manual dispatch may override
+	// req.Agent, so check the dispatch selection first.
+	effectiveAgent := req.Agent
+	if sel := parseDispatchSelection(req.Dispatch); sel.Mode == "manual" && sel.Agent != "" {
+		effectiveAgent = sel.Agent
+	}
+	if err := s.validateGenericCLIPermission(r.Context(), effectiveAgent, req.PermissionMode); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -397,6 +418,21 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// dispatchSelection is a minimal parse of the raw dispatch JSON for permission validation.
+type dispatchSelection struct {
+	Mode  string `json:"mode"`
+	Agent string `json:"agent,omitempty"`
+}
+
+func parseDispatchSelection(raw json.RawMessage) dispatchSelection {
+	if len(raw) == 0 {
+		return dispatchSelection{}
+	}
+	var sel dispatchSelection
+	_ = json.Unmarshal(raw, &sel)
+	return sel
 }
 
 // validateGenericCLIPermission rejects Tier-2 agents under default permission mode.

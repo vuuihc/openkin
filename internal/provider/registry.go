@@ -21,7 +21,17 @@ const (
 	KeyActiveProvider = "provider.active_id"
 )
 
+// ModelSpec describes one model within a provider entry, tagged with tier
+// and cost label for routing decisions.
+type ModelSpec struct {
+	ID        string `json:"id"`
+	Tier      string `json:"tier"`       // smart | balanced | fast | free
+	CostLabel string `json:"cost_label"` // paid | company | free | unknown
+}
+
 // Entry is one registered cognition provider (OpenAI-compatible first).
+// Routing fields (SupportsAgents, Models) are stored alongside runtime config
+// so there is a single source of truth for all provider configuration.
 type Entry struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -31,6 +41,12 @@ type Entry struct {
 	Model   string `json:"model"`
 	// Stream enables SSE transport for Chat (aggregated before return).
 	Stream bool `json:"stream,omitempty"`
+	// Routing fields: agents this provider supports and the model list with
+	// tier/cost metadata for auto model routing decisions.
+	SupportsAgents []string    `json:"supports_agents,omitempty"`
+	Models         []ModelSpec `json:"models,omitempty"`
+	// Enabled controls whether this provider participates in routing.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // PublicEntry is Entry with a masked API key for GET responses.
@@ -43,6 +59,10 @@ type PublicEntry struct {
 	Model   string `json:"model"`
 	Stream  bool   `json:"stream"`
 	Active  bool   `json:"active"`
+	// Routing fields (included so the UI can manage them).
+	SupportsAgents []string    `json:"supports_agents,omitempty"`
+	Models         []ModelSpec `json:"models,omitempty"`
+	Enabled        *bool       `json:"enabled,omitempty"`
 }
 
 // Registry is the persisted multi-provider list plus the active id.
@@ -80,6 +100,28 @@ func (e Entry) Normalize() Entry {
 	if e.Name == "" {
 		e.Name = defaultEntryName(e)
 	}
+	// Normalize routing model specs.
+	normModels := make([]ModelSpec, 0, len(e.Models))
+	for _, m := range e.Models {
+		m.ID = strings.TrimSpace(m.ID)
+		if m.ID == "" {
+			continue
+		}
+		normModels = append(normModels, m)
+	}
+	e.Models = normModels
+	// Deduplicate supports_agents.
+	seen := make(map[string]bool, len(e.SupportsAgents))
+	uniq := make([]string, 0, len(e.SupportsAgents))
+	for _, a := range e.SupportsAgents {
+		a = strings.TrimSpace(a)
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		uniq = append(uniq, a)
+	}
+	e.SupportsAgents = uniq
 	return e
 }
 
@@ -143,14 +185,16 @@ func (r Registry) Public() []PublicEntry {
 	out := make([]PublicEntry, 0, len(r.Entries))
 	for _, e := range r.Entries {
 		out = append(out, PublicEntry{
-			ID:      e.ID,
-			Name:    e.Name,
-			Kind:    e.Kind,
-			BaseURL: e.BaseURL,
-			APIKey:  MaskAPIKey(e.APIKey),
-			Model:   e.Model,
-			Stream:  e.Stream,
-			Active:  e.ID == r.ActiveID,
+			ID:             e.ID,
+			Name:           e.Name,
+			Kind:           e.Kind,
+			BaseURL:        e.BaseURL,
+			APIKey:         MaskAPIKey(e.APIKey),
+			Model:          e.Model,
+			Stream:         e.Stream,
+			Active:         e.ID == r.ActiveID,
+			SupportsAgents: e.SupportsAgents,
+			Models:         e.Models,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

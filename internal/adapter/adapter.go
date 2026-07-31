@@ -36,6 +36,18 @@ type ExecutionRef struct {
 	Step  int    // 1-based plan step; 0 = unset
 	Agent string // agent id for this run (worker or host)
 	Model string // optional model for this run
+	// ProviderID is the resolved provider profile id for routing attribution.
+	ProviderID string `json:"provider_id,omitempty"`
+}
+
+// ProviderConfig carries the resolved provider runtime configuration
+// to the adapter. It is populated from routing provider profiles (via the
+// provider registry) when the engine resolves a ProviderID for a run.
+type ProviderConfig struct {
+	Kind    string // openai-compatible | anthropic-compatible | ...
+	BaseURL string
+	APIKey  string
+	Model   string
 }
 
 // TaskSpec describes a task to start. Fields mirror the tasks table / API.
@@ -52,4 +64,8 @@ type TaskSpec struct {
 	PermissionMode string // default | accept_edits | yolo (see Permission* constants)
 	Execution      ExecutionRef
 	RunMeta        RunMetadata
+	// ProviderCfg is the resolved routing provider config when a specific
+	// provider has been selected via auto/manual routing. When nil, the
+	// adapter should use its default/global provider configuration.
+	ProviderCfg *ProviderConfig
 }

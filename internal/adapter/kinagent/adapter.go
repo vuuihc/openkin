@@ -44,12 +44,32 @@ func New(resolve Resolver) *Adapter {
 
 // Start runs the Kin agent loop for the task prompt.
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
-	if a.Resolve == nil {
-		return nil, fmt.Errorf("kin agent: provider resolver not configured")
-	}
-	client, cfg, err := a.Resolve(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("kin agent: provider: %w", err)
+	var client provider.Client
+	var cfg provider.Config
+	var err error
+
+	// When a routing provider config is specified, use it directly instead of
+	// the global resolver. This makes auto/manual dispatch actually switch
+	// providers at runtime.
+	if spec.ProviderCfg != nil && spec.ProviderCfg.BaseURL != "" {
+		cfg = provider.Config{
+			Kind:    spec.ProviderCfg.Kind,
+			BaseURL: spec.ProviderCfg.BaseURL,
+			APIKey:  spec.ProviderCfg.APIKey,
+			Model:   spec.ProviderCfg.Model,
+		}.Normalize()
+		client, err = provider.NewClient(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("kin agent: provider from routing: %w", err)
+		}
+	} else {
+		if a.Resolve == nil {
+			return nil, fmt.Errorf("kin agent: provider resolver not configured")
+		}
+		client, cfg, err = a.Resolve(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("kin agent: provider: %w", err)
+		}
 	}
 	if client == nil {
 		return nil, fmt.Errorf("kin agent: configure provider in Settings (base_url + model)")
