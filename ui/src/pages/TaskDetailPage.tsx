@@ -85,7 +85,7 @@ import { displayUserPrompt } from "../lib/attachments";
 
 /**
  * Single-column chat: user talks to the session host; @agents are task workers.
- * Main chat column + optional right rail (usage / diffs on xl+).
+ * Main chat column + optional right rail (usage / diffs at 1600px+).
  */
 type TaskDetailPageProps = {
   /** Fixed task id when hosted in a keep-alive cache (Chrome-tab style). */
@@ -964,8 +964,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           </div>
         </div>
 
-        {/* Narrow viewports: keep compact chips so usage/diff stay reachable without the rail. */}
-        <div className="xl:hidden flex-none border-b border-[var(--kin-hairline)]">
+        {/* Below the rail breakpoint: keep compact chips so usage/diff stay reachable without the rail. */}
+        <div className="min-[1600px]:hidden flex-none border-b border-[var(--kin-hairline)]">
           <TaskUsageSummary usage={usage} loading={usageLoading} />
           <ChangedFilesBar
             files={changedFiles}
