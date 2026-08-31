@@ -14,10 +14,12 @@ import (
 
 // scriptedChatClient returns canned ChatResponse values in order.
 type scriptedChatClient struct {
-	mu    sync.Mutex
-	resps []*provider.ChatResponse
-	errs  []error
-	reqs  []provider.ChatRequest
+	mu              sync.Mutex
+	resps           []*provider.ChatResponse
+	errs            []error
+	reqs            []provider.ChatRequest
+	reasoningDeltas [][]string
+	contentDeltas   [][]string
 }
 
 func (s *scriptedChatClient) Chat(ctx context.Context, req provider.ChatRequest) (*provider.ChatResponse, error) {
@@ -28,6 +30,16 @@ func (s *scriptedChatClient) Chat(ctx context.Context, req provider.ChatRequest)
 	var err error
 	if idx < len(s.errs) {
 		err = s.errs[idx]
+	}
+	if idx < len(s.reasoningDeltas) && req.OnReasoningDelta != nil {
+		for _, delta := range s.reasoningDeltas[idx] {
+			req.OnReasoningDelta(delta)
+		}
+	}
+	if idx < len(s.contentDeltas) && req.OnContentDelta != nil {
+		for _, delta := range s.contentDeltas[idx] {
+			req.OnContentDelta(delta)
+		}
 	}
 	if err != nil {
 		return nil, err

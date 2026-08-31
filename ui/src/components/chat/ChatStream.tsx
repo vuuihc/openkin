@@ -22,10 +22,15 @@ import {
   buildChatItems,
   findSpeakerModel,
   groupIntoTurns,
+  isProgressCardRunning,
   mergeProcessRuns,
   normalizeModel,
   prettyToolName,
+  shouldShowGenericThinking,
+  summarizeProgressDetails,
+  summarizeProgressStatus,
   type ChatItem,
+  type NoteStep,
   type ProgressItem,
   type ToolStep,
 } from "./transcriptProjection";
@@ -193,18 +198,7 @@ export default function ChatStream({
     pushToast(tr("chat.message.htmlDownloaded"), "info");
   };
 
-  const hasPartial = items.some((i) => i.kind === "message" && i.partial);
-  const lastIdx = items.length - 1;
-  const hasRunningProgress = items.some((i, idx) => {
-    if (i.kind !== "progress") return false;
-    const stepRunning = i.steps.some((x) => x.status === "running");
-    // Keep the latest progress "live" while the task is still running so the
-    // box does not collapse between worker steps.
-    const live = loading && idx === lastIdx;
-    return stepRunning || live;
-  });
-  // Prefer streaming / progress chips over a generic loading row.
-  const showLoading = loading && !hasPartial && !hasRunningProgress;
+  const showLoading = shouldShowGenericThinking(items, loading);
 
   // If the last turn is already an agent column, fold thinking into it so we
   // don't paint a second Kin avatar under the same user message.
@@ -262,7 +256,6 @@ export default function ChatStream({
                 model={turn.model}
                 items={turn.items}
                 loading={loading}
-                lastItemIdx={lastIdx}
                 allItems={items}
                 showThinking={withThinking}
                 showMessageActions={showMessageActions}
@@ -297,7 +290,6 @@ function AgentTurn({
   model,
   items,
   loading,
-  lastItemIdx,
   allItems,
   showThinking,
   showMessageActions = false,
@@ -316,7 +308,6 @@ function AgentTurn({
   model?: string;
   items: ChatItem[];
   loading: boolean;
-  lastItemIdx: number;
   allItems: ChatItem[];
   showThinking: boolean;
   showMessageActions?: boolean;
@@ -460,18 +451,11 @@ function AgentTurn({
               );
             }
             case "progress": {
-              const globalIdx = allItems.indexOf(item);
-              const hasAnyRunning = item.steps.some(
-                (x) => x.status === "running",
-              );
-              const live = loading && globalIdx === lastItemIdx;
-              const running = hasAnyRunning || live;
-
               return (
                 <ProgressCard
                   key={item.key}
                   item={item}
-                  running={running}
+                  running={isProgressCardRunning(allItems, item, loading)}
                   onOpenPath={onOpenPath}
                 />
               );
@@ -600,43 +584,52 @@ function ProgressCard({
   onOpenPath?: (path: string) => void;
 }) {
   const tr = useT();
-  // After mergeProcessRuns, progress items only contain tool steps; filter
-  // defensively so the type narrows to ToolStep for ToolStepRow.
-  const steps = item.steps.filter(
-    (s): s is ToolStep => s.kind === "tool",
-  );
-  const count = steps.length;
-  const [collapsed, setCollapsed] = useState(false);
+  const steps = item.steps;
+  const [collapsed, setCollapsed] = useState(true);
   const [openStep, setOpenStep] = useState<string | null>(null);
-
-  const failed = steps.filter((x) => x.status === "error").length;
-  const done = steps.filter((x) => x.status === "done").length;
-  const hardFail = !running && failed > 0 && done === 0;
-  const mixed = !running && failed > 0 && done > 0;
+  const details = summarizeProgressDetails(steps);
+  const status = summarizeProgressStatus(steps, running);
+  const activity =
+    details.toolCounts ||
+    tr("chat.progress.notes", { count: details.noteCount });
 
   const summary = (() => {
-    if (running) return tr("chat.progress.summaryRunning", { count });
-    if (hardFail) return tr("chat.progress.summaryFailed", { count });
-    if (mixed)
-      return tr("chat.progress.summaryMixed", { done, failed, count });
-    return tr("chat.progress.summaryDone", { count });
+    if (status.state === "running") {
+      return tr("chat.progress.summaryRunning", { activity });
+    }
+    if (status.state === "failed") {
+      return tr("chat.progress.summaryFailed", { activity });
+    }
+    if (status.state === "partial_failed") {
+      return tr("chat.progress.summaryMixed", {
+        done: status.doneTools,
+        failed: status.failedTools,
+        activity,
+      });
+    }
+    return tr("chat.progress.summaryDone", { activity });
   })();
 
-  const statusTone = running
+  const failed = status.state === "failed";
+  const partialFailed = status.state === "partial_failed";
+  const statusTone = status.state === "running"
     ? "border-kin-blue/25 bg-kin-blue-soft/30"
-    : hardFail
+    : failed || partialFailed
       ? "border-kin-red/25 bg-[rgba(255,69,58,.05)]"
       : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]";
 
-  const badgeLabel = running
-    ? tr("chat.progress.running")
-    : hardFail
-      ? tr("chat.progress.failed")
-      : tr("chat.progress.done");
+  const badgeLabel =
+    status.state === "running"
+      ? tr("chat.progress.running")
+      : failed
+        ? tr("chat.progress.failed")
+        : partialFailed
+          ? tr("chat.progress.partialFailed")
+          : tr("chat.progress.done");
 
-  const badgeTone = running
+  const badgeTone = status.state === "running"
     ? "bg-kin-blue/15 text-kin-blue"
-    : hardFail
+    : failed || partialFailed
       ? "bg-kin-red/15 text-kin-red"
       : "bg-[var(--kin-fill-strong)] text-kin-muted";
 
@@ -645,6 +638,7 @@ function ProgressCard({
       <button
         type="button"
         onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
         className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-left cursor-pointer hover:bg-[var(--kin-fill-strong)]/30 transition-colors"
       >
         <span
@@ -653,7 +647,7 @@ function ProgressCard({
             badgeTone,
           ].join(" ")}
         >
-          {running ? (
+          {status.state === "running" ? (
             <span className="inline-flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
               {badgeLabel}
@@ -662,26 +656,69 @@ function ProgressCard({
             badgeLabel
           )}
         </span>
-        <span className="break-words text-kin-text flex-1 min-w-0 font-medium">
-          {summary}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="break-words font-medium text-kin-text">
+            {summary}
+          </span>
+          {collapsed && details.latestNote && (
+            <span
+              className="truncate text-[11.5px] font-normal text-kin-muted"
+              title={details.latestNote}
+            >
+              {details.latestNote}
+            </span>
+          )}
+        </span>
+        <span className="flex-none text-[10.5px] font-normal text-kin-muted">
+          {collapsed ? tr("chat.progress.expand") : tr("chat.progress.hide")}
         </span>
       </button>
       {!collapsed && (
         <div className="border-t border-[var(--kin-hairline)] bg-[var(--kin-elevated)]/30 divide-y divide-[var(--kin-hairline)]">
-          {steps.map((step, idx) => (
-            <ToolStepRow
-              key={step.key}
-              tool={step}
-              index={idx + 1}
-              open={openStep === step.key}
-              onOpenPath={onOpenPath}
-              onToggle={() =>
-                setOpenStep((cur) => (cur === step.key ? null : step.key))
-              }
-            />
-          ))}
+          {steps.map((step, idx) =>
+            step.kind === "tool" ? (
+              <ToolStepRow
+                key={step.key}
+                tool={step}
+                index={idx + 1}
+                open={openStep === step.key}
+                onOpenPath={onOpenPath}
+                onToggle={() =>
+                  setOpenStep((cur) => (cur === step.key ? null : step.key))
+                }
+              />
+            ) : (
+              <NoteStepRow key={step.key} note={step} index={idx + 1} />
+            ),
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function NoteStepRow({ note, index }: { note: NoteStep; index: number }) {
+  const tr = useT();
+  const statusDot =
+    note.status === "error"
+      ? "bg-zinc-500"
+      : note.status === "running"
+        ? "bg-kin-blue animate-breathe"
+        : "bg-kin-green";
+  return (
+    <div className="flex items-start gap-2 px-3 py-1.5 text-[12px]">
+      <span className="flex-none w-5 text-[10.5px] tabular-nums text-kin-muted pt-0.5">
+        {index}
+      </span>
+      <span
+        className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
+      />
+      <span className="font-mono text-[11px] text-kin-muted flex-none pt-px">
+        {tr("chat.progress.note")}
+      </span>
+      <span className="flex-1 min-w-0 whitespace-pre-wrap break-words text-kin-secondary">
+        {note.text}
+      </span>
     </div>
   );
 }

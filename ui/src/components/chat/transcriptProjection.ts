@@ -48,12 +48,15 @@ export type ChatItem =
     model?: string;
     text: string;
     partial?: boolean;
+    phase?: string;
     /** Source event seq (for retry/fork). */
     seq?: number;
   }
   | ProgressItem
   | { kind: "error"; key: string; message: string }
   | { kind: "meta"; key: string; label: string };
+
+type ProcessRunItem = Extract<ChatItem, { kind: "message" | "progress" }>;
 
 /** Visual grouping: one user bubble, or one agent column (single avatar). */
 export type Turn =
@@ -87,6 +90,8 @@ export function buildChatItems(
   let streamModel = normalizeModel(hostModel);
   let streamKey = "stream";
   let streamProgress = false;
+  let streamRole = "";
+  let canceledRound = false;
   const modelsBySpeaker = new Map<string, string>();
   if (streamModel) modelsBySpeaker.set(hostSpeaker, streamModel);
 
@@ -98,8 +103,27 @@ export function buildChatItems(
   // Streaming note step key inside the progress box.
   let streamNoteKey: string | null = null;
 
-  const flushStream = (final = false) => {
+  const flushStream = (
+    final = false,
+    progressStatus: NoteStep["status"] = "done",
+  ) => {
     if (!streamBuf) return;
+    if (!streamBuf.trim()) {
+      const active = progressRef.current;
+      if (streamNoteKey && active) {
+        active.steps = active.steps.filter((step) => step.key !== streamNoteKey);
+        if (active.steps.length === 0) {
+          const index = items.indexOf(active);
+          if (index >= 0) items.splice(index, 1);
+          progressRef.current = null;
+        }
+      }
+      streamBuf = "";
+      streamNoteKey = null;
+      streamProgress = false;
+      streamRole = "";
+      return;
+    }
     if (streamProgress) {
       // Finalize streaming note inside progress.
       const active = progressRef.current;
@@ -109,12 +133,24 @@ export function buildChatItems(
         );
         if (note) {
           note.text = streamBuf;
-          note.status = "done";
+          note.status = progressStatus;
         } else {
-          pushNote(streamSpeaker, streamModel, streamBuf, streamKey, "done");
+          pushNote(
+            streamSpeaker,
+            streamModel,
+            streamBuf,
+            streamKey,
+            progressStatus,
+          );
         }
       } else {
-        pushNote(streamSpeaker, streamModel, streamBuf, streamKey, "done");
+        pushNote(
+          streamSpeaker,
+          streamModel,
+          streamBuf,
+          streamKey,
+          progressStatus,
+        );
       }
     } else {
       progressRef.current = null;
@@ -134,6 +170,7 @@ export function buildChatItems(
     }
     streamBuf = "";
     streamNoteKey = null;
+    streamRole = "";
   };
 
   const ensureProgress = (speaker: string): ProgressItem => {
@@ -217,6 +254,23 @@ export function buildChatItems(
     ensureProgress(hostSpeaker).steps.push(item);
   };
 
+  const settleRunningSteps = (status: ToolStep["status"]) => {
+    for (const item of items) {
+      if (item.kind !== "progress") continue;
+      for (const step of item.steps) {
+        if (step.status === "running") step.status = status;
+      }
+    }
+  };
+
+  const settlePartialMessages = () => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item.kind === "message" && item.speaker === "user") break;
+      if (item.kind === "message" && item.partial) item.partial = false;
+    }
+  };
+
   for (const ev of events) {
     const p = (ev.payload ?? {}) as Record<string, unknown>;
     const speaker = resolveSpeaker(p, hostSpeaker);
@@ -227,12 +281,17 @@ export function buildChatItems(
     switch (ev.type) {
       case "message": {
         const partial = Boolean(p.partial);
+        const role = typeof p.role === "string" ? p.role : "";
         // Speaker is authoritative: resolveSpeaker already maps real/legacy
         // user turns to "user". A stamped worker/host echo carries role:"user"
         // on brief echoes, tool_results, and skill preambles but keeps its agent
         // speaker + task-only visibility — those must not be forced into the
         // main "user" column.
         const sp = speaker;
+        if (sp === "user") {
+          canceledRound =
+            p.interrupted === true || p.source === "interrupt";
+        }
         let text =
           extractText(p.content) ||
           (typeof p.text === "string" ? p.text : "");
@@ -277,6 +336,7 @@ export function buildChatItems(
             streamModel = model;
             streamKey = `s-${ev.seq}`;
             streamProgress = true;
+            streamRole = role;
             pushNote(
               sp,
               model,
@@ -295,17 +355,38 @@ export function buildChatItems(
             streamModel = model;
             streamKey = `s-${ev.seq}`;
             streamProgress = false;
+            streamRole = role;
           }
         } else {
+          if (sp !== "user") {
+            for (let index = items.length - 1; index >= 0; index -= 1) {
+              const item = items[index];
+              if (item.kind === "message" && item.speaker === "user") break;
+              if (item.kind === "error" || item.kind === "meta") break;
+              if (
+                item.kind === "message" &&
+                item.partial &&
+                item.speaker === sp
+              ) {
+                items.splice(index, 1);
+              }
+            }
+          }
           // A non-partial user-facing message is the authoritative version of
           // the live-preview stream it closes. Drop the accumulated preview
           // buffer instead of flushing it as a separate partial item -- else we
           // duplicate the text and leave a dangling "partial" (stuck badge).
           const supersedesPreview =
-            !!streamBuf && !streamProgress && !asProgress && streamSpeaker === sp;
+            !!streamBuf && streamSpeaker === sp && streamRole === role;
           if (supersedesPreview) {
+            const active = progressRef.current;
+            if (streamProgress && streamNoteKey && active) {
+              active.steps = active.steps.filter(
+                (step) => step.key !== streamNoteKey,
+              );
+            }
             streamBuf = "";
-            progressRef.current = null;
+            if (!asProgress) progressRef.current = null;
           } else {
             flushStream();
           }
@@ -321,6 +402,7 @@ export function buildChatItems(
               speaker: sp,
               model: sp === "user" ? undefined : model,
               text,
+              phase: typeof p.phase === "string" ? p.phase : undefined,
               seq: ev.seq,
             });
           }
@@ -385,10 +467,13 @@ export function buildChatItems(
         // Steer/interrupt aborts emit "canceled" — not a real failure for the UI.
         const errMsg = String(p.message ?? "error");
         if (isCancelNoise(errMsg)) {
+          canceledRound = true;
           break;
         }
-        flushStream();
+        flushStream(true, "error");
         streamNoteKey = null;
+        settlePartialMessages();
+        settleRunningSteps("error");
         progressRef.current = null;
         items.push({
           kind: "error",
@@ -402,16 +487,16 @@ export function buildChatItems(
       case "result": {
         // Orchestrator / adapter result closes the turn: finalize any trailing
         // streamed text so it is not left dangling as "partial".
-        flushStream(true);
+        const terminalStatus =
+          p.is_error === true && !canceledRound ? "error" : "done";
+        flushStream(true, terminalStatus);
         streamNoteKey = null;
-        // Mark any still-running steps as done so the card can collapse.
-        const open = progressRef.current;
-        if (open) {
-          for (const s of open.steps) {
-            if (s.status === "running") s.status = "done";
-          }
-        }
+        settlePartialMessages();
+        // A summary may already have closed progressRef, so settle every
+        // projected process group rather than only the currently open one.
+        settleRunningSteps(terminalStatus);
         progressRef.current = null;
+        canceledRound = false;
         break;
       }
       case "approval_requested":
@@ -492,91 +577,112 @@ export function buildChatItems(
 }
 
 /**
- * Merge consecutive progress items, then expand each merged result so that
- * narration notes become standalone message blocks and tool blocks become
- * independent progress cards.
- *
- * Result: an agent round that previously read as one giant card now reads as
- *   [message] "I will first check…"
- *   [progress] tool1 · tool2 · tool3
- *   [message] "I have located…"
- *   [progress] tool4 · tool5
+ * Collapse each contiguous agent process run into one card. Explicit summaries
+ * stay outside; phase-less history keeps its last complete assistant message
+ * as the final answer.
  */
 export function mergeProcessRuns(items: ChatItem[]): ChatItem[] {
-  // Step 1: merge consecutive progress items (current logic)
-  const merged: ChatItem[] = [];
-  let buffer: ProgressItem[] = [];
-
-  const flushMerge = () => {
-    if (buffer.length === 0) return;
-    if (buffer.length === 1) {
-      merged.push(buffer[0]);
-    } else {
-      const steps: ProgressStep[] = [];
-      for (const p of buffer) steps.push(...p.steps);
-      const anchor = buffer[0];
-      merged.push({
-        kind: "progress",
-        key: `merge-${anchor.key}`,
-        speaker: anchor.speaker,
-        model: anchor.model,
-        steps,
-      });
-    }
-    buffer = [];
-  };
-
-  for (const item of items) {
-    if (item.kind === "progress") {
-      buffer.push(item);
-      continue;
-    }
-    flushMerge();
-    merged.push(item);
-  }
-  flushMerge();
-
-  // Step 2: expand each merged progress item — notes become messages,
-  // contiguous tool blocks become individual progress items.
   const out: ChatItem[] = [];
-  for (const item of merged) {
-    if (item.kind !== "progress") {
+  let run: ProcessRunItem[] = [];
+  const flushRun = () => {
+    if (run.length === 0) return;
+    out.push(...mergeProcessRun(run));
+    run = [];
+  };
+  for (const item of items) {
+    if (item.kind === "progress" || (item.kind === "message" && item.speaker !== "user")) {
+      run.push(item);
+    } else {
+      flushRun();
       out.push(item);
-      continue;
     }
-    const steps = item.steps;
-    let toolBuf: ToolStep[] = [];
-    const flushTools = (speaker: string, model?: string) => {
-      if (toolBuf.length === 0) return;
-      out.push({
-        kind: "progress",
-        key: `toolgrp-${toolBuf[0].key}`,
-        speaker,
-        model,
-        steps: toolBuf,
-      });
-      toolBuf = [];
-    };
-    for (const step of steps) {
-      if (step.kind === "note") {
-        flushTools(item.speaker, item.model);
-        // Convert note to a message item
-        out.push({
-          kind: "message",
-          key: step.key,
-          speaker: step.speaker,
-          model: step.model,
-          text: step.text,
-          partial: false,
-        });
-      } else {
-        // tool step
-        toolBuf.push(step);
+  }
+  flushRun();
+  return out;
+}
+
+function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
+  if (!run.some((item) => item.kind === "progress")) return run;
+
+  let finalMessageIdx = -1;
+  for (let index = run.length - 1; index >= 0; index -= 1) {
+    const item = run[index];
+    if (item.kind === "message" && item.phase === "summary") {
+      finalMessageIdx = index;
+      break;
+    }
+  }
+  if (finalMessageIdx < 0) {
+    for (let index = run.length - 1; index >= 0; index -= 1) {
+      const item = run[index];
+      if (
+        item.kind === "message" &&
+        !item.partial &&
+        item.phase !== "plan" &&
+        item.phase !== "progress"
+      ) {
+        finalMessageIdx = index;
+        break;
       }
     }
-    flushTools(item.speaker, item.model);
   }
-  return out;
+
+  const merged: ChatItem[] = [];
+  let segment: ProcessRunItem[] = [];
+  const flushSegment = () => {
+    if (segment.length === 0) return;
+    const anchor = segment.find(
+      (item): item is ProgressItem => item.kind === "progress",
+    );
+    if (!anchor) {
+      merged.push(...segment);
+      segment = [];
+      return;
+    }
+    const steps: ProgressStep[] = [];
+    for (const item of segment) {
+      if (item.kind === "progress") {
+        steps.push(...item.steps);
+      } else {
+        steps.push({
+          kind: "note",
+          key: item.key,
+          speaker: item.speaker,
+          model: item.model,
+          text: item.text,
+          status: "done",
+        });
+      }
+    }
+    merged.push({
+      kind: "progress",
+      key: anchor.key,
+      speaker: anchor.speaker,
+      model: anchor.model,
+      steps,
+    });
+    segment = [];
+  };
+
+  for (let index = 0; index < run.length; index += 1) {
+    const item = run[index];
+    if (item.kind === "progress") {
+      segment.push(item);
+      continue;
+    }
+    const foldIntoProcess =
+      !item.partial &&
+      item.phase !== "summary" &&
+      index !== finalMessageIdx;
+    if (foldIntoProcess) {
+      segment.push(item);
+      continue;
+    }
+    flushSegment();
+    merged.push(item);
+  }
+  flushSegment();
+  return merged;
 }
 
 /**
@@ -624,6 +730,98 @@ export function groupIntoTurns(
     });
   }
   return turns;
+}
+
+export function shouldShowGenericThinking(
+  items: ChatItem[],
+  loading: boolean,
+): boolean {
+  if (!loading) return false;
+  let roundStart = 0;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind === "message" && item.speaker === "user") {
+      roundStart = index + 1;
+      break;
+    }
+  }
+  return !items.slice(roundStart).some((item) => {
+    if (item.kind === "message") return item.text.trim().length > 0;
+    if (item.kind !== "progress") return false;
+    return item.steps.some(
+      (step) => step.kind === "tool" || step.text.trim().length > 0,
+    );
+  });
+}
+
+export function isProgressCardRunning(
+  items: ChatItem[],
+  item: ProgressItem,
+  loading: boolean,
+): boolean {
+  if (!loading) return false;
+  const lastItem = items[items.length - 1];
+  return lastItem?.kind === "progress" && lastItem.key === item.key;
+}
+
+export function summarizeProgressDetails(steps: ProgressStep[]): {
+  toolCounts: string;
+  latestNote: string;
+  noteCount: number;
+} {
+  const counts = new Map<string, number>();
+  let latestNote = "";
+  let noteCount = 0;
+  for (const step of steps) {
+    if (step.kind === "tool") {
+      const name = prettyToolName(step.name);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+      continue;
+    }
+    const text = step.text.trim().replace(/\s+/g, " ");
+    if (!text) continue;
+    latestNote = text;
+    noteCount += 1;
+  }
+  return {
+    toolCounts: [...counts.entries()]
+      .map(([name, count]) => `${name} × ${count}`)
+      .join(" · "),
+    latestNote,
+    noteCount,
+  };
+}
+
+export function summarizeProgressStatus(
+  steps: ProgressStep[],
+  running: boolean,
+): {
+  state: "running" | "done" | "failed" | "partial_failed";
+  doneTools: number;
+  failedTools: number;
+  totalTools: number;
+} {
+  const tools = steps.filter(
+    (step): step is ToolStep => step.kind === "tool",
+  );
+  const doneTools = tools.filter((step) => step.status === "done").length;
+  const failedTools = tools.filter((step) => step.status === "error").length;
+  const statusSteps = tools.length > 0 ? tools : steps;
+  const done = statusSteps.filter((step) => step.status === "done").length;
+  const failed = statusSteps.filter((step) => step.status === "error").length;
+  const state = running
+    ? "running"
+    : failed === 0
+      ? "done"
+      : done === 0
+        ? "failed"
+        : "partial_failed";
+  return {
+    state,
+    doneTools,
+    failedTools,
+    totalTools: tools.length,
+  };
 }
 
 /** Old kinagent dumped tools as markdown messages: **bash**\n```...``` */

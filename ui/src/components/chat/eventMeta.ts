@@ -223,17 +223,19 @@ export function isProgressMessageMeta(
   text: string,
 ): boolean {
   if (meta.speaker === "user") return false;
+  if (isTaskOnlyMeta(meta)) return true;
+  if (meta.role === "reasoning") return true;
+  if (meta.phase === "summary") return false;
+  if (meta.phase === "plan" || meta.phase === "progress") return true;
   if (meta.origin === "delegate") return true;
   if (meta.origin === "orchestrator") {
-    if (meta.phase === "summary") return false;
-    if (meta.phase === "plan" || meta.phase === "progress") return true;
     // Legacy rows without phase: keep wording heuristic only for history.
     if (meta.legacyVisibility || !meta.phase) {
       if (isLegacyOrchestratorSummaryWording(text)) return false;
     }
     return true;
   }
-  return isTaskOnlyMeta(meta);
+  return false;
 }
 
 /**
