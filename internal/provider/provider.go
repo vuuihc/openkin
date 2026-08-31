@@ -61,6 +61,9 @@ type ChatRequest struct {
 	// Callers must treat fragments as deltas (append), not full snapshots.
 	// The callback runs on the Chat caller's goroutine; keep it cheap.
 	OnContentDelta func(delta string)
+	// OnReasoningDelta receives provider-supplied reasoning_content fragments.
+	// It follows the same streaming and callback semantics as OnContentDelta.
+	OnReasoningDelta func(delta string)
 }
 
 // Usage token counts (provider-reported).
@@ -78,9 +81,10 @@ type Usage struct {
 
 // ChatResponse is a completed assistant turn (may include tool_calls).
 type ChatResponse struct {
-	Content string
-	Model   string
-	Usage   Usage
+	Content   string
+	Reasoning string
+	Model     string
+	Usage     Usage
 	// FinishReason e.g. stop / length / tool_calls
 	FinishReason string
 	ToolCalls    []ToolCall

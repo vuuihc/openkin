@@ -261,6 +261,65 @@ func TestChatRetriesTransientThenSucceeds(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatChatStreamDoesNotRetryAfterDelta(t *testing.T) {
+	prevAttempts, prevBackoff := chatMaxAttempts, chatBackoffFn
+	chatMaxAttempts = 2
+	chatBackoffFn = func(int) time.Duration { return 0 }
+	t.Cleanup(func() {
+		chatMaxAttempts = prevAttempts
+		chatBackoffFn = prevBackoff
+	})
+
+	for _, tc := range []struct {
+		name  string
+		field string
+	}{
+		{name: "content", field: "content"},
+		{name: "reasoning", field: "reasoning_content"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var hits atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, `data: {"choices":[{"delta":{"`+tc.field+`":"first "}}]}`+"\n\n")
+				_, _ = io.WriteString(w, `data: {"error":{"message":"stream error: INTERNAL_ERROR received from peer"}}`+"\n\n")
+			}))
+			t.Cleanup(srv.Close)
+
+			client, err := NewClient(Config{
+				BaseURL: srv.URL + "/v1",
+				Model:   "m",
+				Stream:  true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var got strings.Builder
+			req := ChatRequest{
+				Messages: []Message{{Role: RoleUser, Content: "hi"}},
+			}
+			if tc.field == "content" {
+				req.OnContentDelta = func(delta string) { got.WriteString(delta) }
+			} else {
+				req.OnReasoningDelta = func(delta string) { got.WriteString(delta) }
+			}
+
+			_, err = client.Chat(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected the interrupted stream error")
+			}
+			if hits.Load() != 1 {
+				t.Fatalf("requests = %d, want 1 after publishing a delta", hits.Load())
+			}
+			if got.String() != "first " {
+				t.Fatalf("published deltas = %q, want one attempt", got.String())
+			}
+		})
+	}
+}
+
 func TestChatRetriesExhausted(t *testing.T) {
 	prevAttempts, prevBackoff := chatMaxAttempts, chatBackoffFn
 	chatMaxAttempts = 5
@@ -584,6 +643,77 @@ func TestOpenAICompatChatStreamOnContentDelta(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatChatStreamReasoningContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, chunk := range []string{
+			`data: {"choices":[{"delta":{"reasoning_content":"Inspect "}}]}`,
+			`data: {"choices":[{"delta":{"reasoning_content":"the files."}}]}`,
+			`data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}`,
+			`data: [DONE]`,
+		} {
+			_, _ = io.WriteString(w, chunk+"\n\n")
+		}
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(Config{BaseURL: srv.URL + "/v1", Model: "m", Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deltas []string
+	resp, err := client.Chat(context.Background(), ChatRequest{
+		Messages:         []Message{{Role: RoleUser, Content: "hi"}},
+		OnReasoningDelta: func(delta string) { deltas = append(deltas, delta) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Reasoning != "Inspect the files." {
+		t.Fatalf("reasoning %q", resp.Reasoning)
+	}
+	if strings.Join(deltas, "") != resp.Reasoning {
+		t.Fatalf("reasoning deltas %v", deltas)
+	}
+	if resp.Content != "Done." {
+		t.Fatalf("content %q", resp.Content)
+	}
+}
+
+func TestOpenAICompatChatNonStreamReasoningContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "m",
+			"choices": []map[string]any{{
+				"finish_reason": "stop",
+				"message": map[string]any{
+					"role":              "assistant",
+					"reasoning_content": "Checked the repository state.",
+					"content":           "Done.",
+				},
+			}},
+		})
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(Config{BaseURL: srv.URL + "/v1", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Reasoning != "Checked the repository state." {
+		t.Fatalf("reasoning %q", resp.Reasoning)
+	}
+	if resp.Content != "Done." {
+		t.Fatalf("content %q", resp.Content)
+	}
+}
+
 func TestOpenAICompatOnContentDeltaIgnoredWithoutStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -618,7 +748,6 @@ func TestOpenAICompatOnContentDeltaIgnoredWithoutStream(t *testing.T) {
 		t.Fatal("OnContentDelta must not fire for non-stream chat")
 	}
 }
-
 
 func TestOpenAICompatMultimodalImageParts(t *testing.T) {
 	var gotBody map[string]any

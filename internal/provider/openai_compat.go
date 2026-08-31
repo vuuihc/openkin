@@ -72,9 +72,10 @@ type oaiChatResp struct {
 	Choices []struct {
 		FinishReason string `json:"finish_reason"`
 		Message      struct {
-			Role      string     `json:"role"`
-			Content   *string    `json:"content"`
-			ToolCalls []ToolCall `json:"tool_calls"`
+			Role             string     `json:"role"`
+			Content          *string    `json:"content"`
+			ReasoningContent string     `json:"reasoning_content"`
+			ToolCalls        []ToolCall `json:"tool_calls"`
 		} `json:"message"`
 	} `json:"choices"`
 	Usage struct {
@@ -151,6 +152,18 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 
 	var lastErr error
 	tried := 0
+	streamedToCaller := false
+	trackDelta := func(callback func(string)) func(string) {
+		if callback == nil {
+			return nil
+		}
+		return func(delta string) {
+			streamedToCaller = true
+			callback(delta)
+		}
+	}
+	onContentDelta := trackDelta(req.OnContentDelta)
+	onReasoningDelta := trackDelta(req.OnReasoningDelta)
 	for attempt := 1; attempt <= chatMaxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -159,7 +172,14 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 		var resp *ChatResponse
 		var err error
 		if useStream {
-			resp, err = c.chatOnceStream(ctx, url, raw, model, req.OnContentDelta)
+			resp, err = c.chatOnceStream(
+				ctx,
+				url,
+				raw,
+				model,
+				onContentDelta,
+				onReasoningDelta,
+			)
 		} else {
 			resp, err = c.chatOnce(ctx, url, raw, model)
 		}
@@ -167,7 +187,7 @@ func (c *openAICompat) Chat(ctx context.Context, req ChatRequest) (*ChatResponse
 			return resp, nil
 		}
 		lastErr = err
-		if !isTransientProviderErr(ctx, err) || attempt == chatMaxAttempts {
+		if streamedToCaller || !isTransientProviderErr(ctx, err) || attempt == chatMaxAttempts {
 			break
 		}
 		wait := chatBackoffFn(attempt)
@@ -251,8 +271,9 @@ func (c *openAICompat) chatOnce(ctx context.Context, url string, raw []byte, mod
 		cacheReadReported = true
 	}
 	return &ChatResponse{
-		Content: content,
-		Model:   firstNonEmpty(parsed.Model, model),
+		Content:   content,
+		Reasoning: msg.ReasoningContent,
+		Model:     firstNonEmpty(parsed.Model, model),
 		Usage: Usage{
 			PromptTokens:      parsed.Usage.PromptTokens,
 			CompletionTokens:  parsed.Usage.CompletionTokens,
@@ -272,9 +293,10 @@ type oaiStreamChunk struct {
 		Index        int    `json:"index"`
 		FinishReason string `json:"finish_reason"`
 		Delta        struct {
-			Role      string `json:"role"`
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Role             string `json:"role"`
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Type     string `json:"type"`
@@ -302,7 +324,14 @@ type oaiStreamChunk struct {
 	} `json:"error"`
 }
 
-func (c *openAICompat) chatOnceStream(ctx context.Context, url string, raw []byte, model string, onDelta func(string)) (*ChatResponse, error) {
+func (c *openAICompat) chatOnceStream(
+	ctx context.Context,
+	url string,
+	raw []byte,
+	model string,
+	onContentDelta func(string),
+	onReasoningDelta func(string),
+) (*ChatResponse, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
@@ -334,19 +363,30 @@ func (c *openAICompat) chatOnceStream(ctx context.Context, url string, raw []byt
 		return nil, httpStatusErr(res.StatusCode, url, bodyStr)
 	}
 
-	agg, err := readOpenAIStream(res.Body, model, onDelta)
+	agg, err := readOpenAIStream(
+		res.Body,
+		model,
+		onContentDelta,
+		onReasoningDelta,
+	)
 	if err != nil {
 		return nil, err
 	}
 	return agg, nil
 }
 
-func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (*ChatResponse, error) {
+func readOpenAIStream(
+	r io.Reader,
+	fallbackModel string,
+	onContentDelta func(string),
+	onReasoningDelta func(string),
+) (*ChatResponse, error) {
 	sc := bufio.NewScanner(r)
 	// Tool-call argument streams can be large; raise the default 64KiB limit.
 	sc.Buffer(make([]byte, 0, 64*1024), 8<<20)
 
 	var content strings.Builder
+	var reasoning strings.Builder
 	// Indexed tool call assembly (OpenAI streams by index).
 	type tcAcc struct {
 		id, typ, name string
@@ -411,8 +451,14 @@ func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (
 			}
 			if ch.Delta.Content != "" {
 				content.WriteString(ch.Delta.Content)
-				if onDelta != nil {
-					onDelta(ch.Delta.Content)
+				if onContentDelta != nil {
+					onContentDelta(ch.Delta.Content)
+				}
+			}
+			if ch.Delta.ReasoningContent != "" {
+				reasoning.WriteString(ch.Delta.ReasoningContent)
+				if onReasoningDelta != nil {
+					onReasoningDelta(ch.Delta.ReasoningContent)
 				}
 			}
 			for _, tc := range ch.Delta.ToolCalls {
@@ -489,6 +535,7 @@ func readOpenAIStream(r io.Reader, fallbackModel string, onDelta func(string)) (
 	}
 	return &ChatResponse{
 		Content:      content.String(),
+		Reasoning:    reasoning.String(),
 		Model:        model,
 		Usage:        usage,
 		FinishReason: finishReason,

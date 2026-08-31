@@ -3,7 +3,11 @@ import type { TaskEvent } from "../../api/client";
 import {
   buildChatItems,
   groupIntoTurns,
+  isProgressCardRunning,
   mergeProcessRuns,
+  shouldShowGenericThinking,
+  summarizeProgressDetails,
+  summarizeProgressStatus,
   type ChatItem,
   type ProgressItem,
 } from "./transcriptProjection";
@@ -169,6 +173,98 @@ describe("transcriptProjection", () => {
     ]);
   });
 
+  it("projects an explicitly task-only worker summary into process", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "worker",
+          phase: "summary",
+          text: "Worker completed its subtask.",
+          visibility: { user: false, task: true },
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [
+          {
+            kind: "note",
+            speaker: "worker",
+            text: "Worker completed its subtask.",
+          },
+        ],
+      },
+    ]);
+    expect(items.some((item) => item.kind === "message")).toBe(false);
+  });
+
+  it("keeps reasoning, tools, and progress narration in one process card", () => {
+    const items = mergeProcessRuns(
+      buildChatItems(
+        [
+          ev(1, "message", {
+            role: "reasoning",
+            phase: "progress",
+            speaker: "kin",
+            text: "Inspecting the repository.",
+            partial: false,
+            visibility: { user: true, task: true },
+          }),
+          ev(2, "tool_use", {
+            speaker: "kin",
+            tool_use_id: "call-1",
+            name: "glob",
+            input: { pattern: "**/*.tsx" },
+            visibility: { user: true, task: true },
+          }),
+          ev(3, "tool_result", {
+            speaker: "kin",
+            tool_use_id: "call-1",
+            name: "glob",
+            output: "ChatStream.tsx",
+            ok: true,
+            visibility: { user: true, task: true },
+          }),
+          ev(4, "message", {
+            role: "assistant",
+            phase: "progress",
+            speaker: "kin",
+            text: "Located the rendering path.",
+            partial: false,
+            visibility: { user: true, task: true },
+          }),
+          ev(5, "message", {
+            role: "assistant",
+            phase: "summary",
+            speaker: "kin",
+            text: "Fixed the rendering path.",
+            partial: false,
+            visibility: { user: true, task: true },
+          }),
+        ],
+        "kin",
+      ),
+    );
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "note", text: "Inspecting the repository." },
+        { kind: "tool", name: "glob", status: "done" },
+        { kind: "note", text: "Located the rendering path." },
+      ],
+    });
+    expect(items[1]).toMatchObject({
+      kind: "message",
+      text: "Fixed the rendering path.",
+    });
+  });
+
   it("converts legacy tool dump messages into progress tool steps", () => {
     const items = buildChatItems(
       [
@@ -233,6 +329,45 @@ describe("transcriptProjection", () => {
     expect(items.filter((i) => i.kind === "message" && i.partial)).toHaveLength(0);
   });
 
+  it("reclassifies a content preview when its final message is progress", () => {
+    const items = mergeProcessRuns(
+      buildChatItems(
+        [
+          ev(1, "message", {
+            role: "assistant",
+            speaker: "kin",
+            text: "I will inspect",
+            partial: true,
+          }),
+          ev(2, "message", {
+            role: "assistant",
+            phase: "progress",
+            speaker: "kin",
+            text: "I will inspect the files.",
+            partial: false,
+          }),
+          ev(3, "tool_use", {
+            speaker: "kin",
+            tool_use_id: "call-1",
+            name: "read_file",
+            input: { path: "README.md" },
+            visibility: { user: true, task: true },
+          }),
+        ],
+        "kin",
+      ),
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "note", text: "I will inspect the files." },
+        { kind: "tool", name: "read_file" },
+      ],
+    });
+  });
+
   it("keeps a live partial while the task is still running", () => {
     const items = buildChatItems(
       [
@@ -256,6 +391,286 @@ describe("transcriptProjection", () => {
     expect(items).toMatchObject([
       { kind: "message", speaker: "kin", text: "Hello", partial: true },
     ]);
+  });
+
+  it("drops whitespace-only partials before a tool and terminal event", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "\n \t",
+          partial: true,
+        }),
+        ev(2, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "read_file",
+          input: { path: "README.md" },
+          visibility: { user: true, task: true },
+        }),
+        ev(3, "tool_result", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "read_file",
+          output: "contents",
+          ok: true,
+          visibility: { user: true, task: true },
+        }),
+        ev(4, "result", { is_error: false }),
+      ],
+      "kin",
+      undefined,
+      true,
+    );
+
+    expect(items.filter((item) => item.kind === "message")).toEqual([]);
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [{ kind: "tool", name: "read_file", status: "done" }],
+      },
+    ]);
+  });
+
+  it("drops an empty process created by whitespace-only reasoning", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "reasoning",
+          phase: "progress",
+          speaker: "kin",
+          text: "\n \t",
+          partial: true,
+        }),
+        ev(2, "result", { is_error: false }),
+      ],
+      "kin",
+      undefined,
+      true,
+    );
+
+    expect(items).toEqual([]);
+  });
+
+  it("finalizes a visible partial before an error", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "Partial answer",
+          partial: true,
+        }),
+        ev(2, "error", { message: "provider failed" }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "message",
+        text: "Partial answer",
+        partial: false,
+      },
+      { kind: "error", message: "provider failed" },
+    ]);
+  });
+
+  it("marks a reasoning-only process failed when the turn errors", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "reasoning",
+          phase: "progress",
+          speaker: "kin",
+          text: "Inspecting the provider.",
+          partial: true,
+        }),
+        ev(2, "error", { message: "provider failed" }),
+      ],
+      "kin",
+    );
+    const process = items.find(
+      (item): item is ProgressItem => item.kind === "progress",
+    );
+
+    expect(process?.steps).toMatchObject([
+      { kind: "note", status: "error" },
+    ]);
+    expect(summarizeProgressStatus(process?.steps ?? [], false).state).toBe(
+      "failed",
+    );
+  });
+
+  it("finalizes interleaved content and reasoning previews on error", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "Partial answer",
+          partial: true,
+        }),
+        ev(2, "message", {
+          role: "reasoning",
+          phase: "progress",
+          speaker: "kin",
+          text: "Checking the provider",
+          partial: true,
+        }),
+        ev(3, "error", { message: "provider failed" }),
+      ],
+      "kin",
+    );
+
+    expect(
+      items.some((item) => item.kind === "message" && item.partial),
+    ).toBe(false);
+    expect(items).toMatchObject([
+      { kind: "message", text: "Partial answer", partial: false },
+      {
+        kind: "progress",
+        steps: [{ kind: "note", status: "error" }],
+      },
+      { kind: "error", message: "provider failed" },
+    ]);
+  });
+
+  it("settles running tool steps even when a summary closed the process", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "command_execution",
+          visibility: { user: true, task: true },
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          phase: "summary",
+          speaker: "kin",
+          text: "Finished.",
+          partial: false,
+          visibility: { user: true, task: true },
+        }),
+        ev(3, "result", { is_error: false }),
+      ],
+      "kin",
+      undefined,
+      true,
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [{ kind: "tool", status: "done" }],
+      },
+      { kind: "message", text: "Finished.", phase: "summary" },
+    ]);
+  });
+
+  it("does not mark canceled process steps failed", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          visibility: { user: true, task: true },
+        }),
+        ev(2, "error", { message: "canceled" }),
+        ev(3, "result", { is_error: true }),
+      ],
+      "kin",
+      undefined,
+      true,
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [{ kind: "tool", status: "done" }],
+      },
+    ]);
+    expect(items.some((item) => item.kind === "error")).toBe(false);
+  });
+
+  it("does not mark interrupted process steps failed when cancel noise was filtered", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          visibility: { user: true, task: true },
+        }),
+        ev(2, "message", {
+          role: "user",
+          speaker: "user",
+          source: "interrupt",
+          interrupted: true,
+          text: "Use a different approach",
+          partial: false,
+        }),
+        ev(3, "result", { is_error: true }),
+      ],
+      "kin",
+      undefined,
+      true,
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [{ kind: "tool", status: "done" }],
+      },
+      { kind: "message", speaker: "user", text: "Use a different approach" },
+    ]);
+  });
+
+  it("removes an earlier content preview when reasoning interleaves the stream", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "A",
+          partial: true,
+        }),
+        ev(2, "message", {
+          role: "reasoning",
+          phase: "progress",
+          speaker: "kin",
+          text: "R",
+          partial: true,
+        }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "B",
+          partial: true,
+        }),
+        ev(4, "message", {
+          role: "assistant",
+          phase: "summary",
+          speaker: "kin",
+          text: "AB",
+          partial: false,
+        }),
+        ev(5, "result", { is_error: false }),
+      ],
+      "kin",
+      undefined,
+      true,
+    );
+
+    expect(items.filter((item) => item.kind === "message")).toMatchObject([
+      { kind: "message", text: "AB" },
+    ]);
+    expect(
+      items.some((item) => item.kind === "message" && item.partial),
+    ).toBe(false);
   });
 
 
@@ -549,10 +964,7 @@ describe("mergeProcessRuns", () => {
     };
   }
 
-  it("expands narration notes into messages and keeps tool blocks as progress", () => {
-    // Product behavior (note-group split): a single progress card that mixed
-    // tools + narration becomes interleaved message/progress items so host
-    // narration stays readable next to worker tool runs.
+  it("keeps narration notes and tool blocks in one process card", () => {
     const items: ChatItem[] = [
       progressWithNotes("p1", ["Plan loaded.", "Implementing changes."]),
       message("final", "Here is the summary."),
@@ -560,40 +972,52 @@ describe("mergeProcessRuns", () => {
 
     const merged = mergeProcessRuns(items);
 
-    expect(merged.map((x) => x.kind)).toEqual([
-      "progress",
-      "message",
-      "message",
-      "progress",
-      "message",
-    ]);
-    expect(merged[1]).toMatchObject({ kind: "message", text: "Plan loaded." });
-    expect(merged[2]).toMatchObject({
-      kind: "message",
-      text: "Implementing changes.",
+    expect(merged.map((x) => x.kind)).toEqual(["progress", "message"]);
+    expect(merged[0]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "tool", name: "bash" },
+        { kind: "note", text: "Plan loaded." },
+        { kind: "note", text: "Implementing changes." },
+        { kind: "tool", name: "read" },
+      ],
     });
-    expect(merged[4]).toMatchObject({
+    expect(merged[1]).toMatchObject({
       kind: "message",
       text: "Here is the summary.",
     });
-    const firstTools = merged[0] as ProgressItem;
-    expect(firstTools.steps.every((s) => s.kind === "tool")).toBe(true);
   });
 
-  it("rewrites a single tool-only progress card key without changing shape", () => {
+  it("preserves a single tool-only progress card key and shape", () => {
     const items: ChatItem[] = [progress("p1"), message("final", "done")];
     const merged = mergeProcessRuns(items);
     expect(merged).toHaveLength(2);
     expect(merged[0]).toMatchObject({
       kind: "progress",
-      key: "toolgrp-p1-t",
+      key: "p1",
       speaker: "kin",
     });
     expect((merged[0] as ProgressItem).steps).toEqual((items[0] as ProgressItem).steps);
     expect(merged[1]).toEqual(items[1]);
   });
 
-  it("does not merge across a user message", () => {
+  it("keeps the anchor key stable when later progress is merged", () => {
+    const summary = {
+      ...message("final", "done"),
+      phase: "summary",
+    };
+    const initial = mergeProcessRuns([progress("p1"), summary]);
+    const updated = mergeProcessRuns([
+      progress("p1"),
+      progress("p2"),
+      summary,
+    ]);
+
+    expect(initial[0]).toMatchObject({ kind: "progress", key: "p1" });
+    expect(updated[0]).toMatchObject({ kind: "progress", key: "p1" });
+  });
+
+  it("keeps the last legacy assistant message final and folds earlier narration", () => {
     const items: ChatItem[] = [
       { kind: "message", key: "u1", speaker: "user", text: "hi" },
       progress("p1"),
@@ -604,15 +1028,16 @@ describe("mergeProcessRuns", () => {
 
     const merged = mergeProcessRuns(items);
     expect(merged[0]).toMatchObject({ kind: "message", speaker: "user" });
-    expect(merged[1].kind).toBe("progress");
-    // Interleaved agent messages stay as messages (not folded into progress).
-    expect(merged.map((x) => (x.kind === "message" ? x.text : x.kind))).toEqual([
-      "hi",
-      "progress",
-      "working",
-      "progress",
-      "done",
-    ]);
+    expect(merged).toHaveLength(3);
+    expect(merged[1]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "tool", name: "bash" },
+        { kind: "note", text: "working" },
+        { kind: "tool", name: "bash" },
+      ],
+    });
+    expect(merged[2]).toMatchObject({ kind: "message", text: "done" });
   });
 
   it("keeps a still-streaming trailing message live instead of folding it", () => {
@@ -629,7 +1054,40 @@ describe("mergeProcessRuns", () => {
     expect(merged[2]).toMatchObject({ key: "live", partial: true });
   });
 
-  it("merges consecutive progress cards then splits notes inside", () => {
+  it("does not move later progress ahead of a live partial", () => {
+    const summary = {
+      ...message("final", "done"),
+      phase: "summary",
+    };
+    const merged = mergeProcessRuns([
+      progress("before"),
+      message("live", "still streaming", true),
+      progress("after"),
+      summary,
+    ]);
+
+    expect(merged.map((item) => item.kind)).toEqual([
+      "progress",
+      "message",
+      "progress",
+      "message",
+    ]);
+    expect(merged[0]).toMatchObject({
+      key: "before",
+      steps: [{ kind: "tool", key: "before-t" }],
+    });
+    expect(merged[1]).toMatchObject({ key: "live", partial: true });
+    expect(merged[2]).toMatchObject({
+      key: "after",
+      steps: [{ kind: "tool", key: "after-t" }],
+    });
+    expect(merged[3]).toMatchObject({
+      key: "final",
+      phase: "summary",
+    });
+  });
+
+  it("merges consecutive progress cards without splitting notes", () => {
     const a: ProgressItem = {
       kind: "progress",
       key: "a",
@@ -648,16 +1106,16 @@ describe("mergeProcessRuns", () => {
       ],
     };
     const merged = mergeProcessRuns([a, b, message("final", "done")]);
-    // Consecutive progresses merge first (a steps + b steps), then expand:
-    // tool(a) | note → message | tool(b) | final message
-    expect(merged.map((x) => x.kind)).toEqual([
-      "progress",
-      "message",
-      "progress",
-      "message",
-    ]);
-    expect(merged[1]).toMatchObject({ kind: "message", text: "mid note" });
-    expect(merged[3]).toMatchObject({ text: "done" });
+    expect(merged.map((x) => x.kind)).toEqual(["progress", "message"]);
+    expect(merged[0]).toMatchObject({
+      kind: "progress",
+      steps: [
+        { kind: "tool", name: "bash" },
+        { kind: "note", text: "mid note" },
+        { kind: "tool", name: "read" },
+      ],
+    });
+    expect(merged[1]).toMatchObject({ text: "done" });
   });
 
   // -- Route event rendering (US2, US6, US7: route_decision / route_fallback) --
@@ -779,5 +1237,219 @@ describe("mergeProcessRuns", () => {
       { kind: "meta", key: "rd-2", label: "Routing: review → prov-a/a-smart-1" },
       { kind: "message", text: "final answer" },
     ]);
+  });
+});
+
+describe("shouldShowGenericThinking", () => {
+  it("only shows before the current round has displayable agent content", () => {
+    const completed: ProgressItem = {
+      kind: "progress",
+      key: "completed",
+      speaker: "kin",
+      steps: [
+        {
+          kind: "tool",
+          key: "tool",
+          speaker: "kin",
+          name: "read_file",
+          summary: "done",
+          status: "done",
+        },
+      ],
+    };
+    expect(shouldShowGenericThinking([completed], true)).toBe(false);
+    expect(
+      shouldShowGenericThinking(
+        [
+          {
+            kind: "message",
+            key: "previous",
+            speaker: "kin",
+            text: "previous answer",
+          },
+          { kind: "message", key: "user", speaker: "user", text: "next" },
+        ],
+        true,
+      ),
+    ).toBe(true);
+    expect(shouldShowGenericThinking([], true)).toBe(true);
+    expect(shouldShowGenericThinking([], false)).toBe(false);
+  });
+});
+
+describe("isProgressCardRunning", () => {
+  it("keeps only the latest process card live without showing generic dots", () => {
+    const earlier: ProgressItem = {
+      kind: "progress",
+      key: "earlier",
+      speaker: "kin",
+      steps: [
+        {
+          kind: "tool",
+          key: "earlier-tool",
+          speaker: "kin",
+          name: "read_file",
+          summary: "done",
+          status: "done",
+        },
+      ],
+    };
+    const latest: ProgressItem = {
+      kind: "progress",
+      key: "latest",
+      speaker: "kin",
+      steps: [
+        {
+          kind: "tool",
+          key: "latest-tool",
+          speaker: "kin",
+          name: "bash",
+          summary: "done",
+          status: "done",
+        },
+      ],
+    };
+    const items: ChatItem[] = [earlier, latest];
+
+    expect(shouldShowGenericThinking(items, true)).toBe(false);
+    expect(isProgressCardRunning(items, earlier, true)).toBe(false);
+    expect(isProgressCardRunning(items, latest, true)).toBe(true);
+    expect(isProgressCardRunning(items, latest, false)).toBe(false);
+  });
+
+  it("stops a process card once a final summary is displayed", () => {
+    const progress: ProgressItem = {
+      kind: "progress",
+      key: "process",
+      speaker: "kin",
+      steps: [
+        {
+          kind: "tool",
+          key: "tool",
+          speaker: "kin",
+          name: "bash",
+          summary: "running",
+          status: "running",
+        },
+      ],
+    };
+    const items: ChatItem[] = [
+      progress,
+      {
+        kind: "message",
+        key: "summary",
+        speaker: "kin",
+        text: "Finished.",
+        phase: "summary",
+      },
+    ];
+
+    expect(isProgressCardRunning(items, progress, true)).toBe(false);
+  });
+});
+
+describe("summarizeProgressDetails", () => {
+  it("counts tool types and uses the latest non-empty note", () => {
+    const item: ProgressItem = {
+      kind: "progress",
+      key: "process",
+      speaker: "kin",
+      steps: [
+        { kind: "tool", key: "r1", speaker: "kin", name: "read_file", summary: "read", status: "done" },
+        { kind: "note", key: "n1", speaker: "kin", text: "Inspecting files", status: "done" },
+        { kind: "tool", key: "g1", speaker: "kin", name: "glob", summary: "glob", status: "done" },
+        { kind: "tool", key: "r2", speaker: "kin", name: "read_file", summary: "read", status: "done" },
+        { kind: "note", key: "n2", speaker: "kin", text: "  Located\nrendering path.  ", status: "done" },
+        { kind: "note", key: "n3", speaker: "kin", text: " \n ", status: "done" },
+        { kind: "tool", key: "b1", speaker: "kin", name: "bash", summary: "bash", status: "done" },
+      ],
+    };
+
+    expect(summarizeProgressDetails(item.steps)).toEqual({
+      toolCounts: "read × 2 · glob × 1 · shell × 1",
+      latestNote: "Located rendering path.",
+      noteCount: 2,
+    });
+  });
+});
+
+describe("summarizeProgressStatus", () => {
+  it("ignores notes when classifying failed tool execution", () => {
+    const item: ProgressItem = {
+      kind: "progress",
+      key: "failed",
+      speaker: "kin",
+      steps: [
+        {
+          kind: "note",
+          key: "note",
+          speaker: "kin",
+          text: "Attempt finished.",
+          status: "done",
+        },
+        {
+          kind: "tool",
+          key: "tool",
+          speaker: "kin",
+          name: "bash",
+          summary: "failed",
+          status: "error",
+        },
+      ],
+    };
+
+    expect(summarizeProgressStatus(item.steps, false)).toEqual({
+      state: "failed",
+      doneTools: 0,
+      failedTools: 1,
+      totalTools: 1,
+    });
+  });
+
+  it("classifies mixed tool results as partially failed", () => {
+    const item: ProgressItem = {
+      kind: "progress",
+      key: "mixed",
+      speaker: "kin",
+      steps: [
+        {
+          kind: "tool",
+          key: "done",
+          speaker: "kin",
+          name: "read_file",
+          summary: "done",
+          status: "done",
+        },
+        {
+          kind: "tool",
+          key: "failed",
+          speaker: "kin",
+          name: "bash",
+          summary: "failed",
+          status: "error",
+        },
+      ],
+    };
+
+    expect(summarizeProgressStatus(item.steps, false)).toEqual({
+      state: "partial_failed",
+      doneTools: 1,
+      failedTools: 1,
+      totalTools: 2,
+    });
+  });
+
+  it("classifies a reasoning-only failed process as failed", () => {
+    const steps: ProgressItem["steps"] = [
+      {
+        kind: "note",
+        key: "reasoning",
+        speaker: "kin",
+        text: "Provider reasoning before failure.",
+        status: "error",
+      },
+    ];
+
+    expect(summarizeProgressStatus(steps, false).state).toBe("failed");
   });
 });

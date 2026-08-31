@@ -88,6 +88,45 @@ describe("decodeCanonicalEventMeta", () => {
     expect(isProgressMessageMeta(plan, "plan text")).toBe(true);
   });
 
+  it("keeps an explicitly task-only summary in process", () => {
+    const workerSummary = decodeCanonicalEventMeta(
+      {
+        role: "assistant",
+        speaker: "worker",
+        phase: "summary",
+        visibility: { user: false, task: true },
+      },
+      "kin",
+    );
+
+    expect(isProgressMessageMeta(workerSummary, "Worker summary")).toBe(true);
+  });
+
+  it("classifies reasoning and explicit progress phases as process notes", () => {
+    const reasoning = decodeCanonicalEventMeta(
+      {
+        role: "reasoning",
+        speaker: "kin",
+        visibility: { user: true, task: true },
+      },
+      "kin",
+    );
+    expect(isProgressMessageMeta(reasoning, "provider reasoning")).toBe(true);
+
+    for (const phase of ["plan", "progress"]) {
+      const meta = decodeCanonicalEventMeta(
+        {
+          role: "assistant",
+          phase,
+          speaker: "kin",
+          visibility: { user: true, task: true },
+        },
+        "kin",
+      );
+      expect(isProgressMessageMeta(meta, `${phase} note`)).toBe(true);
+    }
+  });
+
   it("keeps wording heuristic only for phase-less legacy orchestrator rows", () => {
     expect(isLegacyOrchestratorSummaryWording("完成：done")).toBe(true);
     const legacy = decodeCanonicalEventMeta(

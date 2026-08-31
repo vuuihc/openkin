@@ -71,17 +71,35 @@ func runAgentLoop(
 		promptChars := estimateMessagesChars(messages)
 		chatCtx := withProviderRetryHints(ctx, ch)
 		onDelta, flushDelta := streamContentDeltaEmitter(ch, "kin")
+		onReasoningDelta, flushReasoningDelta := streamReasoningDeltaEmitter(ch, "kin")
+		contentStreamed := false
+		reasoningStreamed := false
 		resp, err := client.Chat(chatCtx, provider.ChatRequest{
-			Model:          model,
-			Messages:       messages,
-			Tools:          tools,
-			ToolChoice:     "auto",
-			OnContentDelta: onDelta,
+			Model:      model,
+			Messages:   messages,
+			Tools:      tools,
+			ToolChoice: "auto",
+			OnContentDelta: func(delta string) {
+				flushReasoningDelta()
+				if delta != "" {
+					contentStreamed = true
+				}
+				onDelta(delta)
+			},
+			OnReasoningDelta: func(delta string) {
+				flushDelta()
+				if delta != "" {
+					reasoningStreamed = true
+				}
+				onReasoningDelta(delta)
+			},
 		})
 		flushDelta()
+		flushReasoningDelta()
 		if err != nil {
+			streamed := contentStreamed || reasoningStreamed
 			// Some proxies reject tools; fall back to one-shot chat once.
-			if turn == 0 && looksLikeToolsUnsupported(err) {
+			if !streamed && turn == 0 && looksLikeToolsUnsupported(err) {
 				emitMsg(ch, "kin", fmt.Sprintf(
 					"_Provider rejected tool calling (%v). Falling back to chat-only for this turn._",
 					err,
@@ -92,7 +110,7 @@ func runAgentLoop(
 			// Overflow safety net only (not the design center): prefer collapsing the
 			// newest giant tool body first to preserve a longer cached prefix, then
 			// fall back to older tools. Still mutates history — last resort only.
-			if !contextRetryUsed && looksLikeContextOverflow(err) {
+			if !streamed && !contextRetryUsed && looksLikeContextOverflow(err) {
 				contextRetryUsed = true
 				messages = overflowCompactMessages(messages, softMsgChars/2)
 				emitMsg(ch, "kin", "_Context limit approached; compacted tool results and retrying…_")
@@ -114,9 +132,17 @@ func runAgentLoop(
 			turn, promptChars, resp.Usage.PromptTokens, resp.Usage.CachedTokens, resp.Usage.CompletionTokens)
 		emitUsage(ch, lastModel, promptChars, resp.Usage)
 
+		if !reasoningStreamed && strings.TrimSpace(resp.Reasoning) != "" {
+			emitPhasedMsg(ch, "kin", "reasoning", "progress", resp.Reasoning)
+		}
+
 		// Assistant text (may accompany tool calls).
 		if strings.TrimSpace(resp.Content) != "" {
-			emitMsg(ch, "kin", resp.Content)
+			phase := "summary"
+			if len(resp.ToolCalls) > 0 {
+				phase = "progress"
+			}
+			emitPhasedMsg(ch, "kin", "assistant", phase, resp.Content)
 		}
 
 		if len(resp.ToolCalls) == 0 {
@@ -244,12 +270,25 @@ func runChatOnly(
 	promptChars := estimateMessagesChars(msgs)
 	chatCtx := withProviderRetryHints(ctx, ch)
 	onDelta, flushDelta := streamContentDeltaEmitter(ch, "kin")
+	onReasoningDelta, flushReasoningDelta := streamReasoningDeltaEmitter(ch, "kin")
+	reasoningStreamed := false
 	resp, err := client.Chat(chatCtx, provider.ChatRequest{
-		Model:          model,
-		Messages:       msgs,
-		OnContentDelta: onDelta,
+		Model:    model,
+		Messages: msgs,
+		OnContentDelta: func(delta string) {
+			flushReasoningDelta()
+			onDelta(delta)
+		},
+		OnReasoningDelta: func(delta string) {
+			flushDelta()
+			if delta != "" {
+				reasoningStreamed = true
+			}
+			onReasoningDelta(delta)
+		},
 	})
 	flushDelta()
+	flushReasoningDelta()
 	if err != nil {
 		emitErr(ch, friendlyErrorMessage(err))
 		emitResult(ch, true, model, 0, 0, 0)
@@ -258,8 +297,11 @@ func runChatOnly(
 	log.Printf("kinagent: chat-only prompt_chars=%d prompt_tokens=%d cached_tokens=%d",
 		promptChars, resp.Usage.PromptTokens, resp.Usage.CachedTokens)
 	emitUsage(ch, firstNonEmpty(resp.Model, model), promptChars, resp.Usage)
+	if !reasoningStreamed && strings.TrimSpace(resp.Reasoning) != "" {
+		emitPhasedMsg(ch, "kin", "reasoning", "progress", resp.Reasoning)
+	}
 	if strings.TrimSpace(resp.Content) != "" {
-		emitMsg(ch, "kin", resp.Content)
+		emitPhasedMsg(ch, "kin", "assistant", "summary", resp.Content)
 	}
 	emitResult(ch, false, firstNonEmpty(resp.Model, model), resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.CachedTokens)
 }
@@ -392,13 +434,26 @@ func aborted(ctx context.Context, cancel <-chan struct{}) bool {
 const emptyAfterToolsContinuePrompt = "Continue. If the task is not finished, take the next step (tools allowed). If it is finished, give the user-facing answer. Do not stop with empty content."
 
 func emitMsg(ch chan<- adapter.Event, agent, text string) {
+	emitMessage(ch, agent, "assistant", "", text, false)
+}
+
+func emitPhasedMsg(ch chan<- adapter.Event, agent, role, phase, text string) {
+	emitMessage(ch, agent, role, phase, text, false)
+}
+
+func emitMessage(
+	ch chan<- adapter.Event,
+	agent, role, phase, text string,
+	partial bool,
+) {
 	payload, _ := json.Marshal(map[string]any{
-		"role":    "assistant",
+		"role":    role,
 		"content": []map[string]string{{"type": "text", "text": text}},
-		"partial": false,
+		"partial": partial,
 		"agent":   agent,
 		"speaker": agent,
 		"source":  "kin",
+		"phase":   phase,
 	})
 	ch <- adapter.Event{Type: "message", Payload: payload}
 }
@@ -409,21 +464,32 @@ func emitPartialMsg(ch chan<- adapter.Event, agent, delta string) {
 	if delta == "" {
 		return
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"role":    "assistant",
-		"content": []map[string]string{{"type": "text", "text": delta}},
-		"partial": true,
-		"agent":   agent,
-		"speaker": agent,
-		"source":  "kin",
-	})
-	ch <- adapter.Event{Type: "message", Payload: payload}
+	emitMessage(ch, agent, "assistant", "", delta, true)
+}
+
+func emitPartialReasoning(ch chan<- adapter.Event, agent, delta string) {
+	if delta == "" {
+		return
+	}
+	emitMessage(ch, agent, "reasoning", "progress", delta, true)
 }
 
 // streamContentDeltaEmitter throttles partial message events so high-frequency
 // token streams do not flood the event log / websocket. Returns (onDelta, flush).
 // flush must be called after Chat returns (success or error) to emit any remainder.
 func streamContentDeltaEmitter(ch chan<- adapter.Event, agent string) (onDelta func(string), flush func()) {
+	return streamDeltaEmitter(func(delta string) {
+		emitPartialMsg(ch, agent, delta)
+	})
+}
+
+func streamReasoningDeltaEmitter(ch chan<- adapter.Event, agent string) (onDelta func(string), flush func()) {
+	return streamDeltaEmitter(func(delta string) {
+		emitPartialReasoning(ch, agent, delta)
+	})
+}
+
+func streamDeltaEmitter(emit func(string)) (onDelta func(string), flush func()) {
 	const minInterval = 80 * time.Millisecond
 	var (
 		buf      strings.Builder
@@ -433,7 +499,7 @@ func streamContentDeltaEmitter(ch chan<- adapter.Event, agent string) (onDelta f
 		if buf.Len() == 0 {
 			return
 		}
-		emitPartialMsg(ch, agent, buf.String())
+		emit(buf.String())
 		buf.Reset()
 		lastEmit = time.Now()
 	}
