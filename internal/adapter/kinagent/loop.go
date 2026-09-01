@@ -593,6 +593,8 @@ func toolRunningSummary(name, argsJSON string) string {
 		return "Reading · " + truncateRunes(jsonStringField(argsJSON, "path"), 64)
 	case "write_file":
 		return "Writing · " + truncateRunes(jsonStringField(argsJSON, "path"), 64)
+	case "edit_file":
+		return "Editing · " + truncateRunes(jsonStringField(argsJSON, "path"), 64)
 	case "list_dir":
 		p := jsonStringField(argsJSON, "path")
 		if p == "" {
@@ -626,6 +628,9 @@ func toolResultSummary(name, argsJSON, output string, ok bool) string {
 	case "write_file":
 		p := jsonStringField(argsJSON, "path")
 		return fmt.Sprintf("%s · wrote %s", status, truncateRunes(p, 56))
+	case "edit_file":
+		p := jsonStringField(argsJSON, "path")
+		return fmt.Sprintf("%s · edited %s", status, truncateRunes(p, 56))
 	case "list_dir":
 		p := jsonStringField(argsJSON, "path")
 		if p == "" {

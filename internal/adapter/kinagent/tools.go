@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -19,8 +21,9 @@ import (
 const (
 	// maxToolOutBytes is a hard safety cap on raw tool stdout before UI/archive
 	// and before digest. The model path never sees this full blob (ToolDigest).
-	maxToolOutBytes = 80_000
-	bashTimeout     = 120 * time.Second
+	maxToolOutBytes      = 80_000
+	maxEditableFileBytes = 8 << 20
+	bashTimeout          = 120 * time.Second
 )
 
 // SessionSearcher looks up archived events for the session_search tool (ADR 0002 P2).
@@ -36,6 +39,18 @@ type toolEnv struct {
 	TaskID string
 	// Search optional archive retrieval.
 	Search SessionSearcher
+}
+
+type workspacePathLock struct {
+	token chan struct{}
+	refs  int
+}
+
+var workspaceFileLocks = struct {
+	sync.Mutex
+	byPath map[string]*workspacePathLock
+}{
+	byPath: make(map[string]*workspacePathLock),
 }
 
 func newToolEnv(cwd string) (*toolEnv, error) {
@@ -125,6 +140,31 @@ func agentTools(withSearch bool) []provider.ToolDef {
 				"required": []string{"path", "content"},
 			},
 		),
+		provider.FunctionTool("edit_file",
+			"Make a localized edit to an existing UTF-8 text file. Copy old_string exactly from read_file. By default old_string must occur exactly once; set replace_all only when every occurrence should change.",
+			map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "File path relative to cwd or absolute under cwd",
+					},
+					"old_string": map[string]any{
+						"type":        "string",
+						"description": "Exact existing text to replace; include enough surrounding context for a unique match",
+					},
+					"new_string": map[string]any{
+						"type":        "string",
+						"description": "Replacement text; may be empty to delete old_string",
+					},
+					"replace_all": map[string]any{
+						"type":        "boolean",
+						"description": "Replace every exact match instead of requiring one unique match",
+					},
+				},
+				"required": []string{"path", "old_string", "new_string"},
+			},
+		),
 		provider.FunctionTool("list_dir",
 			"List files and directories under a path (non-recursive).",
 			map[string]any{
@@ -188,9 +228,37 @@ func (e *toolEnv) runTool(ctx context.Context, name, argsJSON string) (string, e
 		path, _ := args["path"].(string)
 		return e.readFile(path)
 	case "write_file":
-		path, _ := args["path"].(string)
-		content, _ := args["content"].(string)
-		return e.writeFile(path, content)
+		path, err := requiredStringToolArg(args, "path", false)
+		if err != nil {
+			return "", err
+		}
+		content, err := requiredStringToolArg(args, "content", true)
+		if err != nil {
+			return "", err
+		}
+		return e.writeFileContext(ctx, path, content)
+	case "edit_file":
+		path, err := requiredStringToolArg(args, "path", false)
+		if err != nil {
+			return "", err
+		}
+		oldString, err := requiredStringToolArg(args, "old_string", true)
+		if err != nil {
+			return "", err
+		}
+		newString, err := requiredStringToolArg(args, "new_string", true)
+		if err != nil {
+			return "", err
+		}
+		replaceAll := false
+		if raw, ok := args["replace_all"]; ok {
+			var valid bool
+			replaceAll, valid = raw.(bool)
+			if !valid {
+				return "", fmt.Errorf("replace_all must be a boolean")
+			}
+		}
+		return e.editFileContext(ctx, path, oldString, newString, replaceAll)
 	case "list_dir":
 		path, _ := args["path"].(string)
 		if path == "" {
@@ -215,6 +283,21 @@ func (e *toolEnv) runTool(ctx context.Context, name, argsJSON string) (string, e
 	}
 }
 
+func requiredStringToolArg(args map[string]any, name string, allowEmpty bool) (string, error) {
+	raw, ok := args[name]
+	if !ok {
+		return "", fmt.Errorf("%s is required", name)
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("%s must be a string", name)
+	}
+	if !allowEmpty && strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("%s is required", name)
+	}
+	return value, nil
+}
+
 func (e *toolEnv) sessionSearch(ctx context.Context, query string, limit int) (string, error) {
 	if e.Search == nil {
 		return "", fmt.Errorf("session_search not available")
@@ -231,7 +314,6 @@ func (e *toolEnv) sessionSearch(ctx context.Context, query string, limit int) (s
 	}
 	return e.Search.Search(ctx, e.TaskID, query, limit)
 }
-
 
 // blockedTaskSpawnCommand rejects shell that creates top-level Kin tasks/sessions.
 // Multi-agent work must use @mentions so the engine orchestrates inside this task.
@@ -328,17 +410,297 @@ func (e *toolEnv) readFile(path string) (string, error) {
 }
 
 func (e *toolEnv) writeFile(path, content string) (string, error) {
+	return e.writeFileContext(context.Background(), path, content)
+}
+
+func (e *toolEnv) writeFileContext(ctx context.Context, path, content string) (string, error) {
 	abs, err := e.resolvePath(path)
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	unlock, err := lockWorkspaceFile(ctx, abs)
+	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+	defer unlock()
+
+	rel, err := filepath.Rel(e.Root, abs)
+	if err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(e.Root)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
+		return "", err
+	}
+	file, err := root.OpenFile(rel, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if err := flockWithContext(ctx, file); err != nil {
+		return "", err
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := overwriteOpenFile(file, []byte(content)); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("wrote %d bytes to %s", len(content), relDisplay(e.Root, abs)), nil
+}
+
+func (e *toolEnv) editFile(path, oldString, newString string, replaceAll bool) (string, error) {
+	return e.editFileContext(context.Background(), path, oldString, newString, replaceAll)
+}
+
+func (e *toolEnv) editFileContext(ctx context.Context, path, oldString, newString string, replaceAll bool) (string, error) {
+	if oldString == "" {
+		return "", fmt.Errorf("old_string is required; use write_file to create or replace a whole file")
+	}
+	if oldString == newString {
+		return "", fmt.Errorf("old_string and new_string must differ")
+	}
+	abs, err := e.resolvePath(path)
+	if err != nil {
+		return "", err
+	}
+	unlock, err := lockWorkspaceFile(ctx, abs)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+
+	rel, err := filepath.Rel(e.Root, abs)
+	if err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(e.Root)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+
+	file, err := root.OpenFile(rel, os.O_RDWR, 0)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	if err := flockWithContext(ctx, file); err != nil {
+		return "", err
+	}
+	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("path %q is not a regular file", path)
+	}
+	if info.Size() > maxEditableFileBytes {
+		return "", fmt.Errorf("file is too large to edit safely: %d bytes (max %d)", info.Size(), maxEditableFileBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxEditableFileBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > maxEditableFileBytes {
+		return "", fmt.Errorf("file is too large to edit safely: more than %d bytes", maxEditableFileBytes)
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
+		return "", fmt.Errorf("file appears binary")
+	}
+	if !utf8.Valid(data) {
+		return "", fmt.Errorf("file is not valid UTF-8")
+	}
+
+	body := string(data)
+	matches := strings.Count(body, oldString)
+	if matches == 0 {
+		return "", fmt.Errorf("old_string not found in %s; re-read the file and copy the exact text", relDisplay(e.Root, abs))
+	}
+	if matches > 1 && !replaceAll {
+		return "", fmt.Errorf("old_string matches %d locations in %s; include more surrounding context or set replace_all", matches, relDisplay(e.Root, abs))
+	}
+	replacements := 1
+	if replaceAll {
+		replacements = matches
+	}
+	if len(newString) > len(oldString) {
+		growth := len(newString) - len(oldString)
+		if growth > (maxEditableFileBytes-len(data))/replacements {
+			return "", fmt.Errorf("edit result is too large (max %d bytes)", maxEditableFileBytes)
+		}
+	}
+	limit := 1
+	if replaceAll {
+		limit = -1
+	}
+	updated := strings.Replace(body, oldString, newString, limit)
+	if len(updated) > maxEditableFileBytes {
+		return "", fmt.Errorf("edit result is too large: %d bytes (max %d)", len(updated), maxEditableFileBytes)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if err := writeOpenFile(root, rel, file, data, []byte(updated), info); err != nil {
+		return "", err
+	}
+
+	replaced := replacements
+	unit := "occurrence"
+	if replaced != 1 {
+		unit = "occurrences"
+	}
+	return fmt.Sprintf("edited %s: replaced %d %s", relDisplay(e.Root, abs), replaced, unit), nil
+}
+
+func flockWithContext(ctx context.Context, file *os.File) error {
+	const retryDelay = 25 * time.Millisecond
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+				return ctxErr
+			}
+			return nil
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+			return err
+		}
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func writeOpenFile(root *os.Root, path string, file *os.File, original, updated []byte, info os.FileInfo) error {
+	currentInfo, err := root.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, currentInfo) ||
+		currentInfo.Size() != info.Size() ||
+		!currentInfo.ModTime().Equal(info.ModTime()) {
+		return fmt.Errorf("file changed while editing %s; re-read and retry", path)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	current, err := io.ReadAll(io.LimitReader(file, maxEditableFileBytes+1))
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, original) {
+		return fmt.Errorf("file changed while editing %s; re-read and retry", path)
+	}
+	if err := overwriteOpenFile(file, updated); err != nil {
+		if rollbackErr := overwriteOpenFile(file, original); rollbackErr != nil {
+			return fmt.Errorf("edit failed: %v; rollback failed: %v; file may be modified", err, rollbackErr)
+		}
+		return err
+	}
+	after, err := root.Stat(path)
+	if err != nil {
+		return rollbackOpenFile(file, original, err)
+	}
+	if !os.SameFile(info, after) {
+		return rollbackOpenFile(
+			file,
+			original,
+			fmt.Errorf("file path changed while editing %s; current path was not overwritten", path),
+		)
+	}
+	return nil
+}
+
+func rollbackOpenFile(file *os.File, original []byte, cause error) error {
+	if rollbackErr := overwriteOpenFile(file, original); rollbackErr != nil {
+		return fmt.Errorf("%v; rollback failed: %v; file may be modified", cause, rollbackErr)
+	}
+	return cause
+}
+
+func overwriteOpenFile(file *os.File, data []byte) error {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	written, err := file.Write(data)
+	if err != nil {
+		return err
+	}
+	if written != len(data) {
+		return io.ErrShortWrite
+	}
+	if err := file.Truncate(int64(len(data))); err != nil {
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func lockWorkspaceFile(ctx context.Context, path string) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	workspaceFileLocks.Lock()
+	entry := workspaceFileLocks.byPath[path]
+	if entry == nil {
+		entry = &workspacePathLock{token: make(chan struct{}, 1)}
+		entry.token <- struct{}{}
+		workspaceFileLocks.byPath[path] = entry
+	}
+	entry.refs++
+	workspaceFileLocks.Unlock()
+
+	select {
+	case <-ctx.Done():
+		releaseWorkspaceFileLock(path, entry)
+		return nil, ctx.Err()
+	case <-entry.token:
+	}
+	if err := ctx.Err(); err != nil {
+		entry.token <- struct{}{}
+		releaseWorkspaceFileLock(path, entry)
+		return nil, err
+	}
+	return func() {
+		entry.token <- struct{}{}
+		releaseWorkspaceFileLock(path, entry)
+	}, nil
+}
+
+func releaseWorkspaceFileLock(path string, entry *workspacePathLock) {
+	workspaceFileLocks.Lock()
+	defer workspaceFileLocks.Unlock()
+	entry.refs--
+	if entry.refs == 0 {
+		if current := workspaceFileLocks.byPath[path]; current == entry {
+			delete(workspaceFileLocks.byPath, path)
+		}
+	}
 }
 
 func (e *toolEnv) listDir(path string) (string, error) {

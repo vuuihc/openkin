@@ -44,9 +44,9 @@ func ToolDigest(name, argsJSON, output string, ok bool) string {
 		return digestBash(argsJSON, out, status)
 	case "read_file":
 		return digestReadFile(argsJSON, out, status)
-	case "write_file":
-		// write_file already returns a short confirmation; keep as-is under a soft cap.
-		return fmt.Sprintf("write_file [%s]: %s", status, TruncateRunes(oneLine(out), 240))
+	case "write_file", "edit_file":
+		// Mutation tools already return short confirmations; keep them under a soft cap.
+		return fmt.Sprintf("%s [%s]: %s", name, status, TruncateRunes(oneLine(out), 240))
 	case "list_dir":
 		return digestListOrGlob("list_dir", argsJSON, out, status, ListDigestMaxEntries, "entries")
 	case "glob":

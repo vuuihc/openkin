@@ -50,6 +50,16 @@ describe("countLines / lineDeltaFromTool", () => {
     ).toEqual({ additions: 4, deletions: 2 });
   });
 
+  it("delta for edit_file counts old/new lines", () => {
+    expect(
+      lineDeltaFromTool("edit_file", {
+        path: "a.ts",
+        old_string: "old\n",
+        new_string: "new\nline\n",
+      }),
+    ).toEqual({ additions: 2, deletions: 1 });
+  });
+
   it("delta for unified patch", () => {
     const patch = [
       "--- a/f",
@@ -166,6 +176,21 @@ describe("extractFileDiff", () => {
     expect(diff!.source).toBe("str_replace");
     expect(diff!.original).toBe("hello");
     expect(diff!.modified).toBe("hello world");
+  });
+
+  it("rebuilds edit_file old/new strings", () => {
+    const events = [
+      toolUse(2, "edit_file", {
+        path: "README.md",
+        old_string: "before",
+        new_string: "after",
+      }),
+    ];
+    const diff = extractFileDiff(events, "README.md");
+    expect(diff).not.toBeNull();
+    expect(diff!.source).toBe("str_replace");
+    expect(diff!.original).toBe("before");
+    expect(diff!.modified).toBe("after");
   });
 
   it("prefers the newest mutation for a path", () => {
