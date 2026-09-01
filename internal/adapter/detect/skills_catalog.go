@@ -391,13 +391,13 @@ func SkillsDiscoveryCatalog() []DiscoverySpec {
 		{
 			ID:           "droid",
 			Name:         "Droid",
-			Bins:         nil,
-			EnvBin:       "",
+			Bins:         []string{"droid"},
+			EnvBin:       "KIN_DROID_BIN",
 			HomeDirs:     []string{".factory"},
 			ConfigDirs:   nil,
 			SkillsDir:    ".factory/skills",
-			Priority:     534,
-			RunnableHint: false,
+			Priority:     35,
+			RunnableHint: true,
 		},
 		{
 			ID:           "eve",

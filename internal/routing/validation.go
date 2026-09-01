@@ -230,6 +230,10 @@ func BuiltinAdapterCapabilities() []AdapterCapability {
 			SupportedKinds: []ProviderKind{ProviderKindSubscription},
 		},
 		{
+			AgentID:        "droid",
+			SupportedKinds: []ProviderKind{ProviderKindSubscription},
+		},
+		{
 			AgentID:        "grok",
 			SupportedKinds: []ProviderKind{ProviderKindSubscription, ProviderKindGrokCompatible},
 		},
