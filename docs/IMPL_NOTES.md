@@ -528,7 +528,15 @@ add form. Default agent save is separate from provider CRUD.
 - `internal/adapter/detect/skills_catalog.go` is a snapshot of the [vercel-labs/skills](https://github.com/vercel-labs/skills) AGENTS table (`skills@1.5.19`): ~70 coding-agent install targets with home/XDG config signals and optional binaries.
 - Used for **local presence** (`ScanPresence` / `IsLocallyPresent`), not for automatically gaining a first-class runner.
 - `PUT /api/settings` `agent.default` must name a **registered + runnable** Kin adapter; empty clears auto mode. Discovery-only ids (e.g. openclaw when no adapter) are rejected with 400.
-- First-class runnable hints today: `claude-code`, `codex`, `grok` (same as process adapters).
+- First-class runnable hints today: `claude-code`, `codex`, `droid`, `grok` (same as process adapters).
+
+## Factory Droid adapter
+
+- Verified with Droid `0.208.1`, using `stream-jsonrpc` and Factory protocol `1.193.0`.
+- Kin always requests `interactionMode: auto`; permission modes map to autonomy `off` (default), `low` (accept edits), and `high` (YOLO).
+- Factory CLI owns subscription authentication. The adapter does not translate Kin provider endpoints or API keys.
+- Empty MCP/builtin-skill settings reduce integrations, but ambient `~/.factory` hooks can still run.
+- Lazy workspace orchestration is not supported.
 
 ## Semi-auto rate-limit Wait / Continue (2026-07-25)
 
@@ -558,4 +566,3 @@ Timers are process-local; on daemon restart `Recover` re-arms waiting (and defau
 - `limit_policy.fallback_agents`: optional JSON array for switch order.
 - On `limit_hit` with policy `wait`, engine auto-arms Wait without a click.
 - Start-time preflight uses `usagewindows` (Claude/Codex): if the window is already `over`, fail with `limit_hit` and skip launching the CLI.
-

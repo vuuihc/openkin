@@ -14,18 +14,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
+
+	"github.com/vuuihc/openkin/internal/approvalbridge"
 )
 
 // Env vars (set by per-task MCP config).
 const (
-	EnvTaskID         = "KIN_TASK_ID"
-	EnvDaemon         = "KIN_DAEMON"
-	EnvToken          = "KIN_TOKEN"
-	EnvExecutionID    = "KIN_EXECUTION_ID"
-	EnvExecutionAgent = "KIN_EXECUTION_AGENT"
-	EnvExecutionStep  = "KIN_EXECUTION_STEP"
-	EnvExecutionModel = "KIN_EXECUTION_MODEL"
+	EnvTaskID          = "KIN_TASK_ID"
+	EnvDaemon          = "KIN_DAEMON"
+	EnvToken           = "KIN_TOKEN"
+	EnvExecutionID     = "KIN_EXECUTION_ID"
+	EnvExecutionAgent  = "KIN_EXECUTION_AGENT"
+	EnvExecutionStep   = "KIN_EXECUTION_STEP"
+	EnvExecutionModel  = "KIN_EXECUTION_MODEL"
 	EnvKinExecutionCap = "KIN_EXECUTION_CAP"
 )
 
@@ -368,213 +369,67 @@ func (s *server) postUserQuestion(ctx context.Context, question, header string, 
 	Label       string `json:"label"`
 	Description string `json:"description"`
 }) (string, error) {
-	opts := make([]map[string]any, 0, len(options))
+	opts := make([]approvalbridge.QuestionOption, 0, len(options))
 	for _, o := range options {
-		m := map[string]any{"label": o.Label}
-		if o.Description != "" {
-			m["description"] = o.Description
-		}
-		opts = append(opts, m)
+		opts = append(opts, approvalbridge.QuestionOption{
+			Label:       o.Label,
+			Description: o.Description,
+		})
 	}
-	reqBody := map[string]any{
-		"task_id":      s.taskID,
-		"question":     question,
-		"header":       header,
-		"options":      opts,
-		"multi_select": multi,
+	id, err := s.approvalClient().CreateUserQuestion(ctx, s.taskID, approvalbridge.Question{
+		Text:        question,
+		Header:      header,
+		Options:     opts,
+		MultiSelect: multi,
+	}, s.execution())
+	if err == nil {
+		s.logf("created user question %s", id)
 	}
-	if s.executionID != "" {
-		reqBody["execution_id"] = s.executionID
-	}
-	if s.executionAgent != "" {
-		reqBody["execution_agent"] = s.executionAgent
-	}
-	if s.executionStep > 0 {
-		reqBody["execution_step"] = s.executionStep
-	}
-	if s.executionModel != "" {
-		reqBody["execution_model"] = s.executionModel
-	}
-	body, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.daemon+"/internal/user-questions", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req = req.WithContext(cctx)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("POST /internal/user-questions: %s: %s", resp.Status, truncate(string(data), 200))
-	}
-	var q struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(data, &q); err != nil {
-		return "", err
-	}
-	if q.ID == "" {
-		return "", fmt.Errorf("empty user question id")
-	}
-	s.logf("created user question %s", q.ID)
-	return q.ID, nil
+	return id, err
 }
 
 func (s *server) waitUserQuestionAnswer(ctx context.Context, id string) (string, error) {
-	for {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		url := fmt.Sprintf("%s/internal/user-questions/%s/wait?timeout=30", s.daemon, id)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Authorization", "Bearer "+s.token)
-
-		cctx, cancel := context.WithTimeout(ctx, 35*time.Second)
-		req = req.WithContext(cctx)
-		resp, err := s.client.Do(req)
-		cancel()
-		if err != nil {
-			s.logf("user question wait poll error: %v", err)
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(time.Second):
-				continue
-			}
-		}
-		data, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return "", fmt.Errorf("wait: %s: %s", resp.Status, truncate(string(data), 200))
-		}
-		var q struct {
-			Status   string          `json:"status"`
-			Response json.RawMessage `json:"response"`
-		}
-		if err := json.Unmarshal(data, &q); err != nil {
-			return "", err
-		}
-		if q.Status == "" || q.Status == "pending" {
-			continue
-		}
-		// answered or expired — return response JSON or empty for fail-open
-		if q.Status == "expired" || len(q.Response) == 0 {
-			return "", nil
-		}
-		s.logf("user question %s status=%s", id, q.Status)
-		return string(q.Response), nil
+	answer, err := s.approvalClient().WaitUserQuestion(ctx, id)
+	if err != nil {
+		return "", err
 	}
+	if answer.Status == "expired" || len(answer.Raw) == 0 {
+		return "", nil
+	}
+	s.logf("user question %s status=%s", id, answer.Status)
+	return string(answer.Raw), nil
 }
 
 func (s *server) postApproval(ctx context.Context, payload json.RawMessage) (string, error) {
-	reqBody := map[string]any{
-		"task_id": s.taskID,
-		"kind":    "tool_use",
-		"payload": json.RawMessage(payload),
+	id, err := s.approvalClient().CreateApproval(ctx, s.taskID, "tool_use", payload, s.execution())
+	if err == nil {
+		s.logf("created approval %s", id)
 	}
-	if s.executionID != "" {
-		reqBody["execution_id"] = s.executionID
-	}
-	if s.executionAgent != "" {
-		reqBody["execution_agent"] = s.executionAgent
-	}
-	if s.executionStep > 0 {
-		reqBody["execution_step"] = s.executionStep
-	}
-	if s.executionModel != "" {
-		reqBody["execution_model"] = s.executionModel
-	}
-	body, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.daemon+"/internal/approvals", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Bound the POST itself (not the wait).
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req = req.WithContext(cctx)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("POST /internal/approvals: %s: %s", resp.Status, truncate(string(data), 200))
-	}
-	var a struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(data, &a); err != nil {
-		return "", err
-	}
-	if a.ID == "" {
-		return "", fmt.Errorf("empty approval id")
-	}
-	s.logf("created approval %s", a.ID)
-	return a.ID, nil
+	return id, err
 }
 
 func (s *server) waitDecision(ctx context.Context, id string) (string, error) {
-	for {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		url := fmt.Sprintf("%s/internal/approvals/%s/wait?timeout=30", s.daemon, id)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Authorization", "Bearer "+s.token)
+	decision, err := s.approvalClient().WaitApproval(ctx, id)
+	if err == nil {
+		s.logf("decision %s for %s", decision, id)
+	}
+	return decision, err
+}
 
-		// Allow slightly more than server timeout.
-		cctx, cancel := context.WithTimeout(ctx, 35*time.Second)
-		req = req.WithContext(cctx)
-		resp, err := s.client.Do(req)
-		cancel()
-		if err != nil {
-			// Transient network error: brief pause then retry.
-			s.logf("wait poll error: %v", err)
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(time.Second):
-				continue
-			}
-		}
-		data, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return "", fmt.Errorf("wait: %s: %s", resp.Status, truncate(string(data), 200))
-		}
-		var a struct {
-			Decision string `json:"decision"`
-		}
-		if err := json.Unmarshal(data, &a); err != nil {
-			return "", err
-		}
-		if a.Decision == "" || a.Decision == "pending" {
-			// Timed out still pending — poll again.
-			continue
-		}
-		s.logf("decision %s for %s", a.Decision, id)
-		return a.Decision, nil
+func (s *server) approvalClient() *approvalbridge.Client {
+	return &approvalbridge.Client{
+		DaemonURL:  s.daemon,
+		Token:      s.token,
+		HTTPClient: s.client,
+	}
+}
+
+func (s *server) execution() approvalbridge.Execution {
+	return approvalbridge.Execution{
+		ID:    s.executionID,
+		Agent: s.executionAgent,
+		Step:  s.executionStep,
+		Model: s.executionModel,
 	}
 }
 
@@ -607,7 +462,6 @@ func rpcErr(id json.RawMessage, code int, msg string) rpcResponse {
 		Error:   &rpcError{Code: code, Message: msg},
 	}
 }
-
 
 func (s *server) callRequestWorkspace(ctx context.Context, id json.RawMessage, arguments json.RawMessage) rpcResponse {
 	_ = arguments

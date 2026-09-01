@@ -8,6 +8,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/claudecode"
 	"github.com/vuuihc/openkin/internal/adapter/codex"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter/droid"
 	"github.com/vuuihc/openkin/internal/adapter/genericcli"
 	"github.com/vuuihc/openkin/internal/adapter/grok"
 	"github.com/vuuihc/openkin/internal/adapter/kinagent"
@@ -32,6 +33,10 @@ func buildAgentRegistry(
 			TokenFunc: tokenFn,
 		}),
 		codex.NewPluginFactory(),
+		droid.NewPluginFactory(droid.PluginConfig{
+			DaemonURL: daemonURL,
+			TokenFunc: tokenFn,
+		}),
 		grok.NewPluginFactory(),
 	}
 
@@ -40,6 +45,7 @@ func buildAgentRegistry(
 		"kin":         true,
 		"claude-code": true,
 		"codex":       true,
+		"droid":       true,
 		"grok":        true,
 		"rawpty":      true,
 	}

@@ -230,6 +230,27 @@ export function buildChatItems(
     });
   };
 
+  const replaceProgressNote = (
+    key: string,
+    speaker: string,
+    model: string | undefined,
+    text: string,
+  ): boolean => {
+    for (const item of items) {
+      if (item.kind !== "progress") continue;
+      const note = item.steps.find(
+        (step): step is NoteStep => step.kind === "note" && step.key === key,
+      );
+      if (!note) continue;
+      note.speaker = speaker;
+      note.model = model;
+      note.text = text;
+      note.status = "done";
+      return true;
+    }
+    return false;
+  };
+
   const upsertTool = (
     id: string,
     patch: Partial<ToolStep> & { name: string; speaker: string },
@@ -299,6 +320,16 @@ export function buildChatItems(
         if (sp === "user" && text) {
           text = displayUserPrompt(text);
         }
+        const messageID =
+          typeof p.message_id === "string" ? p.message_id : "";
+        const blockIndex =
+          typeof p.index === "number" || typeof p.index === "string"
+            ? String(p.index)
+            : "";
+        const messageKey =
+          messageID && blockIndex
+            ? `message-${sp}-${role}-${messageID}-${blockIndex}`
+            : "";
         // Skip legacy expanded tool dumps from older kinagent builds.
         if (isLegacyToolDumpMessage(text)) {
           flushStream();
@@ -322,19 +353,21 @@ export function buildChatItems(
           // Switching between speakers / progress vs final message flushes.
           if (
             streamBuf &&
-            (streamSpeaker !== sp || streamProgress !== asProgress)
+            (streamSpeaker !== sp ||
+              streamProgress !== asProgress ||
+              (!!messageKey && streamKey !== messageKey))
           ) {
             flushStream();
           }
           if (asProgress) {
             if (!streamBuf) {
               // Opening a progress stream closes nothing else; stays in box.
-              streamNoteKey = `note-s-${ev.seq}`;
+              streamNoteKey = messageKey || `note-s-${ev.seq}`;
             }
             streamBuf += text;
             streamSpeaker = sp;
             streamModel = model;
-            streamKey = `s-${ev.seq}`;
+            streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = true;
             streamRole = role;
             pushNote(
@@ -353,7 +386,7 @@ export function buildChatItems(
             streamBuf += text;
             streamSpeaker = sp;
             streamModel = model;
-            streamKey = `s-${ev.seq}`;
+            streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = false;
             streamRole = role;
           }
@@ -366,7 +399,7 @@ export function buildChatItems(
               if (
                 item.kind === "message" &&
                 item.partial &&
-                item.speaker === sp
+                (messageKey ? item.key === messageKey : item.speaker === sp)
               ) {
                 items.splice(index, 1);
               }
@@ -377,10 +410,18 @@ export function buildChatItems(
           // buffer instead of flushing it as a separate partial item -- else we
           // duplicate the text and leave a dangling "partial" (stuck badge).
           const supersedesPreview =
-            !!streamBuf && streamSpeaker === sp && streamRole === role;
+            !!streamBuf &&
+            (messageKey
+              ? streamKey === messageKey
+              : streamSpeaker === sp && streamRole === role);
           if (supersedesPreview) {
             const active = progressRef.current;
-            if (streamProgress && streamNoteKey && active) {
+            if (
+              streamProgress &&
+              streamNoteKey &&
+              active &&
+              !(asProgress && messageKey === streamNoteKey)
+            ) {
               active.steps = active.steps.filter(
                 (step) => step.key !== streamNoteKey,
               );
@@ -393,12 +434,23 @@ export function buildChatItems(
           streamNoteKey = null;
           if (!text.trim()) break;
           if (asProgress) {
-            pushNote(sp, model, text, `note-${ev.seq}`, "done");
+            if (
+              !messageKey ||
+              !replaceProgressNote(messageKey, sp, model, text)
+            ) {
+              pushNote(
+                sp,
+                model,
+                text,
+                messageKey || `note-${ev.seq}`,
+                "done",
+              );
+            }
           } else {
             progressRef.current = null;
             items.push({
               kind: "message",
-              key: `t-${ev.seq}`,
+              key: messageKey || `t-${ev.seq}`,
               speaker: sp,
               model: sp === "user" ? undefined : model,
               text,
@@ -445,8 +497,10 @@ export function buildChatItems(
         }
         flushStream();
         streamNoteKey = null;
-        const name = String(p.name ?? p.tool_name ?? "tool");
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
+        const name = String(
+          p.name ?? p.tool_name ?? toolById.get(id)?.name ?? "tool",
+        );
         const ok = p.ok !== false && p.status !== "error";
         const summary =
           typeof p.summary === "string" && p.summary
@@ -458,7 +512,7 @@ export function buildChatItems(
           model,
           summary,
           status: ok ? "done" : "error",
-          input: p.input,
+          ...(p.input !== undefined ? { input: p.input } : {}),
           output: typeof p.output === "string" ? p.output : undefined,
         });
         break;

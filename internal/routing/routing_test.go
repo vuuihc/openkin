@@ -298,6 +298,17 @@ func TestBuiltinAdapterCapabilities(t *testing.T) {
 			t.Errorf("agent %q has no supported kinds", c.AgentID)
 		}
 	}
+	kinds := ProviderKindForAgent("droid")
+	if len(kinds) != 1 || kinds[0] != ProviderKindSubscription {
+		t.Fatalf("droid provider kinds=%v want=[%s]", kinds, ProviderKindSubscription)
+	}
+	if !AgentSupportsProviderKind("droid", ProviderKindSubscription) {
+		t.Fatal("droid must support Factory subscription routing")
+	}
+	if AgentSupportsProviderKind("droid", ProviderKindAnthropicCompatible) ||
+		AgentSupportsProviderKind("droid", ProviderKindOpenAICompatible) {
+		t.Fatal("Droid adapter must not claim BYOK provider support")
+	}
 }
 
 // ---------------------------------------------------------------------------

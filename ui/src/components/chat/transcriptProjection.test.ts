@@ -23,7 +23,7 @@ function ev(seq: number, type: string, payload: unknown): TaskEvent {
 }
 
 describe("transcriptProjection", () => {
-  it("replaces partial assistant previews with the final message", () => {
+  it("replaces Droid assistant and reasoning previews with authoritative messages", () => {
     const items = buildChatItems(
       [
         ev(1, "message", {
@@ -33,14 +33,34 @@ describe("transcriptProjection", () => {
         ev(2, "message", {
           role: "assistant",
           speaker: "kin",
-          text: "hel",
+          content: [{ type: "text", text: "hel" }],
           partial: true,
+          message_id: "m1",
+          index: 0,
         }),
         ev(3, "message", {
+          role: "reasoning",
+          speaker: "kin",
+          content: [{ type: "text", text: "rea" }],
+          partial: true,
+          message_id: "m1",
+          index: 1,
+        }),
+        ev(4, "message", {
           role: "assistant",
           speaker: "kin",
-          text: "hello back",
+          content: [{ type: "text", text: "hello back" }],
           partial: false,
+          message_id: "m1",
+          index: 0,
+        }),
+        ev(5, "message", {
+          role: "reasoning",
+          speaker: "kin",
+          content: [{ type: "text", text: "reasoning complete" }],
+          partial: false,
+          message_id: "m1",
+          index: 1,
         }),
       ],
       "kin",
@@ -49,11 +69,29 @@ describe("transcriptProjection", () => {
     expect(items).toMatchObject([
       { kind: "message", speaker: "user", text: "hello" },
       {
+        kind: "progress",
+        steps: [
+          {
+            kind: "note",
+            speaker: "kin",
+            text: "reasoning complete",
+            status: "done",
+          },
+        ],
+      },
+      {
         kind: "message",
         speaker: "kin",
         text: "hello back",
       },
     ]);
+    expect(
+      items.filter(
+        (item) =>
+          item.kind === "message" &&
+          (item.text === "hel" || item.text === "hello back"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("finalizes a trailing partial when the task is terminal", () => {
@@ -116,6 +154,56 @@ describe("transcriptProjection", () => {
         },
       ],
     });
+  });
+
+  it("upserts incremental tool snapshots by tool_use_id", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          input: {},
+        }),
+        ev(2, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          input: { command: "npm" },
+        }),
+        ev(3, "tool_use", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          name: "bash",
+          input: { command: "npm test" },
+        }),
+        ev(4, "tool_result", {
+          speaker: "kin",
+          tool_use_id: "call-1",
+          output: "ok",
+          status: "completed",
+          ok: true,
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: "progress",
+      steps: [
+        {
+          kind: "tool",
+          name: "bash",
+          status: "done",
+          input: { command: "npm test" },
+          output: "ok",
+        },
+      ],
+    });
+    expect(
+      items[0]?.kind === "progress" ? items[0].steps : [],
+    ).toHaveLength(1);
   });
 
   it("puts delegate chatter in progress and final orchestrator summary in chat", () => {

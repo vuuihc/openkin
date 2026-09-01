@@ -19,7 +19,7 @@ func TestScanMarksInstalled(t *testing.T) {
 	t.Cleanup(func() { _ = os.Setenv("PATH", oldPath) })
 	_ = os.Setenv("PATH", dir)
 	// Clear env overrides
-	for _, k := range []string{"KIN_CLAUDE_BIN", "KIN_CODEX_BIN", "KIN_GROK_BIN"} {
+	for _, k := range []string{"KIN_CLAUDE_BIN", "KIN_CODEX_BIN", "KIN_DROID_BIN", "KIN_GROK_BIN"} {
 		_ = os.Unsetenv(k)
 	}
 
@@ -170,4 +170,39 @@ func TestCatalogMatchesRunnableHints(t *testing.T) {
 			t.Fatalf("Catalog missing %s", id)
 		}
 	}
+}
+
+func TestDroidDiscoveryUsesBinaryAndEnvironmentOverride(t *testing.T) {
+	oldLook := LookPath
+	t.Cleanup(func() { LookPath = oldLook })
+	t.Setenv("KIN_DROID_BIN", "/custom/droid")
+	LookPath = func(file string) (string, error) {
+		if file == "/custom/droid" {
+			return file, nil
+		}
+		return "", os.ErrNotExist
+	}
+
+	var droid *Info
+	for _, info := range Scan("") {
+		if info.ID == "droid" {
+			current := info
+			droid = &current
+			break
+		}
+	}
+	if droid == nil || !droid.Installed || !droid.Available || droid.Binary != "/custom/droid" {
+		t.Fatalf("droid=%+v", droid)
+	}
+
+	for _, spec := range SkillsDiscoveryCatalog() {
+		if spec.ID != "droid" {
+			continue
+		}
+		if !spec.RunnableHint || len(spec.Bins) != 1 || spec.Bins[0] != "droid" || spec.EnvBin != "KIN_DROID_BIN" {
+			t.Fatalf("Droid discovery spec=%+v", spec)
+		}
+		return
+	}
+	t.Fatal("Droid missing from skills discovery catalog")
 }
