@@ -827,7 +827,7 @@ export function summarizeProgressStatus(
 /** Old kinagent dumped tools as markdown messages: **bash**\n```...``` */
 function isLegacyToolDumpMessage(text: string): boolean {
   if (typeof text !== "string" || !text) return false;
-  return /^\*\*(bash|read_file|write_file|list_dir|glob)\*\*\s*\n```/m.test(
+  return /^\*\*(bash|read_file|write_file|edit_file|list_dir|glob)\*\*\s*\n```/m.test(
     text.trim(),
   );
 }
@@ -932,6 +932,8 @@ export function prettyToolName(name: string): string {
       return "read";
     case "write_file":
       return "write";
+    case "edit_file":
+      return "edit";
     case "list_dir":
       return "list";
     case "glob":

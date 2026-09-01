@@ -94,6 +94,13 @@ func TestToolDigestWriteFile(t *testing.T) {
 	}
 }
 
+func TestToolDigestEditFile(t *testing.T) {
+	d := ToolDigest("edit_file", `{"path":"a.go"}`, "edited a.go: replaced 1 occurrence", true)
+	if !strings.Contains(d, "edit_file [ok]") || !strings.Contains(d, "replaced 1") {
+		t.Fatalf("got %q", d)
+	}
+}
+
 func TestToolDigestUnknown(t *testing.T) {
 	big := strings.Repeat("Z", 5000)
 	d := ToolDigest("custom_tool", `{}`, big, true)
