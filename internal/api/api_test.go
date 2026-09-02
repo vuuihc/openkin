@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
@@ -360,6 +363,204 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 	if got := list[1].ModelListStatus; got != "default_only" || len(list[1].Models) != 0 {
 		t.Fatalf("codex model list status=%q models=%+v", got, list[1].Models)
 	}
+}
+
+func TestListAgentsAddsDroidRecommendedModels(t *testing.T) {
+	s, token := newTestServer(t)
+	s.ListAgents = func() []AgentInfo {
+		return []AgentInfo{
+			{ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+		}
+	}
+
+	h := s.Handler()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var list []AgentInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("len=%d", len(list))
+	}
+	got := list[0]
+	if got.ModelListSource != "recommended" || got.ModelListStatus != "available" {
+		t.Fatalf("droid model metadata source=%q status=%q", got.ModelListSource, got.ModelListStatus)
+	}
+	for _, want := range []string{"auto", "claude-opus-5", "gpt-5.6-terra", "gemini-3.1-pro-preview", "grok-4.5"} {
+		if !agentModelsContain(got.Models, want) {
+			t.Fatalf("droid models missing %q: %+v", want, got.Models)
+		}
+	}
+}
+
+func TestListAgentsDroidModelsTolerateBrokenProviderRegistry(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := s.Store.SetSetting(context.Background(), provider.KeyProviders, `{"entries":`); err != nil {
+		t.Fatal(err)
+	}
+	s.ListAgents = func() []AgentInfo {
+		return []AgentInfo{
+			{ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+		}
+	}
+
+	h := s.Handler()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var list []AgentInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ModelListSource != "recommended" || !agentModelsContain(list[0].Models, "deepseek-v4-flash-0731") {
+		t.Fatalf("droid fallback models=%+v", list)
+	}
+}
+
+func TestListAgentsDiscoversDroidModelsFromBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fake binary")
+	}
+	s, token := newTestServer(t)
+	bin := filepath.Join(t.TempDir(), "droid")
+	help := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"exec\" ] && [ \"$2\" = \"--help\" ]; then\n" +
+		"cat <<'HELP'\n" +
+		"Usage: droid exec [options] [prompt]\n\n" +
+		"Available Models:\n" +
+		"  auto                                       Auto Model\n" +
+		"  deepseek-v4-flash-0731                     DeepSeek V4 Flash 0731 (Droid Core)\n" +
+		"  claude-opus-5                              Opus 5 (default)\n" +
+		"  custom:local                               Local Custom Model\n\n" +
+		"Custom Models:\n" +
+		"  custom:other                               Other Custom Model\n" +
+		"HELP\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 2\n"
+	if err := os.WriteFile(bin, []byte(help), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s.ListAgents = func() []AgentInfo {
+		return []AgentInfo{
+			{ID: "droid", Name: "Droid", Binary: bin, Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+		}
+	}
+
+	h := s.Handler()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var list []AgentInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	got := list[0]
+	if got.ModelListSource != "discovered" || got.ModelListStatus != "available" {
+		t.Fatalf("droid model metadata source=%q status=%q", got.ModelListSource, got.ModelListStatus)
+	}
+	if len(got.Models) != 3 {
+		t.Fatalf("droid discovered models=%+v", got.Models)
+	}
+	if got.Models[1].ID != "deepseek-v4-flash-0731" || got.Models[1].Label != "DeepSeek V4 Flash 0731 (Droid Core)" || got.Models[1].Tier != "fast" {
+		t.Fatalf("deepseek model metadata=%+v", got.Models[1])
+	}
+	if agentModelsContain(got.Models, "custom:local") {
+		t.Fatalf("custom droid entries should stay behind Custom model input: %+v", got.Models)
+	}
+}
+
+func TestListAgentsPreservesConfiguredDroidModels(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := provider.SaveRegistry(context.Background(), s.Store, provider.Registry{
+		ActiveID: "cognition",
+		Entries: []provider.Entry{
+			{ID: "cognition", Name: "Cognition", Kind: "openai-compatible", BaseURL: "http://127.0.0.1:1/v1", Model: "gpt-test"},
+			{
+				ID:             "disabled-factory",
+				Name:           "Disabled Factory",
+				Kind:           "subscription",
+				SupportsAgents: []string{"droid"},
+				Enabled:        boolPtr(false),
+				Models:         []provider.ModelSpec{{ID: "disabled-droid", Tier: "smart", CostLabel: "company"}},
+			},
+			{
+				ID:             "wrong-kind",
+				Name:           "Wrong Kind",
+				Kind:           "openai-compatible",
+				BaseURL:        "http://127.0.0.1:2/v1",
+				Model:          "wrong-default",
+				SupportsAgents: []string{"droid"},
+				Models:         []provider.ModelSpec{{ID: "wrong-kind-droid", Tier: "smart", CostLabel: "company"}},
+			},
+			{
+				ID:             "factory",
+				Name:           "Factory",
+				Kind:           "subscription",
+				Enabled:        boolPtr(true),
+				SupportsAgents: []string{"droid"},
+				Models: []provider.ModelSpec{
+					{ID: "team-droid-smart", Tier: "smart", CostLabel: "company"},
+					{ID: "team-droid-fast", Tier: "fast", CostLabel: "company"},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.ListAgents = func() []AgentInfo {
+		return []AgentInfo{
+			{ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+		}
+	}
+
+	h := s.Handler()
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var list []AgentInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	got := list[0]
+	if got.ModelListSource != "configured" || got.ModelListStatus != "available" {
+		t.Fatalf("droid model metadata source=%q status=%q", got.ModelListSource, got.ModelListStatus)
+	}
+	if len(got.Models) != 2 || got.Models[0].ID != "team-droid-smart" || got.Models[0].Tier != "smart" || got.Models[1].ID != "team-droid-fast" {
+		t.Fatalf("configured droid models=%+v", got.Models)
+	}
+	if agentModelsContain(got.Models, "claude-opus-5") || agentModelsContain(got.Models, "disabled-droid") || agentModelsContain(got.Models, "wrong-kind-droid") {
+		t.Fatalf("configured droid models should not be overwritten by recommendations: %+v", got.Models)
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func agentModelsContain(models []AgentModelOption, id string) bool {
+	for _, m := range models {
+		if m.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAgentsManagement(t *testing.T) {

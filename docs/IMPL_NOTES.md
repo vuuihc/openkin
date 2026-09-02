@@ -535,6 +535,7 @@ add form. Default agent save is separate from provider CRUD.
 - Verified with Droid `0.208.1`, using `stream-jsonrpc` and Factory protocol `1.193.0`.
 - Kin always requests `interactionMode: auto`; permission modes map to autonomy `off` (default), `low` (accept edits), and `high` (YOLO).
 - Factory CLI owns subscription authentication. The adapter does not translate Kin provider endpoints or API keys.
+- The agent model picker exposes Droid models from configured enabled `subscription` provider profiles first, then from cached `droid exec --help` discovery, and falls back to a bundled recommendation list when discovery is unavailable.
 - Empty MCP/builtin-skill settings reduce integrations, but ambient `~/.factory` hooks can still run.
 - Lazy workspace orchestration is not supported.
 
