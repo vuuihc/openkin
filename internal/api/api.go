@@ -313,9 +313,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		if list == nil {
 			list = []AgentInfo{}
 		}
-		for i := range list {
-			applyAgentModelList(&list[i])
-		}
+		s.applyAgentModelLists(r.Context(), list)
 		writeJSON(w, http.StatusOK, list)
 		return
 	}
@@ -332,12 +330,12 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 				Available: true,
 				Default:   id == def,
 			})
-			applyAgentModelList(&list[len(list)-1])
 		}
 	}
 	if list == nil {
 		list = []AgentInfo{}
 	}
+	s.applyAgentModelLists(r.Context(), list)
 	writeJSON(w, http.StatusOK, list)
 }
 
@@ -1332,6 +1330,10 @@ func applyAgentModelList(info *AgentInfo) {
 			{ID: "sonnet", Label: "Sonnet"},
 			{ID: "haiku", Label: "Haiku"},
 		}
+		info.ModelListSource = "recommended"
+		info.ModelListStatus = "available"
+	case "droid":
+		info.Models = droidRecommendedModelOptions()
 		info.ModelListSource = "recommended"
 		info.ModelListStatus = "available"
 	case "codex":
