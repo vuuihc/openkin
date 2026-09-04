@@ -16,30 +16,22 @@ func SaveConfig(ctx context.Context, st *store.Store, cfg Config, clearAPIKey bo
 	if cfg.Kind == "" {
 		cfg.Kind = "openai-compatible"
 	}
-	if err := st.SetSetting(ctx, KeyKind, cfg.Kind); err != nil {
-		return err
-	}
-	if err := st.SetSetting(ctx, KeyBaseURL, cfg.BaseURL); err != nil {
-		return err
-	}
-	if err := st.SetSetting(ctx, KeyModel, cfg.Model); err != nil {
-		return err
-	}
-	if err := st.SetSetting(ctx, KeyStream, formatBoolSetting(cfg.Stream)); err != nil {
-		return err
+	values := map[string]string{
+		KeyKind:    cfg.Kind,
+		KeyBaseURL: cfg.BaseURL,
+		KeyModel:   cfg.Model,
+		KeyStream:  formatBoolSetting(cfg.Stream),
 	}
 	if clearAPIKey {
-		return st.SetSetting(ctx, KeyAPIKey, "")
+		values[KeyAPIKey] = ""
+	} else if cfg.APIKey != "" && !looksMasked(cfg.APIKey) {
+		values[KeyAPIKey] = cfg.APIKey
+	} else if cfg.APIKey == "" {
+		// When mirroring an active entry with an empty key, clear the legacy
+		// slot so Configured() stays consistent with the registry.
+		values[KeyAPIKey] = ""
 	}
-	if cfg.APIKey != "" && !looksMasked(cfg.APIKey) {
-		return st.SetSetting(ctx, KeyAPIKey, cfg.APIKey)
-	}
-	// When mirroring an active entry with an empty key, clear the legacy slot
-	// so Configured() stays consistent with the registry.
-	if cfg.APIKey == "" {
-		return st.SetSetting(ctx, KeyAPIKey, "")
-	}
-	return nil
+	return st.SetSettings(ctx, values)
 }
 
 func looksMasked(s string) bool {

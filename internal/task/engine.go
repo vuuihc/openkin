@@ -30,7 +30,10 @@ const (
 	StatusSucceeded       = "succeeded"
 	StatusFailed          = "failed"
 	StatusCanceled        = "canceled"
+	StatusRetrying        = "retrying"
 )
+
+var ErrEngineNotStarted = errors.New("task engine has not completed startup")
 
 // DefaultMaxConcurrent is the FIFO concurrency limit (spec §5) applied when
 // the task.max_concurrent setting is unset or invalid. It bounds concurrent
@@ -80,6 +83,29 @@ type Notifier interface {
 // When unset or not configured, titles stay as the prompt truncation fallback.
 type TitleResolver func(ctx context.Context) (provider.Client, provider.Config, error)
 
+// ProviderEntryResolver resolves a routing provider ID to adapter runtime
+// configuration.
+type ProviderEntryResolver func(ctx context.Context, providerID string) (adapter.ProviderConfig, error)
+
+// EngineConfig is the validated production construction path. Optional
+// integrations such as notifications and title resolution may be nil, but
+// execution, workspace, and routing dependencies must be complete before the
+// Engine can be started.
+type EngineConfig struct {
+	Store                 *store.Store
+	Agents                *agent.Registry
+	Bus                   *Bus
+	MaxConcurrent         int
+	Workspace             WorkspaceRuntime
+	DefaultPreference     DefaultPreference
+	Notifier              Notifier
+	TitleResolver         TitleResolver
+	UsageWindows          UsageWindowProber
+	RoutingResolver       RoutingResolver
+	ProviderEntryResolver ProviderEntryResolver
+	ExpiryInterval        time.Duration
+}
+
 // Engine owns task lifecycle. Status transitions only happen here (spec §3).
 type Engine struct {
 	store     *store.Store
@@ -94,6 +120,7 @@ type Engine struct {
 	events eventWriter
 
 	mu            sync.Mutex
+	retryMu       sync.Mutex // serializes retry file and durable-state rewinds
 	eventMu       sync.Mutex // serializes event append during parallel worker waves
 	persistMu     sync.Mutex // disposable persist-gap bookkeeping
 	maxConcurrent int
@@ -102,6 +129,10 @@ type Engine struct {
 	handles       map[string]adapter.RunHandle
 	handleGroups  map[string][]adapter.RunHandle // parallel orchestration wave
 	canceled      map[string]bool
+	activeRuns    map[string]string // task id -> current top-level execution id
+	// workspaceCommitting marks tasks past the last cancellable point before
+	// an irreversible fast-forward.
+	workspaceCommitting map[string]string
 	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
 	pendingFollowUp map[string]pendingFollowUp
 	// criticalPersistFail forces a non-success terminal state when a final
@@ -130,11 +161,16 @@ type Engine struct {
 	defaultPreference agentDefaultPreference
 
 	// routingResolver resolves provider/model for auto dispatch phases.
-	routingResolver routingResolver
+	routingResolver RoutingResolver
 
 	// providerEntryResolver resolves a routing provider ID to its runtime
 	// config (API key, base URL, model).
-	providerEntryResolver func(ctx context.Context, providerID string) (adapter.ProviderConfig, error)
+	providerEntryResolver ProviderEntryResolver
+
+	startMu        sync.Mutex
+	requiresStart  bool
+	started        bool
+	expiryInterval time.Duration
 }
 
 // tiny interface so tests can inject ULID entropy if needed.
@@ -142,8 +178,61 @@ type ioReader interface {
 	Read([]byte) (int, error)
 }
 
-// NewEngine wires the engine. Call Recover() once after construction.
+// NewConfiguredEngine validates and wires the complete production Engine.
+// Call Start before exposing the Engine to request handlers or routines.
+func NewConfiguredEngine(cfg EngineConfig) (*Engine, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	engine := newEngine(cfg.Store, cfg.Agents, cfg.Bus, cfg.MaxConcurrent)
+	engine.workspace = cfg.Workspace
+	engine.defaultPreference = cfg.DefaultPreference
+	engine.notify = cfg.Notifier
+	engine.titleFn = cfg.TitleResolver
+	engine.usageWindows = cfg.UsageWindows
+	engine.routingResolver = cfg.RoutingResolver
+	engine.providerEntryResolver = cfg.ProviderEntryResolver
+	engine.requiresStart = true
+	engine.expiryInterval = cfg.ExpiryInterval
+	if engine.expiryInterval <= 0 {
+		engine.expiryInterval = time.Minute
+	}
+	return engine, nil
+}
+
+func (cfg EngineConfig) validate() error {
+	var missing []string
+	if cfg.Store == nil {
+		missing = append(missing, "Store")
+	}
+	if cfg.Agents == nil {
+		missing = append(missing, "Agents")
+	}
+	if cfg.Workspace == nil {
+		missing = append(missing, "Workspace")
+	}
+	if cfg.DefaultPreference == nil {
+		missing = append(missing, "DefaultPreference")
+	}
+	if cfg.RoutingResolver == nil {
+		missing = append(missing, "RoutingResolver")
+	}
+	if cfg.ProviderEntryResolver == nil {
+		missing = append(missing, "ProviderEntryResolver")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("invalid engine configuration: missing %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// NewEngine is a compatibility constructor for tests and small embedders.
+// Production assembly should use NewConfiguredEngine and Start.
 func NewEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent int) *Engine {
+	return newEngine(st, agents, bus, maxConcurrent)
+}
+
+func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent int) *Engine {
 	if maxConcurrent <= 0 {
 		maxConcurrent = DefaultMaxConcurrent
 	}
@@ -166,6 +255,8 @@ func NewEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		maxConcurrent:       maxConcurrent,
 		handles:             make(map[string]adapter.RunHandle),
 		canceled:            make(map[string]bool),
+		activeRuns:          make(map[string]string),
+		workspaceCommitting: make(map[string]string),
 		pendingFollowUp:     make(map[string]pendingFollowUp),
 		criticalPersistFail: make(map[string]error),
 		persistGaps:         make(map[string]*persistGap),
@@ -277,11 +368,12 @@ type DefaultPreference func(ctx context.Context) (string, error)
 
 type agentDefaultPreference = DefaultPreference
 
-// routingResolver resolves provider/model for auto dispatch phases.
-type routingResolver interface {
+// RoutingResolver resolves provider/model choices for automatic dispatch.
+type RoutingResolver interface {
 	Resolve(ctx context.Context, req routing.ResolveRequest) (routing.Decision, error)
 	Next(ctx context.Context, previous routing.Decision, failure routing.Failure) (routing.Decision, bool)
 	LookupProvider(ctx context.Context, providerID string) (routing.ProviderProfile, error)
+	Defaults(ctx context.Context) (routing.RoutingDefaults, error)
 }
 
 // SetClock injects a clock for tests (approval expiry).
@@ -304,9 +396,11 @@ type WorkspaceRuntime interface {
 	Capture(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
 	CapturePrepared(ctx context.Context, meta workspace.Metadata, taskID string) (workspace.Checkpoint, error)
 	Restore(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
+	RestoreTreeOntoCurrent(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
 	InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error)
 	InspectIntegrationTarget(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
+	IsAncestor(ctx context.Context, meta workspace.Metadata, ancestorOID, descendantOID string) (bool, error)
 	CurrentBranch(ctx context.Context, cwd string) (string, error)
 	FastForward(ctx context.Context, meta workspace.Metadata, targetBranch, expectedSourceOID, finalHeadOID string) (string, error)
 	FinalizeFastForward(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error)
@@ -328,6 +422,37 @@ func (e *Engine) Close() {
 	e.cancel()
 }
 
+// Start performs restart recovery before enabling task creation and starting
+// background expiry work. It is idempotent after a successful startup.
+func (e *Engine) Start(ctx context.Context) error {
+	e.startMu.Lock()
+	defer e.startMu.Unlock()
+	if e.started {
+		return nil
+	}
+	if err := e.Recover(ctx); err != nil {
+		return fmt.Errorf("recover task engine: %w", err)
+	}
+	e.started = true
+	e.StartExpiryLoop(e.ctx, e.expiryInterval)
+	return nil
+}
+
+// Started reports whether the validated startup sequence has completed.
+// Compatibility engines constructed with NewEngine do not require Start.
+func (e *Engine) Started() bool {
+	e.startMu.Lock()
+	defer e.startMu.Unlock()
+	return e.started || !e.requiresStart
+}
+
+func (e *Engine) requireStarted() error {
+	if !e.Started() {
+		return ErrEngineNotStarted
+	}
+	return nil
+}
+
 // Recover fails any queued/running rows left from a previous daemon process.
 func (e *Engine) Recover(ctx context.Context) error {
 	ids, err := e.store.FailOrphaned(ctx)
@@ -346,6 +471,13 @@ func (e *Engine) Recover(ctx context.Context) error {
 		}
 	}
 
+	// Retry restore intents reserve their tasks as retrying, so they are not
+	// failed as generic orphans above. Resolve every filesystem saga before
+	// normal workspace reconciliation can observe its planned generation.
+	if err := e.recoverRetryRestores(ctx); err != nil {
+		return fmt.Errorf("recover retry restores: %w", err)
+	}
+
 	// Reconcile workspace generations after restart
 	if err := e.reconcileWorkspaces(ctx); err != nil {
 		// Log but don't fail - recovery should still proceed
@@ -358,6 +490,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 
 	// Re-arm Wait timers for failed tasks left in limit waiting state.
 	e.recoverLimitWaits(ctx)
+	e.pump()
 	return nil
 }
 
@@ -394,7 +527,7 @@ func (e *Engine) SetDefaultAgentFn(fn func() string) {
 }
 
 // SetRoutingResolver sets the resolver used for auto dispatch routing.
-func (e *Engine) SetRoutingResolver(rr routingResolver) {
+func (e *Engine) SetRoutingResolver(rr RoutingResolver) {
 	e.routingResolver = rr
 }
 
@@ -423,7 +556,10 @@ func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePl
 	sel := parseDispatch(t.Dispatch)
 	if sel.Mode != "auto" || sel.Team == "" {
 		// When dispatch is absent, try routing.defaults.
-		defaults := e.loadRoutingDefaults()
+		defaults, err := e.loadRoutingDefaults(ctx)
+		if err != nil {
+			return DelegatePlan{}, nil, err
+		}
 		if !defaults.Enabled || defaults.DefaultTeam == "" {
 			return DelegatePlan{}, nil, fmt.Errorf("not an auto dispatch")
 		}
@@ -525,8 +661,40 @@ func (e *Engine) emitRouteDecision(ctx context.Context, taskID string, d routing
 	}
 }
 
+func (e *Engine) emitRouteDecisionForRun(
+	ctx context.Context, taskID, executionID string, d routing.RouteDecision,
+) {
+	payload, err := json.Marshal(d)
+	if err != nil {
+		return
+	}
+	if ev, err := e.persistRunEvent(
+		ctx, taskID, executionID, routing.RouteDecisionType, payload,
+	); err == nil {
+		e.bus.PublishEvent(ev)
+	}
+}
+
 // emitRouteFallback appends a route_fallback event to the task event log.
 func (e *Engine) emitRouteFallback(ctx context.Context, taskID string, f routing.Failure, next routing.Decision) {
+	e.emitRouteFallbackWithExecution(ctx, taskID, "", f, next)
+}
+
+func (e *Engine) emitRouteFallbackForRun(
+	ctx context.Context,
+	taskID, executionID string,
+	f routing.Failure,
+	next routing.Decision,
+) {
+	e.emitRouteFallbackWithExecution(ctx, taskID, executionID, f, next)
+}
+
+func (e *Engine) emitRouteFallbackWithExecution(
+	ctx context.Context,
+	taskID, executionID string,
+	f routing.Failure,
+	next routing.Decision,
+) {
 	d := routing.RouteDecision{
 		Type:      routing.RouteFallbackType,
 		Team:      next.Team,
@@ -549,6 +717,14 @@ func (e *Engine) emitRouteFallback(ctx context.Context, taskID string, f routing
 	if err != nil {
 		return
 	}
+	if executionID != "" {
+		if ev, err := e.persistRunEvent(
+			ctx, taskID, executionID, routing.RouteFallbackType, payload,
+		); err == nil {
+			e.bus.PublishEvent(ev)
+		}
+		return
+	}
 	if w := e.eventWriter(); w != nil {
 		if ev, err := w.AppendEvent(ctx, taskID, routing.RouteFallbackType, payload); err == nil {
 			e.bus.PublishEvent(ev)
@@ -560,7 +736,15 @@ func (e *Engine) emitRouteFallback(ctx context.Context, taskID string, f routing
 // When the worker fails to start with a transient/quota error and the step has
 // routing metadata (Phase, Provider), it calls routingResolver.Next() to find
 // an alternative provider/model and retries up to maxAttempts times.
-func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t store.Task, step DelegateStep, brief string, si int) (adapter.RunHandle, adapter.ExecutionRef, []string, error) {
+func (e *Engine) startWorkerWithFallback(
+	ctx context.Context,
+	taskID string,
+	t store.Task,
+	step DelegateStep,
+	brief string,
+	si int,
+	runMeta adapter.RunMetadata,
+) (adapter.RunHandle, adapter.ExecutionRef, []string, error) {
 	ad, ok := e.runnerFor(step.Agent)
 	if !ok {
 		return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s has no runner", step.Agent)
@@ -573,7 +757,10 @@ func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t s
 	provider := step.Provider
 	phase := step.Phase
 
-	defaults := e.loadRoutingDefaults()
+	defaults, err := e.loadRoutingDefaults(ctx)
+	if err != nil {
+		return nil, adapter.ExecutionRef{}, nil, err
+	}
 	maxAttempts := defaults.MaxAttemptsPerStep
 	if maxAttempts <= 0 {
 		maxAttempts = 3
@@ -585,6 +772,9 @@ func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t s
 	attempt := 0
 
 	for {
+		if !e.runAcceptsWorker(taskID, runMeta.WorkspaceExecutionID) {
+			return nil, adapter.ExecutionRef{}, nil, store.ErrConflict
+		}
 		attempt++
 		execRef := adapter.ExecutionRef{
 			Agent:      step.Agent,
@@ -607,6 +797,7 @@ func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t s
 			SessionRef:     "",
 			PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 			Execution:      execRef,
+			RunMeta:        runMeta,
 		}
 		if cfg, err := e.resolveProviderCfg(ctx, provider); err != nil {
 			return nil, adapter.ExecutionRef{}, nil, err
@@ -615,6 +806,10 @@ func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t s
 		}
 		h, err := ad.Start(ctx, spec)
 		if err == nil {
+			if !e.runAcceptsWorker(taskID, runMeta.WorkspaceExecutionID) {
+				_ = h.Cancel()
+				return nil, adapter.ExecutionRef{}, nil, store.ErrConflict
+			}
 			return h, execRef, nil, nil
 		}
 
@@ -655,7 +850,9 @@ func (e *Engine) startWorkerWithFallback(ctx context.Context, taskID string, t s
 			return nil, adapter.ExecutionRef{}, nil, fmt.Errorf("%s failed to start and no fallback available: %w", step.Agent, err)
 		}
 
-		e.emitRouteFallback(ctx, taskID, failure, next)
+		e.emitRouteFallbackForRun(
+			ctx, taskID, runMeta.WorkspaceExecutionID, failure, next,
+		)
 
 		model = next.Model
 		provider = next.Provider
@@ -685,17 +882,20 @@ type dispatchSelection struct {
 
 // shouldAutoRoute reports whether the task has a valid auto dispatch
 // selection and the prompt looks like a coding task.
-func (e *Engine) shouldAutoRoute(t store.Task) bool {
+func (e *Engine) shouldAutoRoute(ctx context.Context, t store.Task) (bool, error) {
 	var sel dispatchSelection
 	if len(t.Dispatch) > 0 {
 		if err := json.Unmarshal(t.Dispatch, &sel); err != nil {
-			return false
+			return false, fmt.Errorf("parse dispatch: %w", err)
 		}
 	}
 	// When dispatch is absent or empty, fall back to routing.defaults.
 	if sel.Mode == "" || sel.Team == "" {
-		if e.store != nil {
-			defaults := e.loadRoutingDefaults()
+		if e.routingResolver != nil {
+			defaults, err := e.loadRoutingDefaults(ctx)
+			if err != nil {
+				return false, err
+			}
 			if defaults.Enabled && defaults.DefaultTeam != "" {
 				sel.Mode = "auto"
 				sel.Team = defaults.DefaultTeam
@@ -704,25 +904,20 @@ func (e *Engine) shouldAutoRoute(t store.Task) bool {
 		}
 	}
 	if !LooksLikeCodingTask(UserTurnPrompt(t.Prompt)) {
-		return false
+		return false, nil
 	}
-	return sel.Mode == "auto" && sel.Team != ""
+	return sel.Mode == "auto" && sel.Team != "", nil
 }
 
-// loadRoutingDefaults reads the routing defaults setting from the store.
-func (e *Engine) loadRoutingDefaults() routing.RoutingDefaults {
-	raw, err := e.store.GetSetting(context.Background(), "routing.defaults")
+func (e *Engine) loadRoutingDefaults(ctx context.Context) (routing.RoutingDefaults, error) {
+	if e.routingResolver == nil {
+		return routing.DefaultRoutingDefaults(), nil
+	}
+	defaults, err := e.routingResolver.Defaults(ctx)
 	if err != nil {
-		return routing.DefaultRoutingDefaults()
+		return routing.RoutingDefaults{}, fmt.Errorf("load routing defaults: %w", err)
 	}
-	if raw == "" {
-		return routing.DefaultRoutingDefaults()
-	}
-	var d routing.RoutingDefaults
-	if err := json.Unmarshal([]byte(raw), &d); err != nil {
-		return routing.DefaultRoutingDefaults()
-	}
-	return d
+	return defaults, nil
 }
 
 // parseDispatch parses the raw dispatch JSON and returns the selection.
@@ -789,7 +984,7 @@ func (e *Engine) runnerFor(id string) (adapter.Adapter, bool) {
 
 // resetAgentSession clears plugin-private session state for id.
 func (e *Engine) resetAgentSession(ctx context.Context, id, taskID string) {
-	if err := e.agents.ResetSession(ctx, id, taskID); err != nil {
+	if err := e.resetAgentSessionStrict(ctx, id, taskID); err != nil {
 		payload, _ := json.Marshal(map[string]string{
 			"message": fmt.Sprintf("session reset for %s failed: %v", id, err),
 		})
@@ -799,8 +994,15 @@ func (e *Engine) resetAgentSession(ctx context.Context, id, taskID string) {
 	}
 }
 
+func (e *Engine) resetAgentSessionStrict(ctx context.Context, id, taskID string) error {
+	return e.agents.ResetSession(ctx, id, taskID)
+}
+
 // Create enqueues a new task and starts it if under the concurrency limit.
 func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, error) {
+	if err := e.requireStarted(); err != nil {
+		return store.Task{}, err
+	}
 	if req.Cwd == "" {
 		return store.Task{}, fmt.Errorf("cwd is required")
 	}
@@ -940,6 +1142,46 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 			return store.Task{}, err
 		}
 	}
+	var eagerWorkspace *store.WorkspaceGeneration
+	if !useLazy && meta.Mode == workspace.ResolvedWorktree {
+		targetBranch, err := e.workspace.CurrentBranch(ctx, meta.SourceRoot)
+		if err != nil {
+			e.cleanupPreparedWorkspace(id, meta)
+			_ = e.store.DeleteTask(ctx, id)
+			return store.Task{}, fmt.Errorf("resolve workspace target branch: %w", err)
+		}
+		targetBranch = strings.TrimSpace(targetBranch)
+		if targetBranch == "" {
+			e.cleanupPreparedWorkspace(id, meta)
+			_ = e.store.DeleteTask(ctx, id)
+			return store.Task{}, fmt.Errorf("source repository is in detached HEAD")
+		}
+		ws := store.WorkspaceGeneration{
+			ID:              id + ":g1",
+			TaskID:          id,
+			Generation:      1,
+			State:           store.WorkspaceActive,
+			SourceRoot:      meta.SourceRoot,
+			Scope:           meta.Scope,
+			TargetBranch:    targetBranch,
+			WorkspaceBranch: meta.Branch,
+			PhysicalRoot:    meta.Root,
+			ExecutionCwd:    meta.Cwd,
+			BaseOID:         meta.BaseOID,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		workspaceEvent, err := e.store.InsertWorkspaceAsCurrent(ctx, ws)
+		if err != nil {
+			e.cleanupPreparedWorkspace(id, meta)
+			_ = e.store.DeleteTask(ctx, id)
+			return store.Task{}, fmt.Errorf("persist workspace generation: %w", err)
+		}
+		t.CurrentWorkspaceID = ws.ID
+		eagerWorkspace = &ws
+		e.bus.PublishEvent(workspaceEvent)
+		turnAccess = string(adapter.AccessWritable)
+	}
 	if t.ProjectID != "" {
 		_ = e.store.TouchProjectActivity(ctx, t.ProjectID)
 	}
@@ -963,6 +1205,9 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	turn := store.TaskTurnWorkspace{
 		TaskID: id,
 		Access: turnAccess,
+	}
+	if eagerWorkspace != nil {
+		turn.WorkspaceID = &eagerWorkspace.ID
 	}
 	ev, _, err := e.store.AppendUserEventWithTurnWorkspace(ctx, id, userPayload, turn)
 	if err != nil {
@@ -1053,6 +1298,12 @@ func (e *Engine) resolveModelDirective(ctx context.Context, t store.Task) (Model
 
 // Cancel requests cancellation. Queued → canceled; running/waiting_approval → SIGTERM/SIGKILL.
 func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+	return e.cancelTask(ctx, id)
+}
+
+func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) {
 	e.cancelLimitWait(id)
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
@@ -1061,7 +1312,16 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	switch t.Status {
 	case StatusSucceeded, StatusFailed, StatusCanceled:
 		return t, fmt.Errorf("task already terminal (%s)", t.Status)
+	case StatusRetrying:
+		return t, fmt.Errorf("%w: retry file restoration is in progress", ErrConflict)
 	}
+	e.mu.Lock()
+	if e.workspaceCommitting[id] != "" {
+		e.mu.Unlock()
+		return t, fmt.Errorf("%w: workspace integration is already committing", ErrConflict)
+	}
+	e.canceled[id] = true
+	e.mu.Unlock()
 
 	// Deny any pending approvals so MCP waiters unblock.
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
@@ -1080,6 +1340,13 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	if e.workspace != nil {
 		ws, wsErr := e.store.GetCurrentWorkspace(ctx, id)
 		if wsErr == nil {
+			meta := workspaceGenerationMetadata(ws)
+			unlock := lockWorkspaceGeneration(e.workspace, meta)
+			defer unlock()
+			ws, wsErr = e.store.GetWorkspace(ctx, ws.ID)
+			if wsErr != nil {
+				return store.Task{}, fmt.Errorf("refresh current workspace: %w", wsErr)
+			}
 			switch ws.State {
 			case store.WorkspaceProvisioning:
 				// Cancel provisioning, clean up partial worktree, mark orphaned.
@@ -1093,9 +1360,8 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 						FailureReason: &reason,
 					},
 				}
-				if _, _, err := e.store.ApplyWorkspaceTransition(ctx, transition); err == nil {
+				if _, err := e.transitionWorkspace(ctx, transition); err == nil {
 					// Clean up partial worktree if it exists
-					meta := workspaceMetadata(t)
 					if meta.Root != "" {
 						_ = e.workspace.Release(ctx, meta)
 					}
@@ -1114,7 +1380,7 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 						CompletedExecutionID: strPtr(""),
 					},
 				}
-				_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+				_, _ = e.transitionWorkspace(ctx, transition)
 			}
 		}
 	}
@@ -1124,13 +1390,17 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 	for i, qid := range e.queue {
 		if qid == id {
 			e.queue = append(e.queue[:i], e.queue[i+1:]...)
+			delete(e.canceled, id)
 			e.mu.Unlock()
-			return e.finish(ctx, id, StatusCanceled, nil, nil)
+			t, err := e.finishQueued(ctx, id, StatusCanceled, nil, nil)
+			if err == nil {
+				e.invalidateActiveRun(id)
+			}
+			return t, err
 		}
 	}
 	h := e.handles[id]
 	group := e.handleGroups[id]
-	e.canceled[id] = true
 	delete(e.pendingFollowUp, id) // pure cancel must not re-queue a steerable follow-up
 	e.mu.Unlock()
 
@@ -1143,11 +1413,20 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 		}
 		now := e.nowMilli()
 		status := StatusCanceled
-		if err := e.store.UpdateTask(ctx, id, store.TaskPatch{
+		e.mu.Lock()
+		updateErr := e.store.UpdateTask(ctx, id, store.TaskPatch{
 			Status:     &status,
 			FinishedAt: &now,
-		}); err != nil {
-			return store.Task{}, err
+		})
+		if updateErr == nil {
+			delete(e.activeRuns, id)
+			delete(e.handles, id)
+			delete(e.handleGroups, id)
+			delete(e.canceled, id)
+		}
+		e.mu.Unlock()
+		if updateErr != nil {
+			return store.Task{}, updateErr
 		}
 		t, err = e.store.GetTask(ctx, id)
 		if err != nil {
@@ -1157,17 +1436,29 @@ func (e *Engine) Cancel(ctx context.Context, id string) (store.Task, error) {
 		return t, nil
 	}
 
-	// Not queued and no handle — treat as cancel of queued race.
-	return e.finish(ctx, id, StatusCanceled, nil, nil)
+	// Not queued and no handle means startOne may be between its durable
+	// queued-to-running claim and handle registration. Keep the cancellation
+	// marker for startOne to consume once Adapter.Start returns.
+	t, err = e.finishQueued(ctx, id, StatusCanceled, nil, nil)
+	if err == nil {
+		e.invalidateActiveRun(id)
+	}
+	return t, err
 }
 
 // Delete permanently removes a task and its history after canceling any
 // in-flight work. Workspace generations are cleaned up before metadata cascade.
 func (e *Engine) Delete(ctx context.Context, id string) error {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+
 	e.cancelLimitWait(id)
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return err
+	}
+	if t.Status == StatusRetrying {
+		return fmt.Errorf("%w: retry file restoration is in progress", ErrConflict)
 	}
 
 	// Stop runners / dequeue so nothing rewrites the row while we delete.
@@ -1175,7 +1466,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	case StatusSucceeded, StatusFailed, StatusCanceled:
 		// already terminal
 	default:
-		if _, err := e.Cancel(ctx, id); err != nil {
+		if _, err := e.cancelTask(ctx, id); err != nil {
 			if !errors.Is(err, ErrTerminal) && !strings.Contains(err.Error(), "already terminal") {
 				return err
 			}
@@ -1194,6 +1485,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	delete(e.handleGroups, id)
 	delete(e.canceled, id)
 	delete(e.pendingFollowUp, id)
+	delete(e.activeRuns, id)
 	e.mu.Unlock()
 
 	e.resetAgentSession(ctx, t.Agent, id)
@@ -1203,7 +1495,8 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 		generations, listErr := e.store.ListTaskWorkspaces(ctx, id)
 		if listErr == nil {
 			for _, ws := range generations {
-				meta := workspaceMetadata(t)
+				meta := workspaceGenerationMetadata(ws)
+				unlock := lockWorkspaceGeneration(e.workspace, meta)
 				switch ws.State {
 				case store.WorkspaceIntegrated:
 					// Release integrated generations
@@ -1213,6 +1506,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 					// Force-discard unintegrated Kin-contained generations
 					_ = e.workspace.Release(ctx, meta)
 				}
+				unlock()
 			}
 		}
 	} else {
@@ -1276,6 +1570,64 @@ func (e *Engine) newID() (string, error) {
 	return id.String(), nil
 }
 
+func (e *Engine) resolveRunWorkspace(ctx context.Context, t *store.Task) adapter.RunMetadata {
+	runMeta := adapter.RunMetadata{}
+	if t.CurrentWorkspaceID != "" {
+		ws, err := e.store.GetCurrentWorkspace(ctx, t.ID)
+		if err == nil {
+			switch ws.State {
+			case store.WorkspaceReady:
+				transition := store.WorkspaceTransition{
+					WorkspaceID: ws.ID,
+					TaskID:      t.ID,
+					FromStates:  []store.WorkspaceState{store.WorkspaceReady},
+					ToState:     store.WorkspaceActive,
+				}
+				if activated, activateErr := e.transitionWorkspace(ctx, transition); activateErr == nil {
+					ws = activated
+					applyWorkspaceGeneration(t, ws)
+					runMeta.WorkspaceID = ws.ID
+					runMeta.WorkspaceAccess = adapter.AccessWritable
+					runMeta.Generation = ws.Generation
+				} else {
+					payload, _ := json.Marshal(map[string]string{
+						"message": "failed to activate ready workspace: " + activateErr.Error(),
+					})
+					if w := e.eventWriter(); w != nil {
+						_, _ = w.AppendEvent(ctx, t.ID, "error", payload)
+					}
+				}
+			case store.WorkspaceActive:
+				applyWorkspaceGeneration(t, ws)
+				runMeta.WorkspaceID = ws.ID
+				runMeta.WorkspaceAccess = adapter.AccessWritable
+				runMeta.Generation = ws.Generation
+			}
+		}
+	}
+	if runMeta.WorkspaceAccess == "" {
+		switch t.WorkspacePolicy {
+		case string(store.WorkspacePolicyAuto):
+			runMeta.WorkspaceAccess = adapter.AccessSourceReadOnly
+		case string(store.WorkspacePolicyShared):
+			runMeta.WorkspaceAccess = adapter.AccessShared
+		default:
+			runMeta.WorkspaceAccess = adapter.AccessWritable
+		}
+	}
+	return runMeta
+}
+
+func applyWorkspaceGeneration(t *store.Task, ws store.WorkspaceGeneration) {
+	t.CurrentWorkspaceID = ws.ID
+	t.WorkspaceSourceRoot = ws.SourceRoot
+	t.WorkspaceRoot = ws.PhysicalRoot
+	t.ExecutionCwd = ws.ExecutionCwd
+	t.WorkspaceScope = ws.Scope
+	t.WorkspaceBaseOID = ws.BaseOID
+	t.WorkspaceBranch = ws.WorkspaceBranch
+}
+
 // pump starts queued tasks up to maxConcurrent.
 // startOne runs in a goroutine so a slow Adapter.Start cannot block Create.
 func (e *Engine) pump() {
@@ -1287,17 +1639,64 @@ func (e *Engine) pump() {
 		}
 		id := e.queue[0]
 		e.queue = e.queue[1:]
+		executionID, err := e.newID()
+		if err != nil {
+			e.active++
+			e.mu.Unlock()
+			go func() {
+				_, _ = e.failStart(e.ctx, id, fmt.Sprintf("execution id: %v", err))
+			}()
+			continue
+		}
+		// A prior start attempt may have observed a cancellation before it
+		// claimed the queued row. A newly dequeued turn owns a fresh signal.
+		delete(e.canceled, id)
+		e.activeRuns[id] = executionID
 		e.active++
 		e.mu.Unlock()
 
-		go e.startOne(id)
+		go e.startOne(id, executionID)
 	}
 }
 
-func (e *Engine) startOne(id string) {
+func (e *Engine) setActiveRun(taskID, executionID string) {
+	e.mu.Lock()
+	e.activeRuns[taskID] = executionID
+	e.mu.Unlock()
+}
+
+func (e *Engine) clearActiveRun(taskID, executionID string) {
+	e.mu.Lock()
+	if e.activeRuns[taskID] == executionID {
+		delete(e.activeRuns, taskID)
+	}
+	e.mu.Unlock()
+}
+
+func (e *Engine) invalidateActiveRun(taskID string) {
+	e.mu.Lock()
+	delete(e.activeRuns, taskID)
+	e.mu.Unlock()
+}
+
+func (e *Engine) isActiveRun(taskID, executionID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.activeRuns[taskID] == executionID
+}
+
+func (e *Engine) startOne(id, turnExecutionID string) {
 	ctx := e.ctx
+	if !e.isActiveRun(id, turnExecutionID) {
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
+		e.clearActiveRun(id, turnExecutionID)
 		e.mu.Lock()
 		e.active--
 		e.mu.Unlock()
@@ -1306,6 +1705,7 @@ func (e *Engine) startOne(id string) {
 	}
 	// May have been canceled while queued.
 	if t.Status != StatusQueued {
+		e.clearActiveRun(id, turnExecutionID)
 		e.mu.Lock()
 		e.active--
 		e.mu.Unlock()
@@ -1313,22 +1713,57 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 
-	now := e.nowMilli()
-	status := StatusRunning
-	// On follow-up, keep original started_at if already set.
-	patch := store.TaskPatch{Status: &status}
-	if t.StartedAt == nil {
-		patch.StartedAt = &now
+	if t.StartedAt != nil &&
+		t.CurrentWorkspaceID == "" &&
+		t.WorkspaceMode == string(workspace.ResolvedWorktree) {
+		ws, requestErr := e.RequestWorkspace(ctx, WorkspaceIntentRequest{
+			TaskID: id, ExecutionID: turnExecutionID, Agent: t.Agent,
+		})
+		if requestErr != nil {
+			_, _ = e.failQueuedRunStart(ctx, id, turnExecutionID, fmt.Sprintf("prepare follow-up workspace: %v", requestErr))
+			return
+		}
+		t.CurrentWorkspaceID = ws.ID
 	}
-	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
+	if !e.isActiveRun(id, turnExecutionID) {
 		e.mu.Lock()
 		e.active--
 		e.mu.Unlock()
 		e.pump()
 		return
 	}
-	t, _ = e.store.GetTask(ctx, id)
+	if err := e.claimCurrentWorkspaceExecution(ctx, id, turnExecutionID); err != nil {
+		_, _ = e.failQueuedRunStart(ctx, id, turnExecutionID, fmt.Sprintf("claim workspace execution: %v", err))
+		return
+	}
+
+	if !e.isActiveRun(id, turnExecutionID) {
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
+	now := e.nowMilli()
+	t, err = e.store.StartQueuedTask(ctx, id, now)
+	if err != nil {
+		e.clearActiveRun(id, turnExecutionID)
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
 	e.bus.PublishTask(t)
+	runMeta := e.resolveRunWorkspace(ctx, &t)
+	runMeta.WorkspaceExecutionID = turnExecutionID
+	if !e.isActiveRun(id, turnExecutionID) {
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
 
 	// Multi-@ keeps the selected session host; mentioned agents run as workers.
 	if plan, ok := e.shouldOrchestrate(t); ok {
@@ -1341,27 +1776,32 @@ func (e *Engine) startOne(id string) {
 				d.ApplyTo(&plan, BuiltinCatalog())
 			}
 		}
-		e.runOrchestrated(id, t, plan)
+		e.runOrchestrated(id, t, plan, runMeta)
 		return
 	}
 
 	// Auto routing: when routing is enabled with a valid auto dispatch,
 	// resolve each phase through the routing resolver and build a
 	// DelegatePlan that uses the team's phase agents.
-	if e.shouldAutoRoute(t) {
+	autoRoute, routeErr := e.shouldAutoRoute(ctx, t)
+	if routeErr != nil {
+		_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("auto routing configuration failed: %v", routeErr))
+		return
+	}
+	if autoRoute {
 		if e.routingResolver == nil {
 			// No resolver configured: fall back to single-agent path.
 		} else {
 			plan, decisions, err := e.resolveAutoRoute(ctx, t)
 			if err != nil {
-				_, _ = e.failStart(ctx, id, fmt.Sprintf("auto routing failed: %v", err))
+				_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("auto routing failed: %v", err))
 				return
 			}
 			if len(plan.Steps) > 0 {
 				for _, d := range decisions {
-					e.emitRouteDecision(ctx, t.ID, d)
+					e.emitRouteDecisionForRun(ctx, t.ID, turnExecutionID, d)
 				}
-				e.runOrchestrated(id, t, plan)
+				e.runOrchestrated(id, t, plan, runMeta)
 				return
 			}
 		}
@@ -1373,14 +1813,14 @@ func (e *Engine) startOne(id string) {
 	if d, ok := e.resolveModelDirective(ctx, t); ok && d.WantsRoleSplit() {
 		if split, ok := d.BuildRoleSplitPlan(t.Agent, UserTurnPrompt(t.Prompt), BuiltinCatalog()); ok {
 			split.SessionContext = ExtractPriorContext(t.Prompt)
-			e.runOrchestrated(id, t, split)
+			e.runOrchestrated(id, t, split, runMeta)
 			return
 		}
 	}
 
 	ad, ok := e.runnerFor(t.Agent)
 	if !ok {
-		_, _ = e.failStart(ctx, id, fmt.Sprintf("unknown agent %q", t.Agent))
+		_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("unknown agent %q", t.Agent))
 		return
 	}
 
@@ -1401,70 +1841,9 @@ func (e *Engine) startOne(id string) {
 	execRef := adapter.ExecutionRef{
 		Agent: t.Agent,
 		Model: model,
+		ID:    turnExecutionID,
 	}
-	eid, err := e.newID()
-	if err != nil {
-		_, _ = e.failStart(ctx, id, fmt.Sprintf("execution id: %v", err))
-		return
-	}
-	execRef.ID = eid
-	// Build RunMeta from current workspace state.
-	runMeta := adapter.RunMetadata{}
-	var wsExecCwd string
-	if t.CurrentWorkspaceID != "" {
-		ws, wsErr := e.store.GetCurrentWorkspace(ctx, t.ID)
-		if wsErr == nil {
-			wsExecCwd = ws.ExecutionCwd
-			switch ws.State {
-			case store.WorkspaceReady:
-				// Promote ready → active before starting.
-				transition := store.WorkspaceTransition{
-					WorkspaceID: ws.ID,
-					TaskID:      t.ID,
-					FromStates:  []store.WorkspaceState{store.WorkspaceReady},
-					ToState:     store.WorkspaceActive,
-				}
-				if _, _, actErr := e.store.ApplyWorkspaceTransition(ctx, transition); actErr == nil {
-					runMeta.WorkspaceID = ws.ID
-					runMeta.WorkspaceAccess = adapter.AccessWritable
-					runMeta.Generation = ws.Generation
-				} else {
-					// Log but continue — the turn will run read-only.
-					payload, _ := json.Marshal(map[string]string{"message": "failed to activate ready workspace: " + actErr.Error()})
-					if w := e.eventWriter(); w != nil {
-						_, _ = w.AppendEvent(ctx, id, "error", payload)
-					}
-				}
-			case store.WorkspaceActive:
-				runMeta.WorkspaceID = ws.ID
-				runMeta.WorkspaceAccess = adapter.AccessWritable
-				runMeta.Generation = ws.Generation
-			default:
-				// Other states (provisioning, finalizing, etc.) — leave as zero value.
-			}
-		}
-	}
-	if runMeta.WorkspaceAccess == "" {
-		// Determine access from task policy.
-		if t.WorkspacePolicy == string(store.WorkspacePolicyAuto) {
-			runMeta.WorkspaceAccess = adapter.AccessSourceReadOnly
-		} else if t.WorkspacePolicy == string(store.WorkspacePolicyShared) {
-			runMeta.WorkspaceAccess = adapter.AccessShared
-		} else {
-			runMeta.WorkspaceAccess = adapter.AccessWritable
-		}
-	}
-
 	cwd := t.EffectiveCwd()
-	// When a workspace generation is active and writable, run inside the
-	// worktree, not the source checkout.  Use the generation's ExecutionCwd
-	// which is set during workspace provisioning; t.ExecutionCwd may still
-	// point to the source checkout for lazy-promoted workspaces.
-	if runMeta.WorkspaceID != "" && runMeta.WorkspaceAccess == adapter.AccessWritable {
-		if strings.TrimSpace(wsExecCwd) != "" {
-			cwd = wsExecCwd
-		}
-	}
 
 	spec := adapter.TaskSpec{
 		ID:    t.ID,
@@ -1502,7 +1881,7 @@ func (e *Engine) startOne(id string) {
 				e.bus.PublishEvent(ev)
 			}
 		}
-		_, _ = e.finish(ctx, id, StatusFailed, nil, nil)
+		_, _ = e.finishRun(ctx, id, turnExecutionID, StatusFailed, nil, nil)
 		e.handleNewLimitHit(ctx, id, t.Agent, info)
 		e.mu.Lock()
 		e.active--
@@ -1511,13 +1890,29 @@ func (e *Engine) startOne(id string) {
 		return
 	}
 
+	if !e.isActiveRun(id, turnExecutionID) {
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
 	h, err := ad.Start(ctx, spec)
 	if err != nil {
-		_, _ = e.failStart(ctx, id, err.Error())
+		_, _ = e.failRunningStart(ctx, id, turnExecutionID, err.Error())
 		return
 	}
 
 	e.mu.Lock()
+	if e.activeRuns[id] != turnExecutionID {
+		e.mu.Unlock()
+		_ = h.Cancel()
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return
+	}
 	e.handles[id] = h
 	// If cancel raced, signal now.
 	if e.canceled[id] {
@@ -1531,6 +1926,31 @@ func (e *Engine) startOne(id string) {
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
+	return e.failStartWithExecution(ctx, id, "", msg, true)
+}
+
+func (e *Engine) failRunningStart(
+	ctx context.Context, id, executionID, msg string,
+) (store.Task, error) {
+	return e.failStartWithExecution(ctx, id, executionID, msg, false)
+}
+
+func (e *Engine) failQueuedRunStart(
+	ctx context.Context, id, executionID, msg string,
+) (store.Task, error) {
+	return e.failStartWithExecution(ctx, id, executionID, msg, true)
+}
+
+func (e *Engine) failStartWithExecution(
+	ctx context.Context, id, executionID, msg string, allowQueued bool,
+) (store.Task, error) {
+	if executionID != "" && !e.isActiveRun(id, executionID) {
+		e.mu.Lock()
+		e.active--
+		e.mu.Unlock()
+		e.pump()
+		return store.Task{}, store.ErrConflict
+	}
 	m := map[string]any{"message": msg}
 	m = adapter.EnrichErrorPayload(m)
 	payload, _ := json.Marshal(m)
@@ -1540,7 +1960,17 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 			e.bus.PublishEvent(ev)
 		}
 	}
-	t, err := e.finish(ctx, id, StatusFailed, nil, nil)
+	var (
+		t   store.Task
+		err error
+	)
+	if executionID == "" {
+		t, err = e.finishQueued(ctx, id, StatusFailed, nil, nil)
+	} else if allowQueued {
+		t, err = e.finishQueuedRun(ctx, id, executionID, StatusFailed, nil, nil)
+	} else {
+		t, err = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+	}
 	if info, ok := adapter.DetectRateLimitPayload(payload); ok {
 		agentID := ""
 		if err == nil {
@@ -1550,7 +1980,9 @@ func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, err
 	}
 	e.mu.Lock()
 	e.active--
-	delete(e.handles, id)
+	if executionID == "" || e.activeRuns[id] == executionID {
+		delete(e.handles, id)
+	}
 	e.mu.Unlock()
 	e.pump()
 	return t, err
@@ -1566,11 +1998,15 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	}
 
 	for ev := range h.Events() {
+		if !e.isActiveRun(id, exec.ID) {
+			continue
+		}
 		// Persist first, then broadcast (spec §3). Stamp speaker for chat UI.
 		payload := stampSpeaker(ev.Payload, speaker, model, exec)
+		semantic, semanticErr := adapter.DecodeEvent(adapter.Event{Type: ev.Type, Payload: payload})
 		// Steer interrupt aborts the in-flight turn with a cancel error; that is
 		// expected and must not surface as a red "已取消" bubble while the new guide runs.
-		if ev.Type == "error" && errorPayloadIsCancel(payload) {
+		if semanticErr == nil && semantic.Error != nil && semantic.Error.Canceled {
 			e.mu.Lock()
 			_, steer := e.pendingFollowUp[id]
 			e.mu.Unlock()
@@ -1586,20 +2022,30 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		)
 		// Canonical usage events are incremental. A result is only an accounting
 		// fallback for legacy adapters that emitted no usage event in this run.
-		shouldAccount := ev.Type == "usage" || (ev.Type == "result" && !sawUsage)
+		shouldAccount := ev.Type == "usage" ||
+			(ev.Type == "result" && !sawUsage && semanticErr == nil &&
+				semantic.Usage != nil && semantic.Usage.HasAccountingValues())
 		w := e.eventWriter()
 		if shouldAccount {
 			record, usageErr := NormalizeUsage(speaker, model, payload)
-			if usageErr == nil {
+			if usageErr != nil {
+				accountingFailed = true
+				e.noteRunPersistFailure(id, exec.ID, ev.Type, payload, usageErr)
+			} else {
 				missingPriceModel = e.populateEstimatedUsageCost(ctx, &record)
 				if w == nil {
 					accountingFailed = true
-					e.notePersistFailure(id, ev.Type, payload, fmt.Errorf("event writer unavailable"))
+					e.noteRunPersistFailure(id, exec.ID, ev.Type, payload, fmt.Errorf("event writer unavailable"))
 				} else {
-					usageEvent, taskAfterUsage, appendErr := w.AppendUsageEvent(ctx, id, ev.Type, payload, record)
+					usageEvent, taskAfterUsage, appendErr := e.persistRunUsageEvent(
+						ctx, id, exec.ID, ev.Type, payload, record,
+					)
 					if appendErr != nil {
+						if errors.Is(appendErr, store.ErrConflict) {
+							continue
+						}
 						accountingFailed = true
-						e.notePersistFailure(id, ev.Type, payload, appendErr)
+						e.noteRunPersistFailure(id, exec.ID, ev.Type, payload, appendErr)
 					} else {
 						stored = usageEvent
 						updatedTask = &taskAfterUsage
@@ -1615,13 +2061,16 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		}
 		if stored.TaskID == "" {
 			if w == nil {
-				e.notePersistFailure(id, ev.Type, payload, fmt.Errorf("event writer unavailable"))
+				e.noteRunPersistFailure(id, exec.ID, ev.Type, payload, fmt.Errorf("event writer unavailable"))
 				continue
 			}
 			var err error
-			stored, err = w.AppendEvent(ctx, id, ev.Type, payload)
+			stored, err = e.persistRunEvent(ctx, id, exec.ID, ev.Type, payload)
 			if err != nil {
-				e.notePersistFailure(id, ev.Type, payload, err)
+				if errors.Is(err, store.ErrConflict) {
+					continue
+				}
+				e.noteRunPersistFailure(id, exec.ID, ev.Type, payload, err)
 				continue
 			}
 		}
@@ -1651,48 +2100,79 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 
 		switch ev.Type {
 		case "task_started":
-			if sid := adapter.SessionRefFromEvent(ev.Payload); sid != "" {
-				_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
+			if semanticErr == nil && semantic.SessionRef != "" {
+				sid := semantic.SessionRef
+				e.mu.Lock()
+				if e.activeRuns[id] == exec.ID {
+					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
+				}
+				e.mu.Unlock()
 				if t, err := e.store.GetTask(ctx, id); err == nil {
 					e.bus.PublishTask(t)
 				}
 			}
 		case "result":
 			sawResult = true
-			if parsed, ok := adapter.ParseResult(ev.Payload); ok {
-				resultIsError = parsed.IsError
-				if parsed.SessionRef != "" {
-					sid := parsed.SessionRef
+			if semanticErr != nil || semantic.Result == nil {
+				resultIsError = true
+				break
+			}
+			resultIsError = semantic.Result.IsError
+			if semantic.SessionRef != "" {
+				sid := semantic.SessionRef
+				e.mu.Lock()
+				if e.activeRuns[id] == exec.ID {
 					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 				}
-			} else {
-				var resultMeta struct {
-					IsError bool `json:"is_error"`
-				}
-				_ = json.Unmarshal(ev.Payload, &resultMeta)
-				resultIsError = resultMeta.IsError
+				e.mu.Unlock()
 			}
 		}
 	}
 
 	// Process exited.
 	e.mu.Lock()
+	currentRun := e.activeRuns[id] == exec.ID
+	if currentRun {
+		e.workspaceCommitting[id] = exec.ID
+	}
 	wasCanceled := e.canceled[id]
 	pf, hasFollowUp := e.pendingFollowUp[id]
-	delete(e.handles, id)
-	delete(e.canceled, id)
-	delete(e.pendingFollowUp, id)
+	if currentRun {
+		delete(e.handles, id)
+		delete(e.canceled, id)
+		delete(e.pendingFollowUp, id)
+	}
 	e.active--
 	e.mu.Unlock()
+	if !currentRun {
+		e.pump()
+		return
+	}
+	defer e.clearWorkspaceCompletion(id, exec.ID)
+	defer e.clearActiveRun(id, exec.ID)
+	workspaceStatus, workspaceErr, workspaceFinalized := e.finalizeRequestedWorkspace(ctx, id)
 
 	// Interrupted with a steerable follow-up: re-queue instead of staying canceled.
 	if hasFollowUp {
+		if workspaceErr != nil {
+			payload, _ := json.Marshal(map[string]string{
+				"message": "workspace finalization failed before follow-up: " + workspaceErr.Error(),
+			})
+			if ev, err := e.persistRunEvent(ctx, id, exec.ID, "error", payload); err == nil {
+				e.bus.PublishEvent(ev)
+			}
+			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+			e.pump()
+			return
+		}
 		if _, err := e.applyPendingFollowUp(ctx, id, pf); err != nil {
 			payload, _ := json.Marshal(map[string]string{"message": "follow-up after interrupt failed: " + err.Error()})
 			if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
 				e.bus.PublishEvent(ev)
 			}
-			_, _ = e.finish(ctx, id, StatusFailed, nil, nil)
+			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+		} else {
+			e.clearActiveRun(id, exec.ID)
 		}
 		e.pump()
 		return
@@ -1723,11 +2203,12 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	}
 	if t.Status == StatusCanceled || wasCanceled {
 		if t.Status != StatusCanceled {
-			_, _ = e.finish(ctx, id, StatusCanceled, nil, nil)
+			_, _ = e.finishRun(ctx, id, exec.ID, StatusCanceled, nil, nil)
 		} else if t.FinishedAt == nil {
 			now := store.NowMilli()
 			_ = e.store.UpdateTask(ctx, id, store.TaskPatch{FinishedAt: &now})
 		}
+		e.clearActiveRun(id, exec.ID)
 		// Ensure broadcast of final state.
 		if t2, err := e.store.GetTask(ctx, id); err == nil {
 			e.bus.PublishTask(t2)
@@ -1774,31 +2255,22 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	}
 	e.clearPersistTracking(id)
 
-	// Workspace finalization: if the workspace is in finalizing state,
-	// run the full finalization pipeline before finishing the task.
-	if e.workspace != nil {
-		ws, wsErr := e.store.GetCurrentWorkspace(ctx, id)
-		if wsErr == nil && ws.State == store.WorkspaceFinalizing {
-			finalStatus, finalizeErr := e.finalizeWorkspace(ctx, id)
-			if finalizeErr != nil {
-				// Finalization failed but workspace retained for retry.
-				// The task fails but the workspace is in merge_blocked or finalize_blocked.
-				payload, _ := json.Marshal(map[string]string{
-					"message": "workspace finalization failed: " + finalizeErr.Error(),
-				})
-				if w := e.eventWriter(); w != nil {
-					if ev, err := w.AppendEvent(ctx, id, "error", payload); err == nil {
-						e.bus.PublishEvent(ev)
-					}
-				}
-				final = StatusFailed
-			} else {
-				final = finalStatus
+	if workspaceFinalized {
+		if workspaceErr != nil {
+			payload, _ := json.Marshal(map[string]string{
+				"message": "workspace finalization failed: " + workspaceErr.Error(),
+			})
+			if ev, err := e.persistRunEvent(ctx, id, exec.ID, "error", payload); err == nil {
+				e.bus.PublishEvent(ev)
 			}
+			final = StatusFailed
+		} else if workspaceStatus != StatusSucceeded {
+			final = workspaceStatus
 		}
 	}
 
-	_, _ = e.finish(ctx, id, final, exitCode, nil)
+	_, _ = e.finishRun(ctx, id, exec.ID, final, exitCode, nil)
+	e.clearWorkspaceCompletion(id, exec.ID)
 	// After failed finish, apply default wait/switch policy on the open limit card.
 	if final == StatusFailed {
 		if info, _, ok := e.latestOpenLimitHit(ctx, id); ok {
@@ -1806,6 +2278,35 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		}
 	}
 	e.pump()
+}
+
+func (e *Engine) finalizeRequestedWorkspace(
+	ctx context.Context,
+	taskID string,
+) (status string, err error, finalized bool) {
+	if e.workspace == nil {
+		return "", nil, false
+	}
+	ws, err := e.store.GetCurrentWorkspace(ctx, taskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil, false
+	}
+	if err != nil {
+		return StatusFailed, err, true
+	}
+	if ws.State != store.WorkspaceFinalizing {
+		return "", nil, false
+	}
+	status, err = e.finalizeWorkspace(ctx, taskID)
+	return status, err, true
+}
+
+func (e *Engine) clearWorkspaceCompletion(taskID, executionID string) {
+	e.mu.Lock()
+	if e.workspaceCommitting[taskID] == executionID {
+		delete(e.workspaceCommitting, taskID)
+	}
+	e.mu.Unlock()
 }
 
 func (e *Engine) populateEstimatedUsageCost(ctx context.Context, record *store.UsageRecord) string {
@@ -1861,20 +2362,28 @@ func defaultPriceModelForAgent(agent string) string {
 }
 
 func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, cost *float64) (store.Task, error) {
+	return e.finishTask(ctx, id, status, exitCode, cost, false)
+}
+
+func (e *Engine) finishQueued(ctx context.Context, id, status string, exitCode *int, cost *float64) (store.Task, error) {
+	return e.finishTask(ctx, id, status, exitCode, cost, true)
+}
+
+func (e *Engine) finishTask(
+	ctx context.Context,
+	id, status string,
+	exitCode *int,
+	cost *float64,
+	allowQueued bool,
+) (store.Task, error) {
 	now := e.nowMilli()
-	p := store.TaskPatch{
-		Status:     &status,
-		FinishedAt: &now,
-	}
-	if exitCode != nil {
-		p.ExitCode = exitCode
-	}
-	if cost != nil {
-		p.CostUSD = cost
-	}
-	if err := e.store.UpdateTask(ctx, id, p); err != nil {
+	if err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, allowQueued); err != nil {
 		return store.Task{}, err
 	}
+	return e.publishFinishedTask(ctx, id, status)
+}
+
+func (e *Engine) publishFinishedTask(ctx context.Context, id, status string) (store.Task, error) {
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
@@ -1888,6 +2397,52 @@ func (e *Engine) finish(ctx context.Context, id, status string, exitCode *int, c
 		e.notify.NotifyTaskTerminal(ctx, t.ID, t.Title, status)
 	}
 	return t, nil
+}
+
+func (e *Engine) finishRun(
+	ctx context.Context,
+	id, executionID, status string,
+	exitCode *int,
+	cost *float64,
+) (store.Task, error) {
+	e.mu.Lock()
+	if e.activeRuns[id] != executionID {
+		e.mu.Unlock()
+		return store.Task{}, store.ErrConflict
+	}
+	now := e.nowMilli()
+	err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, false)
+	if err == nil && e.activeRuns[id] == executionID {
+		delete(e.activeRuns, id)
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return store.Task{}, err
+	}
+	return e.publishFinishedTask(ctx, id, status)
+}
+
+func (e *Engine) finishQueuedRun(
+	ctx context.Context,
+	id, executionID, status string,
+	exitCode *int,
+	cost *float64,
+) (store.Task, error) {
+	e.mu.Lock()
+	if e.activeRuns[id] != executionID {
+		e.mu.Unlock()
+		return store.Task{}, store.ErrConflict
+	}
+	now := e.nowMilli()
+	err := e.store.FinishTask(ctx, id, status, now, exitCode, cost, true)
+	if err == nil && e.activeRuns[id] == executionID {
+		delete(e.activeRuns, id)
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return store.Task{}, err
+	}
+	return e.publishFinishedTask(ctx, id, status)
 }
 
 // ErrTerminal is returned when canceling a finished task.
@@ -1911,6 +2466,7 @@ func (e *Engine) prepareWorkspace(ctx context.Context, taskID, cwd string, mode 
 func workspaceMetadata(t store.Task) workspace.Metadata {
 	return workspace.Metadata{
 		Mode:       workspace.ResolvedMode(t.WorkspaceMode),
+		Generation: 1,
 		SourceRoot: t.WorkspaceSourceRoot,
 		Root:       t.WorkspaceRoot,
 		Cwd:        t.ExecutionCwd,
@@ -1918,6 +2474,417 @@ func workspaceMetadata(t store.Task) workspace.Metadata {
 		BaseOID:    t.WorkspaceBaseOID,
 		Branch:     t.WorkspaceBranch,
 	}
+}
+
+func workspaceGenerationMetadata(ws store.WorkspaceGeneration) workspace.Metadata {
+	return workspace.Metadata{
+		Mode:         workspace.ResolvedWorktree,
+		Generation:   ws.Generation,
+		SourceRoot:   ws.SourceRoot,
+		Root:         ws.PhysicalRoot,
+		Cwd:          ws.ExecutionCwd,
+		Scope:        ws.Scope,
+		BaseOID:      ws.BaseOID,
+		Branch:       ws.WorkspaceBranch,
+		TargetBranch: ws.TargetBranch,
+	}
+}
+
+func (e *Engine) claimCurrentWorkspaceExecution(
+	ctx context.Context, taskID, executionID string,
+) error {
+	if e.workspace == nil {
+		return nil
+	}
+	ws, err := e.store.GetCurrentWorkspace(ctx, taskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	unlock := lockWorkspaceGeneration(e.workspace, workspaceGenerationMetadata(ws))
+	defer unlock()
+	return e.store.ClaimWorkspaceExecution(ctx, ws.ID, taskID, executionID)
+}
+
+func (e *Engine) workspaceMetadataForCheckpoint(
+	ctx context.Context,
+	task store.Task,
+	checkpoint store.TaskCheckpoint,
+) (workspace.Metadata, error) {
+	if checkpoint.WorkspaceID == "" {
+		return workspaceMetadata(task), nil
+	}
+	generation, err := e.store.GetWorkspace(ctx, checkpoint.WorkspaceID)
+	if err != nil {
+		return workspace.Metadata{}, fmt.Errorf("get checkpoint workspace: %w", err)
+	}
+	if generation.TaskID != task.ID {
+		return workspace.Metadata{}, fmt.Errorf("checkpoint workspace does not belong to task")
+	}
+	return workspaceGenerationMetadata(generation), nil
+}
+
+type checkpointRestoreTarget struct {
+	taskID      string
+	meta        workspace.Metadata
+	workspace   store.WorkspaceGeneration
+	generation  *store.WorkspaceGeneration
+	workspaceID string
+	activate    bool
+	unlock      func()
+}
+
+func (target checkpointRestoreTarget) generationValue() store.WorkspaceGeneration {
+	if target.generation != nil {
+		return *target.generation
+	}
+	return target.workspace
+}
+
+func (e *Engine) planRetryRestore(
+	ctx context.Context, task store.Task,
+) (checkpointRestoreTarget, store.TaskCheckpoint, func(), error) {
+	if current, err := e.store.GetCurrentWorkspace(ctx, task.ID); err == nil {
+		meta := workspaceGenerationMetadata(current)
+		unlock := lockWorkspaceGeneration(e.workspace, meta)
+		refreshed, refreshErr := e.store.GetWorkspace(ctx, current.ID)
+		if refreshErr != nil {
+			unlock()
+			return checkpointRestoreTarget{}, store.TaskCheckpoint{}, func() {}, refreshErr
+		}
+		switch refreshed.State {
+		case store.WorkspaceReady, store.WorkspaceActive,
+			store.WorkspaceMergeBlocked, store.WorkspaceFinalizeBlocked:
+		default:
+			unlock()
+			return checkpointRestoreTarget{}, store.TaskCheckpoint{}, func() {}, fmt.Errorf(
+				"workspace %s is in state %s and cannot be restored",
+				refreshed.ID, refreshed.State,
+			)
+		}
+		meta = workspaceGenerationMetadata(refreshed)
+		rollback, captureErr := e.workspace.CapturePrepared(ctx, meta, task.ID)
+		if captureErr != nil {
+			unlock()
+			return checkpointRestoreTarget{}, store.TaskCheckpoint{}, func() {},
+				fmt.Errorf("capture retry rollback: %w", captureErr)
+		}
+		return checkpointRestoreTarget{
+			taskID: task.ID, meta: meta, workspace: refreshed,
+			workspaceID: refreshed.ID, activate: refreshed.State != store.WorkspaceActive,
+			unlock: unlock,
+		}, storeCheckpoint(rollback), unlock, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return checkpointRestoreTarget{}, store.TaskCheckpoint{}, func() {}, err
+	}
+
+	source, err := e.workspace.ResolveSource(ctx, task.Cwd)
+	if err != nil {
+		return checkpointRestoreTarget{}, store.TaskCheckpoint{}, func() {}, err
+	}
+	generations, err := e.store.ListTaskWorkspaces(ctx, task.ID)
+	if err != nil {
+		return checkpointRestoreTarget{}, store.TaskCheckpoint{}, func() {}, err
+	}
+	nextGeneration := 1
+	for _, generation := range generations {
+		if generation.Generation >= nextGeneration {
+			nextGeneration = generation.Generation + 1
+		}
+	}
+	now := store.NowMilli()
+	generation := store.WorkspaceGeneration{
+		ID: fmt.Sprintf("%s:g%d", task.ID, nextGeneration), TaskID: task.ID,
+		Generation: nextGeneration, State: store.WorkspaceProvisioning,
+		SourceRoot: source.SourceRoot, Scope: source.Scope,
+		TargetBranch: source.TargetBranch, BaseOID: source.HeadOID,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	return checkpointRestoreTarget{
+		taskID: task.ID, generation: &generation, workspaceID: generation.ID,
+		unlock: func() {},
+	}, store.TaskCheckpoint{}, func() {}, nil
+}
+
+func (e *Engine) resolveRetryRestoreIntent(
+	ctx context.Context, intent store.RetryRestoreIntent, alreadyLocked bool,
+) (store.RetryMutationResult, bool, error) {
+	target := intent.Target
+	if intent.TargetIsNew && target.PhysicalRoot == "" {
+		meta, err := e.workspace.PrepareGeneration(ctx, intent.TaskID, target.Generation, workspace.SourceMetadata{
+			Cwd: target.SourceRoot, SourceRoot: target.SourceRoot, Scope: target.Scope,
+			TargetBranch: target.TargetBranch, HeadOID: target.BaseOID,
+		})
+		if err != nil {
+			if meta.Root != "" {
+				target.WorkspaceBranch = meta.Branch
+				target.PhysicalRoot = meta.Root
+				target.ExecutionCwd = meta.Cwd
+			}
+			return e.compensateRetryRestore(intent, target, fmt.Errorf("prepare retry generation: %w", err))
+		}
+		target.SourceRoot = meta.SourceRoot
+		target.Scope = meta.Scope
+		target.TargetBranch = meta.TargetBranch
+		target.WorkspaceBranch = meta.Branch
+		target.PhysicalRoot = meta.Root
+		target.ExecutionCwd = meta.Cwd
+		target.BaseOID = meta.BaseOID
+		if err := e.store.MarkRetryRestoreTargetPrepared(ctx, intent.TaskID, target); err != nil {
+			return e.compensateRetryRestore(intent, target, fmt.Errorf("persist retry generation: %w", err))
+		}
+		intent.Target = target
+	}
+	if !intent.RestoreFiles {
+		result, err := e.store.CompleteRetryRestore(ctx, intent.TaskID)
+		if err != nil {
+			return e.compensateRetryRestore(intent, target, fmt.Errorf("complete retry: %w", err))
+		}
+		return result, false, nil
+	}
+
+	meta := workspaceGenerationMetadata(target)
+	unlock := func() {}
+	if !alreadyLocked {
+		unlock = lockWorkspaceGeneration(e.workspace, meta)
+	}
+	defer unlock()
+	restoreTarget := checkpointRestoreTarget{
+		taskID: intent.TaskID, meta: meta, workspace: target,
+		workspaceID: target.ID, activate: intent.ActivateTarget,
+	}
+	if intent.TargetIsNew {
+		restoreTarget.generation = &target
+	}
+	if err := e.restoreCheckpointIntoTarget(ctx, intent.TaskID, restoreTarget, intent.Checkpoint); err != nil {
+		return e.compensateRetryRestore(intent, target, fmt.Errorf("restore retry checkpoint: %w", err))
+	}
+	result, err := e.store.CompleteRetryRestore(ctx, intent.TaskID)
+	if err != nil {
+		return e.compensateRetryRestore(intent, target, fmt.Errorf("complete retry restore: %w", err))
+	}
+	return result, false, nil
+}
+
+func (e *Engine) compensateRetryRestore(
+	intent store.RetryRestoreIntent,
+	target store.WorkspaceGeneration,
+	cause error,
+) (store.RetryMutationResult, bool, error) {
+	rollbackCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	meta := workspaceGenerationMetadata(target)
+	var compensationErr error
+	if !intent.RestoreFiles && !intent.TargetIsNew {
+		compensationErr = e.store.AbortRetryRestore(rollbackCtx, intent.TaskID)
+	} else if intent.TargetIsNew {
+		if target.PhysicalRoot != "" {
+			compensationErr = e.workspace.CleanupPrepared(rollbackCtx, intent.TaskID, meta)
+		}
+	} else {
+		compensationErr = e.workspace.Restore(
+			rollbackCtx, meta, intent.TaskID, runtimeCheckpoint(intent.RollbackCheckpoint),
+		)
+	}
+	if compensationErr == nil && (intent.RestoreFiles || intent.TargetIsNew) {
+		compensationErr = e.store.AbortRetryRestore(rollbackCtx, intent.TaskID)
+	}
+	if compensationErr != nil {
+		return store.RetryMutationResult{}, false,
+			fmt.Errorf("%v; compensation failed: %w", cause, compensationErr)
+	}
+	return store.RetryMutationResult{}, true, cause
+}
+
+func (e *Engine) recoverRetryRestores(ctx context.Context) error {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+	intents, err := e.store.ListRetryRestoreIntents(ctx)
+	if err != nil {
+		return err
+	}
+	for _, intent := range intents {
+		task, taskErr := e.store.GetTask(ctx, intent.TaskID)
+		if taskErr != nil {
+			return fmt.Errorf("task %s: %w", intent.TaskID, taskErr)
+		}
+		if task.EventEpoch == intent.ExpectedEventEpoch+1 {
+			switch task.Status {
+			case StatusQueued:
+				if err := e.resetAgentSessionStrict(ctx, task.Agent, task.ID); err != nil {
+					return fmt.Errorf("reset recovered retry session for task %s: %w", task.ID, err)
+				}
+				if !intent.RestoreFiles &&
+					task.WorkspaceMode == string(workspace.ResolvedWorktree) {
+					e.captureCheckpoint(ctx, task, intent.FromSeq)
+				}
+				e.mu.Lock()
+				e.queue = append(e.queue, task.ID)
+				e.mu.Unlock()
+			default:
+				if err := e.store.DeleteRetryRestoreIntent(ctx, task.ID); err != nil {
+					return fmt.Errorf("clear consumed retry intent for task %s: %w", task.ID, err)
+				}
+			}
+			continue
+		}
+		if task.EventEpoch != intent.ExpectedEventEpoch || task.Status != StatusRetrying {
+			return fmt.Errorf(
+				"task %s retry intent does not match status %s epoch %d",
+				task.ID, task.Status, task.EventEpoch,
+			)
+		}
+		result, compensated, err := e.resolveRetryRestoreIntent(ctx, intent, false)
+		if err != nil && !compensated {
+			return fmt.Errorf("task %s: %w", intent.TaskID, err)
+		}
+		if compensated {
+			continue
+		}
+		if err := e.publishCompletedRetry(
+			ctx,
+			result,
+			!intent.RestoreFiles &&
+				result.Task.WorkspaceMode == string(workspace.ResolvedWorktree),
+			false,
+		); err != nil {
+			return fmt.Errorf("resume retry task %s: %w", intent.TaskID, err)
+		}
+	}
+	return nil
+}
+
+func (e *Engine) prepareCheckpointRestoreTarget(
+	ctx context.Context,
+	task store.Task,
+	checkpoint store.TaskCheckpoint,
+) (checkpointRestoreTarget, error) {
+	if current, err := e.store.GetCurrentWorkspace(ctx, task.ID); err == nil {
+		meta := workspaceGenerationMetadata(current)
+		unlock := lockWorkspaceGeneration(e.workspace, meta)
+		refreshed, refreshErr := e.store.GetWorkspace(ctx, current.ID)
+		if refreshErr != nil {
+			unlock()
+			return checkpointRestoreTarget{}, refreshErr
+		}
+		switch refreshed.State {
+		case store.WorkspaceReady:
+			meta = workspaceGenerationMetadata(refreshed)
+		case store.WorkspaceActive, store.WorkspaceMergeBlocked, store.WorkspaceFinalizeBlocked:
+			// Writable target.
+		default:
+			unlock()
+			return checkpointRestoreTarget{}, fmt.Errorf(
+				"workspace %s is in state %s and cannot be restored",
+				refreshed.ID,
+				refreshed.State,
+			)
+		}
+		return checkpointRestoreTarget{
+			taskID: task.ID, meta: meta, workspace: refreshed, workspaceID: refreshed.ID,
+			activate: refreshed.State != store.WorkspaceActive, unlock: unlock,
+		}, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return checkpointRestoreTarget{}, err
+	}
+
+	source, err := e.workspace.ResolveSource(ctx, task.Cwd)
+	if err != nil {
+		return checkpointRestoreTarget{}, err
+	}
+	generations, err := e.store.ListTaskWorkspaces(ctx, task.ID)
+	if err != nil {
+		return checkpointRestoreTarget{}, err
+	}
+	nextGeneration := 1
+	for _, generation := range generations {
+		if generation.Generation >= nextGeneration {
+			nextGeneration = generation.Generation + 1
+		}
+	}
+	meta, err := e.workspace.PrepareGeneration(ctx, task.ID, nextGeneration, source)
+	if err != nil {
+		return checkpointRestoreTarget{}, err
+	}
+	unlock := lockWorkspaceGeneration(e.workspace, meta)
+	now := store.NowMilli()
+	generation := store.WorkspaceGeneration{
+		ID:                    fmt.Sprintf("%s:g%d", task.ID, nextGeneration),
+		TaskID:                task.ID,
+		Generation:            nextGeneration,
+		State:                 store.WorkspaceActive,
+		SourceRoot:            source.SourceRoot,
+		Scope:                 source.Scope,
+		TargetBranch:          source.TargetBranch,
+		WorkspaceBranch:       meta.Branch,
+		PhysicalRoot:          meta.Root,
+		ExecutionCwd:          meta.Cwd,
+		BaseOID:               source.HeadOID,
+		RequestedUserEventSeq: checkpoint.EventSeq,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+	return checkpointRestoreTarget{
+		taskID: task.ID, meta: meta, workspace: generation, generation: &generation,
+		workspaceID: generation.ID, unlock: unlock,
+	}, nil
+}
+
+func (e *Engine) commitCheckpointRestoreTarget(
+	ctx context.Context,
+	target checkpointRestoreTarget,
+) error {
+	if target.generation == nil {
+		if !target.activate {
+			return nil
+		}
+		empty := ""
+		_, err := e.transitionWorkspace(ctx, store.WorkspaceTransition{
+			WorkspaceID: target.workspaceID,
+			TaskID:      target.taskID,
+			FromStates: []store.WorkspaceState{
+				store.WorkspaceReady,
+				store.WorkspaceMergeBlocked,
+				store.WorkspaceFinalizeBlocked,
+			},
+			ToState: store.WorkspaceActive,
+			Patch: store.WorkspacePatch{
+				ReviewBaseOID:        &empty,
+				FinalHeadOID:         &empty,
+				FinalTreeOID:         &empty,
+				IntegratedOID:        &empty,
+				CompletedExecutionID: &empty,
+				FailureReason:        &empty,
+			},
+		})
+		return err
+	}
+	ev, err := e.store.InsertWorkspaceAsCurrent(ctx, *target.generation)
+	if err != nil {
+		return err
+	}
+	e.bus.PublishEvent(ev)
+	return nil
+}
+
+func (e *Engine) restoreCheckpointIntoTarget(
+	ctx context.Context,
+	taskID string,
+	target checkpointRestoreTarget,
+	checkpoint store.TaskCheckpoint,
+) error {
+	if target.generation != nil ||
+		(checkpoint.WorkspaceID != "" && checkpoint.WorkspaceID != target.workspaceID) {
+		return e.workspace.RestoreTreeOntoCurrent(
+			ctx,
+			target.meta,
+			taskID,
+			runtimeCheckpoint(checkpoint),
+		)
+	}
+	return e.workspace.Restore(ctx, target.meta, taskID, runtimeCheckpoint(checkpoint))
 }
 
 func storeCheckpoint(cp workspace.Checkpoint) store.TaskCheckpoint {
@@ -1946,9 +2913,17 @@ func (e *Engine) captureCheckpoint(ctx context.Context, t store.Task, userSeq in
 	if e.workspace == nil || t.WorkspaceMode != string(workspace.ResolvedWorktree) || userSeq < 1 {
 		return
 	}
-	cp, err := e.workspace.Capture(ctx, workspaceMetadata(t), t.ID, userSeq)
+	meta := workspaceMetadata(t)
+	workspaceID := ""
+	if ws, getErr := e.store.GetCurrentWorkspace(ctx, t.ID); getErr == nil {
+		meta = workspaceGenerationMetadata(ws)
+		workspaceID = ws.ID
+	}
+	cp, err := e.workspace.Capture(ctx, meta, t.ID, userSeq)
 	if err == nil {
-		if putErr := e.store.PutCheckpoint(ctx, storeCheckpoint(cp)); putErr != nil {
+		stored := storeCheckpoint(cp)
+		stored.WorkspaceID = workspaceID
+		if putErr := e.store.PutCheckpoint(ctx, stored); putErr != nil {
 			err = putErr
 		}
 	}
@@ -2008,21 +2983,6 @@ func applyWorkspaceMetadata(t *store.Task, meta workspace.Metadata) {
 // errorPayloadIsCancel reports whether an adapter error payload is a benign
 // abort/cancel token (steer interrupt, user stop) rather than a real failure.
 func errorPayloadIsCancel(payload json.RawMessage) bool {
-	var m struct {
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(payload, &m); err != nil {
-		return false
-	}
-	s := strings.ToLower(strings.TrimSpace(m.Message))
-	switch {
-	case s == "canceled", s == "cancelled", s == "context canceled", s == "context cancelled":
-		return true
-	case strings.Contains(s, "stream error") && strings.Contains(s, "cancel"):
-		return true
-	case strings.Contains(s, "cancel") && strings.Contains(s, "received from peer"):
-		return true
-	default:
-		return false
-	}
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "error", Payload: payload})
+	return err == nil && semantic.Error != nil && semantic.Error.Canceled
 }

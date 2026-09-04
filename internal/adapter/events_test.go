@@ -92,3 +92,92 @@ func TestSessionRefFromEvent(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestDecodeEventSemanticViews(t *testing.T) {
+	event := Event{
+		Type: "result",
+		Payload: json.RawMessage(`{
+			"sessionId":"legacy-session",
+			"is_error":true,
+			"message":"context canceled",
+			"visibility":{"user":false,"task":true},
+			"source":"codex",
+			"provider_id":"openai-primary",
+			"prompt_tokens":12,
+			"completion_tokens":3,
+			"cached_tokens":4,
+			"cache_read_reported":true
+		}`),
+	}
+	got, err := DecodeEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionRef != "legacy-session" || got.Result == nil || !got.Result.IsError {
+		t.Fatalf("result semantics=%+v", got)
+	}
+	if got.Error == nil || got.Error.Message != "context canceled" || !got.Error.Canceled {
+		t.Fatalf("error semantics=%+v", got.Error)
+	}
+	if got.Visibility == nil || got.Visibility.User || !got.Visibility.Task {
+		t.Fatalf("visibility=%+v", got.Visibility)
+	}
+	if got.Usage == nil || got.Usage.InputTokens == nil || *got.Usage.InputTokens != 12 ||
+		got.Usage.OutputTokens == nil || *got.Usage.OutputTokens != 3 ||
+		got.Usage.ProviderID != "openai-primary" {
+		t.Fatalf("usage semantics=%+v", got.Usage)
+	}
+}
+
+func TestDecodeMessageContent(t *testing.T) {
+	got, err := DecodeEvent(Event{
+		Type:    "message",
+		Payload: json.RawMessage(`{"role":"assistant","partial":false,"content":[{"type":"text","text":"hello "},{"type":"text","text":"world"}]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Message == nil || got.Message.Role != "assistant" || got.Message.Text != "hello world" {
+		t.Fatalf("message=%+v", got.Message)
+	}
+}
+
+func TestDecodeResultRequiresTerminalMarker(t *testing.T) {
+	for _, raw := range []json.RawMessage{json.RawMessage(`{}`), json.RawMessage(`null`)} {
+		if _, err := DecodeEvent(Event{Type: "result", Payload: raw}); err == nil {
+			t.Fatalf("payload %s should not satisfy result contract", raw)
+		}
+	}
+}
+
+func TestDecodeResultRejectsMalformedNestedUsageAndTrailingData(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"is_error":false,"usage":{"input_tokens":"bad"}}`),
+		json.RawMessage(`{"is_error":false} trailing`),
+	} {
+		if _, err := DecodeEvent(Event{Type: "result", Payload: raw}); err == nil {
+			t.Fatalf("payload %s should fail decoding", raw)
+		}
+	}
+}
+
+func TestDecodeResultPrefersNestedCanonicalUsage(t *testing.T) {
+	got, err := DecodeEvent(Event{
+		Type: "result",
+		Payload: json.RawMessage(`{
+			"is_error": false,
+			"tokens_out": 99,
+			"total_cost_usd": 9,
+			"usage": {"output_tokens": 7, "cost_usd": 1}
+		}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Usage == nil || got.Usage.OutputTokens == nil || *got.Usage.OutputTokens != 7 {
+		t.Fatalf("usage=%+v", got.Usage)
+	}
+	if got.Usage.CostUSD == nil || *got.Usage.CostUSD != 1 {
+		t.Fatalf("cost=%v", got.Usage.CostUSD)
+	}
+}

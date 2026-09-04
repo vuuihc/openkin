@@ -105,6 +105,9 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 				Binary:    cfg.BaseURL,
 			}
 		},
+		Models: func(context.Context) agent.ModelList {
+			return agent.ModelList{Source: "none", Status: "default_only"}
+		},
 	}, nil
 }
 

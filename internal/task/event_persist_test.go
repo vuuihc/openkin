@@ -91,6 +91,26 @@ func TestResultPersistFailurePreventsSuccess(t *testing.T) {
 	}
 }
 
+func TestMalformedUsagePreventsSuccess(t *testing.T) {
+	ad := &fakeAdapter{events: []adapter.Event{
+		{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		{Type: "usage", Payload: json.RawMessage(`{}`)},
+		{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)},
+	}}
+	e, _ := testEngine(t, 4, ad)
+
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "do work",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitStatus(t, e, task.ID, StatusFailed, 3*time.Second)
+	if final.Status == StatusSucceeded {
+		t.Fatalf("task must not succeed after malformed usage: %#v", final)
+	}
+}
+
 func TestUserVisibleMessagePersistFailurePreventsSuccess(t *testing.T) {
 	// Orchestrated path emits a final summary message before result.
 	// Fail that user-visible message and ensure the task does not succeed.
@@ -269,7 +289,7 @@ func TestIsCriticalEvent(t *testing.T) {
 		{"approval_decided", `{}`, true},
 		{"tool_use", `{}`, false},
 		{"raw_output", `{}`, false},
-		{"usage", `{}`, false},
+		{"usage", `{}`, true},
 		{"message", `{"role":"user","text":"hi"}`, true},
 		{"message", `{"role":"assistant","partial":true,"text":"…"}`, false},
 		{"message", `{"role":"assistant","phase":"summary","visibility":{"user":true,"task":true}}`, true},

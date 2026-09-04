@@ -23,12 +23,19 @@ func (m *Manager) ResolveSource(ctx context.Context, cwd string) (SourceMetadata
 	if headOID == "" {
 		return SourceMetadata{}, ErrNoHead
 	}
+	targetBranch, err := m.CurrentBranch(ctx, probe.SourceRoot)
+	if err != nil {
+		return SourceMetadata{}, err
+	}
+	if strings.TrimSpace(targetBranch) == "" {
+		return SourceMetadata{}, fmt.Errorf("source repository is in detached HEAD")
+	}
 
 	return SourceMetadata{
 		Cwd:          probe.Cwd,
 		SourceRoot:   probe.SourceRoot,
 		Scope:        probe.Scope,
-		TargetBranch: probe.Scope,
+		TargetBranch: targetBranch,
 		HeadOID:      headOID,
 		Dirty:        probe.Dirty,
 	}, nil
@@ -52,6 +59,9 @@ func (m *Manager) PrepareGeneration(
 	if source.Dirty {
 		return Metadata{}, fmt.Errorf("%w: source is dirty", ErrDirtySource)
 	}
+	if !validObjectID(source.HeadOID) {
+		return Metadata{}, fmt.Errorf("%w: invalid source HEAD", ErrNoHead)
+	}
 
 	hooksDir := m.emptyHooksDir()
 	if err := os.MkdirAll(hooksDir, 0o700); err != nil {
@@ -64,13 +74,27 @@ func (m *Manager) PrepareGeneration(
 	}
 
 	branch := worktreeBranch(taskID, generation)
+	meta := Metadata{
+		Mode:         ResolvedWorktree,
+		Generation:   generation,
+		SourceRoot:   source.SourceRoot,
+		Root:         wtPath,
+		Cwd:          filepath.Join(wtPath, source.Scope),
+		Scope:        source.Scope,
+		BaseOID:      source.HeadOID,
+		Branch:       branch,
+		TargetBranch: source.TargetBranch,
+	}
+	if adopted, err := m.adoptPreparedGeneration(ctx, meta); adopted || err != nil {
+		return meta, err
+	}
 
 	// Create the worktree with hooks disabled
 	_, err = m.git.Run(ctx, source.SourceRoot, nil, PathListStdoutLimit,
 		"-c", "core.hooksPath="+hooksDir,
-		"worktree", "add", "--force", wtPath, "HEAD", "--detach")
+		"worktree", "add", "--force", wtPath, source.HeadOID, "--detach")
 	if err != nil {
-		return Metadata{}, fmt.Errorf("create worktree: %w", err)
+		return meta, fmt.Errorf("create worktree: %w", err)
 	}
 
 	// Create and checkout the feature branch
@@ -81,18 +105,58 @@ func (m *Manager) PrepareGeneration(
 		// Clean up on failure
 		_, _ = m.git.Run(ctx, source.SourceRoot, nil, ControlStdoutLimit,
 			"-c", "core.hooksPath="+hooksDir, "worktree", "remove", "--force", wtPath)
-		return Metadata{}, fmt.Errorf("create branch: %w", err)
+		return meta, fmt.Errorf("create branch: %w", err)
+	}
+	headOut, err := m.git.Run(ctx, wtPath, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(string(headOut)) != source.HeadOID {
+		_, _ = m.git.Run(ctx, source.SourceRoot, nil, ControlStdoutLimit,
+			"-c", "core.hooksPath="+hooksDir, "worktree", "remove", "--force", wtPath)
+		return meta, fmt.Errorf("prepared workspace HEAD does not match source snapshot")
 	}
 
-	return Metadata{
-		Mode:       ResolvedWorktree,
-		SourceRoot: source.SourceRoot,
-		Root:       wtPath,
-		Cwd:        filepath.Join(wtPath, source.Scope),
-		Scope:      source.Scope,
-		BaseOID:    source.HeadOID,
-		Branch:     branch,
-	}, nil
+	return meta, nil
+}
+
+// adoptPreparedGeneration makes worktree preparation idempotent across a
+// process crash after git created the deterministic path. Only the exact Kin
+// path, source snapshot, and branch are accepted.
+func (m *Manager) adoptPreparedGeneration(ctx context.Context, meta Metadata) (bool, error) {
+	info, err := os.Stat(meta.Root)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return true, fmt.Errorf("%w: generation path is not a directory", ErrWorktreeExists)
+	}
+	headOut, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+m.emptyHooksDir(), "rev-parse", "HEAD")
+	if err != nil || strings.TrimSpace(string(headOut)) != meta.BaseOID {
+		return true, fmt.Errorf("%w: existing generation has unexpected HEAD", ErrWorktreeExists)
+	}
+	branchOut, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+m.emptyHooksDir(), "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return true, fmt.Errorf("inspect existing generation branch: %w", err)
+	}
+	currentBranch := strings.TrimSpace(string(branchOut))
+	switch currentBranch {
+	case meta.Branch:
+		return true, nil
+	case "HEAD":
+		if _, err := m.git.Run(ctx, meta.Root, nil, ControlStdoutLimit,
+			"-c", "core.hooksPath="+m.emptyHooksDir(), "checkout", "-b", meta.Branch); err != nil {
+			return true, fmt.Errorf("adopt existing generation branch: %w", err)
+		}
+		return true, nil
+	default:
+		return true, fmt.Errorf(
+			"%w: existing generation uses branch %q", ErrWorktreeExists, currentBranch,
+		)
+	}
 }
 
 // InspectGeneration checks whether a workspace generation exists and returns
@@ -183,8 +247,8 @@ func (m *Manager) CapturePrepared(ctx context.Context, meta Metadata, taskID str
 		return Checkpoint{}, err
 	}
 	env := map[string]string{
-		"GIT_INDEX_FILE":                    indexPath,
-		"GIT_OBJECT_DIRECTORY":              objectsDir,
+		"GIT_INDEX_FILE":                   indexPath,
+		"GIT_OBJECT_DIRECTORY":             objectsDir,
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES": normalObjects,
 	}
 
@@ -201,13 +265,12 @@ func (m *Manager) CapturePrepared(ctx context.Context, meta Metadata, taskID str
 	}
 	treeOID := strings.TrimSpace(string(treeOut))
 
-	commitOut, err := m.git.Run(ctx, meta.Root, env, ControlStdoutLimit,
-		"-c", "core.hooksPath="+hooksDir, "commit-tree", treeOID,
-		"-p", "HEAD", "-m", "kin checkpoint")
+	headOut, err := m.git.Run(ctx, meta.Root, env, ControlStdoutLimit,
+		"-c", "core.hooksPath="+hooksDir, "rev-parse", "HEAD")
 	if err != nil {
-		return Checkpoint{}, fmt.Errorf("checkpoint commit-tree: %w", err)
+		return Checkpoint{}, fmt.Errorf("checkpoint head: %w", err)
 	}
-	headOID := strings.TrimSpace(string(commitOut))
+	headOID := strings.TrimSpace(string(headOut))
 
 	return Checkpoint{
 		TaskID:    taskID,

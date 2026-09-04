@@ -5,48 +5,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/store"
 )
-
-// usagePayload is the additive canonical shape emitted by adapters. The
-// aliases keep the normalizer compatible with Kin/provider and older result
-// payloads while provider-specific parsing stays at the adapter boundary.
-type usagePayload struct {
-	Source                string   `json:"source"`
-	Agent                 string   `json:"agent"`
-	Model                 string   `json:"model"`
-	InputTokens           *int     `json:"input_tokens"`
-	PromptTokens          *int     `json:"prompt_tokens"`
-	TokensIn              *int     `json:"tokens_in"`
-	OutputTokens          *int     `json:"output_tokens"`
-	CompletionTokens      *int     `json:"completion_tokens"`
-	TokensOut             *int     `json:"tokens_out"`
-	ReasoningOutputTokens *int     `json:"reasoning_output_tokens"`
-	CacheReadTokens       *int     `json:"cache_read_tokens"`
-	CachedTokens          *int     `json:"cached_tokens"`
-	CacheWriteTokens      *int     `json:"cache_write_tokens"`
-	CacheReadReported     *bool    `json:"cache_read_reported"`
-	CacheStatus           string   `json:"cache_status"`
-	InputSemantics        string   `json:"input_semantics"`
-	CostUSD               *float64 `json:"cost_usd"`
-	CostSource            string   `json:"cost_source"`
-	// ProviderID is set by the event stamping layer for routing attribution.
-	ProviderID string `json:"provider_id,omitempty"`
-}
 
 // NormalizeUsage converts a canonical adapter usage payload into the stable
 // store shape. Task id, event sequence, and occurrence time are filled by the
 // transactional event append path.
 func NormalizeUsage(defaultAgent, defaultModel string, raw json.RawMessage) (store.UsageRecord, error) {
-	var payload usagePayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	payload, err := adapter.DecodeUsage(raw)
+	if err != nil {
 		return store.UsageRecord{}, fmt.Errorf("decode usage: %w", err)
 	}
 
 	record := store.UsageRecord{
 		Agent:                 firstUsageString(payload.Agent, defaultAgent),
-		InputTokens:           firstUsageInt(payload.InputTokens, payload.PromptTokens, payload.TokensIn),
-		OutputTokens:          firstUsageInt(payload.OutputTokens, payload.CompletionTokens, payload.TokensOut),
+		InputTokens:           payload.InputTokens,
+		OutputTokens:          payload.OutputTokens,
 		ReasoningOutputTokens: payload.ReasoningOutputTokens,
 		CacheWriteTokens:      payload.CacheWriteTokens,
 		CostUSD:               payload.CostUSD,
@@ -109,7 +84,7 @@ func NormalizeUsage(defaultAgent, defaultModel string, raw json.RawMessage) (sto
 	if record.Agent == "" {
 		return store.UsageRecord{}, fmt.Errorf("usage agent is required")
 	}
-	if record.InputTokens == nil && record.OutputTokens == nil && record.CacheReadTokens == nil && record.CacheWriteTokens == nil && record.CostUSD == nil {
+	if !payload.HasAccountingValues() {
 		return store.UsageRecord{}, fmt.Errorf("usage payload contains no accounting values")
 	}
 	for name, value := range map[string]*int{

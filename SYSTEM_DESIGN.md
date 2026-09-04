@@ -20,7 +20,7 @@ User-owned Kin Core (local-first daemon)
   ├── Task engine + approvals/questions ← dispatch, watch, approve, ask, audit
   ├── Provider / cost layer     ← usage and spend per task and model
   ├── Remote access (ladder)    ← LAN → tailnet / Funnel; never a Kin cloud
-  ├── Artifacts (near-term)     ← session deliverables library + reader; multi-device via same daemon
+  ├── Artifacts (P0 shipped)    ← session deliverables library + reader; multi-device via same daemon
   ├── Identity + Memory (v2)    ← continuous subject, governed memory (may extract from Artifacts)
   └── Client shells             ← desktop app + any-device web console
 ```
@@ -52,7 +52,7 @@ Entry point: **dispatch, watch, and approve agent tasks from any device** — se
 - Remote access ladder (§5): LAN QR → embedded tailnet + Funnel → full tailnet
 - Export; core use without any Kin account
 
-**Near-term slice after MVP, before Memory — Artifacts**
+**Shipped P0 slice after MVP, before Memory — Artifacts**
 
 Real pain: agents often produce topic study materials (Markdown / HTML); users manually download them, lose session linkage, and struggle to read across devices.
 **Artifacts** keep **readable session deliverables** in a local library, preserve provenance to the source task, and offer a console reader; multi-device access reuses the remote ladder against **your** daemon—not a Kin content cloud.
@@ -111,7 +111,7 @@ External coding agents are **managed workers behind adapters** — Kin supervise
 | Task engine | Dispatch, state machine, pause/cancel, history; adapters receive an effective execution cwd while the original cwd remains task provenance |
 | Trust & Audit | Grants, confirmations, credentials, egress awareness |
 | Providers / cost | Provider config, usage accounting, spend per task; per-agent daily limits (display-only) |
-| Artifacts (near-term) | Capture, index, library, reader; P1 companion threads; HTML sandbox |
+| Artifacts (P0 shipped) | Capture, index, library, reader; P1 companion threads; HTML sandbox |
 | Remote access | The §5 ladder; never a mandatory Kin cloud |
 | Console UI | One UI shared by desktop shell and any-device web |
 | Identity (v2) | Preferences, boundaries, consistency across models/devices |
@@ -157,7 +157,7 @@ Current choices; may change with evidence. The one invariant: **UI talks to the 
 | Local terminal | Electron main window only; ephemeral PTY sessions use token-authenticated, true-loopback-only HTTP/WebSocket routes and are never exposed through LAN, Tailnet, or Funnel |
 | Task workspaces | Tasks outlive zero or more Kin-owned workspace generations; lazy-capable adapters start released follow-ups read-only on the current source checkout and auto-promote on the first requested write, while final diffs remain immutable and addressable by generation |
 | UI | One React + Tailwind codebase for the Electron window and the phone web console |
-| API contract | OpenAPI as single source; codegen for Go handlers and TS types |
+| API contract | Checked-in OpenAPI is the source for the task/approval/question live-resource slice, not the complete HTTP API. TypeScript types are generated and generation drift is CI-checked. Go handlers remain handwritten; server conformance and broader endpoint coverage are deferred. |
 | Distribution | .dmg / .exe double-click for desktops; `curl \| sh` or brew for headless boxes |
 | Artifacts truth | File tree under the user data dir + SQLite metadata index (exact paths fixed at implementation) |
 

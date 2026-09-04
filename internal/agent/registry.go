@@ -82,6 +82,7 @@ type Entry struct {
 	Controller    Controller
 	Sessions      SessionHooks
 	Status        func(context.Context) Status
+	Models        func(context.Context) ModelList
 	LazyWorkspace func(context.Context) LazyWorkspaceSupport
 }
 
@@ -128,6 +129,7 @@ func NewRegistry(entries ...Entry) (*Registry, error) {
 			Controller:    e.Controller,
 			Sessions:      e.Sessions,
 			Status:        status,
+			Models:        e.Models,
 			LazyWorkspace: e.LazyWorkspace,
 		}
 		if err := validateRegistration(desc, reg); err != nil {
@@ -300,6 +302,11 @@ func (r *Registry) List(ctx context.Context, configuredDefault string) []Info {
 	for _, id := range r.order {
 		reg := r.byID[id]
 		st := reg.Status(ctx)
+		models := ModelList{Source: "none", Status: "unavailable"}
+		if reg.Models != nil {
+			models = reg.Models(ctx)
+			models.Models = append([]ModelOption(nil), models.Models...)
+		}
 		out = append(out, Info{
 			ID:           reg.Descriptor.ID,
 			Name:         reg.Descriptor.Name,
@@ -310,6 +317,9 @@ func (r *Registry) List(ctx context.Context, configuredDefault string) []Info {
 			Reason:       st.Reason,
 			Binary:       st.Binary,
 			Default:      id == def && def != "",
+			Models:       models.Models,
+			ModelSource:  models.Source,
+			ModelStatus:  models.Status,
 		})
 	}
 	return out

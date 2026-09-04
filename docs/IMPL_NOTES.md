@@ -27,9 +27,12 @@ Not yet in `go.mod` (will add when first used): `creack/pty`, `nhooyr.io/websock
 
 §2 UI row names Vite/React/TS/Tailwind/zustand only. Client-side routes for Tasks / Approvals / Settings need a router; `react-router-dom` v6 is used. No other state/query libraries.
 
-### OpenAPI / codegen deferred
+### OpenAPI / codegen scope
 
-`api/openapi.yaml` and oapi-codegen are §2 choices for the full API surface. M0 hand-writes the three endpoints; OpenAPI lands when the surface stabilizes (M1+).
+`api/openapi.yaml` now covers the task/approval/question live-resource subset.
+`openapi-typescript` generates the console types and CI checks generated-file
+drift. Go handlers and the rest of the HTTP surface remain handwritten;
+`oapi-codegen` and server conformance are still deferred.
 
 ### CGO
 

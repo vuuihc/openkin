@@ -10,6 +10,7 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "cwd" | "created_at">):
     status: "succeeded",
     tokens_in: 0,
     tokens_out: 0,
+    event_epoch: 0,
     ...partial,
   };
 }

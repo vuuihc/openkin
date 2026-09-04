@@ -2,13 +2,16 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -137,6 +140,187 @@ func TestProvidersCRUDAndActivate(t *testing.T) {
 	}
 	if list.ActiveID != firstID || len(list.Providers) != 1 {
 		t.Fatalf("after delete: %+v", list)
+	}
+}
+
+func TestActivateProviderRejectsNonRuntimeProvider(t *testing.T) {
+	s, token, h := testProviderServer(t)
+	create := `{
+		"id":"runtime","name":"Runtime","kind":"openai-compatible",
+		"base_url":"https://runtime.example/v1","model":"runtime-model"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/providers", bytes.NewBufferString(create))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	putProviderProfile(t, h, token, `{"profiles":[{
+		"id":"routing-only","name":"Routing Only","kind":"subscription",
+		"supports_agents":["droid"],"enabled":true,
+		"models":[{"id":"route-model","tier":"smart","cost_label":"company"}]
+	}]}`)
+
+	req = httptest.NewRequest(http.MethodPost, "/api/providers/routing-only/activate", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("activate status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	reg, err := provider.LoadRegistry(context.Background(), s.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg.ActiveID != "runtime" {
+		t.Fatalf("active provider changed after rejected activation: %q", reg.ActiveID)
+	}
+	for key, want := range map[string]string{
+		provider.KeyActiveProvider: "runtime",
+		provider.KeyBaseURL:        "https://runtime.example/v1",
+		provider.KeyModel:          "runtime-model",
+	} {
+		got, getErr := s.Store.GetSetting(context.Background(), key)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if got != want {
+			t.Fatalf("%s changed after rejected activation: got %q want %q", key, got, want)
+		}
+	}
+}
+
+func TestProviderCRUDPreservesRoutingMetadataAndRejectsReferencedDelete(t *testing.T) {
+	s, token, h := testProviderServer(t)
+	create := `{"id":"shared","name":"Shared","kind":"openai-compatible","base_url":"https://example.com/v1","api_key":"secret","model":"m1","stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/providers", bytes.NewBufferString(create))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	putProviderProfile(t, h, token, `{"profiles":[{
+		"id":"shared","name":"Shared","kind":"openai-compatible",
+		"supports_agents":["kin"],"enabled":true,
+		"models":[{"id":"m1","tier":"smart","cost_label":"paid"}]
+	}]}`)
+	configured, err := provider.LoadRegistry(context.Background(), s.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry, ok := configured.ByID("shared"); !ok || len(entry.SupportsAgents) != 1 {
+		t.Fatalf("provider routing metadata not persisted: %+v", entry)
+	}
+	putTeamProfile(t, h, token, `{"profiles":[{
+		"id":"team","name":"Team","enabled":true,
+		"phases":{"execute":{"agent":"kin","tier":"smart","provider_priority":["shared"],"fallback":[]}}
+	}]}`)
+
+	update := `{"name":"Renamed","kind":"openai-compatible","base_url":"https://new.example/v1","model":"m1"}`
+	req = httptest.NewRequest(http.MethodPut, "/api/providers/shared", bytes.NewBufferString(update))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	registry, err := provider.LoadRegistry(context.Background(), s.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := registry.ByID("shared")
+	if !ok || len(entry.SupportsAgents) != 1 || len(entry.Models) != 1 || entry.Enabled == nil || !*entry.Enabled || !entry.Stream {
+		t.Fatalf("routing metadata lost: %+v", entry)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/providers/shared", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("delete status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLegacyProviderSettingsRejectAtomicallyWhenProviderIsReferenced(t *testing.T) {
+	s, token, h := testProviderServer(t)
+	create := `{"id":"shared","name":"Shared","kind":"openai-compatible","base_url":"https://example.com/v1","api_key":"secret","model":"m1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/providers", bytes.NewBufferString(create))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	putProviderProfile(t, h, token, `{"profiles":[{
+		"id":"shared","name":"Shared","kind":"openai-compatible",
+		"supports_agents":["kin"],"enabled":true,
+		"models":[{"id":"m1","tier":"smart","cost_label":"paid"}]
+	}]}`)
+	putTeamProfile(t, h, token, `{"profiles":[{
+		"id":"team","name":"Team","enabled":true,
+		"phases":{"execute":{"agent":"kin","tier":"smart","provider_priority":["shared"],"fallback":[]}}
+	}]}`)
+
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/api/settings",
+		bytes.NewBufferString(`{"provider.base_url":"","provider.model":"","notify.ntfy_topic":"must-not-persist"}`),
+	)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	registry, err := provider.LoadRegistry(context.Background(), s.Store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := registry.ByID("shared")
+	if !ok || entry.BaseURL != "https://example.com/v1" || entry.Model != "m1" {
+		t.Fatalf("provider changed after rejected settings update: %+v", entry)
+	}
+	if _, err := s.Store.GetSetting(context.Background(), "notify.ntfy_topic"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unrelated setting persisted after rejected request: %v", err)
+	}
+}
+
+func TestProviderMutationRejectsBlankID(t *testing.T) {
+	_, token, h := testProviderServer(t)
+	for _, method := range []string{http.MethodDelete, http.MethodPost} {
+		path := "/api/providers/%20"
+		if method == http.MethodPost {
+			path += "/activate"
+		}
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status=%d body=%s", method, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestGetSettingsReportsMalformedProviderRegistry(t *testing.T) {
+	s, token, h := testProviderServer(t)
+	if err := s.Store.SetSetting(t.Context(), "providers", `{"entries":`); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(rr.Body.Bytes(), []byte("parse providers")) {
+		t.Fatalf("body=%s", rr.Body.String())
 	}
 }
 

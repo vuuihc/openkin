@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -59,8 +60,14 @@ func (e *Engine) shouldOrchestrate(t store.Task) (DelegatePlan, bool) {
 // runOrchestrated keeps a user-facing main agent, runs workers (parallel when
 // independent), and stamps events with speaker/agent for the chat UI.
 // Sub-agents only receive task briefs — they are not conversational peers.
-func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
+func (e *Engine) runOrchestrated(
+	id string,
+	t store.Task,
+	plan DelegatePlan,
+	runMeta adapter.RunMetadata,
+) {
 	ctx := e.ctx
+	executionID := runMeta.WorkspaceExecutionID
 	main := t.Agent
 	if main == "" {
 		main = e.DefaultAgentContext(ctx)
@@ -72,12 +79,16 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	}
 	if e.hostHasOrchestrate(main) {
 		refined, usage, ok := e.tryHostPlanRefine(ctx, main, hostModel, plan)
-		e.recordControllerUsage(ctx, id, main, "orchestration_plan", usage)
+		e.recordControllerUsage(ctx, id, executionID, main, "orchestration_plan", usage)
 		if ok {
 			plan = refined
 		} else {
-			e.emitOrchestrationFallback(ctx, id, main, "plan refine unavailable or invalid", "plan")
+			e.emitOrchestrationFallback(ctx, id, executionID, main, "plan refine unavailable or invalid", "plan")
 		}
+	}
+	if !e.isActiveRun(id, executionID) {
+		e.finishOrchestrated(ctx, id, executionID, true)
+		return
 	}
 
 	waves := PlanWaves(plan.Steps)
@@ -106,7 +117,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	for i, s := range plan.Steps {
 		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, e.agentDisplayName(s.Agent, effectiveStepModel(t, s)), truncate(s.Instruction, 160))
 	}
-	e.emitSpeakerMessage(ctx, id, main, "assistant", strings.TrimSpace(b.String()), "orchestrator", "plan")
+	e.emitSpeakerMessage(ctx, id, executionID, main, "assistant", strings.TrimSpace(b.String()), "orchestrator", "plan")
 
 	// priorResults keyed by step index; filled as waves complete.
 	priorByStep := make([]string, len(plan.Steps))
@@ -114,6 +125,10 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 	anyErr := false
 
 	for wi, wave := range waves {
+		if !e.isActiveRun(id, executionID) {
+			e.finishOrchestrated(ctx, id, executionID, true)
+			return
+		}
 		// Collect completed prior text for dependent briefs.
 		var priorList []string
 		for si, txt := range priorByStep {
@@ -129,7 +144,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			step := plan.Steps[si]
 			announce := fmt.Sprintf("→ **%s**（%d/%d）",
 				e.agentDisplayName(step.Agent, effectiveStepModel(t, step)), si+1, len(plan.Steps))
-			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate", "progress")
+			e.emitSpeakerMessage(ctx, id, executionID, main, "assistant", announce, "delegate", "progress")
 		} else {
 			names := make([]string, 0, len(wave))
 			for _, si := range wave {
@@ -138,7 +153,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			}
 			announce := fmt.Sprintf("→ 并行 **%s**（波次 %d/%d）",
 				strings.Join(names, " + "), wi+1, len(waves))
-			e.emitSpeakerMessage(ctx, id, main, "assistant", announce, "delegate", "progress")
+			e.emitSpeakerMessage(ctx, id, executionID, main, "assistant", announce, "delegate", "progress")
 		}
 
 		type stepOut struct {
@@ -156,12 +171,22 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			brief := buildWorkerBrief(plan, step, priorList, si+1, len(plan.Steps))
 
 			// Use fallback-aware start when routing metadata is present.
-			h, execRef, failedProviders, err := e.startWorkerWithFallback(ctx, id, t, step, brief, si)
+			h, execRef, failedProviders, err := e.startWorkerWithFallback(
+				ctx, id, t, step, brief, si, runMeta,
+			)
 			if err != nil {
-				e.emitError(ctx, id, fmt.Sprintf("%s failed to start: %v", step.Agent, err))
+				e.emitError(ctx, id, executionID, fmt.Sprintf("%s failed to start: %v", step.Agent, err))
 				outs[i] = stepOut{idx: si, err: true}
 				anyErr = true
 				continue
+			}
+			if !e.registerWorkerHandle(id, executionID, h) {
+				for _, started := range handles {
+					_ = started.Cancel()
+				}
+				wg.Wait()
+				e.finishOrchestrated(ctx, id, executionID, true)
+				return
 			}
 
 			handles = append(handles, h)
@@ -186,7 +211,9 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				text, failed, failure := e.forwardWorkerEvents(ctx, id, gagent, gmodel, gexec, gh)
+				text, failed, failure := e.forwardWorkerEvents(
+					ctx, id, executionID, gagent, gmodel, gexec, gh,
+				)
 				// Workers sometimes leak role/meta chatter and end_turn without findings.
 				// Retry once with a tighter brief; if still meta, mark failed so the
 				// orchestrator does not present it as a successful answer.
@@ -196,7 +223,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					e.mu.Unlock()
 					if !canceled {
 						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", e.agentDisplayName(gagent, gmodel))
-						e.emitSpeakerMessage(ctx, id, main, "assistant", retryNote, "orchestrator", "progress")
+						e.emitSpeakerMessage(ctx, id, executionID, main, "assistant", retryNote, "orchestrator", "progress")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
 						// Parent task id stays stable for approval lookup; meta-retry
 						// gets a fresh execution id so attribution distinguishes runs.
@@ -208,10 +235,15 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 						}
 						eid, err := e.newID()
 						if err != nil {
-							e.emitError(ctx, id, fmt.Sprintf("%s meta-retry execution id: %v", gagent, err))
+							e.emitError(ctx, id, executionID, fmt.Sprintf("%s meta-retry execution id: %v", gagent, err))
 							failed = true
 						} else {
 							retryExec.ID = eid
+							if !e.runAcceptsWorker(id, executionID) {
+								failed = true
+								outs[gi] = stepOut{idx: gsi, text: text, err: true}
+								return
+							}
 							spec := adapter.TaskSpec{
 								ID:             id,
 								Agent:          gagent,
@@ -221,23 +253,24 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 								SessionRef:     "",
 								PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 								Execution:      retryExec,
+								RunMeta:        runMeta,
 							}
 							if cfg, err := e.resolveProviderCfg(ctx, retryExec.ProviderID); err == nil && cfg.BaseURL != "" {
 								spec.ProviderCfg = &cfg
 							}
 							h2, err := gad.Start(ctx, spec)
 							if err != nil {
-								e.emitError(ctx, id, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
+								e.emitError(ctx, id, executionID, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
 								failed = true
 							} else {
-								// Allow Cancel() during retry.
-								e.mu.Lock()
-								if e.handleGroups != nil {
-									e.handleGroups[id] = append(e.handleGroups[id], h2)
+								if !e.registerWorkerHandle(id, executionID, h2) {
+									failed = true
+									outs[gi] = stepOut{idx: gsi, text: text, err: true}
+									return
 								}
-								e.handles[id] = h2
-								e.mu.Unlock()
-								text2, failed2, _ := e.forwardWorkerEvents(ctx, id, gagent, gmodel, retryExec, h2)
+								text2, failed2, _ := e.forwardWorkerEvents(
+									ctx, id, executionID, gagent, gmodel, retryExec, h2,
+								)
 								text, failed = text2, failed2
 							}
 						}
@@ -270,33 +303,39 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 					}
 					next, ok := e.routingResolver.Next(ctx, prev, failure)
 					if ok {
-						e.emitRouteFallback(ctx, id, failure, next)
+						e.emitRouteFallbackForRun(ctx, id, executionID, failure, next)
 						retryStep := gstep
 						retryStep.Provider = next.Provider
 						retryStep.Model = next.Model
-						h2, exec2, _, err2 := e.startWorkerWithFallback(ctx, id, t, retryStep, gbrief, gsi)
+						h2, exec2, _, err2 := e.startWorkerWithFallback(
+							ctx, id, t, retryStep, gbrief, gsi, runMeta,
+						)
 						if err2 == nil {
-							e.mu.Lock()
-							if e.handleGroups != nil {
-								e.handleGroups[id] = append(e.handleGroups[id], h2)
+							if !e.registerWorkerHandle(id, executionID, h2) {
+								outs[gi] = stepOut{idx: gsi, text: text, err: true}
+								return
 							}
-							e.handles[id] = h2
-							e.mu.Unlock()
-							text2, failed2, _ := e.forwardWorkerEvents(ctx, id, gagent, next.Model, exec2, h2)
+							text2, failed2, _ := e.forwardWorkerEvents(
+								ctx, id, executionID, gagent, next.Model, exec2, h2,
+							)
 							text, failed = text2, failed2
 						} else {
-							e.emitError(ctx, id, fmt.Sprintf("%s runtime fallback failed to start: %v", gagent, err2))
+							e.emitError(ctx, id, executionID, fmt.Sprintf("%s runtime fallback failed to start: %v", gagent, err2))
 						}
 					} else {
 						// No fallback candidate available; apply terminal_limit_policy.
-						defaults := e.loadRoutingDefaults()
+						defaults, defaultsErr := e.loadRoutingDefaults(ctx)
+						if defaultsErr != nil {
+							e.emitError(ctx, id, executionID, fmt.Sprintf("routing configuration failed: %v", defaultsErr))
+							defaults = routing.DefaultRoutingDefaults()
+						}
 						switch defaults.TerminalLimitPolicy {
 						case "wait":
-							e.emitError(ctx, id, fmt.Sprintf("%s: all routing candidates exhausted; waiting for rate-limit window reset", gagent))
+							e.emitError(ctx, id, executionID, fmt.Sprintf("%s: all routing candidates exhausted; waiting for rate-limit window reset", gagent))
 						case "ask":
-							e.emitError(ctx, id, fmt.Sprintf("%s: all routing candidates exhausted; please choose a different provider/model manually", gagent))
+							e.emitError(ctx, id, executionID, fmt.Sprintf("%s: all routing candidates exhausted; please choose a different provider/model manually", gagent))
 						default:
-							e.emitError(ctx, id, fmt.Sprintf("%s: all routing candidates exhausted", gagent))
+							e.emitError(ctx, id, executionID, fmt.Sprintf("%s: all routing candidates exhausted", gagent))
 						}
 					}
 				}
@@ -304,15 +343,7 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 			}()
 		}
 
-		// Register handles so Cancel() can stop the wave.
 		e.mu.Lock()
-		if e.handleGroups == nil {
-			e.handleGroups = make(map[string][]adapter.RunHandle)
-		}
-		e.handleGroups[id] = append([]adapter.RunHandle(nil), handles...)
-		if len(handles) > 0 {
-			e.handles[id] = handles[0]
-		}
 		canceled := e.canceled[id]
 		e.mu.Unlock()
 
@@ -321,19 +352,19 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 				_ = h.Cancel()
 			}
 			wg.Wait()
-			e.clearHandleGroup(id)
-			e.finishOrchestrated(ctx, id, true)
+			e.clearHandleGroup(id, executionID)
+			e.finishOrchestrated(ctx, id, executionID, true)
 			return
 		}
 
 		wg.Wait()
-		e.clearHandleGroup(id)
+		e.clearHandleGroup(id, executionID)
 
 		e.mu.Lock()
 		canceled = e.canceled[id]
 		e.mu.Unlock()
 		if canceled {
-			e.finishOrchestrated(ctx, id, true)
+			e.finishOrchestrated(ctx, id, executionID, true)
 			return
 		}
 
@@ -387,18 +418,26 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		}
 		if text, usage, ok := e.tryHostSynthesis(ctx, main, model, synthPrompt.String(), lang); ok {
 			summary = text
-			e.recordControllerUsage(ctx, id, main, "orchestration_synthesis", usage)
+			e.recordControllerUsage(ctx, id, executionID, main, "orchestration_synthesis", usage)
 		} else {
-			e.recordControllerUsage(ctx, id, main, "orchestration_synthesis", usage)
-			e.emitOrchestrationFallback(ctx, id, main, "synthesis unavailable or empty", "synthesis")
+			e.recordControllerUsage(ctx, id, executionID, main, "orchestration_synthesis", usage)
+			e.emitOrchestrationFallback(ctx, id, executionID, main, "synthesis unavailable or empty", "synthesis")
 		}
 	}
-	e.emitSpeakerMessage(ctx, id, main, "assistant", summary, "orchestrator", "summary")
+	if !e.isActiveRun(id, executionID) {
+		e.finishOrchestrated(ctx, id, executionID, true)
+		return
+	}
+	e.emitSpeakerMessage(ctx, id, executionID, main, "assistant", summary, "orchestrator", "summary")
 	// Re-seed host durable transcript (e.g. kin_messages) so the next same-host
 	// follow-up can resume with this turn instead of only the live user line.
 	// Orchestrate clears plugin session state at follow-up entry; without a seed
 	// the host would claim "no prior context" after @worker completed.
 	e.seedHostTranscriptAfterOrchestration(ctx, id, main, UserTurnPrompt(t.Prompt), summary)
+	if !e.isActiveRun(id, executionID) {
+		e.finishOrchestrated(ctx, id, executionID, true)
+		return
+	}
 
 	res, _ := json.Marshal(map[string]any{
 		"source":   "orchestrator",
@@ -407,34 +446,98 @@ func (e *Engine) runOrchestrated(id string, t store.Task, plan DelegatePlan) {
 		"waves":    len(waves),
 		"main":     main,
 	})
-	_, _ = e.appendEventLocked(ctx, id, "result", res)
+	_, _ = e.appendEventLockedForRun(ctx, id, executionID, "result", res)
 
-	e.finishOrchestrated(ctx, id, anyErr)
+	e.finishOrchestrated(ctx, id, executionID, anyErr)
 }
 
-func (e *Engine) clearHandleGroup(id string) {
+func (e *Engine) clearHandleGroup(id, executionID string) {
 	e.mu.Lock()
-	delete(e.handles, id)
-	delete(e.handleGroups, id)
+	if e.activeRuns[id] == executionID {
+		delete(e.handles, id)
+		delete(e.handleGroups, id)
+	}
 	e.mu.Unlock()
 }
 
-func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool) {
+func (e *Engine) runAcceptsWorker(taskID, executionID string) bool {
 	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, hasFollowUp := e.pendingFollowUp[taskID]
+	return e.activeRuns[taskID] == executionID && !e.canceled[taskID] && !hasFollowUp
+}
+
+func (e *Engine) registerWorkerHandle(
+	taskID, executionID string,
+	handle adapter.RunHandle,
+) bool {
+	return e.registerWorkerHandles(taskID, executionID, []adapter.RunHandle{handle})
+}
+
+func (e *Engine) registerWorkerHandles(
+	taskID, executionID string,
+	handles []adapter.RunHandle,
+) bool {
+	e.mu.Lock()
+	_, hasFollowUp := e.pendingFollowUp[taskID]
+	accepted := e.activeRuns[taskID] == executionID &&
+		!e.canceled[taskID] &&
+		!hasFollowUp
+	if accepted {
+		if e.handleGroups == nil {
+			e.handleGroups = make(map[string][]adapter.RunHandle)
+		}
+		e.handleGroups[taskID] = append(e.handleGroups[taskID], handles...)
+		if len(handles) > 0 {
+			e.handles[taskID] = handles[0]
+		}
+	}
+	e.mu.Unlock()
+	if !accepted {
+		for _, handle := range handles {
+			_ = handle.Cancel()
+		}
+	}
+	return accepted
+}
+
+func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string, failed bool) {
+	e.mu.Lock()
+	currentRun := e.activeRuns[id] == executionID
+	if currentRun {
+		e.workspaceCommitting[id] = executionID
+	}
 	wasCanceled := e.canceled[id]
 	pf, hasFollowUp := e.pendingFollowUp[id]
-	delete(e.handles, id)
-	delete(e.handleGroups, id)
-	delete(e.canceled, id)
-	delete(e.pendingFollowUp, id)
+	if currentRun {
+		delete(e.handles, id)
+		delete(e.handleGroups, id)
+		delete(e.canceled, id)
+		delete(e.pendingFollowUp, id)
+	}
 	e.active--
 	e.mu.Unlock()
+	if !currentRun {
+		e.pump()
+		return
+	}
+	defer e.clearWorkspaceCompletion(id, executionID)
+	defer e.clearActiveRun(id, executionID)
+	workspaceStatus, workspaceErr, workspaceFinalized := e.finalizeRequestedWorkspace(ctx, id)
 
 	// Interrupted with a steerable follow-up: re-queue instead of staying canceled.
 	if hasFollowUp {
+		if workspaceErr != nil {
+			e.emitError(ctx, id, executionID, "workspace finalization failed before follow-up: "+workspaceErr.Error())
+			_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+			e.pump()
+			return
+		}
 		if _, err := e.applyPendingFollowUp(ctx, id, pf); err != nil {
-			e.emitError(ctx, id, "follow-up after interrupt failed: "+err.Error())
-			_, _ = e.finish(ctx, id, StatusFailed, nil, nil)
+			e.emitError(ctx, id, executionID, "follow-up after interrupt failed: "+err.Error())
+			_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+		} else {
+			e.clearActiveRun(id, executionID)
 		}
 		e.pump()
 		return
@@ -442,7 +545,7 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool)
 
 	if wasCanceled {
 		e.clearPersistTracking(id)
-		_, _ = e.finish(ctx, id, StatusCanceled, nil, nil)
+		_, _ = e.finishRun(ctx, id, executionID, StatusCanceled, nil, nil)
 		e.pump()
 		return
 	}
@@ -450,8 +553,16 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id string, failed bool)
 	if failed || e.hasCriticalPersistFailure(id) {
 		final = StatusFailed
 	}
+	if workspaceFinalized {
+		if workspaceErr != nil {
+			e.emitError(ctx, id, executionID, "workspace finalization failed: "+workspaceErr.Error())
+			final = StatusFailed
+		} else if workspaceStatus != StatusSucceeded {
+			final = workspaceStatus
+		}
+	}
 	e.clearPersistTracking(id)
-	_, _ = e.finish(ctx, id, final, nil, nil)
+	_, _ = e.finishRun(ctx, id, executionID, final, nil, nil)
 	e.pump()
 }
 
@@ -493,48 +604,86 @@ func (e *Engine) seedHostTranscriptAfterOrchestration(ctx context.Context, taskI
 // Safe for concurrent waves (serialized via eventMu).
 // Returns the worker summary text, whether it failed, and a classified failure
 // for fallback decisions (zero value when no fallback-relevant error occurred).
-func (e *Engine) forwardWorkerEvents(ctx context.Context, taskID, agent, model string, exec adapter.ExecutionRef, h adapter.RunHandle) (string, bool, routing.Failure) {
+func (e *Engine) forwardWorkerEvents(
+	ctx context.Context,
+	taskID, executionID, agent, model string,
+	exec adapter.ExecutionRef,
+	h adapter.RunHandle,
+) (string, bool, routing.Failure) {
 	// Collect only final, user-facing findings for the orchestrator summary.
 	// Process chatter (partials / intermediate tool narration) stays on the event
 	// bus for the progress UI, but must not become the main-chat "结果".
 	var finals []string
 	var resultText string
 	sawResult := false
+	sawUsage := false
 	isErr := false
 	var lastErrMsg string
 
 	for ev := range h.Events() {
+		if !e.isActiveRun(taskID, executionID) {
+			continue
+		}
 		payload := stampWorker(ev.Payload, agent, model, exec)
+		semantic, semanticErr := adapter.DecodeEvent(ev)
 		// Same as runLoop: steer interrupt cancel errors must not land in the transcript.
 		skipPersist := false
-		if ev.Type == "error" && errorPayloadIsCancel(payload) {
+		if semanticErr == nil && semantic.Error != nil && semantic.Error.Canceled {
 			e.mu.Lock()
 			_, steer := e.pendingFollowUp[taskID]
 			e.mu.Unlock()
 			skipPersist = steer
 		}
 		if !skipPersist {
-			_, _ = e.appendEventLocked(ctx, taskID, ev.Type, payload)
+			shouldAccount := ev.Type == "usage" ||
+				(ev.Type == "result" && !sawUsage && semanticErr == nil &&
+					semantic.Usage != nil && semantic.Usage.HasAccountingValues())
+			accounted := false
+			if shouldAccount {
+				accounted, _ = e.appendUsageEventLockedForRun(
+					ctx, taskID, executionID, ev.Type, payload, agent, model,
+				)
+				if accounted && ev.Type == "usage" {
+					sawUsage = true
+				}
+			}
+			if !accounted {
+				_, _ = e.appendEventLockedForRun(
+					ctx, taskID, executionID, ev.Type, payload,
+				)
+			}
 		}
 		switch ev.Type {
 		case "message":
-			if t := extractFinalWorkerText(ev.Payload); t != "" {
-				finals = append(finals, t)
+			if semanticErr == nil && semantic.Message != nil &&
+				!semantic.Message.Partial &&
+				semantic.Message.Role != "reasoning" &&
+				semantic.Message.Role != "system" &&
+				semantic.Message.Role != "user" {
+				t := strings.TrimSpace(semantic.Message.Text)
+				if t != "" {
+					finals = append(finals, t)
+				}
 			}
 		case "result":
 			sawResult = true
-			isErr = resultIsError(ev.Payload)
-			if t := extractResultText(ev.Payload); t != "" {
-				resultText = t
-			}
-			// Capture result error message for fallback classification.
-			if isErr {
-				lastErrMsg = extractErrorMessage(ev.Payload)
+			if semanticErr != nil || semantic.Result == nil {
+				isErr = true
+			} else {
+				isErr = semantic.Result.IsError
+				if t := strings.TrimSpace(semantic.Result.Text); t != "" {
+					resultText = t
+				}
+				if isErr && semantic.Error != nil {
+					lastErrMsg = semantic.Error.Message
+				}
 			}
 		case "error":
 			if !skipPersist {
 				isErr = true
-				lastErrMsg = extractErrorMessage(ev.Payload)
+				if semanticErr == nil && semantic.Error != nil {
+					lastErrMsg = semantic.Error.Message
+				}
 			}
 		}
 
@@ -576,49 +725,36 @@ func chooseWorkerSummary(resultText string, finals []string) string {
 // assistant messages. Streaming deltas and reasoning are ignored so the
 // orchestrator summary does not replay the worker's thinking process.
 func extractFinalWorkerText(raw json.RawMessage) string {
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "message", Payload: raw})
+	if err != nil || semantic.Message == nil {
 		return ""
 	}
-	if partial, _ := m["partial"].(bool); partial {
+	message := semantic.Message
+	if message.Partial {
 		return ""
 	}
-	if role, _ := m["role"].(string); role == "reasoning" || role == "system" || role == "user" {
+	if message.Role == "reasoning" || message.Role == "system" || message.Role == "user" {
 		return ""
 	}
-	return strings.TrimSpace(extractMessageText(m))
+	return strings.TrimSpace(message.Text)
 }
 
 // extractResultText pulls a final answer string from a result event payload.
 func extractResultText(raw json.RawMessage) string {
-	if res, ok := adapter.ParseResult(raw); ok {
-		if s := strings.TrimSpace(res.Text); s != "" {
-			return s
-		}
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "result", Payload: raw})
+	if err != nil || semantic.Result == nil {
 		return ""
 	}
-	if t, ok := m["message"].(string); ok {
-		// Error-ish results only — avoid treating generic status strings as answers.
-		if isErr, _ := m["is_error"].(bool); isErr {
-			return strings.TrimSpace(t)
-		}
-	}
-	return ""
+	return strings.TrimSpace(semantic.Result.Text)
 }
 
 // extractErrorMessage pulls the "message" field from a JSON payload.
 func extractErrorMessage(raw json.RawMessage) string {
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "error", Payload: raw})
+	if err != nil || semantic.Error == nil {
 		return ""
 	}
-	if msg, ok := m["message"].(string); ok {
-		return strings.TrimSpace(msg)
-	}
-	return ""
+	return strings.TrimSpace(semantic.Error.Message)
 }
 
 // appendEventLocked persists then publishes an event (append-first rule).
@@ -643,7 +779,26 @@ func (e *Engine) appendEventLocked(ctx context.Context, taskID, typ string, payl
 	return stored, nil
 }
 
-func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agentID, role, text, source, phase string) {
+func (e *Engine) appendEventLockedForRun(
+	ctx context.Context,
+	taskID, executionID, typ string,
+	payload json.RawMessage,
+) (store.Event, error) {
+	stored, err := e.persistRunEvent(ctx, taskID, executionID, typ, payload)
+	if err != nil {
+		if !errors.Is(err, store.ErrConflict) {
+			e.noteRunPersistFailure(taskID, executionID, typ, payload, err)
+		}
+		return store.Event{}, err
+	}
+	e.bus.PublishEvent(stored)
+	return stored, nil
+}
+
+func (e *Engine) emitSpeakerMessage(
+	ctx context.Context,
+	taskID, executionID, agentID, role, text, source, phase string,
+) {
 	// Host plan/delegate/summary are user-facing; other sources default to task+user.
 	userFacing := source == OriginOrchestrator || source == OriginDelegate || source == OriginHost
 	vis := VisibilityUserFacing()
@@ -666,12 +821,12 @@ func (e *Engine) emitSpeakerMessage(ctx context.Context, taskID, agentID, role, 
 			"visibility": map[string]bool{"user": userFacing, "task": true},
 		})
 	}
-	_, _ = e.appendEventLocked(ctx, taskID, "message", payload)
+	_, _ = e.appendEventLockedForRun(ctx, taskID, executionID, "message", payload)
 }
 
-func (e *Engine) emitError(ctx context.Context, taskID, msg string) {
+func (e *Engine) emitError(ctx context.Context, taskID, executionID, msg string) {
 	payload, _ := json.Marshal(map[string]string{"message": msg})
-	_, _ = e.appendEventLocked(ctx, taskID, "error", payload)
+	_, _ = e.appendEventLockedForRun(ctx, taskID, executionID, "error", payload)
 }
 
 // stampSpeaker tags events for the user-facing main agent / single-agent runs.
@@ -686,16 +841,9 @@ func stampSpeaker(raw json.RawMessage, agent, model string, exec adapter.Executi
 // isUserRoleEcho reports whether an adapter payload is a role:"user" message,
 // i.e. model input replayed in the stream rather than the agent's output.
 func isUserRoleEcho(raw json.RawMessage) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var m struct {
-		Role string `json:"role"`
-	}
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(m.Role), "user")
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "message", Payload: raw})
+	return err == nil && semantic.Message != nil &&
+		strings.EqualFold(strings.TrimSpace(semantic.Message.Role), "user")
 }
 
 // stampWorker tags sub-agent events as task-only (hidden from main chat column).
@@ -772,19 +920,16 @@ func applyExecutionMeta(m map[string]any, exec adapter.ExecutionRef) {
 }
 
 func extractMessageTextFromRaw(raw json.RawMessage) string {
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "message", Payload: raw})
+	if err != nil || semantic.Message == nil {
 		return ""
 	}
-	return extractMessageText(m)
+	return semantic.Message.Text
 }
 
 func resultIsError(raw json.RawMessage) bool {
-	var p struct {
-		IsError bool `json:"is_error"`
-	}
-	_ = json.Unmarshal(raw, &p)
-	return p.IsError
+	semantic, err := adapter.DecodeEvent(adapter.Event{Type: "result", Payload: raw})
+	return err == nil && semantic.Result != nil && semantic.Result.IsError
 }
 
 func buildWorkerBrief(plan DelegatePlan, step DelegateStep, prior []string, idx, total int) string {

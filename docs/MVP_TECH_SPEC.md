@@ -34,10 +34,10 @@ kin/
 │   │   └── rawpty/           # M4
 │   ├── task/                 # task engine: state machine, event log
 │   ├── store/                # SQLite persistence
-│   ├── api/                  # HTTP + WS handlers (generated skeleton + glue)
+│   ├── api/                  # handwritten HTTP + WS handlers
 │   ├── remote/               # Transport interface; loopback/lan/tsnet impls, auth
 │   └── notify/               # Bark / ntfy webhooks (M3)
-├── api/openapi.yaml          # single source of truth for the API
+├── api/openapi.yaml          # task live-resource contract (partial API surface)
 ├── ui/                       # Vite + React + TS + Tailwind
 │   └── src/{pages,components,api}
 ├── web/                      # `ui` build output, embedded via go:embed
@@ -59,7 +59,7 @@ Desktop (Electron) shell is **out of scope for this spec**; it is a separate lat
 | WebSocket | `nhooyr.io/websocket` | |
 | IDs | `github.com/oklog/ulid/v2` | lexicographically sortable |
 | Tailnet | `tailscale.com/tsnet` | M3 |
-| API codegen | `oapi-codegen` (Go) + `openapi-typescript` (TS) | regenerate in CI, fail on drift |
+| API codegen | `openapi-typescript` (TS) for task live resources | regenerate in CI, fail when generated TS drifts; Go handlers remain handwritten |
 | UI | Vite, React 18, TypeScript strict, Tailwind, `zustand` | no other state/query libs |
 | QR | `github.com/skip2/go-qrcode` (terminal) + `qrcode.react` (settings page) | |
 
@@ -181,7 +181,10 @@ Any command under a PTY; emit chunked `raw_output` (coalesce to ≥100ms interva
 
 ## 6. API
 
-`api/openapi.yaml` is authoritative; routes:
+The route list below defines the original MVP surface. The checked-in
+`api/openapi.yaml` is authoritative only for the task/approval/question
+live-resource subset that it declares; the remaining handlers are still
+handwritten and are not yet covered by server conformance checks.
 
 ```text
 POST /api/tasks                    {agent, cwd, prompt, model?, title?} → Task

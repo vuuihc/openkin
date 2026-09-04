@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  listTaskWorkspaces,
-  type WorkspaceGeneration,
-} from "../../api/client";
+import { type WorkspaceGeneration } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconChevron } from "../icons";
 
 type Props = {
-  taskId: string;
-  /** Currently selected workspace ID (null = source / current project). */
+  generations: readonly WorkspaceGeneration[];
+  loading: boolean;
   selectedId: string | null;
   onChange: (id: string | null) => void;
 };
@@ -19,35 +16,13 @@ type Props = {
  * Displays lifecycle badge (active, integrated, released, blocked).
  */
 export default function WorkspaceGenerationPicker({
-  taskId,
+  generations,
+  loading,
   selectedId,
   onChange,
 }: Props) {
   const t = useT();
-  const [generations, setGenerations] = useState<WorkspaceGeneration[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
   const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setFetchError(false);
-    listTaskWorkspaces(taskId)
-      .then((list) => {
-        if (cancelled) return;
-        setGenerations(list);
-        setLoading(false);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFetchError(true);
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId]);
 
   const selected = useMemo(
     () => generations.find((g) => g.id === selectedId) ?? null,
@@ -69,17 +44,14 @@ export default function WorkspaceGenerationPicker({
     return () => window.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  if (loading) {
+  if (generations.length === 0) {
     return (
-      <span className="text-[11px] text-kin-muted animate-pulse">
-        {t("workspace.generation.source")}
-      </span>
-    );
-  }
-
-  if (fetchError || generations.length === 0) {
-    return (
-      <span className="text-[11px] text-kin-muted">
+      <span
+        className={[
+          "text-[11px] text-kin-muted",
+          loading ? "animate-pulse" : "",
+        ].join(" ")}
+      >
         {t("workspace.generation.source")}
       </span>
     );
@@ -127,7 +99,7 @@ export default function WorkspaceGenerationPicker({
             }}
             className={[
               "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors",
-              !selectedId
+              selectedId === null
                 ? "bg-kin-blue/15 text-kin-text"
                 : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
             ].join(" ")}

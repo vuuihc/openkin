@@ -110,6 +110,7 @@ type WorkspaceReadyTransition struct {
 	TaskID                string
 	PhysicalRoot          string
 	ExecutionCwd          string
+	WorkspaceBranch       string
 	BaseOID               string
 	RequestedUserEventSeq int
 }
@@ -126,7 +127,18 @@ func (s *Store) InsertWorkspace(ctx context.Context, ws WorkspaceGeneration) err
 		ws.UpdatedAt = ws.CreatedAt
 	}
 
-	_, err := s.db.ExecContext(ctx, `
+	if err := insertWorkspace(ctx, s.db, ws); err != nil {
+		return err
+	}
+	return nil
+}
+
+type workspaceExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertWorkspace(ctx context.Context, execer workspaceExecer, ws WorkspaceGeneration) error {
+	_, err := execer.ExecContext(ctx, `
 		INSERT INTO task_workspaces (
 			id, task_id, generation, state, source_root, scope,
 			target_branch, workspace_branch, physical_root, execution_cwd,
@@ -149,9 +161,55 @@ func (s *Store) InsertWorkspace(ctx context.Context, ws WorkspaceGeneration) err
 	return nil
 }
 
+// InsertWorkspaceAsCurrent atomically inserts a generation, points the task at
+// it, and appends the committed lifecycle event.
+func (s *Store) InsertWorkspaceAsCurrent(ctx context.Context, ws WorkspaceGeneration) (Event, error) {
+	if ws.ID == "" || ws.TaskID == "" {
+		return Event{}, fmt.Errorf("workspace id and task_id required")
+	}
+	if ws.CreatedAt == 0 {
+		ws.CreatedAt = NowMilli()
+	}
+	if ws.UpdatedAt == 0 {
+		ws.UpdatedAt = ws.CreatedAt
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Event{}, fmt.Errorf("begin workspace insert: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := insertWorkspace(ctx, tx, ws); err != nil {
+		return Event{}, err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE tasks SET current_workspace_id = ? WHERE id = ?`, ws.ID, ws.TaskID)
+	if err != nil {
+		return Event{}, fmt.Errorf("set current workspace: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Event{}, fmt.Errorf("set current workspace: %w", ErrNotFound)
+	}
+	ev, err := appendWorkspaceEvent(ctx, tx, ws.TaskID, "workspace_"+string(ws.State), ws.ID)
+	if err != nil {
+		return Event{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Event{}, fmt.Errorf("commit workspace insert: %w", err)
+	}
+	return ev, nil
+}
+
 // GetWorkspace retrieves a workspace by id.
 func (s *Store) GetWorkspace(ctx context.Context, id string) (WorkspaceGeneration, error) {
-	row := s.db.QueryRowContext(ctx, `
+	return getWorkspace(ctx, s.db, id)
+}
+
+type workspaceQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func getWorkspace(ctx context.Context, queryer workspaceQueryer, id string) (WorkspaceGeneration, error) {
+	row := queryer.QueryRowContext(ctx, `
 		SELECT id, task_id, generation, state, source_root, scope,
 			target_branch, workspace_branch, physical_root, execution_cwd,
 			base_oid, review_base_oid, final_head_oid, final_tree_oid,
@@ -171,20 +229,68 @@ func (s *Store) GetWorkspace(ctx context.Context, id string) (WorkspaceGeneratio
 	return ws, nil
 }
 
+// RepairCurrentWorkspacePointers restores the authoritative task pointer for a
+// unique open generation left behind by a pre-atomic write or interrupted upgrade.
+func (s *Store) RepairCurrentWorkspacePointers(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace pointer repair: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET current_workspace_id = ''
+		WHERE current_workspace_id <> ''
+		  AND NOT EXISTS (
+			SELECT 1 FROM task_workspaces w
+			WHERE w.id = tasks.current_workspace_id AND w.task_id = tasks.id
+			  AND w.state IN (
+				'provisioning', 'ready', 'active', 'finalizing', 'integrated',
+				'merge_blocked', 'finalize_blocked', 'legacy_pending'
+			  )
+		  )`); err != nil {
+		return fmt.Errorf("clear invalid workspace pointers: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET current_workspace_id = (
+			SELECT w.id FROM task_workspaces w
+			WHERE w.task_id = tasks.id
+			  AND w.state IN (
+				'provisioning', 'ready', 'active', 'finalizing', 'integrated',
+				'merge_blocked', 'finalize_blocked', 'legacy_pending'
+			  )
+			LIMIT 1
+		)
+		WHERE current_workspace_id = ''
+		  AND 1 = (
+			SELECT COUNT(*) FROM task_workspaces w
+			WHERE w.task_id = tasks.id
+			  AND w.state IN (
+				'provisioning', 'ready', 'active', 'finalizing', 'integrated',
+				'merge_blocked', 'finalize_blocked', 'legacy_pending'
+			  )
+		  )`); err != nil {
+		return fmt.Errorf("restore workspace pointers: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit workspace pointer repair: %w", err)
+	}
+	return nil
+}
+
 // GetCurrentWorkspace retrieves the current (open) workspace for a task.
 func (s *Store) GetCurrentWorkspace(ctx context.Context, taskID string) (WorkspaceGeneration, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, task_id, generation, state, source_root, scope,
-			target_branch, workspace_branch, physical_root, execution_cwd,
-			base_oid, review_base_oid, final_head_oid, final_tree_oid,
-			integrated_oid, requested_execution_id, requested_user_event_seq,
-			completed_execution_id, failure_reason, created_at, updated_at,
-			integrated_at, released_at
-		FROM task_workspaces
-		WHERE task_id = ? AND state IN (
-			'provisioning', 'ready', 'active', 'finalizing', 'integrated',
-			'merge_blocked', 'finalize_blocked', 'legacy_pending'
-		)
+		SELECT w.id, w.task_id, w.generation, w.state, w.source_root, w.scope,
+			w.target_branch, w.workspace_branch, w.physical_root, w.execution_cwd,
+			w.base_oid, w.review_base_oid, w.final_head_oid, w.final_tree_oid,
+			w.integrated_oid, w.requested_execution_id, w.requested_user_event_seq,
+			w.completed_execution_id, w.failure_reason, w.created_at, w.updated_at,
+			w.integrated_at, w.released_at
+		FROM tasks t
+		JOIN task_workspaces w ON w.id = t.current_workspace_id AND w.task_id = t.id
+		WHERE t.id = ?
 	`, taskID)
 
 	ws, err := scanWorkspace(row)
@@ -286,6 +392,29 @@ func (s *Store) ClearCurrentWorkspace(ctx context.Context, taskID, workspaceID s
 	return nil
 }
 
+// ClaimWorkspaceExecution records the execution currently authorized to
+// complete an open generation.
+func (s *Store) ClaimWorkspaceExecution(
+	ctx context.Context, workspaceID, taskID, executionID string,
+) error {
+	if workspaceID == "" || taskID == "" || executionID == "" {
+		return fmt.Errorf("workspace, task, and execution ids are required")
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE task_workspaces
+		SET requested_execution_id = ?, updated_at = ?
+		WHERE id = ? AND task_id = ?
+		  AND state IN ('ready', 'active', 'merge_blocked', 'finalize_blocked')`,
+		executionID, NowMilli(), workspaceID, taskID)
+	if err != nil {
+		return fmt.Errorf("claim workspace execution: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("claim workspace execution: %w", ErrConflict)
+	}
+	return nil
+}
+
 // AppendUserEventWithTurnWorkspace appends a user event and its associated turn workspace binding.
 func (s *Store) AppendUserEventWithTurnWorkspace(
 	ctx context.Context, taskID string, payload json.RawMessage, turn TaskTurnWorkspace,
@@ -304,6 +433,10 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 	`, taskID).Scan(&nextSeq)
 	if err != nil {
 		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("get next seq: %w", err)
+	}
+	var eventEpoch int64
+	if err := tx.QueryRowContext(ctx, `SELECT event_epoch FROM tasks WHERE id = ?`, taskID).Scan(&eventEpoch); err != nil {
+		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("get task event epoch: %w", err)
 	}
 
 	// Insert event
@@ -339,11 +472,12 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 	}
 
 	return Event{
-		TaskID:  taskID,
-		Seq:     nextSeq,
-		Type:    "message",
-		TS:      now,
-		Payload: payload,
+		TaskID:     taskID,
+		EventEpoch: eventEpoch,
+		Seq:        nextSeq,
+		TS:         now,
+		Type:       "message",
+		Payload:    payload,
 	}, turn, nil
 }
 
@@ -368,6 +502,81 @@ func (s *Store) GetTurnWorkspace(ctx context.Context, taskID string, userEventSe
 		t.WorkspaceID = &wsID.String
 	}
 	return t, nil
+}
+
+// CompleteWorkspaceProvisioning atomically persists the initial checkpoint,
+// binds the requesting turn to the generation, and marks the workspace ready.
+func (s *Store) CompleteWorkspaceProvisioning(
+	ctx context.Context, ready WorkspaceReadyTransition, cp TaskCheckpoint,
+) (WorkspaceGeneration, Event, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkspaceGeneration{}, Event{}, fmt.Errorf("begin workspace ready: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := NowMilli()
+	res, err := tx.ExecContext(ctx, `
+		UPDATE task_workspaces
+		SET state = ?, physical_root = ?, execution_cwd = ?, workspace_branch = ?,
+			base_oid = ?, requested_user_event_seq = ?, updated_at = ?
+		WHERE id = ? AND task_id = ? AND state = ?
+	`, WorkspaceReady, ready.PhysicalRoot, ready.ExecutionCwd, ready.WorkspaceBranch,
+		ready.BaseOID, ready.RequestedUserEventSeq, now, ready.WorkspaceID, ready.TaskID,
+		WorkspaceProvisioning)
+	if err != nil {
+		return WorkspaceGeneration{}, Event{}, fmt.Errorf("mark workspace ready: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return WorkspaceGeneration{}, Event{}, fmt.Errorf("workspace state mismatch: %w", ErrConflict)
+	}
+
+	if ready.RequestedUserEventSeq > 0 {
+		cp.TaskID = ready.TaskID
+		cp.EventSeq = ready.RequestedUserEventSeq
+		cp.WorkspaceID = ready.WorkspaceID
+		if _, err := tx.ExecContext(ctx, `
+		INSERT INTO task_checkpoints
+			(task_id, event_seq, head_oid, tree_oid, size_bytes, created_at, workspace_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id, event_seq) DO UPDATE SET
+			head_oid = excluded.head_oid, tree_oid = excluded.tree_oid,
+			size_bytes = excluded.size_bytes, created_at = excluded.created_at,
+			workspace_id = excluded.workspace_id
+		`, cp.TaskID, cp.EventSeq, cp.HeadOID, cp.TreeOID, cp.SizeBytes, cp.CreatedAt, cp.WorkspaceID); err != nil {
+			return WorkspaceGeneration{}, Event{}, fmt.Errorf("persist initial checkpoint: %w", err)
+		}
+
+		res, err = tx.ExecContext(ctx, `
+		INSERT INTO task_turn_workspaces
+			(task_id, user_event_seq, workspace_id, access, created_at, updated_at)
+		SELECT ?, ?, ?, 'writable', ?, ?
+		WHERE EXISTS (SELECT 1 FROM events WHERE task_id = ? AND seq = ?)
+		ON CONFLICT(task_id, user_event_seq) DO UPDATE SET
+			workspace_id = excluded.workspace_id, access = excluded.access,
+			updated_at = excluded.updated_at
+		`, ready.TaskID, ready.RequestedUserEventSeq, ready.WorkspaceID, now, now,
+			ready.TaskID, ready.RequestedUserEventSeq)
+		if err != nil {
+			return WorkspaceGeneration{}, Event{}, fmt.Errorf("bind workspace turn: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return WorkspaceGeneration{}, Event{}, fmt.Errorf("bind workspace turn: %w", ErrNotFound)
+		}
+	}
+
+	ev, err := appendWorkspaceEvent(ctx, tx, ready.TaskID, "workspace_ready", ready.WorkspaceID)
+	if err != nil {
+		return WorkspaceGeneration{}, Event{}, err
+	}
+	ws, err := getWorkspace(ctx, tx, ready.WorkspaceID)
+	if err != nil {
+		return WorkspaceGeneration{}, Event{}, fmt.Errorf("read workspace before commit: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkspaceGeneration{}, Event{}, fmt.Errorf("commit workspace ready: %w", err)
+	}
+	return ws, ev, nil
 }
 
 // GetCheckpointForWorkspace retrieves a checkpoint bound to a specific workspace.
@@ -496,24 +705,19 @@ func (s *Store) ApplyWorkspaceTransition(
 		}
 	}
 
-	// Get next event sequence and append event
-	var nextSeq int
-	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(seq), 0) + 1
-		FROM events WHERE task_id = ?
-	`, transition.TaskID).Scan(&nextSeq)
-	if err != nil {
-		return WorkspaceGeneration{}, Event{}, fmt.Errorf("get next event seq: %w", err)
+	if transition.ToState == WorkspaceReleased || transition.ToState == WorkspaceOrphaned {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE tasks SET current_workspace_id = ''
+			WHERE id = ? AND current_workspace_id = ?
+		`, transition.TaskID, transition.WorkspaceID); err != nil {
+			return WorkspaceGeneration{}, Event{}, fmt.Errorf("clear current workspace: %w", err)
+		}
 	}
 
-	now := NowMilli()
 	eventType := "workspace_" + string(transition.ToState)
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO events (task_id, seq, ts, type, payload)
-		VALUES (?, ?, ?, ?, ?)
-	`, transition.TaskID, nextSeq, now, eventType, `{"workspace_id":"`+transition.WorkspaceID+`"}`)
+	ev, err := appendWorkspaceEvent(ctx, tx, transition.TaskID, eventType, transition.WorkspaceID)
 	if err != nil {
-		return WorkspaceGeneration{}, Event{}, fmt.Errorf("insert event: %w", err)
+		return WorkspaceGeneration{}, Event{}, err
 	}
 
 	// Commit and re-fetch workspace
@@ -526,12 +730,30 @@ func (s *Store) ApplyWorkspaceTransition(
 		return WorkspaceGeneration{}, Event{}, fmt.Errorf("fetch workspace after transition: %w", err)
 	}
 
-	return ws, Event{
-		TaskID:  transition.TaskID,
-		Seq:     nextSeq,
-		Type:    eventType,
-		TS:      now,
-		Payload: json.RawMessage(`{"workspace_id":"` + transition.WorkspaceID + `"}`),
+	return ws, ev, nil
+}
+
+func appendWorkspaceEvent(ctx context.Context, tx *sql.Tx, taskID, eventType, workspaceID string) (Event, error) {
+	var nextSeq int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE task_id = ?
+	`, taskID).Scan(&nextSeq); err != nil {
+		return Event{}, fmt.Errorf("get next event seq: %w", err)
+	}
+	var eventEpoch int64
+	if err := tx.QueryRowContext(ctx, `SELECT event_epoch FROM tasks WHERE id = ?`, taskID).Scan(&eventEpoch); err != nil {
+		return Event{}, fmt.Errorf("get task event epoch: %w", err)
+	}
+	now := NowMilli()
+	payload, _ := json.Marshal(map[string]string{"workspace_id": workspaceID})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO events (task_id, seq, ts, type, payload) VALUES (?, ?, ?, ?, ?)
+	`, taskID, nextSeq, now, eventType, payload); err != nil {
+		return Event{}, fmt.Errorf("insert event: %w", err)
+	}
+	return Event{
+		TaskID: taskID, EventEpoch: eventEpoch, Seq: nextSeq,
+		Type: eventType, TS: now, Payload: payload,
 	}, nil
 }
 
@@ -575,6 +797,7 @@ func scanCheckpointWithWorkspace(scanner interface {
 	if err != nil {
 		return TaskCheckpoint{}, err
 	}
+	cp.WorkspaceID = wsID
 	return cp, nil
 }
 

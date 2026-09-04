@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -323,8 +321,23 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 	// Provide a registry-backed list via ListAgents callback.
 	s.ListAgents = func() []AgentInfo {
 		return []AgentInfo{
-			{ID: "claude-code", Name: "Claude Code", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
-			{ID: "codex", Name: "Codex", Available: true, Installed: true, Default: false, Kind: "cli", Capabilities: []string{"run"}},
+			{
+				ID: "claude-code", Name: "Claude Code", Available: true, Installed: true, Default: true, Kind: "cli",
+				Capabilities: []string{"run"},
+				Models: []AgentModelOption{
+					{ID: "opus", Label: "Opus"},
+					{ID: "sonnet", Label: "Sonnet"},
+					{ID: "haiku", Label: "Haiku"},
+				},
+				ModelListSource: "recommended",
+				ModelListStatus: "available",
+			},
+			{
+				ID: "codex", Name: "Codex", Available: true, Installed: true, Default: false, Kind: "cli",
+				Capabilities:    []string{"run"},
+				ModelListSource: "none",
+				ModelListStatus: "default_only",
+			},
 		}
 	}
 	h := s.Handler()
@@ -369,7 +382,19 @@ func TestListAgentsAddsDroidRecommendedModels(t *testing.T) {
 	s, token := newTestServer(t)
 	s.ListAgents = func() []AgentInfo {
 		return []AgentInfo{
-			{ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+			{
+				ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli",
+				Capabilities: []string{"run"},
+				Models: []AgentModelOption{
+					{ID: "auto", Label: "Auto Model", Tier: "balanced"},
+					{ID: "claude-opus-5", Label: "Opus 5", Tier: "smart"},
+					{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", Tier: "smart"},
+					{ID: "gemini-3.1-pro-preview", Label: "Gemini 3.1 Pro", Tier: "smart"},
+					{ID: "grok-4.5", Label: "Grok 4.5", Tier: "smart"},
+				},
+				ModelListSource: "recommended",
+				ModelListStatus: "available",
+			},
 		}
 	}
 
@@ -399,14 +424,20 @@ func TestListAgentsAddsDroidRecommendedModels(t *testing.T) {
 	}
 }
 
-func TestListAgentsDroidModelsTolerateBrokenProviderRegistry(t *testing.T) {
+func TestListAgentsUsesRegistryMetadataWithoutLoadingProviderConfig(t *testing.T) {
 	s, token := newTestServer(t)
 	if err := s.Store.SetSetting(context.Background(), provider.KeyProviders, `{"entries":`); err != nil {
 		t.Fatal(err)
 	}
 	s.ListAgents = func() []AgentInfo {
 		return []AgentInfo{
-			{ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+			{
+				ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli",
+				Capabilities:    []string{"run"},
+				Models:          []AgentModelOption{{ID: "deepseek-v4-flash-0731", Tier: "fast"}},
+				ModelListSource: "recommended",
+				ModelListStatus: "available",
+			},
 		}
 	}
 
@@ -427,33 +458,21 @@ func TestListAgentsDroidModelsTolerateBrokenProviderRegistry(t *testing.T) {
 	}
 }
 
-func TestListAgentsDiscoversDroidModelsFromBinary(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell fake binary")
-	}
+func TestListAgentsPassesDiscoveredModelMetadata(t *testing.T) {
 	s, token := newTestServer(t)
-	bin := filepath.Join(t.TempDir(), "droid")
-	help := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"exec\" ] && [ \"$2\" = \"--help\" ]; then\n" +
-		"cat <<'HELP'\n" +
-		"Usage: droid exec [options] [prompt]\n\n" +
-		"Available Models:\n" +
-		"  auto                                       Auto Model\n" +
-		"  deepseek-v4-flash-0731                     DeepSeek V4 Flash 0731 (Droid Core)\n" +
-		"  claude-opus-5                              Opus 5 (default)\n" +
-		"  custom:local                               Local Custom Model\n\n" +
-		"Custom Models:\n" +
-		"  custom:other                               Other Custom Model\n" +
-		"HELP\n" +
-		"  exit 0\n" +
-		"fi\n" +
-		"exit 2\n"
-	if err := os.WriteFile(bin, []byte(help), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	s.ListAgents = func() []AgentInfo {
 		return []AgentInfo{
-			{ID: "droid", Name: "Droid", Binary: bin, Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+			{
+				ID: "droid", Name: "Droid", Binary: "/opt/droid", Available: true, Installed: true, Default: true, Kind: "cli",
+				Capabilities: []string{"run"},
+				Models: []AgentModelOption{
+					{ID: "auto", Label: "Auto Model", Tier: "balanced"},
+					{ID: "deepseek-v4-flash-0731", Label: "DeepSeek V4 Flash 0731 (Droid Core)", Tier: "fast"},
+					{ID: "claude-opus-5", Label: "Opus 5 (default)", Tier: "smart"},
+				},
+				ModelListSource: "discovered",
+				ModelListStatus: "available",
+			},
 		}
 	}
 
@@ -484,7 +503,7 @@ func TestListAgentsDiscoversDroidModelsFromBinary(t *testing.T) {
 	}
 }
 
-func TestListAgentsPreservesConfiguredDroidModels(t *testing.T) {
+func TestListAgentsPassesConfiguredModelMetadata(t *testing.T) {
 	s, token := newTestServer(t)
 	if err := provider.SaveRegistry(context.Background(), s.Store, provider.Registry{
 		ActiveID: "cognition",
@@ -524,7 +543,16 @@ func TestListAgentsPreservesConfiguredDroidModels(t *testing.T) {
 	}
 	s.ListAgents = func() []AgentInfo {
 		return []AgentInfo{
-			{ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli", Capabilities: []string{"run"}},
+			{
+				ID: "droid", Name: "Droid", Available: true, Installed: true, Default: true, Kind: "cli",
+				Capabilities: []string{"run"},
+				Models: []AgentModelOption{
+					{ID: "team-droid-smart", Tier: "smart"},
+					{ID: "team-droid-fast", Tier: "fast"},
+				},
+				ModelListSource: "configured",
+				ModelListStatus: "available",
+			},
 		}
 	}
 

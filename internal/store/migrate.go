@@ -5,7 +5,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 14
+const schemaVersion = 16
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -37,6 +37,7 @@ CREATE TABLE tasks (
   routine_noteworthy INTEGER NOT NULL DEFAULT 0,
   routine_tldr TEXT NOT NULL DEFAULT '',
   routine_unread INTEGER NOT NULL DEFAULT 0,
+  event_epoch INTEGER NOT NULL DEFAULT 0,
   dispatch TEXT
 );
 
@@ -107,6 +108,7 @@ CREATE INDEX idx_artifacts_status ON artifacts(status, created_at DESC);
 
 CREATE TABLE usage_records (
   task_id                 TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_epoch             INTEGER NOT NULL DEFAULT 0,
   event_seq               INTEGER NOT NULL,
   occurred_at             INTEGER NOT NULL,
   agent                   TEXT NOT NULL,
@@ -121,10 +123,10 @@ CREATE TABLE usage_records (
   cost_source             TEXT NOT NULL,
   cache_status            TEXT NOT NULL,
   input_semantics         TEXT NOT NULL,
-  PRIMARY KEY (task_id, event_seq)
+  PRIMARY KEY (task_id, event_epoch, event_seq)
 );
 CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
-CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_seq);
+CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_epoch, event_seq);
 
 CREATE TABLE task_checkpoints (
   task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -237,6 +239,37 @@ CREATE TABLE IF NOT EXISTS task_turn_workspaces (
   PRIMARY KEY(task_id, user_event_seq),
   FOREIGN KEY(task_id, user_event_seq) REFERENCES events(task_id, seq) ON DELETE CASCADE,
   FOREIGN KEY(workspace_id, task_id) REFERENCES task_workspaces(id, task_id)
+);
+
+CREATE TABLE IF NOT EXISTS retry_restore_intents (
+  task_id                  TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  restore_files            INTEGER NOT NULL DEFAULT 1,
+  from_seq                 INTEGER NOT NULL,
+  expected_event_epoch     INTEGER NOT NULL,
+  previous_status          TEXT NOT NULL,
+  prompt                   TEXT NOT NULL,
+  user_payload             TEXT NOT NULL,
+  checkpoint_head_oid      TEXT NOT NULL DEFAULT '',
+  checkpoint_tree_oid      TEXT NOT NULL DEFAULT '',
+  checkpoint_size_bytes    INTEGER NOT NULL DEFAULT 0,
+  checkpoint_created_at    INTEGER NOT NULL,
+  checkpoint_workspace_id  TEXT NOT NULL DEFAULT '',
+  rollback_head_oid        TEXT NOT NULL DEFAULT '',
+  rollback_tree_oid        TEXT NOT NULL DEFAULT '',
+  rollback_size_bytes      INTEGER NOT NULL DEFAULT 0,
+  rollback_created_at      INTEGER NOT NULL DEFAULT 0,
+  target_workspace_id      TEXT NOT NULL DEFAULT '',
+  target_generation        INTEGER NOT NULL DEFAULT 0,
+  target_is_new            INTEGER NOT NULL DEFAULT 0,
+  activate_target          INTEGER NOT NULL DEFAULT 0,
+  source_root              TEXT NOT NULL DEFAULT '',
+  scope                    TEXT NOT NULL DEFAULT '.',
+  target_branch            TEXT NOT NULL DEFAULT '',
+  workspace_branch         TEXT NOT NULL DEFAULT '',
+  physical_root            TEXT NOT NULL DEFAULT '',
+  execution_cwd            TEXT NOT NULL DEFAULT '',
+  base_oid                 TEXT NOT NULL DEFAULT '',
+  created_at               INTEGER NOT NULL
 );
 
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
@@ -880,6 +913,136 @@ WHERE workspace_id = '' AND EXISTS (
 			return fmt.Errorf("commit migration 014: %w", err)
 		}
 		v = 14
+	}
+
+	if v == 14 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 015: %w", err)
+		}
+		var n int
+		err = tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'event_epoch'`).Scan(&n)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check event_epoch column: %w", err)
+		}
+		if n == 0 {
+			if _, err := tx.Exec(`ALTER TABLE tasks ADD COLUMN event_epoch INTEGER NOT NULL DEFAULT 0`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add event_epoch column: %w", err)
+			}
+		}
+		var usageTableExists int
+		err = tx.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'usage_records'`).Scan(&usageTableExists)
+		if err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check usage_records table: %w", err)
+		}
+		createUsageRecords := `
+CREATE TABLE usage_records (
+  task_id                 TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  event_epoch             INTEGER NOT NULL DEFAULT 0,
+  event_seq               INTEGER NOT NULL,
+  occurred_at             INTEGER NOT NULL,
+  agent                   TEXT NOT NULL,
+  provider                TEXT,
+  model                   TEXT,
+  input_tokens            INTEGER,
+  output_tokens           INTEGER,
+  reasoning_output_tokens INTEGER,
+  cache_read_tokens       INTEGER,
+  cache_write_tokens      INTEGER,
+  cost_usd                REAL,
+  cost_source             TEXT NOT NULL,
+  cache_status            TEXT NOT NULL,
+  input_semantics         TEXT NOT NULL,
+  PRIMARY KEY (task_id, event_epoch, event_seq)
+);`
+		if usageTableExists > 0 {
+			if _, err := tx.Exec(`
+ALTER TABLE usage_records RENAME TO usage_records_v14;
+` + createUsageRecords + `
+INSERT INTO usage_records (
+  task_id, event_epoch, event_seq, occurred_at, agent, provider, model,
+  input_tokens, output_tokens, reasoning_output_tokens, cache_read_tokens,
+  cache_write_tokens, cost_usd, cost_source, cache_status, input_semantics
+)
+SELECT
+  task_id, 0, event_seq, occurred_at, agent, provider, model,
+  input_tokens, output_tokens, reasoning_output_tokens, cache_read_tokens,
+  cache_write_tokens, cost_usd, cost_source, cache_status, input_semantics
+FROM usage_records_v14;
+DROP TABLE usage_records_v14;
+CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
+CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_epoch, event_seq);
+`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate usage records event epoch: %w", err)
+			}
+		} else if _, err := tx.Exec(createUsageRecords + `
+CREATE INDEX idx_usage_records_occurred ON usage_records(occurred_at, agent, model);
+CREATE INDEX idx_usage_records_task ON usage_records(task_id, event_epoch, event_seq);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("create usage records event epoch: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 15`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 015: %w", err)
+		}
+		v = 15
+	}
+
+	if v == 15 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 016: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS retry_restore_intents (
+  task_id                  TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  restore_files            INTEGER NOT NULL DEFAULT 1,
+  from_seq                 INTEGER NOT NULL,
+  expected_event_epoch     INTEGER NOT NULL,
+  previous_status          TEXT NOT NULL,
+  prompt                   TEXT NOT NULL,
+  user_payload             TEXT NOT NULL,
+  checkpoint_head_oid      TEXT NOT NULL DEFAULT '',
+  checkpoint_tree_oid      TEXT NOT NULL DEFAULT '',
+  checkpoint_size_bytes    INTEGER NOT NULL DEFAULT 0,
+  checkpoint_created_at    INTEGER NOT NULL,
+  checkpoint_workspace_id  TEXT NOT NULL DEFAULT '',
+  rollback_head_oid        TEXT NOT NULL DEFAULT '',
+  rollback_tree_oid        TEXT NOT NULL DEFAULT '',
+  rollback_size_bytes      INTEGER NOT NULL DEFAULT 0,
+  rollback_created_at      INTEGER NOT NULL DEFAULT 0,
+  target_workspace_id      TEXT NOT NULL DEFAULT '',
+  target_generation        INTEGER NOT NULL DEFAULT 0,
+  target_is_new            INTEGER NOT NULL DEFAULT 0,
+  activate_target          INTEGER NOT NULL DEFAULT 0,
+  source_root              TEXT NOT NULL DEFAULT '',
+  scope                    TEXT NOT NULL DEFAULT '.',
+  target_branch            TEXT NOT NULL DEFAULT '',
+  workspace_branch         TEXT NOT NULL DEFAULT '',
+  physical_root            TEXT NOT NULL DEFAULT '',
+  execution_cwd            TEXT NOT NULL DEFAULT '',
+  base_oid                 TEXT NOT NULL DEFAULT '',
+  created_at               INTEGER NOT NULL
+)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 016 retry restore intents: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 16`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 016: %w", err)
+		}
+		v = 16
 	}
 
 	return nil

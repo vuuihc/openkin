@@ -411,6 +411,9 @@ func (e *Engine) FollowUp(ctx context.Context, id, prompt string) (store.Task, e
 //   - agent different: clear session_ref, switch task.agent, inject handoff context into prompt.
 //   - task running / waiting_approval: interrupt current session, then re-queue with the new prompt.
 func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpRequest) (store.Task, error) {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
@@ -420,6 +423,12 @@ func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpReques
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
+	}
+	e.mu.Lock()
+	finalizing := e.workspaceCommitting[id]
+	e.mu.Unlock()
+	if finalizing != "" {
+		return t, fmt.Errorf("%w: workspace finalization is in progress", ErrConflict)
 	}
 
 	switch t.Status {
@@ -455,6 +464,10 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 	}
 
 	e.mu.Lock()
+	if e.workspaceCommitting[id] != "" {
+		e.mu.Unlock()
+		return t, fmt.Errorf("%w: workspace finalization is in progress", ErrConflict)
+	}
 	// If still only queued (not started), drop from queue and apply immediately.
 	for i, qid := range e.queue {
 		if qid == id {
@@ -463,7 +476,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 			// Still non-terminal; force a clean re-queue path via applyFollowUp.
 			// Mark as canceled-equivalent by finishing then applying, but simpler:
 			// applyFollowUp requires terminal — so finish as canceled then apply.
-			if _, err := e.finish(ctx, id, StatusCanceled, nil, nil); err != nil {
+			if _, err := e.finishQueued(ctx, id, StatusCanceled, nil, nil); err != nil {
 				return store.Task{}, err
 			}
 			t2, err := e.store.GetTask(ctx, id)
@@ -502,7 +515,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 		delete(e.canceled, id)
 		e.mu.Unlock()
 		if ok {
-			if _, err := e.finish(ctx, id, StatusCanceled, nil, nil); err != nil {
+			if _, err := e.finishQueued(ctx, id, StatusCanceled, nil, nil); err != nil {
 				return store.Task{}, err
 			}
 			t2, err := e.store.GetTask(ctx, id)
@@ -678,6 +691,8 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
 		return store.Task{}, err
 	}
+	e.invalidateActiveRun(id)
+	e.clearPersistTracking(id)
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
@@ -801,6 +816,9 @@ var ErrInvalidSeq = errors.New("invalid from_seq")
 // Retry rewinds a terminal task to a user turn and re-runs from there (same task id).
 // Events with seq >= fromSeq are dropped; the user message is re-seeded and the task re-queued.
 func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.Task, error) {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
@@ -822,6 +840,25 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 	if req.RestoreFiles != nil {
 		restoreFiles = *req.RestoreFiles
 	}
+	// Capture prior context BEFORE truncate (events with seq < fromSeq).
+	priorCtx := e.handoffContextUpTo(ctx, id, fromSeq-1)
+
+	// Build run prompt: inject prior transcript when rewinding past the first turn
+	// (mirrors applyFollowUpPrepared needContext path).
+	runPrompt := userText
+	if priorCtx != "" {
+		runPrompt = priorCtx + "\n\n---\n\n" + userText
+	}
+
+	userPayload, _ := json.Marshal(map[string]any{
+		"role":           "user",
+		"content":        []map[string]string{{"type": "text", "text": userText}},
+		"partial":        false,
+		"agent":          "user",
+		"speaker":        "user",
+		"source":         "retry",
+		"retry_from_seq": fromSeq,
+	})
 	if restoreFiles {
 		if t.WorkspaceMode != string(workspace.ResolvedWorktree) {
 			return store.Task{}, workspace.ErrNotIsolated
@@ -836,73 +873,106 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 			}
 			return store.Task{}, err
 		}
-		if err := e.workspace.Restore(ctx, workspaceMetadata(t), id, runtimeCheckpoint(cp)); err != nil {
+		target, rollback, unlock, err := e.planRetryRestore(ctx, t)
+		if err != nil {
 			return store.Task{}, err
 		}
-	}
-
-	// Capture prior context BEFORE truncate (events with seq < fromSeq).
-	priorCtx := e.handoffContextUpTo(ctx, id, fromSeq-1)
-
-	// Drop events from the chosen user message onward.
-	if err := e.store.TruncateEventsFrom(ctx, id, fromSeq); err != nil {
-		return store.Task{}, err
-	}
-	if restoreFiles {
-		if err := e.store.DeleteCheckpointsFrom(ctx, id, fromSeq); err != nil {
+		defer unlock()
+		intent := store.RetryRestoreIntent{
+			TaskID: id, RestoreFiles: true,
+			FromSeq: fromSeq, ExpectedEventEpoch: t.EventEpoch,
+			Prompt: runPrompt, UserPayload: userPayload, Checkpoint: cp,
+			RollbackCheckpoint: rollback, Target: target.generationValue(),
+			TargetIsNew: target.generation != nil, ActivateTarget: target.activate,
+		}
+		if err := e.store.BeginRetryRestore(ctx, intent); err != nil {
 			return store.Task{}, err
 		}
+		result, compensated, err := e.resolveRetryRestoreIntent(ctx, intent, true)
+		if err != nil {
+			if compensated {
+				return store.Task{}, err
+			}
+			return store.Task{}, fmt.Errorf("retry restore left pending for startup recovery: %w", err)
+		}
+		if err := e.publishCompletedRetry(ctx, result, false, true); err != nil {
+			return result.Task, err
+		}
+		return result.Task, nil
 	}
 
-	// Best-effort: drop durable kin transcript so the next turn rebuilds from remaining events / handoff context.
-	e.resetAgentSession(ctx, t.Agent, id)
-
-	// Re-seed the user message (same text) for the UI timeline.
-	userPayload, _ := json.Marshal(map[string]any{
-		"role":           "user",
-		"content":        []map[string]string{{"type": "text", "text": userText}},
-		"partial":        false,
-		"agent":          "user",
-		"speaker":        "user",
-		"source":         "retry",
-		"retry_from_seq": fromSeq,
-	})
-	if ev, err := e.store.AppendEvent(ctx, id, "message", userPayload); err == nil {
-		e.bus.PublishEvent(ev)
-		e.captureCheckpoint(ctx, t, ev.Seq)
+	intent := store.RetryRestoreIntent{
+		TaskID: id, RestoreFiles: false,
+		FromSeq: fromSeq, ExpectedEventEpoch: t.EventEpoch,
+		Prompt: runPrompt, UserPayload: userPayload,
 	}
-
-	// Build run prompt: inject prior transcript when rewinding past the first turn
-	// (mirrors applyFollowUpPrepared needContext path).
-	runPrompt := userText
-	if priorCtx != "" {
-		runPrompt = priorCtx + "\n\n---\n\n" + userText
+	current, currentErr := e.store.GetCurrentWorkspace(ctx, id)
+	if currentErr == nil {
+		intent.Target = current
+	} else if !errors.Is(currentErr, store.ErrNotFound) {
+		return store.Task{}, currentErr
+	} else if t.WorkspaceMode == string(workspace.ResolvedWorktree) {
+		target, _, unlock, planErr := e.planRetryRestore(ctx, t)
+		if planErr != nil {
+			return store.Task{}, planErr
+		}
+		defer unlock()
+		intent.Target = target.generationValue()
+		intent.TargetIsNew = true
 	}
-
-	// Clear session so CLI agents do not resume past the rewind point.
-	status := StatusQueued
-	patch := store.TaskPatch{
-		Status:          &status,
-		Prompt:          &runPrompt,
-		ClearExitCode:   true,
-		ClearFinishedAt: true,
-		ClearSessionRef: true,
-	}
-	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
+	if err := e.store.BeginRetryRestore(ctx, intent); err != nil {
 		return store.Task{}, err
 	}
-	t, err = e.store.GetTask(ctx, id)
+	result, compensated, err := e.resolveRetryRestoreIntent(ctx, intent, true)
 	if err != nil {
-		return store.Task{}, err
+		if compensated {
+			return store.Task{}, err
+		}
+		return store.Task{}, fmt.Errorf("retry left pending for startup recovery: %w", err)
 	}
+	if err := e.publishCompletedRetry(
+		ctx,
+		result,
+		t.WorkspaceMode == string(workspace.ResolvedWorktree),
+		true,
+	); err != nil {
+		return result.Task, err
+	}
+	return result.Task, nil
+}
+
+func (e *Engine) publishCompletedRetry(
+	_ context.Context, result store.RetryMutationResult, captureFiles, start bool,
+) error {
+	t := result.Task
+	resumeCtx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
+	defer cancel()
+	e.invalidateActiveRun(t.ID)
+	e.clearPersistTracking(t.ID)
+	if err := e.resetAgentSessionStrict(resumeCtx, t.Agent, t.ID); err != nil {
+		return fmt.Errorf("reset retry session: %w", err)
+	}
+	e.mu.Lock()
+	delete(e.canceled, t.ID)
+	e.mu.Unlock()
+	// Publish the incremented event_epoch before any reused event sequence.
 	e.bus.PublishTask(t)
+	if result.WorkspaceEvent != nil {
+		e.bus.PublishEvent(*result.WorkspaceEvent)
+	}
+	e.bus.PublishEvent(result.UserEvent)
+
+	if captureFiles {
+		e.captureCheckpoint(resumeCtx, t, result.UserEvent.Seq)
+	}
 
 	e.mu.Lock()
-	e.queue = append(e.queue, id)
+	e.queue = append(e.queue, t.ID)
 	e.mu.Unlock()
-	e.pump()
-
-	return e.store.GetTask(ctx, id)
+	if start {
+		e.pump()
+	}
+	return nil
 }
 
 // RestoreWorkspace materializes a prior checkpoint into the isolated worktree without
@@ -910,6 +980,9 @@ func (e *Engine) Retry(ctx context.Context, id string, req RetryRequest) (store.
 // a positive value selects the latest checkpoint at or before that sequence.
 // Requires a terminal, worktree-isolated task.
 func (e *Engine) RestoreWorkspace(ctx context.Context, taskID string, eventSeq int) (store.Task, error) {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+
 	t, err := e.store.GetTask(ctx, taskID)
 	if err != nil {
 		return store.Task{}, err
@@ -940,7 +1013,21 @@ func (e *Engine) RestoreWorkspace(ctx context.Context, taskID string, eventSeq i
 		return store.Task{}, err
 	}
 
-	if err := e.workspace.Restore(ctx, workspaceMetadata(t), taskID, runtimeCheckpoint(cp)); err != nil {
+	target, err := e.prepareCheckpointRestoreTarget(ctx, t, cp)
+	if err != nil {
+		return store.Task{}, err
+	}
+	defer target.unlock()
+	if err := e.restoreCheckpointIntoTarget(ctx, taskID, target, cp); err != nil {
+		if target.generation != nil {
+			_ = e.workspace.CleanupPrepared(context.Background(), taskID, target.meta)
+		}
+		return store.Task{}, err
+	}
+	if err := e.commitCheckpointRestoreTarget(ctx, target); err != nil {
+		if target.generation != nil {
+			_ = e.workspace.CleanupPrepared(context.Background(), taskID, target.meta)
+		}
 		return store.Task{}, err
 	}
 
@@ -957,6 +1044,9 @@ func (e *Engine) RestoreWorkspace(ctx context.Context, taskID string, eventSeq i
 
 // Fork creates a new task that shares the transcript prefix up to fromSeq, then optionally continues with prompt.
 func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Task, error) {
+	e.retryMu.Lock()
+	defer e.retryMu.Unlock()
+
 	src, err := e.store.GetTask(ctx, id)
 	if err != nil {
 		return store.Task{}, err
@@ -1077,11 +1167,16 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 			}
 			return store.Task{}, err
 		}
-		forkMeta, err = e.workspace.PrepareFork(ctx, newID, workspaceMetadata(src), runtimeCheckpoint(cp))
+		sourceMeta, metaErr := e.workspaceMetadataForCheckpoint(ctx, src, cp)
+		if metaErr != nil {
+			return store.Task{}, metaErr
+		}
+		forkMeta, err = e.workspace.PrepareFork(ctx, newID, sourceMeta, runtimeCheckpoint(cp))
 		if err != nil {
 			return store.Task{}, err
 		}
 		applyWorkspaceMetadata(&dst, forkMeta)
+		dst.WorkspacePolicy = string(store.WorkspacePolicyWorktree)
 		preparedFork = true
 	}
 
@@ -1096,9 +1191,33 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 		if preparedFork {
 			e.cleanupPreparedWorkspace(newID, forkMeta)
 		}
+		_ = e.store.DeleteTask(ctx, newID)
 		return store.Task{}, err
 	}
 	if preparedFork {
+		now := store.NowMilli()
+		ws := store.WorkspaceGeneration{
+			ID:              newID + ":g1",
+			TaskID:          newID,
+			Generation:      1,
+			State:           store.WorkspaceActive,
+			SourceRoot:      forkMeta.SourceRoot,
+			Scope:           forkMeta.Scope,
+			TargetBranch:    forkMeta.TargetBranch,
+			WorkspaceBranch: forkMeta.Branch,
+			PhysicalRoot:    forkMeta.Root,
+			ExecutionCwd:    forkMeta.Cwd,
+			BaseOID:         forkMeta.BaseOID,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		ev, insertErr := e.store.InsertWorkspaceAsCurrent(ctx, ws)
+		if insertErr != nil {
+			e.cleanupPreparedWorkspace(newID, forkMeta)
+			_ = e.store.DeleteTask(ctx, newID)
+			return store.Task{}, insertErr
+		}
+		e.bus.PublishEvent(ev)
 		if seq := e.latestUserMessageSeq(ctx, newID); seq > 0 {
 			e.captureCheckpoint(ctx, dst, seq)
 		}

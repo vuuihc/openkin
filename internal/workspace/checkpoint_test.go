@@ -117,6 +117,68 @@ func TestPrepareForkFromCheckpoint(t *testing.T) {
 	}
 }
 
+func TestRestoreTreeOntoCurrentPreservesGenerationHead(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	root := t.TempDir()
+	initRepo(t, root)
+	commitFile(t, root, "tracked.txt", "base\n")
+
+	initialHead, err := mTestGit(root, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := m.PrepareGeneration(context.Background(), testTaskID, 1, SourceMetadata{
+		Cwd: root, SourceRoot: root, Scope: ".", TargetBranch: "main",
+		HeadOID: strings.TrimSpace(string(initialHead)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteCheckpointFile(t, first.Root, "tracked.txt", "checkpoint\n")
+	cp, err := m.Capture(context.Background(), first, testTaskID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CleanupPrepared(context.Background(), testTaskID, first); err != nil {
+		t.Fatal(err)
+	}
+
+	commitFile(t, root, "later.txt", "current source\n")
+	source, err := m.ResolveSource(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := m.PrepareGeneration(context.Background(), testTaskID, 2, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.CleanupPrepared(context.Background(), testTaskID, second) }()
+	headBeforeRaw, err := mTestGit(second.Root, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	headBefore := strings.TrimSpace(string(headBeforeRaw))
+
+	if err := m.RestoreTreeOntoCurrent(context.Background(), second, testTaskID, cp); err != nil {
+		t.Fatal(err)
+	}
+	headAfterRaw, err := mTestGit(second.Root, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	headAfter := strings.TrimSpace(string(headAfterRaw))
+	if headAfter != headBefore || headAfter != source.HeadOID {
+		t.Fatalf("HEAD moved: before=%s after=%s source=%s", headBefore, headAfter, source.HeadOID)
+	}
+	if got := readCheckpointFile(t, second.Root, "tracked.txt"); got != "checkpoint\n" {
+		t.Fatalf("tracked=%q", got)
+	}
+	if !strings.Contains(gitStatus(t, second.Root), " M tracked.txt") {
+		t.Fatalf("checkpoint tree was not materialized as a change:\n%s", gitStatus(t, second.Root))
+	}
+}
+
 func TestCheckpointRejectsSharedAndOversized(t *testing.T) {
 	requireGit(t)
 	m := NewManager(t.TempDir())

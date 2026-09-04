@@ -19,27 +19,25 @@ import {
   detectArtifactKind,
   followUpPrompt,
   forkTask,
-  getTask,
   markRoutineRunRead,
   getTaskUsage,
   getToken,
   isTerminal,
   listAgents,
-  listApprovals,
   listEvents,
-  listUserQuestions,
   limitContinue,
   restoreTaskWorkspace,
   retryTask,
   type AgentInfo,
-  type Approval,
   type LimitHit,
-  type Task,
-  type TaskEvent,
   type TaskUsage,
   type Upload,
-  type UserQuestion,
 } from "../api/client";
+import { liveResources } from "../api/liveResources";
+import {
+  usePendingResources,
+  useTaskResource,
+} from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
@@ -55,13 +53,7 @@ import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import { extractChangedFiles } from "../lib/changedFiles";
-import {
-  hasSequenceGap,
-  highestContiguousSeq,
-  mergeEventsBySeq,
-} from "../lib/eventStream";
 import { useSlowHint } from "../hooks/useSlowHint";
-import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
@@ -80,7 +72,7 @@ import {
   setSessionScroll,
 } from "../lib/sessionScroll";
 import { modelsForAgent } from "../lib/agentModels";
-import { subscribeWS, useAppStore } from "../store/appStore";
+import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
 /**
@@ -98,14 +90,31 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
   const navigate = useNavigate();
-  const [task, setTask] = useState<Task | null>(null);
+  const tr = useT();
+  const detail = useTaskResource(id);
+  const pending = usePendingResources();
+  const task = detail.data.task;
+  const events = detail.data.events;
+  const approvals = useMemo(
+    () => pending.data.approvals.filter((item) => item.task_id === id),
+    [id, pending.data.approvals],
+  );
+  const userQuestions = useMemo(
+    () => pending.data.questions.filter((item) => item.task_id === id),
+    [id, pending.data.questions],
+  );
+  const loading = !detail.loaded;
+  const error = detail.data.deleted
+    ? tr("task.notFound")
+    : detail.error instanceof ApiError && detail.error.status === 404
+      ? tr("task.notFound")
+      : detail.error instanceof Error
+        ? detail.error.message
+        : detail.error
+          ? tr("task.loadFailed")
+          : null;
   const [usage, setUsage] = useState<TaskUsage | null>(null);
   const [usageLoading, setUsageLoading] = useState(true);
-  const [events, setEvents] = useState<TaskEvent[]>([]);
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [userQuestions, setUserQuestions] = useState<UserQuestion[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [composerModel, setComposerModel] = useState("");
@@ -125,11 +134,13 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [filesOpen, setFilesOpen] = useState(false);
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
+    string | null | undefined
+  >(undefined);
   const [reviewBusy, setReviewBusy] = useState(false);
   /** Hide scroller until first position is applied — avoids top→bottom flash. */
   const [scrollReady, setScrollReady] = useState(false);
-  const maxSeq = useRef(0);
+  const lastObservedEventSeq = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** User is near the bottom → stick to new content. */
@@ -146,43 +157,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const markScrollReady = useCallback(() => {
     setScrollReady((prev) => (prev ? prev : true));
   }, []);
-  const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
   const slow = useSlowHint(loading);
-  const tr = useT();
-
-  const load = useCallback(async () => {
-    if (!getToken()) return;
-    try {
-      const [t, evs, apps, qs] = await Promise.all([
-        getTask(id),
-        listEvents(id, maxSeq.current),
-        listApprovals("pending"),
-        listUserQuestions("pending").catch(() => [] as UserQuestion[]),
-      ]);
-      setTask(t);
-      if (evs.length) {
-        setEvents((prev) => {
-          const next = mergeEventsBySeq(prev, evs);
-          maxSeq.current = highestContiguousSeq(next);
-          return next;
-        });
-      }
-      setApprovals(apps.filter((a) => a.task_id === id));
-      setUserQuestions(qs.filter((q) => q.task_id === id));
-      setError(null);
-    } catch (e) {
-      // 401 still surfaces a recoverable empty state (App also flips to ConnectScreen).
-      // Never leave loading=false + task=null + error=null — that paints a blank main pane.
-      if (e instanceof ApiError && e.status === 404) setError(t("task.notFound"));
-      else if (e instanceof ApiError && e.status === 401)
-        setError(t("task.loadFailed"));
-      else setError(e instanceof Error ? e.message : t("task.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
 
   const loadUsage = useCallback(async () => {
     if (!getToken()) return;
@@ -197,133 +174,54 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }, [id]);
 
   useEffect(() => {
-    maxSeq.current = 0;
-    setEvents([]);
-    setTask(null);
-    setError(null);
-    setApprovals([]);
-    setUserQuestions([]);
+    lastObservedEventSeq.current = 0;
     setUsage(null);
-    setLoading(true);
     setFilesOpen(false);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
-    setSelectedWorkspaceId(null);
+    setSelectedWorkspaceId(undefined);
     stickToBottomRef.current = true;
-    void load();
-    void loadUsage();
     listAgents()
       .then(setAgents)
       .catch(() => setAgents([]));
-  }, [load, loadUsage]);
+  }, [id]);
 
   useEffect(() => {
-    if (reconnectGen === 0) return;
-    void listEvents(id, maxSeq.current)
-      .then((evs) => {
-        if (!evs.length) return;
-        setEvents((prev) => {
-          const next = mergeEventsBySeq(prev, evs);
-          maxSeq.current = highestContiguousSeq(next);
-          return next;
-        });
-      })
-      .catch(() => undefined);
-    void getTask(id).then(setTask).catch(() => undefined);
+    if (!task) return;
     void loadUsage();
-    void listApprovals("pending")
-      .then((apps) => setApprovals(apps.filter((a) => a.task_id === id)))
-      .catch(() => undefined);
-    void listUserQuestions("pending")
-      .then((qs) => setUserQuestions(qs.filter((q) => q.task_id === id)))
-      .catch(() => undefined);
-  }, [reconnectGen, id, loadUsage]);
+  }, [
+    loadUsage,
+    task?.status,
+    task?.tokens_in,
+    task?.tokens_out,
+    task?.cost_usd,
+  ]);
 
   // Opening a routine run marks it read (clears sidebar blue pill).
   useEffect(() => {
     if (!task?.routine_id || !task.routine_unread) return;
     const id = task.id;
     void markRoutineRunRead(id)
-      .then((t) => {
-        setTask((prev) =>
-          prev && prev.id === id ? { ...prev, ...t, routine_unread: false } : prev,
-        );
+      .then(() => {
+        liveResources.patchTask(id, { routine_unread: false });
         window.dispatchEvent(new Event("kin:routine-unread-changed"));
       })
       .catch(() => undefined);
   }, [task?.id, task?.routine_id, task?.routine_unread]);
 
   useEffect(() => {
-    return subscribeWS((msg) => {
-      if (msg.kind === "task_deleted") {
-        const data = msg.data as { id?: string };
-        if (data?.id && data.id === id) {
-          setTask(null);
-          setError(tr("task.notFound"));
-          // Only the visible session should hijack routing.
-          if (active) navigate("/");
-        }
-        return;
+    if (detail.data.deleted && active) navigate("/");
+  }, [active, detail.data.deleted, navigate]);
+
+  useEffect(() => {
+    for (const event of events) {
+      if (event.seq <= lastObservedEventSeq.current) continue;
+      lastObservedEventSeq.current = event.seq;
+      if (event.type !== "message" || parsePayloadSpeaker(event.payload) !== "user") {
+        setAwaitingReply(false);
       }
-      if (msg.kind === "task_update") {
-        const t = msg.data as Task;
-        if (t.id === id) {
-          setTask(t);
-          void loadUsage();
-        }
-      }
-      if (msg.kind === "event") {
-        const ev = msg.data as TaskEvent;
-        if (ev.task_id === id) {
-          // First assistant event clears awaitingReply (user sees thinking goes live).
-          if (ev.type !== "message" || parsePayloadSpeaker(ev.payload) !== "user") {
-            setAwaitingReply(false);
-          }
-          // Cursor is highest contiguous seq, not max observed.
-          const contiguous = maxSeq.current;
-          const gap = hasSequenceGap(contiguous, ev.seq);
-          setEvents((prev) => {
-            const next = mergeEventsBySeq(prev, [ev]);
-            maxSeq.current = highestContiguousSeq(next);
-            return next;
-          });
-          if (gap) {
-            // Recover missing sequences from the durable log without blocking the bus.
-            // Fetch from the last contiguous cursor so the hole is filled even when
-            // the live event jumped ahead.
-            void listEvents(id, contiguous)
-              .then((evs) => {
-                if (!evs.length) return;
-                setEvents((prev) => {
-                  const next = mergeEventsBySeq(prev, evs);
-                  maxSeq.current = highestContiguousSeq(next);
-                  return next;
-                });
-              })
-              .catch(() => undefined);
-          }
-        }
-      }
-      if (msg.kind === "approval_update") {
-        const a = msg.data as Approval;
-        if (a.task_id !== id) return;
-        setApprovals((prev) => {
-          if (a.decision !== "pending") return prev.filter((x) => x.id !== a.id);
-          const rest = prev.filter((x) => x.id !== a.id);
-          return [a, ...rest];
-        });
-      }
-      if (msg.kind === "user_question_update") {
-        const q = msg.data as UserQuestion;
-        if (q.task_id !== id) return;
-        setUserQuestions((prev) => {
-          if (q.status !== "pending") return prev.filter((x) => x.id !== q.id);
-          const rest = prev.filter((x) => x.id !== q.id);
-          return [q, ...rest];
-        });
-      }
-    });
-  }, [id, loadUsage, active]);
+    }
+  }, [events]);
 
   const isNearBottom = useCallback((el: HTMLElement, threshold = 96) => {
     return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
@@ -561,6 +459,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     if (!task) return;
     const busyKey = action === "switch" && agent ? `switch:${agent}` : action;
     setLimitBusy(busyKey);
+    const requestRevision = liveResources.currentRevision();
     try {
       const t = await limitContinue(task.id, {
         action,
@@ -569,7 +468,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           ? { reset_at: latestLimitHit.payload.reset_at }
           : {}),
       });
-      setTask(t);
+      liveResources.applyTaskSnapshot(t, requestRevision);
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("limit.actionFailed"), "error");
     } finally {
@@ -580,8 +479,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   async function onDecide(approvalId: string, decision: "approved" | "denied") {
     setBusy((b) => ({ ...b, [approvalId]: decision }));
     try {
-      await decideApproval(approvalId, decision);
-      setApprovals((prev) => prev.filter((x) => x.id !== approvalId));
+      const updated = await decideApproval(approvalId, decision);
+      liveResources.applyMessage({ kind: "approval_update", data: updated });
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("task.decisionFailed"), "error");
     } finally {
@@ -599,8 +498,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   ) {
     setAnswerBusy((b) => ({ ...b, [questionId]: true }));
     try {
-      await answerUserQuestion(questionId, body);
-      setUserQuestions((prev) => prev.filter((x) => x.id !== questionId));
+      const updated = await answerUserQuestion(questionId, body);
+      liveResources.applyMessage({ kind: "user_question_update", data: updated });
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("question.answerFailed"), "error");
     } finally {
@@ -646,6 +545,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     if (!task) return;
     setSending(true);
     setAwaitingReply(true);
+    const requestRevision = liveResources.currentRevision();
     try {
       // Non-terminal: backend interrupts the current turn then re-queues with this guide.
       // Send model / permission only when the picker differs from the task.
@@ -661,7 +561,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         text,
         Object.keys(opts).length ? opts : undefined,
       );
-      setTask(t);
+      liveResources.applyTaskSnapshot(t, requestRevision);
       clearFollowUpDraft(task.id);
       draftPromptRef.current = "";
       draftAttachmentsRef.current = [];
@@ -679,9 +579,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   async function onStop() {
     if (!task || isTerminal(task.status)) return;
     setStopping(true);
+    const requestRevision = liveResources.currentRevision();
     try {
       const t = await cancelTask(task.id);
-      setTask(t);
+      liveResources.applyTaskSnapshot(t, requestRevision);
       pushToast(tr("task.stopped"), "info");
     } catch (err) {
       pushToast(err instanceof Error ? err.message : tr("task.stopFailed"), "error");
@@ -700,6 +601,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setDeleting(true);
     try {
       await deleteTask(task.id);
+      liveResources.applyMessage({ kind: "task_deleted", data: { id: task.id } });
       clearSessionScroll(task.id);
       clearFollowUpDraft(task.id);
       pushToast(tr("task.deleted"), "info");
@@ -716,15 +618,30 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   async function onRetry(fromSeq: number) {
     if (!task || !isTerminal(task.status) || actionBusy) return;
     setActionBusy(true);
+    const requestRevision = liveResources.currentRevision();
+    const eventReset = liveResources.resetTaskEvents(task.id);
+    lastObservedEventSeq.current = 0;
+    let retryAccepted = false;
     try {
       const t = await retryTask(task.id, { from_seq: fromSeq });
-      setTask(t);
+      retryAccepted = true;
+      liveResources.applyTaskSnapshot(t, requestRevision);
       // Reload events after server truncated + re-seeded.
       const evs = await listEvents(task.id);
-      setEvents(evs);
-      maxSeq.current = highestContiguousSeq(evs);
+      liveResources.replaceTaskEvents(
+        task.id,
+        evs,
+        eventReset.revision,
+        t.event_epoch ?? eventReset.eventEpoch + 1,
+      );
       pushToast(tr("task.retryDone"), "info");
     } catch (err) {
+      if (!retryAccepted && err instanceof ApiError) {
+        const restored = liveResources.restoreTaskEvents(eventReset);
+        if (!restored) void liveResources.refreshTask(task.id, true);
+      } else {
+        void liveResources.refreshTask(task.id, true);
+      }
       pushToast(err instanceof Error ? err.message : tr("task.retryFailed"), "error");
     } finally {
       setActionBusy(false);
@@ -753,7 +670,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setActionBusy(true);
     try {
       const art = await createArtifact({
-        title: deriveArtifactTitle(content, task.title || "Untitled"),
+        title: deriveArtifactTitle(content, task.title || tr("api.untitled")),
         kind: detectArtifactKind(content),
         content,
         source_task_id: task.id,
@@ -964,6 +881,15 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           </div>
         </div>
 
+        {error && (
+          <div
+            className="flex-none border-b border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-2 text-[12px] text-[#ff8a80]"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
+
         {/* Below the rail breakpoint: keep compact chips so usage/diff stay reachable without the rail. */}
         <div className="min-[1600px]:hidden flex-none border-b border-[var(--kin-hairline)]">
           <TaskUsageSummary usage={usage} loading={usageLoading} />
@@ -1158,6 +1084,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               events={events}
               changedFiles={changedFiles}
               selectedWorkspaceId={selectedWorkspaceId}
+              currentWorkspaceId={task.current_workspace_id}
               onSelectWorkspace={setSelectedWorkspaceId}
               reviewActions={terminal}
               onDiscardAll={onDiscardAllChanges}

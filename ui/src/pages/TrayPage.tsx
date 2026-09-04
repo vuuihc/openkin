@@ -1,19 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   decideApproval,
   formatCost,
   formatElapsed,
-  getToken,
   isTerminal,
-  listApprovals,
-  listTasks,
   parseApprovalPayload,
-  type Approval,
-  type Task,
 } from "../api/client";
+import { liveResources } from "../api/liveResources";
+import {
+  usePendingResources,
+  useTaskList,
+} from "../api/useLiveResources";
 import { shortPath } from "../lib/paths";
 import { IconFile, IconKin } from "../components/icons";
-import { subscribeWS, useAppStore } from "../store/appStore";
+import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
 /**
@@ -21,55 +21,13 @@ import { displayUserPrompt } from "../lib/attachments";
  * Loaded by Electron as a frameless window; also works as /tray in the browser.
  */
 export default function TrayPage() {
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const pending = usePendingResources();
+  const taskList = useTaskList({ limit: 40 });
+  const approvals = pending.data.approvals;
+  const tasks = taskList.data;
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
   const [now, setNow] = useState(Date.now());
   const wsStatus = useAppStore((s) => s.wsStatus);
-  const reconnectGen = useAppStore((s) => s.reconnectGen);
-
-  const load = useCallback(async () => {
-    if (!getToken()) return;
-    try {
-      const [apps, list] = await Promise.all([
-        listApprovals("pending"),
-        listTasks({ limit: 40 }),
-      ]);
-      setApprovals(apps);
-      setTasks(list);
-    } catch {
-      // best-effort
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (reconnectGen === 0) return;
-    void load();
-  }, [reconnectGen, load]);
-
-  useEffect(() => {
-    return subscribeWS((msg) => {
-      if (msg.kind === "approval_update") {
-        const a = msg.data as Approval;
-        setApprovals((prev) => {
-          if (a.decision !== "pending") return prev.filter((x) => x.id !== a.id);
-          const rest = prev.filter((x) => x.id !== a.id);
-          return [a, ...rest];
-        });
-      }
-      if (msg.kind === "task_update") {
-        const t = msg.data as Task;
-        setTasks((prev) => {
-          const rest = prev.filter((x) => x.id !== t.id);
-          return [t, ...rest].sort((a, b) => b.created_at - a.created_at);
-        });
-      }
-    });
-  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -93,8 +51,8 @@ export default function TrayPage() {
   async function onDecide(id: string, decision: "approved" | "denied") {
     setBusy((b) => ({ ...b, [id]: decision }));
     try {
-      await decideApproval(id, decision);
-      setApprovals((prev) => prev.filter((x) => x.id !== id));
+      const updated = await decideApproval(id, decision);
+      liveResources.applyMessage({ kind: "approval_update", data: updated });
     } catch {
       // keep card
     } finally {

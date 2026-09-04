@@ -21,7 +21,7 @@ dev:
 test:
 	go test ./...
 	go vet ./...
-	cd ui && npm install && npx tsc --noEmit && npm test
+	cd ui && npm install && npm run check:api && npx tsc --noEmit && npm test
 
 # Offline durable-log gate: seq gaps / empty transcripts / approval attribution.
 # Default DB: ~/.kin/kin.db  (override: make stream-health KIN_DB=/path)

@@ -3,9 +3,61 @@ package remote
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestFileAuthFailsClosedWhenTokenUnavailable(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, path string)
+	}{
+		{
+			name:  "missing",
+			setup: func(t *testing.T, path string) {},
+		},
+		{
+			name: "empty",
+			setup: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte(" \n\t"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "unreadable",
+			setup: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokenPath := TokenFile(t.TempDir())
+			tt.setup(t, tokenPath)
+
+			auth := NewFileAuth(tokenPath)
+			if token, err := auth.loadToken(); err == nil {
+				t.Fatalf("loadToken() = (%q, nil), want error", token)
+			}
+			h := auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+			if rr.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
 
 func TestTokenRotateInvalidatesOld(t *testing.T) {
 	dir := t.TempDir()

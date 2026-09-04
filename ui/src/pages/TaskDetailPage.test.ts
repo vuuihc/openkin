@@ -16,4 +16,15 @@ describe("TaskDetailPage session rail breakpoints", () => {
     expect(railClasses?.split(/\s+/)).toContain("hidden");
     expect(railClasses).toContain("min-[1600px]:flex");
   });
+
+  it("keeps retry generations isolated when the response is uncertain", () => {
+    expect(source).toContain("lastObservedEventSeq.current = 0");
+    expect(source).toContain("!retryAccepted && err instanceof ApiError");
+    expect(source).toContain(
+      "const restored = liveResources.restoreTaskEvents(eventReset)",
+    );
+    expect(source).toContain(
+      "if (!restored) void liveResources.refreshTask(task.id, true)",
+    );
+  });
 });

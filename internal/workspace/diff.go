@@ -2,11 +2,22 @@ package workspace
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+)
+
+const (
+	liveTreeLimit = 500
+	liveFileLimit = 1024 * 1024
 )
 
 // Change describes a single file change in a workspace diff.
@@ -24,6 +35,240 @@ type TreeEntry struct {
 	Name string `json:"name"`
 	Type string `json:"type"` // blob|tree
 	Size int64  `json:"size,omitempty"`
+}
+
+// ListLiveTree lists the actual filesystem contents for a live workspace or
+// source checkout. Paths are repository-relative and constrained to meta.Scope.
+func (m *Manager) ListLiveTree(_ context.Context, meta Metadata, relDir string) ([]TreeEntry, bool, error) {
+	rootPath, rel, err := rootedLivePath(meta, relDir)
+	if err != nil {
+		return nil, false, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, false, fmt.Errorf("open workspace root: %w", err)
+	}
+	defer root.Close()
+	dir, err := root.Open(rel)
+	if err != nil {
+		return nil, false, fmt.Errorf("open live tree: %w", err)
+	}
+	defer dir.Close()
+	info, err := dir.Stat()
+	if err != nil {
+		return nil, false, fmt.Errorf("stat live tree: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, false, fmt.Errorf("live path is not a directory")
+	}
+	entries, err := dir.ReadDir(liveTreeLimit + 1)
+	if err != nil {
+		return nil, false, fmt.Errorf("read live tree: %w", err)
+	}
+	truncated := len(entries) > liveTreeLimit
+	out := make([]TreeEntry, 0, min(len(entries), liveTreeLimit))
+	for _, entry := range entries {
+		if len(out) >= liveTreeLimit {
+			break
+		}
+		if isGitMetadataPath(entry.Name()) {
+			continue
+		}
+		child, err := root.Open(filepath.Join(rel, entry.Name()))
+		if err != nil {
+			continue
+		}
+		entryInfo, err := child.Stat()
+		_ = child.Close()
+		if err != nil {
+			continue
+		}
+		item := TreeEntry{Name: entry.Name()}
+		if entryInfo.IsDir() {
+			item.Type = "tree"
+		} else if entryInfo.Mode().IsRegular() {
+			item.Type = "blob"
+			item.Size = entryInfo.Size()
+		} else {
+			continue
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Type != out[j].Type {
+			return out[i].Type == "tree"
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, truncated, nil
+}
+
+// ReadLiveFile reads the actual filesystem contents for a live workspace or
+// source checkout.
+func (m *Manager) ReadLiveFile(_ context.Context, meta Metadata, relPath string) ([]byte, error) {
+	return ReadLiveFile(meta, relPath)
+}
+
+// ReadLiveFile reads an existing UTF-8 file beneath a rooted workspace.
+func ReadLiveFile(meta Metadata, relPath string) ([]byte, error) {
+	rootPath, rel, err := rootedLivePath(meta, relPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("open workspace root: %w", err)
+	}
+	defer root.Close()
+	file, err := root.Open(rel)
+	if err != nil {
+		return nil, fmt.Errorf("open live file: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat live file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("live path is not a regular file")
+	}
+	if info.Size() > liveFileLimit {
+		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, liveFileLimit)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, liveFileLimit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read live file: %w", err)
+	}
+	if len(data) > liveFileLimit {
+		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, liveFileLimit)
+	}
+	if !utf8.Valid(data) || strings.IndexByte(string(data), 0) >= 0 {
+		return nil, fmt.Errorf("live file is not UTF-8 text")
+	}
+	return data, nil
+}
+
+// WriteLiveFile replaces an existing UTF-8 file in a live workspace.
+func (m *Manager) WriteLiveFile(_ context.Context, meta Metadata, relPath, content string) ([]byte, error) {
+	return WriteLiveFile(meta, relPath, content)
+}
+
+// WriteLiveFile replaces an existing UTF-8 file beneath a rooted workspace.
+// It is also used by the legacy shared-workspace compatibility handler.
+func WriteLiveFile(meta Metadata, relPath, content string) ([]byte, error) {
+	if len(content) > liveFileLimit {
+		return nil, fmt.Errorf("%w: file exceeds %d bytes", ErrOutputTooLarge, liveFileLimit)
+	}
+	if !utf8.ValidString(content) {
+		return nil, fmt.Errorf("live file content is not valid UTF-8")
+	}
+	if strings.IndexByte(content, 0) >= 0 {
+		return nil, fmt.Errorf("live file content contains NUL")
+	}
+	rootPath, rel, err := rootedLivePath(meta, relPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("open workspace root: %w", err)
+	}
+	defer root.Close()
+	file, err := root.Open(rel)
+	if err != nil {
+		return nil, fmt.Errorf("open live file: %w", err)
+	}
+	info, err := file.Stat()
+	closeErr := file.Close()
+	if err != nil {
+		return nil, fmt.Errorf("stat live file: %w", err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close live file: %w", closeErr)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("live path is not a regular file")
+	}
+	dir, base := filepath.Dir(rel), filepath.Base(rel)
+	var tempPath string
+	var temp *os.File
+	for range 10 {
+		var suffix [8]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, fmt.Errorf("create live file temporary name: %w", err)
+		}
+		tempPath = filepath.Join(dir, "."+base+".kin-tmp-"+hex.EncodeToString(suffix[:]))
+		temp, err = root.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create live file temporary: %w", err)
+		}
+	}
+	if temp == nil {
+		return nil, fmt.Errorf("create live file temporary: name collision")
+	}
+	defer func() { _ = root.Remove(tempPath) }()
+	if err := temp.Chmod(info.Mode().Perm()); err != nil {
+		_ = temp.Close()
+		return nil, fmt.Errorf("set live file mode: %w", err)
+	}
+	if _, err := io.WriteString(temp, content); err != nil {
+		_ = temp.Close()
+		return nil, fmt.Errorf("write live file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return nil, fmt.Errorf("sync live file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return nil, fmt.Errorf("close live file: %w", err)
+	}
+	if err := root.Rename(tempPath, rel); err != nil {
+		return nil, fmt.Errorf("replace live file: %w", err)
+	}
+	return []byte(content), nil
+}
+
+func rootedLivePath(meta Metadata, relPath string) (root, rel string, err error) {
+	root = strings.TrimSpace(meta.Root)
+	if root == "" {
+		return "", "", fmt.Errorf("workspace root is empty")
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	if relPath == "" {
+		relPath = "."
+	}
+	if err := validateRelPath(relPath); err != nil {
+		return "", "", err
+	}
+	if isGitMetadataPath(relPath) {
+		return "", "", fmt.Errorf("path %q refers to Git metadata", relPath)
+	}
+	scope := filepath.Clean(filepath.FromSlash(meta.Scope))
+	if scope == "" {
+		scope = "."
+	}
+	rel = filepath.Clean(filepath.FromSlash(relPath))
+	if scope != "." && rel != scope && !strings.HasPrefix(rel, scope+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("path %q is outside workspace scope %q", relPath, meta.Scope)
+	}
+	return root, rel, nil
+}
+
+func isGitMetadataPath(path string) bool {
+	for _, part := range strings.FieldsFunc(filepath.ToSlash(path), func(r rune) bool {
+		return r == '/'
+	}) {
+		if strings.EqualFold(part, ".git") {
+			return true
+		}
+	}
+	return false
 }
 
 // ListLiveChanges returns the current working-tree changes in a live workspace.

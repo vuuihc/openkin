@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/store"
@@ -200,5 +202,99 @@ func TestRegistryPublicMasksKeys(t *testing.T) {
 	}
 	if !pub[0].Active {
 		t.Fatal("want active")
+	}
+}
+
+func TestSaveRegistryIsAtomicWithLegacyMirrors(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	old := Registry{
+		ActiveID: "old",
+		Entries: []Entry{{
+			ID: "old", Name: "Old", Kind: "openai-compatible",
+			BaseURL: "https://old.example/v1", APIKey: "old-key", Model: "old-model",
+		}},
+	}
+	if err := SaveRegistry(ctx, st, old); err != nil {
+		t.Fatal(err)
+	}
+	keys := []string{KeyProviders, KeyActiveProvider, KeyKind, KeyBaseURL, KeyAPIKey, KeyModel, KeyStream}
+	before := make(map[string]string, len(keys))
+	for _, key := range keys {
+		value, err := st.GetSetting(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[key] = value
+	}
+	if _, err := st.DB().Exec(`
+		CREATE TRIGGER fail_provider_model
+		BEFORE UPDATE OF value ON settings
+		WHEN OLD.key = 'provider.model' AND NEW.value = 'new-model'
+		BEGIN
+			SELECT RAISE(ABORT, 'injected provider mirror failure');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+
+	err := SaveRegistry(ctx, st, Registry{
+		ActiveID: "new",
+		Entries: []Entry{{
+			ID: "new", Name: "New", Kind: "openai-compatible",
+			BaseURL: "https://new.example/v1", APIKey: "new-key", Model: "new-model",
+		}},
+	})
+	if err == nil {
+		t.Fatal("expected injected save failure")
+	}
+	for _, key := range keys {
+		value, getErr := st.GetSetting(ctx, key)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if value != before[key] {
+			t.Fatalf("%s changed after rolled-back save: got %q want %q", key, value, before[key])
+		}
+	}
+}
+
+func TestLoadRegistryReportsMigrationPersistenceFailure(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	if err := SaveConfig(ctx, st, Config{
+		Kind: "openai-compatible", BaseURL: "https://legacy.example/v1", Model: "legacy-model",
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`
+		CREATE TRIGGER fail_provider_migration
+		BEFORE INSERT ON settings
+		WHEN NEW.key = 'providers'
+		BEGIN
+			SELECT RAISE(ABORT, 'injected migration failure');
+		END`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadRegistry(ctx, st)
+	if err == nil || !strings.Contains(err.Error(), "persist legacy provider migration") {
+		t.Fatalf("error=%v", err)
+	}
+	if _, err := st.GetSetting(ctx, KeyProviders); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("providers key should not survive failed migration: %v", err)
+	}
+	model, err := st.GetSetting(ctx, KeyModel)
+	if err != nil || model != "legacy-model" {
+		t.Fatalf("legacy model=%q err=%v", model, err)
+	}
+}
+
+func TestLoadRegistryReportsStorageErrors(t *testing.T) {
+	st := openTestStore(t)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadRegistry(context.Background(), st); err == nil {
+		t.Fatal("expected closed-store error")
 	}
 }

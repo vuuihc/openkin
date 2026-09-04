@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,8 @@ type Manager struct {
 	gitPath  string
 	git      gitRunner
 	now      func() time.Time
+
+	generationLocks [64]sync.Mutex
 }
 
 // NewManager resolves git once and returns a Manager rooted at stateDir
@@ -38,4 +41,21 @@ func NewManager(stateDir string) *Manager {
 		git:      execGit{Path: path},
 		now:      time.Now,
 	}
+}
+
+// LockGeneration serializes filesystem edits and lifecycle operations for one
+// workspace root. Callers must invoke the returned unlock function.
+func (m *Manager) LockGeneration(meta Metadata) func() {
+	if m == nil {
+		return func() {}
+	}
+	key := filepath.Clean(meta.Root)
+	hash := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		hash ^= uint32(key[i])
+		hash *= 16777619
+	}
+	lock := &m.generationLocks[hash%uint32(len(m.generationLocks))]
+	lock.Lock()
+	return lock.Unlock
 }

@@ -9,6 +9,7 @@ import {
 function ev(seq: number): TaskEvent {
   return {
     task_id: "t1",
+    event_epoch: 0,
     seq,
     type: "message",
     ts: seq,
@@ -46,14 +47,14 @@ describe("hasSequenceGap", () => {
 });
 
 describe("mergeEventsBySeq", () => {
-  it("dedupes by seq and sorts ascending", () => {
+  it("dedupes by seq without replacing an accepted durable event", () => {
     const a = ev(1);
     const b = ev(3);
     const b2 = { ...ev(3), type: "result" };
     const c = ev(2);
     const merged = mergeEventsBySeq([a, b], [c, b2]);
     expect(merged.map((e) => e.seq)).toEqual([1, 2, 3]);
-    expect(merged[2].type).toBe("result");
+    expect(merged[2].type).toBe("message");
   });
 
   it("converges out-of-order live delivery into store order", () => {

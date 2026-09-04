@@ -55,8 +55,8 @@ func (m *Manager) Capture(ctx context.Context, meta Metadata, taskID string, eve
 		return Checkpoint{}, err
 	}
 	env := map[string]string{
-		"GIT_INDEX_FILE":                    indexPath,
-		"GIT_OBJECT_DIRECTORY":              objectsDir,
+		"GIT_INDEX_FILE":                   indexPath,
+		"GIT_OBJECT_DIRECTORY":             objectsDir,
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES": normalObjects,
 	}
 
@@ -103,19 +103,75 @@ func (m *Manager) Restore(ctx context.Context, meta Metadata, taskID string, cp 
 	return m.restoreTree(ctx, meta, cp, cp.TaskID)
 }
 
+// RestoreTreeOntoCurrent materializes a historical checkpoint as working-tree
+// changes while preserving the prepared generation's current HEAD.
+func (m *Manager) RestoreTreeOntoCurrent(ctx context.Context, meta Metadata, taskID string, cp Checkpoint) error {
+	if m == nil {
+		return fmt.Errorf("workspace manager is nil")
+	}
+	if err := m.validateIsolatedMetadata(taskID, meta); err != nil {
+		return err
+	}
+	if !validObjectID(cp.TreeOID) || !taskIDPattern.MatchString(cp.TaskID) {
+		return ErrCheckpointUnavailable
+	}
+	_, objectsDir, err := m.checkpointDirs(cp.TaskID)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(objectsDir); err != nil {
+		return ErrCheckpointUnavailable
+	}
+	if err := m.assertExistingDirContained(objectsDir, filepath.Join(m.stateDir, "checkpoints")); err != nil {
+		return err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	hooks := "-c"
+	hooksPath := "core.hooksPath=" + m.emptyHooksDir()
+	if _, err := m.git.Run(runCtx, meta.Root, nil, ControlStdoutLimit, hooks, hooksPath, "reset", "--hard", "HEAD"); err != nil {
+		return err
+	}
+	if _, err := m.git.Run(runCtx, meta.Root, nil, ControlStdoutLimit, hooks, hooksPath, "clean", "-fd"); err != nil {
+		return err
+	}
+	env := map[string]string{"GIT_ALTERNATE_OBJECT_DIRECTORIES": objectsDir}
+	if _, err := m.git.Run(runCtx, meta.Root, env, ControlStdoutLimit, hooks, hooksPath, "read-tree", "--reset", "-u", cp.TreeOID); err != nil {
+		return err
+	}
+	if _, err := m.git.Run(runCtx, meta.Root, env, ControlStdoutLimit, hooks, hooksPath, "reset", "--mixed", "HEAD"); err != nil {
+		return err
+	}
+	return nil
+}
+
 // PrepareFork creates a new isolated worktree and materializes a source checkpoint into it.
 func (m *Manager) PrepareFork(ctx context.Context, newTaskID string, source Metadata, cp Checkpoint) (Metadata, error) {
 	if m == nil {
 		return Metadata{}, fmt.Errorf("workspace manager is nil")
 	}
-	if err := m.validateIsolatedMetadata(cp.TaskID, source); err != nil {
-		return Metadata{}, err
+	if !taskIDPattern.MatchString(cp.TaskID) {
+		return Metadata{}, fmt.Errorf("%w: %q", ErrInvalidTaskID, cp.TaskID)
+	}
+	if strings.TrimSpace(source.SourceRoot) == "" {
+		return Metadata{}, fmt.Errorf("%w: source root is required", ErrNotIsolated)
 	}
 	if !taskIDPattern.MatchString(newTaskID) {
 		return Metadata{}, fmt.Errorf("%w: %q", ErrInvalidTaskID, newTaskID)
 	}
 	if !validObjectID(cp.HeadOID) || !validObjectID(cp.TreeOID) {
 		return Metadata{}, ErrCheckpointUnavailable
+	}
+	targetBranch := strings.TrimSpace(source.TargetBranch)
+	if targetBranch == "" {
+		var err error
+		targetBranch, err = m.CurrentBranch(ctx, source.SourceRoot)
+		if err != nil {
+			return Metadata{}, err
+		}
+		if targetBranch == "" {
+			return Metadata{}, fmt.Errorf("source repository is in detached HEAD")
+		}
 	}
 
 	wtPath, err := m.worktreePath(newTaskID, 1)
@@ -145,14 +201,16 @@ func (m *Manager) PrepareFork(ctx context.Context, newTaskID string, source Meta
 		execCwd = filepath.Join(wtPath, filepath.FromSlash(source.Scope))
 	}
 	meta := Metadata{
-		Mode:       ResolvedWorktree,
-		SourceRoot: source.SourceRoot,
-		Root:       wtPath,
-		Cwd:        execCwd,
-		Scope:      source.Scope,
-		BaseOID:    source.BaseOID,
-		Branch:     branch,
-		Reason:     "forked from checkpoint",
+		Mode:         ResolvedWorktree,
+		Generation:   1,
+		SourceRoot:   source.SourceRoot,
+		Root:         wtPath,
+		Cwd:          execCwd,
+		Scope:        source.Scope,
+		BaseOID:      source.BaseOID,
+		Branch:       branch,
+		TargetBranch: targetBranch,
+		Reason:       "forked from checkpoint",
 	}
 	if meta.Scope == "" {
 		meta.Scope = "."
@@ -210,7 +268,11 @@ func (m *Manager) validateIsolatedMetadata(taskID string, meta Metadata) error {
 	if !taskIDPattern.MatchString(taskID) {
 		return fmt.Errorf("%w: %q", ErrInvalidTaskID, taskID)
 	}
-	expected, err := m.worktreePath(taskID, 1)
+	generation := meta.Generation
+	if generation <= 0 {
+		generation = 1
+	}
+	expected, err := m.worktreePath(taskID, generation)
 	if err != nil {
 		return err
 	}

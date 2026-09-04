@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/adapter/adaptertest"
 )
 
 func TestParseLineGolden(t *testing.T) {
@@ -36,12 +39,15 @@ func TestParseLineGolden(t *testing.T) {
 				Payload any    `json:"payload"`
 			}
 			var got []goldenEv
+			var canonical []adapter.Event
 			for _, line := range strings.Split(string(inBytes), "\n") {
 				line = strings.TrimRight(line, "\r")
 				if line == "" {
 					continue
 				}
-				for _, ev := range ParseLine(line) {
+				parsed := ParseLine(line)
+				canonical = append(canonical, parsed...)
+				for _, ev := range parsed {
 					var payload any
 					if err := json.Unmarshal(ev.Payload, &payload); err != nil {
 						t.Fatalf("payload: %v", err)
@@ -54,6 +60,7 @@ func TestParseLineGolden(t *testing.T) {
 					got = append(got, goldenEv{Type: ev.Type, Payload: payload})
 				}
 			}
+			adaptertest.AssertEvents(t, canonical)
 			gotJSON, err := json.MarshalIndent(got, "", "  ")
 			if err != nil {
 				t.Fatal(err)
@@ -84,7 +91,6 @@ func TestParseLineNeverPanics(t *testing.T) {
 		_ = ParseLine(in)
 	}
 }
-
 
 func TestParseRateLimitEventAllowedIsDropped(t *testing.T) {
 	line := `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1710000000,"window":"5h"}}`

@@ -247,25 +247,27 @@ func TestAgentLimitStatusesThresholds(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	costs := map[string]float64{
-		"01THRESHOLD000000000000001": 7.9,  // 79% of 10
-		"01THRESHOLD000000000000002": 8.0,  // 80% of 10
-		"01THRESHOLD000000000000003": 10.0, // 100% of 10
+	usage := []struct {
+		taskID string
+		agent  string
+		cost   float64
+	}{
+		{taskID: "01THRESHOLD000000000000001", agent: "agent-79", cost: 7.9},
+		{taskID: "01THRESHOLD000000000000002", agent: "agent-80", cost: 8.0},
+		{taskID: "01THRESHOLD000000000000003", agent: "agent-100", cost: 10.0},
 	}
-	seq := 1
-	for taskID, cost := range costs {
-		c := cost
+	for i, record := range usage {
+		cost := record.cost
 		if err := s.InsertUsageRecord(ctx, UsageRecord{
-			TaskID: taskID, EventSeq: seq, OccurredAt: todayMid,
-			Agent:          tasks[seq-1].Agent,
-			CostUSD:        &c,
+			TaskID: record.taskID, EventSeq: i + 1, OccurredAt: todayMid,
+			Agent:          record.agent,
+			CostUSD:        &cost,
 			CacheStatus:    CacheStatusUnknown,
 			InputSemantics: InputSemanticsUnknown,
 			CostSource:     CostSourceProvider,
 		}); err != nil {
 			t.Fatal(err)
 		}
-		seq++
 	}
 
 	if err := s.SetAgentLimits(ctx, map[string]AgentLimit{
@@ -455,6 +457,83 @@ func TestMigrateV4UsageLedger(t *testing.T) {
 	}
 }
 
+func TestMigrateV14UsageLedgerPreservesRows(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := Task{
+		ID: "01USAGEV14MIGRATE000000001", Title: "existing", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: NowMilli(),
+	}
+	if err := st.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	input := 7
+	if err := st.InsertUsageRecord(ctx, UsageRecord{
+		TaskID: task.ID, EventSeq: 1, OccurredAt: NowMilli(), Agent: "codex",
+		InputTokens: &input, CostSource: CostSourceUnknown,
+		CacheStatus: CacheStatusUnknown, InputSemantics: InputSemanticsTotalIncludesCache,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`
+		ALTER TABLE usage_records RENAME TO usage_records_v15;
+		CREATE TABLE usage_records (
+		  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+		  event_seq INTEGER NOT NULL,
+		  occurred_at INTEGER NOT NULL,
+		  agent TEXT NOT NULL,
+		  provider TEXT,
+		  model TEXT,
+		  input_tokens INTEGER,
+		  output_tokens INTEGER,
+		  reasoning_output_tokens INTEGER,
+		  cache_read_tokens INTEGER,
+		  cache_write_tokens INTEGER,
+		  cost_usd REAL,
+		  cost_source TEXT NOT NULL,
+		  cache_status TEXT NOT NULL,
+		  input_semantics TEXT NOT NULL,
+		  PRIMARY KEY (task_id, event_seq)
+		);
+		INSERT INTO usage_records (
+		  task_id, event_seq, occurred_at, agent, provider, model,
+		  input_tokens, output_tokens, reasoning_output_tokens,
+		  cache_read_tokens, cache_write_tokens, cost_usd,
+		  cost_source, cache_status, input_semantics
+		)
+		SELECT task_id, event_seq, occurred_at, agent, provider, model,
+		  input_tokens, output_tokens, reasoning_output_tokens,
+		  cache_read_tokens, cache_write_tokens, cost_usd,
+		  cost_source, cache_status, input_semantics
+		FROM usage_records_v15;
+		DROP TABLE usage_records_v15;
+		ALTER TABLE tasks DROP COLUMN event_epoch;
+		PRAGMA user_version = 14;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	records, err := st.ListUsageRecords(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].EventEpoch != 0 || records[0].InputTokens == nil || *records[0].InputTokens != input {
+		t.Fatalf("migrated usage=%+v", records)
+	}
+}
+
 func TestUsageRecordsPersistAndValidate(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
@@ -529,6 +608,53 @@ func TestUsageRecordsPersistAndValidate(t *testing.T) {
 	bad.CacheStatus = "invalid"
 	if err := s.InsertUsageRecord(ctx, bad); err == nil {
 		t.Fatal("invalid cache status accepted")
+	}
+}
+
+func TestUsageRecordsRemainDistinctAcrossRetryEpochs(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	task := Task{
+		ID: "01USAGERETRYEPOCH000000001", Title: "usage", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: NowMilli(),
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	input := 10
+	record := UsageRecord{
+		Agent: "codex", InputTokens: &input,
+		CostSource: CostSourceUnknown, CacheStatus: CacheStatusUnknown,
+		InputSemantics: InputSemanticsTotalIncludesCache,
+	}
+	if _, _, err := s.AppendUsageEvent(ctx, task.ID, "usage", json.RawMessage(`{"input_tokens":10}`), record); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TruncateEventsFrom(ctx, task.ID, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AppendUsageEvent(ctx, task.ID, "usage", json.RawMessage(`{"input_tokens":10}`), record); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := s.ListUsageRecords(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].EventEpoch != 0 || records[1].EventEpoch != 1 {
+		t.Fatalf("usage epochs=%+v", records)
+	}
+	updated, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.EventEpoch != 1 || updated.TokensIn != 20 {
+		t.Fatalf("task after retry usage=%+v", updated)
 	}
 }
 

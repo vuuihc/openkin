@@ -15,6 +15,7 @@ import {
 function ev(seq: number, type: string, payload: unknown): TaskEvent {
   return {
     task_id: "task-1",
+    event_epoch: 0,
     seq,
     ts: seq,
     type,

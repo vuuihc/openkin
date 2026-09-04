@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -179,6 +180,69 @@ func (r Registry) ByID(id string) (Entry, bool) {
 	return Entry{}, false
 }
 
+// WithEntry returns a registry with entry inserted or replaced.
+func (r Registry) WithEntry(entry Entry, makeActive bool) (Registry, error) {
+	r = r.Normalize()
+	entry = entry.Normalize()
+	if entry.ID == "" {
+		entry.ID = newProviderID()
+	}
+	if previous, ok := r.ByID(entry.ID); ok {
+		if entry.APIKey == "" || looksMasked(entry.APIKey) {
+			entry.APIKey = previous.APIKey
+		}
+	} else if looksMasked(entry.APIKey) {
+		entry.APIKey = ""
+	}
+	if err := entry.Validate(); err != nil {
+		return Registry{}, err
+	}
+	found := false
+	for i := range r.Entries {
+		if r.Entries[i].ID == entry.ID {
+			r.Entries[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		r.Entries = append(r.Entries, entry)
+	}
+	if makeActive || r.ActiveID == "" || (!found && len(r.Entries) == 1) {
+		r.ActiveID = entry.ID
+	}
+	return r, nil
+}
+
+// WithoutEntry returns a registry without id.
+func (r Registry) WithoutEntry(id string) (Registry, error) {
+	r = r.Normalize()
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Registry{}, fmt.Errorf("provider id is required")
+	}
+	next := make([]Entry, 0, len(r.Entries))
+	found := false
+	for _, entry := range r.Entries {
+		if entry.ID == id {
+			found = true
+			continue
+		}
+		next = append(next, entry)
+	}
+	if !found {
+		return Registry{}, fmt.Errorf("unknown provider id %q", id)
+	}
+	r.Entries = next
+	if r.ActiveID == id {
+		r.ActiveID = ""
+		if len(next) > 0 {
+			r.ActiveID = next[0].ID
+		}
+	}
+	return r, nil
+}
+
 // Public returns masked entries for API responses, sorted by name then id.
 func (r Registry) Public() []PublicEntry {
 	r = r.Normalize()
@@ -195,6 +259,7 @@ func (r Registry) Public() []PublicEntry {
 			Active:         e.ID == r.ActiveID,
 			SupportsAgents: e.SupportsAgents,
 			Models:         e.Models,
+			Enabled:        e.Enabled,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -208,16 +273,25 @@ func (r Registry) Public() []PublicEntry {
 
 // LoadRegistry reads the multi-provider registry.
 // If the registry key is empty but a legacy single-slot config exists, it is
-// migrated in-memory (and, when Store is writable, persisted) into one entry.
+// migrated and persisted into one entry.
 func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 	if st == nil {
 		return Registry{}, fmt.Errorf("store required")
 	}
 	raw, err := st.GetSetting(ctx, KeyProviders)
 	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return Registry{}, fmt.Errorf("load providers: %w", err)
+		}
 		raw = ""
 	}
-	activeID, _ := st.GetSetting(ctx, KeyActiveProvider)
+	activeID, err := st.GetSetting(ctx, KeyActiveProvider)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return Registry{}, fmt.Errorf("load active provider: %w", err)
+		}
+		activeID = ""
+	}
 
 	var reg Registry
 	if strings.TrimSpace(raw) != "" {
@@ -262,26 +336,48 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 	reg = Registry{ActiveID: id, Entries: []Entry{entry}}.Normalize()
 	// Persist migration so subsequent loads hit the registry path.
 	if err := SaveRegistry(ctx, st, reg); err != nil {
-		// Still return the in-memory registry so callers can use it.
-		return reg, nil
+		return Registry{}, fmt.Errorf("persist legacy provider migration: %w", err)
 	}
 	return reg, nil
 }
 
 func loadLegacyConfig(ctx context.Context, st *store.Store) (Config, error) {
-	get := func(k string) string {
+	get := func(k string) (string, error) {
 		v, err := st.GetSetting(ctx, k)
 		if err != nil {
-			return ""
+			if errors.Is(err, store.ErrNotFound) {
+				return "", nil
+			}
+			return "", err
 		}
-		return v
+		return v, nil
+	}
+	kind, err := get(KeyKind)
+	if err != nil {
+		return Config{}, fmt.Errorf("load %s: %w", KeyKind, err)
+	}
+	baseURL, err := get(KeyBaseURL)
+	if err != nil {
+		return Config{}, fmt.Errorf("load %s: %w", KeyBaseURL, err)
+	}
+	apiKey, err := get(KeyAPIKey)
+	if err != nil {
+		return Config{}, fmt.Errorf("load %s: %w", KeyAPIKey, err)
+	}
+	model, err := get(KeyModel)
+	if err != nil {
+		return Config{}, fmt.Errorf("load %s: %w", KeyModel, err)
+	}
+	stream, err := get(KeyStream)
+	if err != nil {
+		return Config{}, fmt.Errorf("load %s: %w", KeyStream, err)
 	}
 	return Config{
-		Kind:    get(KeyKind),
-		BaseURL: get(KeyBaseURL),
-		APIKey:  get(KeyAPIKey),
-		Model:   get(KeyModel),
-		Stream:  parseBoolSetting(get(KeyStream)),
+		Kind:    kind,
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		Model:   model,
+		Stream:  parseBoolSetting(stream),
 	}.Normalize(), nil
 }
 
@@ -291,6 +387,16 @@ func SaveRegistry(ctx context.Context, st *store.Store, reg Registry) error {
 	if st == nil {
 		return fmt.Errorf("store required")
 	}
+	values, err := RegistrySettings(reg)
+	if err != nil {
+		return err
+	}
+	return st.SetSettings(ctx, values)
+}
+
+// RegistrySettings serializes the registry and its active legacy mirror for a
+// single atomic settings write.
+func RegistrySettings(reg Registry) (map[string]string, error) {
 	reg = reg.Normalize()
 	// Ensure active id is valid or clear it.
 	if reg.ActiveID != "" {
@@ -305,20 +411,29 @@ func SaveRegistry(ctx context.Context, st *store.Store, reg Registry) error {
 	// against the previous registry before calling SaveRegistry.
 	b, err := json.Marshal(reg)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := st.SetSetting(ctx, KeyProviders, string(b)); err != nil {
-		return err
-	}
-	if err := st.SetSetting(ctx, KeyActiveProvider, reg.ActiveID); err != nil {
-		return err
+	values := map[string]string{
+		KeyProviders:      string(b),
+		KeyActiveProvider: reg.ActiveID,
 	}
 	// Mirror active → legacy keys.
 	if active, ok := reg.Active(); ok {
-		return SaveConfig(ctx, st, active.Config(), false)
+		cfg := active.Config()
+		values[KeyKind] = cfg.Kind
+		values[KeyBaseURL] = cfg.BaseURL
+		values[KeyAPIKey] = cfg.APIKey
+		values[KeyModel] = cfg.Model
+		values[KeyStream] = formatBoolSetting(cfg.Stream)
+	} else {
+		// No active provider: clear legacy slot so Configured() is false.
+		values[KeyKind] = "openai-compatible"
+		values[KeyBaseURL] = ""
+		values[KeyAPIKey] = ""
+		values[KeyModel] = ""
+		values[KeyStream] = "false"
 	}
-	// No active provider: clear legacy slot so Configured() is false.
-	return SaveConfig(ctx, st, Config{Kind: "openai-compatible"}, true)
+	return values, nil
 }
 
 // LoadConfig reads the active provider as a Config.
@@ -364,37 +479,9 @@ func UpsertEntry(ctx context.Context, st *store.Store, entry Entry, makeActive b
 	if err != nil {
 		return Registry{}, err
 	}
-	entry = entry.Normalize()
-	if entry.ID == "" {
-		entry.ID = newProviderID()
-	}
-	// Preserve API key when the client echoed a masked value or sent empty
-	// without an explicit clear (clear is handled by ClearEntryAPIKey / empty
-	// after dirty edit in the UI — empty here means "keep existing").
-	if prev, ok := reg.ByID(entry.ID); ok {
-		if entry.APIKey == "" || looksMasked(entry.APIKey) {
-			entry.APIKey = prev.APIKey
-		}
-	} else if looksMasked(entry.APIKey) {
-		entry.APIKey = ""
-	}
-	if err := entry.Validate(); err != nil {
+	reg, err = reg.WithEntry(entry, makeActive)
+	if err != nil {
 		return Registry{}, err
-	}
-
-	found := false
-	for i, e := range reg.Entries {
-		if e.ID == entry.ID {
-			reg.Entries[i] = entry
-			found = true
-			break
-		}
-	}
-	if !found {
-		reg.Entries = append(reg.Entries, entry)
-	}
-	if makeActive || reg.ActiveID == "" || (!found && len(reg.Entries) == 1) {
-		reg.ActiveID = entry.ID
 	}
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, err
@@ -409,28 +496,9 @@ func DeleteEntry(ctx context.Context, st *store.Store, id string) (Registry, err
 	if err != nil {
 		return Registry{}, err
 	}
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return Registry{}, fmt.Errorf("provider id is required")
-	}
-	next := make([]Entry, 0, len(reg.Entries))
-	found := false
-	for _, e := range reg.Entries {
-		if e.ID == id {
-			found = true
-			continue
-		}
-		next = append(next, e)
-	}
-	if !found {
-		return Registry{}, fmt.Errorf("unknown provider id %q", id)
-	}
-	reg.Entries = next
-	if reg.ActiveID == id {
-		reg.ActiveID = ""
-		if len(next) > 0 {
-			reg.ActiveID = next[0].ID
-		}
+	reg, err = reg.WithoutEntry(id)
+	if err != nil {
+		return Registry{}, err
 	}
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, err

@@ -134,7 +134,7 @@ export default function RoutinesPage() {
   useEffect(() => {
     return subscribeWS((msg) => {
       if (msg.kind !== "task_update") return;
-      const t = msg.data as Task;
+      const t = msg.data;
       if (!t.routine_id) return;
       setRuns((prev) => {
         const idx = prev.findIndex((x) => x.id === t.id);

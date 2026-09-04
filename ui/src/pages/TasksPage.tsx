@@ -1,21 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  ApiError,
   formatCost,
   formatElapsed,
-  getToken,
   isTerminal,
   deleteTask,
-  listTasks,
   type Task,
 } from "../api/client";
+import { liveResources } from "../api/liveResources";
+import { useTaskList } from "../api/useLiveResources";
 import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { DRAFT_PATH } from "../lib/draftChat";
-import { subscribeWS, useAppStore } from "../store/appStore";
+import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
 type Filter = "all" | "running" | "done";
@@ -26,52 +25,18 @@ type Filter = "all" | "running" | "done";
 export default function TasksPage() {
   const navigate = useNavigate();
   const tr = useT();
-  const [tasks, setTasks] = useState<Task[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const resource = useTaskList({ limit: 100 });
+  const tasks = resource.data;
+  const error =
+    resource.error instanceof Error
+      ? resource.error.message
+      : resource.error
+        ? tr("tasks.loadFailed")
+        : null;
   const [filter, setFilter] = useState<Filter>("all");
   const [now, setNow] = useState(Date.now());
-  const reconnectGen = useAppStore((s) => s.reconnectGen);
-  const slow = useSlowHint(tasks === null && !error);
+  const slow = useSlowHint(!resource.loaded && resource.loading && !error);
   const pushToast = useAppStore((s) => s.pushToast);
-
-  const load = useCallback(async () => {
-    if (!getToken()) return;
-    try {
-      const list = await listTasks({ limit: 100 });
-      setTasks(list);
-      setError(null);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      setError(e instanceof Error ? e.message : tr("tasks.loadFailed"));
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (reconnectGen === 0) return;
-    void load();
-  }, [reconnectGen, load]);
-
-  useEffect(() => {
-    return subscribeWS((msg) => {
-      if (msg.kind === "task_deleted") {
-        const data = msg.data as { id?: string };
-        if (!data?.id) return;
-        setTasks((prev) => (prev ? prev.filter((t) => t.id !== data.id) : prev));
-        return;
-      }
-      if (msg.kind !== "task_update") return;
-      const task = msg.data as Task;
-      setTasks((prev) => {
-        if (!prev) return [task];
-        const rest = prev.filter((t) => t.id !== task.id);
-        return [task, ...rest].sort((a, b) => b.created_at - a.created_at);
-      });
-    });
-  }, []);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -79,17 +44,16 @@ export default function TasksPage() {
   }, []);
 
   const filtered = useMemo(() => {
-    const list = tasks ?? [];
-    if (filter === "running") return list.filter((t) => !isTerminal(t.status));
-    if (filter === "done") return list.filter((t) => isTerminal(t.status));
-    return list;
+    if (filter === "running") return tasks.filter((t) => !isTerminal(t.status));
+    if (filter === "done") return tasks.filter((t) => isTerminal(t.status));
+    return tasks;
   }, [tasks, filter]);
 
   const todayCost = useMemo(() => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const ms = start.getTime();
-    return (tasks ?? [])
+    return tasks
       .filter((t) => t.created_at >= ms)
       .reduce((s, t) => s + (t.cost_usd ?? 0), 0);
   }, [tasks]);
@@ -102,7 +66,7 @@ export default function TasksPage() {
     if (!ok) return;
     try {
       await deleteTask(task.id);
-      setTasks((prev) => (prev ? prev.filter((t) => t.id !== task.id) : prev));
+      liveResources.applyMessage({ kind: "task_deleted", data: { id: task.id } });
       pushToast(tr("task.deleted"), "info");
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("task.deleteFailed"), "error");
@@ -148,7 +112,7 @@ export default function TasksPage() {
           ))}
         </div>
 
-        {tasks === null && !error && (
+        {!resource.loaded && !error && (
           <div className="mt-6 space-y-3">
             <SlowConnectHint show={slow} />
             <TaskListSkeleton />
@@ -164,11 +128,11 @@ export default function TasksPage() {
           </div>
         )}
 
-        {tasks && filtered.length === 0 && (
+        {resource.loaded && filtered.length === 0 && (
           <p className="mt-10 text-center text-sm text-kin-muted">{tr("tasks.empty")}</p>
         )}
 
-        {tasks && filtered.length > 0 && (
+        {resource.loaded && filtered.length > 0 && (
           <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--kin-hairline)]">
             <table className="w-full text-left text-[13px]">
               <thead className="text-[11px] uppercase tracking-wide text-kin-muted border-b border-[var(--kin-hairline)]">

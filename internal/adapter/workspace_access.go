@@ -20,9 +20,10 @@ const (
 
 // RunMetadata carries generation-aware run context.
 type RunMetadata struct {
-	WorkspaceID     string          `json:"workspace_id,omitempty"`
-	WorkspaceAccess WorkspaceAccess `json:"workspace_access"`
-	Generation      int             `json:"generation,omitempty"`
+	WorkspaceID          string          `json:"workspace_id,omitempty"`
+	WorkspaceAccess      WorkspaceAccess `json:"workspace_access"`
+	WorkspaceExecutionID string          `json:"workspace_execution_id,omitempty"`
+	Generation           int             `json:"generation,omitempty"`
 }
 
 // CanonicalRepoPath normalizes a reported file path into a clean,

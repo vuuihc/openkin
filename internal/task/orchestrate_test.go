@@ -1,12 +1,65 @@
 package task
 
 import (
+	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/store"
 )
+
+func TestForwardWorkerEventsRecordsUsageLedger(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	const taskID = "01WORKERUSAGE0000000000001"
+	if err := st.InsertTask(context.Background(), store.Task{
+		ID: taskID, Title: "usage", Agent: "kin", Cwd: "/tmp", Prompt: "p",
+		Status: StatusRunning, CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	engine := NewEngine(st, nil, NewBus(), 1)
+	engine.setActiveRun(taskID, "turn-1")
+	ch := make(chan adapter.Event, 2)
+	ch <- adapter.Event{Type: "usage", Payload: json.RawMessage(`{
+		"agent":"codex","model":"gpt-5-codex",
+		"input_tokens":12,"output_tokens":3
+	}`)}
+	ch <- adapter.Event{Type: "result", Payload: json.RawMessage(`{"is_error":false,"result":"done"}`)}
+	close(ch)
+
+	_, failed, _ := engine.forwardWorkerEvents(
+		context.Background(),
+		taskID,
+		"turn-1",
+		"codex",
+		"gpt-5-codex",
+		adapter.ExecutionRef{ID: "exec-1", Agent: "codex"},
+		&fakeHandle{ch: ch, cancelCh: make(chan struct{})},
+	)
+	if failed {
+		t.Fatal("worker unexpectedly failed")
+	}
+	records, err := st.ListUsageRecords(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].InputTokens == nil || *records[0].InputTokens != 12 {
+		t.Fatalf("usage records=%+v", records)
+	}
+	got, err := st.GetTask(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TokensIn != 12 || got.TokensOut != 3 {
+		t.Fatalf("task usage=%d/%d", got.TokensIn, got.TokensOut)
+	}
+}
 
 func TestStampAgentModel(t *testing.T) {
 	tests := []struct {

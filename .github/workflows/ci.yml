@@ -25,6 +25,7 @@ jobs:
         working-directory: ui
         run: |
           npm install
+          npm run check:api
           npx tsc --noEmit
           npm test
           npx vite build

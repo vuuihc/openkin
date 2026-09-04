@@ -44,6 +44,46 @@ func TestToolsCallUnknownTool(t *testing.T) {
 	}
 }
 
+func TestWorkspaceLifecycleUsesSharedExecutionOwner(t *testing.T) {
+	var got []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		got = append(got, body["execution_id"])
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(ts.Close)
+
+	s := &server{
+		taskID:          "task-1",
+		daemon:          ts.URL,
+		token:           "tok",
+		executionID:     "worker-exec",
+		workspaceExecID: "turn-owner",
+		executionAgent:  "claude-code",
+		client:          ts.Client(),
+		err:             io.Discard,
+	}
+	for _, call := range []func(context.Context, json.RawMessage, json.RawMessage) rpcResponse{
+		s.callRequestWorkspace,
+		s.callCompleteWorkspace,
+	} {
+		resp := call(context.Background(), json.RawMessage(`1`), json.RawMessage(`{}`))
+		if resp.Error != nil {
+			t.Fatalf("workspace call error: %+v", resp.Error)
+		}
+	}
+	if len(got) != 2 || got[0] != "turn-owner" || got[1] != "turn-owner" {
+		t.Fatalf("workspace execution ids=%v want shared turn owner", got)
+	}
+	if s.executionID != "worker-exec" {
+		t.Fatalf("worker attribution id changed to %q", s.executionID)
+	}
+}
+
 func TestAskUserQuestionToolResult(t *testing.T) {
 	var mu sync.Mutex
 	var createdID string

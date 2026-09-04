@@ -30,9 +30,7 @@ export default function TaskSessionHost() {
   useEffect(() => {
     return subscribeWS((msg) => {
       if (msg.kind !== "task_deleted") return;
-      const data = msg.data as { id?: string };
-      if (!data?.id) return;
-      setCachedIds((prev) => dropSessionCache(prev, data.id!));
+      setCachedIds((prev) => dropSessionCache(prev, msg.data.id));
     });
   }, []);
 

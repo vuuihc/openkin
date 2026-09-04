@@ -21,6 +21,43 @@ type holdForApprovalAdapter struct {
 	started chan adapter.TaskSpec
 }
 
+type startBlockingAdapter struct {
+	started  chan struct{}
+	release  chan struct{}
+	canceled chan struct{}
+	once     sync.Once
+}
+
+type startBlockingHandle struct {
+	events   chan adapter.Event
+	canceled chan struct{}
+	once     *sync.Once
+}
+
+func (h *startBlockingHandle) Events() <-chan adapter.Event { return h.events }
+func (h *startBlockingHandle) Cancel() error {
+	h.once.Do(func() {
+		close(h.canceled)
+		close(h.events)
+	})
+	return nil
+}
+
+func (a *startBlockingAdapter) Start(
+	context.Context,
+	adapter.TaskSpec,
+) (adapter.RunHandle, error) {
+	close(a.started)
+	if a.release != nil {
+		<-a.release
+	}
+	return &startBlockingHandle{
+		events:   make(chan adapter.Event),
+		canceled: a.canceled,
+		once:     &a.once,
+	}, nil
+}
+
 func (a *holdForApprovalAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	a.mu.Lock()
 	a.specs = append(a.specs, spec)
@@ -42,6 +79,46 @@ func (a *holdForApprovalAdapter) Start(ctx context.Context, spec adapter.TaskSpe
 		}
 	}()
 	return h, nil
+}
+
+func TestFollowUpCancelsEarlierWorkerWhileLaterStartIsBlocked(t *testing.T) {
+	host := &fakeAdapter{events: successEvents()}
+	first := &startBlockingAdapter{
+		started:  make(chan struct{}),
+		canceled: make(chan struct{}),
+	}
+	second := &startBlockingAdapter{
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+		canceled: make(chan struct{}),
+	}
+	e, _ := testEngine(t, 2, host)
+	e.putAdapter("kin", host)
+	e.putAdapter("claude-code", first)
+	e.putAdapter("codex", second)
+	ctx := context.Background()
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "kin", Cwd: t.TempDir(),
+		Prompt: "@claude inspect auth @codex inspect storage",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-second.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second worker Start did not block")
+	}
+	if _, err := e.FollowUp(ctx, task.ID, "continue with the new direction"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-first.canceled:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("first worker was not canceled while second Start was blocked")
+	}
+	close(second.release)
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
 }
 
 func TestWorkerExecutionIDsDistinctAndRetried(t *testing.T) {
@@ -112,6 +189,7 @@ func TestWorkerExecutionIDsDistinctAndRetried(t *testing.T) {
 	}
 
 	ids := map[string]bool{}
+	workspaceOwners := map[string]bool{}
 	for _, sp := range append(cs, xs...) {
 		if sp.ID != task.ID {
 			t.Fatalf("parent task id rewritten: %q want %q", sp.ID, task.ID)
@@ -129,9 +207,16 @@ func TestWorkerExecutionIDsDistinctAndRetried(t *testing.T) {
 		if sp.Execution.Agent == "" {
 			t.Fatalf("execution agent unset: %+v", sp.Execution)
 		}
+		if sp.RunMeta.WorkspaceExecutionID == "" {
+			t.Fatalf("workspace execution owner unset: %+v", sp.RunMeta)
+		}
+		workspaceOwners[sp.RunMeta.WorkspaceExecutionID] = true
 	}
 	if len(ids) < 3 {
 		t.Fatalf("want >=3 distinct execution ids, got %d (%v)", len(ids), ids)
+	}
+	if len(workspaceOwners) != 1 {
+		t.Fatalf("workers must share one workspace execution owner, got %v", workspaceOwners)
 	}
 
 	// Worker events carry execution_id.

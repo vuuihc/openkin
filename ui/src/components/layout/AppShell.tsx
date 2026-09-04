@@ -1,23 +1,22 @@
 import {
   useCallback,
   useEffect,
-  useRef,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   deleteTask,
-  getToken,
   getUsageSummary,
-  listTasks,
   type Task,
 } from "../../api/client";
+import { liveResources } from "../../api/liveResources";
+import { useTaskList } from "../../api/useLiveResources";
 import { DRAFT_PATH, setDraftCwd, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
-import { clearSessionViewed } from "../../lib/sessionViewed";
 import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
-import { subscribeWS, useAppStore } from "../../store/appStore";
+import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
@@ -47,17 +46,24 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const draftActive = location.pathname === DRAFT_PATH;
   const desktop = isKinDesktop();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const searchQueryRef = useRef("");
-  searchQueryRef.current = searchQuery;
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const taskListParams = useMemo(
+    () =>
+      debouncedQuery
+        ? { limit: 200, q: debouncedQuery }
+        : { limit: 100 },
+    [debouncedQuery],
+  );
+  const taskList = useTaskList(taskListParams);
+  const tasks = taskList.data;
+  const searchLoading =
+    searchQuery.trim() !== debouncedQuery || taskList.loading;
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
-  const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
 
@@ -87,7 +93,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
       if (!ok) return;
       try {
         await deleteTask(task.id);
-        setTasks((prev) => prev.filter((x) => x.id !== task.id));
+        liveResources.applyMessage({ kind: "task_deleted", data: { id: task.id } });
         pushToast(tr("task.deleted"), "info");
         if (taskIdFromPath(location.pathname) === task.id) {
           navigate("/");
@@ -99,27 +105,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     [location.pathname, navigate, pushToast, tr],
   );
 
-  const tasksFetchSeq = useRef(0);
-  const loadTasks = useCallback(async (q?: string) => {
-    if (!getToken()) return;
-    const query = (q ?? "").trim();
-    const seq = ++tasksFetchSeq.current;
-    try {
-      if (query) setSearchLoading(true);
-      const list = await listTasks(
-        query ? { limit: 200, q: query } : { limit: 100 },
-      );
-      if (seq !== tasksFetchSeq.current) return; // stale response
-      setTasks(list);
-    } catch {
-      // best-effort sidebar
-    } finally {
-      if (seq === tasksFetchSeq.current) setSearchLoading(false);
-    }
-  }, []);
-
   const loadUsage = useCallback(async () => {
-    if (!getToken()) return;
     try {
       const rows = await getUsageSummary(7);
       const cost = rows.reduce((s, r) => s + (r.cost_usd ?? 0), 0);
@@ -133,58 +119,17 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     void loadUsage();
   }, [loadUsage]);
 
-  useEffect(() => {
-    if (reconnectGen === 0) return;
-    void loadTasks(searchQueryRef.current);
-  }, [reconnectGen, loadTasks]);
-
   // Debounced session list load. Empty q = recent 100; non-empty = full-library search.
   useEffect(() => {
-    if (!getToken()) return;
     const q = searchQuery.trim();
     if (!q) {
-      void loadTasks();
+      setDebouncedQuery("");
       return;
     }
-    setSearchLoading(true);
     const t = window.setTimeout(() => {
-      void loadTasks(q);
+      setDebouncedQuery(q);
     }, 250);
     return () => window.clearTimeout(t);
-  }, [searchQuery, loadTasks]);
-
-  useEffect(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const matches = (task: Task) => {
-      if (!q) return true;
-      const hay = [task.title, task.prompt, task.cwd, task.agent, task.id]
-        .filter(Boolean)
-        .join("\n")
-        .toLowerCase();
-      return hay.includes(q);
-    };
-    return subscribeWS((msg) => {
-      if (msg.kind === "task_update") {
-        const t = msg.data as Task;
-        // Re-run / follow-up: allow the green completion dot to return.
-        if (t.status === "running" || t.status === "queued") {
-          clearSessionViewed(t.id);
-        }
-        setTasks((prev) => {
-          const rest = prev.filter((x) => x.id !== t.id);
-          if (q && !matches(t)) {
-            return rest;
-          }
-          return [t, ...rest].sort((a, b) => b.created_at - a.created_at);
-        });
-        return;
-      }
-      if (msg.kind === "task_deleted") {
-        const data = msg.data as { id?: string };
-        if (!data?.id) return;
-        setTasks((prev) => prev.filter((x) => x.id !== data.id));
-      }
-    });
   }, [searchQuery]);
 
   // Subscribe to draft cwd changes

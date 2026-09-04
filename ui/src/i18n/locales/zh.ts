@@ -887,6 +887,11 @@ const zh = {
     installHint: "在浏览器中打开安装文档",
     unavailable: "不可用",
   },
+  api: {
+    untitled: "未命名",
+    unknownTool: "工具",
+    newTask: "新任务",
+  },
   common: {
     unknown: "未知",
     loading: "加载中…",

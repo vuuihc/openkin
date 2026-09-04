@@ -20,6 +20,8 @@ type PluginConfig struct {
 	TokenFunc  func() string
 	LookPath   func(file string) (string, error)
 	HTTPClient *http.Client
+	// ConfiguredModels returns optional provider-backed model overlays.
+	ConfiguredModels func(context.Context) ([]agent.ModelOption, error)
 }
 
 // PluginFactory registers Factory Droid as a native Kin agent.
@@ -84,6 +86,7 @@ func (f *PluginFactory) Open(context.Context) (agent.Registration, error) {
 			}
 			return agent.Status{Installed: true, Available: true, Binary: path}
 		},
+		Models: modelList(bin, look, f.cfg.ConfiguredModels),
 	}, nil
 }
 
