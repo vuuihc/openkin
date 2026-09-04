@@ -12,7 +12,9 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import {
   formatBytes,
   writeTaskWorkspaceFile,
+  writeWorkspaceFile,
   type TaskWorkspaceFileResponse,
+  type WorkspaceFileResponse,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import type { FileDiffSnippet } from "../../lib/changedFiles";
@@ -37,10 +39,14 @@ type Props = {
   actionsBusy?: boolean;
   /** Task id — required to persist edits. */
   taskId?: string;
+  /** Selected generation id for generation-aware writes. */
+  workspaceId?: string | null;
   /** Allow editing + saving the open file (plain view only, never diff). */
   editable?: boolean;
   /** Called with the server response after a successful save. */
-  onSaved?: (updated: TaskWorkspaceFileResponse) => void;
+  onSaved?: (
+    updated: TaskWorkspaceFileResponse | WorkspaceFileResponse,
+  ) => void;
 };
 
 type MdViewMode = "preview" | "code";
@@ -80,6 +86,7 @@ export default function CodeViewer({
   onDiscard,
   actionsBusy = false,
   taskId,
+  workspaceId,
   editable = false,
   onSaved,
 }: Props) {
@@ -146,14 +153,16 @@ export default function CodeViewer({
     setSaveState("saving");
     setSaveError(null);
     try {
-      const updated = await writeTaskWorkspaceFile(taskId, path, draft);
+      const updated = workspaceId
+        ? await writeWorkspaceFile(taskId, workspaceId, path, draft)
+        : await writeTaskWorkspaceFile(taskId, path, draft);
       setSaveState("saved");
       onSaved?.(updated);
     } catch (err) {
       setSaveState("error");
       setSaveError(err instanceof Error ? err.message : String(err));
     }
-  }, [taskId, path, draft, saveState, onSaved]);
+  }, [taskId, workspaceId, path, draft, saveState, onSaved]);
 
   // Keep the ⌘S/Ctrl+S command pointed at the latest save closure without
   // re-registering it on every keystroke.

@@ -64,6 +64,16 @@ func TestNormalizeUsage(t *testing.T) {
 			wantStatus: store.CacheStatusUnsupported, wantSemantics: store.InputSemanticsUnknown,
 			wantLogical: 12, wantEligible: false,
 		},
+		{
+			name:          "reasoning-only usage",
+			agent:         "codex",
+			payload:       `{"source":"codex","reasoning_output_tokens":7}`,
+			wantReasoning: intPtr(7),
+			wantStatus:    store.CacheStatusUnknown,
+			wantSemantics: store.InputSemanticsTotalIncludesCache,
+			wantLogical:   0,
+			wantEligible:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -93,6 +103,7 @@ func TestNormalizeUsageRejectsInvalid(t *testing.T) {
 		`not json`,
 		`{"source":"codex","input_tokens":-1}`,
 		`{"source":"codex"}`,
+		`{"source":"kin","cached_tokens":7}`,
 	} {
 		if _, err := NormalizeUsage("codex", "m", json.RawMessage(payload)); err == nil {
 			t.Fatalf("payload %q accepted", payload)

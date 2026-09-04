@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,13 +16,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 const (
 	workspaceListLimit     = 500
 	workspaceReadSoftLimit = 512 * 1024
 	workspaceReadHardLimit = 1024 * 1024
-	workspaceBinaryProbe   = 8 * 1024
 )
 
 type workspaceListEntry struct {
@@ -247,51 +246,24 @@ func (s *Server) handleReadTaskWorkspaceFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	resolved, err := env.resolvePath(reqPath)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	fi, err := os.Stat(resolved.Abs)
+	data, err := workspace.ReadLiveFile(
+		workspace.Metadata{Root: env.Root, Scope: "."},
+		reqPath,
+	)
 	if errors.Is(err, fs.ErrNotExist) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if fi.IsDir() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is a directory"})
-		return
-	}
-	if fi.Size() > workspaceReadHardLimit {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
-			"error": fmt.Sprintf("file too large (max %d bytes)", workspaceReadHardLimit),
-		})
+		status := http.StatusBadRequest
+		if errors.Is(err, workspace.ErrOutputTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 
-	data, err := os.ReadFile(resolved.Abs)
-	if errors.Is(err, fs.ErrNotExist) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if hasBinaryContent(data) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "binary file"})
-		return
-	}
-	if !utf8.Valid(data) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file is not valid UTF-8"})
-		return
-	}
-
+	size := len(data)
 	truncated := false
 	if len(data) > workspaceReadSoftLimit {
 		data = trimValidUTF8(data[:workspaceReadSoftLimit])
@@ -300,8 +272,8 @@ func (s *Server) handleReadTaskWorkspaceFile(w http.ResponseWriter, r *http.Requ
 
 	writeJSON(w, http.StatusOK, workspaceFileResponse{
 		Root:      env.Root,
-		Path:      resolved.Rel,
-		Size:      fi.Size(),
+		Path:      filepath.ToSlash(filepath.Clean(reqPath)),
+		Size:      int64(size),
 		Truncated: truncated,
 		Content:   string(data),
 	})
@@ -312,7 +284,17 @@ func (s *Server) handleWriteTaskWorkspaceFile(w http.ResponseWriter, r *http.Req
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, workspaceWriteBodyLimit)
+	decoder := json.NewDecoder(r.Body)
+	decodeErr := decoder.Decode(&body)
+	if decodeErr == nil {
+		decodeErr = ensureJSONEOF(decoder)
+	}
+	if decodeErr != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](decodeErr); ok {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
@@ -322,17 +304,6 @@ func (s *Server) handleWriteTaskWorkspaceFile(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
 		return
 	}
-	if len(body.Content) > workspaceReadHardLimit {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
-			"error": fmt.Sprintf("file too large (max %d bytes)", workspaceReadHardLimit),
-		})
-		return
-	}
-	if !utf8.ValidString(body.Content) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "content is not valid UTF-8"})
-		return
-	}
-
 	env, err := s.workspaceEnvForTask(r)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -343,37 +314,27 @@ func (s *Server) handleWriteTaskWorkspaceFile(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	resolved, err := env.resolvePath(reqPath)
+	content, err := workspace.WriteLiveFile(
+		workspace.Metadata{Root: env.Root, Scope: "."},
+		reqPath,
+		body.Content,
+	)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-
-	if fi, err := os.Stat(resolved.Abs); err == nil && fi.IsDir() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is a directory"})
-		return
-	}
-
-	if err := os.WriteFile(resolved.Abs, []byte(body.Content), 0o644); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		status := http.StatusBadRequest
+		if errors.Is(err, workspace.ErrOutputTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, workspaceFileResponse{
 		Root:      env.Root,
-		Path:      resolved.Rel,
-		Size:      int64(len(body.Content)),
+		Path:      filepath.ToSlash(filepath.Clean(reqPath)),
+		Size:      int64(len(content)),
 		Truncated: false,
-		Content:   body.Content,
+		Content:   string(content),
 	})
-}
-
-func hasBinaryContent(data []byte) bool {
-	probe := data
-	if len(probe) > workspaceBinaryProbe {
-		probe = probe[:workspaceBinaryProbe]
-	}
-	return bytes.IndexByte(probe, 0) >= 0
 }
 
 func trimValidUTF8(data []byte) []byte {

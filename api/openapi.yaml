@@ -1,0 +1,619 @@
+openapi: 3.1.0
+info:
+  title: OpenKin Task Live-Resource Contract
+  version: 0.1.0
+  description: |
+    Authoritative shared shapes for task, approval, and user-question HTTP
+    snapshots and their live WebSocket deltas. This is intentionally not the
+    complete OpenKin HTTP API. Go handlers are handwritten; TypeScript types
+    for this bounded client surface are generated from this document.
+servers:
+  - url: /
+paths:
+  /api/tasks:
+    get:
+      operationId: listTasks
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 0
+        - in: query
+          name: before
+          schema:
+            type: string
+        - in: query
+          name: q
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}:
+    get:
+      operationId: getTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/prompt:
+    post:
+      operationId: followUpTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FollowUpRequest"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/cancel:
+    post:
+      operationId: cancelTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Canceled task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/events:
+    get:
+      operationId: listTaskEvents
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: since_seq
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Ordered durable task events after the cursor
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskEvent"
+  /api/approvals:
+    get:
+      operationId: listApprovals
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Approval snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Approval"
+  /api/approvals/{approvalId}/decision:
+    post:
+      operationId: decideApproval
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalDecisionRequest"
+      responses:
+        "200":
+          description: Updated approval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Approval"
+  /api/user-questions:
+    get:
+      operationId: listUserQuestions
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User-question snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserQuestion"
+  /api/user-questions/{questionId}/answer:
+    post:
+      operationId: answerUserQuestion
+      parameters:
+        - $ref: "#/components/parameters/QuestionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserQuestionResponse"
+      responses:
+        "200":
+          description: Answered user question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserQuestion"
+  /api/ws:
+    get:
+      operationId: subscribeLiveUpdates
+      description: |
+        Upgrades to a WebSocket. Each text frame is exactly one WSMessage.
+        Clients must reject frames that do not match the discriminated union.
+      x-websocket-message:
+        $ref: "#/components/schemas/WSMessage"
+      responses:
+        "101":
+          description: Switching Protocols
+components:
+  parameters:
+    TaskId:
+      in: path
+      name: taskId
+      required: true
+      schema:
+        type: string
+    ApprovalId:
+      in: path
+      name: approvalId
+      required: true
+      schema:
+        type: string
+    QuestionId:
+      in: path
+      name: questionId
+      required: true
+      schema:
+        type: string
+  schemas:
+    CreateTaskRequest:
+      type: object
+      required:
+        - cwd
+        - prompt
+      properties:
+        agent:
+          type: string
+        cwd:
+          type: string
+        prompt:
+          type: string
+        model:
+          type: string
+        title:
+          type: string
+        permission_mode:
+          type: string
+        workspace_mode:
+          type: string
+        project_id:
+          type: string
+        routine_id:
+          type: string
+        dispatch: {}
+    FollowUpRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+        agent:
+          type: string
+        model:
+          type: string
+        permission_mode:
+          type: string
+    ApprovalDecisionRequest:
+      type: object
+      required:
+        - decision
+      properties:
+        decision:
+          type: string
+          enum:
+            - approved
+            - denied
+    Task:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - title
+        - agent
+        - cwd
+        - prompt
+        - status
+        - tokens_in
+        - tokens_out
+        - created_at
+        - event_epoch
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        agent:
+          type: string
+        cwd:
+          type: string
+        prompt:
+          type: string
+        model:
+          type:
+            - string
+            - "null"
+        session_ref:
+          type:
+            - string
+            - "null"
+        permission_mode:
+          type:
+            - string
+            - "null"
+        status:
+          type: string
+        exit_code:
+          type:
+            - integer
+            - "null"
+        tokens_in:
+          type: integer
+        tokens_out:
+          type: integer
+        cost_usd:
+          type:
+            - number
+            - "null"
+        created_at:
+          type: integer
+        started_at:
+          type:
+            - integer
+            - "null"
+        finished_at:
+          type:
+            - integer
+            - "null"
+        project_id:
+          type:
+            - string
+            - "null"
+        workspace_mode:
+          type:
+            - string
+            - "null"
+        workspace_source_root:
+          type:
+            - string
+            - "null"
+        workspace_root:
+          type:
+            - string
+            - "null"
+        execution_cwd:
+          type:
+            - string
+            - "null"
+        workspace_scope:
+          type:
+            - string
+            - "null"
+        workspace_base_oid:
+          type:
+            - string
+            - "null"
+        workspace_branch:
+          type:
+            - string
+            - "null"
+        workspace_policy:
+          type:
+            - string
+            - "null"
+        current_workspace_id:
+          type:
+            - string
+            - "null"
+        event_epoch:
+          type: integer
+          minimum: 0
+        routine_id:
+          type: string
+        routine_noteworthy:
+          type: boolean
+        routine_tldr:
+          type: string
+        routine_unread:
+          type: boolean
+        dispatch: {}
+    TaskEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - task_id
+        - event_epoch
+        - seq
+        - ts
+        - type
+        - payload
+      properties:
+        task_id:
+          type: string
+        event_epoch:
+          type: integer
+          minimum: 0
+        seq:
+          type: integer
+          minimum: 1
+        ts:
+          type: integer
+        type:
+          type: string
+        payload: {}
+    Approval:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - task_id
+        - kind
+        - payload
+        - decision
+        - created_at
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        kind:
+          type: string
+        payload: {}
+        decision:
+          type: string
+        decided_via:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: integer
+        decided_at:
+          type:
+            - integer
+            - "null"
+        execution_id:
+          type:
+            - string
+            - "null"
+        execution_agent:
+          type:
+            - string
+            - "null"
+        execution_step:
+          type:
+            - integer
+            - "null"
+        execution_model:
+          type:
+            - string
+            - "null"
+        task_title:
+          type: string
+        task_agent:
+          type: string
+    UserQuestionOption:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+      properties:
+        label:
+          type: string
+          minLength: 1
+        description:
+          type: string
+    UserQuestionPayload:
+      type: object
+      additionalProperties: true
+      required:
+        - question
+        - options
+      properties:
+        question:
+          type: string
+          minLength: 1
+        header:
+          type: string
+        options:
+          type: array
+          minItems: 2
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/UserQuestionOption"
+        multi_select:
+          type: boolean
+    UserQuestionResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - selected
+      properties:
+        selected:
+          type: array
+          items:
+            type: string
+        other_text:
+          type: string
+    UserQuestion:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - task_id
+        - payload
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        payload:
+          $ref: "#/components/schemas/UserQuestionPayload"
+        status:
+          type: string
+        response:
+          anyOf:
+            - $ref: "#/components/schemas/UserQuestionResponse"
+            - type: "null"
+        answered_via:
+          type:
+            - string
+            - "null"
+        created_at:
+          type: integer
+        answered_at:
+          type:
+            - integer
+            - "null"
+        execution_id:
+          type:
+            - string
+            - "null"
+        execution_agent:
+          type:
+            - string
+            - "null"
+        execution_step:
+          type:
+            - integer
+            - "null"
+        execution_model:
+          type:
+            - string
+            - "null"
+        task_title:
+          type: string
+        task_agent:
+          type: string
+    TaskUpdateMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - data
+      properties:
+        kind:
+          const: task_update
+        data:
+          $ref: "#/components/schemas/Task"
+    TaskDeletedMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - data
+      properties:
+        kind:
+          const: task_deleted
+        data:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+          properties:
+            id:
+              type: string
+    TaskEventMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - data
+      properties:
+        kind:
+          const: event
+        data:
+          $ref: "#/components/schemas/TaskEvent"
+    ApprovalUpdateMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - data
+      properties:
+        kind:
+          const: approval_update
+        data:
+          $ref: "#/components/schemas/Approval"
+    UserQuestionUpdateMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - data
+      properties:
+        kind:
+          const: user_question_update
+        data:
+          $ref: "#/components/schemas/UserQuestion"
+    WSMessage:
+      oneOf:
+        - $ref: "#/components/schemas/TaskUpdateMessage"
+        - $ref: "#/components/schemas/TaskDeletedMessage"
+        - $ref: "#/components/schemas/TaskEventMessage"
+        - $ref: "#/components/schemas/ApprovalUpdateMessage"
+        - $ref: "#/components/schemas/UserQuestionUpdateMessage"

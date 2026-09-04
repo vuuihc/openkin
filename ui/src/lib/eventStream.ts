@@ -30,10 +30,15 @@ export function hasSequenceGap(contiguousSeq: number, incomingSeq: number): bool
   return incomingSeq > contiguousSeq + 1;
 }
 
-/** Merge by seq (last write wins) and return ascending order. */
-export function mergeEventsBySeq(prev: TaskEvent[], incoming: TaskEvent[]): TaskEvent[] {
+/** Merge immutable durable events by seq (first write wins), sorted ascending. */
+export function mergeEventsBySeq(
+  prev: readonly TaskEvent[],
+  incoming: readonly TaskEvent[],
+): TaskEvent[] {
   const map = new Map<number, TaskEvent>();
   for (const e of prev) map.set(e.seq, e);
-  for (const e of incoming) map.set(e.seq, e);
+  for (const e of incoming) {
+    if (!map.has(e.seq)) map.set(e.seq, e);
+  }
   return Array.from(map.values()).sort((a, b) => a.seq - b.seq);
 }

@@ -1,6 +1,6 @@
 # ADR 0003: Artifacts library + reader (capture before Wiki)
 
-**Status:** Accepted (product direction; implementation not started)
+**Status:** Accepted (P0 implemented; P1 not started)
 **Date:** 2026-07-17
 **Related:** [TODO.md](../TODO.md) · PRINCIPLE §5.5 / §5.6 / §5.11 · SYSTEM_DESIGN §2–§3 · ADR 0002 (session context ≠ long-lived deliverables)
 

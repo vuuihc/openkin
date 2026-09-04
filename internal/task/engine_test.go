@@ -31,6 +31,7 @@ type fakeAdapter struct {
 	// lastSpec / specs record TaskSpec for permission-mode / orchestration tests
 	lastSpec adapter.TaskSpec
 	specs    []adapter.TaskSpec
+	onStart  func(adapter.TaskSpec)
 }
 
 type fakeHandle struct {
@@ -51,12 +52,88 @@ func (h *fakeHandle) Cancel() error {
 	return nil
 }
 
+type overlappingRunAdapter struct {
+	mu            sync.Mutex
+	starts        int
+	firstRelease  chan struct{}
+	secondRelease chan struct{}
+}
+
+type nonCancelingHandle struct {
+	ch <-chan adapter.Event
+}
+
+func (h *nonCancelingHandle) Events() <-chan adapter.Event { return h.ch }
+func (h *nonCancelingHandle) Cancel() error                { return nil }
+
+func (a *overlappingRunAdapter) Start(context.Context, adapter.TaskSpec) (adapter.RunHandle, error) {
+	a.mu.Lock()
+	a.starts++
+	start := a.starts
+	release := a.firstRelease
+	if start > 1 {
+		release = a.secondRelease
+	}
+	a.mu.Unlock()
+
+	ch := make(chan adapter.Event, 4)
+	go func() {
+		defer close(ch)
+		ch <- adapter.Event{Type: "task_started", Payload: json.RawMessage(`{"session_id":"overlap"}`)}
+		<-release
+		text := "new-result"
+		if start == 1 {
+			text = "old-late-result"
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"role": "assistant", "content": []map[string]string{{"type": "text", "text": text}},
+		})
+		ch <- adapter.Event{Type: "message", Payload: payload}
+		ch <- adapter.Event{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)}
+	}()
+	return &nonCancelingHandle{ch: ch}, nil
+}
+
+type blockingRunEventWriter struct {
+	inner   eventWriter
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingRunEventWriter) AppendEvent(
+	ctx context.Context,
+	taskID, typ string,
+	payload json.RawMessage,
+) (store.Event, error) {
+	if typ == "message" && strings.Contains(string(payload), "old-late-result") {
+		w.once.Do(func() {
+			close(w.entered)
+			<-w.release
+		})
+	}
+	return w.inner.AppendEvent(ctx, taskID, typ, payload)
+}
+
+func (w *blockingRunEventWriter) AppendUsageEvent(
+	ctx context.Context,
+	taskID, typ string,
+	payload json.RawMessage,
+	record store.UsageRecord,
+) (store.Event, store.Task, error) {
+	return w.inner.AppendUsageEvent(ctx, taskID, typ, payload, record)
+}
+
 func (a *fakeAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	a.mu.Lock()
 	a.started++
 	a.lastSpec = spec
 	a.specs = append(a.specs, spec)
+	onStart := a.onStart
 	a.mu.Unlock()
+	if onStart != nil {
+		onStart(spec)
+	}
 	if a.gate != nil {
 		select {
 		case <-a.gate:
@@ -122,7 +199,8 @@ func waitStatus(t *testing.T, e *Engine, id, want string, timeout time.Duration)
 		time.Sleep(10 * time.Millisecond)
 	}
 	task, _ := e.Get(context.Background(), id)
-	t.Fatalf("timeout waiting for status %s, got %s", want, task.Status)
+	events, _ := e.store.ListEvents(context.Background(), id, 0)
+	t.Fatalf("timeout waiting for status %s, got %s; events=%+v", want, task.Status, events)
 	return task
 }
 
@@ -162,6 +240,26 @@ func TestHappyPath(t *testing.T) {
 		if ev.Seq != i+1 {
 			t.Fatalf("seq[%d]=%d", i, ev.Seq)
 		}
+	}
+}
+
+func TestMalformedResultCannotCompleteSuccessfully(t *testing.T) {
+	ad := &fakeAdapter{events: []adapter.Event{
+		{Type: "result", Payload: json.RawMessage(`{"is_error":`)},
+	}}
+	e, _ := testEngine(t, 1, ad)
+
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent:  "claude-code",
+		Cwd:    t.TempDir(),
+		Prompt: "test malformed result",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitStatus(t, e, task.ID, StatusFailed, 2*time.Second)
+	if final.Status != StatusFailed {
+		t.Fatalf("status=%q want failed", final.Status)
 	}
 }
 
@@ -242,6 +340,150 @@ func TestCancelRunning(t *testing.T) {
 	if canceled.Status != StatusCanceled {
 		t.Fatalf("status=%s", canceled.Status)
 	}
+}
+
+func TestCancelWhileAdapterStartIsBlockedStaysCanceled(t *testing.T) {
+	gate := make(chan struct{})
+	ad := &fakeAdapter{events: successEvents(), gate: gate}
+	e, _ := testEngine(t, 1, ad)
+
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: t.TempDir(), Prompt: "start slowly",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		ad.mu.Lock()
+		started := ad.started
+		ad.mu.Unlock()
+		if started > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("adapter start was not entered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	canceled, err := e.Cancel(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canceled.Status != StatusCanceled {
+		t.Fatalf("status=%s", canceled.Status)
+	}
+	close(gate)
+	time.Sleep(100 * time.Millisecond)
+	got, err := e.Get(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCanceled {
+		t.Fatalf("status after adapter start=%s want canceled", got.Status)
+	}
+}
+
+func TestNewQueueAttemptClearsStaleCancellation(t *testing.T) {
+	gate := make(chan struct{})
+	ad := &fakeAdapter{events: successEvents(), gate: gate}
+	e, st := testEngine(t, 1, ad)
+	task := store.Task{
+		ID: "01STALECANCEL000000000001", Title: "retry", Agent: "claude-code",
+		Cwd: t.TempDir(), Prompt: "continue", Status: StatusQueued,
+		CreatedAt: store.NowMilli(),
+	}
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	e.canceled[task.ID] = true
+	e.queue = append(e.queue, task.ID)
+	e.mu.Unlock()
+	e.pump()
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	e.mu.Lock()
+	stale := e.canceled[task.ID]
+	e.mu.Unlock()
+	if stale {
+		t.Fatal("new queue attempt retained stale cancellation")
+	}
+	close(gate)
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
+}
+
+func TestRetiredRunCannotOverwriteRunningRetry(t *testing.T) {
+	ad := &overlappingRunAdapter{
+		firstRelease:  make(chan struct{}),
+		secondRelease: make(chan struct{}),
+	}
+	e, st := testEngine(t, 2, ad)
+	writer := &blockingRunEventWriter{
+		inner:   storeEventWriter{st: st},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	e.setEventWriter(writer)
+	ctx := context.Background()
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: t.TempDir(), Prompt: "first",
+		WorkspaceMode: workspace.ModeShared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	close(ad.firstRelease)
+	select {
+	case <-writer.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("old run event did not reach blocked writer")
+	}
+	cancelResult := make(chan error, 1)
+	go func() {
+		_, err := e.Cancel(ctx, task.ID)
+		cancelResult <- err
+	}()
+	select {
+	case err := <-cancelResult:
+		t.Fatalf("cancel crossed an in-flight owner-checked event write: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(writer.release)
+	if err := <-cancelResult; err != nil {
+		t.Fatal(err)
+	}
+	restoreFiles := false
+	if _, err := e.Retry(ctx, task.ID, RetryRequest{RestoreFiles: &restoreFiles}); err != nil {
+		t.Fatal(err)
+	}
+	retried := waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if retried.EventEpoch != 1 {
+		t.Fatalf("retry epoch=%d want 1", retried.EventEpoch)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	stillRunning, err := e.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillRunning.Status != StatusRunning || stillRunning.EventEpoch != 1 {
+		t.Fatalf("retired run changed retry state: %+v", stillRunning)
+	}
+	events, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if strings.Contains(string(event.Payload), "old-late-result") {
+			t.Fatalf("retired run event leaked into retry epoch: %s", event.Payload)
+		}
+	}
+
+	close(ad.secondRelease)
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
 }
 
 func TestRestartRecovery(t *testing.T) {
@@ -582,23 +824,36 @@ func TestPriceTableUsesCodexDefaultWhenModelMissing(t *testing.T) {
 }
 
 type fakeWorkspaceRuntime struct {
-	mu            sync.Mutex
-	prepares      []prepareCall
-	cleanups      []string
-	captures      []captureCall
-	restores      []restoreCall
-	prepareForks  []prepareForkCall
-	prepare       func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
-	capture       func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
-	restore       func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
-	prepareFork   func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
-	failPrep      error
-	failCapture   error
-	failRestore   error
-	failFork      error
-	currentBranch string
-	failBranch    error
-	detached      bool
+	mu                      sync.Mutex
+	prepares                []prepareCall
+	cleanups                []string
+	captures                []captureCall
+	restores                []restoreCall
+	treeRestores            []restoreCall
+	prepareForks            []prepareForkCall
+	prepare                 func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
+	capture                 func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
+	restore                 func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
+	prepareFork             func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
+	failPrep                error
+	failCapture             error
+	failRestore             error
+	failFork                error
+	currentBranch           string
+	failBranch              error
+	detached                bool
+	fastForwardMeta         workspace.Metadata
+	fastForwardTargetBranch string
+	fastForwardCalls        int
+	finalizeInspection      *workspace.FinalizeInspection
+	finalizeStarted         chan struct{}
+	finalizeRelease         chan struct{}
+	finalizeOnce            sync.Once
+	integrationTarget       string
+	ancestorResult          bool
+	ancestorErr             error
+	releaseMeta             workspace.Metadata
+	releaseErr              error
 }
 
 type prepareCall struct {
@@ -626,11 +881,16 @@ type prepareForkCall struct {
 }
 
 func (f *fakeWorkspaceRuntime) ResolveSource(ctx context.Context, cwd string) (workspace.SourceMetadata, error) {
+	targetBranch, err := f.CurrentBranch(ctx, cwd)
+	if err != nil {
+		return workspace.SourceMetadata{}, err
+	}
 	return workspace.SourceMetadata{
-		Cwd:        cwd,
-		SourceRoot: cwd,
-		Scope:      ".",
-		HeadOID:    "deadbeef",
+		Cwd:          cwd,
+		SourceRoot:   cwd,
+		Scope:        ".",
+		TargetBranch: targetBranch,
+		HeadOID:      "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 	}, nil
 }
 
@@ -666,7 +926,7 @@ func (f *fakeWorkspaceRuntime) Prepare(ctx context.Context, taskID, cwd string, 
 		Root:       root,
 		Cwd:        cwdPath,
 		Scope:      "sub",
-		BaseOID:    "deadbeef",
+		BaseOID:    "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		Branch:     "kin/task/" + strings.ToLower(taskID),
 	}, nil
 }
@@ -711,6 +971,19 @@ func (f *fakeWorkspaceRuntime) Restore(ctx context.Context, meta workspace.Metad
 	return nil
 }
 
+func (f *fakeWorkspaceRuntime) RestoreTreeOntoCurrent(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error {
+	f.mu.Lock()
+	f.treeRestores = append(f.treeRestores, restoreCall{TaskID: taskID, Meta: meta, CP: cp})
+	f.mu.Unlock()
+	if f.failRestore != nil {
+		return f.failRestore
+	}
+	if f.restore != nil {
+		return f.restore(ctx, meta, taskID, cp)
+	}
+	return nil
+}
+
 func (f *fakeWorkspaceRuntime) PrepareFork(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error) {
 	f.mu.Lock()
 	f.prepareForks = append(f.prepareForks, prepareForkCall{NewTaskID: newTaskID, Source: source, CP: cp})
@@ -725,13 +998,15 @@ func (f *fakeWorkspaceRuntime) PrepareFork(ctx context.Context, newTaskID string
 	cwdPath := filepath.Join(root, source.Scope)
 	_ = os.MkdirAll(cwdPath, 0o755)
 	return workspace.Metadata{
-		Mode:       workspace.ResolvedWorktree,
-		SourceRoot: source.SourceRoot,
-		Root:       root,
-		Cwd:        cwdPath,
-		Scope:      source.Scope,
-		BaseOID:    source.BaseOID,
-		Branch:     "kin/task/" + strings.ToLower(newTaskID),
+		Mode:         workspace.ResolvedWorktree,
+		Generation:   1,
+		SourceRoot:   source.SourceRoot,
+		Root:         root,
+		Cwd:          cwdPath,
+		Scope:        source.Scope,
+		BaseOID:      source.BaseOID,
+		Branch:       "kin/task/" + strings.ToLower(newTaskID),
+		TargetBranch: source.TargetBranch,
 	}, nil
 }
 
@@ -745,13 +1020,15 @@ func (f *fakeWorkspaceRuntime) PrepareGeneration(ctx context.Context, taskID str
 	cwdPath := filepath.Join(root, source.Scope)
 	_ = os.MkdirAll(cwdPath, 0o755)
 	return workspace.Metadata{
-		Mode:       workspace.ResolvedWorktree,
-		SourceRoot: source.SourceRoot,
-		Root:       root,
-		Cwd:        cwdPath,
-		Scope:      source.Scope,
-		BaseOID:    source.HeadOID,
-		Branch:     "kin/task/" + strings.ToLower(taskID) + "/g" + fmt.Sprint(generation),
+		Mode:         workspace.ResolvedWorktree,
+		Generation:   generation,
+		SourceRoot:   source.SourceRoot,
+		Root:         root,
+		Cwd:          cwdPath,
+		Scope:        source.Scope,
+		BaseOID:      source.HeadOID,
+		Branch:       "kin/task/" + strings.ToLower(taskID) + "/g" + fmt.Sprint(generation),
+		TargetBranch: source.TargetBranch,
 	}, nil
 }
 
@@ -779,6 +1056,19 @@ func (f *fakeWorkspaceRuntime) CapturePrepared(ctx context.Context, meta workspa
 }
 
 func (f *fakeWorkspaceRuntime) InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error) {
+	if f.finalizeStarted != nil {
+		f.finalizeOnce.Do(func() { close(f.finalizeStarted) })
+	}
+	if f.finalizeRelease != nil {
+		select {
+		case <-f.finalizeRelease:
+		case <-ctx.Done():
+			return workspace.FinalizeInspection{}, ctx.Err()
+		}
+	}
+	if f.finalizeInspection != nil {
+		return *f.finalizeInspection, nil
+	}
 	return workspace.FinalizeInspection{
 		HeadOID: meta.BaseOID,
 		TreeOID: "tree-oid",
@@ -786,10 +1076,24 @@ func (f *fakeWorkspaceRuntime) InspectFinalizable(ctx context.Context, meta work
 }
 
 func (f *fakeWorkspaceRuntime) InspectIntegrationTarget(ctx context.Context, meta workspace.Metadata, targetBranch string) (string, error) {
+	if f.integrationTarget != "" {
+		return f.integrationTarget, nil
+	}
 	return meta.BaseOID, nil
 }
 
+func (f *fakeWorkspaceRuntime) IsAncestor(
+	context.Context, workspace.Metadata, string, string,
+) (bool, error) {
+	return f.ancestorResult, f.ancestorErr
+}
+
 func (f *fakeWorkspaceRuntime) FastForward(ctx context.Context, meta workspace.Metadata, targetBranch, expectedSourceOID, finalHeadOID string) (string, error) {
+	f.mu.Lock()
+	f.fastForwardMeta = meta
+	f.fastForwardTargetBranch = targetBranch
+	f.fastForwardCalls++
+	f.mu.Unlock()
 	return finalHeadOID, nil
 }
 
@@ -798,11 +1102,15 @@ func (f *fakeWorkspaceRuntime) FinalizeFastForward(ctx context.Context, meta wor
 }
 
 func (f *fakeWorkspaceRuntime) Release(ctx context.Context, meta workspace.Metadata) error {
-	return nil
+	f.mu.Lock()
+	f.releaseMeta = meta
+	err := f.releaseErr
+	f.mu.Unlock()
+	return err
 }
 
 func (f *fakeWorkspaceRuntime) ReleaseAndPrune(ctx context.Context, meta workspace.Metadata, taskID string) error {
-	return nil
+	return f.Release(ctx, meta)
 }
 
 func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {
@@ -840,6 +1148,29 @@ func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {
 	if got.ExecutionCwd != task.ExecutionCwd {
 		t.Fatalf("persisted exec cwd=%q", got.ExecutionCwd)
 	}
+	ws, err := e.store.GetCurrentWorkspace(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("get eager workspace generation: %v", err)
+	}
+	if ws.Generation != 1 || ws.PhysicalRoot != task.WorkspaceRoot ||
+		(ws.State != store.WorkspaceReady && ws.State != store.WorkspaceActive) {
+		t.Fatalf("eager workspace=%+v", ws)
+	}
+	userSeq := e.latestUserMessageSeq(context.Background(), task.ID)
+	turn, err := e.store.GetTurnWorkspace(context.Background(), task.ID, userSeq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.WorkspaceID == nil || *turn.WorkspaceID != ws.ID || turn.Access != string(adapter.AccessWritable) {
+		t.Fatalf("eager turn binding=%+v", turn)
+	}
+	cp, err := e.store.GetCheckpointForWorkspace(context.Background(), task.ID, userSeq, ws.ID)
+	if err != nil {
+		t.Fatalf("get eager checkpoint: %v", err)
+	}
+	if cp.WorkspaceID != ws.ID {
+		t.Fatalf("checkpoint workspace=%q want %q", cp.WorkspaceID, ws.ID)
+	}
 
 	final := waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
 	_ = final
@@ -848,6 +1179,91 @@ func TestCreateWorkspaceModePassedAndPersisted(t *testing.T) {
 	ad.mu.Unlock()
 	if spec.Cwd != task.EffectiveCwd() {
 		t.Fatalf("adapter cwd=%q want %q", spec.Cwd, task.EffectiveCwd())
+	}
+	ws, err = e.store.GetCurrentWorkspace(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.RequestedExecutionID != spec.Execution.ID {
+		t.Fatalf(
+			"workspace execution=%q want %q",
+			ws.RequestedExecutionID,
+			spec.Execution.ID,
+		)
+	}
+	if spec.RunMeta.WorkspaceExecutionID != spec.Execution.ID {
+		t.Fatalf(
+			"run workspace execution=%q want %q",
+			spec.RunMeta.WorkspaceExecutionID,
+			spec.Execution.ID,
+		)
+	}
+}
+
+func TestStartOnePreservesInitialLazyWorkspace(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 1, ad)
+	e.SetWorkspaceRuntime(&fakeWorkspaceRuntime{})
+	cwd := t.TempDir()
+	task := store.Task{
+		ID:                  "01LAZYINITIAL0000000000001",
+		Title:               "lazy",
+		Agent:               "claude-code",
+		Cwd:                 cwd,
+		Prompt:              "inspect only",
+		Status:              StatusQueued,
+		CreatedAt:           store.NowMilli(),
+		WorkspaceMode:       string(workspace.ResolvedWorktree),
+		WorkspacePolicy:     string(store.WorkspacePolicyAuto),
+		WorkspaceSourceRoot: cwd,
+		WorkspaceRoot:       cwd,
+		ExecutionCwd:        cwd,
+		WorkspaceScope:      ".",
+	}
+	if err := st.InsertTask(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	e.active = 1
+	e.mu.Unlock()
+	e.setActiveRun(task.ID, "lazy-run")
+	e.startOne(task.ID, "lazy-run")
+
+	if _, err := st.GetCurrentWorkspace(context.Background(), task.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("initial lazy turn allocated a workspace: %v", err)
+	}
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.Cwd != cwd {
+		t.Fatalf("adapter cwd=%q want source %q", spec.Cwd, cwd)
+	}
+	if spec.RunMeta.WorkspaceAccess != adapter.AccessSourceReadOnly {
+		t.Fatalf("workspace access=%q want source_read_only", spec.RunMeta.WorkspaceAccess)
+	}
+	if spec.RunMeta.WorkspaceExecutionID != spec.Execution.ID {
+		t.Fatalf(
+			"lazy workspace execution=%q want %q",
+			spec.RunMeta.WorkspaceExecutionID,
+			spec.Execution.ID,
+		)
+	}
+}
+
+func TestCreateEagerWorkspaceRejectsDetachedSource(t *testing.T) {
+	ad := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 1, ad)
+	e.SetWorkspaceRuntime(&fakeWorkspaceRuntime{detached: true})
+
+	_, err := e.Create(context.Background(), CreateRequest{
+		Agent:         "claude-code",
+		Cwd:           t.TempDir(),
+		Prompt:        "edit",
+		WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err == nil || !strings.Contains(err.Error(), "detached HEAD") {
+		t.Fatalf("error=%v want detached HEAD rejection", err)
 	}
 }
 

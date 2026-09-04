@@ -83,6 +83,9 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 			}
 			return agent.Status{Installed: true, Available: true, Binary: path}
 		},
+		Models: func(context.Context) agent.ModelList {
+			return agent.ModelList{Source: "none", Status: "default_only"}
+		},
 		LazyWorkspace: func(ctx context.Context) agent.LazyWorkspaceSupport {
 			return probeCodexLazyWorkspace(ctx, bin, look)
 		},

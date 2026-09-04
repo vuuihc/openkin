@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +14,9 @@ import (
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
+
+// A JSON string can expand each decoded byte to a six-byte \u00xx escape.
+const workspaceWriteBodyLimit = 6*workspaceReadHardLimit + 64*1024
 
 // workspaceGenEntry is one item in GET /api/tasks/{id}/workspaces.
 type workspaceGenEntry struct {
@@ -41,6 +46,7 @@ type genTreeResponse struct {
 	View        string                `json:"view"` // live|snapshot|source
 	Path        string                `json:"path"`
 	Entries     []workspace.TreeEntry `json:"entries"`
+	Truncated   bool                  `json:"truncated,omitempty"`
 }
 
 // workspaceFileResponse is GET .../file.
@@ -151,7 +157,7 @@ func (s *Server) handleListWorkspaceTree(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 			return
 		}
-		entries, err := s.Workspace.ListSnapshotTree(r.Context(), taskID, meta, "HEAD^{tree}", reqPath)
+		entries, truncated, err := s.Workspace.ListLiveTree(r.Context(), meta, reqPath)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -162,6 +168,7 @@ func (s *Server) handleListWorkspaceTree(w http.ResponseWriter, r *http.Request)
 			View:        "live",
 			Path:        reqPath,
 			Entries:     entries,
+			Truncated:   truncated,
 		})
 	case "base":
 		if ws.BaseOID == "" {
@@ -253,7 +260,7 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 			return
 		}
-		content, err := s.Workspace.ReadSnapshotFile(r.Context(), taskID, meta, "HEAD^{tree}", reqPath)
+		content, err := s.Workspace.ReadLiveFile(r.Context(), meta, reqPath)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -313,6 +320,90 @@ func (s *Server) handleReadWorkspaceFile(w http.ResponseWriter, r *http.Request)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "side must be live, base, or final"})
 	}
+}
+
+func (s *Server) handleWriteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+	s.writeWorkspaceFile(w, r, chi.URLParam(r, "id"), chi.URLParam(r, "workspace_id"))
+}
+
+func (s *Server) writeWorkspaceFile(w http.ResponseWriter, r *http.Request, taskID, wsID string) {
+	ws, err := s.Store.GetWorkspace(r.Context(), wsID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && ws.TaskID != taskID) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "workspace not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	switch ws.State {
+	case store.WorkspaceActive, store.WorkspaceMergeBlocked, store.WorkspaceFinalizeBlocked:
+	default:
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "workspace is not writable"})
+		return
+	}
+	var body struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, workspaceWriteBodyLimit)
+	decoder := json.NewDecoder(r.Body)
+	decodeErr := decoder.Decode(&body)
+	if decodeErr == nil {
+		decodeErr = ensureJSONEOF(decoder)
+	}
+	if decodeErr != nil {
+		if _, ok := errors.AsType[*http.MaxBytesError](decodeErr); ok {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	body.Path = strings.TrimSpace(body.Path)
+	if body.Path == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
+		return
+	}
+	if err := validateScopePath(ws.Scope, body.Path); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+	if s.Workspace == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
+		return
+	}
+	meta := generationMetadata(ws)
+	unlock := s.Workspace.LockGeneration(meta)
+	defer unlock()
+	ws, err = s.Store.GetWorkspace(r.Context(), wsID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	switch ws.State {
+	case store.WorkspaceActive, store.WorkspaceMergeBlocked, store.WorkspaceFinalizeBlocked:
+	default:
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "workspace is not writable"})
+		return
+	}
+	content, err := s.Workspace.WriteLiveFile(r.Context(), meta, body.Path, body.Content)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, workspace.ErrOutputTooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, genFileResponse{
+		WorkspaceID: ws.ID,
+		Generation:  ws.Generation,
+		View:        "live",
+		Path:        body.Path,
+		Size:        int64(len(content)),
+		Content:     string(content),
+	})
 }
 
 // handleGetWorkspaceDiff returns the diff for a workspace generation.
@@ -392,43 +483,38 @@ func (s *Server) handleListSourceTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reqPath := r.URL.Query().Get("path")
-	if reqPath == "" {
-		reqPath = t.WorkspaceScope
-		if reqPath == "" {
-			reqPath = "."
-		}
-	}
-
-	if err := validateScopePath(t.WorkspaceScope, reqPath); err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
-		return
-	}
-
 	if s.Workspace == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 		return
 	}
 
-	meta := workspace.Metadata{
-		Mode:       workspace.ResolvedWorktree,
-		SourceRoot: t.WorkspaceSourceRoot,
-		Root:       t.WorkspaceSourceRoot,
-		Cwd:        t.WorkspaceSourceRoot,
-		Scope:      t.WorkspaceScope,
-		BaseOID:    t.WorkspaceBaseOID,
+	meta, err := sourceWorkspaceMetadata(r.Context(), s.Workspace, t)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
-
-	entries, err := s.Workspace.ListSnapshotTree(r.Context(), id, meta, "HEAD^{tree}", reqPath)
+	reqPath := r.URL.Query().Get("path")
+	if reqPath == "" {
+		reqPath = meta.Scope
+		if reqPath == "" {
+			reqPath = "."
+		}
+	}
+	if err := validateScopePath(meta.Scope, reqPath); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+	entries, truncated, err := s.Workspace.ListLiveTree(r.Context(), meta, reqPath)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, genTreeResponse{
-		View:    "source",
-		Path:    reqPath,
-		Entries: entries,
+		View:      "source",
+		Path:      reqPath,
+		Entries:   entries,
+		Truncated: truncated,
 	})
 }
 
@@ -451,26 +537,21 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := validateScopePath(t.WorkspaceScope, reqPath); err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
-		return
-	}
-
 	if s.Workspace == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 		return
 	}
 
-	meta := workspace.Metadata{
-		Mode:       workspace.ResolvedWorktree,
-		SourceRoot: t.WorkspaceSourceRoot,
-		Root:       t.WorkspaceSourceRoot,
-		Cwd:        t.WorkspaceSourceRoot,
-		Scope:      t.WorkspaceScope,
-		BaseOID:    t.WorkspaceBaseOID,
+	meta, err := sourceWorkspaceMetadata(r.Context(), s.Workspace, t)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
-
-	content, err := s.Workspace.ReadSnapshotFile(r.Context(), id, meta, "HEAD^{tree}", reqPath)
+	if err := validateScopePath(meta.Scope, reqPath); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
+		return
+	}
+	content, err := s.Workspace.ReadLiveFile(r.Context(), meta, reqPath)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -487,14 +568,46 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 // generationMetadata builds workspace.Metadata from a WorkspaceGeneration.
 func generationMetadata(ws store.WorkspaceGeneration) workspace.Metadata {
 	return workspace.Metadata{
-		Mode:       workspace.ResolvedWorktree,
-		SourceRoot: ws.SourceRoot,
-		Root:       ws.PhysicalRoot,
-		Cwd:        ws.ExecutionCwd,
-		Scope:      ws.Scope,
-		BaseOID:    ws.BaseOID,
-		Branch:     ws.WorkspaceBranch,
+		Mode:         workspace.ResolvedWorktree,
+		Generation:   ws.Generation,
+		SourceRoot:   ws.SourceRoot,
+		Root:         ws.PhysicalRoot,
+		Cwd:          ws.ExecutionCwd,
+		Scope:        ws.Scope,
+		BaseOID:      ws.BaseOID,
+		Branch:       ws.WorkspaceBranch,
+		TargetBranch: ws.TargetBranch,
 	}
+}
+
+func sourceWorkspaceMetadata(ctx context.Context, manager *workspace.Manager, task store.Task) (workspace.Metadata, error) {
+	source, err := manager.ResolveSource(ctx, task.Cwd)
+	if err == nil {
+		return workspace.Metadata{
+			Mode:       workspace.ResolvedShared,
+			SourceRoot: source.SourceRoot,
+			Root:       source.SourceRoot,
+			Cwd:        source.Cwd,
+			Scope:      source.Scope,
+			BaseOID:    source.HeadOID,
+		}, nil
+	}
+	root := strings.TrimSpace(task.WorkspaceSourceRoot)
+	scope := strings.TrimSpace(task.WorkspaceScope)
+	if root == "" {
+		root = task.Cwd
+		scope = "."
+	}
+	if scope == "" {
+		scope = "."
+	}
+	return workspace.Metadata{
+		Mode:       workspace.ResolvedShared,
+		SourceRoot: root,
+		Root:       root,
+		Cwd:        task.Cwd,
+		Scope:      scope,
+	}, nil
 }
 
 // defaultSide returns the default view side for a workspace state.
@@ -551,18 +664,29 @@ func (s *Server) handleLegacyListWorkspace(w http.ResponseWriter, r *http.Reques
 				return
 			}
 
-			var treeOID string
-			switch side {
-			case "live":
-				treeOID = "HEAD^{tree}"
-			case "final":
+			if side == "live" {
+				entries, truncated, err := s.Workspace.ListLiveTree(r.Context(), meta, reqPath)
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+					return
+				}
+				writeJSON(w, http.StatusOK, genTreeResponse{
+					WorkspaceID: ws.ID,
+					Generation:  ws.Generation,
+					View:        side,
+					Path:        reqPath,
+					Entries:     entries,
+					Truncated:   truncated,
+				})
+				return
+			}
+			treeOID := "HEAD^{tree}"
+			if side == "final" {
 				if ws.FinalTreeOID == "" {
 					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "final tree OID not recorded"})
 					return
 				}
 				treeOID = ws.FinalTreeOID
-			default:
-				treeOID = "HEAD^{tree}"
 			}
 
 			entries, err := s.Workspace.ListSnapshotTree(r.Context(), id, meta, treeOID, reqPath)
@@ -606,18 +730,29 @@ func (s *Server) handleLegacyReadWorkspaceFile(w http.ResponseWriter, r *http.Re
 				return
 			}
 
-			var treeOID string
-			switch side {
-			case "live":
-				treeOID = "HEAD^{tree}"
-			case "final":
+			if side == "live" {
+				content, err := s.Workspace.ReadLiveFile(r.Context(), meta, reqPath)
+				if err != nil {
+					writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+					return
+				}
+				writeJSON(w, http.StatusOK, genFileResponse{
+					WorkspaceID: ws.ID,
+					Generation:  ws.Generation,
+					View:        side,
+					Path:        reqPath,
+					Size:        int64(len(content)),
+					Content:     string(content),
+				})
+				return
+			}
+			treeOID := "HEAD^{tree}"
+			if side == "final" {
 				if ws.FinalTreeOID == "" {
 					writeJSON(w, http.StatusBadRequest, map[string]string{"error": "final tree OID not recorded"})
 					return
 				}
 				treeOID = ws.FinalTreeOID
-			default:
-				treeOID = "HEAD^{tree}"
 			}
 
 			content, err := s.Workspace.ReadSnapshotFile(r.Context(), id, meta, treeOID, reqPath)
@@ -641,19 +776,27 @@ func (s *Server) handleLegacyReadWorkspaceFile(w http.ResponseWriter, r *http.Re
 	s.handleReadTaskWorkspaceFile(w, r)
 }
 
-// handleLegacyWriteWorkspaceFile requires an active writable generation or falls back.
+// handleLegacyWriteWorkspaceFile resolves the current generation and delegates
+// to the same rooted, locked writer as the generation-aware route.
 func (s *Server) handleLegacyWriteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-
-	// If workspace manager is available, require an active writable generation
-	if s.Workspace != nil {
-		ws, err := s.Store.GetCurrentWorkspace(r.Context(), id)
-		if err != nil || ws.State != store.WorkspaceActive {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "no active writable workspace generation"})
-			return
-		}
+	if s.Workspace == nil {
+		s.handleWriteTaskWorkspaceFile(w, r)
+		return
 	}
-
-	// Fall back to original handler
-	s.handleWriteTaskWorkspaceFile(w, r)
+	ws, err := s.Store.GetCurrentWorkspace(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			task, taskErr := s.Store.GetTask(r.Context(), id)
+			if taskErr == nil &&
+				(task.WorkspacePolicy == string(store.WorkspacePolicyShared) ||
+					(task.WorkspacePolicy == "" && task.WorkspaceMode != "worktree")) {
+				s.handleWriteTaskWorkspaceFile(w, r)
+				return
+			}
+		}
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "no active writable workspace generation"})
+		return
+	}
+	s.writeWorkspaceFile(w, r, id, ws.ID)
 }

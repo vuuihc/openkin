@@ -27,6 +27,7 @@ const (
 	EnvExecutionAgent  = "KIN_EXECUTION_AGENT"
 	EnvExecutionStep   = "KIN_EXECUTION_STEP"
 	EnvExecutionModel  = "KIN_EXECUTION_MODEL"
+	EnvWorkspaceExecID = "KIN_WORKSPACE_EXECUTION_ID"
 	EnvKinExecutionCap = "KIN_EXECUTION_CAP"
 )
 
@@ -41,16 +42,17 @@ func Run(ctx context.Context) error {
 
 	client := &http.Client{Timeout: 0} // long-polls managed per-request
 	s := &server{
-		taskID:         taskID,
-		daemon:         daemon,
-		token:          token,
-		executionID:    strings.TrimSpace(os.Getenv(EnvExecutionID)),
-		executionAgent: strings.TrimSpace(os.Getenv(EnvExecutionAgent)),
-		executionModel: strings.TrimSpace(os.Getenv(EnvExecutionModel)),
-		client:         client,
-		in:             os.Stdin,
-		out:            os.Stdout,
-		err:            os.Stderr,
+		taskID:          taskID,
+		daemon:          daemon,
+		token:           token,
+		executionID:     strings.TrimSpace(os.Getenv(EnvExecutionID)),
+		executionAgent:  strings.TrimSpace(os.Getenv(EnvExecutionAgent)),
+		executionModel:  strings.TrimSpace(os.Getenv(EnvExecutionModel)),
+		workspaceExecID: strings.TrimSpace(os.Getenv(EnvWorkspaceExecID)),
+		client:          client,
+		in:              os.Stdin,
+		out:             os.Stdout,
+		err:             os.Stderr,
 	}
 	if stepRaw := strings.TrimSpace(os.Getenv(EnvExecutionStep)); stepRaw != "" {
 		if n, err := strconv.Atoi(stepRaw); err == nil && n > 0 {
@@ -61,17 +63,18 @@ func Run(ctx context.Context) error {
 }
 
 type server struct {
-	taskID         string
-	daemon         string
-	token          string
-	executionID    string
-	executionAgent string
-	executionStep  int
-	executionModel string
-	client         *http.Client
-	in             io.Reader
-	out            io.Writer
-	err            io.Writer
+	taskID          string
+	daemon          string
+	token           string
+	executionID     string
+	executionAgent  string
+	executionStep   int
+	executionModel  string
+	workspaceExecID string
+	client          *http.Client
+	in              io.Reader
+	out             io.Writer
+	err             io.Writer
 }
 
 type rpcRequest struct {
@@ -467,7 +470,7 @@ func (s *server) callRequestWorkspace(ctx context.Context, id json.RawMessage, a
 	_ = arguments
 	body, _ := json.Marshal(map[string]string{
 		"task_id":      s.taskID,
-		"execution_id": s.executionID,
+		"execution_id": s.workspaceExecution(),
 		"agent":        s.executionAgent,
 	})
 	req, err := http.NewRequestWithContext(ctx, "POST", s.daemon+"/api/tasks/"+s.taskID+"/workspace/request", bytes.NewReader(body))
@@ -499,7 +502,7 @@ func (s *server) callCompleteWorkspace(ctx context.Context, id json.RawMessage, 
 	_ = arguments
 	body, _ := json.Marshal(map[string]string{
 		"task_id":      s.taskID,
-		"execution_id": s.executionID,
+		"execution_id": s.workspaceExecution(),
 		"agent":        s.executionAgent,
 	})
 	req, err := http.NewRequestWithContext(ctx, "POST", s.daemon+"/api/tasks/"+s.taskID+"/workspace/complete", bytes.NewReader(body))
@@ -525,6 +528,13 @@ func (s *server) callCompleteWorkspace(ctx context.Context, id json.RawMessage, 
 		msg = "workspace completion failed"
 	}
 	return toolResult(id, denyJSONMsg(msg))
+}
+
+func (s *server) workspaceExecution() string {
+	if id := strings.TrimSpace(s.workspaceExecID); id != "" {
+		return id
+	}
+	return s.executionID
 }
 
 // allowJSON builds Claude Code's expected permission response.

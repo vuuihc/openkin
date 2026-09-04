@@ -461,17 +461,24 @@ func (e *Engine) agentDisplayName(id, model string) string {
 	return name
 }
 
-func (e *Engine) emitOrchestrationFallback(ctx context.Context, taskID, host, reason, stage string) {
+func (e *Engine) emitOrchestrationFallback(
+	ctx context.Context,
+	taskID, executionID, host, reason, stage string,
+) {
 	payload, _ := json.Marshal(map[string]any{
 		"source": "orchestrator",
 		"host":   host,
 		"stage":  stage,
 		"reason": reason,
 	})
-	_, _ = e.appendEventLocked(ctx, taskID, "orchestration_fallback", payload)
+	_, _ = e.appendEventLockedForRun(ctx, taskID, executionID, "orchestration_fallback", payload)
 }
 
-func (e *Engine) recordControllerUsage(ctx context.Context, taskID, host, purpose string, usage agent.ControlUsage) {
+func (e *Engine) recordControllerUsage(
+	ctx context.Context,
+	taskID, executionID, host, purpose string,
+	usage agent.ControlUsage,
+) {
 	if usage.TokensIn <= 0 && usage.TokensOut <= 0 && usage.CostUSD == nil {
 		return
 	}
@@ -485,5 +492,9 @@ func (e *Engine) recordControllerUsage(ctx context.Context, taskID, host, purpos
 		"agent":      host,
 		"speaker":    host,
 	})
-	_, _ = e.appendEventLocked(ctx, taskID, "usage", payload)
+	if accounted, _ := e.appendUsageEventLockedForRun(
+		ctx, taskID, executionID, "usage", payload, host, usage.Model,
+	); !accounted {
+		_, _ = e.appendEventLockedForRun(ctx, taskID, executionID, "usage", payload)
+	}
 }

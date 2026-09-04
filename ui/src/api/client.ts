@@ -1,4 +1,29 @@
 import { useAppStore } from "../store/appStore";
+import { t } from "../i18n";
+import {
+  parseWSMessage,
+  type ApprovalDecisionRequest,
+  type Approval,
+  type CreateTaskRequest,
+  type FollowUpRequest,
+  type Task,
+  type TaskEvent,
+  type UserQuestion,
+  type UserQuestionOption,
+  type UserQuestionPayload,
+  type WSMessage,
+} from "./contract";
+
+export type {
+  Approval,
+  Task,
+  TaskEvent,
+  UserQuestion,
+  UserQuestionOption,
+  UserQuestionPayload,
+  UserQuestionResponse,
+  WSMessage,
+} from "./contract";
 
 const TOKEN_KEY = "kin_token";
 
@@ -93,44 +118,6 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return (await res.json()) as T;
 }
 
-export type Task = {
-  id: string;
-  title: string;
-  agent: string;
-  cwd: string;
-  prompt: string;
-  model?: string | null;
-  session_ref?: string | null;
-  /** Session default for all agents: default | accept_edits | yolo */
-  permission_mode?: string | null;
-  status: string;
-  exit_code?: number | null;
-  tokens_in: number;
-  tokens_out: number;
-  cost_usd?: number | null;
-  created_at: number;
-  started_at?: number | null;
-  finished_at?: number | null;
-  project_id?: string | null;
-  /** Resolved isolation mode: shared | worktree */
-  workspace_mode?: string | null;
-  workspace_root?: string | null;
-  execution_cwd?: string | null;
-  /** ADR 0011 routine run tag; empty for interactive tasks. */
-  routine_id?: string;
-  routine_noteworthy?: boolean;
-  routine_tldr?: string;
-  routine_unread?: boolean;
-};
-
-export type TaskEvent = {
-  task_id: string;
-  seq: number;
-  ts: number;
-  type: string;
-  payload: unknown;
-};
-
 /** Payload for event type "limit_hit" (provider rate limit / quota). */
 export type LimitHit = {
   kind?: string;
@@ -146,79 +133,7 @@ export type LimitHit = {
 };
 
 
-export type Approval = {
-  id: string;
-  task_id: string;
-  kind: string;
-  payload: unknown;
-  decision: string;
-  decided_via?: string | null;
-  created_at: number;
-  decided_at?: number | null;
-  /** Immutable adapter-run id when the approval came from a delegated worker. */
-  execution_id?: string | null;
-  execution_agent?: string | null;
-  execution_step?: number | null;
-  execution_model?: string | null;
-  task_title?: string;
-  task_agent?: string;
-};
-
-export type UserQuestionOption = {
-  label: string;
-  description?: string;
-};
-
-export type UserQuestionPayload = {
-  question: string;
-  header?: string;
-  options: UserQuestionOption[];
-  multi_select?: boolean;
-};
-
-export type UserQuestionResponse = {
-  selected: string[];
-  other_text?: string;
-};
-
-export type UserQuestion = {
-  id: string;
-  task_id: string;
-  payload: UserQuestionPayload | unknown;
-  status: string;
-  response?: UserQuestionResponse | unknown | null;
-  answered_via?: string | null;
-  created_at: number;
-  answered_at?: number | null;
-  execution_id?: string | null;
-  execution_agent?: string | null;
-  execution_step?: number | null;
-  execution_model?: string | null;
-  task_title?: string;
-  task_agent?: string;
-};
-
-export type CreateTaskBody = {
-  /** Optional — daemon picks default available agent when omitted. */
-  agent?: string;
-  cwd: string;
-  prompt: string;
-  model?: string;
-  title?: string;
-  /** Session permission mode applied to every agent (default | accept_edits | yolo). */
-  permission_mode?: string;
-  /** Optional project association (ADR 0008). */
-  project_id?: string;
-  /** Optional dispatch selection for auto model routing. */
-  dispatch?: {
-    mode?: string;
-    team?: string;
-    objective?: string;
-    agent?: string;
-    provider?: string;
-    model?: string;
-  };
-};
+export type CreateTaskBody = CreateTaskRequest;
 
 export type AgentModelOption = {
   id: string;
@@ -284,13 +199,6 @@ export function smokeAgents(ids?: string[]): Promise<{ results: AgentSmokeResult
     body: JSON.stringify(ids && ids.length ? { ids } : {}),
   });
 }
-
-export type WSMessage =
-  | { kind: "task_update"; data: Task }
-  | { kind: "task_deleted"; data: { id: string } }
-  | { kind: "event"; data: TaskEvent }
-  | { kind: "approval_update"; data: Approval }
-  | { kind: "user_question_update"; data: UserQuestion };
 
 export function listTasks(params?: {
   status?: string;
@@ -368,6 +276,7 @@ export type WorkspaceTreeResponse = {
   view: "live" | "snapshot" | "source" | "base" | "final";
   path: string;
   entries: WorkspaceTreeEntry[];
+  truncated?: boolean;
 };
 
 export type WorkspaceFileResponse = {
@@ -429,6 +338,22 @@ export function readWorkspaceFile(
   if (side) q.set("side", side);
   return apiFetch<WorkspaceFileResponse>(
     `/api/tasks/${encodeURIComponent(taskId)}/workspaces/${encodeURIComponent(workspaceId)}/file?${q.toString()}`,
+  );
+}
+
+export function writeWorkspaceFile(
+  taskId: string,
+  workspaceId: string,
+  path: string,
+  content: string,
+): Promise<WorkspaceFileResponse> {
+  return apiFetch<WorkspaceFileResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workspaces/${encodeURIComponent(workspaceId)}/file`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, content }),
+    },
   );
 }
 
@@ -542,12 +467,7 @@ export function followUpPrompt(
   prompt: string,
   opts?: { agent?: string; model?: string; permission_mode?: string },
 ): Promise<Task> {
-  const body: {
-    prompt: string;
-    agent?: string;
-    model?: string;
-    permission_mode?: string;
-  } = { prompt };
+  const body: FollowUpRequest = { prompt };
   if (opts?.agent) body.agent = opts.agent;
   // Include model when the caller opts in (empty string clears task model).
   if (opts && "model" in opts && opts.model !== undefined) {
@@ -735,7 +655,7 @@ export function deriveArtifactTitle(content: string, fallback: string): string {
     .map((l) => l.trim())
     .find((l) => l.length > 0);
   if (line) return line.replace(/^#+\s*/, "").slice(0, 120);
-  return fallback || "Untitled";
+  return fallback || t("api.untitled");
 }
 
 
@@ -1032,10 +952,11 @@ export function decideApproval(
   id: string,
   decision: "approved" | "denied",
 ): Promise<Approval> {
+  const body: ApprovalDecisionRequest = { decision };
   return apiFetch<Approval>(`/api/approvals/${encodeURIComponent(id)}/decision`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ decision }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -1435,12 +1356,8 @@ export function connectWS(
       opts.onOpen?.();
     };
     ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(String(ev.data)) as WSMessage;
-        opts.onMessage(msg);
-      } catch {
-        // ignore malformed
-      }
+      const msg = parseWSMessage(ev.data);
+      if (msg) opts.onMessage(msg);
     };
     ws.onclose = () => {
       if (closed) return;
@@ -1545,7 +1462,7 @@ export function parseApprovalPayload(payload: unknown): {
 } {
   const p = (payload ?? {}) as Record<string, unknown>;
   const toolName = String(
-    p.tool_name ?? p.toolName ?? p.name ?? p.tool ?? "tool",
+    p.tool_name ?? p.toolName ?? p.name ?? p.tool ?? t("api.unknownTool"),
   );
   let input: Record<string, unknown> = {};
   if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
@@ -1570,7 +1487,7 @@ export function optimisticTask(partial: {
   const title =
     partial.title ||
     (partial.prompt.length > 80 ? partial.prompt.slice(0, 80) : partial.prompt) ||
-    "New task";
+    t("api.newTask");
   return {
     id: partial.id,
     title,
@@ -1581,6 +1498,7 @@ export function optimisticTask(partial: {
     tokens_in: 0,
     tokens_out: 0,
     created_at: now,
+    event_epoch: 0,
   };
 }
 

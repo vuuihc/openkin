@@ -89,6 +89,17 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 			}
 			return agent.Status{Installed: true, Available: true, Binary: path}
 		},
+		Models: func(context.Context) agent.ModelList {
+			return agent.ModelList{
+				Models: []agent.ModelOption{
+					{ID: "opus", Label: "Opus"},
+					{ID: "sonnet", Label: "Sonnet"},
+					{ID: "haiku", Label: "Haiku"},
+				},
+				Source: "recommended",
+				Status: "available",
+			}
+		},
 		LazyWorkspace: func(ctx context.Context) agent.LazyWorkspaceSupport {
 			return probeClaudeLazyWorkspace(ctx, bin, look)
 		},

@@ -90,7 +90,10 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 					kinBin, _ = os.Executable()
 				}
 			}
-			mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token, spec.Execution)
+			mcpPath, err = writeMCPConfig(
+				kinBin, spec.ID, a.DaemonURL, token,
+				spec.Execution, spec.RunMeta.WorkspaceExecutionID,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("mcp config: %w", err)
 			}
@@ -120,7 +123,10 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 					kinBin, _ = os.Executable()
 				}
 			}
-			mcpPath, err = writeMCPConfig(kinBin, spec.ID, a.DaemonURL, token, spec.Execution)
+			mcpPath, err = writeMCPConfig(
+				kinBin, spec.ID, a.DaemonURL, token,
+				spec.Execution, spec.RunMeta.WorkspaceExecutionID,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("mcp config: %w", err)
 			}
@@ -231,7 +237,11 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	return h, nil
 }
 
-func writeMCPConfig(kinBin, taskID, daemonURL, token string, exec adapter.ExecutionRef) (string, error) {
+func writeMCPConfig(
+	kinBin, taskID, daemonURL, token string,
+	exec adapter.ExecutionRef,
+	workspaceExecutionID string,
+) (string, error) {
 	env := map[string]string{
 		"KIN_TASK_ID": taskID,
 		"KIN_DAEMON":  daemonURL,
@@ -251,6 +261,9 @@ func writeMCPConfig(kinBin, taskID, daemonURL, token string, exec adapter.Execut
 	}
 	if provider := strings.TrimSpace(exec.ProviderID); provider != "" {
 		env["KIN_PROVIDER_ID"] = provider
+	}
+	if id := strings.TrimSpace(workspaceExecutionID); id != "" {
+		env["KIN_WORKSPACE_EXECUTION_ID"] = id
 	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{

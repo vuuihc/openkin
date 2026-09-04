@@ -55,6 +55,41 @@ func TestFinalizeFastForwardsAndReleases(t *testing.T) {
 	}
 }
 
+func TestIsAncestor(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "first.txt", "first\n")
+	first, err := m.git.Run(
+		context.Background(), src, nil, ControlStdoutLimit, "rev-parse", "HEAD",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitFile(t, src, "second.txt", "second\n")
+	second, err := m.git.Run(
+		context.Background(), src, nil, ControlStdoutLimit, "rev-parse", "HEAD",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := Metadata{SourceRoot: src}
+	firstOID := strings.TrimSpace(string(first))
+	secondOID := strings.TrimSpace(string(second))
+	ok, err := m.IsAncestor(context.Background(), meta, firstOID, secondOID)
+	if err != nil || !ok {
+		t.Fatalf("first ancestor of second: ok=%v err=%v", ok, err)
+	}
+	ok, err = m.IsAncestor(context.Background(), meta, secondOID, firstOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("second commit unexpectedly ancestor of first")
+	}
+}
+
 func TestFinalizeRejectsUncommittedWorkspace(t *testing.T) {
 	requireGit(t)
 	state := t.TempDir()

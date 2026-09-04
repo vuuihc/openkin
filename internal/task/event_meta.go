@@ -128,31 +128,3 @@ func MarshalMessage(text string, attr EventAttribution) (json.RawMessage, error)
 	ApplyAttribution(m, attr)
 	return json.Marshal(m)
 }
-
-func visibilityFromMap(m map[string]any) *Visibility {
-	raw, ok := m["visibility"]
-	if !ok || raw == nil {
-		return nil
-	}
-	switch v := raw.(type) {
-	case map[string]bool:
-		out := Visibility{User: v["user"], Task: v["task"]}
-		return &out
-	case map[string]any:
-		out := Visibility{}
-		if u, ok := v["user"].(bool); ok {
-			out.User = u
-		}
-		if t, ok := v["task"].(bool); ok {
-			out.Task = t
-		}
-		// Only treat as explicit when at least one flag is a boolean.
-		if _, hasU := v["user"].(bool); hasU {
-			return &out
-		}
-		if _, hasT := v["task"].(bool); hasT {
-			return &out
-		}
-	}
-	return nil
-}

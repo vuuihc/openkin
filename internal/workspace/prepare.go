@@ -153,6 +153,7 @@ func (m *Manager) createWorktree(ctx context.Context, taskID string, probe Probe
 
 	return Metadata{
 		Mode:       ResolvedWorktree,
+		Generation: 1,
 		SourceRoot: probe.SourceRoot,
 		Root:       wtPath,
 		Cwd:        execCwd,
@@ -175,7 +176,11 @@ func (m *Manager) CleanupPrepared(ctx context.Context, taskID string, meta Metad
 	if !taskIDPattern.MatchString(taskID) {
 		return fmt.Errorf("%w: %q", ErrInvalidTaskID, taskID)
 	}
-	wtPath, err := m.worktreePath(taskID, 1)
+	generation := meta.Generation
+	if generation <= 0 {
+		generation = 1
+	}
+	wtPath, err := m.worktreePath(taskID, generation)
 	if err != nil {
 		return err
 	}

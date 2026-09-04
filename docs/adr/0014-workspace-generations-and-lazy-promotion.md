@@ -108,6 +108,16 @@ Agents must not remove their current Kin-owned worktree. Kin exposes a
 `complete_workspace` MCP tool. Calling it marks the generation `finalizing` and
 asks the agent to end the turn.
 
+An orchestrated turn has one stable workspace lifecycle owner shared by every
+worker and retry in that turn. Each adapter process still receives a distinct
+execution ID for event and approval attribution; that identity must not replace
+the lifecycle owner while sibling workers remain active.
+
+The engine binds each dequeued top-level run to that owner before starting
+asynchronous work. Event persistence, handle cleanup, and terminal transitions
+must verify the same owner under the mutation lock so a retired run cannot
+write into or terminate a later FollowUp or Retry attempt.
+
 After the adapter process exits, Kin:
 
 1. verifies the workspace exists, is clean, and has committed changes;
@@ -130,12 +140,14 @@ Every transition is an append-only task event:
 
 ```text
 workspace_provisioning
-workspace_created
+workspace_ready
+workspace_active
 workspace_finalizing
-workspace_merged
+workspace_integrated
 workspace_released
-workspace_blocked
-workspace_recovered
+workspace_merge_blocked
+workspace_finalize_blocked
+workspace_orphaned
 ```
 
 Creation, merge, and release are separately visible in the conversation. A
@@ -197,6 +209,20 @@ startup reconciles non-terminal generations:
 
 Recovery may reduce a task to read-only or a visible blocked state. It must
 never silently fall back to writable execution in the primary checkout.
+
+Every Retry uses a durable write-ahead intent. Kin first reserves the task as
+internal `retrying` state and persists the replay payload. File-restoring Retry
+also records the selected checkpoint, target generation, and (for an existing
+target) a rollback checkpoint before changing the worktree. A new generation is
+registered as `provisioning` before its deterministic worktree is prepared.
+Completion atomically truncates the superseded events and checkpoints,
+increments the event epoch, activates and binds the target, replays the user
+event, and queues the task. The intent then acts as a durable resume marker
+until the queued-to-running claim consumes it in the same transaction. Startup
+resolves every retry intent before workspace reconciliation by idempotently
+restoring and completing it, or by restoring the rollback checkpoint/removing
+the planned generation. If neither path succeeds, startup fails closed and
+leaves the intent reserved for a later recovery attempt.
 
 ## Consequences
 

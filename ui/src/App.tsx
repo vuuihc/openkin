@@ -3,11 +3,10 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
   connectWS,
   getToken,
-  listApprovals,
-  type Approval,
   getRoutineUnreadCount,
-  type Task,
 } from "./api/client";
+import { liveResources } from "./api/liveResources";
+import { usePendingResources } from "./api/useLiveResources";
 import ConnectScreen from "./components/ConnectScreen";
 import AppShell from "./components/layout/AppShell";
 import ToastHost from "./components/ToastHost";
@@ -25,13 +24,15 @@ import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { dispatchWS, useAppStore } from "./store/appStore";
+import { clearSessionViewed } from "./lib/sessionViewed";
 
 export default function App() {
   const auth = useAppStore((s) => s.auth);
   const requireToken = useAppStore((s) => s.requireToken);
   const setAuthOk = useAppStore((s) => s.setAuthOk);
-  const [pendingCount, setPendingCount] = useState(0);
   const [routineUnreadCount, setRoutineUnreadCount] = useState(0);
+  const pending = usePendingResources(auth.status === "ok");
+  const pendingCount = pending.data.approvals.length;
   const location = useLocation();
   const isTray = location.pathname === "/tray";
 
@@ -43,15 +44,9 @@ export default function App() {
     }
   }, [requireToken, setAuthOk]);
 
-  const refreshCount = useCallback(async () => {
+  const refreshRoutineUnread = useCallback(async () => {
     if (!getToken()) return;
     if (useAppStore.getState().auth.status === "need_token") return;
-    try {
-      const list = await listApprovals("pending");
-      setPendingCount(list.length);
-    } catch {
-      // badge is best-effort
-    }
     try {
       const { count } = await getRoutineUnreadCount();
       setRoutineUnreadCount(count);
@@ -62,43 +57,37 @@ export default function App() {
 
   useEffect(() => {
     if (auth.status !== "ok") return;
-    void refreshCount();
-  }, [refreshCount, auth.status, location.pathname]);
+    void refreshRoutineUnread();
+  }, [refreshRoutineUnread, auth.status, location.pathname]);
 
   useEffect(() => {
     if (auth.status !== "ok") return;
     const onUnread = () => {
-      void refreshCount();
+      void refreshRoutineUnread();
     };
     window.addEventListener("kin:routine-unread-changed", onUnread);
     return () => window.removeEventListener("kin:routine-unread-changed", onUnread);
-  }, [refreshCount, auth.status]);
+  }, [refreshRoutineUnread, auth.status]);
 
   useEffect(() => {
     if (auth.status !== "ok") return;
     return connectWS({
       onMessage: (msg) => {
+        liveResources.applyMessage(msg);
         dispatchWS(msg);
-        if (msg.kind === "approval_update") {
-          const a = msg.data as Approval;
-          setPendingCount((n) => {
-            if (a.decision === "pending") return n + 1;
-            return Math.max(0, n - 1);
-          });
-          void refreshCount();
-        }
         if (msg.kind === "task_update") {
-          const t = msg.data as Task;
-          if (t.routine_id) {
-            void refreshCount();
+          if (msg.data.status === "running" || msg.data.status === "queued") {
+            clearSessionViewed(msg.data.id);
           }
+          if (msg.data.routine_id) void refreshRoutineUnread();
         }
       },
       onOpen: () => {
-        void refreshCount();
+        void liveResources.reconnect();
+        void refreshRoutineUnread();
       },
     });
-  }, [refreshCount, auth.status]);
+  }, [refreshRoutineUnread, auth.status]);
 
   // Tray popover is a minimal chrome-less surface (still needs token).
   if (isTray) {

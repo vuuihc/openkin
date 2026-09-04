@@ -44,6 +44,14 @@ func NewDefaultResolver(store Store, opts ...ResolverOption) *DefaultResolver {
 	return r
 }
 
+// Defaults returns the validated routing defaults from the configured catalog.
+func (r *DefaultResolver) Defaults(ctx context.Context) (RoutingDefaults, error) {
+	if r == nil || r.store == nil {
+		return RoutingDefaults{}, fmt.Errorf("routing store not configured")
+	}
+	return r.store.GetRoutingDefaults(ctx)
+}
+
 // ResolverOption configures a DefaultResolver.
 type ResolverOption func(*DefaultResolver)
 

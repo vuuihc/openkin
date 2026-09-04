@@ -89,6 +89,7 @@ type Task struct {
 	WorkspaceBranch     string `json:"workspace_branch,omitempty"`
 	WorkspacePolicy     string `json:"workspace_policy,omitempty"`
 	CurrentWorkspaceID  string `json:"current_workspace_id,omitempty"`
+	EventEpoch          int64  `json:"event_epoch"`
 
 	// Optional project association (ADR 0008). Empty = not linked.
 	ProjectID string `json:"project_id,omitempty"`
@@ -113,11 +114,12 @@ func (t Task) EffectiveCwd() string {
 
 // Event is a row in the events table (append-only).
 type Event struct {
-	TaskID  string          `json:"task_id"`
-	Seq     int             `json:"seq"`
-	TS      int64           `json:"ts"`
-	Type    string          `json:"type"`
-	Payload json.RawMessage `json:"payload"`
+	TaskID     string          `json:"task_id"`
+	EventEpoch int64           `json:"event_epoch"`
+	Seq        int             `json:"seq"`
+	TS         int64           `json:"ts"`
+	Type       string          `json:"type"`
+	Payload    json.RawMessage `json:"payload"`
 }
 
 const (
@@ -153,6 +155,7 @@ const (
 // Nil token and cost fields represent values the source did not report.
 type UsageRecord struct {
 	TaskID                string   `json:"task_id"`
+	EventEpoch            int64    `json:"event_epoch"`
 	EventSeq              int      `json:"event_seq"`
 	OccurredAt            int64    `json:"occurred_at"`
 	Agent                 string   `json:"agent"`
@@ -262,7 +265,7 @@ func scanTask(scanner interface {
 		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
 		&workspaceScope, &baseOID, &branch, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
-		&t.WorkspacePolicy, &t.CurrentWorkspaceID,
+		&t.WorkspacePolicy, &t.CurrentWorkspaceID, &t.EventEpoch,
 		&dispatch,
 	); err != nil {
 		return Task{}, err
@@ -333,7 +336,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, dispatch`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -520,8 +523,8 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
 			workspace_scope, workspace_base_oid, workspace_branch, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
-			workspace_policy, current_workspace_id, dispatch
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				workspace_policy, current_workspace_id, event_epoch, dispatch
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -529,7 +532,7 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
-		t.WorkspacePolicy, t.CurrentWorkspaceID,
+		t.WorkspacePolicy, t.CurrentWorkspaceID, t.EventEpoch,
 		dispatchJSON(t.Dispatch),
 	)
 	if err != nil {
@@ -690,6 +693,75 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 	return nil
 }
 
+// FinishTask atomically persists a terminal task state and consumes any retry
+// resume marker that belonged to the attempt being terminated.
+func (s *Store) FinishTask(
+	ctx context.Context,
+	id, status string,
+	finishedAt int64,
+	exitCode *int,
+	costUSD *float64,
+	allowQueued bool,
+) error {
+	switch status {
+	case "succeeded", "failed", "canceled":
+	default:
+		return fmt.Errorf("finish task with non-terminal status %q", status)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin finish task: %w", err)
+	}
+	defer tx.Rollback()
+
+	sets := []string{"status = ?", "finished_at = ?"}
+	args := []any{status, finishedAt}
+	if exitCode != nil {
+		sets = append(sets, "exit_code = ?")
+		args = append(args, *exitCode)
+	}
+	if costUSD != nil {
+		sets = append(sets, "cost_usd = ?")
+		args = append(args, *costUSD)
+	}
+	allowed := []string{
+		"'running'",
+		"'waiting_approval'",
+		"'waiting_input'",
+		"'succeeded'",
+		"'failed'",
+		"'canceled'",
+	}
+	if allowQueued {
+		allowed = append(allowed, "'queued'")
+	}
+	args = append(args, id)
+	res, err := tx.ExecContext(
+		ctx,
+		`UPDATE tasks SET `+strings.Join(sets, ", ")+
+			` WHERE id = ? AND status IN (`+strings.Join(allowed, ", ")+`)`,
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("finish task: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		`DELETE FROM retry_restore_intents WHERE task_id = ?`,
+		id,
+	); err != nil {
+		return fmt.Errorf("consume retry restore intent: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit finish task: %w", err)
+	}
+	return nil
+}
+
 // AppendEvent inserts the next event for a task (monotonically increasing seq).
 // Returns the stored event. Must be called before any WS broadcast (spec §3).
 func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload json.RawMessage) (Event, error) {
@@ -708,6 +780,13 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 	if err != nil {
 		return Event{}, err
 	}
+	var eventEpoch int64
+	if err := tx.QueryRowContext(ctx, `SELECT event_epoch FROM tasks WHERE id = ?`, taskID).Scan(&eventEpoch); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Event{}, ErrNotFound
+		}
+		return Event{}, fmt.Errorf("read task event epoch: %w", err)
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO events (task_id, seq, ts, type, payload)
@@ -720,11 +799,12 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 		return Event{}, fmt.Errorf("commit event: %w", err)
 	}
 	return Event{
-		TaskID:  taskID,
-		Seq:     seq,
-		TS:      ts,
-		Type:    typ,
-		Payload: payload,
+		TaskID:     taskID,
+		EventEpoch: eventEpoch,
+		Seq:        seq,
+		TS:         ts,
+		Type:       typ,
+		Payload:    payload,
 	}, nil
 }
 
@@ -743,6 +823,12 @@ func (s *Store) AppendUsageEvent(ctx context.Context, taskID, typ string, payloa
 	seq, err := nextEventSeq(ctx, tx, taskID)
 	if err != nil {
 		return Event{}, Task{}, err
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT event_epoch FROM tasks WHERE id = ?`, taskID).Scan(&record.EventEpoch); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Event{}, Task{}, ErrNotFound
+		}
+		return Event{}, Task{}, fmt.Errorf("read task event epoch: %w", err)
 	}
 	ts := time.Now().UnixMilli()
 	record.TaskID = taskID
@@ -790,18 +876,14 @@ func (s *Store) AppendUsageEvent(ctx context.Context, taskID, typ string, payloa
 	if err := tx.Commit(); err != nil {
 		return Event{}, Task{}, fmt.Errorf("commit usage event: %w", err)
 	}
-	event := Event{TaskID: taskID, Seq: seq, TS: ts, Type: typ, Payload: payload}
+	event := Event{TaskID: taskID, EventEpoch: record.EventEpoch, Seq: seq, TS: ts, Type: typ, Payload: payload}
 	return event, task, nil
 }
 
 func nextEventSeq(ctx context.Context, tx *sql.Tx, taskID string) (int, error) {
 	var maxSeq sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `
-		SELECT MAX(seq) FROM (
-			SELECT seq FROM events WHERE task_id = ?
-			UNION ALL
-			SELECT event_seq AS seq FROM usage_records WHERE task_id = ?
-		)`, taskID, taskID).Scan(&maxSeq); err != nil {
+		SELECT MAX(seq) FROM events WHERE task_id = ?`, taskID).Scan(&maxSeq); err != nil {
 		return 0, fmt.Errorf("max seq: %w", err)
 	}
 	if !maxSeq.Valid {
@@ -826,7 +908,7 @@ func intValueOrZero(value *int) int {
 }
 
 // InsertUsageRecord persists one normalized usage observation. The task event
-// identified by (task_id, event_seq) is its stable idempotency key.
+// identified by (task_id, event_epoch, event_seq) is its stable idempotency key.
 func (s *Store) InsertUsageRecord(ctx context.Context, r UsageRecord) error {
 	if err := r.validate(); err != nil {
 		return err
@@ -841,12 +923,12 @@ type usageRecordExecer interface {
 func insertUsageRecord(ctx context.Context, exec usageRecordExecer, r UsageRecord) error {
 	_, err := exec.ExecContext(ctx, `
 		INSERT INTO usage_records (
-			task_id, event_seq, occurred_at, agent, provider, model,
+			task_id, event_epoch, event_seq, occurred_at, agent, provider, model,
 			input_tokens, output_tokens, reasoning_output_tokens,
 			cache_read_tokens, cache_write_tokens, cost_usd,
 			cost_source, cache_status, input_semantics
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.TaskID, r.EventSeq, r.OccurredAt, r.Agent, r.Provider, r.Model,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.TaskID, r.EventEpoch, r.EventSeq, r.OccurredAt, r.Agent, r.Provider, r.Model,
 		r.InputTokens, r.OutputTokens, r.ReasoningOutputTokens,
 		r.CacheReadTokens, r.CacheWriteTokens, r.CostUSD,
 		r.CostSource, r.CacheStatus, r.InputSemantics,
@@ -860,13 +942,13 @@ func insertUsageRecord(ctx context.Context, exec usageRecordExecer, r UsageRecor
 // ListUsageRecords returns task usage observations in event order.
 func (s *Store) ListUsageRecords(ctx context.Context, taskID string) ([]UsageRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT task_id, event_seq, occurred_at, agent, provider, model,
+			SELECT task_id, event_epoch, event_seq, occurred_at, agent, provider, model,
 		       input_tokens, output_tokens, reasoning_output_tokens,
 		       cache_read_tokens, cache_write_tokens, cost_usd,
 		       cost_source, cache_status, input_semantics
 		FROM usage_records
 		WHERE task_id = ?
-		ORDER BY event_seq ASC`, taskID)
+			ORDER BY event_epoch ASC, event_seq ASC`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list usage records: %w", err)
 	}
@@ -879,7 +961,7 @@ func (s *Store) ListUsageRecords(ctx context.Context, taskID string) ([]UsageRec
 		var input, output, reasoning, cacheRead, cacheWrite sql.NullInt64
 		var cost sql.NullFloat64
 		if err := rows.Scan(
-			&r.TaskID, &r.EventSeq, &r.OccurredAt, &r.Agent, &provider, &model,
+			&r.TaskID, &r.EventEpoch, &r.EventSeq, &r.OccurredAt, &r.Agent, &provider, &model,
 			&input, &output, &reasoning, &cacheRead, &cacheWrite, &cost,
 			&r.CostSource, &r.CacheStatus, &r.InputSemantics,
 		); err != nil {
@@ -919,10 +1001,11 @@ func nullableInt(v sql.NullInt64) *int {
 // ListEvents returns events for a task with seq > sinceSeq, ordered by seq asc.
 func (s *Store) ListEvents(ctx context.Context, taskID string, sinceSeq int) ([]Event, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT task_id, seq, ts, type, payload
-		FROM events
-		WHERE task_id = ? AND seq > ?
-		ORDER BY seq ASC`, taskID, sinceSeq)
+			SELECT e.task_id, t.event_epoch, e.seq, e.ts, e.type, e.payload
+			FROM events e
+			JOIN tasks t ON t.id = e.task_id
+			WHERE e.task_id = ? AND e.seq > ?
+			ORDER BY e.seq ASC`, taskID, sinceSeq)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}
@@ -932,7 +1015,7 @@ func (s *Store) ListEvents(ctx context.Context, taskID string, sinceSeq int) ([]
 	for rows.Next() {
 		var e Event
 		var payload string
-		if err := rows.Scan(&e.TaskID, &e.Seq, &e.TS, &e.Type, &payload); err != nil {
+		if err := rows.Scan(&e.TaskID, &e.EventEpoch, &e.Seq, &e.TS, &e.Type, &payload); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 		e.Payload = json.RawMessage(payload)
@@ -944,15 +1027,30 @@ func (s *Store) ListEvents(ctx context.Context, taskID string, sinceSeq int) ([]
 	return out, nil
 }
 
-// TruncateEventsFrom deletes events with seq >= fromSeq for a task.
-// Used by retry (drop a turn and re-run) and similar rewinds.
+// TruncateEventsFrom atomically starts a new event epoch and deletes events
+// with seq >= fromSeq. Usage remains immutable across retries and is keyed by
+// epoch so actual spend is never erased.
 func (s *Store) TruncateEventsFrom(ctx context.Context, taskID string, fromSeq int) error {
 	if fromSeq < 1 {
 		return fmt.Errorf("fromSeq must be >= 1")
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM events WHERE task_id = ? AND seq >= ?`, taskID, fromSeq)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin truncate events: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE task_id = ? AND seq >= ?`, taskID, fromSeq); err != nil {
 		return fmt.Errorf("truncate events: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE tasks SET event_epoch = event_epoch + 1 WHERE id = ?`, taskID)
+	if err != nil {
+		return fmt.Errorf("advance event epoch: %w", err)
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit truncate events: %w", err)
 	}
 	return nil
 }
@@ -1014,12 +1112,52 @@ func (s *Store) CopyEventsToTask(ctx context.Context, srcID, dstID string, maxSe
 	return len(batch), nil
 }
 
+// StartQueuedTask atomically claims a queued task and consumes any durable
+// retry-resume marker. A retry intent remains until this transition so a crash
+// after retry completion can reconstruct the in-memory queue.
+func (s *Store) StartQueuedTask(ctx context.Context, taskID string, startedAt int64) (Task, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Task{}, fmt.Errorf("begin task start: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
+		UPDATE tasks
+		SET status = 'running', started_at = COALESCE(started_at, ?)
+		WHERE id = ? AND status = 'queued'`, startedAt, taskID)
+	if err != nil {
+		return Task{}, fmt.Errorf("start queued task: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return Task{}, ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM retry_restore_intents WHERE task_id = ?`, taskID); err != nil {
+		return Task{}, fmt.Errorf("consume retry restore intent: %w", err)
+	}
+	task, err := scanTask(tx.QueryRowContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, taskID))
+	if err != nil {
+		return Task{}, fmt.Errorf("read started task: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Task{}, fmt.Errorf("commit task start: %w", err)
+	}
+	return task, nil
+}
+
 // FailOrphaned marks queued/running tasks as failed after a daemon restart.
+// Queued retries with a durable restore intent are excluded so recovery can
+// reconstruct their in-memory queue.
 // Returns the IDs that were failed so the caller can append error events.
 func (s *Store) FailOrphaned(ctx context.Context) ([]string, error) {
 	now := time.Now().UnixMilli()
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id FROM tasks WHERE status IN ('queued', 'running', 'waiting_approval')`)
+		SELECT id FROM tasks
+		WHERE status IN ('queued', 'running', 'waiting_approval')
+		  AND NOT EXISTS (
+			SELECT 1 FROM retry_restore_intents r WHERE r.task_id = tasks.id
+		  )`)
 	if err != nil {
 		return nil, fmt.Errorf("select orphans: %w", err)
 	}
@@ -1043,7 +1181,10 @@ func (s *Store) FailOrphaned(ctx context.Context) ([]string, error) {
 	for _, id := range ids {
 		if _, err := s.db.ExecContext(ctx, `
 			UPDATE tasks SET status = 'failed', finished_at = ?
-			WHERE id = ? AND status IN ('queued', 'running', 'waiting_approval')`,
+			WHERE id = ? AND status IN ('queued', 'running', 'waiting_approval')
+			  AND NOT EXISTS (
+				SELECT 1 FROM retry_restore_intents r WHERE r.task_id = tasks.id
+			  )`,
 			now, id,
 		); err != nil {
 			return nil, fmt.Errorf("fail orphan %s: %w", id, err)
@@ -1095,10 +1236,33 @@ func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
 
 // SetSetting upserts a settings key.
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO settings (key, value) VALUES (?, ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
-	return err
+	return s.SetSettings(ctx, map[string]string{key: value})
+}
+
+// SetSettings atomically upserts a set of settings.
+func (s *Store) SetSettings(ctx context.Context, values map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, key := range keys {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, values[key]); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // UsageRow is one day × agent aggregate for GET /api/usage/summary (M4).
@@ -1163,7 +1327,7 @@ func (s *Store) UsageSummary(ctx context.Context, days int) ([]UsageRow, error) 
 	startMS := startDay.UnixMilli()
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT task_id, event_seq, occurred_at, agent, provider, model,
+			SELECT task_id, event_epoch, event_seq, occurred_at, agent, provider, model,
 	       input_tokens, output_tokens, reasoning_output_tokens,
 	       cache_read_tokens, cache_write_tokens, cost_usd,
 	       cost_source, cache_status, input_semantics
@@ -1380,7 +1544,7 @@ func scanUsageRecord(scanner interface{ Scan(...any) error }) (UsageRecord, erro
 	var input, output, reasoning, cacheRead, cacheWrite sql.NullInt64
 	var cost sql.NullFloat64
 	if err := scanner.Scan(
-		&r.TaskID, &r.EventSeq, &r.OccurredAt, &r.Agent, &provider, &model,
+		&r.TaskID, &r.EventEpoch, &r.EventSeq, &r.OccurredAt, &r.Agent, &provider, &model,
 		&input, &output, &reasoning, &cacheRead, &cacheWrite, &cost,
 		&r.CostSource, &r.CacheStatus, &r.InputSemantics,
 	); err != nil {

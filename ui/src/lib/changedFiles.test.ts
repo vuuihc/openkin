@@ -15,6 +15,7 @@ function toolUse(
 ): TaskEvent {
   return {
     task_id: "t1",
+    event_epoch: 0,
     seq,
     type: "tool_use",
     ts: seq,

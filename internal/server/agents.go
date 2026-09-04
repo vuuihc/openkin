@@ -14,6 +14,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/kinagent"
 	"github.com/vuuihc/openkin/internal/adapter/rawpty"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -25,6 +26,7 @@ func buildAgentRegistry(
 	st *store.Store,
 	daemonURL string,
 	tokenFn func() string,
+	catalog *routing.Catalog,
 ) (*agent.Registry, error) {
 	factories := []agent.Factory{
 		kinagent.NewPluginFactory(st),
@@ -36,6 +38,17 @@ func buildAgentRegistry(
 		droid.NewPluginFactory(droid.PluginConfig{
 			DaemonURL: daemonURL,
 			TokenFunc: tokenFn,
+			ConfiguredModels: func(ctx context.Context) ([]agent.ModelOption, error) {
+				models, err := catalog.ModelsForAgent(ctx, "droid", routing.ProviderKindSubscription)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]agent.ModelOption, len(models))
+				for i, model := range models {
+					out[i] = agent.ModelOption{ID: model.ID, Tier: model.Tier}
+				}
+				return out, nil
+			},
 		}),
 		grok.NewPluginFactory(),
 	}

@@ -141,6 +141,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
+		r.Put("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
 		r.Get("/api/tasks/{id}/source/tree", s.handleListSourceTree)
 		r.Get("/api/tasks/{id}/source/file", s.handleReadSourceFile)
@@ -313,7 +314,6 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		if list == nil {
 			list = []AgentInfo{}
 		}
-		s.applyAgentModelLists(r.Context(), list)
 		writeJSON(w, http.StatusOK, list)
 		return
 	}
@@ -335,7 +335,6 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []AgentInfo{}
 	}
-	s.applyAgentModelLists(r.Context(), list)
 	writeJSON(w, http.StatusOK, list)
 }
 
@@ -985,18 +984,21 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		provStream = "false"
 	}
 	provActive := get(provider.KeyActiveProvider)
-	if reg, err := provider.LoadRegistry(ctx, s.Store); err == nil {
-		provActive = reg.ActiveID
-		if active, ok := reg.Active(); ok {
-			provKind = firstNonEmpty(active.Kind, "openai-compatible")
-			provBase = active.BaseURL
-			provKey = active.APIKey
-			provModel = active.Model
-			if active.Stream {
-				provStream = "true"
-			} else {
-				provStream = "false"
-			}
+	reg, err := provider.LoadRegistry(ctx, s.Store)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	provActive = reg.ActiveID
+	if active, ok := reg.Active(); ok {
+		provKind = firstNonEmpty(active.Kind, "openai-compatible")
+		provBase = active.BaseURL
+		provKey = active.APIKey
+		provModel = active.Model
+		if active.Stream {
+			provStream = "true"
+		} else {
+			provStream = "false"
 		}
 	}
 	writeJSON(w, http.StatusOK, settingsResponse{
@@ -1048,10 +1050,6 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 
 	// Provider clear flag (not stored as a real setting).
 	clearProviderKey := body["provider.clear_api_key"] == "1" || body["provider.clear_api_key"] == "true"
-	if clearProviderKey {
-		_ = s.Store.SetSetting(ctx, "provider.api_key", "")
-		delete(body, "provider.clear_api_key")
-	}
 	delete(body, "provider.clear_api_key")
 
 	// Validate provider fields together when any present.
@@ -1121,24 +1119,21 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// Ignore masked api_key round-trips from GET.
-		if k == "provider.api_key" && (v == "" || strings.Contains(v, "…") || strings.Contains(v, "••••")) {
-			continue
-		}
-		if err := s.Store.SetSetting(ctx, k, v); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		if k == "ui.base_url" {
-			s.BaseURL = strings.TrimRight(strings.TrimSpace(v), "/")
-		}
+		body[k] = v
 	}
-	// Keep multi-provider registry in sync when legacy single-slot keys are written.
+	// Keep multi-provider registry and its legacy mirror in the same atomic
+	// settings write as the rest of this request.
 	if providerSlotTouched {
-		if err := syncRegistryFromLegacySettings(ctx, s.Store); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		if err := s.routingCatalog().SaveSettingsWithLegacyProvider(ctx, body, clearProviderKey); err != nil {
+			writeRoutingCatalogError(w, err)
 			return
 		}
+	} else if err := s.Store.SetSettings(ctx, body); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if value, ok := body["ui.base_url"]; ok {
+		s.BaseURL = strings.TrimRight(strings.TrimSpace(value), "/")
 	}
 	// Return updated snapshot.
 	s.handleGetSettings(w, r)
@@ -1282,8 +1277,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// validateAgentDefault ensures the preferred host agent is registered, locally
-// present (skills discovery / PATH), and currently runnable.
+// validateAgentDefault ensures the preferred host agent is registered and
+// currently runnable.
 func (s *Server) validateAgentDefault(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1299,55 +1294,8 @@ func (s *Server) validateAgentDefault(ctx context.Context, id string) error {
 		}
 		return fmt.Errorf("unknown agent %q", id)
 	}
-	// Local presence: skip for builtin kin (provider-backed); require for CLI ids.
-	if id != "kin" && !detect.IsLocallyPresent(id) {
-		// Still allow if the adapter Status reports available (e.g. custom KIN_*_BIN
-		// path outside discovery heuristics) — GetRunnable is the final gate.
-		if _, err := s.Engine.Agents().GetRunnable(ctx, id); err == nil {
-			return nil
-		}
-		return fmt.Errorf("agent %q is not installed on this machine", id)
-	}
 	if _, err := s.Engine.Agents().GetRunnable(ctx, id); err != nil {
 		return fmt.Errorf("agent %q is not available (%v)", id, err)
 	}
 	return nil
-}
-
-func applyAgentModelList(info *AgentInfo) {
-	if info.ModelListSource != "" || info.ModelListStatus != "" {
-		return
-	}
-	if len(info.Models) > 0 {
-		info.ModelListSource = "configured"
-		info.ModelListStatus = "available"
-		return
-	}
-	switch info.ID {
-	case "claude-code":
-		info.Models = []AgentModelOption{
-			{ID: "opus", Label: "Opus"},
-			{ID: "sonnet", Label: "Sonnet"},
-			{ID: "haiku", Label: "Haiku"},
-		}
-		info.ModelListSource = "recommended"
-		info.ModelListStatus = "available"
-	case "droid":
-		info.Models = droidRecommendedModelOptions()
-		info.ModelListSource = "recommended"
-		info.ModelListStatus = "available"
-	case "codex":
-		info.Models = nil
-		info.ModelListSource = "none"
-		info.ModelListStatus = "default_only"
-	case "kin":
-		// Kin runs on the Cognition provider; model comes from Settings
-		// (provider.model), not Claude-style short aliases.
-		info.Models = nil
-		info.ModelListSource = "none"
-		info.ModelListStatus = "default_only"
-	default:
-		info.ModelListSource = "none"
-		info.ModelListStatus = "unavailable"
-	}
 }

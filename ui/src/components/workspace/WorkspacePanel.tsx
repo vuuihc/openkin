@@ -8,12 +8,12 @@ import {
 } from "react";
 import {
   ApiError,
-  readTaskWorkspaceFile,
-  readWorkspaceFile,
   getWorkspaceDiff,
+  listTaskWorkspaces,
   type TaskEvent,
   type TaskWorkspaceFileResponse,
   type WorkspaceFileResponse,
+  type WorkspaceGeneration,
 } from "../../api/client";
 import { t } from "../../i18n";
 import { useT } from "../../i18n/react";
@@ -30,6 +30,12 @@ import { IconPanel, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
 import CodeViewer from "./CodeViewer";
 import FileTree from "./FileTree";
+import {
+  effectiveCurrentWorkspaceID,
+  readWorkspaceViewFile,
+  resolveWorkspaceView,
+  workspaceLifecycleRefreshKey,
+} from "./workspaceView";
 
 type Props = {
   taskId: string;
@@ -46,6 +52,7 @@ type Props = {
   changedFiles?: ChangedFile[];
   /** Currently selected workspace generation ID (null = source / current project). */
   selectedWorkspaceId?: string | null;
+  currentWorkspaceId?: string | null;
   /** Called when the user picks a different workspace generation. */
   onSelectWorkspace?: (id: string | null) => void;
   /** Isolated terminal task: enable keep/discard review actions. */
@@ -65,6 +72,13 @@ type DragState = {
   pointerId: number;
   startX: number;
   startWidth: number;
+};
+
+type WorkspaceGenerationResource = {
+  taskId: string;
+  refreshKey: string;
+  generations: WorkspaceGeneration[];
+  loading: boolean;
 };
 
 function readStoredSidebarWidth(): number {
@@ -102,6 +116,7 @@ export default function WorkspacePanel({
   events,
   changedFiles: changedFilesProp,
   selectedWorkspaceId,
+  currentWorkspaceId,
   onSelectWorkspace,
   reviewActions = false,
   onDiscardAll,
@@ -109,6 +124,73 @@ export default function WorkspacePanel({
 }: Props) {
   useT();
   const tr = useT();
+  const generationRefreshKey = workspaceLifecycleRefreshKey(
+    events,
+    currentWorkspaceId,
+  );
+  const [generationResource, setGenerationResource] =
+    useState<WorkspaceGenerationResource>(() => ({
+      taskId,
+      refreshKey: generationRefreshKey,
+      generations: [],
+      loading: true,
+    }));
+  const generationResourceCurrent =
+    generationResource.taskId === taskId &&
+    generationResource.refreshKey === generationRefreshKey;
+  const generations = generationResourceCurrent
+    ? generationResource.generations
+    : [];
+  const generationsLoading =
+    !generationResourceCurrent || generationResource.loading;
+  const effectiveCurrentWorkspaceId = effectiveCurrentWorkspaceID(
+    currentWorkspaceId,
+    generations,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setGenerationResource({
+      taskId,
+      refreshKey: generationRefreshKey,
+      generations: [],
+      loading: true,
+    });
+    listTaskWorkspaces(taskId)
+      .then((nextGenerations) => {
+        if (cancelled) return;
+        setGenerationResource({
+          taskId,
+          refreshKey: generationRefreshKey,
+          generations: nextGenerations,
+          loading: false,
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGenerationResource({
+          taskId,
+          refreshKey: generationRefreshKey,
+          generations: [],
+          loading: false,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, generationRefreshKey]);
+
+  const workspaceView = useMemo(
+    () =>
+      resolveWorkspaceView(
+        selectedWorkspaceId,
+        effectiveCurrentWorkspaceId,
+        generations,
+      ),
+    [selectedWorkspaceId, effectiveCurrentWorkspaceId, generations],
+  );
+  const viewedWorkspaceId =
+    workspaceView.kind === "generation" ? workspaceView.workspaceId : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [file, setFile] = useState<TaskWorkspaceFileResponse | WorkspaceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -145,20 +227,20 @@ export default function WorkspacePanel({
     [persistSidebarWidth],
   );
 
-  // Fetch generation-aware diff when a workspace is selected.
+  // Fetch generation-aware diff for the effective view, including auto mode.
   useEffect(() => {
-    if (!selectedWorkspaceId) {
+    if (!viewedWorkspaceId) {
       setGenDiffFiles([]);
       return;
     }
     let cancelled = false;
     setGenDiffLoaded(false);
-    getWorkspaceDiff(taskId, selectedWorkspaceId)
+    getWorkspaceDiff(taskId, viewedWorkspaceId)
       .then((res) => {
         if (cancelled) return;
         setGenDiffFiles(
           changedFilesFromDiff(
-            res.workspace_id ?? selectedWorkspaceId,
+            res.workspace_id ?? viewedWorkspaceId,
             res.generation ?? 0,
             res.changes,
           ),
@@ -174,15 +256,15 @@ export default function WorkspacePanel({
     return () => {
       cancelled = true;
     };
-  }, [taskId, selectedWorkspaceId]);
+  }, [taskId, viewedWorkspaceId]);
 
   const changedFiles = useMemo(() => {
     // When a workspace is selected, prefer the API diff as source of truth.
-    if (selectedWorkspaceId && genDiffLoaded) return genDiffFiles;
+    if (viewedWorkspaceId && genDiffLoaded) return genDiffFiles;
     if (changedFilesProp) return changedFilesProp;
     if (!events || events.length === 0) return [] as ChangedFile[];
     return extractChangedFiles(events);
-  }, [changedFilesProp, events, selectedWorkspaceId, genDiffFiles, genDiffLoaded]);
+  }, [changedFilesProp, events, viewedWorkspaceId, genDiffFiles, genDiffLoaded]);
 
   const visibleChangedFiles = useMemo(
     () =>
@@ -225,12 +307,7 @@ export default function WorkspacePanel({
     setLoading(true);
     setError(null);
     try {
-      let next: TaskWorkspaceFileResponse | WorkspaceFileResponse;
-      if (selectedWorkspaceId) {
-        next = await readWorkspaceFile(taskId, selectedWorkspaceId, path);
-      } else {
-        next = await readTaskWorkspaceFile(taskId, path);
-      }
+      const next = await readWorkspaceViewFile(workspaceView, taskId, path);
       if (requestRef.current !== reqID) return;
       setFile(next);
     } catch (err) {
@@ -242,7 +319,7 @@ export default function WorkspacePanel({
         setLoading(false);
       }
     }
-  }, [taskId, selectedWorkspaceId]);
+  }, [taskId, workspaceView]);
 
   useEffect(() => {
     requestRef.current += 1;
@@ -252,7 +329,7 @@ export default function WorkspacePanel({
     setError(null);
     setGenDiffFiles([]);
     userPickedTab.current = false;
-  }, [cwd, taskId]);
+  }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
   useEffect(() => {
     if (!openPath) return;
@@ -311,8 +388,9 @@ export default function WorkspacePanel({
             </span>
             {onSelectWorkspace && (
               <WorkspaceGenerationPicker
-                taskId={taskId}
-                selectedId={selectedWorkspaceId ?? null}
+                generations={generations}
+                loading={generationsLoading}
+                selectedId={viewedWorkspaceId}
                 onChange={onSelectWorkspace}
               />
             )}
@@ -321,7 +399,7 @@ export default function WorkspacePanel({
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
           </div>
         </div>
-        {reviewActions && onDiscardAll && (
+        {workspaceView.editable && reviewActions && onDiscardAll && (
           <button
             type="button"
             disabled={actionsBusy || !hasChanges}
@@ -389,7 +467,7 @@ export default function WorkspacePanel({
                 openPath={openPath}
                 openNonce={openNonce}
                 onSelect={(path) => void loadFile(path)}
-                workspaceId={selectedWorkspaceId}
+                view={workspaceView}
               />
             )}
           </div>
@@ -464,9 +542,16 @@ export default function WorkspacePanel({
             diff={enrichedDiff}
             cwd={cwd}
             taskId={taskId}
-            editable={!selectedWorkspaceId}
+            workspaceId={
+              workspaceView.kind === "generation"
+                ? workspaceView.workspaceId
+                : null
+            }
+            editable={workspaceView.editable}
             onSaved={(updated) => setFile(updated)}
-            reviewActions={reviewActions && Boolean(selectedPath)}
+            reviewActions={
+              workspaceView.editable && reviewActions && Boolean(selectedPath)
+            }
             actionsBusy={actionsBusy}
             onKeep={() => {
               if (!selectedPath) return;

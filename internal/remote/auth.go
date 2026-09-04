@@ -102,17 +102,27 @@ func NewFileAuth(tokenPath string) *Auth {
 	}
 }
 
-// Token returns the currently accepted token (from file or static).
-func (a *Auth) Token() string {
+func (a *Auth) loadToken() (string, error) {
 	if a.tokenPath != "" {
 		data, err := os.ReadFile(a.tokenPath)
-		if err == nil {
-			if tok := strings.TrimSpace(string(data)); tok != "" {
-				return tok
-			}
+		if err != nil {
+			return "", fmt.Errorf("read auth token: %w", err)
 		}
+		tok := strings.TrimSpace(string(data))
+		if tok == "" {
+			return "", fmt.Errorf("read auth token: token is empty")
+		}
+		return tok, nil
 	}
-	return a.staticToken
+	return a.staticToken, nil
+}
+
+// Token returns the currently accepted token (from file or static).
+// File load failures return an empty token; authentication uses loadToken so
+// those failures are never treated as valid credentials.
+func (a *Auth) Token() string {
+	token, _ := a.loadToken()
+	return token
 }
 
 // Middleware rejects unauthenticated requests with 401.
@@ -124,8 +134,8 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		got := extractToken(r)
-		want := a.Token()
-		if !secureEqual(got, want) {
+		want, err := a.loadToken()
+		if err != nil || want == "" || !secureEqual(got, want) {
 			a.fail.record(ip)
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)

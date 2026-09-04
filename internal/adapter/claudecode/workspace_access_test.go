@@ -1,6 +1,8 @@
 package claudecode
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -83,5 +85,40 @@ func TestWritableRunRetainsExistingPermissionMapping(t *testing.T) {
 	}
 	if spec.RunMeta.WorkspaceAccess != adapter.AccessWritable {
 		t.Fatalf("expected writable access, got %s", spec.RunMeta.WorkspaceAccess)
+	}
+}
+
+func TestMCPConfigKeepsWorkerAttributionAndWorkspaceOwnerSeparate(t *testing.T) {
+	path, err := writeMCPConfig(
+		"/tmp/kin",
+		"task-1",
+		"http://127.0.0.1:7777",
+		"token",
+		adapter.ExecutionRef{ID: "worker-exec", Agent: "claude-code", Step: 2},
+		"turn-owner",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+
+	var cfg struct {
+		MCPServers map[string]struct {
+			Env map[string]string `json:"env"`
+		} `json:"mcpServers"`
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	env := cfg.MCPServers["kin"].Env
+	if env["KIN_EXECUTION_ID"] != "worker-exec" {
+		t.Fatalf("execution id=%q want worker attribution", env["KIN_EXECUTION_ID"])
+	}
+	if env["KIN_WORKSPACE_EXECUTION_ID"] != "turn-owner" {
+		t.Fatalf("workspace execution id=%q want shared owner", env["KIN_WORKSPACE_EXECUTION_ID"])
 	}
 }

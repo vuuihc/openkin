@@ -15,10 +15,10 @@ import (
 type Capability string
 
 const (
-	CapabilityRun         Capability = "run"
-	CapabilityResume      Capability = "resume"
-	CapabilityTools       Capability = "tools"
-	CapabilityApprovals   Capability = "approvals"
+	CapabilityRun           Capability = "run"
+	CapabilityResume        Capability = "resume"
+	CapabilityTools         Capability = "tools"
+	CapabilityApprovals     Capability = "approvals"
 	CapabilityOrchestrate   Capability = "orchestrate"
 	CapabilityLazyWorkspace Capability = "lazy_workspace"
 )
@@ -56,6 +56,20 @@ type Status struct {
 	Available bool   `json:"available"`
 	Reason    string `json:"reason,omitempty"`
 	Binary    string `json:"binary,omitempty"`
+}
+
+// ModelOption is one selectable model exposed by an agent plugin.
+type ModelOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Tier  string `json:"tier,omitempty"`
+}
+
+// ModelList describes the source and availability of a plugin's model choices.
+type ModelList struct {
+	Models []ModelOption `json:"models,omitempty"`
+	Source string        `json:"model_list_source"`
+	Status string        `json:"model_list_status"`
 }
 
 // ControlPurpose selects a control-plane completion mode.
@@ -117,6 +131,7 @@ type Registration struct {
 	Controller    Controller
 	Sessions      SessionHooks
 	Status        func(context.Context) Status
+	Models        func(context.Context) ModelList
 	LazyWorkspace func(context.Context) LazyWorkspaceSupport
 }
 
@@ -128,13 +143,16 @@ type Factory interface {
 
 // Info is the API-safe combination of descriptor, status, and default flag.
 type Info struct {
-	ID           string       `json:"id"`
-	Name         string       `json:"name"`
-	Kind         Kind         `json:"kind"`
-	Capabilities []Capability `json:"capabilities"`
-	Installed    bool         `json:"installed"`
-	Available    bool         `json:"available"`
-	Reason       string       `json:"reason,omitempty"`
-	Binary       string       `json:"binary,omitempty"`
-	Default      bool         `json:"default"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Kind         Kind          `json:"kind"`
+	Capabilities []Capability  `json:"capabilities"`
+	Installed    bool          `json:"installed"`
+	Available    bool          `json:"available"`
+	Reason       string        `json:"reason,omitempty"`
+	Binary       string        `json:"binary,omitempty"`
+	Default      bool          `json:"default"`
+	Models       []ModelOption `json:"models,omitempty"`
+	ModelSource  string        `json:"model_list_source"`
+	ModelStatus  string        `json:"model_list_status"`
 }

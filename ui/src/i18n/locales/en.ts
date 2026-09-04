@@ -895,6 +895,11 @@ const en: MessageTree = {
     installHint: "Open install docs in your browser",
     unavailable: "Unavailable",
   },
+  api: {
+    untitled: "Untitled",
+    unknownTool: "Tool",
+    newTask: "New task",
+  },
   common: {
     unknown: "unknown",
     loading: "Loading…",

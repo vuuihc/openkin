@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -144,8 +145,18 @@ CREATE TABLE task_checkpoints (
 	if err := s.DB().QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 14 {
-		t.Fatalf("user_version=%d want 14", v)
+	if v != schemaVersion {
+		t.Fatalf("user_version=%d want %d", v, schemaVersion)
+	}
+	var eventEpoch int64
+	if err := s.DB().QueryRow(
+		`SELECT event_epoch FROM tasks WHERE id = ?`,
+		"01LEGACYTK000000000000001",
+	).Scan(&eventEpoch); err != nil {
+		t.Fatalf("read migrated event_epoch: %v", err)
+	}
+	if eventEpoch != 0 {
+		t.Fatalf("migrated event_epoch=%d want 0", eventEpoch)
 	}
 
 	// Worktree task: must have legacy_pending generation and worktree policy
@@ -228,21 +239,16 @@ func TestWorkspaceGenerationLifecycle(t *testing.T) {
 		t.Fatalf("got %d workspaces, want 1", len(list))
 	}
 
-	// GetCurrentWorkspace returns the open workspace by state,
-	// so it should find ws1 even without setting current_workspace_id
-	cur, err := s.GetCurrentWorkspace(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("get current workspace: %v", err)
-	}
-	if cur.ID != ws1.ID {
-		t.Fatalf("current=%q want %q", cur.ID, ws1.ID)
+	// A generation is not current until the authoritative task pointer is set.
+	if _, err := s.GetCurrentWorkspace(ctx, task.ID); err != ErrNotFound {
+		t.Fatalf("get current workspace err=%v want ErrNotFound", err)
 	}
 
 	// Set current (idempotent)
 	if err := s.SetCurrentWorkspace(ctx, task.ID, ws1.ID); err != nil {
 		t.Fatal(err)
 	}
-	cur, err = s.GetCurrentWorkspace(ctx, task.ID)
+	cur, err := s.GetCurrentWorkspace(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,17 +289,13 @@ func TestWorkspaceGenerationLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Clear current (sets current_workspace_id to empty, but workspace still exists in open state)
+	// Clearing the pointer makes the task have no current generation even while
+	// the historical generation row remains open.
 	if err := s.ClearCurrentWorkspace(ctx, task.ID, ws2.ID); err != nil {
 		t.Fatal(err)
 	}
-	// GetCurrentWorkspace finds by state, so it still returns ws2 until it is released
-	cur2, err := s.GetCurrentWorkspace(ctx, task.ID)
-	if err != nil {
-		t.Fatalf("get current after clear: %v", err)
-	}
-	if cur2.ID != ws2.ID {
-		t.Fatalf("expected ws2, got %s", cur2.ID)
+	if _, err := s.GetCurrentWorkspace(ctx, task.ID); err != ErrNotFound {
+		t.Fatalf("get current after clear err=%v want ErrNotFound", err)
 	}
 
 	// List non-terminal (should find generation 2 which is provisioning)
@@ -303,6 +305,91 @@ func TestWorkspaceGenerationLifecycle(t *testing.T) {
 	}
 	if len(list2) < 2 {
 		t.Fatalf("expected at least 2 workspaces, got %d", len(list2))
+	}
+}
+
+func TestInsertWorkspaceAsCurrentIsAtomic(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	task := Task{
+		ID: "01ATOMICCUR000000000000001", Title: "t", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "queued", CreatedAt: NowMilli(),
+		WorkspacePolicy: "auto",
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := WorkspaceGeneration{
+		ID: task.ID + ":g1", TaskID: task.ID, Generation: 1,
+		State: WorkspaceProvisioning, SourceRoot: "/repo", Scope: ".",
+		CreatedAt: NowMilli(), UpdatedAt: NowMilli(),
+	}
+	ev, err := s.InsertWorkspaceAsCurrent(ctx, ws)
+	if err != nil {
+		t.Fatalf("insert current workspace: %v", err)
+	}
+	if ev.Type != "workspace_provisioning" {
+		t.Fatalf("event type=%q", ev.Type)
+	}
+	cur, err := s.GetCurrentWorkspace(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur.ID != ws.ID {
+		t.Fatalf("current=%q want %q", cur.ID, ws.ID)
+	}
+
+	missing := ws
+	missing.ID = "missing:g1"
+	missing.TaskID = "missing"
+	if _, err := s.InsertWorkspaceAsCurrent(ctx, missing); err == nil {
+		t.Fatal("expected missing task failure")
+	}
+	if _, err := s.GetWorkspace(ctx, missing.ID); err != ErrNotFound {
+		t.Fatalf("orphan workspace persisted after failed pointer update: %v", err)
+	}
+}
+
+func TestRepairCurrentWorkspacePointersRestoresStrandedGeneration(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	task := Task{
+		ID: "01REPAIRCUR000000000000001", Title: "t", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "queued", CreatedAt: NowMilli(),
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	ws := WorkspaceGeneration{
+		ID: task.ID + ":g1", TaskID: task.ID, Generation: 1,
+		State: WorkspaceReady, SourceRoot: "/repo", Scope: ".",
+		CreatedAt: NowMilli(), UpdatedAt: NowMilli(),
+	}
+	if err := s.InsertWorkspace(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetCurrentWorkspace(ctx, task.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("current before repair: %v", err)
+	}
+	if err := s.RepairCurrentWorkspacePointers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.GetCurrentWorkspace(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ID != ws.ID {
+		t.Fatalf("current=%q want %q", current.ID, ws.ID)
 	}
 }
 
@@ -627,5 +714,47 @@ func TestWorkspaceTransitionEventIsAtomic(t *testing.T) {
 	}
 	if ev.Type != "workspace_ready" {
 		t.Fatalf("event type=%q", ev.Type)
+	}
+}
+
+func TestWorkspaceTransitionCanClearCompletedExecutionID(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	task := Task{
+		ID: "01CLEARCOMP000000000000001", Title: "t", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "running", CreatedAt: NowMilli(),
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	ws := WorkspaceGeneration{
+		ID: task.ID + ":g1", TaskID: task.ID, Generation: 1,
+		State: WorkspaceFinalizing, SourceRoot: "/repo", Scope: ".",
+		CompletedExecutionID: "exec-1", CreatedAt: NowMilli(), UpdatedAt: NowMilli(),
+	}
+	if _, err := s.InsertWorkspaceAsCurrent(ctx, ws); err != nil {
+		t.Fatal(err)
+	}
+
+	empty := ""
+	updated, _, err := s.ApplyWorkspaceTransition(ctx, WorkspaceTransition{
+		WorkspaceID: ws.ID,
+		TaskID:      task.ID,
+		FromStates:  []WorkspaceState{WorkspaceFinalizing},
+		ToState:     WorkspaceFinalizeBlocked,
+		Patch: WorkspacePatch{
+			CompletedExecutionID: &empty,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.CompletedExecutionID != "" {
+		t.Fatalf("completed_execution_id=%q want empty", updated.CompletedExecutionID)
 	}
 }

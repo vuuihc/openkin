@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   answerUserQuestion,
   decideApproval,
-  getToken,
-  listApprovals,
-  listUserQuestions,
-  type Approval,
-  type UserQuestion,
 } from "../api/client";
+import { liveResources } from "../api/liveResources";
+import {
+  usePendingResources,
+  useTaskList,
+} from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import RunningTaskCard from "../components/cards/RunningTaskCard";
@@ -17,8 +17,8 @@ import {
   SlowConnectHint,
 } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
-import { subscribeWS, useAppStore } from "../store/appStore";
-import { listTasks, type Task, isTerminal } from "../api/client";
+import { useAppStore } from "../store/appStore";
+import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
 import { useT } from "../i18n/react";
 
@@ -29,94 +29,31 @@ type PendingDecision = "approved" | "denied";
  */
 export default function ApprovalsPage() {
   const tr = useT();
-  const [items, setItems] = useState<Approval[]>([]);
-  const [questions, setQuestions] = useState<UserQuestion[]>([]);
-  const [running, setRunning] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const pending = usePendingResources();
+  const taskList = useTaskList({ limit: 50 });
+  const items = pending.data.approvals;
+  const questions = pending.data.questions;
+  const running = useMemo(
+    () => taskList.data.filter((task) => !isTerminal(task.status)),
+    [taskList.data],
+  );
+  const loading = !pending.loaded || !taskList.loaded;
+  const resourceError = pending.error ?? taskList.error;
+  const error =
+    resourceError instanceof ApiError && resourceError.status === 401
+      ? null
+      : resourceError instanceof Error
+        ? resourceError.message
+        : resourceError
+          ? tr("inbox.loadFailed")
+          : null;
   const [busy, setBusy] = useState<Record<string, PendingDecision>>({});
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
   const [focusIdx, setFocusIdx] = useState(0);
   const pushToast = useAppStore((s) => s.pushToast);
-  const reconnectGen = useAppStore((s) => s.reconnectGen);
   const slow = useSlowHint(loading);
   const [searchParams] = useSearchParams();
   const focusId = searchParams.get("focus");
-
-  const load = useCallback(async () => {
-    if (!getToken()) return;
-    try {
-      const [list, qs, tasks] = await Promise.all([
-        listApprovals("pending"),
-        listUserQuestions("pending").catch(() => [] as UserQuestion[]),
-        listTasks({ limit: 50 }),
-      ]);
-      setItems(list);
-      setQuestions(qs);
-      setRunning(tasks.filter((t) => !isTerminal(t.status)));
-      setError(null);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      setError(e instanceof Error ? e.message : tr("inbox.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  }, [tr]);
-
-  useEffect(() => {
-    setLoading(true);
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    if (reconnectGen === 0) return;
-    void load();
-  }, [reconnectGen, load]);
-
-  useEffect(() => {
-    return subscribeWS((msg) => {
-      if (msg.kind === "approval_update") {
-        const a = msg.data as Approval;
-        setItems((prev) => {
-          if (a.decision !== "pending") {
-            setBusy((b) => {
-              if (!(a.id in b)) return b;
-              const next = { ...b };
-              delete next[a.id];
-              return next;
-            });
-            return prev.filter((x) => x.id !== a.id);
-          }
-          const rest = prev.filter((x) => x.id !== a.id);
-          return [a, ...rest].sort((x, y) => y.created_at - x.created_at);
-        });
-      }
-      if (msg.kind === "user_question_update") {
-        const q = msg.data as UserQuestion;
-        setQuestions((prev) => {
-          if (q.status !== "pending") {
-            setAnswerBusy((b) => {
-              if (!(q.id in b)) return b;
-              const next = { ...b };
-              delete next[q.id];
-              return next;
-            });
-            return prev.filter((x) => x.id !== q.id);
-          }
-          const rest = prev.filter((x) => x.id !== q.id);
-          return [q, ...rest].sort((x, y) => x.created_at - y.created_at);
-        });
-      }
-      if (msg.kind === "task_update") {
-        const t = msg.data as Task;
-        setRunning((prev) => {
-          const rest = prev.filter((x) => x.id !== t.id);
-          if (isTerminal(t.status)) return rest;
-          return [t, ...rest];
-        });
-      }
-    });
-  }, []);
 
   useEffect(() => {
     if (!focusId || !items.length) return;
@@ -147,8 +84,8 @@ export default function ApprovalsPage() {
   async function onDecide(id: string, decision: PendingDecision) {
     setBusy((b) => ({ ...b, [id]: decision }));
     try {
-      await decideApproval(id, decision);
-      setItems((prev) => prev.filter((x) => x.id !== id));
+      const updated = await decideApproval(id, decision);
+      liveResources.applyMessage({ kind: "approval_update", data: updated });
       setBusy((b) => {
         const next = { ...b };
         delete next[id];
@@ -161,7 +98,7 @@ export default function ApprovalsPage() {
         return next;
       });
       pushToast(e instanceof Error ? e.message : tr("inbox.decisionFailed"), "error");
-      void load();
+      void liveResources.refreshPending();
     }
   }
 
@@ -171,10 +108,15 @@ export default function ApprovalsPage() {
   ) {
     setAnswerBusy((b) => ({ ...b, [id]: true }));
     try {
-      await answerUserQuestion(id, body);
-      setQuestions((prev) => prev.filter((x) => x.id !== id));
+      const updated = await answerUserQuestion(id, body);
+      liveResources.applyMessage({ kind: "user_question_update", data: updated });
+      setAnswerBusy((b) => {
+        const next = { ...b };
+        delete next[id];
+        return next;
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : tr("question.answerFailed"));
+      pushToast(e instanceof Error ? e.message : tr("question.answerFailed"), "error");
       setAnswerBusy((b) => {
         const next = { ...b };
         delete next[id];

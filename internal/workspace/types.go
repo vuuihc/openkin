@@ -37,14 +37,16 @@ type ProbeResult struct {
 
 // Metadata is the resolved workspace for one task.
 type Metadata struct {
-	Mode       ResolvedMode
-	SourceRoot string
-	Root       string
-	Cwd        string
-	Scope      string
-	BaseOID    string
-	Branch     string
-	Reason     string
+	Mode         ResolvedMode
+	Generation   int
+	SourceRoot   string
+	Root         string
+	Cwd          string
+	Scope        string
+	BaseOID      string
+	Branch       string
+	TargetBranch string
+	Reason       string
 }
 
 // Checkpoint is a private turn snapshot (persisted later by the store layer).
@@ -93,10 +95,10 @@ type SourceMetadata struct {
 
 // Inspection describes a workspace generation's current state.
 type Inspection struct {
-	Exists       bool
-	Branch       string
-	Path         string
-	HeadOID      string
-	Dirty        bool
+	Exists        bool
+	Branch        string
+	Path          string
+	HeadOID       string
+	Dirty         bool
 	HasCheckpoint bool
 }

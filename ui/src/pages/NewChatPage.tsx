@@ -420,7 +420,7 @@ export default function NewChatPage() {
             onValueChange={setDraftPrompt}
             onSubmit={onSubmit}
           />
-          <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 px-0.5 min-w-0 sm:overflow-x-auto kin-scroll">
             <PermissionModePicker
               value={permissionMode}
               disabled={sending}
@@ -482,7 +482,7 @@ export default function NewChatPage() {
               ·
             </span>
             <CwdPicker
-              className="min-w-0 max-w-[min(40%,18rem)]"
+              className="min-w-0 max-w-[calc(100vw-3rem)] sm:max-w-[min(40%,18rem)]"
               cwd={cwd}
               locked={false}
               compact

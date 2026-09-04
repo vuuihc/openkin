@@ -20,7 +20,7 @@
   ├── 任务引擎 + 确认/提问         ← 派发、监控、批准、提问、审计
   ├── Provider / 费用层          ← 按任务、按模型的用量与花费
   ├── 远程访问（梯子）           ← 局域网 → tailnet / Funnel；绝不做 Kin 云
-  ├── Artifacts（近端）          ← 会话可读产物入库、阅读器；多端读同一 daemon
+  ├── Artifacts（P0 已实现）     ← 会话可读产物入库、阅读器；多端读同一 daemon
   ├── Identity + Memory（v2）    ← 连续主体、可治理记忆（可从 Artifacts 提炼）
   └── Client Shells              ← 桌面 App + 任意设备的 Web 控制台
 ```
@@ -52,7 +52,7 @@
 - 远程访问梯子（§5）：局域网扫码 → 内嵌 tailnet + Funnel → 完整 tailnet
 - 导出；核心使用不需要任何 Kin 账户
 
-**MVP 之后、Memory 之前的近端切片——Artifacts**
+**MVP 之后、Memory 之前已实现的 P0 切片——Artifacts**
 
 真实痛点：agent 常被用来写主题学习资料（Markdown / HTML），用户却要手动下载、难整理、与源会话脱节、多端阅读麻烦。
 **Artifacts** 把会话中的**可读交付物**收成本地库，保留与源任务的关联，并在控制台提供阅读器；多端通过已有远程梯子访问同一 daemon，不把 Kin 做成内容云。
@@ -111,7 +111,7 @@
 | 任务引擎 | 派发、状态机、暂停/取消、历史；适配器使用有效执行 cwd，原始 cwd 仍作任务归属/出处 |
 | Trust & Audit | 授权、确认、凭据、出站感知 |
 | Providers / 费用 | Provider 配置、用量记账、按任务花费；每 agent 每日上限（仅展示） |
-| Artifacts（近端） | 捕获、索引、库、阅读器；P1 陪读线程；HTML 沙箱 |
+| Artifacts（P0 已实现） | 捕获、索引、库、阅读器；P1 陪读线程；HTML 沙箱 |
 | 远程访问 | §5 的梯子；绝不是必需的 Kin 云 |
 | 控制台 UI | 桌面壳与任意设备 Web 共用同一套 UI |
 | Identity（v2） | 偏好、边界、跨模型/设备一致性 |
@@ -157,7 +157,7 @@ Artifacts 的多端阅读走同一梯子：**手机打开的是你的 daemon 上
 | 本地终端 | 仅 Electron 主窗口；临时 PTY 会话使用同时校验 Kin token 与真实 loopback TCP 对端的 HTTP/WebSocket 路由，绝不经局域网、Tailnet 或 Funnel 暴露 |
 | 任务工作区 | Task 可跨越零个或多个 Kin 自有工作区代际；支持延迟提升的适配器在已发布任务续聊时先以只读方式使用当前源检出，并在首次请求写入时自动创建新代际；最终 diff 按代际保持不可变且可寻址 |
 | UI | React + Tailwind 一套代码，Electron 窗口与手机 Web 共用 |
-| API 契约 | OpenAPI 单一来源；代码生成 Go handler 与 TS 类型 |
+| API 契约 | 检入仓库的 OpenAPI 是任务/审批/用户问题 live-resource 子域的单一来源，不覆盖完整 HTTP API。TypeScript 类型由其生成，CI 仅校验生成物漂移；Go handler 仍为手写，服务端一致性校验与其他端点覆盖暂缓。 |
 | 分发 | 桌面 .dmg / .exe 双击；headless 机器 `curl \| sh` 或 brew |
 | Artifacts 真源 | 用户数据目录下的文件树 + SQLite 元数据索引（实现阶段再钉路径） |
 

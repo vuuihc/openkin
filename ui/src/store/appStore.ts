@@ -1,17 +1,10 @@
 import { create } from "zustand";
+import type { WSMessage } from "../api/contract";
 
 /** Auth gate: session is usable until a 401 (or missing token) forces reconnect. */
 export type AuthState =
   | { status: "ok" }
   | { status: "need_token"; reason: "missing" | "unauthorized" };
-
-/** Minimal WS message shape (avoid importing client → circular store↔client). */
-export type WSMessage =
-  | { kind: "task_update"; data: unknown }
-  | { kind: "task_deleted"; data: unknown }
-  | { kind: "event"; data: unknown }
-  | { kind: "approval_update"; data: unknown }
-  | { kind: "user_question_update"; data: unknown };
 
 export type WSStatus = "connecting" | "connected" | "disconnected";
 

@@ -2,7 +2,6 @@ package task
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,15 +9,6 @@ import (
 
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
-)
-
-// WorkspaceProvisionCause identifies the caller of the provision path.
-type WorkspaceProvisionCause string
-
-const (
-	ProvisionFromHostRequest       WorkspaceProvisionCause = "host_request"
-	ProvisionFromEagerPreRun       WorkspaceProvisionCause = "eager_pre_run"
-	ProvisionFromOrchestrationPlan WorkspaceProvisionCause = "orchestration_plan"
 )
 
 // WorkspaceIntentRequest is the public request body for workspace lifecycle APIs.
@@ -59,10 +49,16 @@ func (e *Engine) RequestWorkspace(ctx context.Context, req WorkspaceIntentReques
 			return store.WorkspaceGeneration{}, fmt.Errorf("get current workspace: %w", err)
 		}
 		// No workspace yet — create one in provisioning, then do full provisioning.
-		ws, err = e.ensureWorkspace(ctx, req, ProvisionFromHostRequest)
+		ws, err = e.ensureWorkspace(ctx, req)
 		if err != nil {
 			return store.WorkspaceGeneration{}, fmt.Errorf("ensure workspace: %w", err)
 		}
+	}
+	unlock := lockWorkspaceGeneration(e.workspace, workspaceGenerationMetadata(ws))
+	defer unlock()
+	ws, err = e.store.GetWorkspace(ctx, ws.ID)
+	if err != nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("refresh workspace: %w", err)
 	}
 
 	// Only allow promotion from provisioning or ready states
@@ -110,13 +106,37 @@ func (e *Engine) CompleteWorkspace(ctx context.Context, req WorkspaceIntentReque
 		}
 		return store.WorkspaceGeneration{}, fmt.Errorf("get current workspace: %w", err)
 	}
-
+	unlock := lockWorkspaceGeneration(e.workspace, workspaceGenerationMetadata(ws))
+	defer unlock()
+	ws, err = e.store.GetWorkspace(ctx, ws.ID)
+	if err != nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("refresh current workspace: %w", err)
+	}
 	// If already finalizing/integrated/released with same execution ID, return existing result.
 	if ws.CompletedExecutionID == req.ExecutionID {
 		switch ws.State {
 		case store.WorkspaceFinalizing, store.WorkspaceIntegrated, store.WorkspaceReleased:
 			return ws, nil
 		}
+	}
+	task, err := e.store.GetTask(ctx, req.TaskID)
+	if err != nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("refresh task: %w", err)
+	}
+	if task.Status != StatusRunning {
+		return store.WorkspaceGeneration{}, fmt.Errorf(
+			"%w: task status %s cannot complete workspace",
+			ErrConflict,
+			task.Status,
+		)
+	}
+	if ws.RequestedExecutionID != "" && ws.RequestedExecutionID != req.ExecutionID {
+		return store.WorkspaceGeneration{}, fmt.Errorf(
+			"%w: execution %s does not own workspace %s",
+			ErrConflict,
+			req.ExecutionID,
+			ws.ID,
+		)
 	}
 
 	// If already finalizing with a different execution, reject.
@@ -134,6 +154,7 @@ func (e *Engine) CompleteWorkspace(ctx context.Context, req WorkspaceIntentReque
 
 	// Transition to finalizing with completed_execution_id.
 	completedExecID := req.ExecutionID
+	empty := ""
 	transition := store.WorkspaceTransition{
 		WorkspaceID: ws.ID,
 		TaskID:      req.TaskID,
@@ -141,9 +162,14 @@ func (e *Engine) CompleteWorkspace(ctx context.Context, req WorkspaceIntentReque
 		ToState:     store.WorkspaceFinalizing,
 		Patch: store.WorkspacePatch{
 			CompletedExecutionID: &completedExecID,
+			ReviewBaseOID:        &empty,
+			FinalHeadOID:         &empty,
+			FinalTreeOID:         &empty,
+			IntegratedOID:        &empty,
+			FailureReason:        &empty,
 		},
 	}
-	updated, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
+	updated, err := e.transitionWorkspace(ctx, transition)
 	if err != nil {
 		return store.WorkspaceGeneration{}, fmt.Errorf("finalize workspace: %w", err)
 	}
@@ -153,7 +179,7 @@ func (e *Engine) CompleteWorkspace(ctx context.Context, req WorkspaceIntentReque
 
 // ensureWorkspace is the shared provision path for both MCP requests and
 // eager pre-run. It creates a new workspace generation or returns the existing one.
-func (e *Engine) ensureWorkspace(ctx context.Context, req WorkspaceIntentRequest, cause WorkspaceProvisionCause) (store.WorkspaceGeneration, error) {
+func (e *Engine) ensureWorkspace(ctx context.Context, req WorkspaceIntentRequest) (store.WorkspaceGeneration, error) {
 	// Try to find an existing open workspace
 	ws, err := e.store.GetCurrentWorkspace(ctx, req.TaskID)
 	if err == nil {
@@ -178,45 +204,42 @@ func (e *Engine) ensureWorkspace(ctx context.Context, req WorkspaceIntentRequest
 	}
 	nextGen := len(list) + 1
 
-	now := time.Now().UnixMilli()
-	ws = store.WorkspaceGeneration{
-		ID:         req.TaskID + fmt.Sprintf(":g%d", nextGen),
-		TaskID:     req.TaskID,
-		Generation: nextGen,
-		State:      store.WorkspaceProvisioning,
-		SourceRoot: t.WorkspaceSourceRoot,
-		Scope:      t.WorkspaceScope,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+	if e.workspace == nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("workspace runtime not available")
+	}
+	source, err := e.workspace.ResolveSource(ctx, t.Cwd)
+	if err != nil {
+		return store.WorkspaceGeneration{}, fmt.Errorf("resolve workspace source: %w", err)
 	}
 
-	if t.WorkspaceSourceRoot == "" {
-		ws.SourceRoot = t.Cwd
+	now := time.Now().UnixMilli()
+	ws = store.WorkspaceGeneration{
+		ID:                    req.TaskID + fmt.Sprintf(":g%d", nextGen),
+		TaskID:                req.TaskID,
+		Generation:            nextGen,
+		State:                 store.WorkspaceProvisioning,
+		SourceRoot:            source.SourceRoot,
+		Scope:                 source.Scope,
+		TargetBranch:          source.TargetBranch,
+		BaseOID:               source.HeadOID,
+		RequestedExecutionID:  req.ExecutionID,
+		RequestedUserEventSeq: e.latestUserMessageSeq(ctx, req.TaskID),
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
+
 	if ws.Scope == "" {
 		ws.Scope = "."
 	}
-
-	// Resolve the real Git branch name so finalization can validate it.
-	if e.workspace != nil {
-		branch, err := e.workspace.CurrentBranch(ctx, ws.SourceRoot)
-		if err != nil {
-			return store.WorkspaceGeneration{}, fmt.Errorf("resolve target branch: %w", err)
-		}
-		branch = strings.TrimSpace(branch)
-		if branch == "" {
-			return store.WorkspaceGeneration{}, fmt.Errorf("source repository is in detached HEAD; writable workspace requires a target branch")
-		}
-		ws.TargetBranch = branch
+	if strings.TrimSpace(ws.TargetBranch) == "" {
+		return store.WorkspaceGeneration{}, fmt.Errorf("source repository is in detached HEAD; writable workspace requires a target branch")
 	}
 
-	if err := e.store.InsertWorkspace(ctx, ws); err != nil {
+	ev, err := e.store.InsertWorkspaceAsCurrent(ctx, ws)
+	if err != nil {
 		return store.WorkspaceGeneration{}, fmt.Errorf("insert workspace: %w", err)
 	}
-
-	if err := e.store.SetCurrentWorkspace(ctx, req.TaskID, ws.ID); err != nil {
-		return store.WorkspaceGeneration{}, fmt.Errorf("set current workspace: %w", err)
-	}
+	e.bus.PublishEvent(ev)
 
 	return ws, nil
 }
@@ -256,34 +279,33 @@ func (e *Engine) provisionWorkspace(ctx context.Context, t store.Task, ws store.
 		_ = e.workspace.Release(ctx, meta)
 		return store.WorkspaceGeneration{}, fmt.Errorf("capture checkpoint: %w", err)
 	}
-	_ = cp
-
-	// Transition to ready with physical metadata.
-	transition := store.WorkspaceTransition{
-		WorkspaceID: ws.ID,
-		TaskID:      t.ID,
-		FromStates:  []store.WorkspaceState{store.WorkspaceProvisioning},
-		ToState:     store.WorkspaceReady,
-		Patch: store.WorkspacePatch{
-			PhysicalRoot:    &meta.Root,
-			ExecutionCwd:    &meta.Cwd,
-			WorkspaceBranch: &meta.Branch,
-			BaseOID:         &meta.BaseOID,
-		},
-	}
-	updated, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
+	storedCheckpoint := storeCheckpoint(cp)
+	storedCheckpoint.WorkspaceID = ws.ID
+	updated, ev, err := e.store.CompleteWorkspaceProvisioning(ctx, store.WorkspaceReadyTransition{
+		WorkspaceID:           ws.ID,
+		TaskID:                t.ID,
+		PhysicalRoot:          meta.Root,
+		ExecutionCwd:          meta.Cwd,
+		WorkspaceBranch:       meta.Branch,
+		BaseOID:               meta.BaseOID,
+		RequestedUserEventSeq: ws.RequestedUserEventSeq,
+	}, storedCheckpoint)
 	if err != nil {
 		_ = e.workspace.Release(ctx, meta)
 		return store.WorkspaceGeneration{}, fmt.Errorf("transition to ready: %w", err)
 	}
+	e.bus.PublishEvent(ev)
 
 	return updated, nil
 }
 
-// JSON helpers for workspace event payloads
-func workspaceEventPayload(wsID string) json.RawMessage {
-	b, _ := json.Marshal(map[string]string{"workspace_id": wsID})
-	return b
+func (e *Engine) transitionWorkspace(ctx context.Context, transition store.WorkspaceTransition) (store.WorkspaceGeneration, error) {
+	ws, ev, err := e.store.ApplyWorkspaceTransition(ctx, transition)
+	if err != nil {
+		return store.WorkspaceGeneration{}, err
+	}
+	e.bus.PublishEvent(ev)
+	return ws, nil
 }
 
 // CheckWorkspaceEventType checks if an event matches the expected workspace transition type.
@@ -295,6 +317,9 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 	}
 	if e.workspace == nil {
 		return nil // No workspace runtime available
+	}
+	if err := e.store.RepairCurrentWorkspacePointers(ctx); err != nil {
+		return err
 	}
 
 	tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Limit: 1000})
@@ -311,7 +336,7 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 			continue
 		}
 
-		meta := workspaceMetadata(t)
+		meta := workspaceGenerationMetadata(ws)
 
 		switch ws.State {
 		case store.WorkspaceLegacyPending:
@@ -325,7 +350,7 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 						FromStates:  []store.WorkspaceState{store.WorkspaceLegacyPending},
 						ToState:     store.WorkspaceActive,
 					}
-					_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+					_, _ = e.transitionWorkspace(ctx, transition)
 				} else {
 					transition := store.WorkspaceTransition{
 						WorkspaceID: ws.ID,
@@ -333,7 +358,7 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 						FromStates:  []store.WorkspaceState{store.WorkspaceLegacyPending},
 						ToState:     store.WorkspaceOrphaned,
 					}
-					_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+					_, _ = e.transitionWorkspace(ctx, transition)
 				}
 			}
 
@@ -351,7 +376,7 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 						FailureReason: &reason,
 					},
 				}
-				_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+				_, _ = e.transitionWorkspace(ctx, transition)
 			}
 
 		case store.WorkspaceReady:
@@ -371,14 +396,35 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 						FromStates:  []store.WorkspaceState{store.WorkspaceActive},
 						ToState:     store.WorkspaceOrphaned,
 					}
-					_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
-					_ = e.store.ClearCurrentWorkspace(ctx, t.ID, ws.ID)
+					_, _ = e.transitionWorkspace(ctx, transition)
 				}
 			}
 
 		case store.WorkspaceFinalizing:
+			if t.Status == StatusCanceled {
+				reason := "task canceled before workspace integration"
+				_, _ = e.transitionWorkspace(ctx, store.WorkspaceTransition{
+					WorkspaceID: ws.ID,
+					TaskID:      t.ID,
+					FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+					ToState:     store.WorkspaceFinalizeBlocked,
+					Patch: store.WorkspacePatch{
+						FailureReason:        &reason,
+						CompletedExecutionID: strPtr(""),
+					},
+				})
+				continue
+			}
 			// Resume finalization
-			_, _ = e.finalizeWorkspace(ctx, t.ID)
+			status, finalizeErr := e.finalizeWorkspace(ctx, t.ID)
+			e.mu.Lock()
+			delete(e.workspaceCommitting, t.ID)
+			e.mu.Unlock()
+			if finalizeErr == nil {
+				if _, finishErr := e.finish(ctx, t.ID, status, nil, nil); finishErr != nil {
+					return fmt.Errorf("finish recovered task %s: %w", t.ID, finishErr)
+				}
+			}
 
 		case store.WorkspaceIntegrated:
 			// Retry release
@@ -393,8 +439,12 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 						ReleasedAt: &now,
 					},
 				}
-				_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
-				_ = e.store.ClearCurrentWorkspace(ctx, t.ID, ws.ID)
+				if _, err := e.transitionWorkspace(ctx, transition); err == nil &&
+					t.Status != StatusSucceeded && t.Status != StatusCanceled {
+					if _, finishErr := e.finish(ctx, t.ID, StatusSucceeded, nil, nil); finishErr != nil {
+						return fmt.Errorf("finish integrated task %s: %w", t.ID, finishErr)
+					}
+				}
 			}
 
 		case store.WorkspaceMergeBlocked, store.WorkspaceFinalizeBlocked:
@@ -408,8 +458,7 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 						FromStates:  []store.WorkspaceState{ws.State},
 						ToState:     store.WorkspaceOrphaned,
 					}
-					_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
-					_ = e.store.ClearCurrentWorkspace(ctx, t.ID, ws.ID)
+					_, _ = e.transitionWorkspace(ctx, transition)
 				}
 			}
 
@@ -425,61 +474,6 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 	// Pump any queued tasks
 	e.pump()
 	return nil
-}
-
-// FinalizeWorkspace marks a workspace as integrated and releases it.
-func (e *Engine) FinalizeWorkspace(ctx context.Context, taskID, wsID string) (store.WorkspaceGeneration, error) {
-	// Transition to integrated
-	transition := store.WorkspaceTransition{
-		WorkspaceID: wsID,
-		TaskID:      taskID,
-		FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
-		ToState:     store.WorkspaceIntegrated,
-	}
-	ws, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
-	if err != nil {
-		return store.WorkspaceGeneration{}, fmt.Errorf("integrate workspace: %w", err)
-	}
-
-	// Release the physical worktree if runtime is available
-	if e.workspace != nil {
-		t, err := e.store.GetTask(ctx, taskID)
-		if err == nil {
-			meta := workspaceMetadata(t)
-			_ = e.workspace.Release(ctx, meta)
-		}
-	}
-
-	return ws, nil
-}
-
-// ReleaseWorkspace transitions a workspace to released state and cleans up.
-func (e *Engine) ReleaseWorkspace(ctx context.Context, taskID, wsID string) (store.WorkspaceGeneration, error) {
-	// Transition to released
-	transition := store.WorkspaceTransition{
-		WorkspaceID: wsID,
-		TaskID:      taskID,
-		FromStates:  []store.WorkspaceState{store.WorkspaceIntegrated, store.WorkspaceFinalizing},
-		ToState:     store.WorkspaceReleased,
-	}
-	ws, _, err := e.store.ApplyWorkspaceTransition(ctx, transition)
-	if err != nil {
-		return store.WorkspaceGeneration{}, fmt.Errorf("release workspace: %w", err)
-	}
-
-	// Clean up current workspace pointer
-	_ = e.store.ClearCurrentWorkspace(ctx, taskID, wsID)
-
-	// Release physical resources
-	if e.workspace != nil {
-		t, err := e.store.GetTask(ctx, taskID)
-		if err == nil {
-			meta := workspaceMetadata(t)
-			_ = e.workspace.ReleaseAndPrune(ctx, meta, taskID)
-		}
-	}
-
-	return ws, nil
 }
 
 func CheckWorkspaceEventType(ev store.Event, expectedType string) bool {
@@ -503,21 +497,15 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 		return StatusFailed, fmt.Errorf("workspace %s is in state %s, expected finalizing", ws.ID, ws.State)
 	}
 
-	t, err := e.store.GetTask(ctx, taskID)
+	meta := workspaceGenerationMetadata(ws)
+	unlock := lockWorkspaceGeneration(e.workspace, meta)
+	defer unlock()
+	ws, err = e.store.GetWorkspace(ctx, ws.ID)
 	if err != nil {
-		return StatusFailed, fmt.Errorf("get task: %w", err)
+		return StatusFailed, fmt.Errorf("refresh current workspace: %w", err)
 	}
-
-	// Build metadata from the generation, not the task, so finalization
-	// uses the generation's physical root and execution cwd.
-	meta := workspace.Metadata{
-		Mode:       workspace.ResolvedWorktree,
-		SourceRoot: ws.SourceRoot,
-		Root:       ws.PhysicalRoot,
-		Cwd:        ws.ExecutionCwd,
-		Scope:      ws.Scope,
-		BaseOID:    ws.BaseOID,
-		Branch:     ws.WorkspaceBranch,
+	if ws.State != store.WorkspaceFinalizing {
+		return StatusFailed, fmt.Errorf("workspace %s is in state %s, expected finalizing", ws.ID, ws.State)
 	}
 
 	// Step 1: Inspect finalizable workspace
@@ -535,12 +523,13 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 				CompletedExecutionID: strPtr(""),
 			},
 		}
-		_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+		_, _ = e.transitionWorkspace(ctx, transition)
 		return StatusFailed, fmt.Errorf("inspect finalizable: %w", err)
 	}
 
-	// Step 2: Inspect integration target
-	reviewBase, err := e.workspace.InspectIntegrationTarget(ctx, meta, ws.TargetBranch)
+	// Step 2: Inspect integration target. Preserve an already-persisted review
+	// base so a restart after the fast-forward cannot rewrite history.
+	sourceHead, err := e.workspace.InspectIntegrationTarget(ctx, meta, ws.TargetBranch)
 	if err != nil {
 		// If source is dirty or on wrong branch, block finalization
 		reason := err.Error()
@@ -554,31 +543,106 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 				CompletedExecutionID: strPtr(""),
 			},
 		}
-		_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+		_, _ = e.transitionWorkspace(ctx, transition)
 		return StatusFailed, fmt.Errorf("inspect integration target: %w", err)
 	}
 
 	// Step 3: Persist final snapshot OIDs while still finalizing
-	finalHead := insp.HeadOID
-	finalTree := insp.TreeOID
-	transition := store.WorkspaceTransition{
-		WorkspaceID: ws.ID,
-		TaskID:      taskID,
-		FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
-		ToState:     store.WorkspaceFinalizing,
-		Patch: store.WorkspacePatch{
-			FinalHeadOID:  &finalHead,
-			FinalTreeOID:  &finalTree,
-			ReviewBaseOID: &reviewBase,
-		},
+	finalHead, finalTree, reviewBase := ws.FinalHeadOID, ws.FinalTreeOID, ws.ReviewBaseOID
+	if finalHead == "" {
+		finalHead = insp.HeadOID
 	}
-	_, _, err = e.store.ApplyWorkspaceTransition(ctx, transition)
-	if err != nil {
-		return StatusFailed, fmt.Errorf("persist final snapshot: %w", err)
+	if finalTree == "" {
+		finalTree = insp.TreeOID
+	}
+	if reviewBase == "" {
+		reviewBase = sourceHead
+	}
+	if insp.HeadOID != finalHead || insp.TreeOID != finalTree {
+		reason := "workspace changed after final snapshot"
+		_, _ = e.transitionWorkspace(ctx, store.WorkspaceTransition{
+			WorkspaceID: ws.ID,
+			TaskID:      taskID,
+			FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+			ToState:     store.WorkspaceFinalizeBlocked,
+			Patch: store.WorkspacePatch{
+				FailureReason:        &reason,
+				CompletedExecutionID: strPtr(""),
+			},
+		})
+		return StatusFailed, errors.New(reason)
+	}
+	var transition store.WorkspaceTransition
+	if ws.FinalHeadOID == "" || ws.FinalTreeOID == "" || ws.ReviewBaseOID == "" {
+		transition = store.WorkspaceTransition{
+			WorkspaceID: ws.ID,
+			TaskID:      taskID,
+			FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+			ToState:     store.WorkspaceFinalizing,
+			Patch: store.WorkspacePatch{
+				FinalHeadOID:  &finalHead,
+				FinalTreeOID:  &finalTree,
+				ReviewBaseOID: &reviewBase,
+			},
+		}
+		if _, err = e.transitionWorkspace(ctx, transition); err != nil {
+			return StatusFailed, fmt.Errorf("persist final snapshot: %w", err)
+		}
 	}
 
-	// Step 4: Fast-forward merge
-	integratedOID, err := e.workspace.FastForward(ctx, meta, t.WorkspaceScope, reviewBase, finalHead)
+	e.mu.Lock()
+	canceled := e.canceled[taskID]
+	if !canceled {
+		if e.workspaceCommitting[taskID] == "" {
+			owner := e.activeRuns[taskID]
+			if owner == "" {
+				owner = "recovery"
+			}
+			e.workspaceCommitting[taskID] = owner
+		}
+	}
+	e.mu.Unlock()
+	if canceled {
+		reason := "canceled during finalization"
+		transition = store.WorkspaceTransition{
+			WorkspaceID: ws.ID,
+			TaskID:      taskID,
+			FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+			ToState:     store.WorkspaceFinalizeBlocked,
+			Patch: store.WorkspacePatch{
+				FailureReason:        &reason,
+				CompletedExecutionID: strPtr(""),
+			},
+		}
+		_, _ = e.transitionWorkspace(ctx, transition)
+		return StatusCanceled, nil
+	}
+
+	// Step 4: Fast-forward merge. If the source already equals the persisted
+	// final head, or contains it as an ancestor, the prior process committed
+	// the merge before it crashed.
+	integratedOID := finalHead
+	alreadyIntegrated := ws.FinalHeadOID != "" && sourceHead == finalHead
+	if ws.FinalHeadOID != "" && !alreadyIntegrated {
+		alreadyIntegrated, err = e.workspace.IsAncestor(ctx, meta, finalHead, sourceHead)
+		if err != nil {
+			reason := err.Error()
+			_, _ = e.transitionWorkspace(ctx, store.WorkspaceTransition{
+				WorkspaceID: ws.ID,
+				TaskID:      taskID,
+				FromStates:  []store.WorkspaceState{store.WorkspaceFinalizing},
+				ToState:     store.WorkspaceFinalizeBlocked,
+				Patch: store.WorkspacePatch{
+					FailureReason:        &reason,
+					CompletedExecutionID: strPtr(""),
+				},
+			})
+			return StatusFailed, fmt.Errorf("inspect integrated workspace: %w", err)
+		}
+	}
+	if !alreadyIntegrated {
+		integratedOID, err = e.workspace.FastForward(ctx, meta, ws.TargetBranch, reviewBase, finalHead)
+	}
 	if err != nil {
 		// Check if target advanced (non-ff) vs other failure
 		if strings.Contains(err.Error(), "not fast-forward") || strings.Contains(err.Error(), "not ancestor") {
@@ -594,7 +658,7 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 					CompletedExecutionID: strPtr(""),
 				},
 			}
-			_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+			_, _ = e.transitionWorkspace(ctx, transition)
 			return StatusFailed, fmt.Errorf("merge blocked: %w", err)
 		}
 		// Other failure: finalize_blocked
@@ -609,7 +673,7 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 				CompletedExecutionID: strPtr(""),
 			},
 		}
-		_, _, _ = e.store.ApplyWorkspaceTransition(ctx, transition)
+		_, _ = e.transitionWorkspace(ctx, transition)
 		return StatusFailed, fmt.Errorf("fast-forward: %w", err)
 	}
 
@@ -625,14 +689,14 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 			IntegratedAt:  &now,
 		},
 	}
-	_, _, err = e.store.ApplyWorkspaceTransition(ctx, transition)
+	_, err = e.transitionWorkspace(ctx, transition)
 	if err != nil {
 		return StatusFailed, fmt.Errorf("transition to integrated: %w", err)
 	}
 
 	// Step 6: Release physical worktree
 	if err := e.workspace.Release(ctx, meta); err != nil {
-		// Non-fatal: release failure doesn't block the task
+		return StatusFailed, fmt.Errorf("release workspace: %w", err)
 	}
 
 	// Step 7: Transition to released
@@ -645,20 +709,25 @@ func (e *Engine) finalizeWorkspace(ctx context.Context, taskID string) (string, 
 			ReleasedAt: &now,
 		},
 	}
-	_, _, err = e.store.ApplyWorkspaceTransition(ctx, transition)
+	_, err = e.transitionWorkspace(ctx, transition)
 	if err != nil {
 		return StatusFailed, fmt.Errorf("transition to released: %w", err)
 	}
 
-	// Clear current workspace pointer
-	_ = e.store.ClearCurrentWorkspace(ctx, taskID, ws.ID)
-
 	return StatusSucceeded, nil
 }
 
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
+type workspaceGenerationLocker interface {
+	LockGeneration(meta workspace.Metadata) func()
+}
+
+func lockWorkspaceGeneration(runtime WorkspaceRuntime, meta workspace.Metadata) func() {
+	if locker, ok := runtime.(workspaceGenerationLocker); ok {
+		return locker.LockGeneration(meta)
 	}
+	return func() {}
+}
+
+func strPtr(s string) *string {
 	return &s
 }

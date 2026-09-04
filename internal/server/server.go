@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -136,10 +135,12 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		return strings.TrimSpace(string(b))
 	}
-	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn)
+	routingCatalog := routing.NewCatalog(st, nil)
+	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn, routingCatalog)
 	if err != nil {
 		return err
 	}
+	routingCatalog = routing.NewCatalog(st, reg.Has)
 	for _, info := range reg.List(ctx, "") {
 		if info.Available {
 			if info.Binary != "" {
@@ -162,25 +163,14 @@ func ServeWith(version string, flags ServeFlags) error {
 			maxConcurrent = n
 		}
 	}
-	eng := task.NewEngine(st, reg, task.NewBus(), maxConcurrent)
 	wsMgr := workspace.NewManager(stateDir)
-	eng.SetWorkspaceRuntime(wsMgr)
-	defer eng.Close()
-	eng.SetDefaultPreference(func(c context.Context) (string, error) {
+	defaultPreference := func(c context.Context) (string, error) {
 		pref, err := st.GetSetting(c, "agent.default")
 		return strings.TrimSpace(pref), err
-	})
-	if err := eng.Recover(context.Background()); err != nil {
-		return err
 	}
-	eng.StartExpiryLoop(context.Background(), time.Minute)
-	// Routines ticker (ADR 0011): due routines → Engine.Create on shared FIFO.
-	(&routines.Scheduler{Store: st, Engine: eng}).StartLoop(context.Background(), routines.DefaultTickInterval)
-
 	notifier := &notify.Sender{Store: st}
-	eng.SetNotifier(notifier)
 	// Session titles: truncate immediately, then replace via cognition provider when configured.
-	eng.SetTitleResolver(func(c context.Context) (provider.Client, provider.Config, error) {
+	titleResolver := func(c context.Context) (provider.Client, provider.Config, error) {
 		cfg, err := provider.LoadConfig(c, st)
 		if err != nil {
 			return nil, cfg, err
@@ -190,34 +180,16 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		cli, err := provider.NewClient(cfg)
 		return cli, cfg, err
-	})
-
-	static, err := uiHandler()
-	if err != nil {
-		return err
 	}
-
-	auth := remote.NewFileAuth(tokenPath)
-	mode := networkMode(flags)
-	terminals := newTerminalManager(terminal.DetectProfiles)
-	defer terminals.Close()
 	// Share the same window prober with the engine for start-time preflight + auto-wait.
 	usageWin := usagewindows.New(60*time.Second, &usagewindows.ClaudeProber{}, &usagewindows.CodexProber{})
-	eng.SetUsageWindows(usageWin)
-
-	// Wire the routing resolver for auto dispatch.
-	routingStore := &routingStoreAdapter{st: st}
-	resolver := routing.NewDefaultResolver(routingStore, routing.WithUsageWindowChecker(usageWin))
-	eng.SetRoutingResolver(resolver)
-
-	// Wire the provider entry resolver so routing can inject actual runtime
-	// config (API key, base URL) into adapters.
-	eng.SetProviderEntryResolver(func(ctx context.Context, providerID string) (adapter.ProviderConfig, error) {
-		reg, err := provider.LoadRegistry(ctx, st)
+	resolver := routing.NewDefaultResolver(routingCatalog, routing.WithUsageWindowChecker(usageWin))
+	providerEntryResolver := func(ctx context.Context, providerID string) (adapter.ProviderConfig, error) {
+		providerRegistry, err := provider.LoadRegistry(ctx, st)
 		if err != nil {
 			return adapter.ProviderConfig{}, err
 		}
-		entry, ok := reg.ByID(providerID)
+		entry, ok := providerRegistry.ByID(providerID)
 		if !ok {
 			return adapter.ProviderConfig{}, fmt.Errorf("provider %q not found", providerID)
 		}
@@ -228,7 +200,40 @@ func ServeWith(version string, flags ServeFlags) error {
 			APIKey:  cfg.APIKey,
 			Model:   cfg.Model,
 		}, nil
+	}
+	eng, err := task.NewConfiguredEngine(task.EngineConfig{
+		Store:                 st,
+		Agents:                reg,
+		Bus:                   task.NewBus(),
+		MaxConcurrent:         maxConcurrent,
+		Workspace:             wsMgr,
+		DefaultPreference:     defaultPreference,
+		Notifier:              notifier,
+		TitleResolver:         titleResolver,
+		UsageWindows:          usageWin,
+		RoutingResolver:       resolver,
+		ProviderEntryResolver: providerEntryResolver,
+		ExpiryInterval:        time.Minute,
 	})
+	if err != nil {
+		return err
+	}
+	defer eng.Close()
+	if err := eng.Start(context.Background()); err != nil {
+		return err
+	}
+	// Routines start only after Engine recovery and dependency validation.
+	(&routines.Scheduler{Store: st, Engine: eng}).StartLoop(context.Background(), routines.DefaultTickInterval)
+
+	static, err := uiHandler()
+	if err != nil {
+		return err
+	}
+
+	auth := remote.NewFileAuth(tokenPath)
+	mode := networkMode(flags)
+	terminals := newTerminalManager(terminal.DetectProfiles)
+	defer terminals.Close()
 
 	srvAPI := &api.Server{
 		Store:        st,
@@ -267,17 +272,28 @@ func ServeWith(version string, flags ServeFlags) error {
 				for _, c := range i.Capabilities {
 					caps = append(caps, string(c))
 				}
+				models := make([]api.AgentModelOption, len(i.Models))
+				for j, model := range i.Models {
+					models[j] = api.AgentModelOption{
+						ID:    model.ID,
+						Label: model.Label,
+						Tier:  model.Tier,
+					}
+				}
 				out = append(out, api.AgentInfo{
-					ID:           i.ID,
-					Name:         i.Name,
-					Kind:         string(i.Kind),
-					Capabilities: caps,
-					Binary:       i.Binary,
-					Installed:    i.Installed,
-					Available:    i.Available,
-					Reason:       i.Reason,
-					Default:      i.Default,
-					InstallURL:   detect.InstallURL(i.ID),
+					ID:              i.ID,
+					Name:            i.Name,
+					Kind:            string(i.Kind),
+					Capabilities:    caps,
+					Binary:          i.Binary,
+					Installed:       i.Installed,
+					Available:       i.Available,
+					Reason:          i.Reason,
+					Default:         i.Default,
+					InstallURL:      detect.InstallURL(i.ID),
+					Models:          models,
+					ModelListSource: i.ModelSource,
+					ModelListStatus: i.ModelStatus,
 				})
 				seen[i.ID] = true
 			}
@@ -296,14 +312,16 @@ func ServeWith(version string, flags ServeFlags) error {
 					}
 				}
 				out = append(out, api.AgentInfo{
-					ID:         p.ID,
-					Name:       p.Name,
-					Kind:       "cli",
-					Binary:     p.Binary,
-					Installed:  p.Installed,
-					Available:  false, // presence-only / Tier 3
-					Reason:     reason,
-					InstallURL: detect.InstallURL(p.ID),
+					ID:              p.ID,
+					Name:            p.Name,
+					Kind:            "cli",
+					Binary:          p.Binary,
+					Installed:       p.Installed,
+					Available:       false, // presence-only / Tier 3
+					Reason:          reason,
+					InstallURL:      detect.InstallURL(p.ID),
+					ModelListSource: "none",
+					ModelListStatus: "unavailable",
 				})
 				seen[p.ID] = true
 			}
@@ -579,79 +597,4 @@ func uiHandler() (http.Handler, error) {
 		}
 		fileServer.ServeHTTP(w, r)
 	}), nil
-}
-
-// routingStoreAdapter adapts *store.Store to routing.Store.
-type routingStoreAdapter struct {
-	st *store.Store
-}
-
-func (a *routingStoreAdapter) ListProviderProfiles(ctx context.Context) ([]routing.ProviderProfile, error) {
-	reg, err := provider.LoadRegistry(ctx, a.st)
-	if err != nil {
-		return nil, err
-	}
-	profiles := make([]routing.ProviderProfile, 0, len(reg.Entries))
-	for _, e := range reg.Entries {
-		models := make([]routing.ModelSpec, len(e.Models))
-		for i, m := range e.Models {
-			models[i] = routing.ModelSpec{
-				ID:        m.ID,
-				Tier:      m.Tier,
-				CostLabel: m.CostLabel,
-			}
-		}
-		enabled := true // default for old entries (pre-Enabled field)
-		if e.Enabled != nil {
-			enabled = *e.Enabled
-		}
-		profiles = append(profiles, routing.ProviderProfile{
-			ID:             e.ID,
-			Name:           e.Name,
-			Kind:           routing.ProviderKind(e.Kind),
-			SupportsAgents: e.SupportsAgents,
-			Enabled:        enabled,
-			Models:         models,
-		})
-	}
-	return profiles, nil
-}
-
-func (a *routingStoreAdapter) ListTeamProfiles(ctx context.Context) ([]routing.TeamProfile, error) {
-	raw, err := a.st.GetSetting(ctx, "routing.profiles")
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if raw == "" {
-		return nil, nil
-	}
-	var list routing.TeamProfileList
-	if err := json.Unmarshal([]byte(raw), &list); err != nil {
-		return nil, err
-	}
-	if list.Profiles == nil {
-		list.Profiles = []routing.TeamProfile{}
-	}
-	return list.Profiles, nil
-}
-
-func (a *routingStoreAdapter) GetRoutingDefaults(ctx context.Context) (routing.RoutingDefaults, error) {
-	raw, err := a.st.GetSetting(ctx, "routing.defaults")
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			return routing.DefaultRoutingDefaults(), nil
-		}
-		return routing.RoutingDefaults{}, err
-	}
-	if raw == "" {
-		return routing.DefaultRoutingDefaults(), nil
-	}
-	var d routing.RoutingDefaults
-	if err := json.Unmarshal([]byte(raw), &d); err != nil {
-		return routing.RoutingDefaults{}, err
-	}
-	return d, nil
 }

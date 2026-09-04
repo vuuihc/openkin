@@ -106,6 +106,26 @@ func (m *Manager) InspectIntegrationTarget(ctx context.Context, meta Metadata, t
 	return strings.TrimSpace(string(headOut)), nil
 }
 
+// IsAncestor reports whether ancestorOID is contained in descendantOID's
+// history in the source repository.
+func (m *Manager) IsAncestor(
+	ctx context.Context, meta Metadata, ancestorOID, descendantOID string,
+) (bool, error) {
+	if m == nil || m.git == nil {
+		return false, fmt.Errorf("git runner not available")
+	}
+	if !validObjectID(ancestorOID) || !validObjectID(descendantOID) {
+		return false, fmt.Errorf("invalid commit oid")
+	}
+	out, err := m.git.Run(ctx, meta.SourceRoot, nil, ControlStdoutLimit,
+		"-c", "core.hooksPath="+m.emptyHooksDir(),
+		"merge-base", ancestorOID, descendantOID)
+	if err != nil {
+		return false, fmt.Errorf("find merge base: %w", err)
+	}
+	return strings.TrimSpace(string(out)) == ancestorOID, nil
+}
+
 // FastForward performs a fast-forward merge of the workspace into the source.
 // targetBranch: the source branch to merge into.
 // expectedSourceOID: the source HEAD expected before merge (review_base_oid).
