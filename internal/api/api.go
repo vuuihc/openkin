@@ -734,7 +734,7 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "decision must be approved or denied"})
 		return
 	}
-	a, err := s.Engine.Decide(r.Context(), id, decision, "web")
+	a, err := s.Engine.Decide(r.Context(), id, decision, clientTypeFromRequest(r))
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -824,7 +824,7 @@ func (s *Server) handleAnswerUserQuestion(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "selected or other_text is required"})
 		return
 	}
-	q, err := s.Engine.AnswerUserQuestion(r.Context(), id, body, "web")
+	q, err := s.Engine.AnswerUserQuestion(r.Context(), id, body, clientTypeFromRequest(r))
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -1275,6 +1275,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// clientTypeFromRequest extracts a client-type identifier for audit
+// attribution (decided_via / answered_via).
+// Returns "web" by default, or the value of the X-Client-Type header.
+func clientTypeFromRequest(r *http.Request) string {
+	if ct := r.Header.Get("X-Client-Type"); ct != "" {
+		return ct
+	}
+	return "web"
 }
 
 // validateAgentDefault ensures the preferred host agent is registered and
