@@ -6,6 +6,7 @@ enum TaskStatus: String, Codable, CaseIterable, Hashable {
     case running
     case waitingApproval = "waiting_approval"
     case waitingInput = "waiting_input"
+    case succeeded
     case completed
     case failed
     case cancelled
@@ -56,7 +57,7 @@ struct KinTask: Identifiable, Codable, Hashable {
     /// Whether the task has reached a terminal state.
     var isTerminal: Bool {
         switch status {
-        case .completed, .failed, .cancelled: return true
+        case .succeeded, .completed, .failed, .cancelled: return true
         default: return false
         }
     }

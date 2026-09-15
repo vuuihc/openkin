@@ -19,8 +19,8 @@ struct EventRow: View {
             contentView
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Timestamp
-            Text(event.timestamp, formatter: Self.timestampFormatter)
+            // Timestamp (millisecond epoch → display)
+            Text(EventRow.timestampFormatter.string(from: Date(timeIntervalSince1970: Double(event.ts) / 1000.0)))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .padding(.top, 1)
@@ -244,115 +244,61 @@ struct EventRow: View {
 
 #Preview("Message (assistant)") {
     EventRow(
-        event: TaskEvent(
-            seq: 1,
-            eventType: "message",
-            timestamp: Date(),
-            content: .message(
-                role: "assistant",
-                text: "I'll start by analyzing the project structure and then implement the required changes."
-            ),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 1, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "message", payloadData: encodePayload(["role": "assistant", "content": "I'll start by analyzing the project structure."]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Message (user)") {
     EventRow(
-        event: TaskEvent(
-            seq: 2,
-            eventType: "message",
-            timestamp: Date(),
-            content: .message(
-                role: "user",
-                text: "Add a new API endpoint for user registration."
-            ),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 2, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "message", payloadData: encodePayload(["role": "user", "content": "Add a new API endpoint for user registration."]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Reasoning") {
     EventRow(
-        event: TaskEvent(
-            seq: 3,
-            eventType: "reasoning",
-            timestamp: Date(),
-            content: .reasoning(text: "The user wants a registration endpoint. I need to create a handler, validate input, hash the password, and store the user."),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 3, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "reasoning", payloadData: encodePayload(["content": "The user wants a registration endpoint."]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Tool call") {
     EventRow(
-        event: TaskEvent(
-            seq: 4,
-            eventType: "tool_call",
-            timestamp: Date(),
-            content: .toolCall(
-                name: "read_file",
-                summary: "Read /Users/me/project/main.go",
-                input: nil,
-                output: nil
-            ),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 4, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "tool_call", payloadData: encodePayload(["tool_name": "read_file", "description": "Read /Users/me/project/main.go"]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Error") {
     EventRow(
-        event: TaskEvent(
-            seq: 5,
-            eventType: "error",
-            timestamp: Date(),
-            content: .error(message: "File not found: /Users/me/project/nonexistent.go"),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 5, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "error", payloadData: encodePayload(["message": "File not found"]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Approval") {
     EventRow(
-        event: TaskEvent(
-            seq: 6,
-            eventType: "approval",
-            timestamp: Date(),
-            content: .approval(id: "app-1", summary: "Write file /tmp/test.txt"),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 6, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "approval", payloadData: encodePayload(["id": "app-1", "description": "Write file /tmp/test.txt"]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Question") {
     EventRow(
-        event: TaskEvent(
-            seq: 7,
-            eventType: "question",
-            timestamp: Date(),
-            content: .question(id: "q-1", summary: "Which port should the server listen on?"),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 7, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "question", payloadData: encodePayload(["id": "q-1", "question": "Which port?"]))
     )
     .padding(.horizontal)
 }
 
 #Preview("Status change") {
     EventRow(
-        event: TaskEvent(
-            seq: 8,
-            eventType: "status_change",
-            timestamp: Date(),
-            content: .statusChange(from: "running", to: "waiting_approval"),
-            level: nil
-        )
+        event: TaskEvent(taskId: "t1", eventEpoch: 0, seq: 8, ts: Int(Date().timeIntervalSince1970 * 1000), eventType: "status_change", payloadData: encodePayload(["from": "running", "to": "waiting_approval"]))
     )
     .padding(.horizontal)
+}
+
+/// Helper to encode a dictionary as JSON Data for TaskEvent previews.
+private func encodePayload(_ dict: [String: Any]) -> Data? {
+    try? JSONSerialization.data(withJSONObject: dict)
 }
