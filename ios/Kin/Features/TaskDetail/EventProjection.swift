@@ -22,6 +22,7 @@ enum EventProjection {
     /// for rendering in the timeline.
     static func project(_ event: TaskEvent) -> DisplayRow {
         let seq = event.seq
+        let date = Date(timeIntervalSince1970: Double(event.ts) / 1000.0)
 
         switch event.content {
         case .message(let role, let text):
@@ -29,13 +30,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-message",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: isUser ? "person.fill" : "brain",
                 iconColor: isUser ? .accentColor : .purple,
                 primaryText: text,
                 secondaryText: nil,
                 isUserMessage: isUser,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: event.content
             )
@@ -44,13 +45,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-reasoning",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "brain.head.profile",
                 iconColor: .orange,
                 primaryText: text,
                 secondaryText: nil,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: true,
                 rawContent: event.content
             )
@@ -59,13 +60,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-toolcall",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "wrench.and.screwdriver.fill",
                 iconColor: .blue,
                 primaryText: name,
                 secondaryText: summary,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: true,
                 rawContent: event.content
             )
@@ -74,13 +75,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-error",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "exclamationmark.triangle.fill",
                 iconColor: .red,
                 primaryText: message,
                 secondaryText: nil,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: event.content
             )
@@ -89,13 +90,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-approval",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "checkmark.shield.fill",
                 iconColor: .green,
                 primaryText: "Approval Request",
                 secondaryText: summary,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: event.content
             )
@@ -104,13 +105,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-question",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "questionmark.bubble.fill",
                 iconColor: .teal,
                 primaryText: "Question",
                 secondaryText: summary,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: event.content
             )
@@ -119,13 +120,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-statuschange",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "arrow.triangle.swap",
                 iconColor: .gray,
                 primaryText: "Status: \(from) → \(to)",
                 secondaryText: nil,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: event.content
             )
@@ -134,13 +135,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-unknown",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "questionmark",
                 iconColor: .secondary,
                 primaryText: "Unknown event",
                 secondaryText: nil,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: event.content
             )
@@ -149,13 +150,13 @@ enum EventProjection {
             return DisplayRow(
                 id: "\(seq)-nil",
                 seq: seq,
-                timestamp: event.timestamp,
+                timestamp: date,
                 icon: "questionmark",
                 iconColor: .secondary,
                 primaryText: "Empty event",
                 secondaryText: nil,
                 isUserMessage: false,
-                level: event.level,
+                level: nil,
                 isCollapsible: false,
                 rawContent: nil
             )

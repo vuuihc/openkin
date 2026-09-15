@@ -56,11 +56,7 @@ final class NewTaskViewModel {
                 self.recentCwds = cwds
                 self.selectedAgent = agents.first
                 if let first = agents.first {
-                    if let models = first.models, let defaultModel = first.defaultModel {
-                        self.selectedModel = defaultModel
-                    } else {
-                        self.selectedModel = first.model
-                    }
+                    self.selectedModel = first.model
                 }
                 self.error = nil
             }
