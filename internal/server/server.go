@@ -23,6 +23,7 @@ import (
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote/relay"
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/routing"
@@ -43,6 +44,7 @@ type ServeFlags struct {
 	Tailscale    bool
 	Funnel       bool
 	TSControlURL string
+	RelayURL     string   // WebSocket relay URL (e.g. wss://kin-relay.example.com)
 	Args         []string // remaining args after command name
 }
 
@@ -56,6 +58,7 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	fs.BoolVar(&f.Tailscale, "tailscale", false, "also serve via tsnet node \"kin\"")
 	fs.BoolVar(&f.Funnel, "funnel", false, "public HTTPS via Tailscale Funnel (requires --tailscale)")
 	fs.StringVar(&f.TSControlURL, "ts-control-url", "", "Headscale/custom control URL for tsnet")
+	fs.StringVar(&f.RelayURL, "relay", "", "WebSocket relay URL (e.g. wss://kin-relay.example.com)")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
@@ -411,7 +414,31 @@ func ServeWith(version string, flags ServeFlags) error {
 		listeners = append(listeners, a)
 	}
 
-	// ui.base_url = most-public active listener (funnel > tsnet > lan > loopback).
+	// Start relay bridge if configured.
+	var relayBridge *relay.Bridge
+	if flags.RelayURL != "" {
+		hostname, _ := os.Hostname()
+		if hostname == "" {
+			hostname = "kin"
+		}
+		relayBridge = relay.NewBridge(flags.RelayURL, hostname, daemonURL)
+
+		// Add synthetic listener entry for QR / URL display.
+		relayConnectURL := relayBridge.ConnectURL() + "&token=" + auth.Token()
+		listeners = append(listeners, listenerInfo{
+			name: "relay",
+			url:  relayBridge.ConnectURL(),
+			qr:   relayConnectURL,
+		})
+
+		go func() {
+			if err := relayBridge.Run(listenCtx); err != nil && listenCtx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "relay bridge error: %v\n", err)
+			}
+		}()
+	}
+
+	// ui.base_url = most-public active listener (funnel > tsnet > relay > lan > loopback).
 	baseURL := mostPublicURL(listeners)
 	if baseURL != "" {
 		_ = st.SetSetting(ctx, notify.KeyBaseURL, baseURL)
@@ -500,6 +527,9 @@ func networkMode(f ServeFlags) string {
 	} else {
 		parts = append(parts, "loopback")
 	}
+	if f.RelayURL != "" {
+		parts = append(parts, "relay")
+	}
 	if f.Tailscale {
 		if f.Funnel {
 			parts = append(parts, "tailscale+funnel")
@@ -518,13 +548,15 @@ type listenerInfo struct {
 	qr   string // full URL with token for QR
 }
 
-// rank: funnel/tsnet https > tsnet > lan > loopback
+// rank: funnel/tsnet https > tsnet > relay > lan > loopback
 func publicityRank(name, url string) int {
 	if strings.HasPrefix(url, "https://") {
-		return 4
+		return 5
 	}
 	switch name {
 	case "tsnet":
+		return 4
+	case "relay":
 		return 3
 	case "lan":
 		return 2
