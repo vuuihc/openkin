@@ -135,14 +135,15 @@ enum ServerProfileError: LocalizedError {
 
 extension UserDefaults {
     private static let serverProfileKey = "kin_server_profile"
+    private static let serverProfilesKey = "kin_server_profiles"
 
-    /// Load the saved server profile from UserDefaults.
+    /// Load the saved server profile from UserDefaults (legacy single-profile).
     static func loadServerProfile() -> ServerProfile? {
         guard let data = UserDefaults.standard.data(forKey: serverProfileKey) else { return nil }
         return try? JSONDecoder().decode(ServerProfile.self, from: data)
     }
 
-    /// Save a server profile to UserDefaults.
+    /// Save a server profile to UserDefaults (legacy single-profile).
     static func saveServerProfile(_ profile: ServerProfile) {
         if let data = try? JSONEncoder().encode(profile) {
             UserDefaults.standard.set(data, forKey: serverProfileKey)
@@ -152,5 +153,46 @@ extension UserDefaults {
     /// Remove the saved server profile from UserDefaults.
     static func deleteServerProfile() {
         UserDefaults.standard.removeObject(forKey: serverProfileKey)
+    }
+
+    // MARK: - Multi-device support
+
+    /// Load all saved server profiles.
+    static func loadServerProfiles() -> [ServerProfile] {
+        guard let data = UserDefaults.standard.data(forKey: serverProfilesKey) else {
+            // Migrate from legacy single profile
+            if let legacy = loadServerProfile() {
+                let profiles = [legacy]
+                saveServerProfiles(profiles)
+                return profiles
+            }
+            return []
+        }
+        return (try? JSONDecoder().decode([ServerProfile].self, from: data)) ?? []
+    }
+
+    /// Save all server profiles.
+    static func saveServerProfiles(_ profiles: [ServerProfile]) {
+        if let data = try? JSONEncoder().encode(profiles) {
+            UserDefaults.standard.set(data, forKey: serverProfilesKey)
+        }
+    }
+
+    /// Add or update a profile by id.
+    static func upsertServerProfile(_ profile: ServerProfile) {
+        var profiles = loadServerProfiles()
+        if let idx = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[idx] = profile
+        } else {
+            profiles.append(profile)
+        }
+        saveServerProfiles(profiles)
+    }
+
+    /// Delete a profile by id.
+    static func deleteServerProfile(id: UUID) {
+        var profiles = loadServerProfiles()
+        profiles.removeAll { $0.id == id }
+        saveServerProfiles(profiles)
     }
 }

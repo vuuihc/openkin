@@ -3,11 +3,13 @@ import SwiftUI
 /// Settings screen showing connection status and app information.
 struct SettingsView: View {
     @Environment(AppModel.self) private var appModel
+    @State private var settingsModel = SettingsViewModel()
     @State private var serverVersion: String?
     @State private var showDisconnectConfirmation = false
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
     @State private var isReconnecting = false
+    @State private var showConnection = false
 
     private var profile: ServerProfile? {
         UserDefaults.loadServerProfile()
@@ -17,6 +19,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 connectionSection
+                devicesSection
                 daemonSection
                 aboutSection
             }
@@ -35,6 +38,13 @@ struct SettingsView: View {
             }
             .task {
                 await loadVersion()
+                settingsModel.load()
+            }
+            .sheet(isPresented: $showConnection) {
+                ConnectionView { client in
+                    showConnection = false
+                    settingsModel.load()
+                }
             }
         }
     }
@@ -92,6 +102,48 @@ struct SettingsView: View {
             if appModel.connectionState == .unconfigured {
                 Text(String(localized: "settings.security_hint"))
                     .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Devices Section
+
+    private var devicesSection: some View {
+        Section("Devices") {
+            if settingsModel.savedProfiles.isEmpty {
+                Text("No devices saved")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(settingsModel.savedProfiles) { savedProfile in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(savedProfile.displayName)
+                            .fontWeight(.medium)
+                        Text(savedProfile.origin)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    if settingsModel.isActive(savedProfile) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .imageScale(.small)
+                    }
+                }
+            }
+            .onDelete { indexSet in
+                for i in indexSet {
+                    let p = settingsModel.savedProfiles[i]
+                    settingsModel.deleteProfile(p)
+                }
+            }
+
+            Button {
+                showConnection = true
+            } label: {
+                Label("Add Device", systemImage: "plus.circle")
             }
         }
     }
