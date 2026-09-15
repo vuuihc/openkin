@@ -163,7 +163,7 @@ private final class CameraQRViewController: UIViewController {
 
 // MARK: - AVCaptureMetadataOutputObjectsDelegate
 
-extension CameraQRViewController: AVCaptureMetadataOutputObjectsDelegate {
+extension CameraQRViewController: @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
     func metadataOutput(
         _ output: AVCaptureMetadataOutput,
         didOutput metadataObjects: [AVMetadataObject],
