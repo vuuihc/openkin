@@ -70,3 +70,4 @@ coverage/
 # Dev stack local binary
 .kin-dev/
 nohup.out
+ios/.build/

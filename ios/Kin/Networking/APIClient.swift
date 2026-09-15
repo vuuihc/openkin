@@ -141,6 +141,14 @@ actor APIClient {
         try await perform(.workspaces(taskId: taskId))
     }
 
+    func workspaceDiff(taskId: String, workspaceId: String) async throws -> String {
+        try await performString(.workspaceDiff(taskId: taskId, workspaceId: workspaceId))
+    }
+
+    func workspaceFile(taskId: String, workspaceId: String, path: String) async throws -> String {
+        try await performString(.workspaceFile(taskId: taskId, workspaceId: workspaceId, path: path))
+    }
+
     /// Build a WebSocket URL for the daemon.
     /// Converts http → ws and https → wss.
     nonisolated func webSocketURL() throws -> URL {
@@ -234,6 +242,19 @@ actor APIClient {
         }
         let request = try self.request(for: endpoint, body: encodedBody, timeout: timeout)
         _ = try await execute(request)
+    }
+
+    /// Perform a request and return the raw response body as a UTF-8 string.
+    private func performString(
+        _ endpoint: Endpoint,
+        timeout: TimeInterval = 30
+    ) async throws -> String {
+        let request = try self.request(for: endpoint, timeout: timeout)
+        let data = try await execute(request)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw APIError.incompatible("Response is not valid UTF-8 text")
+        }
+        return text
     }
 
     /// Execute a URLRequest and return the raw response data.
