@@ -24,6 +24,7 @@
 		482F91232EBD45D3681BE914 /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F4C8E4A47995C917282E13 /* NewTaskView.swift */; };
 		4A72ACAFD97444D050867D61 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9232ADCA1690EC332BA98BF7 /* ConnectionState.swift */; };
 		4F78B48A32F8C072319E076D /* Endpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31330E6038DDD5B591AFBB6A /* Endpoint.swift */; };
+		564FD58E106E1A829328BF23 /* FileDiffView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CD56FCFCC5F90297DB34E4E /* FileDiffView.swift */; };
 		5801D8231438232CEB0284D9 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6549F3B9B9AA7648C0F2D89B /* AppModel.swift */; };
 		5DC10D0BAEB4F379039A2937 /* QuestionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682B745D9F6D5C21D4D8484E /* QuestionCard.swift */; };
 		705844E86341967B4BF4339C /* ControlViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */; };
@@ -41,6 +42,7 @@
 		B78C1FE4C6B829F18366A90D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 61D66FEE5856017A860A3920 /* Localizable.xcstrings */; };
 		BEDE0B87991AEF48355CCAEB /* KinCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8F5B834455D9DA0CA0BB1E /* KinCoreTests.swift */; };
 		C894F6388CCA903603257922 /* Reconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA741855D519328C0C5C6E8D /* Reconciler.swift */; };
+		CC36B81C92947DA0928C7BAF /* WorkspaceChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E1BF5ECA8E242A01320AEC /* WorkspaceChangesView.swift */; };
 		D0DAB9750816D8661B7FC8CB /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F8F77C1541E3039FFB651B /* SettingsView.swift */; };
 		D0E7FFB1482AE4DC784DC76F /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */; };
 		DB85AB9FA2ADEF2D93197877 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A92F84F23B0075E4ADA471C /* Workspace.swift */; };
@@ -70,6 +72,7 @@
 		31330E6038DDD5B591AFBB6A /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
 		3AC619597BD5F10F7B143255 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlViewModel.swift; sourceTree = "<group>"; };
+		59E1BF5ECA8E242A01320AEC /* WorkspaceChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChangesView.swift; sourceTree = "<group>"; };
 		60D63CE999BC128E6446EC1B /* ServerProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProfile.swift; sourceTree = "<group>"; };
 		61D66FEE5856017A860A3920 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		6549F3B9B9AA7648C0F2D89B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -81,6 +84,7 @@
 		809018FF2640C5E90573B0AB /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agent.swift; sourceTree = "<group>"; };
 		842559CCE9DB35953BD1564B /* KinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinApp.swift; sourceTree = "<group>"; };
 		895742CF6394D58874A5EE5A /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
+		8CD56FCFCC5F90297DB34E4E /* FileDiffView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDiffView.swift; sourceTree = "<group>"; };
 		8E6E87420AE72F8C52D6F500 /* Approval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Approval.swift; sourceTree = "<group>"; };
 		9232ADCA1690EC332BA98BF7 /* ConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionState.swift; sourceTree = "<group>"; };
 		9A92F84F23B0075E4ADA471C /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -205,8 +209,10 @@
 			isa = PBXGroup;
 			children = (
 				29D30A7EBEEB7E7A0D66763B /* EventProjection.swift */,
+				8CD56FCFCC5F90297DB34E4E /* FileDiffView.swift */,
 				3AC619597BD5F10F7B143255 /* TaskDetailView.swift */,
 				A7F7720C52EA89F093610C8C /* TaskDetailViewModel.swift */,
+				59E1BF5ECA8E242A01320AEC /* WorkspaceChangesView.swift */,
 			);
 			path = TaskDetail;
 			sourceTree = "<group>";
@@ -406,6 +412,7 @@
 				4F78B48A32F8C072319E076D /* Endpoint.swift in Sources */,
 				0C2CB9BA7BBCD721220117C4 /* EventProjection.swift in Sources */,
 				F3AE6FADB602CE4A1C432898 /* EventRow.swift in Sources */,
+				564FD58E106E1A829328BF23 /* FileDiffView.swift in Sources */,
 				9F34AA783B35319634EA8E70 /* KeychainStore.swift in Sources */,
 				9295EFF814DC98EDA81B7F2D /* KinApp.swift in Sources */,
 				482F91232EBD45D3681BE914 /* NewTaskView.swift in Sources */,
@@ -427,6 +434,7 @@
 				0967064FCE777137397B34EE /* UserQuestion.swift in Sources */,
 				8D9A8E727C1C1BE93972D05A /* WebSocketClient.swift in Sources */,
 				DB85AB9FA2ADEF2D93197877 /* Workspace.swift in Sources */,
+				CC36B81C92947DA0928C7BAF /* WorkspaceChangesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -445,6 +453,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -462,6 +471,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

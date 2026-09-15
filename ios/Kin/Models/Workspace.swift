@@ -1,11 +1,13 @@
 import Foundation
 
 /// A file that was changed within a workspace generation.
-struct ChangedFile: Codable, Hashable {
+struct ChangedFile: Codable, Hashable, Identifiable {
     let path: String
     let additions: Int
     let deletions: Int
     let isBinary: Bool?
+
+    var id: String { path }
 
     enum CodingKeys: String, CodingKey {
         case path, additions, deletions
