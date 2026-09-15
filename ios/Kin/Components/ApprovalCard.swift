@@ -55,47 +55,12 @@ struct ApprovalCard: View {
                 }
             }
 
-            // Agent & model info
-            if let agent = approval.agentName {
-                HStack(spacing: 4) {
-                    Text(
-                        String(localized: "Agent", comment: "Approval card: agent label")
-                    )
-                    .foregroundStyle(.secondary)
-                    Text(agent)
-                        .fontWeight(.medium)
-
-                    if let model = approval.modelName {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(model)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .font(.caption)
-            }
-
-            // Tool name
-            if let toolName = approval.toolName {
+            // Command (from payload.input.command)
+            if let command = approval.command, !command.isEmpty {
                 LabeledRow(
-                    label: String(localized: "Tool", comment: "Approval card: tool label"),
-                    value: toolName
+                    label: String(localized: "Command", comment: "Approval card: command label"),
+                    value: command
                 )
-            }
-
-            // Command or path
-            Group {
-                if let command = approval.command, !command.isEmpty {
-                    LabeledRow(
-                        label: String(localized: "Command", comment: "Approval card: command label"),
-                        value: command
-                    )
-                } else if let path = approval.path, !path.isEmpty {
-                    LabeledRow(
-                        label: String(localized: "Path", comment: "Approval card: path label"),
-                        value: path
-                    )
-                }
             }
 
             // Input detail
@@ -235,14 +200,12 @@ private struct LabeledRow: View {
         approval: Approval(
             id: "approval-1",
             taskId: "task-1",
-            agentName: "Kin",
-            modelName: "claude-sonnet-4",
+            kind: "tool_use",
             toolName: "write_file",
             command: nil,
-            path: "/Users/me/project/main.go",
-            inputDetail: "Write a new HTTP handler for the /api/users endpoint with proper error handling and request validation.",
+            inputDetail: "Write a new HTTP handler for the /api/users endpoint",
             status: .pending,
-            createdAt: Date(),
+            createdAt: Int(Date().timeIntervalSince1970 * 1000),
             decidedAt: nil,
             decidedVia: nil
         ),
@@ -256,14 +219,12 @@ private struct LabeledRow: View {
         approval: Approval(
             id: "approval-2",
             taskId: "task-1",
-            agentName: "Kin",
-            modelName: "deepseek-v4",
+            kind: "tool_use",
             toolName: "execute_command",
             command: "rm -rf /tmp/cache",
-            path: nil,
             inputDetail: "Clean up the build cache directory.",
             status: .pending,
-            createdAt: Date(),
+            createdAt: Int(Date().timeIntervalSince1970 * 1000),
             decidedAt: nil,
             decidedVia: nil
         ),
@@ -277,14 +238,12 @@ private struct LabeledRow: View {
         approval: Approval(
             id: "approval-3",
             taskId: "task-2",
-            agentName: nil,
-            modelName: nil,
+            kind: nil,
             toolName: nil,
             command: nil,
-            path: nil,
             inputDetail: nil,
             status: .pending,
-            createdAt: Date(),
+            createdAt: Int(Date().timeIntervalSince1970 * 1000),
             decidedAt: nil,
             decidedVia: nil
         ),
