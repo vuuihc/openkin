@@ -1,33 +1,53 @@
-# Kin Relay — Cloudflare Worker
+# Kin Relay
 
-## 部署
+WebSocket relay for Kin remote control. Bridges a Kin daemon and an iOS app
+through Cloudflare Workers — no Tailscale, no open ports, works through any
+firewall.
 
-```bash
-# 1. 安装 wrangler（如果没有）
-npm install -g wrangler
+## Quick deploy — zero source code
 
-# 2. 登录 Cloudflare
-wrangler login
+### Option A: One-click deploy (easiest)
 
-# 3. 部署
-wrangler deploy
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/vuuihc/openkin&directory=relay)
 
-# 4. （可选）绑定自定义域名
-wrangler route --domain relay.your-domain.com
-```
+Click the button above → log in to Cloudflare → done.  
+You get `https://kin-relay.your-subdomain.workers.dev`.
 
-部署后得到 `https://kin-relay.xxx.workers.dev`。
-
-## 在 daemon 中使用
+### Option B: wrangler CLI (if you already have it)
 
 ```bash
-./kin serve --relay wss://kin-relay.xxx.workers.dev
+npx wrangler@latest deploy relay.js --name kin-relay
 ```
 
-## 在 iOS 中使用
+### Option C: Cloudflare Dashboard (no CLI at all)
 
-手动输入 `https://kin-relay.xxx.workers.dev`。
+1. Go to https://dash.cloudflare.com → Workers & Pages → Create → Worker
+2. Delete the default code
+3. Paste the content of `relay.js` from this directory
+4. Click "Save and Deploy"
 
-## 房间机制
+All three options give you the same result: a public HTTPS URL.
 
-每个 daemon 使用主机名作为 room ID，多个 daemon 共用同一个 worker URL 但不同 room。iOS app 通过在连接 URL 后加 `?room=xxx` 指定目标设备。
+## Usage
+
+```bash
+# Mac daemon (after install.sh)
+kin serve --relay wss://kin-relay.your-subdomain.workers.dev
+
+# iOS app: Settings → Add Device → enter:
+https://kin-relay.your-subdomain.workers.dev
+```
+
+Each daemon automatically gets its own room by hostname.  
+Multiple daemons can share one relay URL.
+
+## How it works
+
+```
+iPhone ── HTTPS/WSS ──→ Cloudflare Worker ←── WSS ── Kin daemon
+                               │
+                         Room-based pairing:
+                         same room = same session
+```
+
+Both sides connect **outbound** — no inbound ports, no VPN, no Tailscale needed.
