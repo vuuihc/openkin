@@ -33,6 +33,7 @@ open Kin.xcodeproj
 | **Tailscale** | `./kin serve --tailscale` | Anywhere (both devices need Tailscale) | End-to-end encrypted |
 | **Funnel** | `./kin serve --tailscale --funnel` | Anywhere (public HTTPS) | TLS + Bearer token |
 | **Cloudflare Tunnel** | `cloudflared tunnel --url http://localhost:7777` | Anywhere via your domain | TLS + Bearer token |
+| **Relay** | `./kin serve --relay wss://kin-relay.example.com` | Anywhere (no Tailscale, no cloudflared) | WSS + Bearer token |
 
 See [REMOTE_ACCESS.md](../../docs/REMOTE_ACCESS.md) for detailed setup guides.
 
@@ -87,6 +88,53 @@ xcodebuild -project Kin.xcodeproj -scheme Kin \
 - **REST + WebSocket** — HTTP for snapshots and commands, WebSocket for live invalidation. Full reconciliation on reconnect and foreground.
 - **@MainActor Reconciler** — Merges HTTP snapshots with WebSocket live updates. Events keyed by `(task_id, seq)` for idempotent merging.
 - **Zero third-party dependencies** — `URLSession`, `URLSessionWebSocketTask`, `Security` framework only.
+
+## Cloudflare Relay
+
+The relay transport lets the Kin daemon connect outbound to a Cloudflare Worker via WebSocket,
+bypassing the need for Tailscale or `cloudflared`. The iOS app also connects to the same Worker,
+which pairs both connections using a shared room ID.
+
+### Setup
+
+1. **Deploy the Worker** (one-time):
+   ```bash
+   cd relay
+   wrangler deploy relay.js --name kin-relay
+   ```
+
+2. **Start the daemon with relay**:
+   ```bash
+   ./kin serve --relay wss://kin-relay.your-domain.workers.dev
+   ```
+
+3. **Connect the iOS app**:
+   - The daemon prints a relay URL with a room ID and token.
+   - In the app, tap "Enter URL Manually" and paste the printed URL.
+   - The app connects to the same Worker; the Worker pairs both connections.
+
+### How it works
+
+```
+iOS App ──HTTPS / WSS──→ Cloudflare Worker ←──WSS─── Kin Daemon
+                                │
+                          ┌──────┴──────┐
+                          │   Room-based  │
+                          │   auto-pairing │
+                          └──────────────┘
+```
+
+- The daemon connects outbound to the Worker via WSS (`?room=<hostname>&role=daemon`).
+- The iOS app connects to the same Worker (`?room=<hostname>`).
+- The Worker forwards REST API calls and WebSocket events between the pair.
+- HTTPS requests from the app are relayed through the Worker → WSS → daemon → loopback HTTP.
+- WebSocket connections from the app (for live events) are relayed bidirectionally.
+
+### Requirements
+
+- Cloudflare Workers account (free tier works).
+- No Tailscale, no `cloudflared` binary on the Mac.
+- The daemon must have outbound HTTPS access to the Worker URL.
 
 ## License
 

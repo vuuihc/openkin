@@ -218,6 +218,8 @@ struct ConnectionView: View {
             if let encoded = try? JSONEncoder().encode(profile) {
                 UserDefaults.standard.set(encoded, forKey: "kin_server_profile")
             }
+            // Also save to multi-device list
+            UserDefaults.upsertServerProfile(profile)
 
             let client = APIClient(baseURL: payload.baseURL, token: payload.token)
 
