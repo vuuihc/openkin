@@ -23,6 +23,22 @@ Dispatch, watch, and approve agent tasks — Claude Code, Codex, any CLI — fro
 
 > **Not the same product as** [Kin / mykin.ai](https://mykin.ai) (commercial personal-AI companion app for iOS/Android). OpenKin is an independent open-source project.
 
+## Quick start
+
+```bash
+# One command — no Go, no Node.js needed
+curl -sfL https://raw.githubusercontent.com/vuuihc/openkin/main/scripts/install.sh | bash
+
+# Start controlling from your iPhone
+kin serve --lan          # same WiFi
+# or
+kin serve --tailscale    # anywhere with Tailscale
+# or (deploy relay first — see relay/README.md)
+kin serve --relay wss://kin-relay.your-domain.workers.dev
+```
+
+**iOS companion app** — see [ios/README.md](https://github.com/vuuihc/openkin/blob/main/ios/README.md) for TestFlight / App Store / build from source.
+
 ## Docs
 
 | Doc | What it is |
