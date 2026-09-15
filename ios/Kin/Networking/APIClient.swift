@@ -198,6 +198,7 @@ actor APIClient {
         if endpoint.needsAuth {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        request.setValue("ios", forHTTPHeaderField: "X-Client-Type")
 
         if let body {
             request.httpBody = body
