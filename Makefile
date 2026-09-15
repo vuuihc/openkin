@@ -1,4 +1,4 @@
-.PHONY: build test clean ui go-build setup-dev desktop-dev desktop-dist desktop-icons desktop-rebuild dev
+.PHONY: build test clean ui go-build setup-dev desktop-dev desktop-dist desktop-icons desktop-rebuild dev release
 
 # Single binary with embedded UI (spec §10 M0).
 build: ui go-build
@@ -8,6 +8,18 @@ ui:
 
 go-build:
 	go build -o kin ./cmd/kin
+
+# Cross-compile release binaries.
+release: ui
+	@mkdir -p dist
+	GOOS=darwin GOARCH=arm64 go build -o dist/kin-darwin-arm64 ./cmd/kin
+	GOOS=darwin GOARCH=amd64 go build -o dist/kin-darwin-amd64 ./cmd/kin
+	GOOS=linux GOARCH=amd64 go build -o dist/kin-linux-amd64 ./cmd/kin
+	GOOS=linux GOARCH=arm64 go build -o dist/kin-linux-arm64 ./cmd/kin
+	cd dist && shasum -a 256 kin-* > SHA256SUMS
+	@echo "---"
+	@echo "Release binaries in dist/:"
+	@ls -1 dist/
 
 setup-dev:
 	./scripts/setup-dev.sh
