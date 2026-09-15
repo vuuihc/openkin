@@ -2,9 +2,14 @@ import Foundation
 
 /// Parsed result from scanning a Kin daemon QR code.
 /// Expected URL format: http(s)://host:port/?token=<bearer_token>
-struct PairingPayload: Equatable {
+struct PairingPayload: Equatable, CustomStringConvertible {
     let baseURL: URL      // normalized origin
     let token: String
+
+    /// Description that deliberately omits the token to avoid leaking secrets.
+    var description: String {
+        "PairingPayload(baseURL: \(baseURL.absoluteString), token: <redacted>)"
+    }
 
     /// Parse and validate a QR URL payload.
     /// - Rejects credentials embedded in the URL outside the `token` query item.

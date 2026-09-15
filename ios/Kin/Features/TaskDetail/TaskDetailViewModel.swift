@@ -6,6 +6,7 @@ import Observation
 final class TaskDetailViewModel {
     var task: KinTask?
     var events: [TaskEvent] = []
+    var workspaces: [Workspace] = []
     var isLoading = false
     var isSending = false
     var error: String?
@@ -132,6 +133,19 @@ final class TaskDetailViewModel {
         } catch {
             self.error = error.localizedDescription
             return nil
+        }
+    }
+
+    /// Load workspaces for the given task.
+    /// - Parameters:
+    ///   - taskId: The task ID.
+    ///   - apiClient: The API client.
+    @MainActor
+    func loadWorkspaces(taskId: String, with apiClient: APIClient) async {
+        do {
+            workspaces = try await apiClient.workspaces(taskId: taskId)
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 }
