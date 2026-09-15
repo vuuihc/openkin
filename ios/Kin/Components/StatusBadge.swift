@@ -24,6 +24,7 @@ extension TaskStatus {
         case .running: return "Running"
         case .waitingApproval: return "Needs Approval"
         case .waitingInput: return "Needs Input"
+        case .succeeded: return "Succeeded"
         case .completed: return "Completed"
         case .failed: return "Failed"
         case .cancelled: return "Cancelled"
@@ -39,6 +40,7 @@ extension TaskStatus {
         case .running: return .blue
         case .waitingApproval: return .purple
         case .waitingInput: return .teal
+        case .succeeded: return .green
         case .completed: return .green
         case .failed: return .red
         case .cancelled: return .gray
