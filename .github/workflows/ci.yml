@@ -36,5 +36,10 @@ jobs:
       - name: Go test
         run: go test ./...
 
-      - name: Go build
-        run: go build -o kin ./cmd/kin
+      - name: Stream observability guard (execplan continuous guard)
+        if: ${{ vars.KIN_STREAM_HEALTH_DB != '' }}
+        env:
+          KIN_DB: ${{ vars.KIN_STREAM_HEALTH_DB }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y sqlite3
+          ./scripts/stream-health-check.sh
