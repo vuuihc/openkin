@@ -7,6 +7,7 @@ struct TaskDetailView: View {
 
     @State private var viewModel = TaskDetailViewModel()
     @State private var guidanceText = ""
+    @State private var showWorkspaceChanges = false
 
     /// Timer-driven polling interval for non-terminal tasks (seconds).
     private let pollInterval: TimeInterval = 3
@@ -59,6 +60,9 @@ struct TaskDetailView: View {
             // Poll for new events while the task is not terminal
             guard let client = apiClient else { return }
             await pollLoop(client: client)
+        }
+        .sheet(isPresented: $showWorkspaceChanges) {
+            WorkspaceChangesView(taskId: taskId, apiClient: apiClient)
         }
     }
 
@@ -386,6 +390,13 @@ struct TaskDetailView: View {
                     Label("Follow up", systemImage: "arrowshape.turn.up.right")
                 }
                 .buttonStyle(.borderedProminent)
+
+                Button {
+                    showWorkspaceChanges = true
+                } label: {
+                    Label("Changes", systemImage: "doc.text")
+                }
+                .buttonStyle(.bordered)
 
                 Spacer()
             }
