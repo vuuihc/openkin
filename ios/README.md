@@ -6,24 +6,58 @@ Start a task on your Mac, watch the transcript live, approve tool requests, answ
 
 ## Quick start
 
-```bash
-# 1. On your Mac, start the Kin daemon
-cd /path/to/kin
-make build
-./kin serve --lan      # local network
-# or
-./kin serve --tailscale  # over the internet via Tailscale
+### 1. Get the Kin daemon
 
-# 2. Build and run the iOS app
-cd ios
+**Option A — Download a pre-built binary (recommended):**
+
+Grab the latest `kin-darwin-arm64` (Apple Silicon) or `kin-darwin-amd64` (Intel) from the [releases page](https://github.com/vuuihc/openkin/releases).
+
+```bash
+chmod +x kin-darwin-arm64
+mv kin-darwin-arm64 /usr/local/bin/kin
+```
+
+**Option B — Build from source:**
+
+```bash
+git clone https://github.com/vuuihc/openkin.git
+cd openkin
+make build      # requires Go + Node.js
+```
+
+### 2. Start the daemon
+
+```bash
+kin serve --lan          # local network
+# or
+kin serve --tailscale    # over the internet via Tailscale
+# or
+kin serve --relay wss://kin-relay.xxx.workers.dev  # through Cloudflare (no Tailscale needed)
+```
+
+### 3. Get the iOS app
+
+**For developers — build from source:**
+
+```bash
+git clone https://github.com/vuuihc/openkin.git
+cd openkin/ios
 xcodegen generate
 open Kin.xcodeproj
-# Select Kin iPhone 16 Pro simulator, press Run
-
-# 3. Pair
-# In the app, tap "Scan QR Code" and scan the QR printed by the daemon,
-# or tap "Enter URL Manually" and paste the URL shown.
+# Select a simulator or your device, press Run
 ```
+
+**For end users — TestFlight / App Store:**
+
+The iOS app is distributed through TestFlight and the App Store.  
+Join the [TestFlight beta](https://testflight.apple.com/join/kin) or download from the [App Store](https://apps.apple.com/app/kin-remote).
+
+*Currently in development — the first TestFlight build is being prepared.*
+
+### 4. Pair
+
+Tap "Scan QR Code" and scan the QR printed by the daemon,  
+or tap "Enter URL Manually" and paste the connection URL.
 
 ## Remote access options
 
