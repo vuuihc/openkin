@@ -51,6 +51,11 @@ data/local/
 .cursor/
 .playwright-mcp/
 
+# Xcode local state and build products
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
 # Repository-local temporary build caches
 .tmp/
 

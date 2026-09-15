@@ -1,0 +1,672 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		01DB904EB67166F5235F6A3F /* Task.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BBBEC46432B58BB2DD1CF5 /* Task.swift */; };
+		04D969FEF8C2C43B1F537C30 /* StatusBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895742CF6394D58874A5EE5A /* StatusBadge.swift */; };
+		09584A6B203CF7A4652CE1AB /* ServerProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60D63CE999BC128E6446EC1B /* ServerProfile.swift */; };
+		0967064FCE777137397B34EE /* UserQuestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0AEA1E5A281B3648DEEC858 /* UserQuestion.swift */; };
+		0C2CB9BA7BBCD721220117C4 /* EventProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D30A7EBEEB7E7A0D66763B /* EventProjection.swift */; };
+		1688DAE9222A617DB6C815AC /* TaskListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEB399BFEC477FB4F5EA8EF1 /* TaskListViewModel.swift */; };
+		1743D8DF6211051B67AC592F /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE1D5D65E5F822849E4617AE /* APIError.swift */; };
+		1EAFEB49730DC166AC9B1185 /* ControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700F9B6E271BC80CD9B4B73C /* ControlView.swift */; };
+		1F73C2C0FBDED3EE84A19651 /* TaskEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D0527A5EF7223BF324B652 /* TaskEvent.swift */; };
+		28670A573F61F01750BAA37B /* ServerMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */; };
+		2B397BB5AF88D3AEE1DE852D /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D58CAACC2041347A8E54F7B /* ConnectionView.swift */; };
+		3BC0EE272BF4AB54136D5FA6 /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D983A22D03726CBFD3BAF1AF /* ConnectionBanner.swift */; };
+		3E09B9BC863E021C27180BD6 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F093FD87FFE1C535B71CEF79 /* QRScannerView.swift */; };
+		4817306FFC6E7312787960DE /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F0468FC7EA2BD95124391C /* APIClient.swift */; };
+		482F91232EBD45D3681BE914 /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F4C8E4A47995C917282E13 /* NewTaskView.swift */; };
+		4A72ACAFD97444D050867D61 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9232ADCA1690EC332BA98BF7 /* ConnectionState.swift */; };
+		4F78B48A32F8C072319E076D /* Endpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31330E6038DDD5B591AFBB6A /* Endpoint.swift */; };
+		5801D8231438232CEB0284D9 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6549F3B9B9AA7648C0F2D89B /* AppModel.swift */; };
+		5DC10D0BAEB4F379039A2937 /* QuestionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 682B745D9F6D5C21D4D8484E /* QuestionCard.swift */; };
+		705844E86341967B4BF4339C /* ControlViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */; };
+		736D7EDFBC573E21D5E220E0 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 056B4C791523676EB48124C3 /* Assets.xcassets */; };
+		7407F0B0CE32F7ACF0ED9220 /* Approval.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E6E87420AE72F8C52D6F500 /* Approval.swift */; };
+		88B11CDE18F5AE80A39ECC35 /* Agent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809018FF2640C5E90573B0AB /* Agent.swift */; };
+		8AB86CFBEC617A2352D893FE /* PairingPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC9A314FEBFED562C87581A /* PairingPayload.swift */; };
+		8D9A8E727C1C1BE93972D05A /* WebSocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C1564810EFB2CCE28B5F5B /* WebSocketClient.swift */; };
+		928994658680817004205EC1 /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B40ECB3E0EB241D0160CC5 /* TaskListView.swift */; };
+		9295EFF814DC98EDA81B7F2D /* KinApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842559CCE9DB35953BD1564B /* KinApp.swift */; };
+		979B25F17BBA83DDD6581476 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC619597BD5F10F7B143255 /* TaskDetailView.swift */; };
+		9F34AA783B35319634EA8E70 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF650745DA9D77726E38FDE /* KeychainStore.swift */; };
+		A1A72BABE298AAC8736CAD6E /* NewTaskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D62CD4CD361F69F1974C571F /* NewTaskViewModel.swift */; };
+		B48F2C991FFF1137BAC17D04 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D35126EBAEC0BE735B4869C /* ContentView.swift */; };
+		B78C1FE4C6B829F18366A90D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 61D66FEE5856017A860A3920 /* Localizable.xcstrings */; };
+		BEDE0B87991AEF48355CCAEB /* KinCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8F5B834455D9DA0CA0BB1E /* KinCoreTests.swift */; };
+		C894F6388CCA903603257922 /* Reconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA741855D519328C0C5C6E8D /* Reconciler.swift */; };
+		D0DAB9750816D8661B7FC8CB /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F8F77C1541E3039FFB651B /* SettingsView.swift */; };
+		D0E7FFB1482AE4DC784DC76F /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */; };
+		DB85AB9FA2ADEF2D93197877 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A92F84F23B0075E4ADA471C /* Workspace.swift */; };
+		F35F1C3756E93E62E48FAE51 /* TaskDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F7720C52EA89F093610C8C /* TaskDetailViewModel.swift */; };
+		F3AE6FADB602CE4A1C432898 /* EventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F331CF6B071C58B58AF2BE01 /* EventRow.swift */; };
+		F907E4F327F9C9DC6DFD8E03 /* ApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A46486101E867F81E8D9FC /* ApprovalCard.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7F0C527924065F786013B327 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DF917CCB6D36217A4FBDB130 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C709CCD77489D5493D7B5A69;
+			remoteInfo = Kin;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		04B40ECB3E0EB241D0160CC5 /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListView.swift; sourceTree = "<group>"; };
+		056B4C791523676EB48124C3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		06B89BB219C41C5817AD1969 /* KinTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = KinTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		13DDE1FD8CF6C504ECFC8985 /* Kin.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Kin.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		19D0527A5EF7223BF324B652 /* TaskEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskEvent.swift; sourceTree = "<group>"; };
+		29D30A7EBEEB7E7A0D66763B /* EventProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventProjection.swift; sourceTree = "<group>"; };
+		2D35126EBAEC0BE735B4869C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		31330E6038DDD5B591AFBB6A /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
+		3AC619597BD5F10F7B143255 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
+		45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlViewModel.swift; sourceTree = "<group>"; };
+		60D63CE999BC128E6446EC1B /* ServerProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProfile.swift; sourceTree = "<group>"; };
+		61D66FEE5856017A860A3920 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		6549F3B9B9AA7648C0F2D89B /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		682B745D9F6D5C21D4D8484E /* QuestionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionCard.swift; sourceTree = "<group>"; };
+		700F9B6E271BC80CD9B4B73C /* ControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlView.swift; sourceTree = "<group>"; };
+		75BBBEC46432B58BB2DD1CF5 /* Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Task.swift; sourceTree = "<group>"; };
+		7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerMessage.swift; sourceTree = "<group>"; };
+		7FF650745DA9D77726E38FDE /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		809018FF2640C5E90573B0AB /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agent.swift; sourceTree = "<group>"; };
+		842559CCE9DB35953BD1564B /* KinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinApp.swift; sourceTree = "<group>"; };
+		895742CF6394D58874A5EE5A /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
+		8E6E87420AE72F8C52D6F500 /* Approval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Approval.swift; sourceTree = "<group>"; };
+		9232ADCA1690EC332BA98BF7 /* ConnectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionState.swift; sourceTree = "<group>"; };
+		9A92F84F23B0075E4ADA471C /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		9D58CAACC2041347A8E54F7B /* ConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionView.swift; sourceTree = "<group>"; };
+		9FC9A314FEBFED562C87581A /* PairingPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingPayload.swift; sourceTree = "<group>"; };
+		A0AEA1E5A281B3648DEEC858 /* UserQuestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserQuestion.swift; sourceTree = "<group>"; };
+		A7F7720C52EA89F093610C8C /* TaskDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailViewModel.swift; sourceTree = "<group>"; };
+		A9A46486101E867F81E8D9FC /* ApprovalCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalCard.swift; sourceTree = "<group>"; };
+		AA741855D519328C0C5C6E8D /* Reconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Reconciler.swift; sourceTree = "<group>"; };
+		B3F0468FC7EA2BD95124391C /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		B7F8F77C1541E3039FFB651B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		C8F4C8E4A47995C917282E13 /* NewTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskView.swift; sourceTree = "<group>"; };
+		CB8F5B834455D9DA0CA0BB1E /* KinCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinCoreTests.swift; sourceTree = "<group>"; };
+		CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoute.swift; sourceTree = "<group>"; };
+		CE1D5D65E5F822849E4617AE /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		CEDF93836561F42667B17A6F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D62CD4CD361F69F1974C571F /* NewTaskViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskViewModel.swift; sourceTree = "<group>"; };
+		D983A22D03726CBFD3BAF1AF /* ConnectionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionBanner.swift; sourceTree = "<group>"; };
+		DEB399BFEC477FB4F5EA8EF1 /* TaskListViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskListViewModel.swift; sourceTree = "<group>"; };
+		E2C1564810EFB2CCE28B5F5B /* WebSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketClient.swift; sourceTree = "<group>"; };
+		F093FD87FFE1C535B71CEF79 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		F331CF6B071C58B58AF2BE01 /* EventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventRow.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0AB41226B9124EF969B1BFC0 = {
+			isa = PBXGroup;
+			children = (
+				CAECDCD46E7BA12C35D5D1B1 /* Kin */,
+				9C91FDD4A0B5467F14C3127F /* KinTests */,
+				AAB08EE8E6278DC1C7CE3777 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1314E7D9CFA0972663733FE5 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				A9A46486101E867F81E8D9FC /* ApprovalCard.swift */,
+				D983A22D03726CBFD3BAF1AF /* ConnectionBanner.swift */,
+				F331CF6B071C58B58AF2BE01 /* EventRow.swift */,
+				682B745D9F6D5C21D4D8484E /* QuestionCard.swift */,
+				895742CF6394D58874A5EE5A /* StatusBadge.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		1AE136B5FE01B464F4729145 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				6549F3B9B9AA7648C0F2D89B /* AppModel.swift */,
+				CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */,
+				2D35126EBAEC0BE735B4869C /* ContentView.swift */,
+				842559CCE9DB35953BD1564B /* KinApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		247E54829AB3E0A72D8B83C7 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				809018FF2640C5E90573B0AB /* Agent.swift */,
+				8E6E87420AE72F8C52D6F500 /* Approval.swift */,
+				7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */,
+				75BBBEC46432B58BB2DD1CF5 /* Task.swift */,
+				19D0527A5EF7223BF324B652 /* TaskEvent.swift */,
+				A0AEA1E5A281B3648DEEC858 /* UserQuestion.swift */,
+				9A92F84F23B0075E4ADA471C /* Workspace.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		29DEF8FEE4BD1860B55FFBF5 /* Tasks */ = {
+			isa = PBXGroup;
+			children = (
+				04B40ECB3E0EB241D0160CC5 /* TaskListView.swift */,
+				DEB399BFEC477FB4F5EA8EF1 /* TaskListViewModel.swift */,
+			);
+			path = Tasks;
+			sourceTree = "<group>";
+		};
+		30D5930367D8DB351951F39E /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				9232ADCA1690EC332BA98BF7 /* ConnectionState.swift */,
+				60D63CE999BC128E6446EC1B /* ServerProfile.swift */,
+			);
+			path = Configuration;
+			sourceTree = "<group>";
+		};
+		322F63A1B06A1B35AF937831 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				CD7A5620226EB826F2050FAC /* Connection */,
+				4591DFDE29C3D9C44C2C4741 /* Control */,
+				43EF5B8A0D2E32377C2732FB /* NewTask */,
+				9A7AEFEFCEE20E5BFD6DA413 /* Settings */,
+				877D16B6C1C5660978B24B65 /* TaskDetail */,
+				29DEF8FEE4BD1860B55FFBF5 /* Tasks */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		43EF5B8A0D2E32377C2732FB /* NewTask */ = {
+			isa = PBXGroup;
+			children = (
+				C8F4C8E4A47995C917282E13 /* NewTaskView.swift */,
+				D62CD4CD361F69F1974C571F /* NewTaskViewModel.swift */,
+			);
+			path = NewTask;
+			sourceTree = "<group>";
+		};
+		4591DFDE29C3D9C44C2C4741 /* Control */ = {
+			isa = PBXGroup;
+			children = (
+				700F9B6E271BC80CD9B4B73C /* ControlView.swift */,
+				45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */,
+			);
+			path = Control;
+			sourceTree = "<group>";
+		};
+		877D16B6C1C5660978B24B65 /* TaskDetail */ = {
+			isa = PBXGroup;
+			children = (
+				29D30A7EBEEB7E7A0D66763B /* EventProjection.swift */,
+				3AC619597BD5F10F7B143255 /* TaskDetailView.swift */,
+				A7F7720C52EA89F093610C8C /* TaskDetailViewModel.swift */,
+			);
+			path = TaskDetail;
+			sourceTree = "<group>";
+		};
+		8EF0AF3792BEAA04B231C93B /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				B3F0468FC7EA2BD95124391C /* APIClient.swift */,
+				CE1D5D65E5F822849E4617AE /* APIError.swift */,
+				31330E6038DDD5B591AFBB6A /* Endpoint.swift */,
+				AA741855D519328C0C5C6E8D /* Reconciler.swift */,
+				E2C1564810EFB2CCE28B5F5B /* WebSocketClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		9A7AEFEFCEE20E5BFD6DA413 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				B7F8F77C1541E3039FFB651B /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		9C91FDD4A0B5467F14C3127F /* KinTests */ = {
+			isa = PBXGroup;
+			children = (
+				CB8F5B834455D9DA0CA0BB1E /* KinCoreTests.swift */,
+			);
+			path = KinTests;
+			sourceTree = "<group>";
+		};
+		A7E3CF4C862F76356D7ACCAF /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				056B4C791523676EB48124C3 /* Assets.xcassets */,
+				61D66FEE5856017A860A3920 /* Localizable.xcstrings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		AAB08EE8E6278DC1C7CE3777 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				13DDE1FD8CF6C504ECFC8985 /* Kin.app */,
+				06B89BB219C41C5817AD1969 /* KinTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		CAECDCD46E7BA12C35D5D1B1 /* Kin */ = {
+			isa = PBXGroup;
+			children = (
+				CEDF93836561F42667B17A6F /* Info.plist */,
+				1AE136B5FE01B464F4729145 /* App */,
+				1314E7D9CFA0972663733FE5 /* Components */,
+				30D5930367D8DB351951F39E /* Configuration */,
+				322F63A1B06A1B35AF937831 /* Features */,
+				247E54829AB3E0A72D8B83C7 /* Models */,
+				8EF0AF3792BEAA04B231C93B /* Networking */,
+				A7E3CF4C862F76356D7ACCAF /* Resources */,
+				DBE774DADDAC35F1AF05C71F /* Security */,
+			);
+			path = Kin;
+			sourceTree = "<group>";
+		};
+		CD7A5620226EB826F2050FAC /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				9D58CAACC2041347A8E54F7B /* ConnectionView.swift */,
+				F093FD87FFE1C535B71CEF79 /* QRScannerView.swift */,
+			);
+			path = Connection;
+			sourceTree = "<group>";
+		};
+		DBE774DADDAC35F1AF05C71F /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				7FF650745DA9D77726E38FDE /* KeychainStore.swift */,
+				9FC9A314FEBFED562C87581A /* PairingPayload.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2FC7E61302B48FC6F443DF74 /* KinTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2E1F57C5BE4493C4ECC5A9C8 /* Build configuration list for PBXNativeTarget "KinTests" */;
+			buildPhases = (
+				080887D338A5AAED6BF0270E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3160BD6F14D52D8162AF82E0 /* PBXTargetDependency */,
+			);
+			name = KinTests;
+			packageProductDependencies = (
+			);
+			productName = KinTests;
+			productReference = 06B89BB219C41C5817AD1969 /* KinTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C709CCD77489D5493D7B5A69 /* Kin */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 61499A29747726549308AD79 /* Build configuration list for PBXNativeTarget "Kin" */;
+			buildPhases = (
+				A82552D11BFE77BF037844F7 /* Sources */,
+				EFE537BC328AA8B343FC3897 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Kin;
+			packageProductDependencies = (
+			);
+			productName = Kin;
+			productReference = 13DDE1FD8CF6C504ECFC8985 /* Kin.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DF917CCB6D36217A4FBDB130 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C709CCD77489D5493D7B5A69 = {
+						DevelopmentTeam = "";
+					};
+				};
+			};
+			buildConfigurationList = E3AE27E34132BB6D16A62361 /* Build configuration list for PBXProject "Kin" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				zh,
+			);
+			mainGroup = 0AB41226B9124EF969B1BFC0;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = AAB08EE8E6278DC1C7CE3777 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C709CCD77489D5493D7B5A69 /* Kin */,
+				2FC7E61302B48FC6F443DF74 /* KinTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		EFE537BC328AA8B343FC3897 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				736D7EDFBC573E21D5E220E0 /* Assets.xcassets in Resources */,
+				B78C1FE4C6B829F18366A90D /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		080887D338A5AAED6BF0270E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BEDE0B87991AEF48355CCAEB /* KinCoreTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A82552D11BFE77BF037844F7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4817306FFC6E7312787960DE /* APIClient.swift in Sources */,
+				1743D8DF6211051B67AC592F /* APIError.swift in Sources */,
+				88B11CDE18F5AE80A39ECC35 /* Agent.swift in Sources */,
+				5801D8231438232CEB0284D9 /* AppModel.swift in Sources */,
+				D0E7FFB1482AE4DC784DC76F /* AppRoute.swift in Sources */,
+				7407F0B0CE32F7ACF0ED9220 /* Approval.swift in Sources */,
+				F907E4F327F9C9DC6DFD8E03 /* ApprovalCard.swift in Sources */,
+				3BC0EE272BF4AB54136D5FA6 /* ConnectionBanner.swift in Sources */,
+				4A72ACAFD97444D050867D61 /* ConnectionState.swift in Sources */,
+				2B397BB5AF88D3AEE1DE852D /* ConnectionView.swift in Sources */,
+				B48F2C991FFF1137BAC17D04 /* ContentView.swift in Sources */,
+				1EAFEB49730DC166AC9B1185 /* ControlView.swift in Sources */,
+				705844E86341967B4BF4339C /* ControlViewModel.swift in Sources */,
+				4F78B48A32F8C072319E076D /* Endpoint.swift in Sources */,
+				0C2CB9BA7BBCD721220117C4 /* EventProjection.swift in Sources */,
+				F3AE6FADB602CE4A1C432898 /* EventRow.swift in Sources */,
+				9F34AA783B35319634EA8E70 /* KeychainStore.swift in Sources */,
+				9295EFF814DC98EDA81B7F2D /* KinApp.swift in Sources */,
+				482F91232EBD45D3681BE914 /* NewTaskView.swift in Sources */,
+				A1A72BABE298AAC8736CAD6E /* NewTaskViewModel.swift in Sources */,
+				8AB86CFBEC617A2352D893FE /* PairingPayload.swift in Sources */,
+				3E09B9BC863E021C27180BD6 /* QRScannerView.swift in Sources */,
+				5DC10D0BAEB4F379039A2937 /* QuestionCard.swift in Sources */,
+				C894F6388CCA903603257922 /* Reconciler.swift in Sources */,
+				28670A573F61F01750BAA37B /* ServerMessage.swift in Sources */,
+				09584A6B203CF7A4652CE1AB /* ServerProfile.swift in Sources */,
+				D0DAB9750816D8661B7FC8CB /* SettingsView.swift in Sources */,
+				04D969FEF8C2C43B1F537C30 /* StatusBadge.swift in Sources */,
+				01DB904EB67166F5235F6A3F /* Task.swift in Sources */,
+				979B25F17BBA83DDD6581476 /* TaskDetailView.swift in Sources */,
+				F35F1C3756E93E62E48FAE51 /* TaskDetailViewModel.swift in Sources */,
+				1F73C2C0FBDED3EE84A19651 /* TaskEvent.swift in Sources */,
+				928994658680817004205EC1 /* TaskListView.swift in Sources */,
+				1688DAE9222A617DB6C815AC /* TaskListViewModel.swift in Sources */,
+				0967064FCE777137397B34EE /* UserQuestion.swift in Sources */,
+				8D9A8E727C1C1BE93972D05A /* WebSocketClient.swift in Sources */,
+				DB85AB9FA2ADEF2D93197877 /* Workspace.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3160BD6F14D52D8162AF82E0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C709CCD77489D5493D7B5A69 /* Kin */;
+			targetProxy = 7F0C527924065F786013B327 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1C419DCA1E24DABB7265C42A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.openkin.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kin.app/Kin";
+			};
+			name = Debug;
+		};
+		2719DE0694B74A5C6D18F6EF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				INFOPLIST_FILE = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.openkin.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Kin.app/Kin";
+			};
+			name = Release;
+		};
+		43228B9C2BC4D52F950ADEC7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = Kin/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.openkin.ios;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		59D3E6FC885989EEB619837E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = Kin/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.openkin.ios;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		76E7AA06AC31FB8425E1F9CB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_FILE = Kin/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		DD8D030B6BE0F1890F8D837C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				INFOPLIST_FILE = Kin/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2E1F57C5BE4493C4ECC5A9C8 /* Build configuration list for PBXNativeTarget "KinTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1C419DCA1E24DABB7265C42A /* Debug */,
+				2719DE0694B74A5C6D18F6EF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		61499A29747726549308AD79 /* Build configuration list for PBXNativeTarget "Kin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				59D3E6FC885989EEB619837E /* Debug */,
+				43228B9C2BC4D52F950ADEC7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		E3AE27E34132BB6D16A62361 /* Build configuration list for PBXProject "Kin" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				76E7AA06AC31FB8425E1F9CB /* Debug */,
+				DD8D030B6BE0F1890F8D837C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DF917CCB6D36217A4FBDB130 /* Project object */;
+}
