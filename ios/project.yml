@@ -1,0 +1,34 @@
+name: Kin
+options:
+  bundleIdPrefix: dev.openkin
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    INFOPLIST_FILE: Kin/Info.plist
+targets:
+  Kin:
+    type: application
+    platform: iOS
+    sources:
+      - path: Kin
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.openkin.ios
+        INFOPLIST_FILE: Kin/Info.plist
+        DEVELOPMENT_TEAM: ""
+        SWIFT_VERSION: 6.0
+        TARGETED_DEVICE_FAMILY: 1
+        IPHONEOS_DEPLOYMENT_TARGET: 17.0
+        ENABLE_PREVIEWS: YES
+  KinTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - KinTests
+    dependencies:
+      - target: Kin
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.openkin.ios.tests
+        INFOPLIST_FILE: ""
