@@ -507,6 +507,9 @@ func ServeWith(version string, flags ServeFlags) error {
 	errCh := make(chan error, len(listeners))
 	var wg sync.WaitGroup
 	for _, a := range listeners {
+		if a.ln == nil {
+			continue
+		}
 		wg.Add(1)
 		go func(ln net.Listener) {
 			defer wg.Done()

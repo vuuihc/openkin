@@ -90,7 +90,11 @@ func (s *Server) handlePairingExchange(w http.ResponseWriter, r *http.Request) {
 			credential, authErr := s.Store.AuthenticateDevice(
 				r.Context(), remote.HashToken(token), time.Now().UnixMilli(),
 			)
-			if authErr == nil {
+			now := time.Now().UnixMilli()
+			if authErr == nil && credential.CreatedAt <= now &&
+				now-credential.CreatedAt <= pairingLifetime.Milliseconds() {
+				// Recovery is only an idempotency window for a lost response;
+				// the original five-minute pairing lifetime remains the bound.
 				writeJSON(w, http.StatusOK, pairingExchangeResponse{
 					DeviceID: credential.ID,
 					Token:    token,
