@@ -181,7 +181,7 @@ func TestMigration016CreatesRetryRestoreIntents(t *testing.T) {
 		WHERE type = 'table' AND name = 'retry_restore_intents'`).Scan(&tables); err != nil {
 		t.Fatal(err)
 	}
-	if version != 16 || tables != 1 {
+	if version != schemaVersion || tables != 1 {
 		t.Fatalf("version=%d tables=%d", version, tables)
 	}
 }

@@ -7,11 +7,12 @@ import SwiftUI
 /// - `.connecting` / `.offline`: Shows loading or offline state with retry.
 /// - `.connected`: Shows pending approvals, pending questions, and active tasks.
 struct ControlView: View {
+    @Environment(AppSession.self) private var appSession
     @State private var viewModel = ControlViewModel()
 
     var body: some View {
         Group {
-            switch viewModel.connectionState {
+            switch appSession.connectionState {
             case .unconfigured:
                 ConnectionView(onConnected: handleConnected)
             case .connecting:
@@ -29,6 +30,9 @@ struct ControlView: View {
             }
         }
         .task {
+            if let client = appSession.apiClient {
+                viewModel.configure(apiClient: client)
+            }
             await viewModel.load()
         }
         .refreshable {
@@ -40,6 +44,10 @@ struct ControlView: View {
 
     private func handleConnected(client: APIClient) {
         viewModel.configure(apiClient: client)
+        appSession.refreshProfiles()
+        if let profile = appSession.profiles.last {
+            appSession.activate(profile: profile)
+        }
         Task {
             await viewModel.load()
         }
@@ -154,7 +162,7 @@ struct ControlView: View {
     private var connectedContent: some View {
         NavigationStack {
             List {
-                if viewModel.isLoading && viewModel.approvals.isEmpty && viewModel.questions.isEmpty && viewModel.activeTasks.isEmpty {
+                if viewModel.isLoading && appSession.approvals.isEmpty && appSession.questions.isEmpty && appSession.tasks.filter({ !$0.isTerminal }).isEmpty {
                     Section {
                         HStack {
                             Spacer()
@@ -179,16 +187,16 @@ struct ControlView: View {
                 }
 
                 // Pending approvals
-                if !viewModel.approvals.isEmpty {
+                if !appSession.approvals.isEmpty {
                     Section("Pending Approvals") {
-                        ForEach(viewModel.approvals) { approval in
+                        ForEach(appSession.approvals) { approval in
                             ApprovalCard(
                                 approval: approval,
                                 onDecision: { id, approved in
                                     if approved {
-                                        try await viewModel.approve(id: id)
+                                        try await appSession.approve(id: id)
                                     } else {
-                                        try await viewModel.deny(id: id)
+                                        try await appSession.deny(id: id)
                                     }
                                 }
                             )
@@ -197,13 +205,13 @@ struct ControlView: View {
                 }
 
                 // Pending questions
-                if !viewModel.questions.isEmpty {
+                if !appSession.questions.isEmpty {
                     Section("Pending Questions") {
-                        ForEach(viewModel.questions) { question in
+                        ForEach(appSession.questions) { question in
                             QuestionCard(
                                 question: question,
                                 onAnswer: { id, selected, text in
-                                    try await viewModel.answer(id: id, selected: selected, otherText: text)
+                                    try await appSession.answerQuestion(id: id, selected: selected, otherText: text)
                                 }
                             )
                         }
@@ -211,9 +219,10 @@ struct ControlView: View {
                 }
 
                 // Active tasks
-                if !viewModel.activeTasks.isEmpty {
+                let activeTasks = appSession.tasks.filter { !$0.isTerminal }
+                if !activeTasks.isEmpty {
                     Section("Active Tasks") {
-                        ForEach(viewModel.activeTasks) { task in
+                        ForEach(activeTasks) { task in
                             NavigationLink(value: AppRoute.taskDetail(id: task.id)) {
                                 TaskRow(task: task)
                             }
@@ -222,7 +231,7 @@ struct ControlView: View {
                 }
 
                 // Empty state
-                if viewModel.approvals.isEmpty && viewModel.questions.isEmpty && viewModel.activeTasks.isEmpty && !viewModel.isLoading {
+                if appSession.approvals.isEmpty && appSession.questions.isEmpty && activeTasks.isEmpty && !viewModel.isLoading {
                     Section {
                         VStack(spacing: 12) {
                             Image(systemName: "checkmark.circle")

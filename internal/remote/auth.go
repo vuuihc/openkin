@@ -1,7 +1,9 @@
 package remote
 
 import (
+	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
@@ -15,6 +17,30 @@ import (
 )
 
 const tokenBytes = 32
+
+// Principal identifies the authenticated client for audit and authorization.
+type Principal struct {
+	Kind     string
+	DeviceID string
+	Label    string
+}
+
+const (
+	PrincipalMaster = "master"
+	PrincipalDevice = "device"
+)
+
+type principalContextKey struct{}
+
+// PrincipalFromContext returns the authenticated principal, if any.
+func PrincipalFromContext(ctx context.Context) (Principal, bool) {
+	p, ok := ctx.Value(principalContextKey{}).(Principal)
+	return p, ok
+}
+
+// DeviceLookup authenticates a native-client token and returns its principal.
+// The callback keeps the remote auth package independent from persistence.
+type DeviceLookup func(context.Context, string) (Principal, bool)
 
 // TokenFile returns the path of the daemon auth token.
 func TokenFile(stateDir string) string {
@@ -83,7 +109,8 @@ type Auth struct {
 	// tokenPath, when non-empty, is read on each request.
 	tokenPath string
 
-	fail *failLimiter
+	fail   *failLimiter
+	device DeviceLookup
 }
 
 // NewAuth returns middleware-capable auth for a fixed token (tests).
@@ -100,6 +127,12 @@ func NewFileAuth(tokenPath string) *Auth {
 		tokenPath: tokenPath,
 		fail:      newFailLimiter(20, time.Minute),
 	}
+}
+
+// SetDeviceLookup enables scoped device-token authentication in addition to the
+// daemon master token. It is intentionally optional for compatibility tests.
+func (a *Auth) SetDeviceLookup(lookup DeviceLookup) {
+	a.device = lookup
 }
 
 func (a *Auth) loadToken() (string, error) {
@@ -135,14 +168,26 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		}
 		got := extractToken(r)
 		want, err := a.loadToken()
-		if err != nil || want == "" || !secureEqual(got, want) {
+		if err == nil && want != "" && secureEqual(got, want) {
+			ctx := context.WithValue(r.Context(), principalContextKey{}, Principal{Kind: PrincipalMaster, DeviceID: "master", Label: "daemon master token"})
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
+		if a.device != nil {
+			if principal, ok := a.device(r.Context(), got); ok {
+				ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+		}
+		{
 			a.fail.record(ip)
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -167,6 +212,22 @@ func secureEqual(a, b string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// NewSecret returns a cryptographically random URL-safe secret.
+func NewSecret() (string, error) {
+	raw := make([]byte, tokenBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate secret: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// HashToken returns the fixed-size digest persisted for device credentials and
+// pairing sessions. Raw secrets never need to be stored.
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func clientIP(r *http.Request) string {

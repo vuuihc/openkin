@@ -4,7 +4,7 @@
 build: ui go-build
 
 ui:
-	cd ui && npm install && npm run build
+	cd ui && npm ci && npm run build
 
 go-build:
 	go build -o kin ./cmd/kin
@@ -33,7 +33,8 @@ dev:
 test:
 	go test ./...
 	go vet ./...
-	cd ui && npm install && npm run check:api && npx tsc --noEmit && npm test
+	cd ui && npm ci && npm run check:api && npx tsc --noEmit && npm test
+	cd relay && npm test && npm run build
 
 # Offline durable-log gate: seq gaps / empty transcripts / approval attribution.
 # Default DB: ~/.kin/kin.db  (override: make stream-health KIN_DB=/path)

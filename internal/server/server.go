@@ -27,6 +27,7 @@ import (
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/routing"
+	"github.com/vuuihc/openkin/internal/secret"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 	"github.com/vuuihc/openkin/internal/terminal"
@@ -116,6 +117,11 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	defer st.Close()
+	secretStore, err := secret.NewDefaultStore(filepath.Join(stateDir, "secrets"))
+	if err != nil {
+		return err
+	}
+	provider.SetSecretStore(secretStore)
 
 	// Persist control URL setting when provided.
 	ctx := context.Background()
@@ -375,7 +381,9 @@ func ServeWith(version string, flags ServeFlags) error {
 		if err != nil {
 			// Close any already-open listeners.
 			for _, a := range listeners {
-				_ = a.ln.Close()
+				if a.ln != nil {
+					_ = a.ln.Close()
+				}
 			}
 			return fmt.Errorf("%s: %w", tr.Name(), err)
 		}
@@ -383,10 +391,12 @@ func ServeWith(version string, flags ServeFlags) error {
 		switch tr.Name() {
 		case "loopback":
 			a.url = fmt.Sprintf("http://127.0.0.1:%d", port)
+			a.open = a.url + "/?token=" + auth.Token()
 			a.qr = a.url + "/?token=" + auth.Token()
 		case "lan":
 			ip := remote.PrimaryLANIP()
 			a.url = fmt.Sprintf("http://%s:%d", ip, port)
+			a.open = a.url + "/?token=" + auth.Token()
 			a.qr = a.url + "/?token=" + auth.Token()
 		case "tsnet":
 			if tsTransport != nil && tsTransport.Server() != nil {
@@ -409,7 +419,13 @@ func ServeWith(version string, flags ServeFlags) error {
 			if a.url == "" {
 				a.url = fmt.Sprintf("http://kin:%d", port)
 			}
+			a.open = a.url + "/?token=" + auth.Token()
+
 			a.qr = a.url + "/?token=" + auth.Token()
+		}
+		a.qr, err = issuePairingURL(ctx, st, a.qr, tr.Name())
+		if err != nil {
+			return err
 		}
 		listeners = append(listeners, a)
 	}
@@ -417,17 +433,23 @@ func ServeWith(version string, flags ServeFlags) error {
 	// Start relay bridge if configured.
 	var relayBridge *relay.Bridge
 	if flags.RelayURL != "" {
-		hostname, _ := os.Hostname()
-		if hostname == "" {
-			hostname = "kin"
+		var relayErr error
+		relayBridge, relayErr = relay.NewPersistentBridge(flags.RelayURL, stateDir, daemonURL)
+		if relayErr != nil {
+			return fmt.Errorf("initialize relay: %w", relayErr)
 		}
-		relayBridge = relay.NewBridge(flags.RelayURL, hostname, daemonURL)
 
 		// Add synthetic listener entry for QR / URL display.
-		relayConnectURL := relayBridge.ConnectURL() + "&token=" + auth.Token()
+		relayConnectURL, relayErr := issuePairingURL(
+			ctx, st, relayBridge.ConnectURLWithKey()+"&token="+auth.Token(), "relay",
+		)
+		if relayErr != nil {
+			return relayErr
+		}
 		listeners = append(listeners, listenerInfo{
 			name: "relay",
 			url:  relayBridge.ConnectURL(),
+			open: relayBridge.ConnectURLWithKey() + "&token=" + auth.Token(),
 			qr:   relayConnectURL,
 		})
 
@@ -459,13 +481,19 @@ func ServeWith(version string, flags ServeFlags) error {
 		if a.url != "" {
 			fmt.Printf("       %s\n", a.url)
 		}
+		if a.open != "" {
+			fmt.Printf("       web: %s\n", a.open)
+		}
 	}
 	fmt.Printf("  token file: %s\n", tokenPath)
 
-	// Print QR for the most-public non-loopback URL; always print open link for loopback.
+	// Print the browser link and the one-time pairing link separately.
+	if openURL := mostPublicOpen(listeners); openURL != "" {
+		fmt.Printf("  open: %s\n", openURL)
+	}
 	qrURL := mostPublicQR(listeners)
 	if qrURL != "" {
-		fmt.Printf("  open: %s\n", qrURL)
+		fmt.Printf("  pair: %s\n", qrURL)
 		if flags.LAN || flags.Tailscale {
 			fmt.Println()
 			if err := remote.PrintQR(os.Stdout, qrURL); err != nil {
@@ -500,7 +528,9 @@ func ServeWith(version string, flags ServeFlags) error {
 		listenCancel()
 		_ = httpServer.Close()
 		for _, a := range listeners {
-			_ = a.ln.Close()
+			if a.ln != nil {
+				_ = a.ln.Close()
+			}
 		}
 		return err
 	}
@@ -510,7 +540,9 @@ func ServeWith(version string, flags ServeFlags) error {
 	defer cancel()
 	_ = httpServer.Shutdown(shutdownCtx)
 	for _, a := range listeners {
-		_ = a.ln.Close()
+		if a.ln != nil {
+			_ = a.ln.Close()
+		}
 	}
 	wg.Wait()
 	return nil
@@ -545,6 +577,7 @@ type listenerInfo struct {
 	name string
 	ln   net.Listener
 	url  string // base URL without token (for ui.base_url)
+	open string // browser URL with the master token
 	qr   string // full URL with token for QR
 }
 
@@ -593,6 +626,22 @@ func mostPublicQR(listeners []listenerInfo) string {
 		if r > bestR {
 			bestR = r
 			best = a.qr
+		}
+	}
+	return best
+}
+
+func mostPublicOpen(listeners []listenerInfo) string {
+	best := ""
+	bestR := -1
+	for _, a := range listeners {
+		if a.open == "" {
+			continue
+		}
+		r := publicityRank(a.name, a.url)
+		if r > bestR {
+			bestR = r
+			best = a.open
 		}
 	}
 	return best

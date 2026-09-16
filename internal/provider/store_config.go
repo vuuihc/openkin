@@ -25,7 +25,11 @@ func SaveConfig(ctx context.Context, st *store.Store, cfg Config, clearAPIKey bo
 	if clearAPIKey {
 		values[KeyAPIKey] = ""
 	} else if cfg.APIKey != "" && !looksMasked(cfg.APIKey) {
-		values[KeyAPIKey] = cfg.APIKey
+		key, _, err := externalizeAPIKey("legacy", cfg.APIKey)
+		if err != nil {
+			return err
+		}
+		values[KeyAPIKey] = key
 	} else if cfg.APIKey == "" {
 		// When mirroring an active entry with an empty key, clear the legacy
 		// slot so Configured() stays consistent with the registry.

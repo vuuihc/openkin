@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Sheet for creating a new Kin task.
 struct NewTaskView: View {
+    @Environment(AppSession.self) private var appSession
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel = NewTaskViewModel()
 
@@ -45,7 +46,12 @@ struct NewTaskView: View {
             } message: {
                 Text(viewModel.error ?? "")
             }
-            .task { await viewModel.load() }
+            .task {
+                if let client = appSession.apiClient {
+                    viewModel.configure(apiClient: client)
+                }
+                await viewModel.load()
+            }
             .disabled(viewModel.isSubmitting)
         }
     }

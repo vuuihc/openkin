@@ -312,6 +312,26 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 		if reg.ActiveID == "" && len(reg.Entries) > 0 {
 			reg.ActiveID = reg.Entries[0].ID
 		}
+		var changed bool
+		for i := range reg.Entries {
+			key, err := hydrateAPIKey(reg.Entries[i].APIKey)
+			if err != nil {
+				return Registry{}, fmt.Errorf("load provider secret: %w", err)
+			}
+			if key != reg.Entries[i].APIKey {
+				reg.Entries[i].APIKey = key
+				changed = true
+			}
+			if secretStore() != nil && reg.Entries[i].APIKey != "" &&
+				!isSecretReference(reg.Entries[i].APIKey) {
+				changed = true
+			}
+		}
+		if changed && secretStore() != nil {
+			if err := SaveRegistry(ctx, st, reg); err != nil {
+				return Registry{}, fmt.Errorf("persist provider secret migration: %w", err)
+			}
+		}
 		return reg, nil
 	}
 
@@ -372,6 +392,10 @@ func loadLegacyConfig(ctx context.Context, st *store.Store) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("load %s: %w", KeyStream, err)
 	}
+	apiKey, err = hydrateAPIKey(apiKey)
+	if err != nil {
+		return Config{}, fmt.Errorf("load provider secret: %w", err)
+	}
 	return Config{
 		Kind:    kind,
 		BaseURL: baseURL,
@@ -406,6 +430,13 @@ func RegistrySettings(reg Registry) (map[string]string, error) {
 	}
 	if reg.ActiveID == "" && len(reg.Entries) > 0 {
 		reg.ActiveID = reg.Entries[0].ID
+	}
+	for i := range reg.Entries {
+		key, _, err := externalizeAPIKey(reg.Entries[i].ID, reg.Entries[i].APIKey)
+		if err != nil {
+			return nil, fmt.Errorf("store provider secret: %w", err)
+		}
+		reg.Entries[i].APIKey = key
 	}
 	// Store API keys as provided (unmasked). Callers must resolve masked keys
 	// against the previous registry before calling SaveRegistry.
@@ -496,12 +527,26 @@ func DeleteEntry(ctx context.Context, st *store.Store, id string) (Registry, err
 	if err != nil {
 		return Registry{}, err
 	}
+	var oldKey string
+	for _, entry := range reg.Entries {
+		if entry.ID == id {
+			oldKey = entry.APIKey
+			break
+		}
+	}
 	reg, err = reg.WithoutEntry(id)
 	if err != nil {
 		return Registry{}, err
 	}
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, err
+	}
+	if isSecretReference(oldKey) {
+		if secrets := secretStore(); secrets != nil {
+			if err := secrets.Delete(strings.TrimPrefix(oldKey, "secret://")); err != nil {
+				return Registry{}, fmt.Errorf("delete provider secret: %w", err)
+			}
+		}
 	}
 	return reg, nil
 }
@@ -514,8 +559,10 @@ func ClearEntryAPIKey(ctx context.Context, st *store.Store, id string) (Registry
 	}
 	id = strings.TrimSpace(id)
 	found := false
+	var oldKey string
 	for i, e := range reg.Entries {
 		if e.ID == id {
+			oldKey = e.APIKey
 			e.APIKey = ""
 			reg.Entries[i] = e
 			found = true
@@ -527,6 +574,13 @@ func ClearEntryAPIKey(ctx context.Context, st *store.Store, id string) (Registry
 	}
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, err
+	}
+	if isSecretReference(oldKey) {
+		if secrets := secretStore(); secrets != nil {
+			if err := secrets.Delete(strings.TrimPrefix(oldKey, "secret://")); err != nil {
+				return Registry{}, fmt.Errorf("delete provider secret: %w", err)
+			}
+		}
 	}
 	return reg, nil
 }

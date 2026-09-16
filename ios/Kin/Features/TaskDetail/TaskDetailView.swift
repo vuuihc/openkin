@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Task detail screen with a live-updating event timeline and input controls.
 struct TaskDetailView: View {
+    @Environment(AppSession.self) private var appSession
     let taskId: String
     var apiClient: APIClient?
 
@@ -11,6 +12,10 @@ struct TaskDetailView: View {
 
     /// Timer-driven polling interval for non-terminal tasks (seconds).
     private let pollInterval: TimeInterval = 3
+
+    private var activeClient: APIClient? {
+        apiClient ?? appSession.apiClient
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,16 +58,21 @@ struct TaskDetailView: View {
         .navigationTitle("Task")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            guard let client = apiClient else { return }
+            guard let client = activeClient else { return }
             await viewModel.load(taskId: taskId, with: client)
         }
         .task {
             // Poll for new events while the task is not terminal
-            guard let client = apiClient else { return }
+            guard let client = activeClient else { return }
             await pollLoop(client: client)
         }
+        .onChange(of: appSession.tasks) { _, tasks in
+            if let updated = tasks.first(where: { $0.id == taskId }) {
+                viewModel.task = updated
+            }
+        }
         .sheet(isPresented: $showWorkspaceChanges) {
-            WorkspaceChangesView(taskId: taskId, apiClient: apiClient)
+            WorkspaceChangesView(taskId: taskId, apiClient: activeClient)
         }
     }
 
@@ -105,7 +115,7 @@ struct TaskDetailView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
 
-                Label(EventProjection.formatCost(task.costCents),
+                Label(EventProjection.formatCost(task.costUSD.map { $0 * 100 }),
                       systemImage: "dollarsign")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -323,7 +333,7 @@ struct TaskDetailView: View {
                     let message = guidanceText
                     guidanceText = ""
                     Task {
-                        guard let client = apiClient else { return }
+                        guard let client = activeClient else { return }
                         let success = await viewModel.sendGuidance(
                             taskId: taskId,
                             message: message,
@@ -350,7 +360,7 @@ struct TaskDetailView: View {
 
                 Button("Cancel") {
                     Task {
-                        guard let client = apiClient else { return }
+                        guard let client = activeClient else { return }
                         await viewModel.cancel(taskId: taskId, with: client)
                     }
                 }
@@ -374,7 +384,7 @@ struct TaskDetailView: View {
 
                 Button {
                     Task {
-                        guard let client = apiClient else { return }
+                        guard let client = activeClient else { return }
                         _ = await viewModel.retry(taskId: taskId, with: client)
                     }
                 } label: {
@@ -427,7 +437,7 @@ struct TaskDetailView: View {
             actions: {
                 Button("Retry") {
                     Task {
-                        guard let client = apiClient else { return }
+                        guard let client = activeClient else { return }
                         await viewModel.load(taskId: taskId, with: client)
                     }
                 }
@@ -467,6 +477,10 @@ struct TaskDetailView: View {
     /// Poll for new events every `pollInterval` seconds while the task is active.
     private func pollLoop(client: APIClient) async {
         while !Task.isCancelled {
+            guard viewModel.task != nil else {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                continue
+            }
             guard let task = viewModel.task, !task.isTerminal else { break }
 
             try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))

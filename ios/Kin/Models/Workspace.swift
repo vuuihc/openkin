@@ -23,7 +23,7 @@ struct Workspace: Identifiable, Codable, Hashable {
     let generation: Int
     let isCurrent: Bool?
     let changedFiles: [ChangedFile]?
-    let createdAt: Date
+    let createdAt: Int64
 
     enum CodingKeys: String, CodingKey {
         case id

@@ -4,9 +4,10 @@ import SwiftUI
 /// Tapping navigates to connection settings when applicable.
 struct ConnectionBanner: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(AppSession.self) private var appSession
 
     var body: some View {
-        let info = bannerInfo(for: appModel.connectionState)
+        let info = bannerInfo(for: appSession.connectionState)
 
         Group {
             if let info {
@@ -36,7 +37,7 @@ struct ConnectionBanner: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: appModel.connectionState)
+        .animation(.easeInOut(duration: 0.25), value: appSession.connectionState)
     }
 
     /// Returns banner content for the given state, or `nil` when no banner should be shown.
@@ -90,6 +91,7 @@ struct ConnectionBanner: View {
     model.connectionState = .connected
     return ConnectionBanner()
         .environment(model)
+        .environment(AppSession())
 }
 
 #Preview("Reconnecting") {
@@ -97,6 +99,7 @@ struct ConnectionBanner: View {
     model.connectionState = .reconnecting(delay: 2)
     return ConnectionBanner()
         .environment(model)
+        .environment(AppSession())
 }
 
 #Preview("Unauthorized") {
@@ -104,6 +107,7 @@ struct ConnectionBanner: View {
     model.connectionState = .unauthorized
     return ConnectionBanner()
         .environment(model)
+        .environment(AppSession())
 }
 
 #Preview("Offline") {
@@ -111,4 +115,5 @@ struct ConnectionBanner: View {
     model.connectionState = .offline("Connection lost")
     return ConnectionBanner()
         .environment(model)
+        .environment(AppSession())
 }

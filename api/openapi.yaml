@@ -3,13 +3,103 @@ info:
   title: OpenKin Task Live-Resource Contract
   version: 0.1.0
   description: |
-    Authoritative shared shapes for task, approval, and user-question HTTP
-    snapshots and their live WebSocket deltas. This is intentionally not the
-    complete OpenKin HTTP API. Go handlers are handwritten; TypeScript types
-    for this bounded client surface are generated from this document.
+    Authoritative contract for the beta Web and iOS client surface, including
+    task, approval, question, workspace, device-pairing, and live update APIs.
+    Go handlers remain handwritten; TypeScript types are generated from this
+    document. Relay requests add room and key query credentials.
 servers:
   - url: /
 paths:
+  /api/health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Daemon liveness
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                  bus_overflow:
+                    type: integer
+  /api/version:
+    get:
+      operationId: version
+      responses:
+        "200":
+          description: Daemon version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version:
+                    type: string
+  /api/pairing/exchange:
+    post:
+      operationId: exchangePairingSecret
+      parameters:
+        - $ref: "#/components/parameters/RelayRoom"
+        - $ref: "#/components/parameters/RelayKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingExchangeRequest"
+      responses:
+        "201":
+          description: Scoped device credential
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingExchangeResponse"
+        "401":
+          description: Expired, replayed, or invalid pairing secret
+  /api/pairing/sessions:
+    post:
+      operationId: createPairingSession
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairingSessionRequest"
+      responses:
+        "201":
+          description: One-time pairing secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingSessionResponse"
+  /api/devices:
+    get:
+      operationId: listDevices
+      responses:
+        "200":
+          description: Paired devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Device"
+  /api/devices/{deviceId}/revoke:
+    post:
+      operationId: revokeDevice
+      parameters:
+        - in: path
+          name: deviceId
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Device revoked
   /api/tasks:
     get:
       operationId: listTasks
@@ -190,6 +280,9 @@ paths:
   /api/ws:
     get:
       operationId: subscribeLiveUpdates
+      parameters:
+        - $ref: "#/components/parameters/RelayRoom"
+        - $ref: "#/components/parameters/RelayKey"
       description: |
         Upgrades to a WebSocket. Each text frame is exactly one WSMessage.
         Clients must reject frames that do not match the discriminated union.
@@ -198,6 +291,76 @@ paths:
       responses:
         "101":
           description: Switching Protocols
+  /api/tasks/{taskId}/workspaces:
+    get:
+      operationId: listTaskWorkspaces
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Workspace generations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+  /api/tasks/{taskId}/workspaces/{workspaceId}/tree:
+    get:
+      operationId: listWorkspaceTree
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: path
+          schema:
+            type: string
+        - in: query
+          name: depth
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Workspace tree
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/tasks/{taskId}/workspaces/{workspaceId}/file:
+    get:
+      operationId: readWorkspaceFile
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workspace file
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/tasks/{taskId}/workspaces/{workspaceId}/diff:
+    get:
+      operationId: getWorkspaceDiff
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Workspace diff
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 components:
   parameters:
     TaskId:
@@ -218,7 +381,70 @@ components:
       required: true
       schema:
         type: string
+    WorkspaceId:
+      in: path
+      name: workspaceId
+      required: true
+      schema:
+        type: string
+    RelayRoom:
+      in: query
+      name: room
+      required: false
+      schema:
+        type: string
+    RelayKey:
+      in: query
+      name: key
+      required: false
+      schema:
+        type: string
   schemas:
+    PairingSessionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+    PairingSessionResponse:
+      type: object
+      required: [secret, expires_at]
+      properties:
+        secret:
+          type: string
+        expires_at:
+          type: integer
+    PairingExchangeRequest:
+      type: object
+      required: [secret]
+      properties:
+        secret:
+          type: string
+        label:
+          type: string
+    PairingExchangeResponse:
+      type: object
+      required: [device_id, token]
+      properties:
+        device_id:
+          type: string
+        token:
+          type: string
+        label:
+          type: string
+    Device:
+      type: object
+      required: [id, created_at]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        created_at:
+          type: integer
+        last_used_at:
+          type: [integer, "null"]
+        revoked_at:
+          type: [integer, "null"]
     CreateTaskRequest:
       type: object
       required:

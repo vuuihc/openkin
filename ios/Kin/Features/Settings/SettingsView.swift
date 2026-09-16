@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings screen showing connection status and app information.
 struct SettingsView: View {
-    @Environment(AppModel.self) private var appModel
+    @Environment(AppSession.self) private var appSession
     @State private var settingsModel = SettingsViewModel()
     @State private var serverVersion: String?
     @State private var showDisconnectConfirmation = false
@@ -12,7 +12,7 @@ struct SettingsView: View {
     @State private var showConnection = false
 
     private var profile: ServerProfile? {
-        UserDefaults.loadServerProfile()
+        appSession.activeProfile
     }
 
     var body: some View {
@@ -39,11 +39,17 @@ struct SettingsView: View {
             .task {
                 await loadVersion()
                 settingsModel.load()
+                settingsModel.activeProfileId = appSession.activeProfileID
             }
             .sheet(isPresented: $showConnection) {
-                ConnectionView { client in
+                ConnectionView { _ in
                     showConnection = false
                     settingsModel.load()
+                    appSession.refreshProfiles()
+                    if let profile = appSession.profiles.last {
+                        appSession.activate(profile: profile)
+                        settingsModel.activeProfileId = profile.id
+                    }
                 }
             }
         }
@@ -75,7 +81,7 @@ struct SettingsView: View {
                 }
             }
 
-            if appModel.connectionState.isConnected {
+            if appSession.connectionState.isConnected {
                 Button(role: .destructive) {
                     showDisconnectConfirmation = true
                 } label: {
@@ -83,7 +89,7 @@ struct SettingsView: View {
                 }
             }
 
-            if !appModel.connectionState.isConnected && profile != nil {
+            if !appSession.connectionState.isConnected && profile != nil {
                 Button {
                     Task { await reconnect() }
                 } label: {
@@ -99,7 +105,7 @@ struct SettingsView: View {
                 .disabled(isReconnecting)
             }
 
-            if appModel.connectionState == .unconfigured {
+            if appSession.connectionState == .unconfigured {
                 Text(String(localized: "settings.security_hint"))
                     .foregroundColor(.secondary)
             }
@@ -132,11 +138,17 @@ struct SettingsView: View {
                             .imageScale(.small)
                     }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    appSession.activate(profile: savedProfile)
+                    settingsModel.activeProfileId = savedProfile.id
+                }
             }
             .onDelete { indexSet in
                 for i in indexSet {
                     let p = settingsModel.savedProfiles[i]
                     settingsModel.deleteProfile(p)
+                    appSession.delete(profile: p)
                 }
             }
 
@@ -175,7 +187,7 @@ struct SettingsView: View {
     // MARK: - Helpers
 
     private var statusColor: Color {
-        switch appModel.connectionState {
+        switch appSession.connectionState {
         case .connected:
             return .green
         case .connecting, .reconnecting:
@@ -188,7 +200,7 @@ struct SettingsView: View {
     }
 
     private var statusText: String {
-        switch appModel.connectionState {
+        switch appSession.connectionState {
         case .unconfigured:
             return String(localized: "connection.state.unconfigured")
         case .connecting:
@@ -213,52 +225,39 @@ struct SettingsView: View {
     }
 
     private func loadVersion() async {
-        guard let profile,
-              let token = try? KeychainStore.readToken() else { return }
-
-        let client = APIClient(baseURL: profile.baseURL, token: token)
+        guard let client = appSession.apiClient else { return }
         serverVersion = try? await client.version()
     }
 
     private func disconnect() {
-        try? KeychainStore.deleteToken()
-        UserDefaults.deleteServerProfile()
-        appModel.connectionState = .unconfigured
+        if let profile = appSession.activeProfile {
+            appSession.delete(profile: profile)
+        }
         serverVersion = nil
     }
 
     private func reconnect() async {
-        guard let profile,
-              let token = try? KeychainStore.readToken() else {
+        guard appSession.apiClient != nil else {
             errorMessage = String(localized: "api.error.unauthorized")
             showErrorAlert = true
             return
         }
 
         isReconnecting = true
-        appModel.connectionState = .connecting
-
         do {
-            let (_, version) = try await ServerProfileValidator.validate(
-                baseURL: profile.baseURL,
-                token: token
-            )
+            await appSession.reconcileForeground()
+            let version = try await appSession.apiClient?.version()
             serverVersion = version
-            appModel.connectionState = .connected
         } catch ServerProfileError.unreachable {
-            appModel.connectionState = .offline(String(localized: "connection.state.offline"))
             errorMessage = String(localized: "api.error.invalid_url")
             showErrorAlert = true
         } catch ServerProfileError.unauthorized {
-            appModel.connectionState = .unauthorized
             errorMessage = String(localized: "api.error.unauthorized")
             showErrorAlert = true
         } catch ServerProfileError.incompatible {
-            appModel.connectionState = .incompatible
             errorMessage = String(localized: "api.error.invalid_response")
             showErrorAlert = true
         } catch {
-            appModel.connectionState = .offline(error.localizedDescription)
             errorMessage = error.localizedDescription
             showErrorAlert = true
         }
@@ -269,5 +268,5 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
-        .environment(AppModel())
+        .environment(AppSession())
 }

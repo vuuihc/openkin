@@ -6,6 +6,8 @@ import Foundation
 actor WebSocketClient: NSObject {
     private let baseURL: URL
     private let token: String
+    private let relayKey: String?
+    private let relayRoom: String?
     private let session: URLSession
     private var task: URLSessionWebSocketTask?
     private var generation: UInt64 = 0
@@ -36,9 +38,11 @@ actor WebSocketClient: NSObject {
         case reconnecting(delay: TimeInterval)
     }
 
-    init(baseURL: URL, token: String, session: URLSession = .shared) {
+    init(baseURL: URL, token: String, relayKey: String? = nil, relayRoom: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.token = token
+        self.relayKey = relayKey
+        self.relayRoom = relayRoom
         self.session = session
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -83,7 +87,22 @@ actor WebSocketClient: NSObject {
         let newTask = session.webSocketTask(with: url)
         task = newTask
         newTask.resume()
+        let currentGen = generation
+        newTask.sendPing { [weak self] error in
+            Task {
+                await self?.handleOpen(error: error, generation: currentGen)
+            }
+        }
         receiveMessage()
+    }
+
+    private func handleOpen(error: Error?, generation: UInt64) {
+        guard generation == self.generation, task?.state == .running else { return }
+        if error == nil {
+            reportState(.connected)
+        } else {
+            handleDisconnect()
+        }
     }
 
     private func buildURL() -> URL? {
@@ -99,7 +118,9 @@ actor WebSocketClient: NSObject {
             return nil
         }
         components.path = "/api/ws"
-        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        components.queryItems = [URLQueryItem(name: "token", value: token)] +
+            (relayRoom.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
+            (relayKey.map { [URLQueryItem(name: "key", value: $0)] } ?? [])
         return components.url
     }
 
@@ -136,8 +157,7 @@ actor WebSocketClient: NSObject {
 
                 do {
                     let decoded = try await self.decoder.decode(ServerMessage.self, from: data)
-                    let gen = await self.generation
-                    await self.dispatchMessage(decoded, generation: gen)
+                    await self.dispatchMessage(decoded, generation: currentGen)
                 } catch {
                     // Ignore messages we can't decode
                     continue

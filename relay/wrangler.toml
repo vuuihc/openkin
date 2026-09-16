@@ -1,3 +1,11 @@
 name = "kin-relay"
 main = "relay.js"
 compatibility_date = "2026-09-15"
+
+[[durable_objects.bindings]]
+name = "RELAY_ROOM"
+class_name = "RelayRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]

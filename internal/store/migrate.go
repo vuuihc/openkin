@@ -1,11 +1,9 @@
 package store
 
-import (
-	"fmt"
-)
+import "fmt"
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 16
+const schemaVersion = 17
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -67,6 +65,26 @@ CREATE TABLE approvals (
 
 CREATE TABLE settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
 
+CREATE TABLE IF NOT EXISTS pairing_sessions (
+  secret_hash TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pairing_sessions_expires
+ON pairing_sessions(expires_at, used_at);
+
+CREATE TABLE IF NOT EXISTS device_credentials (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_device_credentials_active
+ON device_credentials(revoked_at, created_at DESC);
 CREATE TABLE user_questions (
   id              TEXT PRIMARY KEY,
   task_id         TEXT NOT NULL REFERENCES tasks(id),
@@ -393,7 +411,7 @@ func (s *Store) migrate() error {
 		return fmt.Errorf("read user_version: %w", err)
 	}
 	if v >= schemaVersion {
-		return nil
+		return s.ensureDeviceSchema()
 	}
 	if v == 0 {
 		tx, err := s.db.Begin()
@@ -1043,6 +1061,46 @@ CREATE TABLE IF NOT EXISTS retry_restore_intents (
 			return fmt.Errorf("commit migration 016: %w", err)
 		}
 		v = 16
+	}
+
+	if v == 16 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 017: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS pairing_sessions (
+  secret_hash TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pairing_sessions_expires
+ON pairing_sessions(expires_at, used_at);
+
+CREATE TABLE IF NOT EXISTS device_credentials (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_device_credentials_active
+ON device_credentials(revoked_at, created_at DESC);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 017 device credentials: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 17`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 017: %w", err)
+		}
+		v = 17
 	}
 
 	return nil

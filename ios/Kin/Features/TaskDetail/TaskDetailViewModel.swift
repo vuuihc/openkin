@@ -11,8 +11,8 @@ final class TaskDetailViewModel {
     var isSending = false
     var error: String?
 
-    /// Keep track of the highest event seq so we can poll incrementally.
-    private var highestSeq: Int?
+    /// Keep track of the current event position for retry epochs.
+    private var currentEpoch: Int64?
 
     // MARK: - Public API
 
@@ -32,8 +32,10 @@ final class TaskDetailViewModel {
             let (taskResult, eventsResult) = try await (fetchedTask, fetchedEvents)
 
             task = taskResult
-            events = eventsResult.sorted { $0.seq < $1.seq }
-            highestSeq = events.last?.seq
+            events = eventsResult.sorted {
+                ($0.eventEpoch, $0.seq) < ($1.eventEpoch, $1.seq)
+            }
+            currentEpoch = events.last?.eventEpoch
         } catch {
             self.error = error.localizedDescription
         }
@@ -41,31 +43,36 @@ final class TaskDetailViewModel {
         isLoading = false
     }
 
-    /// Poll for new events since the last known sequence number.
+    /// Poll the current event epoch. Retry can reuse sequence numbers, so a
+    /// seq-only request would miss the new timeline.
     /// - Parameters:
     ///   - taskId: The task ID to poll.
     ///   - apiClient: The API client to use.
     @MainActor
     func pollEvents(taskId: String, with apiClient: APIClient) async {
         do {
-            let newEvents: [TaskEvent]
-            if let since = highestSeq {
-                newEvents = try await apiClient.taskEvents(id: taskId, sinceSeq: since)
-            } else {
-                newEvents = try await apiClient.taskEvents(id: taskId)
-            }
+            let newEvents = try await apiClient.taskEvents(id: taskId)
 
             guard !newEvents.isEmpty else { return }
 
-            // Merge new events, de-duplicating by seq
-            let existingSeqs = Set(events.map(\.seq))
+            let incomingEpoch = newEvents.map(\.eventEpoch).max() ?? currentEpoch ?? 0
+            if incomingEpoch > (currentEpoch ?? incomingEpoch) {
+                events.removeAll { $0.eventEpoch < incomingEpoch }
+                currentEpoch = incomingEpoch
+            }
+            let existingIDs = Set(events.map { "\($0.eventEpoch):\($0.seq)" })
             for event in newEvents {
-                if !existingSeqs.contains(event.seq) {
+                if event.eventEpoch < (currentEpoch ?? event.eventEpoch) {
+                    continue
+                }
+                if !existingIDs.contains("\(event.eventEpoch):\(event.seq)") {
                     events.append(event)
                 }
             }
-            events.sort { $0.seq < $1.seq }
-            highestSeq = events.last?.seq
+            events.sort {
+                ($0.eventEpoch, $0.seq) < ($1.eventEpoch, $1.seq)
+            }
+            currentEpoch = events.last?.eventEpoch
 
             // Also refresh the task object to get updated status/elapsed
             let updatedTask = try await apiClient.task(id: taskId)

@@ -8,11 +8,43 @@ struct KeychainStore {
     private static let service = "dev.openkin.ios.keychain"
     private static let account = "daemon-token"
 
+    private static func profileAccount(_ id: UUID) -> String {
+        "daemon-token-\(id.uuidString)"
+    }
+
+    static func store(token: String, for profileID: UUID) throws {
+        try store(token: token, accountName: profileAccount(profileID))
+    }
+
+    static func readToken(for profileID: UUID) throws -> String? {
+        try readToken(accountName: profileAccount(profileID))
+    }
+
+    static func updateToken(_ token: String, for profileID: UUID) throws {
+        try updateToken(token, accountName: profileAccount(profileID))
+    }
+
+    static func deleteToken(for profileID: UUID) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: profileAccount(profileID),
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.unhandledError(status: status)
+        }
+    }
+
     // MARK: - CRUD
 
     /// Store a new token in the Keychain.
     /// - Throws: `KeychainError.duplicate` if a token already exists (call `updateToken` instead).
     static func store(token: String) throws {
+        try store(token: token, accountName: account)
+    }
+
+    private static func store(token: String, accountName: String) throws {
         guard let data = token.data(using: .utf8) else {
             throw KeychainError.unhandledError(status: errSecDecode)
         }
@@ -20,7 +52,7 @@ struct KeychainStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: accountName,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
             kSecValueData as String: data,
         ]
@@ -38,10 +70,14 @@ struct KeychainStore {
     /// - Returns: The token string, or `nil` if no token exists.
     /// - Throws: `KeychainError.unhandledError` on unexpected Security framework errors.
     static func readToken() throws -> String? {
+        try readToken(accountName: account)
+    }
+
+    private static func readToken(accountName: String) throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: accountName,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -79,6 +115,10 @@ struct KeychainStore {
     /// Update an existing token in the Keychain.
     /// - Throws: `KeychainError.notFound` if no token exists yet (call `store` instead).
     static func updateToken(_ token: String) throws {
+        try updateToken(token, accountName: account)
+    }
+
+    private static func updateToken(_ token: String, accountName: String) throws {
         guard let data = token.data(using: .utf8) else {
             throw KeychainError.unhandledError(status: errSecDecode)
         }
@@ -86,7 +126,7 @@ struct KeychainStore {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: accountName,
         ]
 
         let attributes: [String: Any] = [

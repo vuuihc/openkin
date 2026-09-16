@@ -47,12 +47,10 @@ open Kin.xcodeproj
 # Select a simulator or your device, press Run
 ```
 
-**For end users — TestFlight / App Store:**
+**For end users — TestFlight:**
 
-The iOS app is distributed through TestFlight and the App Store.  
-Join the [TestFlight beta](https://testflight.apple.com/join/kin) or download from the [App Store](https://apps.apple.com/app/kin-remote).
-
-*Currently in development — the first TestFlight build is being prepared.*
+The public beta uses a TestFlight track. App Store distribution is not
+available yet; source builds remain supported.
 
 ### 4. Pair
 
