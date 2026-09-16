@@ -25,6 +25,18 @@ struct ContentView: View {
                 }
                 .tag(AppModel.Tab.tasks)
 
+            ProjectsView()
+                .tabItem {
+                    Label("Projects", systemImage: "folder")
+                }
+                .tag(AppModel.Tab.projects)
+
+            ArtifactsView()
+                .tabItem {
+                    Label("Artifacts", systemImage: "doc.text")
+                }
+                .tag(AppModel.Tab.artifacts)
+
             SettingsView()
                 .tabItem {
                     Label(

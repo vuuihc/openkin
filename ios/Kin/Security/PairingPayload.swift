@@ -7,6 +7,7 @@ struct PairingPayload: Equatable, CustomStringConvertible {
     let token: String
     let relayKey: String?
     let relayRoom: String?
+    let isPairingSecret: Bool
 
     /// Description that deliberately omits the token to avoid leaking secrets.
     var description: String {
@@ -23,7 +24,7 @@ struct PairingPayload: Equatable, CustomStringConvertible {
     static func parse(_ urlString: String) throws -> PairingPayload {
         // 1. Validate URL can be parsed
         guard let components = URLComponents(string: urlString),
-              let rawURL = components.url,
+              components.url != nil,
               let scheme = components.scheme?.lowercased()
         else {
             throw PairingError.invalidURL
@@ -71,7 +72,14 @@ struct PairingPayload: Equatable, CustomStringConvertible {
 
         let relayKey = components.queryItems?.first(where: { $0.name == "key" })?.value
         let relayRoom = components.queryItems?.first(where: { $0.name == "room" })?.value
-        return PairingPayload(baseURL: baseURL, token: token, relayKey: relayKey, relayRoom: relayRoom)
+        let isPairingSecret = components.queryItems?.first(where: { $0.name == "pairing" })?.value == "1"
+        return PairingPayload(
+            baseURL: baseURL,
+            token: token,
+            relayKey: relayKey,
+            relayRoom: relayRoom,
+            isPairingSecret: isPairingSecret
+        )
     }
 
     /// Check whether `host` is a private / loopback address that is safe for plain HTTP.

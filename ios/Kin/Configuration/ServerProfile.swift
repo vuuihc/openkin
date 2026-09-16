@@ -3,6 +3,11 @@ import Foundation
 /// Connection profile for a Kin desktop daemon.
 /// Metadata is stored in UserDefaults; the auth token is stored separately in Keychain.
 struct ServerProfile: Codable, Hashable, Identifiable {
+    enum CredentialScope: String, Codable {
+        case device
+        case master
+    }
+
     let id: UUID
     var displayName: String
     var baseURL: URL        // normalized origin (scheme + host + port)
@@ -10,6 +15,43 @@ struct ServerProfile: Codable, Hashable, Identifiable {
     var relayRoom: String?
     let dateAdded: Date
     var lastAccessed: Date
+    var credentialScope: CredentialScope
+
+    init(
+        id: UUID,
+        displayName: String,
+        baseURL: URL,
+        relayKey: String?,
+        relayRoom: String?,
+        dateAdded: Date,
+        lastAccessed: Date,
+        credentialScope: CredentialScope = .device
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.baseURL = baseURL
+        self.relayKey = relayKey
+        self.relayRoom = relayRoom
+        self.dateAdded = dateAdded
+        self.lastAccessed = lastAccessed
+        self.credentialScope = credentialScope
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, displayName, baseURL, relayKey, relayRoom, dateAdded, lastAccessed, credentialScope
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        baseURL = try container.decode(URL.self, forKey: .baseURL)
+        relayKey = try container.decodeIfPresent(String.self, forKey: .relayKey)
+        relayRoom = try container.decodeIfPresent(String.self, forKey: .relayRoom)
+        dateAdded = try container.decode(Date.self, forKey: .dateAdded)
+        lastAccessed = try container.decode(Date.self, forKey: .lastAccessed)
+        credentialScope = try container.decodeIfPresent(CredentialScope.self, forKey: .credentialScope) ?? .device
+    }
 
     /// The origin string (e.g. "http://192.168.1.42:7777")
     var origin: String {
@@ -25,6 +67,10 @@ struct ServerProfile: Codable, Hashable, Identifiable {
     /// Is this a local-network HTTP connection?
     var isLAN: Bool {
         baseURL.scheme == "http"
+    }
+
+    var canManageDaemon: Bool {
+        credentialScope == .master
     }
 }
 

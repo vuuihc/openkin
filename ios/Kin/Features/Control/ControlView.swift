@@ -251,6 +251,18 @@ struct ControlView: View {
                 }
             }
             .navigationTitle("Kin")
+            .navigationDestination(for: AppRoute.self) { route in
+                switch route {
+                case .taskDetail(let id):
+                    TaskDetailView(taskId: id)
+                case .newTask:
+                    NewTaskView()
+                case .settings:
+                    SettingsView()
+                case .connection:
+                    ConnectionView { _ in }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     NavigationLink(value: AppRoute.newTask) {

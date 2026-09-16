@@ -3,12 +3,15 @@ import SwiftUI
 /// Task detail screen with a live-updating event timeline and input controls.
 struct TaskDetailView: View {
     @Environment(AppSession.self) private var appSession
+    @Environment(\.dismiss) private var dismiss
     let taskId: String
     var apiClient: APIClient?
 
     @State private var viewModel = TaskDetailViewModel()
     @State private var guidanceText = ""
     @State private var showWorkspaceChanges = false
+    @State private var showForkTask = false
+    @State private var showDeleteConfirmation = false
 
     /// Timer-driven polling interval for non-terminal tasks (seconds).
     private let pollInterval: TimeInterval = 3
@@ -57,6 +60,29 @@ struct TaskDetailView: View {
         }
         .navigationTitle("Task")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let task = viewModel.task, task.isTerminal {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            showForkTask = true
+                        } label: {
+                            Label("Fork Task", systemImage: "arrow.triangle.branch")
+                        }
+                        if appSession.canManageDaemon {
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                Label("Delete Task", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Task actions")
+                }
+            }
+        }
         .task {
             guard let client = activeClient else { return }
             await viewModel.load(taskId: taskId, with: client)
@@ -73,6 +99,25 @@ struct TaskDetailView: View {
         }
         .sheet(isPresented: $showWorkspaceChanges) {
             WorkspaceChangesView(taskId: taskId, apiClient: activeClient)
+        }
+        .sheet(isPresented: $showForkTask) {
+            ForkTaskView(taskId: taskId) { _ in
+                Task { await appSession.reconcileForeground() }
+            }
+        }
+        .confirmationDialog(
+            "Delete this task?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    guard let client = activeClient else { return }
+                    if await viewModel.delete(taskId: taskId, with: client) {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 
@@ -382,6 +427,19 @@ struct TaskDetailView: View {
             HStack(spacing: 16) {
                 Spacer()
 
+                if task.status == .failed {
+                    Button {
+                        Task {
+                            guard let client = activeClient else { return }
+                            await viewModel.continueAfterLimit(taskId: taskId, with: client)
+                        }
+                    } label: {
+                        Label("Continue", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                }
+
                 Button {
                     Task {
                         guard let client = activeClient else { return }
@@ -394,10 +452,9 @@ struct TaskDetailView: View {
                 .tint(.blue)
 
                 Button {
-                    // Follow-up: create a new task from this context
-                    // Navigate to new task creation
+                    showForkTask = true
                 } label: {
-                    Label("Follow up", systemImage: "arrowshape.turn.up.right")
+                    Label("Fork", systemImage: "arrow.triangle.branch")
                 }
                 .buttonStyle(.borderedProminent)
 
@@ -481,7 +538,10 @@ struct TaskDetailView: View {
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 continue
             }
-            guard let task = viewModel.task, !task.isTerminal else { break }
+            if let task = viewModel.task, task.isTerminal {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                continue
+            }
 
             try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
 

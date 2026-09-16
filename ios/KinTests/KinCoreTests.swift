@@ -19,10 +19,11 @@ final class KinCoreTests: XCTestCase {
 
     func testPairingParsesRelayCredentials() throws {
         let payload = try PairingPayload.parse(
-            "https://relay.example.com/?room=room-1&key=relay-key&token=pairing"
+            "https://relay.example.com/?room=room-1&key=relay-key&token=pairing&pairing=1"
         )
         XCTAssertEqual(payload.relayRoom, "room-1")
         XCTAssertEqual(payload.relayKey, "relay-key")
+        XCTAssertTrue(payload.isPairingSecret)
     }
 
     func testPairingRejectsPublicHTTP() {
@@ -177,5 +178,30 @@ final class KinCoreTests: XCTestCase {
         """.data(using: .utf8)!
         let types = try JSONDecoder().decode([QuestionType].self, from: json)
         XCTAssertEqual(types, [.singleSelect, .multiSelect, .freeText, .unknown])
+    }
+
+    func testConsoleModelsDecodeDaemonShapes() throws {
+        let decoder = JSONDecoder()
+
+        let artifact = try decoder.decode(Artifact.self, from: Data("""
+        {"id":"a1","title":"Notes","kind":"markdown","size":42,"status":"saved","source_task_id":"t1","created_at":1,"updated_at":2}
+        """.utf8))
+        XCTAssertEqual(artifact.sourceTaskId, "t1")
+
+        let project = try decoder.decode(Project.self, from: Data("""
+        {"id":"p1","name":"Kin","mode":"ship","status":"active","soft_progress":"Build","created_at":1,"updated_at":2,"last_active_at":3}
+        """.utf8))
+        XCTAssertEqual(project.name, "Kin")
+
+        let routine = try decoder.decode(Routine.self, from: Data("""
+        {"id":"r1","project_id":"p1","cwd":"/tmp","agent":"kin","permission_mode":"default","prompt":"check","interval_secs":3600,"enabled":true,"next_due_at":4,"consec_failures":0,"created_at":1,"title":"Check"}
+        """.utf8))
+        XCTAssertEqual(routine.projectId, "p1")
+
+        let providers = try decoder.decode(ProvidersResponse.self, from: Data("""
+        {"active_id":"provider-1","providers":[{"id":"provider-1","name":"Local","kind":"openai","base_url":"http://localhost","model":"model","active":true}]}
+        """.utf8))
+        XCTAssertEqual(providers.activeId, "provider-1")
+        XCTAssertEqual(providers.providers.first?.baseURL, "http://localhost")
     }
 }
