@@ -21,8 +21,11 @@ final class Reconciler {
 
     private let apiClient: APIClient
     private let wsClient: WebSocketClient
-    private var wsGeneration: UInt64 = 0
     private var loadedOnce = false
+    private var socketWasConnected = false
+    private var reconciliationInFlight = false
+    var onConnectionStateChange: ((ConnectionState) -> Void)?
+    var onDataChange: (() -> Void)?
 
     init(apiClient: APIClient, wsClient: WebSocketClient) {
         self.apiClient = apiClient
@@ -36,6 +39,9 @@ final class Reconciler {
     /// Fetches tasks, approvals, and questions in parallel, then updates published state.
     /// After initial load, also fetches events for any open (non-terminal) tasks.
     func reconcile() async {
+        guard !reconciliationInFlight else { return }
+        reconciliationInFlight = true
+        defer { reconciliationInFlight = false }
         connectionState = .connecting
         do {
             async let tasksResult = apiClient.tasks()
@@ -53,11 +59,12 @@ final class Reconciler {
             pendingQuestions = fetchedQuestions // server order preserved
             connectionState = .connected
             loadedOnce = true
+            notifyDataChange()
 
-            // For any open task, fetch events since the highest seq number
+            // Full snapshots also detect event-epoch changes after a retry.
             let openTasks = fetchedTasks.filter { !$0.isTerminal }
             for task in openTasks {
-                await reconcileTaskEvents(taskId: task.id)
+                await reconcileTaskEvents(taskId: task.id, forceFull: true)
             }
         } catch {
             applyError(error)
@@ -66,19 +73,19 @@ final class Reconciler {
 
     /// Incremental reconciliation for an open task.
     /// Fetches events since the highest known sequence number for the task.
-    func reconcileTaskEvents(taskId: String) async {
+    func reconcileTaskEvents(taskId: String, forceFull: Bool = false) async {
         let current = taskEvents[taskId] ?? []
         let highestSeq = current.map(\.seq).max()
         do {
             let newEvents: [TaskEvent]
-            if let since = highestSeq {
+            if !forceFull, let since = highestSeq {
                 newEvents = try await apiClient.taskEvents(id: taskId, sinceSeq: since)
             } else {
                 newEvents = try await apiClient.taskEvents(id: taskId)
             }
             mergeEvents(newEvents, taskId: taskId)
         } catch {
-            // Silently fail for incremental event fetches — the next reconcile will retry
+            applyError(error)
         }
     }
 
@@ -88,6 +95,7 @@ final class Reconciler {
         do {
             try await apiClient.approve(id: id)
             pendingApprovals.removeAll { $0.id == id }
+            notifyDataChange()
         } catch APIError.conflict {
             // Another client already handled it; refresh
             await reconcile()
@@ -101,6 +109,7 @@ final class Reconciler {
         do {
             try await apiClient.deny(id: id)
             pendingApprovals.removeAll { $0.id == id }
+            notifyDataChange()
         } catch APIError.conflict {
             await reconcile()
         } catch {
@@ -113,6 +122,7 @@ final class Reconciler {
         do {
             try await apiClient.answerQuestion(id: id, selected: selected, otherText: otherText)
             pendingQuestions.removeAll { $0.id == id }
+            notifyDataChange()
         } catch APIError.conflict {
             await reconcile()
         } catch {
@@ -140,13 +150,15 @@ final class Reconciler {
                     approvalIds: updated.approvalIds,
                     questionIds: updated.questionIds,
                     createdAt: updated.createdAt,
-                    updatedAt: updated.updatedAt,
+                    startedAt: updated.startedAt,
+                    finishedAt: updated.finishedAt,
                     elapsedSeconds: updated.elapsedSeconds,
-                    costCents: updated.costCents,
-                    sessionId: updated.sessionId,
+                    costUSD: updated.costUSD,
+                    sessionRef: updated.sessionRef,
                     error: updated.error
                 )
                 tasks[index] = updated
+                notifyDataChange()
             }
         } catch {
             applyError(error)
@@ -193,6 +205,7 @@ final class Reconciler {
             )
             tasks.insert(task, at: 0)
             tasks.sort { $0.createdAt > $1.createdAt }
+            notifyDataChange()
             return task
         } catch {
             applyError(error)
@@ -203,13 +216,16 @@ final class Reconciler {
     // MARK: - WebSocket setup
 
     private func setupWebSocketCallbacks() {
-        let currentGen = wsGeneration
         Task {
             await wsClient.setCallbacks(
                 onMessage: { [weak self] message, generation in
                     guard let self else { return }
-                    guard generation == currentGen else { return }
                     Task { @MainActor in
+                        // WebSocketClient already filters stale generations. Keep
+                        // the callback generation in the signature for protocol
+                        // compatibility, but do not cache a second generation
+                        // counter here; reconnects must continue delivering events.
+                        _ = generation
                         self.handleServerMessage(message)
                     }
                 },
@@ -219,12 +235,24 @@ final class Reconciler {
                         switch state {
                         case .connected:
                             self.connectionState = .connected
+                            self.onConnectionStateChange?(.connected)
+                            if !self.socketWasConnected {
+                                self.socketWasConnected = true
+                                if self.loadedOnce {
+                                    Task { await self.reconcile() }
+                                }
+                            }
                         case .disconnected:
+                            self.socketWasConnected = false
                             self.connectionState = .offline("Disconnected")
+                            self.onConnectionStateChange?(.offline("Disconnected"))
                         case .connecting:
                             self.connectionState = .connecting
+                            self.onConnectionStateChange?(.connecting)
                         case .reconnecting(let delay):
+                            self.socketWasConnected = false
                             self.connectionState = .reconnecting(delay: delay)
+                            self.onConnectionStateChange?(.reconnecting(delay: delay))
                         }
                     }
                 }
@@ -234,14 +262,11 @@ final class Reconciler {
 
     func startWebSocket() {
         Task {
-            let gen = await wsClient.currentGeneration
-            wsGeneration = gen &+ 1
             await wsClient.connect()
         }
     }
 
     func stopWebSocket() {
-        wsGeneration &+= 1
         Task { await wsClient.disconnect() }
     }
 
@@ -254,8 +279,8 @@ final class Reconciler {
         case .taskDeleted(let id):
             tasks.removeAll { $0.id == id }
             taskEvents[id] = nil
-        case .event(let taskId, let event):
-            mergeEvents([event], taskId: taskId)
+        case .event(let event):
+            mergeEvents([event], taskId: event.taskId)
         case .approvalUpdate(let approval):
             pendingApprovals.removeAll { $0.id == approval.id }
             if approval.status == .pending {
@@ -270,6 +295,7 @@ final class Reconciler {
         case .unknown:
             break
         }
+        notifyDataChange()
     }
 
     // MARK: - Helpers
@@ -281,19 +307,35 @@ final class Reconciler {
             tasks.append(task)
         }
         tasks.sort { $0.createdAt > $1.createdAt }
+        notifyDataChange()
     }
 
-    /// Merge events into the task's event list, de-duplicating by seq number.
+    /// Merge events into the task's event list, de-duplicating by epoch and seq.
     private func mergeEvents(_ incoming: [TaskEvent], taskId: String) {
         var existing = taskEvents[taskId] ?? []
-        let existingSeqs = Set(existing.map(\.seq))
+        let incomingEpoch = incoming.map(\.eventEpoch).max()
+        if let incomingEpoch, incomingEpoch > (existing.map(\.eventEpoch).max() ?? incomingEpoch) {
+            existing.removeAll { $0.eventEpoch < incomingEpoch }
+        }
+        let activeEpoch = existing.map(\.eventEpoch).max()
+        let existingIDs = Set(existing.map { "\($0.eventEpoch):\($0.seq)" })
         for event in incoming {
-            if !existingSeqs.contains(event.seq) {
+            if let activeEpoch, event.eventEpoch < activeEpoch {
+                continue
+            }
+            if !existingIDs.contains("\(event.eventEpoch):\(event.seq)") {
                 existing.append(event)
             }
         }
-        existing.sort { $0.seq < $1.seq }
+        existing.sort {
+            ($0.eventEpoch, $0.seq) < ($1.eventEpoch, $1.seq)
+        }
         taskEvents[taskId] = existing
+        notifyDataChange()
+    }
+
+    private func notifyDataChange() {
+        onDataChange?()
     }
 
     private func applyError(_ error: Error) {
@@ -307,5 +349,6 @@ final class Reconciler {
         default:
             connectionState = .offline(error.localizedDescription)
         }
+        onConnectionStateChange?(connectionState)
     }
 }

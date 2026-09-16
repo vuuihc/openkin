@@ -168,10 +168,7 @@ func (c *Catalog) DeleteProvider(ctx context.Context, id string) (provider.Regis
 	if err := c.validateProviderGraph(ctx, reg); err != nil {
 		return provider.Registry{}, err
 	}
-	if err := provider.SaveRegistry(ctx, c.store, reg); err != nil {
-		return provider.Registry{}, err
-	}
-	return reg, nil
+	return provider.DeleteEntry(ctx, c.store, id)
 }
 
 // SetActiveProvider changes the active runtime provider under the catalog write lock.

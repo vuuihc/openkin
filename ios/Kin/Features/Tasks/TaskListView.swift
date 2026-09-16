@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Searchable task history list grouped by "Active" and "Completed".
 struct TaskListView: View {
+    @Environment(AppSession.self) private var appSession
     @State private var viewModel = TaskListViewModel()
     @State private var searchQuery = ""
-    @State private var apiClient: APIClient?
 
     var body: some View {
         NavigationStack {
@@ -140,19 +140,26 @@ struct TaskListView: View {
     // MARK: - Helpers
 
     private var filteredTasks: [KinTask] {
-        viewModel.filteredTasks(query: searchQuery)
+        let tasks = appSession.tasks
+        guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return tasks
+        }
+        let query = searchQuery.lowercased()
+        return tasks.filter {
+            $0.prompt.lowercased().contains(query)
+                || $0.cwd.lowercased().contains(query)
+                || $0.agent.lowercased().contains(query)
+        }
     }
 
     @MainActor
     private func loadClientAndRefresh() async {
-        // The caller should set the APIClient via environment or other means.
-        // For now we rely on the refresh path.
         await refresh()
     }
 
     @MainActor
     private func refresh() async {
-        guard let client = apiClient else { return }
+        guard let client = appSession.apiClient else { return }
         await viewModel.load(with: client)
     }
 

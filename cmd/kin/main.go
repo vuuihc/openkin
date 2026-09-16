@@ -47,6 +47,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "kin notify: %v\n", err)
 			os.Exit(1)
 		}
+	case "export":
+		if err := runExport(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "kin export: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -135,6 +140,7 @@ Usage:
   kin serve [flags]   start the daemon
   kin token rotate    regenerate ~/.kin/token
   kin notify test     send a test notification via configured Bark/ntfy
+  kin export --output <path.zip>
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin version         print version
   kin help            show this help
@@ -144,6 +150,7 @@ Serve flags:
   --lan                 bind 0.0.0.0; print LAN QR
   --tailscale           serve via tsnet node "kin"
   --funnel              public HTTPS via Funnel (requires --tailscale)
+  --relay URL            connect through a user-owned WebSocket relay
   --ts-control-url URL  Headscale/custom control server for tsnet
 `)
 	os.Exit(code)

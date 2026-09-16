@@ -6,6 +6,8 @@ struct ServerProfile: Codable, Hashable, Identifiable {
     let id: UUID
     var displayName: String
     var baseURL: URL        // normalized origin (scheme + host + port)
+    var relayKey: String?
+    var relayRoom: String?
     let dateAdded: Date
     var lastAccessed: Date
 
@@ -36,12 +38,14 @@ struct ServerProfileValidator {
     ///   - token:  The bearer token to present.
     /// - Returns: A tuple with a health flag and an optional version string.
     /// - Throws: `ServerProfileError` if the daemon is unreachable, incompatible, or the token is rejected.
-    static func validate(baseURL: URL, token: String) async throws -> (health: Bool, version: String?) {
+    static func validate(
+        baseURL: URL, token: String, relayKey: String? = nil, relayRoom: String? = nil
+    ) async throws -> (health: Bool, version: String?) {
         guard var healthComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw ServerProfileError.invalidURL
         }
         healthComponents.path = "/api/health"
-        healthComponents.query = nil
+        healthComponents.queryItems = relayQueryItems(key: relayKey, room: relayRoom)
         healthComponents.fragment = nil
 
         guard let healthURL = healthComponents.url else {
@@ -77,10 +81,42 @@ struct ServerProfileValidator {
 
         let health = (try? JSONSerialization.jsonObject(with: healthData) as? [String: Any])?["ok"] as? Bool ?? false
 
+        // Health is intentionally public, so validate the bearer token against
+        // an authenticated read before accepting the profile.
+        var probeComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        probeComponents.path = "/api/tasks"
+        probeComponents.queryItems = [URLQueryItem(name: "limit", value: "1")] +
+            (relayQueryItems(key: relayKey, room: relayRoom) ?? [])
+        guard let probeURL = probeComponents.url else {
+            throw ServerProfileError.invalidURL
+        }
+        var probeRequest = URLRequest(url: probeURL)
+        probeRequest.httpMethod = "GET"
+        probeRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        probeRequest.timeoutInterval = 10
+        do {
+            let (_, probeResponse) = try await URLSession.shared.data(for: probeRequest)
+            guard let probeHTTP = probeResponse as? HTTPURLResponse else {
+                throw ServerProfileError.unreachable
+            }
+            switch probeHTTP.statusCode {
+            case 200:
+                break
+            case 401, 403:
+                throw ServerProfileError.unauthorized
+            default:
+                throw ServerProfileError.unreachable
+            }
+        } catch let error as ServerProfileError {
+            throw error
+        } catch {
+            throw ServerProfileError.unreachable
+        }
+
         // Fetch version
         var versionComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         versionComponents.path = "/api/version"
-        versionComponents.query = nil
+        versionComponents.queryItems = relayQueryItems(key: relayKey, room: relayRoom)
         versionComponents.fragment = nil
 
         guard let versionURL = versionComponents.url else {
@@ -106,6 +142,12 @@ struct ServerProfileValidator {
 
         return (health, versionString)
     }
+}
+
+private func relayQueryItems(key: String?, room: String?) -> [URLQueryItem]? {
+    let items = (room.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
+        (key.map { [URLQueryItem(name: "key", value: $0)] } ?? [])
+    return items.isEmpty ? nil : items
 }
 
 // MARK: - Errors

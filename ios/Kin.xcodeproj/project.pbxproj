@@ -18,6 +18,7 @@
 		1F73C2C0FBDED3EE84A19651 /* TaskEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D0527A5EF7223BF324B652 /* TaskEvent.swift */; };
 		28670A573F61F01750BAA37B /* ServerMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */; };
 		2B397BB5AF88D3AEE1DE852D /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D58CAACC2041347A8E54F7B /* ConnectionView.swift */; };
+		3A2EF4540F9382F399D735C2 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D48136F38CAC4A414E521D9 /* AppSession.swift */; };
 		3BC0EE272BF4AB54136D5FA6 /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D983A22D03726CBFD3BAF1AF /* ConnectionBanner.swift */; };
 		3E09B9BC863E021C27180BD6 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F093FD87FFE1C535B71CEF79 /* QRScannerView.swift */; };
 		4817306FFC6E7312787960DE /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F0468FC7EA2BD95124391C /* APIClient.swift */; };
@@ -71,6 +72,7 @@
 		2256F7941CB844EC27C79EB6 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		29D30A7EBEEB7E7A0D66763B /* EventProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventProjection.swift; sourceTree = "<group>"; };
 		2D35126EBAEC0BE735B4869C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		2D48136F38CAC4A414E521D9 /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
 		31330E6038DDD5B591AFBB6A /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
 		3AC619597BD5F10F7B143255 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlViewModel.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 			children = (
 				6549F3B9B9AA7648C0F2D89B /* AppModel.swift */,
 				CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */,
+				2D48136F38CAC4A414E521D9 /* AppSession.swift */,
 				2D35126EBAEC0BE735B4869C /* ContentView.swift */,
 				842559CCE9DB35953BD1564B /* KinApp.swift */,
 			);
@@ -348,9 +351,13 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					2FC7E61302B48FC6F443DF74 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 					C709CCD77489D5493D7B5A69 = {
 						DevelopmentTeam = "";
-						ProvisioningStyle = Manual;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -405,6 +412,7 @@
 				88B11CDE18F5AE80A39ECC35 /* Agent.swift in Sources */,
 				5801D8231438232CEB0284D9 /* AppModel.swift in Sources */,
 				D0E7FFB1482AE4DC784DC76F /* AppRoute.swift in Sources */,
+				3A2EF4540F9382F399D735C2 /* AppSession.swift in Sources */,
 				7407F0B0CE32F7ACF0ED9220 /* Approval.swift in Sources */,
 				F907E4F327F9C9DC6DFD8E03 /* ApprovalCard.swift in Sources */,
 				3BC0EE272BF4AB54136D5FA6 /* ConnectionBanner.swift in Sources */,
@@ -458,6 +466,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -476,6 +486,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -495,7 +507,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Kin/Info.plist;
@@ -516,7 +528,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = Kin/Info.plist;

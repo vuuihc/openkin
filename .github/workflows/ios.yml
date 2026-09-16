@@ -1,0 +1,29 @@
+name: ios
+
+on:
+  push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+
+jobs:
+  simulator:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build and test
+        working-directory: ios
+        run: >
+          xcodebuild -project Kin.xcodeproj -scheme Kin
+          -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+          CODE_SIGNING_ALLOWED=NO build test

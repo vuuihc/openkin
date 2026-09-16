@@ -1,0 +1,9 @@
+{
+  "name": "@openkin/relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "build": "node --check relay.js"
+  }
+}

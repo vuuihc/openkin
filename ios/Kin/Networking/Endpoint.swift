@@ -71,9 +71,8 @@ enum Endpoint {
             return "/api/tasks/\(taskId)/workspaces"
         case .workspaceDiff(let taskId, let workspaceId):
             return "/api/tasks/\(taskId)/workspaces/\(workspaceId)/diff"
-        case .workspaceFile(let taskId, let workspaceId, let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
-            return "/api/tasks/\(taskId)/workspaces/\(workspaceId)/file/\(encoded)"
+        case .workspaceFile(let taskId, let workspaceId, _):
+            return "/api/tasks/\(taskId)/workspaces/\(workspaceId)/file"
         case .webSocket:
             return "/api/ws"
         }
@@ -102,6 +101,8 @@ enum Endpoint {
         case .taskEvents(_, let sinceSeq):
             guard let sinceSeq else { return nil }
             return [URLQueryItem(name: "since_seq", value: String(sinceSeq))]
+        case .workspaceFile(_, _, let path):
+            return [URLQueryItem(name: "path", value: path)]
         case .webSocket(let token):
             return [URLQueryItem(name: "token", value: token)]
         default:

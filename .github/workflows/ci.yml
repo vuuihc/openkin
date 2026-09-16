@@ -12,8 +12,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # tsnet (M3) requires Go ≥ 1.23.1
-          go-version: "1.23.x"
+          go-version-file: go.mod
 
       - uses: actions/setup-node@v4
         with:
@@ -24,11 +23,17 @@ jobs:
       - name: UI install + typecheck + unit tests + build
         working-directory: ui
         run: |
-          npm install
+          npm ci
           npm run check:api
           npx tsc --noEmit
           npm test
           npx vite build
+
+      - name: Relay test + syntax check
+        working-directory: relay
+        run: |
+          npm test
+          npm run build
 
       - name: Go vet
         run: go vet ./...

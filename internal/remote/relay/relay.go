@@ -1,14 +1,20 @@
-// Package relay provides a WebSocket relay bridge that connects outbound to a
-// Cloudflare Worker and proxies HTTP requests to a local Kin daemon (spec §7).
+// Package relay provides the outbound bridge for a user-owned Kin Relay.
 package relay
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,158 +22,397 @@ import (
 	"nhooyr.io/websocket"
 )
 
-// Bridge connects to a Cloudflare Worker relay and proxies HTTP requests
-// to a local Kin daemon running on loopback.
+const (
+	protocolVersion = 2
+	maxBodyBytes    = 20 << 20
+	maxFrameBytes   = 32 << 20
+)
+
+type credentials struct {
+	Room string `json:"room"`
+	Key  string `json:"key"`
+}
+
 type Bridge struct {
-	relayURL  string
-	room      string
-	localBase string
-
-	ws         *websocket.Conn
-	mu         sync.Mutex
-	pending    map[string]chan<- relayResponse
-	httpClient *http.Client
+	relayURL, room, relayKey, localBase string
+	mu                                  sync.Mutex
+	writeMu                             sync.Mutex
+	ws                                  *websocket.Conn
+	streams                             map[string]*websocket.Conn
+	httpClient                          *http.Client
 }
 
-type relayResponse struct {
-	Status int
-	Body   string
+type envelope struct {
+	Version int             `json:"v"`
+	Kind    string          `json:"kind"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
-type relayMessage struct {
-	Type    string            `json:"type"`
-	ReqID   string            `json:"reqId,omitempty"`
-	Method  string            `json:"method,omitempty"`
-	Path    string            `json:"path,omitempty"`
+type helloData struct {
+	Role string `json:"role"`
+	Room string `json:"room"`
+	Key  string `json:"key"`
+}
+
+type requestData struct {
+	ID      string            `json:"id"`
+	Method  string            `json:"method"`
+	Path    string            `json:"path"`
 	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body,omitempty"`
-	Status  int               `json:"status,omitempty"`
+	BodyB64 string            `json:"body_b64,omitempty"`
 }
 
-// NewBridge creates a relay bridge.
-//   - relayURL: wss://relay.example.com
-//   - room: room identifier for pairing (e.g. hostname)
-//   - localBase: http://127.0.0.1:7777 (the local daemon)
+type responseData struct {
+	ID      string            `json:"id"`
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers,omitempty"`
+	BodyB64 string            `json:"body_b64,omitempty"`
+	Error   string            `json:"error,omitempty"`
+}
+
+type streamData struct {
+	ID      string            `json:"id"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Payload string            `json:"payload,omitempty"`
+	Binary  bool              `json:"binary,omitempty"`
+}
+
+// NewBridge creates an ephemeral-credential bridge for tests and embedding.
+// Production should use NewPersistentBridge.
 func NewBridge(relayURL, room, localBase string) *Bridge {
+	key, _ := newSecret()
+	return newBridge(relayURL, room, key, localBase)
+}
+
+// NewPersistentBridge loads or creates stable room credentials below stateDir.
+func NewPersistentBridge(relayURL, stateDir, localBase string) (*Bridge, error) {
+	if err := validateRelayURL(relayURL); err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(stateDir, "relay")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create relay state: %w", err)
+	}
+	path := filepath.Join(dir, "credentials.json")
+	var c credentials
+	data, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(data, &c); err != nil {
+			return nil, fmt.Errorf("parse relay credentials: %w", err)
+		}
+	case errors.Is(err, os.ErrNotExist):
+		c.Room, err = newSecret()
+		if err != nil {
+			return nil, err
+		}
+		c.Key, err = newSecret()
+		if err != nil {
+			return nil, err
+		}
+		data, _ := json.MarshalIndent(c, "", "  ")
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			return nil, fmt.Errorf("write relay credentials: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("read relay credentials: %w", err)
+	}
+	if c.Room == "" || c.Key == "" {
+		return nil, errors.New("relay credentials are incomplete")
+	}
+	return newBridge(relayURL, c.Room, c.Key, localBase), nil
+}
+
+func newBridge(relayURL, room, key, localBase string) *Bridge {
 	return &Bridge{
-		relayURL:  relayURL,
-		room:      room,
-		localBase: localBase,
-		pending:   make(map[string]chan<- relayResponse),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		relayURL: relayURL, room: room, relayKey: key, localBase: strings.TrimRight(localBase, "/"),
+		streams:    make(map[string]*websocket.Conn),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
-// Run connects to the relay and starts proxying. Blocks until ctx is cancelled
-// or the connection is permanently lost.
-func (b *Bridge) Run(ctx context.Context) error {
-	dialURL := b.relayURL
-	if strings.Contains(dialURL, "?") {
-		dialURL += "&"
-	} else {
-		dialURL += "?"
+func newSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate relay credential: %w", err)
 	}
-	dialURL += "room=" + url.QueryEscape(b.room) + "&role=daemon"
+	return hex.EncodeToString(buf), nil
+}
 
-	c, _, err := websocket.Dial(ctx, dialURL, nil)
+func validateRelayURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return errors.New("relay URL must include a host")
+	}
+	switch u.Scheme {
+	case "ws", "wss", "http", "https":
+		return nil
+	default:
+		return errors.New("relay URL must use ws(s) or http(s)")
+	}
+}
+
+// Run maintains the daemon connection until ctx is cancelled.
+func (b *Bridge) Run(ctx context.Context) error {
+	if err := validateRelayURL(b.relayURL); err != nil {
+		return err
+	}
+	delay := 250 * time.Millisecond
+	for {
+		err := b.runGeneration(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		b.closeStreams()
+		wait := delay + time.Duration(time.Now().UnixNano()%int64(delay/2+1)) - delay/4
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+		if delay < 15*time.Second {
+			delay *= 2
+			if delay > 15*time.Second {
+				delay = 15 * time.Second
+			}
+		}
+		_ = err
+	}
+}
+
+func (b *Bridge) runGeneration(ctx context.Context) error {
+	c, _, err := websocket.Dial(ctx, b.wsURL(), nil)
 	if err != nil {
 		return fmt.Errorf("relay dial: %w", err)
 	}
+	b.mu.Lock()
 	b.ws = c
-	defer c.Close(websocket.StatusNormalClosure, "done") //nolint:errcheck
-
-	// Read loop — dispatches requests and responses.
+	b.mu.Unlock()
+	defer func() {
+		_ = c.Close(websocket.StatusNormalClosure, "generation ended")
+		b.mu.Lock()
+		if b.ws == c {
+			b.ws = nil
+		}
+		b.mu.Unlock()
+	}()
+	if err := b.send(ctx, "hello", helloData{Role: "daemon", Room: b.room, Key: b.relayKey}); err != nil {
+		return err
+	}
 	for {
-		_, msg, err := c.Read(ctx)
+		typ, msg, err := c.Read(ctx)
 		if err != nil {
 			return fmt.Errorf("relay read: %w", err)
 		}
-
-		var m relayMessage
-		if err := json.Unmarshal(msg, &m); err != nil {
+		if typ != websocket.MessageText || len(msg) > maxFrameBytes {
+			return errors.New("relay frame exceeds limit")
+		}
+		var frame envelope
+		if json.Unmarshal(msg, &frame) != nil {
 			continue
 		}
-
-		switch m.Type {
+		switch frame.Kind {
 		case "request":
-			go b.handleRelayRequest(ctx, m)
-		case "response":
-			b.mu.Lock()
-			ch, ok := b.pending[m.ReqID]
-			delete(b.pending, m.ReqID)
-			b.mu.Unlock()
-			if ok {
-				ch <- relayResponse{Status: m.Status, Body: m.Body}
+			var d requestData
+			if json.Unmarshal(frame.Data, &d) == nil {
+				go b.proxyHTTP(ctx, d)
 			}
+		case "open_stream":
+			var d streamData
+			if json.Unmarshal(frame.Data, &d) == nil {
+				go b.openStream(ctx, d)
+			}
+		case "stream_data":
+			var d streamData
+			if json.Unmarshal(frame.Data, &d) == nil {
+				b.writeStream(d)
+			}
+		case "close_stream":
+			var d streamData
+			if json.Unmarshal(frame.Data, &d) == nil {
+				b.closeStream(d.ID)
+			}
+		case "ping":
+			_ = b.send(ctx, "pong", map[string]string{"room": b.room})
 		}
 	}
 }
 
-// ConnectURL returns the URL an iOS/remote client should use to reach the
-// daemon through this relay.
+func (b *Bridge) wsURL() string {
+	base := b.relayURL
+	if strings.HasPrefix(base, "http://") {
+		base = "ws://" + strings.TrimPrefix(base, "http://")
+	} else if strings.HasPrefix(base, "https://") {
+		base = "wss://" + strings.TrimPrefix(base, "https://")
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return base
+	}
+	query := parsed.Query()
+	query.Set("room", b.room)
+	query.Set("role", "daemon")
+	query.Set("key", b.relayKey)
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// ConnectURL returns the public client URL without credentials.
 func (b *Bridge) ConnectURL() string {
 	base := b.relayURL
-	// Normalise http→https for non-WSS relay URLs (user may have typed http).
-	if strings.HasPrefix(base, "http://") {
-		base = "https://" + base[len("http://"):]
+	if strings.HasPrefix(base, "ws://") {
+		base = "http://" + strings.TrimPrefix(base, "ws://")
+	} else if strings.HasPrefix(base, "wss://") {
+		base = "https://" + strings.TrimPrefix(base, "wss://")
 	}
+	sep := "?"
 	if strings.Contains(base, "?") {
-		return base + "&room=" + url.QueryEscape(b.room)
+		sep = "&"
 	}
-	return base + "?room=" + url.QueryEscape(b.room)
+	return base + sep + "room=" + url.QueryEscape(b.room)
 }
 
-func (b *Bridge) handleRelayRequest(ctx context.Context, m relayMessage) {
-	targetURL := b.localBase + m.Path
-	req, err := http.NewRequestWithContext(ctx, m.Method, targetURL, stringToBody(m.Body))
-	if err != nil {
+// ConnectURLWithKey includes the room credential required by Relay v2 clients.
+func (b *Bridge) ConnectURLWithKey() string {
+	return b.ConnectURL() + "&key=" + url.QueryEscape(b.relayKey)
+}
+
+func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
+	if d.ID == "" || d.Method == "" || !strings.HasPrefix(d.Path, "/") || len(d.BodyB64) > maxBodyBytes*2 {
+		b.sendResponse(ctx, responseData{ID: d.ID, Status: 413, Error: "invalid or oversized request"})
 		return
 	}
-	for k, v := range m.Headers {
-		// Skip hop-by-hop headers.
-		if k == "Host" || k == "Content-Length" || k == "Connection" || k == "Upgrade" {
-			continue
-		}
-		req.Header.Set(k, v)
+	body, err := base64.StdEncoding.DecodeString(d.BodyB64)
+	if err != nil || len(body) > maxBodyBytes {
+		b.sendResponse(ctx, responseData{ID: d.ID, Status: 413, Error: "invalid or oversized request"})
+		return
 	}
-
+	req, err := http.NewRequestWithContext(ctx, d.Method, b.localBase+d.Path, bytes.NewReader(body))
+	if err != nil {
+		b.sendResponse(ctx, responseData{ID: d.ID, Status: 502, Error: "invalid local request"})
+		return
+	}
+	for k, v := range d.Headers {
+		if !strings.EqualFold(k, "host") && !strings.EqualFold(k, "connection") &&
+			!strings.EqualFold(k, "upgrade") && !strings.EqualFold(k, "content-length") {
+			req.Header.Set(k, v)
+		}
+	}
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
-		b.sendError(m.ReqID, "proxy error: "+err.Error())
+		b.sendResponse(ctx, responseData{ID: d.ID, Status: 502, Error: "local daemon unavailable"})
 		return
 	}
 	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	b.sendResponse(m.ReqID, resp.StatusCode, string(body))
-}
-
-func (b *Bridge) sendResponse(reqID string, status int, body string) {
-	msg, _ := json.Marshal(relayMessage{
-		Type:   "response",
-		ReqID:  reqID,
-		Status: status,
-		Body:   body,
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	if err != nil || len(responseBody) > maxBodyBytes {
+		b.sendResponse(ctx, responseData{ID: d.ID, Status: 502, Error: "local response exceeds limit"})
+		return
+	}
+	headers := map[string]string{}
+	for _, name := range []string{"Content-Type", "Cache-Control", "ETag", "Last-Modified"} {
+		if value := resp.Header.Get(name); value != "" {
+			headers[name] = value
+		}
+	}
+	b.sendResponse(ctx, responseData{
+		ID:      d.ID,
+		Status:  resp.StatusCode,
+		Headers: headers,
+		BodyB64: base64.StdEncoding.EncodeToString(responseBody),
 	})
+}
+
+func (b *Bridge) openStream(ctx context.Context, d streamData) {
+	id := d.ID
+	if id == "" {
+		return
+	}
+	local := strings.Replace(strings.Replace(b.localBase, "http://", "ws://", 1), "https://", "wss://", 1) + "/api/ws"
+	options := &websocket.DialOptions{HTTPHeader: make(http.Header)}
+	for name, value := range d.Headers {
+		options.HTTPHeader.Set(name, value)
+	}
+	c, _, err := websocket.Dial(ctx, local, options)
+	if err != nil {
+		b.sendResponse(ctx, responseData{ID: id, Status: 502, Error: "local websocket unavailable"})
+		return
+	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.ws != nil {
-		// Use background context for write — we're already in a goroutine
-		// handling a request and the read-loop context may have been cancelled.
-		_ = b.ws.Write(context.Background(), websocket.MessageText, msg)
+	b.streams[id] = c
+	b.mu.Unlock()
+	for {
+		typ, payload, err := c.Read(ctx)
+		if err != nil {
+			b.closeStream(id)
+			return
+		}
+		if len(payload) > maxFrameBytes {
+			b.closeStream(id)
+			return
+		}
+		_ = b.send(ctx, "stream_data", streamData{ID: id, Payload: base64.StdEncoding.EncodeToString(payload), Binary: typ == websocket.MessageBinary})
 	}
 }
 
-func (b *Bridge) sendError(reqID, errMsg string) {
-	body := `{"error":"` + errMsg + `"}`
-	b.sendResponse(reqID, 502, body)
+func (b *Bridge) writeStream(d streamData) {
+	b.mu.Lock()
+	c := b.streams[d.ID]
+	b.mu.Unlock()
+	if c == nil {
+		return
+	}
+	payload, err := base64.StdEncoding.DecodeString(d.Payload)
+	if err != nil || len(payload) > maxFrameBytes {
+		return
+	}
+	typ := websocket.MessageText
+	if d.Binary {
+		typ = websocket.MessageBinary
+	}
+	_ = c.Write(context.Background(), typ, payload)
 }
 
-func stringToBody(s string) io.Reader {
-	if s == "" {
-		return http.NoBody
+func (b *Bridge) closeStream(id string) {
+	b.mu.Lock()
+	c := b.streams[id]
+	delete(b.streams, id)
+	b.mu.Unlock()
+	if c != nil {
+		_ = c.Close(websocket.StatusNormalClosure, "stream closed")
 	}
-	return strings.NewReader(s)
+}
+
+func (b *Bridge) closeStreams() {
+	b.mu.Lock()
+	ids := make([]string, 0, len(b.streams))
+	for id := range b.streams {
+		ids = append(ids, id)
+	}
+	b.mu.Unlock()
+	for _, id := range ids {
+		b.closeStream(id)
+	}
+}
+
+func (b *Bridge) send(ctx context.Context, kind string, data any) error {
+	b.mu.Lock()
+	c := b.ws
+	b.mu.Unlock()
+	if c == nil {
+		return errors.New("relay is disconnected")
+	}
+	b.writeMu.Lock()
+	defer b.writeMu.Unlock()
+	msg, _ := json.Marshal(envelope{Version: protocolVersion, Kind: kind, Data: mustJSON(data)})
+	return c.Write(ctx, websocket.MessageText, msg)
+}
+
+func (b *Bridge) sendResponse(ctx context.Context, d responseData) {
+	_ = b.send(ctx, "response", d)
+}
+
+func mustJSON(v any) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
 }

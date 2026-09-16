@@ -17,6 +17,14 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(payload.token, "abc123")
     }
 
+    func testPairingParsesRelayCredentials() throws {
+        let payload = try PairingPayload.parse(
+            "https://relay.example.com/?room=room-1&key=relay-key&token=pairing"
+        )
+        XCTAssertEqual(payload.relayRoom, "room-1")
+        XCTAssertEqual(payload.relayKey, "relay-key")
+    }
+
     func testPairingRejectsPublicHTTP() {
         XCTAssertThrowsError(try PairingPayload.parse("http://example.com/?token=unsafe")) { error in
             guard let pairingError = error as? PairingError else {
@@ -99,11 +107,12 @@ final class KinCoreTests: XCTestCase {
             workspaceMode: nil,
             approvalIds: nil,
             questionIds: nil,
-            createdAt: Date(),
-            updatedAt: nil,
+            createdAt: Int64(Date().timeIntervalSince1970 * 1000),
+            startedAt: nil,
+            finishedAt: nil,
             elapsedSeconds: nil,
-            costCents: nil,
-            sessionId: nil,
+            costUSD: nil,
+            sessionRef: nil,
             error: nil
         )
     }
@@ -112,9 +121,8 @@ final class KinCoreTests: XCTestCase {
 
     func testServerMessageDecodesTaskUpdate() throws {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let data = Data("""
-        {"type": "task_update", "payload": {"id": "t1", "status": "running", "agent": "kin", "cwd": "/tmp", "prompt": "hello", "created_at": "2026-01-01T00:00:00Z"}}
+        {"kind": "task_update", "data": {"id": "t1", "status": "running", "agent": "kin", "cwd": "/tmp", "prompt": "hello", "created_at": 1767225600000}}
         """.utf8)
         let message = try decoder.decode(ServerMessage.self, from: data)
         guard case .taskUpdate(let task) = message else { return XCTFail("Expected taskUpdate") }
@@ -124,16 +132,26 @@ final class KinCoreTests: XCTestCase {
 
     func testServerMessageDecodesTaskDeleted() throws {
         let data = Data("""
-        {"type": "task_deleted", "payload": {"id": "t1"}}
+        {"kind": "task_deleted", "data": {"id": "t1"}}
         """.utf8)
         let message = try JSONDecoder().decode(ServerMessage.self, from: data)
         guard case .taskDeleted(let id) = message else { return XCTFail("Expected taskDeleted") }
         XCTAssertEqual(id, "t1")
     }
 
+    func testServerMessageDecodesCanonicalEventPayload() throws {
+        let data = Data("""
+        {"kind":"event","data":{"task_id":"t1","event_epoch":0,"seq":1,"ts":1767225600000,"type":"message","payload":{"role":"assistant","content":"hello"}}}
+        """.utf8)
+        let message = try JSONDecoder().decode(ServerMessage.self, from: data)
+        guard case .event(let event) = message else { return XCTFail("Expected event") }
+        XCTAssertEqual(event.taskId, "t1")
+        XCTAssertEqual(event.content, .message(role: "assistant", text: "hello"))
+    }
+
     func testServerMessageDecodesUnknownType() throws {
         let data = Data("""
-        {"type": "future_event", "payload": {"some": "data"}}
+        {"kind": "future_event", "data": {"some": "data"}}
         """.utf8)
         let message = try JSONDecoder().decode(ServerMessage.self, from: data)
         guard case .unknown(let type, _) = message else { return XCTFail("Expected unknown") }

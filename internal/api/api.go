@@ -110,6 +110,19 @@ type peerAddrKey struct{}
 // Handler returns the root chi router.
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
+	if s.Auth != nil && s.Store != nil {
+		s.Auth.SetDeviceLookup(func(ctx context.Context, token string) (remote.Principal, bool) {
+			credential, err := s.Store.AuthenticateDevice(ctx, remote.HashToken(token), time.Now().UnixMilli())
+			if err != nil {
+				return remote.Principal{}, false
+			}
+			return remote.Principal{
+				Kind:     remote.PrincipalDevice,
+				DeviceID: credential.ID,
+				Label:    credential.Label,
+			}, true
+		})
+	}
 	r.Use(middleware.RequestID)
 	// Capture true peer before RealIP so /internal/* can enforce loopback safely.
 	r.Use(func(next http.Handler) http.Handler {
@@ -126,13 +139,17 @@ func (s *Server) Handler() http.Handler {
 
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/version", s.handleVersion)
+	r.Post("/api/pairing/exchange", s.handlePairingExchange)
 
 	// Public API (token auth).
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware)
+		r.With(masterOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
+		r.With(masterOnly).Get("/api/devices", s.handleListDevices)
+		r.With(masterOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
 		r.Get("/api/agents", s.handleListAgents)
 		r.Get("/api/agents/management", s.handleAgentsManagement)
-		r.Post("/api/agents/smoke", s.handleAgentsSmoke)
+		r.With(masterOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
@@ -141,16 +158,16 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
-		r.Put("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
+		r.With(masterOnly).Put("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
 		r.Get("/api/tasks/{id}/source/tree", s.handleListSourceTree)
 		r.Get("/api/tasks/{id}/source/file", s.handleReadSourceFile)
 		r.Get("/api/tasks/{id}/workspace/list", s.handleLegacyListWorkspace)
 		r.Get("/api/tasks/{id}/workspace/file", s.handleLegacyReadWorkspaceFile)
-		r.Put("/api/tasks/{id}/workspace/file", s.handleLegacyWriteWorkspaceFile)
-		r.Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
+		r.With(masterOnly).Put("/api/tasks/{id}/workspace/file", s.handleLegacyWriteWorkspaceFile)
+		r.With(masterOnly).Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
-		r.Delete("/api/tasks/{id}", s.handleDeleteTask)
+		r.With(masterOnly).Delete("/api/tasks/{id}", s.handleDeleteTask)
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
 		r.Post("/api/tasks/{id}/limit/continue", s.handleLimitContinue)
@@ -161,54 +178,54 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/git/branches", s.handleGitBranches)
-		r.Post("/api/git/checkout", s.handleGitCheckout)
-		r.Get("/api/settings", s.handleGetSettings)
-		r.Put("/api/settings", s.handlePutSettings)
-		r.Get("/api/providers", s.handleListProviders)
-		r.Post("/api/providers", s.handleCreateProvider)
-		r.Post("/api/providers/models", s.handleListProviderModels)
-		r.Put("/api/providers/{id}", s.handleUpdateProvider)
-		r.Delete("/api/providers/{id}", s.handleDeleteProvider)
-		r.Post("/api/providers/{id}/activate", s.handleActivateProvider)
-		r.Post("/api/notify/test", s.handleNotifyTest)
+		r.With(masterOnly).Post("/api/git/checkout", s.handleGitCheckout)
+		r.With(masterOnly).Get("/api/settings", s.handleGetSettings)
+		r.With(masterOnly).Put("/api/settings", s.handlePutSettings)
+		r.With(masterOnly).Get("/api/providers", s.handleListProviders)
+		r.With(masterOnly).Post("/api/providers", s.handleCreateProvider)
+		r.With(masterOnly).Post("/api/providers/models", s.handleListProviderModels)
+		r.With(masterOnly).Put("/api/providers/{id}", s.handleUpdateProvider)
+		r.With(masterOnly).Delete("/api/providers/{id}", s.handleDeleteProvider)
+		r.With(masterOnly).Post("/api/providers/{id}/activate", s.handleActivateProvider)
+		r.With(masterOnly).Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/usage/limits", s.handleUsageLimits)
 		r.Get("/api/usage/windows", s.handleUsageWindows)
 		r.Get("/api/routing/options", s.handleGetRoutingOptions)
 		r.Get("/api/routing/preview", s.handleGetRoutingPreview)
 		r.Get("/api/routing/defaults", s.handleGetRoutingDefaults)
-		r.Put("/api/routing/defaults", s.handlePutRoutingDefaults)
+		r.With(masterOnly).Put("/api/routing/defaults", s.handlePutRoutingDefaults)
 		r.Get("/api/routing/profiles", s.handleGetRoutingProfiles)
-		r.Put("/api/routing/profiles", s.handlePutRoutingProfiles)
+		r.With(masterOnly).Put("/api/routing/profiles", s.handlePutRoutingProfiles)
 		r.Get("/api/routing/provider-profiles", s.handleGetProviderProfiles)
-		r.Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
-		r.Post("/api/uploads", s.handleUpload)
+		r.With(masterOnly).Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
+		r.With(masterOnly).Post("/api/uploads", s.handleUpload)
 		r.Get("/api/uploads/{name}", s.handleServeUpload)
 		r.Get("/api/artifacts", s.handleListArtifacts)
-		r.Post("/api/artifacts", s.handleCreateArtifact)
+		r.With(masterOnly).Post("/api/artifacts", s.handleCreateArtifact)
 		r.Get("/api/artifacts/{id}", s.handleGetArtifact)
 		r.Get("/api/artifacts/{id}/content", s.handleGetArtifactContent)
-		r.Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
+		r.With(masterOnly).Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
 		r.Get("/api/projects", s.handleListProjects)
-		r.Post("/api/projects", s.handleCreateProject)
-		r.Post("/api/projects/ensure", s.handleEnsureProject)
+		r.With(masterOnly).Post("/api/projects", s.handleCreateProject)
+		r.With(masterOnly).Post("/api/projects/ensure", s.handleEnsureProject)
 		r.Get("/api/projects/by-root", s.handleFindProjectByRoot)
 		r.Get("/api/projects/{id}", s.handleGetProject)
-		r.Patch("/api/projects/{id}", s.handlePatchProject)
+		r.With(masterOnly).Patch("/api/projects/{id}", s.handlePatchProject)
 		r.Get("/api/projects/{id}/one-pager", s.handleGetOnePager)
-		r.Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
+		r.With(masterOnly).Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
 		r.Get("/api/projects/{id}/pulse", s.handleGetProjectPulse)
-		r.Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
+		r.With(masterOnly).Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
 		r.Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
 		r.Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
 		r.Get("/api/routines", s.handleListRoutines)
-		r.Post("/api/routines", s.handleCreateRoutine)
+		r.With(masterOnly).Post("/api/routines", s.handleCreateRoutine)
 		r.Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
-		r.Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
+		r.With(masterOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
 		r.Get("/api/routines/{id}", s.handleGetRoutine)
-		r.Patch("/api/routines/{id}", s.handlePatchRoutine)
-		r.Delete("/api/routines/{id}", s.handleDeleteRoutine)
-		r.Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
+		r.With(masterOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
+		r.With(masterOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)
+		r.With(masterOnly).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
 		r.Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
 		r.Get("/api/ws", s.handleWS)
 	})
@@ -217,6 +234,7 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(loopbackOnly)
 		r.Use(s.Auth.Middleware)
+		r.Use(masterOnly)
 		r.Post("/internal/approvals", s.handleInternalCreateApproval)
 		r.Get("/internal/approvals/{id}/wait", s.handleInternalWaitApproval)
 		r.Post("/internal/user-questions", s.handleInternalCreateUserQuestion)
@@ -228,6 +246,7 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(loopbackOnly)
 		r.Use(s.Auth.Middleware)
+		r.Use(masterOnly)
 		r.Get("/api/terminal/profiles", s.handleTerminalProfiles)
 		r.Get("/api/terminal/sessions", s.handleTerminalSessions)
 		r.Post("/api/terminal/sessions", s.handleCreateTerminalSession)
@@ -252,6 +271,17 @@ func loopbackOnly(next http.Handler) http.Handler {
 		}
 		if !isLoopbackRemote(addr) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "loopback only"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func masterOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := remote.PrincipalFromContext(r.Context())
+		if !ok || principal.Kind != remote.PrincipalMaster {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "master token required"})
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -1240,6 +1270,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	defer s.Engine.Bus().Unsubscribe(sub)
 
 	ctx := r.Context()
+	principal, _ := remote.PrincipalFromContext(ctx)
+	var revokeTicker *time.Ticker
+	if principal.Kind == remote.PrincipalDevice && principal.DeviceID != "" && s.Store != nil {
+		revokeTicker = time.NewTicker(5 * time.Second)
+		defer revokeTicker.Stop()
+	}
 	// Clients only ping; read loop detects disconnect.
 	go func() {
 		for {
@@ -1253,6 +1289,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-tickerChannel(revokeTicker):
+			active, err := s.Store.DeviceActive(ctx, principal.DeviceID)
+			if err != nil || !active {
+				return
+			}
 		case msg, ok := <-sub:
 			if !ok {
 				return
@@ -1271,6 +1312,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func tickerChannel(ticker *time.Ticker) <-chan time.Time {
+	if ticker == nil {
+		return nil
+	}
+	return ticker.C
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -1281,8 +1329,15 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // attribution (decided_via / answered_via).
 // Returns "web" by default, or the value of the X-Client-Type header.
 func clientTypeFromRequest(r *http.Request) string {
+	if principal, ok := remote.PrincipalFromContext(r.Context()); ok &&
+		principal.Kind == remote.PrincipalDevice && principal.DeviceID != "" {
+		return "ios:" + principal.DeviceID
+	}
 	if ct := r.Header.Get("X-Client-Type"); ct != "" {
-		return ct
+		ct = strings.TrimSpace(ct)
+		if ct != "" && len(ct) <= 64 {
+			return ct
+		}
 	}
 	return "web"
 }

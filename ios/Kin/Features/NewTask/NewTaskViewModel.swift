@@ -18,7 +18,7 @@ final class NewTaskViewModel {
     var error: String?
     var createdTask: KinTask?
 
-    private let apiClient: APIClient?
+    private var apiClient: APIClient?
 
     init(apiClient: APIClient? = nil) {
         if let apiClient {
@@ -26,6 +26,10 @@ final class NewTaskViewModel {
         } else {
             self.apiClient = Self.makeAPIClientFromStorage()
         }
+    }
+
+    func configure(apiClient: APIClient) {
+        self.apiClient = apiClient
     }
 
     /// The list of models the selected agent advertises, if any.

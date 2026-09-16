@@ -5,10 +5,12 @@ import Foundation
 struct PairingPayload: Equatable, CustomStringConvertible {
     let baseURL: URL      // normalized origin
     let token: String
+    let relayKey: String?
+    let relayRoom: String?
 
     /// Description that deliberately omits the token to avoid leaking secrets.
     var description: String {
-        "PairingPayload(baseURL: \(baseURL.absoluteString), token: <redacted>)"
+        "PairingPayload(baseURL: \(baseURL.absoluteString), token: <redacted>, relayKey: <redacted>)"
     }
 
     /// Parse and validate a QR URL payload.
@@ -67,7 +69,9 @@ struct PairingPayload: Equatable, CustomStringConvertible {
             }
         }
 
-        return PairingPayload(baseURL: baseURL, token: token)
+        let relayKey = components.queryItems?.first(where: { $0.name == "key" })?.value
+        let relayRoom = components.queryItems?.first(where: { $0.name == "room" })?.value
+        return PairingPayload(baseURL: baseURL, token: token, relayKey: relayKey, relayRoom: relayRoom)
     }
 
     /// Check whether `host` is a private / loopback address that is safe for plain HTTP.

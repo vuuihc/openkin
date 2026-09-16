@@ -26,6 +26,8 @@ export type {
 } from "./contract";
 
 const TOKEN_KEY = "kin_token";
+const RELAY_ROOM_KEY = "kin_relay_room";
+const RELAY_KEY_KEY = "kin_relay_key";
 
 /** Read token from localStorage (set via ?token= capture). */
 export function getToken(): string | null {
@@ -48,15 +50,129 @@ export function clearToken(): void {
   }
 }
 
+function getRelayValue(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function withRelayCredentials(path: string): string {
+  const room = getRelayValue(RELAY_ROOM_KEY);
+  const key = getRelayValue(RELAY_KEY_KEY);
+  if (!room && !key) return path;
+  const [base, hash = ""] = path.split("#", 2);
+  const [pathname, query = ""] = base.split("?", 2);
+  const params = new URLSearchParams(query);
+  if (room && !params.has("room")) params.set("room", room);
+  if (key && !params.has("key")) params.set("key", key);
+  const qs = params.toString();
+  return `${pathname}${qs ? `?${qs}` : ""}${hash ? `#${hash}` : ""}`;
+}
+
 /**
  * Spec §6: accept ?token= for QR links, move to localStorage, strip from URL.
  */
 export function captureTokenFromURL(): void {
   const params = new URLSearchParams(window.location.search);
   const token = params.get("token");
-  if (!token) return;
+  const room = params.get("room");
+  const key = params.get("key");
+  if (token) {
+    setToken(token);
+    params.delete("token");
+  }
+  if (room) {
+    localStorage.setItem(RELAY_ROOM_KEY, room);
+    params.delete("room");
+  }
+  if (key) {
+    localStorage.setItem(RELAY_KEY_KEY, key);
+    params.delete("key");
+  }
+  if (!token && !room && !key) return;
+  const qs = params.toString();
+  const next = window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash;
+  window.history.replaceState({}, "", next);
+}
+
+/** Exchange the one-time token embedded in daemon QR links before API use. */
+export async function bootstrapTokenFromURL(): Promise<void> {
+  const params = new URLSearchParams(window.location.search);
+  const secret = params.get("token");
+  const pairing = params.get("pairing") === "1";
+  const room = params.get("room");
+  const key = params.get("key");
+  if (!secret || !pairing) {
+    captureTokenFromURL();
+    return;
+  }
+
+  if (room) localStorage.setItem(RELAY_ROOM_KEY, room);
+  if (key) localStorage.setItem(RELAY_KEY_KEY, key);
+
+  const endpoint = new URL(window.location.href);
+  endpoint.pathname = "/api/pairing/exchange";
+  endpoint.search = "";
+  const relayParams = new URLSearchParams();
+  if (room) relayParams.set("room", room);
+  if (key) relayParams.set("key", key);
+  endpoint.search = relayParams.toString();
+
+  let token: string | null = null;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ secret }),
+    });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      if (body && typeof body === "object" && "token" in body && typeof body.token === "string") {
+        token = body.token;
+      }
+    }
+  } catch {
+    // The connect screen remains available when the daemon cannot be reached.
+  }
+
+  if (!token) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-Kin-Pairing-Recovery": "1",
+        },
+        body: JSON.stringify({ secret }),
+      });
+      if (response.ok) {
+        const body: unknown = await response.json();
+        if (body && typeof body === "object" && "token" in body && typeof body.token === "string") {
+          setToken(body.token);
+          params.delete("token");
+          params.delete("pairing");
+          params.delete("room");
+          params.delete("key");
+          const qs = params.toString();
+          const next = window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash;
+          window.history.replaceState({}, "", next);
+          return;
+        }
+      }
+    } catch {
+      // Keep the pairing URL intact so the user can retry later.
+    }
+    clearToken();
+    return;
+  }
   setToken(token);
   params.delete("token");
+  params.delete("pairing");
+  params.delete("room");
+  params.delete("key");
   const qs = params.toString();
   const next = window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash;
   window.history.replaceState({}, "", next);
@@ -87,7 +203,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers.set("Accept", "application/json");
   }
 
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(withRelayCredentials(path), { ...init, headers });
   if (!res.ok) {
     if (res.status === 401) {
       notifyUnauthorized();
@@ -1020,7 +1136,7 @@ export function authenticatedURL(path: string): string {
   const token = getToken();
   if (!token) return path;
   const join = path.includes("?") ? "&" : "?";
-  return `${path}${join}token=${encodeURIComponent(token)}`;
+  return withRelayCredentials(`${path}${join}token=${encodeURIComponent(token)}`);
 }
 
 export function formatBytes(n: number): string {
@@ -1047,7 +1163,7 @@ export async function uploadFile(file: File): Promise<Upload> {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch("/api/uploads", { method: "POST", body: form, headers });
+  const res = await fetch(withRelayCredentials("/api/uploads"), { method: "POST", body: form, headers });
   if (!res.ok) {
     if (res.status === 401) useAppStore.getState().requireToken("unauthorized");
     const text = await res.text().catch(() => "");
@@ -1329,7 +1445,12 @@ export function connectWS(
   }
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const url = `${proto}//${window.location.host}/api/ws?token=${encodeURIComponent(token)}`;
+  const wsParams = new URLSearchParams({ token });
+  const room = getRelayValue(RELAY_ROOM_KEY);
+  const key = getRelayValue(RELAY_KEY_KEY);
+  if (room) wsParams.set("room", room);
+  if (key) wsParams.set("key", key);
+  const url = `${proto}//${window.location.host}/api/ws?${wsParams.toString()}`;
   let ws: WebSocket | null = null;
   let closed = false;
   let retry: ReturnType<typeof setTimeout> | null = null;

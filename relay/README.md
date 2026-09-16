@@ -1,53 +1,39 @@
-# Kin Relay
+# OpenKin Relay v2
 
-WebSocket relay for Kin remote control. Bridges a Kin daemon and an iOS app
-through Cloudflare Workers — no Tailscale, no open ports, works through any
-firewall.
+The Relay is a user-deployed Cloudflare Worker for firewall-friendly remote
+access. It does not store task state and OpenKin does not operate a shared
+relay.
 
-## Quick deploy — zero source code
+## Deploy
 
-### Option A: One-click deploy (easiest)
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/vuuihc/openkin&directory=relay)
-
-Click the button above → log in to Cloudflare → done.  
-You get `https://kin-relay.your-subdomain.workers.dev`.
-
-### Option B: wrangler CLI (if you already have it)
+From this directory:
 
 ```bash
-npx wrangler@latest deploy relay.js --name kin-relay
+npx wrangler@latest deploy
 ```
 
-### Option C: Cloudflare Dashboard (no CLI at all)
+`wrangler.toml` provisions the `RELAY_ROOM` Durable Object binding. A plain
+Worker with an in-memory room map is not compatible with this protocol.
 
-1. Go to https://dash.cloudflare.com → Workers & Pages → Create → Worker
-2. Delete the default code
-3. Paste the content of `relay.js` from this directory
-4. Click "Save and Deploy"
-
-All three options give you the same result: a public HTTPS URL.
-
-## Usage
+## Use
 
 ```bash
-# Mac daemon (after install.sh)
-kin serve --relay wss://kin-relay.your-subdomain.workers.dev
-
-# iOS app: Settings → Add Device → enter:
-https://kin-relay.your-subdomain.workers.dev
+kin serve --relay wss://<your-worker-domain>
 ```
 
-Each daemon automatically gets its own room by hostname.  
-Multiple daemons can share one relay URL.
+The daemon creates a random room ID and relay key in
+`~/.kin/relay/credentials.json` (mode `0600`). The URL printed for a paired
+phone includes that key; keep it private and rotate the relay credentials by
+stopping Kin and removing that file.
 
-## How it works
+The room accepts one authenticated daemon, bounded client sockets, and bounded
+REST requests. A client WebSocket is bridged to the daemon's local `/api/ws`.
+Reconnects are expected; SQLite remains the source of truth.
 
-```
-iPhone ── HTTPS/WSS ──→ Cloudflare Worker ←── WSS ── Kin daemon
-                               │
-                         Room-based pairing:
-                         same room = same session
-```
+## Trust model
 
-Both sides connect **outbound** — no inbound ports, no VPN, no Tailscale needed.
+This is bring-your-own infrastructure. Cloudflare terminates TLS at the
+Worker and can observe proxied HTTP/WebSocket traffic. Relay v2 does not
+provide end-to-end encryption. Never publish the room key or use a shared
+Worker for multiple trust domains. A guessed room, wrong key, duplicate daemon,
+oversized body/frame, and unavailable daemon fail closed.

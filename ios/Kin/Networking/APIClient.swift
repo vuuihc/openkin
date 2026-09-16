@@ -8,12 +8,16 @@ actor APIClient {
     private let session: URLSession
     private let baseURL: URL
     private let token: String
+    private let relayKey: String?
+    private let relayRoom: String?
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL, token: String, session: URLSession = .shared) {
+    init(baseURL: URL, token: String, relayKey: String? = nil, relayRoom: String? = nil, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.token = token
+        self.relayKey = relayKey
+        self.relayRoom = relayRoom
         self.session = session
 
         let decoder = JSONDecoder()
@@ -146,7 +150,10 @@ actor APIClient {
     }
 
     func workspaceFile(taskId: String, workspaceId: String, path: String) async throws -> String {
-        try await performString(.workspaceFile(taskId: taskId, workspaceId: workspaceId, path: path))
+        let response: WorkspaceFilePayload = try await perform(
+            .workspaceFile(taskId: taskId, workspaceId: workspaceId, path: path)
+        )
+        return response.content
     }
 
     /// Build a WebSocket URL for the daemon.
@@ -164,7 +171,9 @@ actor APIClient {
             throw APIError.invalidResponse
         }
         components.path = Endpoint.webSocket(token: token).path
-        components.queryItems = Endpoint.webSocket(token: token).queryItems
+        components.queryItems = [URLQueryItem(name: "token", value: token)] +
+            (relayRoom.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
+            (relayKey.map { [URLQueryItem(name: "key", value: $0)] } ?? [])
         guard let url = components.url else {
             throw APIError.invalidResponse
         }
@@ -185,6 +194,12 @@ actor APIClient {
         components.path = endpoint.path
         if let queryItems = endpoint.queryItems {
             components.queryItems = queryItems
+        }
+        if let relayRoom {
+            components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "room", value: relayRoom)]
+        }
+        if let relayKey {
+            components.queryItems = (components.queryItems ?? []) + [URLQueryItem(name: "key", value: relayKey)]
         }
         guard let url = components.url else {
             throw APIError.invalidResponse
@@ -326,6 +341,10 @@ private struct DecisionBody: Encodable {
 private struct AnswerBody: Encodable {
     let selected: [String]?
     let otherText: String?
+}
+
+private struct WorkspaceFilePayload: Decodable {
+    let content: String
 }
 
 /// Type-erased encodable wrapper to allow encoding different body types uniformly.

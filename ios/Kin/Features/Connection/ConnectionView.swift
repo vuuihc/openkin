@@ -162,7 +162,7 @@ struct ConnectionView: View {
                 let separator = urlString.contains("?") ? "&" : "?"
                 let pairingURL = "\(urlString)\(separator)token=\(token)"
                 let payload = try PairingPayload.parse(pairingURL)
-                try await validateAndConnect(payload: payload)
+                try await validateAndConnect(payload: payload, exchangeSecret: false)
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
@@ -179,7 +179,7 @@ struct ConnectionView: View {
         Task {
             do {
                 let payload = try PairingPayload.parse(code)
-                try await validateAndConnect(payload: payload)
+                try await validateAndConnect(payload: payload, exchangeSecret: true)
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
@@ -189,39 +189,46 @@ struct ConnectionView: View {
         }
     }
 
-    private func validateAndConnect(payload: PairingPayload) async throws {
+    private func validateAndConnect(payload: PairingPayload, exchangeSecret: Bool) async throws {
         do {
+            let token: String
+            if exchangeSecret {
+                token = try await exchangePairingSecret(
+                    baseURL: payload.baseURL, secret: payload.token,
+                    relayKey: payload.relayKey, relayRoom: payload.relayRoom
+                )
+            } else {
+                token = payload.token
+            }
             let (_, _) = try await ServerProfileValidator.validate(
                 baseURL: payload.baseURL,
-                token: payload.token
+                token: token, relayKey: payload.relayKey, relayRoom: payload.relayRoom
             )
 
-            // Store token in Keychain
-            do {
-                if try KeychainStore.readToken() != nil {
-                    try KeychainStore.updateToken(payload.token)
-                } else {
-                    try KeychainStore.store(token: payload.token)
-                }
-            } catch {
-                // Non-fatal: connection can proceed even if Keychain fails
-            }
-
-            // Persist server profile
             let profile = ServerProfile(
                 id: UUID(),
                 displayName: payload.baseURL.host ?? "Kin Daemon",
                 baseURL: payload.baseURL,
+                relayKey: payload.relayKey,
+                relayRoom: payload.relayRoom,
                 dateAdded: Date(),
                 lastAccessed: Date()
             )
+            // Persist the credential first so a Keychain failure cannot create
+            // a profile that looks saved but cannot reconnect after restart.
+            try KeychainStore.store(token: token, for: profile.id)
+
+            // Persist server profile
             if let encoded = try? JSONEncoder().encode(profile) {
                 UserDefaults.standard.set(encoded, forKey: "kin_server_profile")
             }
             // Also save to multi-device list
             UserDefaults.upsertServerProfile(profile)
 
-            let client = APIClient(baseURL: payload.baseURL, token: payload.token)
+            let client = APIClient(
+                baseURL: payload.baseURL, token: token,
+                relayKey: payload.relayKey, relayRoom: payload.relayRoom
+            )
 
             await MainActor.run {
                 isLoading = false
@@ -234,6 +241,37 @@ struct ConnectionView: View {
                 isLoading = false
             }
         }
+    }
+
+    private func exchangePairingSecret(
+        baseURL: URL, secret: String, relayKey: String?, relayRoom: String?
+    ) async throws -> String {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+        components?.path = "/api/pairing/exchange"
+        components?.query = nil
+        components?.queryItems = (relayRoom.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
+            (relayKey.map { [URLQueryItem(name: "key", value: $0)] } ?? [])
+        guard let url = components?.url else { throw ServerProfileError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["secret": secret])
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            request.setValue("1", forHTTPHeaderField: "X-Kin-Pairing-Recovery")
+            (data, response) = try await URLSession.shared.data(for: request)
+        }
+        guard let http = response as? HTTPURLResponse else { throw ServerProfileError.unreachable }
+        if http.statusCode == 401 { throw ServerProfileError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw ServerProfileError.unreachable }
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let token = object?["token"] as? String, !token.isEmpty else {
+            throw ServerProfileError.incompatible
+        }
+        return token
     }
 }
 

@@ -5,7 +5,7 @@ import Foundation
 /// at the event level, not embedded in the payload.
 struct TaskEvent: Identifiable, Codable, Hashable {
     let taskId: String
-    let eventEpoch: Int
+    let eventEpoch: Int64
     let seq: Int
     /// Unix millisecond timestamp
     let ts: Int
@@ -14,7 +14,7 @@ struct TaskEvent: Identifiable, Codable, Hashable {
     /// Raw payload data; decoded lazily via `content` for known types
     let payloadData: Data?
 
-    var id: String { "\(taskId)-\(seq)" }
+    var id: String { "\(taskId)-\(eventEpoch)-\(seq)" }
 
     /// Derived content for known event types.
     var content: TaskEventContent? {
@@ -39,12 +39,44 @@ struct TaskEvent: Identifiable, Codable, Hashable {
         }
     }
 
+    init(taskId: String, eventEpoch: Int64, seq: Int, ts: Int, eventType: String, payloadData: Data?) {
+        self.taskId = taskId
+        self.eventEpoch = eventEpoch
+        self.seq = seq
+        self.ts = ts
+        self.eventType = eventType
+        self.payloadData = payloadData
+    }
+
     enum CodingKeys: String, CodingKey {
         case taskId = "task_id"
         case eventEpoch = "event_epoch"
         case seq, ts
         case eventType = "type"
-        case payloadData = "payload"
+        case payload
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        taskId = try c.decode(String.self, forKey: .taskId)
+        eventEpoch = try c.decode(Int64.self, forKey: .eventEpoch)
+        seq = try c.decode(Int.self, forKey: .seq)
+        ts = try c.decode(Int.self, forKey: .ts)
+        eventType = try c.decode(String.self, forKey: .eventType)
+        let raw = try c.decode(RawEventJSON.self, forKey: .payload)
+        payloadData = try JSONSerialization.data(withJSONObject: raw.value, options: [.fragmentsAllowed])
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(taskId, forKey: .taskId)
+        try c.encode(eventEpoch, forKey: .eventEpoch)
+        try c.encode(seq, forKey: .seq)
+        try c.encode(ts, forKey: .ts)
+        try c.encode(eventType, forKey: .eventType)
+        if let payloadData {
+            try c.encode(JSONValue(data: payloadData), forKey: .payload)
+        }
     }
 
     // MARK: - Payload decoding helpers
@@ -102,6 +134,31 @@ struct TaskEvent: Identifiable, Codable, Hashable {
         let from = dict["from"] as? String ?? ""
         let to = dict["to"] as? String ?? ""
         return .statusChange(from: from, to: to)
+    }
+}
+
+private struct RawEventJSON: Decodable {
+    let value: Any
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { value = NSNull() }
+        else if let v = try? c.decode(String.self) { value = v }
+        else if let v = try? c.decode(Bool.self) { value = v }
+        else if let v = try? c.decode(Int.self) { value = v }
+        else if let v = try? c.decode(Double.self) { value = v }
+        else if let v = try? c.decode([RawEventJSON].self) { value = v.map(\.value) }
+        else if let v = try? c.decode([String: RawEventJSON].self) { value = v.mapValues(\.value) }
+        else { throw DecodingError.dataCorruptedError(in: c, debugDescription: "Unsupported JSON") }
+    }
+}
+
+private struct JSONValue: Encodable {
+    let data: Data
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        let object = try JSONSerialization.jsonObject(with: data)
+        try c.encode(String(data: JSONSerialization.data(withJSONObject: object), encoding: .utf8) ?? "")
     }
 }
 

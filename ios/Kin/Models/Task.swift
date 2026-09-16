@@ -1,6 +1,5 @@
 import Foundation
 
-/// Represents the current status of a task on the daemon.
 enum TaskStatus: String, Codable, CaseIterable, Hashable {
     case queued
     case running
@@ -14,15 +13,12 @@ enum TaskStatus: String, Codable, CaseIterable, Hashable {
     case unknown
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let rawValue = try container.decode(String.self)
-        self = TaskStatus(rawValue: rawValue) ?? .unknown
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = TaskStatus(rawValue: raw) ?? .unknown
     }
 }
 
-/// A task executed by the Kin agent daemon.
-///
-/// Named `KinTask` to avoid shadowing Swift's `Task` type.
+/// Daemon task model. Timestamps are Unix milliseconds, matching the Go API.
 struct KinTask: Identifiable, Codable, Hashable {
     let id: String
     let status: TaskStatus
@@ -34,11 +30,12 @@ struct KinTask: Identifiable, Codable, Hashable {
     let workspaceMode: String?
     let approvalIds: [String]?
     let questionIds: [String]?
-    let createdAt: Date
-    let updatedAt: Date?
+    let createdAt: Int64
+    let startedAt: Int64?
+    let finishedAt: Int64?
     let elapsedSeconds: Double?
-    let costCents: Double?
-    let sessionId: String?
+    let costUSD: Double?
+    let sessionRef: String?
     let error: String?
 
     enum CodingKeys: String, CodingKey {
@@ -48,13 +45,14 @@ struct KinTask: Identifiable, Codable, Hashable {
         case approvalIds = "approval_ids"
         case questionIds = "question_ids"
         case createdAt = "created_at"
-        case updatedAt = "updated_at"
+        case startedAt = "started_at"
+        case finishedAt = "finished_at"
         case elapsedSeconds = "elapsed_seconds"
-        case costCents = "cost_cents"
-        case sessionId = "session_id"
+        case costUSD = "cost_usd"
+        case sessionRef = "session_ref"
     }
 
-    /// Whether the task has reached a terminal state.
+    var createdDate: Date { Date(timeIntervalSince1970: Double(createdAt) / 1000) }
     var isTerminal: Bool {
         switch status {
         case .succeeded, .completed, .failed, .cancelled: return true

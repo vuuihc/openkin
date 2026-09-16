@@ -10,7 +10,7 @@ OpenKin (`kin` daemon) is a **single HTTP port** (default `7777`) with token aut
 | Funnel | `kin serve --tailscale --funnel` | Public HTTPS via Tailscale Funnel |
 | BYO tunnel | `kin serve --lan` (or local) behind frp / Cloudflare Tunnel / nginx / … | Whatever the tunnel exposes |
 
-Token auth applies on **every** rung (`Authorization: Bearer` or `?token=` for QR deep links). On a public endpoint the token is the only barrier — treat it as a secret. If it leaks:
+Token auth applies on **every** rung (`Authorization: Bearer` or `?token=` for browser links). On a public endpoint the token is the only barrier — treat it as a secret. If it leaks:
 
 ```bash
 kin token rotate
@@ -28,8 +28,10 @@ kin serve --lan
 ```
 
 - Binds `0.0.0.0:<port>` (still reachable as `127.0.0.1` for local MCP).
-- Prints a terminal QR of `http://<primary-lan-ip>:<port>/?token=<token>`.
-- On the phone (same Wi‑Fi): scan → UI loads → token is stored in `localStorage` and stripped from the URL.
+- Prints an `open:` browser URL with the master token and a `pair:` QR URL
+  containing a five-minute one-time pairing secret.
+- Open the browser URL for Web/Electron administration. Scan the `pair:` QR
+  from iOS to exchange it for a revocable device credential.
 
 Approve a task from the Approvals page as in the M2 flow.
 
@@ -55,7 +57,9 @@ To start this tsnet server, … go to: https://login.tailscale.com/a/…
 
 Open that URL in a browser, authenticate, and approve the device. Subsequent starts reuse `~/.kin/tsnet/` and skip login.
 
-Once up, Kin prints the tailnet URL and a QR (with token). Open it from any device on your tailnet (phone on cellular with the Tailscale app connected works).
+Once up, Kin prints a master-token `open:` URL and a one-time `pair:` QR.
+Open the browser link from any device on your tailnet or scan the pairing QR
+from iOS.
 
 ### Funnel (public HTTPS)
 
@@ -68,7 +72,9 @@ Funnel is **Tailscale-only** (not Headscale).
 kin serve --tailscale --funnel
 ```
 
-3. Kin serves public HTTPS via Funnel and prints/QRs the public URL. Phone on cellular (no Tailscale client required for Funnel) can open it with the token.
+3. Kin serves public HTTPS via Funnel and prints browser and native pairing
+   links for the public URL. Phone on cellular (no Tailscale client required
+   for Funnel) can open the browser link or scan the pairing QR.
 
 `--funnel` requires `--tailscale`. Combining `--funnel` with `--ts-control-url` exits with an error before starting anything.
 
@@ -215,3 +221,10 @@ Full multi-device setup, process supervision (launchd/systemd), WebSocket notes,
 - The **token** is the only application-level barrier on a public endpoint. Prefer short-lived exposure, Tailscale ACLs, or reverse-proxy IP allowlists when you can.
 - Rotate with `kin token rotate` if the token may have leaked.
 - `/internal/*` (approval MCP bridge) remains loopback-only in addition to token auth.
+- Native QR pairing exchanges a one-time five-minute secret for a revocable
+  device credential. Do not treat the QR value as the daemon master token.
+- `kin serve --relay` uses a random room and a separate relay key persisted
+  under `~/.kin/relay/`. The Relay is bring-your-own Cloudflare infrastructure:
+  Cloudflare terminates TLS and can observe proxied traffic; this is not E2EE.
+- Deploy the Relay with `relay/wrangler.toml`; it requires the `RELAY_ROOM`
+  Durable Object binding. Do not use the old process-local Worker snippet.
