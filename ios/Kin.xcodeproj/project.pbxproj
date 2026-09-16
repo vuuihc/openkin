@@ -18,9 +18,13 @@
 		1F73C2C0FBDED3EE84A19651 /* TaskEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D0527A5EF7223BF324B652 /* TaskEvent.swift */; };
 		28670A573F61F01750BAA37B /* ServerMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */; };
 		2B397BB5AF88D3AEE1DE852D /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D58CAACC2041347A8E54F7B /* ConnectionView.swift */; };
+		3936688203A905D27779A010 /* ArtifactsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3CC99D8C1FE14DC7A14943 /* ArtifactsView.swift */; };
 		3A2EF4540F9382F399D735C2 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D48136F38CAC4A414E521D9 /* AppSession.swift */; };
+		3B9EABC95D462730D102EADC /* OperationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859789B2978560BCC05B8A0A /* OperationsView.swift */; };
 		3BC0EE272BF4AB54136D5FA6 /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D983A22D03726CBFD3BAF1AF /* ConnectionBanner.swift */; };
+		3CF1D8E778FAD1FCDFB1F3AC /* ProjectsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD5A03C7EDA5AECBDD28FC3 /* ProjectsView.swift */; };
 		3E09B9BC863E021C27180BD6 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F093FD87FFE1C535B71CEF79 /* QRScannerView.swift */; };
+		44137D87402F82519CF58F6D /* ConsoleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F689DA3F8DAE20FEAB3F7B96 /* ConsoleModels.swift */; };
 		4817306FFC6E7312787960DE /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F0468FC7EA2BD95124391C /* APIClient.swift */; };
 		482F91232EBD45D3681BE914 /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8F4C8E4A47995C917282E13 /* NewTaskView.swift */; };
 		4A72ACAFD97444D050867D61 /* ConnectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9232ADCA1690EC332BA98BF7 /* ConnectionState.swift */; };
@@ -40,6 +44,7 @@
 		979B25F17BBA83DDD6581476 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AC619597BD5F10F7B143255 /* TaskDetailView.swift */; };
 		9F34AA783B35319634EA8E70 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FF650745DA9D77726E38FDE /* KeychainStore.swift */; };
 		A1A72BABE298AAC8736CAD6E /* NewTaskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D62CD4CD361F69F1974C571F /* NewTaskViewModel.swift */; };
+		B3FA9ED805FC6A3D407B4AC1 /* ForkTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EBC71069DA7CC3DB8FC065E /* ForkTaskView.swift */; };
 		B48F2C991FFF1137BAC17D04 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D35126EBAEC0BE735B4869C /* ContentView.swift */; };
 		B78C1FE4C6B829F18366A90D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 61D66FEE5856017A860A3920 /* Localizable.xcstrings */; };
 		BEDE0B87991AEF48355CCAEB /* KinCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8F5B834455D9DA0CA0BB1E /* KinCoreTests.swift */; };
@@ -48,6 +53,7 @@
 		D0DAB9750816D8661B7FC8CB /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F8F77C1541E3039FFB651B /* SettingsView.swift */; };
 		D0E7FFB1482AE4DC784DC76F /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */; };
 		DB85AB9FA2ADEF2D93197877 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A92F84F23B0075E4ADA471C /* Workspace.swift */; };
+		DFA6E6BBF7449BA004DF8898 /* RoutinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAE4C761DE5A284947B2316A /* RoutinesView.swift */; };
 		F35F1C3756E93E62E48FAE51 /* TaskDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F7720C52EA89F093610C8C /* TaskDetailViewModel.swift */; };
 		F3AE6FADB602CE4A1C432898 /* EventRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F331CF6B071C58B58AF2BE01 /* EventRow.swift */; };
 		F907E4F327F9C9DC6DFD8E03 /* ApprovalCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A46486101E867F81E8D9FC /* ApprovalCard.swift */; };
@@ -76,6 +82,7 @@
 		31330E6038DDD5B591AFBB6A /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
 		3AC619597BD5F10F7B143255 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		45A8C3803D4C62F726E64C86 /* ControlViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlViewModel.swift; sourceTree = "<group>"; };
+		4DD5A03C7EDA5AECBDD28FC3 /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
 		59E1BF5ECA8E242A01320AEC /* WorkspaceChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceChangesView.swift; sourceTree = "<group>"; };
 		60D63CE999BC128E6446EC1B /* ServerProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerProfile.swift; sourceTree = "<group>"; };
 		61D66FEE5856017A860A3920 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -84,9 +91,11 @@
 		700F9B6E271BC80CD9B4B73C /* ControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlView.swift; sourceTree = "<group>"; };
 		75BBBEC46432B58BB2DD1CF5 /* Task.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Task.swift; sourceTree = "<group>"; };
 		7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerMessage.swift; sourceTree = "<group>"; };
+		7EBC71069DA7CC3DB8FC065E /* ForkTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForkTaskView.swift; sourceTree = "<group>"; };
 		7FF650745DA9D77726E38FDE /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		809018FF2640C5E90573B0AB /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agent.swift; sourceTree = "<group>"; };
 		842559CCE9DB35953BD1564B /* KinApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinApp.swift; sourceTree = "<group>"; };
+		859789B2978560BCC05B8A0A /* OperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OperationsView.swift; sourceTree = "<group>"; };
 		895742CF6394D58874A5EE5A /* StatusBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBadge.swift; sourceTree = "<group>"; };
 		8CD56FCFCC5F90297DB34E4E /* FileDiffView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDiffView.swift; sourceTree = "<group>"; };
 		8E6E87420AE72F8C52D6F500 /* Approval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Approval.swift; sourceTree = "<group>"; };
@@ -101,6 +110,7 @@
 		B3F0468FC7EA2BD95124391C /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		B7F8F77C1541E3039FFB651B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		C8F4C8E4A47995C917282E13 /* NewTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskView.swift; sourceTree = "<group>"; };
+		CAE4C761DE5A284947B2316A /* RoutinesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutinesView.swift; sourceTree = "<group>"; };
 		CB8F5B834455D9DA0CA0BB1E /* KinCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KinCoreTests.swift; sourceTree = "<group>"; };
 		CCD1CA6FD818A6F71E2B2EEC /* AppRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoute.swift; sourceTree = "<group>"; };
 		CE1D5D65E5F822849E4617AE /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
@@ -111,6 +121,8 @@
 		E2C1564810EFB2CCE28B5F5B /* WebSocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketClient.swift; sourceTree = "<group>"; };
 		F093FD87FFE1C535B71CEF79 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		F331CF6B071C58B58AF2BE01 /* EventRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventRow.swift; sourceTree = "<group>"; };
+		F689DA3F8DAE20FEAB3F7B96 /* ConsoleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleModels.swift; sourceTree = "<group>"; };
+		FF3CC99D8C1FE14DC7A14943 /* ArtifactsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -152,6 +164,7 @@
 			children = (
 				809018FF2640C5E90573B0AB /* Agent.swift */,
 				8E6E87420AE72F8C52D6F500 /* Approval.swift */,
+				F689DA3F8DAE20FEAB3F7B96 /* ConsoleModels.swift */,
 				7B5586DAA44C0BA07E50C0F7 /* ServerMessage.swift */,
 				75BBBEC46432B58BB2DD1CF5 /* Task.swift */,
 				19D0527A5EF7223BF324B652 /* TaskEvent.swift */,
@@ -182,9 +195,12 @@
 		322F63A1B06A1B35AF937831 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				B5120D9008713D3AA054162D /* Artifacts */,
 				CD7A5620226EB826F2050FAC /* Connection */,
 				4591DFDE29C3D9C44C2C4741 /* Control */,
 				43EF5B8A0D2E32377C2732FB /* NewTask */,
+				74E30E2F4E93C241FFE533C5 /* Projects */,
+				6D31747D4566EA6248370C93 /* Routines */,
 				9A7AEFEFCEE20E5BFD6DA413 /* Settings */,
 				877D16B6C1C5660978B24B65 /* TaskDetail */,
 				29DEF8FEE4BD1860B55FFBF5 /* Tasks */,
@@ -210,11 +226,28 @@
 			path = Control;
 			sourceTree = "<group>";
 		};
+		6D31747D4566EA6248370C93 /* Routines */ = {
+			isa = PBXGroup;
+			children = (
+				CAE4C761DE5A284947B2316A /* RoutinesView.swift */,
+			);
+			path = Routines;
+			sourceTree = "<group>";
+		};
+		74E30E2F4E93C241FFE533C5 /* Projects */ = {
+			isa = PBXGroup;
+			children = (
+				4DD5A03C7EDA5AECBDD28FC3 /* ProjectsView.swift */,
+			);
+			path = Projects;
+			sourceTree = "<group>";
+		};
 		877D16B6C1C5660978B24B65 /* TaskDetail */ = {
 			isa = PBXGroup;
 			children = (
 				29D30A7EBEEB7E7A0D66763B /* EventProjection.swift */,
 				8CD56FCFCC5F90297DB34E4E /* FileDiffView.swift */,
+				7EBC71069DA7CC3DB8FC065E /* ForkTaskView.swift */,
 				3AC619597BD5F10F7B143255 /* TaskDetailView.swift */,
 				A7F7720C52EA89F093610C8C /* TaskDetailViewModel.swift */,
 				59E1BF5ECA8E242A01320AEC /* WorkspaceChangesView.swift */,
@@ -237,6 +270,7 @@
 		9A7AEFEFCEE20E5BFD6DA413 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				859789B2978560BCC05B8A0A /* OperationsView.swift */,
 				B7F8F77C1541E3039FFB651B /* SettingsView.swift */,
 				2256F7941CB844EC27C79EB6 /* SettingsViewModel.swift */,
 			);
@@ -267,6 +301,14 @@
 				06B89BB219C41C5817AD1969 /* KinTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B5120D9008713D3AA054162D /* Artifacts */ = {
+			isa = PBXGroup;
+			children = (
+				FF3CC99D8C1FE14DC7A14943 /* ArtifactsView.swift */,
+			);
+			path = Artifacts;
 			sourceTree = "<group>";
 		};
 		CAECDCD46E7BA12C35D5D1B1 /* Kin */ = {
@@ -415,9 +457,11 @@
 				3A2EF4540F9382F399D735C2 /* AppSession.swift in Sources */,
 				7407F0B0CE32F7ACF0ED9220 /* Approval.swift in Sources */,
 				F907E4F327F9C9DC6DFD8E03 /* ApprovalCard.swift in Sources */,
+				3936688203A905D27779A010 /* ArtifactsView.swift in Sources */,
 				3BC0EE272BF4AB54136D5FA6 /* ConnectionBanner.swift in Sources */,
 				4A72ACAFD97444D050867D61 /* ConnectionState.swift in Sources */,
 				2B397BB5AF88D3AEE1DE852D /* ConnectionView.swift in Sources */,
+				44137D87402F82519CF58F6D /* ConsoleModels.swift in Sources */,
 				B48F2C991FFF1137BAC17D04 /* ContentView.swift in Sources */,
 				1EAFEB49730DC166AC9B1185 /* ControlView.swift in Sources */,
 				705844E86341967B4BF4339C /* ControlViewModel.swift in Sources */,
@@ -425,14 +469,18 @@
 				0C2CB9BA7BBCD721220117C4 /* EventProjection.swift in Sources */,
 				F3AE6FADB602CE4A1C432898 /* EventRow.swift in Sources */,
 				564FD58E106E1A829328BF23 /* FileDiffView.swift in Sources */,
+				B3FA9ED805FC6A3D407B4AC1 /* ForkTaskView.swift in Sources */,
 				9F34AA783B35319634EA8E70 /* KeychainStore.swift in Sources */,
 				9295EFF814DC98EDA81B7F2D /* KinApp.swift in Sources */,
 				482F91232EBD45D3681BE914 /* NewTaskView.swift in Sources */,
 				A1A72BABE298AAC8736CAD6E /* NewTaskViewModel.swift in Sources */,
+				3B9EABC95D462730D102EADC /* OperationsView.swift in Sources */,
 				8AB86CFBEC617A2352D893FE /* PairingPayload.swift in Sources */,
+				3CF1D8E778FAD1FCDFB1F3AC /* ProjectsView.swift in Sources */,
 				3E09B9BC863E021C27180BD6 /* QRScannerView.swift in Sources */,
 				5DC10D0BAEB4F379039A2937 /* QuestionCard.swift in Sources */,
 				C894F6388CCA903603257922 /* Reconciler.swift in Sources */,
+				DFA6E6BBF7449BA004DF8898 /* RoutinesView.swift in Sources */,
 				28670A573F61F01750BAA37B /* ServerMessage.swift in Sources */,
 				09584A6B203CF7A4652CE1AB /* ServerProfile.swift in Sources */,
 				D0DAB9750816D8661B7FC8CB /* SettingsView.swift in Sources */,

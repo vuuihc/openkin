@@ -143,6 +143,39 @@ final class TaskDetailViewModel {
         }
     }
 
+    @MainActor
+    func continueAfterLimit(taskId: String, with apiClient: APIClient) async {
+        error = nil
+        do {
+            task = try await apiClient.continueTask(id: taskId, action: "continue")
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    func fork(taskId: String, prompt: String?, with apiClient: APIClient) async -> KinTask? {
+        error = nil
+        do {
+            return try await apiClient.forkTask(id: taskId, prompt: prompt)
+        } catch {
+            self.error = error.localizedDescription
+            return nil
+        }
+    }
+
+    @MainActor
+    func delete(taskId: String, with apiClient: APIClient) async -> Bool {
+        error = nil
+        do {
+            try await apiClient.deleteTask(id: taskId)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     /// Load workspaces for the given task.
     /// - Parameters:
     ///   - taskId: The task ID.

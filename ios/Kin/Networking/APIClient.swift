@@ -105,6 +105,10 @@ actor APIClient {
         try await perform(.taskEvents(id: id, sinceSeq: sinceSeq), timeout: 30)
     }
 
+    func deleteTask(id: String) async throws {
+        try await performEmpty(.deleteTask(id: id))
+    }
+
     func cancelTask(id: String) async throws {
         try await performEmpty(.cancelTask(id: id))
     }
@@ -116,6 +120,22 @@ actor APIClient {
 
     func retryTask(id: String) async throws -> KinTask {
         try await perform(.retryTask(id: id), timeout: 60)
+    }
+
+    func continueTask(id: String, action: String = "wait") async throws -> KinTask {
+        try await perform(
+            .limitContinue(id: id),
+            body: LimitContinueBody(action: action),
+            timeout: 60
+        )
+    }
+
+    func forkTask(id: String, prompt: String?) async throws -> KinTask {
+        try await perform(
+            .forkTask(id: id),
+            body: ForkBody(prompt: prompt),
+            timeout: 60
+        )
     }
 
     func approvals() async throws -> [Approval] {
@@ -154,6 +174,110 @@ actor APIClient {
             .workspaceFile(taskId: taskId, workspaceId: workspaceId, path: path)
         )
         return response.content
+    }
+
+    func workspaceTree(taskId: String, workspaceId: String, path: String? = nil) async throws -> WorkspaceTreeResponse {
+        try await perform(.workspaceTree(taskId: taskId, workspaceId: workspaceId, path: path))
+    }
+
+    func writeWorkspaceFile(taskId: String, workspaceId: String, path: String, content: String) async throws {
+        try await performEmpty(
+            .writeWorkspaceFile(taskId: taskId, workspaceId: workspaceId, path: path),
+            body: WorkspaceWriteBody(path: path, content: content)
+        )
+    }
+
+    func artifacts(status: String? = "saved") async throws -> [Artifact] {
+        try await perform(.artifacts(status: status))
+    }
+
+    func artifactContent(id: String) async throws -> String {
+        try await performString(.artifactContent(id: id))
+    }
+
+    func setArtifactStatus(id: String, status: String) async throws -> Artifact {
+        try await perform(.artifactStatus(id: id), body: ArtifactStatusBody(status: status))
+    }
+
+    func projects(status: String? = "active") async throws -> [Project] {
+        try await perform(.projects(status: status))
+    }
+
+    func createProject(name: String, mode: String, roots: [String]) async throws -> Project {
+        try await perform(
+            .createProject,
+            body: ProjectWriteBody(name: name, mode: mode, roots: roots)
+        )
+    }
+
+    func project(id: String) async throws -> Project {
+        try await perform(.project(id: id))
+    }
+
+    func onePager(projectId: String) async throws -> OnePager {
+        try await perform(.onePager(projectId: projectId))
+    }
+
+    func saveOnePager(projectId: String, markdown: String, updatedAt: Int64? = nil) async throws -> OnePager {
+        try await perform(
+            .putOnePager(projectId: projectId),
+            body: OnePagerBody(markdown: markdown, updatedAt: updatedAt)
+        )
+    }
+
+    func projectPulse(projectId: String) async throws -> ProjectPulse {
+        try await perform(.projectPulse(projectId: projectId))
+    }
+
+    func projectTasks(projectId: String) async throws -> [KinTask] {
+        try await perform(.projectTasks(projectId: projectId))
+    }
+
+    func routines(projectId: String? = nil, enabled: Bool? = nil, includeRuns: Bool = false) async throws -> [Routine] {
+        let response: RoutineListResponse = try await perform(
+            .routines(projectId: projectId, enabled: enabled, includeRuns: includeRuns)
+        )
+        return response.routines
+    }
+
+    func createRoutine(body: RoutineWriteBody) async throws -> Routine {
+        try await perform(.createRoutine, body: body)
+    }
+
+    func updateRoutine(id: String, body: RoutinePatchBody) async throws -> Routine {
+        try await perform(.patchRoutine(id: id), body: body)
+    }
+
+    func deleteRoutine(id: String) async throws {
+        try await performEmpty(.deleteRoutine(id: id))
+    }
+
+    func runRoutineNow(id: String) async throws -> KinTask {
+        try await perform(.routineRunNow(id: id))
+    }
+
+    func markRoutineRunRead(taskId: String) async throws {
+        try await performEmpty(.routineRunRead(taskId: taskId))
+    }
+
+    func agentManagement(refresh: Bool = false) async throws -> [AgentManagement] {
+        try await perform(.agentsManagement(refresh: refresh))
+    }
+
+    func usageLimits() async throws -> [AgentUsageLimit] {
+        try await perform(.usageLimits)
+    }
+
+    func providers() async throws -> ProvidersResponse {
+        try await perform(.providers)
+    }
+
+    func updateProvider(id: String, body: ProviderWriteBody) async throws -> ProvidersResponse {
+        try await perform(.provider(id: id), body: body)
+    }
+
+    func activateProvider(id: String) async throws -> ProvidersResponse {
+        try await perform(.providerActivate(id: id))
     }
 
     /// Build a WebSocket URL for the daemon.
@@ -334,6 +458,14 @@ private struct PromptBody: Encodable {
     let message: String
 }
 
+private struct ForkBody: Encodable {
+    let prompt: String?
+}
+
+private struct LimitContinueBody: Encodable {
+    let action: String
+}
+
 private struct DecisionBody: Encodable {
     let decision: String
 }
@@ -345,6 +477,76 @@ private struct AnswerBody: Encodable {
 
 private struct WorkspaceFilePayload: Decodable {
     let content: String
+}
+
+struct WorkspaceWriteBody: Encodable {
+    let path: String
+    let content: String
+}
+
+private struct ArtifactStatusBody: Encodable {
+    let status: String
+}
+
+private struct OnePagerBody: Encodable {
+    let markdown: String
+    let updatedAt: Int64?
+}
+
+private struct RoutineListResponse: Decodable {
+    let routines: [Routine]
+
+    init(from decoder: Decoder) throws {
+        if let values = try? decoder.singleValueContainer().decode([Routine].self) {
+            routines = values
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        routines = try container.decode([Routine].self, forKey: .routines)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case routines
+    }
+}
+
+struct RoutineWriteBody: Encodable {
+    let title: String
+    let projectId: String?
+    let cwd: String
+    let agent: String
+    let permissionMode: String
+    let prompt: String
+    let intervalSecs: Int
+    let enabled: Bool
+}
+
+struct RoutinePatchBody: Encodable {
+    let title: String?
+    let projectId: String?
+    let cwd: String?
+    let agent: String?
+    let permissionMode: String?
+    let prompt: String?
+    let intervalSecs: Int?
+    let enabled: Bool?
+}
+
+struct ProviderWriteBody: Encodable {
+    let name: String
+    let kind: String
+    let baseURL: String
+    let apiKey: String?
+    let model: String
+    let stream: Bool?
+    let active: Bool?
+    let clearApiKey: Bool?
+}
+
+private struct ProjectWriteBody: Encodable {
+    let name: String
+    let mode: String
+    let roots: [String]
 }
 
 /// Type-erased encodable wrapper to allow encoding different body types uniformly.

@@ -20,6 +20,7 @@ struct SettingsView: View {
             Form {
                 connectionSection
                 devicesSection
+                consoleSection
                 daemonSection
                 aboutSection
             }
@@ -166,6 +167,26 @@ struct SettingsView: View {
         Section("Daemon") {
             LabeledContent(String(localized: "settings.version")) {
                 Text(serverVersion ?? "—")
+            }
+        }
+    }
+
+    private var consoleSection: some View {
+        Section("Console") {
+            NavigationLink {
+                RoutinesView()
+            } label: {
+                Label("Routines", systemImage: "clock.arrow.circlepath")
+            }
+            NavigationLink {
+                AgentUsageView()
+            } label: {
+                Label("Agents & Usage", systemImage: "chart.bar")
+            }
+            NavigationLink {
+                ProviderSettingsView()
+            } label: {
+                Label("Providers", systemImage: "server.rack")
             }
         }
     }

@@ -179,7 +179,7 @@ struct ConnectionView: View {
         Task {
             do {
                 let payload = try PairingPayload.parse(code)
-                try await validateAndConnect(payload: payload, exchangeSecret: true)
+                try await validateAndConnect(payload: payload, exchangeSecret: payload.isPairingSecret)
             } catch {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
@@ -212,7 +212,8 @@ struct ConnectionView: View {
                 relayKey: payload.relayKey,
                 relayRoom: payload.relayRoom,
                 dateAdded: Date(),
-                lastAccessed: Date()
+                lastAccessed: Date(),
+                credentialScope: exchangeSecret ? .device : .master
             )
             // Persist the credential first so a Keychain failure cannot create
             // a profile that looks saved but cannot reconnect after restart.

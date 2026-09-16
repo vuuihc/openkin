@@ -26,6 +26,10 @@ final class AppSession {
         profiles.first { $0.id == activeProfileID }
     }
 
+    var canManageDaemon: Bool {
+        activeProfile?.canManageDaemon == true
+    }
+
     /// Activates one profile and loads only its Keychain credential.
     func activate(profile: ServerProfile) {
         reconciler?.stopWebSocket()

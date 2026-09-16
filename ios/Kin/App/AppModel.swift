@@ -17,6 +17,8 @@ final class AppModel {
     enum Tab: String, CaseIterable {
         case control = "control.tab"
         case tasks = "tasks.tab"
+        case projects = "projects.tab"
+        case artifacts = "artifacts.tab"
         case settings = "settings.tab"
 
         var localizationKey: String { rawValue }
