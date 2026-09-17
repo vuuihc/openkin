@@ -1,6 +1,6 @@
 # Agent Platform Gap-Closure Plan
 
-**Status:** M0/M1 complete; M2 local implementation complete; M3-M8 pending
+**Status:** M0/M1/M2 complete; M3 core supervision slice complete; Git handoff and M4-M8 pending
 **Date:** 2026-09-17
 **Goal:** Turn OpenKin from a strong local agent console into a reliable,
 extensible agent control plane without giving up local-first ownership,

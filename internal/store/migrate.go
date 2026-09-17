@@ -6,7 +6,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 24
+const schemaVersion = 25
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -221,6 +221,27 @@ CREATE TABLE routine_dispatches (
 );
 CREATE UNIQUE INDEX routine_dispatches_task ON routine_dispatches(task_id);
 ;
+
+CREATE TABLE task_worker_steps (
+  task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  execution_id   TEXT NOT NULL,
+  step_index     INTEGER NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'worker',
+  depends_on     TEXT NOT NULL DEFAULT '[]',
+  agent          TEXT NOT NULL,
+  provider       TEXT NOT NULL DEFAULT '',
+  model          TEXT NOT NULL DEFAULT '',
+  access         TEXT NOT NULL DEFAULT 'read',
+  status         TEXT NOT NULL DEFAULT 'planned',
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  execution_ref  TEXT NOT NULL DEFAULT '',
+  result_summary TEXT NOT NULL DEFAULT '',
+  error          TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  PRIMARY KEY (task_id, execution_id, step_index)
+);
+CREATE INDEX task_worker_steps_task ON task_worker_steps(task_id, created_at, step_index);
 
 CREATE TABLE IF NOT EXISTS task_workspaces (
   id                    TEXT NOT NULL,
@@ -1445,6 +1466,47 @@ ALTER TABLE mcp_task_origins_new RENAME TO mcp_task_origins;
 			return fmt.Errorf("commit migration 024: %w", err)
 		}
 		v = 24
+	}
+
+	if v == 24 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 025: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS task_worker_steps (
+  task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  execution_id   TEXT NOT NULL,
+  step_index     INTEGER NOT NULL,
+  role           TEXT NOT NULL DEFAULT 'worker',
+  depends_on     TEXT NOT NULL DEFAULT '[]',
+  agent          TEXT NOT NULL,
+  provider       TEXT NOT NULL DEFAULT '',
+  model          TEXT NOT NULL DEFAULT '',
+  access         TEXT NOT NULL DEFAULT 'read',
+  status         TEXT NOT NULL DEFAULT 'planned',
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  execution_ref  TEXT NOT NULL DEFAULT '',
+  result_summary TEXT NOT NULL DEFAULT '',
+  error          TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL,
+  PRIMARY KEY (task_id, execution_id, step_index)
+);
+CREATE INDEX IF NOT EXISTS task_worker_steps_task
+ON task_worker_steps(task_id, created_at, step_index);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 025 worker steps: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 25`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 025: %w", err)
+		}
+		v = 25
 	}
 
 	return nil

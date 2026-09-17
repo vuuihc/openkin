@@ -26,6 +26,7 @@ import {
   isTerminal,
   listAgents,
   listEvents,
+  listWorkerSteps,
   limitContinue,
   restoreTaskWorkspace,
   retryTask,
@@ -34,6 +35,7 @@ import {
   type TaskUsage,
   type TaskLimitWait,
   type Upload,
+  type WorkerStep,
 } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import {
@@ -54,6 +56,7 @@ import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
+import WorkerTimeline from "../components/task/WorkerTimeline";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
@@ -117,6 +120,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           : null;
   const [usage, setUsage] = useState<TaskUsage | null>(null);
   const [limitWait, setLimitWait] = useState<TaskLimitWait | null>(null);
+  const [workerSteps, setWorkerSteps] = useState<WorkerStep[]>([]);
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
@@ -180,6 +184,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     lastObservedEventSeq.current = 0;
     setUsage(null);
     setLimitWait(null);
+    setWorkerSteps([]);
     setFilesOpen(false);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
@@ -189,6 +194,24 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       .then(setAgents)
       .catch(() => setAgents([]));
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !task) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      listWorkerSteps(id)
+        .then((steps) => {
+          if (active) setWorkerSteps(steps);
+        })
+        .catch(() => {
+          if (active) setWorkerSteps([]);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [id, task?.id, task?.status, events.length]);
 
   useEffect(() => {
     if (!task) return;
@@ -924,6 +947,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
           }
         >
+          <WorkerTimeline steps={workerSteps} />
           <ChatStream
             events={events}
             onOpenPath={onOpenWorkspacePath}

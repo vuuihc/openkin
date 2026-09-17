@@ -221,6 +221,28 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TaskEvent"
+  /api/tasks/{taskId}/workers:
+    get:
+      operationId: listTaskWorkerSteps
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: query
+          name: execution_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Persisted multi-worker plan and latest step states
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [steps]
+                properties:
+                  steps:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WorkerStep"
   /api/approvals:
     get:
       operationId: listApprovals
@@ -683,6 +705,58 @@ components:
         type:
           type: string
         payload: {}
+    WorkerStep:
+      type: object
+      additionalProperties: false
+      required:
+        - task_id
+        - execution_id
+        - step_index
+        - role
+        - agent
+        - access
+        - status
+        - attempt
+        - created_at
+        - updated_at
+      properties:
+        task_id:
+          type: string
+        execution_id:
+          type: string
+        step_index:
+          type: integer
+          minimum: 0
+        role:
+          type: string
+        depends_on:
+          type: array
+          items:
+            type: integer
+        agent:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        access:
+          type: string
+          enum: [read, write]
+        status:
+          type: string
+        attempt:
+          type: integer
+          minimum: 1
+        execution_ref:
+          type: string
+        result_summary:
+          type: string
+        error:
+          type: string
+        created_at:
+          type: integer
+        updated_at:
+          type: integer
     Approval:
       type: object
       additionalProperties: true

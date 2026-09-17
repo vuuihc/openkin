@@ -167,6 +167,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
+		r.Get("/api/tasks/{id}/workers", s.handleListWorkerSteps)
 		r.Get("/api/tasks/{id}/limit-wait", s.handleTaskLimitWait)
 		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)

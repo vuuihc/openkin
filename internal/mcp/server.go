@@ -490,6 +490,8 @@ func (s *Server) executeTool(ctx context.Context, req request, auth authContext,
 		result, err = s.getTask(ctx, args)
 	case "list_task_events":
 		result, err = s.listTaskEvents(ctx, args)
+	case "list_worker_steps":
+		result, err = s.listWorkerSteps(ctx, args)
 	case "list_projects":
 		result, err = s.listProjects(ctx, args)
 	case "list_artifacts":
@@ -646,6 +648,21 @@ func (s *Server) listTaskEvents(ctx context.Context, args map[string]any) (any, 
 		boundedInt(args, "limit", maxPageSize),
 	)
 	return map[string]any{"events": events}, err
+}
+
+func (s *Server) listWorkerSteps(ctx context.Context, args map[string]any) (any, error) {
+	if s.Store == nil {
+		return nil, errors.New("task services unavailable")
+	}
+	if _, err := s.Store.GetTask(ctx, requiredString(args, "task_id")); err != nil {
+		return nil, err
+	}
+	steps, err := s.Store.ListWorkerSteps(
+		ctx,
+		requiredString(args, "task_id"),
+		stringArg(args, "execution_id"),
+	)
+	return map[string]any{"steps": steps}, err
 }
 
 func (s *Server) listProjects(ctx context.Context, args map[string]any) (any, error) {
@@ -990,6 +1007,7 @@ func toolDefinitions() []map[string]any {
 		{"name": "list_tasks", "description": "List bounded Kin tasks.", "inputSchema": read},
 		{"name": "get_task", "description": "Read one Kin task.", "inputSchema": schema([]string{"task_id"}, map[string]any{"task_id": stringProp()})},
 		{"name": "list_task_events", "description": "List bounded task events.", "inputSchema": schema([]string{"task_id"}, map[string]any{"task_id": stringProp(), "since_seq": intProp(), "limit": intProp()})},
+		{"name": "list_worker_steps", "description": "List persisted multi-worker plan steps for a task.", "inputSchema": schema([]string{"task_id"}, map[string]any{"task_id": stringProp(), "execution_id": stringProp()})},
 		{"name": "list_projects", "description": "List bounded projects.", "inputSchema": read},
 		{"name": "list_artifacts", "description": "List bounded artifacts.", "inputSchema": read},
 		{"name": "read_artifact", "description": "Read an indexed artifact with a bounded response.", "inputSchema": schema([]string{"artifact_id"}, map[string]any{"artifact_id": stringProp(), "max_bytes": intProp()})},
