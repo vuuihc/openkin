@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { BrowserWorker } from "./runner.js";
 import type { BrowserAction, BrowserPolicyConfig } from "./policy.js";
+import { redactError } from "./evidence.js";
 
 type ActionRequest = {
   id: string;
@@ -100,7 +101,7 @@ async function handleLine(line: string): Promise<void> {
       id: request.id,
       type: "result",
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: redactError(error instanceof Error ? error.message : String(error)),
       evidence: worker.evidence.slice(before).map(toWireEvidence),
     });
   } finally {
