@@ -485,6 +485,229 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/tasks/{taskId}/replay:
+    post:
+      operationId: replayTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplayRequest"
+      responses:
+        "200":
+          description: Inspect-only replay projection
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "202":
+          description: Forked or rerun task
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /api/evals/suites:
+    get:
+      operationId: listEvalSuites
+      responses:
+        "200":
+          description: Available file-backed evaluation suites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /api/evals/runs:
+    get:
+      operationId: listEvalRuns
+      responses:
+        "200":
+          description: Evaluation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalRun"
+    post:
+      operationId: createEvalRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvalRunRequest"
+      responses:
+        "202":
+          description: Evaluation started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalRun"
+  /api/evals/runs/{runId}:
+    get:
+      operationId: getEvalRun
+      parameters:
+        - in: path
+          name: runId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Evaluation run and deterministic results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run, results]
+                properties:
+                  run:
+                    $ref: "#/components/schemas/EvalRun"
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvalResult"
+  /api/evals/compare:
+    post:
+      operationId: compareEvalRuns
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvalCompareRequest"
+      responses:
+        "202":
+          description: Comparison runs started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs]
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EvalRun"
+  /api/evals/routines:
+    post:
+      operationId: createEvalRoutine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvalRoutineRequest"
+      responses:
+        "201":
+          description: Saved routing regression Routine
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /.well-known/agent-card.json:
+    get:
+      operationId: getAgentCard
+      responses:
+        "200":
+          description: Opt-in A2A capability card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCard"
+  /a2a/v1/tasks:
+    post:
+      operationId: a2aCreateTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/A2ATaskRequest"
+      responses:
+        "202":
+          description: Delegated task accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/A2ATask"
+  /a2a/v1/tasks/{taskId}:
+    get:
+      operationId: a2aGetTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Delegated task projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/A2ATask"
+  /a2a/v1/tasks/{taskId}/events:
+    get:
+      operationId: a2aListTaskEvents
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Normalized durable events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskEvent"
+  /a2a/v1/tasks/{taskId}/stream:
+    get:
+      operationId: a2aStreamTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Server-sent normalized progress events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /a2a/v1/tasks/{taskId}:cancel:
+    post:
+      operationId: a2aCancelTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Canceled task projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/A2ATask"
+  /a2a/v1/tasks/{taskId}:message:
+    post:
+      operationId: a2aFollowUpTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/A2AFollowUpRequest"
+      responses:
+        "200":
+          description: Input answer or updated task projection
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 components:
   parameters:
     TaskId:
@@ -684,6 +907,258 @@ components:
           type: string
         permission_mode:
           type: string
+    ReplayRequest:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [inspect, fork, rerun]
+        from_seq:
+          type: integer
+          minimum: 0
+        prompt:
+          type: string
+        dispatch: {}
+    EvalRun:
+      type: object
+      required: [id, suite, suite_version, condition, n_reps, status, started_at, created_at]
+      properties:
+        id:
+          type: string
+        suite:
+          type: string
+        suite_version:
+          type: string
+        condition:
+          type: string
+        route_objective:
+          type: string
+        kin_git_sha:
+          type: string
+        n_reps:
+          type: integer
+        status:
+          type: string
+        started_at:
+          type: integer
+        finished_at:
+          type:
+            - integer
+            - "null"
+        report_artifact_id:
+          type: string
+        created_at:
+          type: integer
+    EvalResult:
+      type: object
+      required: [id, run_id, case_id, rep_idx, pass, turns, tokens_in, tokens_out, latency_ms, checker, created_at]
+      properties:
+        id:
+          type: string
+        run_id:
+          type: string
+        case_id:
+          type: string
+        rep_idx:
+          type: integer
+        task_id:
+          type: string
+        pass:
+          type: boolean
+        turns:
+          type: integer
+        tokens_in:
+          type: integer
+        tokens_out:
+          type: integer
+        cost_usd:
+          type:
+            - number
+            - "null"
+        latency_ms:
+          type: integer
+        checker: {}
+        created_at:
+          type: integer
+    EvalRunRequest:
+      type: object
+      required: [suite]
+      properties:
+        suite:
+          type: string
+        condition:
+          type: string
+          enum: [cold]
+        repetitions:
+          type: integer
+          minimum: 1
+        route_objective:
+          type: string
+          enum: [balanced, cost-min, intelligent-max]
+        team:
+          type: string
+    EvalCompareRequest:
+      type: object
+      required: [suite, team]
+      properties:
+        suite:
+          type: string
+        condition:
+          type: string
+          enum: [cold]
+        repetitions:
+          type: integer
+          minimum: 1
+        team:
+          type: string
+        objectives:
+          type: array
+          items:
+            type: string
+            enum: [balanced, cost-min, intelligent-max]
+    EvalRoutineRequest:
+      type: object
+      required: [suite, cwd, interval_secs]
+      properties:
+        suite:
+          type: string
+        condition:
+          type: string
+          enum: [cold]
+        repetitions:
+          type: integer
+          minimum: 1
+        route_objective:
+          type: string
+          enum: [balanced, cost-min, intelligent-max]
+        team:
+          type: string
+        cwd:
+          type: string
+        project_id:
+          type: string
+        interval_secs:
+          type: integer
+          minimum: 1
+        enabled:
+          type: boolean
+    AgentCard:
+      type: object
+      required: [name, description, url, version, protocol, authentication, capabilities]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+        version:
+          type: string
+        protocol:
+          type: string
+        authentication:
+          type: object
+          required: [schemes]
+          properties:
+            schemes:
+              type: array
+              items:
+                type: string
+        capabilities:
+          type: object
+          required: [streaming, tasks, artifacts]
+          properties:
+            streaming:
+              type: boolean
+            tasks:
+              type: boolean
+            artifacts:
+              type: boolean
+    A2ATaskRequest:
+      type: object
+      required: [idempotency_key, message, cwd]
+      properties:
+        idempotency_key:
+          type: string
+        message:
+          $ref: "#/components/schemas/A2AMessage"
+        cwd:
+          type: string
+        agent:
+          type: string
+        model:
+          type: string
+        permission_mode:
+          type: string
+        project_id:
+          type: string
+        dispatch: {}
+    A2AFollowUpRequest:
+      type: object
+      properties:
+        message:
+          $ref: "#/components/schemas/A2AMessage"
+        question_id:
+          type: string
+        selected:
+          type: array
+          items:
+            type: string
+        other_text:
+          type: string
+        approval_id:
+          type: string
+        decision:
+          type: string
+          enum: [approved, denied]
+        idempotency_key:
+          type: string
+    A2AMessage:
+      type: object
+      required: [role, parts]
+      properties:
+        role:
+          type: string
+        parts:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+              text:
+                type: string
+    A2ATask:
+      type: object
+      required: [id, context_id, status, task]
+      properties:
+        id:
+          type: string
+        context_id:
+          type: string
+        status:
+          type: string
+        task:
+          $ref: "#/components/schemas/Task"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskEvent"
+        artifacts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        approvals:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserQuestion"
     BrowserAction:
       type: object
       required: [type]

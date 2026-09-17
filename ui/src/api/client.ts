@@ -3,9 +3,15 @@ import { t } from "../i18n";
 import {
   parseWSMessage,
   type ApprovalDecisionRequest,
+  type A2ATask,
   type Approval,
   type CreateTaskRequest,
+  type EvalCompareRequest,
+  type EvalResult,
+  type EvalRun,
+  type EvalRunRequest,
   type FollowUpRequest,
+  type ReplayRequest,
   type Task,
   type TaskEvent,
   type UserQuestion,
@@ -23,6 +29,12 @@ export type {
   UserQuestionPayload,
   UserQuestionResponse,
   WSMessage,
+  A2ATask,
+  EvalRun,
+  EvalResult,
+  EvalRunRequest,
+  EvalCompareRequest,
+  ReplayRequest,
 } from "./contract";
 
 const TOKEN_KEY = "kin_token";
@@ -1133,6 +1145,56 @@ export function markAllRoutineRunsRead(): Promise<{ marked: number }> {
   return apiFetch<{ marked: number }>("/api/routines/mark-all-read", {
     method: "POST",
   });
+}
+
+export function listEvalSuites(): Promise<string[]> {
+  return apiFetch<string[]>("/api/evals/suites");
+}
+
+export function listEvalRuns(limit = 100): Promise<EvalRun[]> {
+  return apiFetch<EvalRun[]>(`/api/evals/runs?limit=${limit}`);
+}
+
+export function getEvalRun(id: string): Promise<{ run: EvalRun; results: EvalResult[] }> {
+  return apiFetch<{ run: EvalRun; results: EvalResult[] }>(
+    `/api/evals/runs/${encodeURIComponent(id)}`,
+  );
+}
+
+export function createEvalRun(body: EvalRunRequest): Promise<EvalRun> {
+  return apiFetch<EvalRun>("/api/evals/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function compareEvalRuns(
+  body: EvalCompareRequest,
+): Promise<{ runs: EvalRun[] }> {
+  return apiFetch<{ runs: EvalRun[] }>("/api/evals/compare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function replayTask(
+  id: string,
+  body: ReplayRequest,
+): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>(
+    `/api/tasks/${encodeURIComponent(id)}/replay`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function getA2ATask(id: string): Promise<A2ATask> {
+  return apiFetch<A2ATask>(`/a2a/v1/tasks/${encodeURIComponent(id)}`);
 }
 
 export function listRoutineRuns(limit = 50): Promise<Task[]> {

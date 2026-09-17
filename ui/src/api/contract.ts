@@ -12,6 +12,12 @@ export type UserQuestionPayload = components["schemas"]["UserQuestionPayload"];
 export type UserQuestionResponse = components["schemas"]["UserQuestionResponse"];
 export type UserQuestion = components["schemas"]["UserQuestion"];
 export type WSMessage = components["schemas"]["WSMessage"];
+export type EvalRun = components["schemas"]["EvalRun"];
+export type EvalResult = components["schemas"]["EvalResult"];
+export type EvalRunRequest = components["schemas"]["EvalRunRequest"];
+export type EvalCompareRequest = components["schemas"]["EvalCompareRequest"];
+export type ReplayRequest = components["schemas"]["ReplayRequest"];
+export type A2ATask = components["schemas"]["A2ATask"];
 
 type RecordValue = Record<string, unknown>;
 

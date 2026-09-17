@@ -439,6 +439,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["replayTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evals/suites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listEvalSuites"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evals/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listEvalRuns"];
+        put?: never;
+        post: operations["createEvalRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evals/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getEvalRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evals/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["compareEvalRuns"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evals/routines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createEvalRoutine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/agent-card.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgentCard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/a2a/v1/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["a2aCreateTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/a2a/v1/tasks/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["a2aGetTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/a2a/v1/tasks/{taskId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["a2aListTaskEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/a2a/v1/tasks/{taskId}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["a2aStreamTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/a2a/v1/tasks/{taskId}:cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["a2aCancelTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/a2a/v1/tasks/{taskId}:message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["a2aFollowUpTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -518,6 +726,126 @@ export interface components {
             agent?: string;
             model?: string;
             permission_mode?: string;
+        };
+        ReplayRequest: {
+            /** @enum {string} */
+            mode: "inspect" | "fork" | "rerun";
+            from_seq?: number;
+            prompt?: string;
+            dispatch?: unknown;
+        };
+        EvalRun: {
+            id: string;
+            suite: string;
+            suite_version: string;
+            condition: string;
+            route_objective?: string;
+            kin_git_sha?: string;
+            n_reps: number;
+            status: string;
+            started_at: number;
+            finished_at?: number | null;
+            report_artifact_id?: string;
+            created_at: number;
+        };
+        EvalResult: {
+            id: string;
+            run_id: string;
+            case_id: string;
+            rep_idx: number;
+            task_id?: string;
+            pass: boolean;
+            turns: number;
+            tokens_in: number;
+            tokens_out: number;
+            cost_usd?: number | null;
+            latency_ms: number;
+            checker: unknown;
+            created_at: number;
+        };
+        EvalRunRequest: {
+            suite: string;
+            /** @enum {string} */
+            condition?: "cold";
+            repetitions?: number;
+            /** @enum {string} */
+            route_objective?: "balanced" | "cost-min" | "intelligent-max";
+            team?: string;
+        };
+        EvalCompareRequest: {
+            suite: string;
+            /** @enum {string} */
+            condition?: "cold";
+            repetitions?: number;
+            team: string;
+            objectives?: ("balanced" | "cost-min" | "intelligent-max")[];
+        };
+        EvalRoutineRequest: {
+            suite: string;
+            /** @enum {string} */
+            condition?: "cold";
+            repetitions?: number;
+            /** @enum {string} */
+            route_objective?: "balanced" | "cost-min" | "intelligent-max";
+            team?: string;
+            cwd: string;
+            project_id?: string;
+            interval_secs: number;
+            enabled?: boolean;
+        };
+        AgentCard: {
+            name: string;
+            description: string;
+            url: string;
+            version: string;
+            protocol: string;
+            authentication: {
+                schemes: string[];
+            };
+            capabilities: {
+                streaming: boolean;
+                tasks: boolean;
+                artifacts: boolean;
+            };
+        };
+        A2ATaskRequest: {
+            idempotency_key: string;
+            message: components["schemas"]["A2AMessage"];
+            cwd: string;
+            agent?: string;
+            model?: string;
+            permission_mode?: string;
+            project_id?: string;
+            dispatch?: unknown;
+        };
+        A2AFollowUpRequest: {
+            message?: components["schemas"]["A2AMessage"];
+            question_id?: string;
+            selected?: string[];
+            other_text?: string;
+            approval_id?: string;
+            /** @enum {string} */
+            decision?: "approved" | "denied";
+            idempotency_key?: string;
+        };
+        A2AMessage: {
+            role: string;
+            parts: {
+                kind: string;
+                text?: string;
+            }[];
+        };
+        A2ATask: {
+            id: string;
+            context_id: string;
+            status: string;
+            task: components["schemas"]["Task"];
+            events?: components["schemas"]["TaskEvent"][];
+            artifacts?: {
+                [key: string]: unknown;
+            }[];
+            approvals?: components["schemas"]["Approval"][];
+            questions?: components["schemas"]["UserQuestion"][];
         };
         BrowserAction: {
             /** @enum {string} */
@@ -1413,6 +1741,346 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Workspace diff */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    replayTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplayRequest"];
+            };
+        };
+        responses: {
+            /** @description Inspect-only replay projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Forked or rerun task */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    listEvalSuites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available file-backed evaluation suites */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+        };
+    };
+    listEvalRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evaluation runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRun"][];
+                };
+            };
+        };
+    };
+    createEvalRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Evaluation started */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRun"];
+                };
+            };
+        };
+    };
+    getEvalRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                runId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Evaluation run and deterministic results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        run: components["schemas"]["EvalRun"];
+                        results: components["schemas"]["EvalResult"][];
+                    };
+                };
+            };
+        };
+    };
+    compareEvalRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Comparison runs started */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        runs: components["schemas"]["EvalRun"][];
+                    };
+                };
+            };
+        };
+    };
+    createEvalRoutine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalRoutineRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved routing regression Routine */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    getAgentCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Opt-in A2A capability card */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCard"];
+                };
+            };
+        };
+    };
+    a2aCreateTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["A2ATaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Delegated task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["A2ATask"];
+                };
+            };
+        };
+    };
+    a2aGetTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delegated task projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["A2ATask"];
+                };
+            };
+        };
+    };
+    a2aListTaskEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Normalized durable events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskEvent"][];
+                };
+            };
+        };
+    };
+    a2aStreamTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server-sent normalized progress events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+        };
+    };
+    a2aCancelTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canceled task projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["A2ATask"];
+                };
+            };
+        };
+    };
+    a2aFollowUpTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["A2AFollowUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Input answer or updated task projection */
             200: {
                 headers: {
                     [name: string]: unknown;

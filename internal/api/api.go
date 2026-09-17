@@ -17,10 +17,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"nhooyr.io/websocket"
 
+	"github.com/vuuihc/openkin/internal/a2a"
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/connectors"
+	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
@@ -112,6 +114,10 @@ type Server struct {
 	Workers *worker.Registry
 	// Browser is the optional Playwright bridge for task-attached actions.
 	Browser *browserworker.Runner
+	// Eval is the optional file-backed replay/evaluation service.
+	Eval *eval.Runner
+	// A2A is the opt-in agent-level delegation facade.
+	A2A *a2a.Server
 
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
@@ -158,6 +164,12 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/version", s.handleVersion)
 	r.Post("/api/pairing/exchange", s.handlePairingExchange)
+	if s.A2A != nil && s.A2A.Enabled {
+		a2aHandler := s.A2A.Handler()
+		r.Get("/.well-known/agent-card.json", func(w http.ResponseWriter, req *http.Request) {
+			a2aHandler.ServeHTTP(w, req)
+		})
+	}
 
 	// Public API (token auth).
 	r.Group(func(r chi.Router) {
@@ -190,6 +202,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
+		r.Post("/api/tasks/{id}/replay", s.handleReplayTask)
 		r.Get("/api/tasks/{id}/workers", s.handleListWorkerSteps)
 		r.Post("/api/tasks/{id}/browser/actions", s.handleBrowserAction)
 		r.Get("/api/tasks/{id}/limit-wait", s.handleTaskLimitWait)
@@ -266,7 +279,16 @@ func (s *Server) Handler() http.Handler {
 		r.With(masterOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)
 		r.With(masterOnly).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
 		r.Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
+		r.Get("/api/evals/suites", s.handleListEvalSuites)
+		r.Get("/api/evals/runs", s.handleListEvalRuns)
+		r.Get("/api/evals/runs/{id}", s.handleGetEvalRun)
+		r.Post("/api/evals/runs", s.handleCreateEvalRun)
+		r.Post("/api/evals/compare", s.handleCompareEvalRuns)
+		r.With(masterOnly).Post("/api/evals/routines", s.handleCreateEvalRoutine)
 		r.Get("/api/ws", s.handleWS)
+		if s.A2A != nil && s.A2A.Enabled {
+			r.Mount("/a2a", s.A2A.Handler())
+		}
 	})
 
 	// Internal approval bridge: loopback + token (spec §6).
