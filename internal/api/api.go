@@ -19,6 +19,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
@@ -109,6 +110,8 @@ type Server struct {
 	// workers. Leases are intentionally ephemeral and workers reconnect after
 	// daemon restart.
 	Workers *worker.Registry
+	// Browser is the optional Playwright bridge for task-attached actions.
+	Browser *browserworker.Runner
 
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
@@ -188,6 +191,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
 		r.Get("/api/tasks/{id}/workers", s.handleListWorkerSteps)
+		r.Post("/api/tasks/{id}/browser/actions", s.handleBrowserAction)
 		r.Get("/api/tasks/{id}/limit-wait", s.handleTaskLimitWait)
 		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
@@ -585,6 +589,9 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if s.Browser != nil {
+		s.Browser.Cancel(id)
+	}
 	err := s.Engine.Delete(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
@@ -599,6 +606,9 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if s.Browser != nil {
+		s.Browser.Cancel(id)
+	}
 	t, err := s.Engine.Cancel(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})

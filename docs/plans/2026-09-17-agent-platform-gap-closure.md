@@ -551,6 +551,22 @@ keeping browser authority narrower than daemon authority.
 - Browser credentials never appear in events or export.
 - External side effects cannot occur without the configured authority level.
 
+#### Implementation status
+
+- `browser-worker` now provides an optional Playwright headless worker with an
+  ephemeral isolated context, NDJSON action protocol, domain allowlist,
+  upload/download containment, side-effect approval gate, and bounded evidence.
+- Evidence sanitizes form values, upload paths, sensitive URL query values,
+  console errors, and network failures before stdout/export.
+- `internal/browserworker` attaches one isolated worker process to an existing
+  Task, routes side effects through `Engine.RequestApproval`/`WaitApproval`,
+  publishes durable browser events, and stores evidence as proposed Artifacts.
+- `POST /api/tasks/{taskId}/browser/actions` and the OpenAPI contract expose
+  the bridge. Cancellation propagates to the active worker process.
+- CAPTCHA/SSO human takeover and macOS Accessibility automation remain
+  explicit follow-up slices; the current worker reports a bounded failure
+  instead of bypassing those controls.
+
 ### M7 — Replay, eval, and routing feedback
 
 **Goal:** Establish a measurable quality loop before making routing adaptive.

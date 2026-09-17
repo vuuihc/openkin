@@ -201,6 +201,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/browser/actions:
+    post:
+      operationId: runBrowserAction
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BrowserAction"
+      responses:
+        "200":
+          description: Browser action completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task_id, status]
+                properties:
+                  task_id:
+                    type: string
+                  status:
+                    const: completed
+        "409":
+          description: Another browser action is already running for the task
+        "400":
+          description: Invalid action or worker failure
+        "404":
+          description: Task not found
+        "503":
+          description: Browser worker is not configured
   /api/tasks/{taskId}:
     get:
       operationId: getTask
@@ -652,6 +684,32 @@ components:
           type: string
         permission_mode:
           type: string
+    BrowserAction:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          enum: [navigate, click, fill, press, download, upload, screenshot]
+        url:
+          type: string
+        selector:
+          type: string
+        value:
+          type: string
+        key:
+          type: string
+        path:
+          type: string
+        filename:
+          type: string
+        name:
+          type: string
+        side_effect:
+          type: boolean
+        sensitive:
+          type: boolean
     ApprovalDecisionRequest:
       type: object
       required:
