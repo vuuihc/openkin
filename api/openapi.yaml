@@ -157,6 +157,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/limit-wait:
+    get:
+      operationId: getTaskLimitWait
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Durable quota wait state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskLimitWait"
+        "404":
+          description: No active or historical quota wait
   /api/tasks/{taskId}/prompt:
     post:
       operationId: followUpTask
@@ -596,7 +610,6 @@ components:
             - "null"
         event_epoch:
           type: integer
-          minimum: 0
         routine_id:
           type: string
         routine_noteworthy:
@@ -606,6 +619,46 @@ components:
         routine_unread:
           type: boolean
         dispatch: {}
+    TaskLimitWait:
+      type: object
+      required: [task_id, event_epoch, user_seq, state, attempts, next_probe_at, first_wait_at, updated_at]
+      properties:
+        task_id:
+          type: string
+        event_epoch:
+          type: integer
+        user_seq:
+          type: integer
+        agent:
+          type: string
+        provider:
+          type: string
+        window:
+          type: string
+        reset_at:
+          type: integer
+        state:
+          type: string
+          enum: [waiting, probing, retrying, completed, canceled, blocked]
+        attempts:
+          type: integer
+        next_probe_at:
+          type: integer
+        first_wait_at:
+          type: integer
+        last_probe_at:
+          type:
+            - integer
+            - "null"
+        last_error:
+          type: string
+        claimed_at:
+          type:
+            - integer
+            - "null"
+        updated_at:
+          type: integer
+          minimum: 0
     TaskEvent:
       type: object
       additionalProperties: false

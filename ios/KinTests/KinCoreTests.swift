@@ -96,6 +96,29 @@ final class KinCoreTests: XCTestCase {
         XCTAssertTrue(cancelled.isTerminal)
     }
 
+    func testTaskLimitWaitDecodes() throws {
+        let data = Data("""
+        {
+          "task_id": "t1",
+          "event_epoch": 2,
+          "user_seq": 8,
+          "agent": "claude-code",
+          "provider": "claude",
+          "state": "waiting",
+          "attempts": 3,
+          "next_probe_at": 1767225600000,
+          "first_wait_at": 1767225500000,
+          "updated_at": 1767225550000
+        }
+        """.utf8)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let wait = try decoder.decode(TaskLimitWait.self, from: data)
+        XCTAssertEqual(wait.taskId, "t1")
+        XCTAssertEqual(wait.state, "waiting")
+        XCTAssertEqual(wait.attempts, 3)
+    }
+
     private func makeTask(status: TaskStatus) -> KinTask {
         KinTask(
             id: "t1",

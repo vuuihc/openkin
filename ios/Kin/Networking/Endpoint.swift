@@ -10,6 +10,7 @@ enum Endpoint {
     case createTask
     case task(id: String)
     case taskEvents(id: String, sinceSeq: Int?)
+    case taskLimitWait(id: String)
     case taskUsage(id: String)
     case cancelTask(id: String)
     case deleteTask(id: String)
@@ -60,6 +61,7 @@ enum Endpoint {
         switch self {
         case .health, .version, .agents, .recentCwds, .tasks, .task,
              .taskEvents, .taskUsage, .approvals, .userQuestions, .workspaces,
+             .taskLimitWait,
              .workspaceDiff, .workspaceFile, .workspaceTree, .artifacts,
              .artifact, .artifactContent, .projects, .project, .onePager,
              .projectPulse, .projectTasks, .projectArtifacts, .routines,
@@ -102,6 +104,8 @@ enum Endpoint {
             return "/api/tasks/\(id)"
         case .taskEvents(let id, _):
             return "/api/tasks/\(id)/events"
+        case .taskLimitWait(let id):
+            return "/api/tasks/\(id)/limit-wait"
         case .taskUsage(let id):
             return "/api/tasks/\(id)/usage"
         case .cancelTask(let id):

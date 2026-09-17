@@ -235,6 +235,24 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 /** Payload for event type "limit_hit" (provider rate limit / quota). */
+export type TaskLimitWait = {
+  task_id: string;
+  event_epoch: number;
+  user_seq: number;
+  agent?: string;
+  provider?: string;
+  window?: string;
+  reset_at?: number;
+  state: "waiting" | "probing" | "retrying" | "completed" | "canceled" | "blocked" | string;
+  attempts: number;
+  next_probe_at: number;
+  first_wait_at: number;
+  last_probe_at?: number | null;
+  last_error?: string;
+  claimed_at?: number | null;
+  updated_at: number;
+};
+
 export type LimitHit = {
   kind?: string;
   message?: string;
@@ -326,6 +344,7 @@ export function listTasks(params?: {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);
   if (params?.limit) q.set("limit", String(params.limit));
+  q.set("page", "1");
   if (params?.before) q.set("before", params.before);
   if (params?.q?.trim()) q.set("q", params.q.trim());
   const qs = q.toString();
@@ -649,6 +668,15 @@ export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
   return apiFetch<TaskEvent[]>(`/api/tasks/${encodeURIComponent(id)}/events${q}`);
 }
 
+export async function getTaskLimitWait(id: string): Promise<TaskLimitWait | null> {
+  try {
+    return await apiFetch<TaskLimitWait>(`/api/tasks/${encodeURIComponent(id)}/limit-wait`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 export function listApprovals(status?: string): Promise<Approval[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
   return apiFetch<Approval[]>(`/api/approvals${q}`);
@@ -969,6 +997,18 @@ export type Routine = {
   consec_failures: number;
   created_at: number;
   title: string;
+  missed_run_policy: "coalesce" | "skip" | string;
+  lane: string;
+  claim_until_at?: number;
+  last_outcome?: string;
+  last_error?: string;
+};
+
+export type RoutinePage = {
+  routines: Routine[];
+  next_cursor?: string;
+  has_more: boolean;
+  runs?: Task[];
 };
 
 export type CreateRoutineBody = {
@@ -981,6 +1021,8 @@ export type CreateRoutineBody = {
   interval_secs: number;
   enabled?: boolean;
   next_due_at?: number;
+  missed_run_policy?: "coalesce" | "skip";
+  lane?: string;
 };
 
 export type PatchRoutineBody = {
@@ -993,21 +1035,28 @@ export type PatchRoutineBody = {
   interval_secs?: number;
   enabled?: boolean;
   next_due_at?: number;
+  missed_run_policy?: "coalesce" | "skip";
+  lane?: string;
 };
 
 export function listRoutines(params?: {
   project_id?: string;
   enabled?: boolean;
   limit?: number;
+  cursor?: string;
+  q?: string;
   runs?: boolean;
-}): Promise<Routine[] | { routines: Routine[]; runs: Task[] }> {
+}): Promise<RoutinePage> {
   const q = new URLSearchParams();
+  q.set("page", "1");
   if (params?.project_id) q.set("project_id", params.project_id);
   if (params?.enabled != null) q.set("enabled", params.enabled ? "true" : "false");
   if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.cursor) q.set("cursor", params.cursor);
+  if (params?.q) q.set("q", params.q);
   if (params?.runs) q.set("runs", "1");
   const qs = q.toString();
-  return apiFetch(`/api/routines${qs ? `?${qs}` : ""}`);
+  return apiFetch<RoutinePage>(`/api/routines${qs ? `?${qs}` : ""}`);
 }
 
 export function getRoutine(id: string): Promise<Routine> {
@@ -1058,7 +1107,7 @@ export function markAllRoutineRunsRead(): Promise<{ marked: number }> {
 }
 
 export function listRoutineRuns(limit = 50): Promise<Task[]> {
-  return apiFetch<{ routines: Routine[]; runs: Task[] }>(
+  return apiFetch<RoutinePage>(
     `/api/routines?runs=1&runs_limit=${limit}`,
   ).then((r) => r.runs ?? []);
 }
@@ -1666,6 +1715,8 @@ export type RoutingDefaults = {
   max_attempts_per_step: number;
   terminal_limit_policy: string;
   manual_fallback: boolean;
+  quality_floor?: "light" | "medium" | "heavy" | "";
+  force_phases?: string[];
 };
 
 export type RoutingProviderProfile = {
@@ -1735,6 +1786,8 @@ export function getRoutingPreview(params: {
   agent?: string;
   provider?: string;
   model?: string;
+  prompt?: string;
+  routine?: boolean;
 }): Promise<RoutingPreview> {
   const q = new URLSearchParams({ mode: params.mode });
   if (params.team) q.set("team", params.team);
@@ -1742,6 +1795,8 @@ export function getRoutingPreview(params: {
   if (params.agent) q.set("agent", params.agent);
   if (params.provider) q.set("provider", params.provider);
   if (params.model) q.set("model", params.model);
+  if (params.prompt) q.set("prompt", params.prompt);
+  if (params.routine) q.set("routine", "1");
   return apiFetch<RoutingPreview>(`/api/routing/preview?${q.toString()}`);
 }
 

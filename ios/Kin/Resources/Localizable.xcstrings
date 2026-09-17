@@ -341,6 +341,40 @@
         }
       }
     },
+    "task.attempts_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld attempt(s)"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 次尝试"
+          }
+        }
+      }
+    },
+    "task.automatic_retry" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic retry"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动重试"
+          }
+        }
+      }
+    },
     "task.create" : {
       "extractionState" : "manual",
       "localizations" : {

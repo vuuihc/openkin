@@ -1,9 +1,12 @@
 package store
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 17
+const schemaVersion = 19
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -194,9 +197,16 @@ CREATE TABLE routines (
   next_due_at      INTEGER NOT NULL,
   consec_failures  INTEGER NOT NULL DEFAULT 0,
   created_at       INTEGER NOT NULL,
-  title            TEXT NOT NULL DEFAULT ''
+  title            TEXT NOT NULL DEFAULT '',
+  missed_run_policy TEXT NOT NULL DEFAULT 'coalesce',
+  lane             TEXT NOT NULL DEFAULT 'routine',
+  claim_token      TEXT NOT NULL DEFAULT '',
+  claim_until_at   INTEGER NOT NULL DEFAULT 0,
+  last_outcome     TEXT NOT NULL DEFAULT '',
+  last_error       TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX idx_routines_due ON routines(enabled, next_due_at);
+CREATE INDEX idx_routines_due_claim ON routines(enabled, next_due_at, claim_until_at, id);
 CREATE INDEX idx_routines_project ON routines(project_id);
 CREATE INDEX idx_tasks_routine ON tasks(routine_id, id DESC);
 CREATE INDEX idx_tasks_routine_unread ON tasks(routine_unread, id DESC) WHERE routine_id IS NOT NULL;
@@ -289,6 +299,26 @@ CREATE TABLE IF NOT EXISTS retry_restore_intents (
   base_oid                 TEXT NOT NULL DEFAULT '',
   created_at               INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS task_limit_waits (
+  task_id       TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  event_epoch   INTEGER NOT NULL DEFAULT 0,
+  user_seq      INTEGER NOT NULL DEFAULT 0,
+  agent         TEXT NOT NULL DEFAULT '',
+  provider      TEXT NOT NULL DEFAULT '',
+  window        TEXT NOT NULL DEFAULT '',
+  reset_at      INTEGER NOT NULL DEFAULT 0,
+  state         TEXT NOT NULL DEFAULT 'waiting',
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_probe_at INTEGER NOT NULL,
+  first_wait_at INTEGER NOT NULL,
+  last_probe_at INTEGER,
+  last_error    TEXT NOT NULL DEFAULT '',
+  claimed_at    INTEGER,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_limit_waits_due
+ON task_limit_waits(state, next_probe_at, task_id);
 
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
@@ -1101,6 +1131,108 @@ ON device_credentials(revoked_at, created_at DESC);
 			return fmt.Errorf("commit migration 017: %w", err)
 		}
 		v = 17
+	}
+
+	if v == 17 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 018: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS task_limit_waits (
+  task_id       TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  event_epoch   INTEGER NOT NULL DEFAULT 0,
+  user_seq      INTEGER NOT NULL DEFAULT 0,
+  agent         TEXT NOT NULL DEFAULT '',
+  provider      TEXT NOT NULL DEFAULT '',
+  window        TEXT NOT NULL DEFAULT '',
+  reset_at      INTEGER NOT NULL DEFAULT 0,
+  state         TEXT NOT NULL DEFAULT 'waiting',
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_probe_at INTEGER NOT NULL,
+  first_wait_at INTEGER NOT NULL,
+  last_probe_at INTEGER,
+  last_error    TEXT NOT NULL DEFAULT '',
+  claimed_at    INTEGER,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_limit_waits_due
+ON task_limit_waits(state, next_probe_at, task_id);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 018 task limit waits: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 18`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 018: %w", err)
+		}
+		v = 18
+	}
+
+	if v == 18 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 019: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS routines (
+  id TEXT PRIMARY KEY,
+  project_id TEXT REFERENCES projects(id),
+  cwd TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  permission_mode TEXT NOT NULL DEFAULT 'default',
+  prompt TEXT NOT NULL,
+  interval_secs INTEGER NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_run_at INTEGER,
+  next_due_at INTEGER NOT NULL,
+  consec_failures INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  title TEXT NOT NULL DEFAULT ''
+);`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 019 ensure routines: %w", err)
+		}
+		for _, q := range []string{
+			`missed_run_policy TEXT NOT NULL DEFAULT 'coalesce'`,
+			`lane TEXT NOT NULL DEFAULT 'routine'`,
+			`claim_token TEXT NOT NULL DEFAULT ''`,
+			`claim_until_at INTEGER NOT NULL DEFAULT 0`,
+			`last_outcome TEXT NOT NULL DEFAULT ''`,
+			`last_error TEXT NOT NULL DEFAULT ''`,
+		} {
+			var exists int
+			name := strings.Fields(q)[0]
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = ?`, name).Scan(&exists); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration 019 inspect routine column: %w", err)
+			}
+			if exists != 0 {
+				continue
+			}
+			if _, err := tx.Exec(`ALTER TABLE routines ADD COLUMN ` + q); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration 019 routine columns: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`
+CREATE INDEX IF NOT EXISTS idx_routines_due_claim
+ON routines(enabled, next_due_at, claim_until_at, id);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 019 routine due index: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 19`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 019: %w", err)
+		}
+		v = 19
 	}
 
 	return nil

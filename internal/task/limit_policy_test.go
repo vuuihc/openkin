@@ -152,3 +152,95 @@ func TestRecoverLimitWaitsRearms(t *testing.T) {
 		t.Fatalf("expected re-armed continue, calls before=%d after=%d", callsBefore, ad.calls)
 	}
 }
+
+func TestLimitWaitSurvivesEngineRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kin.db")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ad := &multiRunAdapter{}
+	e1 := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, NewBus(), 2)
+	ctx := context.Background()
+	task, err := e1.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e1, task.ID, StatusFailed, 3*time.Second)
+	future := time.Now().Add(24 * time.Hour).Unix()
+	if _, err := e1.LimitContinue(ctx, task.ID, LimitContinueRequest{Action: "wait", ResetAt: future}); err != nil {
+		t.Fatal(err)
+	}
+	wait, err := st.GetTaskLimitWait(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wait.State != "waiting" || wait.ResetAt != future {
+		t.Fatalf("unexpected durable wait: %+v", wait)
+	}
+	e1.Close()
+
+	e2 := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": ad}, NewBus(), 2)
+	defer func() {
+		e2.Close()
+		_ = st.Close()
+	}()
+	if err := e2.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	wait.NextProbeAt = time.Now().Add(-time.Second).UnixMilli()
+	wait.ResetAt = time.Now().Add(-time.Second).Unix()
+	if err := st.UpdateTaskLimitWait(ctx, wait); err != nil {
+		t.Fatal(err)
+	}
+	e2.cancelLimitWait(task.ID)
+	e2.recoverLimitWaits(ctx)
+	final := waitStatus(t, e2, task.ID, StatusSucceeded, 8*time.Second)
+	if final.Status != StatusSucceeded || ad.calls < 2 {
+		t.Fatalf("restart recovery status=%s calls=%d", final.Status, ad.calls)
+	}
+}
+
+func TestUnknownLimitWaitBecomesVisibleBlocked(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": &multiRunAdapter{}}, NewBus(), 2)
+	defer e.Close()
+	ctx := context.Background()
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusFailed, 3*time.Second)
+	if _, err := e.LimitContinue(ctx, task.ID, LimitContinueRequest{Action: "wait"}); err != nil {
+		t.Fatal(err)
+	}
+	wait, err := st.GetTaskLimitWait(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait.FirstWaitAt = time.Now().Add(-time.Hour).UnixMilli()
+	wait.ResetAt = 0
+	wait.NextProbeAt = time.Now().Add(-time.Second).UnixMilli()
+	if err := st.SetSetting(ctx, KeyLimitWaitMaxElapsedSecs, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateTaskLimitWait(ctx, wait); err != nil {
+		t.Fatal(err)
+	}
+	e.cancelLimitWait(task.ID)
+	e.recoverLimitWaits(ctx)
+	// The timer is asynchronous; the durable state is the contract.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		wait, err = st.GetTaskLimitWait(ctx, task.ID)
+		if err == nil && wait.State == "blocked" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("wait did not become blocked: %+v", wait)
+}

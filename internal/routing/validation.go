@@ -194,6 +194,22 @@ func ValidateRoutingDefaults(d RoutingDefaults, teamExists func(string) bool) er
 	if d.MaxAttemptsPerStep < 0 {
 		return fmt.Errorf("max_attempts_per_step must be >= 0")
 	}
+	if d.QualityFloor != "" && NormalizeQualityFloor(d.QualityFloor) == "" {
+		return fmt.Errorf("unknown quality_floor %q", d.QualityFloor)
+	}
+	seenPhases := make(map[RoutePhase]bool, len(d.ForcePhases))
+	for _, phase := range d.ForcePhases {
+		if !ValidRoutePhase(phase) {
+			return fmt.Errorf("unknown forced phase %q", phase)
+		}
+		if seenPhases[phase] {
+			return fmt.Errorf("duplicate forced phase %q", phase)
+		}
+		seenPhases[phase] = true
+	}
+	if len(d.ForcePhases) > 0 && !seenPhases[PhaseExecute] {
+		return fmt.Errorf("forced phases must include %q", PhaseExecute)
+	}
 	switch d.TerminalLimitPolicy {
 	case "wait", "ask", "switch", "":
 	default:

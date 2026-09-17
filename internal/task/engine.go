@@ -554,17 +554,19 @@ func (e *Engine) resolveProviderCfg(ctx context.Context, providerID string) (ada
 // team-configured agents and the route decisions for audit.
 func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePlan, []routing.RouteDecision, error) {
 	sel := parseDispatch(t.Dispatch)
+	defaults, err := e.loadRoutingDefaults(ctx)
+	if err != nil {
+		return DelegatePlan{}, nil, err
+	}
 	if sel.Mode != "auto" || sel.Team == "" {
 		// When dispatch is absent, try routing.defaults.
-		defaults, err := e.loadRoutingDefaults(ctx)
-		if err != nil {
-			return DelegatePlan{}, nil, err
-		}
 		if !defaults.Enabled || defaults.DefaultTeam == "" {
 			return DelegatePlan{}, nil, fmt.Errorf("not an auto dispatch")
 		}
 		sel.Mode = "auto"
 		sel.Team = defaults.DefaultTeam
+		sel.Objective = defaults.Objective
+	} else if sel.Objective == "" {
 		sel.Objective = defaults.Objective
 	}
 	if e.routingResolver == nil {
@@ -573,20 +575,24 @@ func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePl
 
 	objective := sel.Objective
 	if objective == "" {
-		objective = "balanced"
+		objective = string(routing.ObjectiveBalanced)
 	}
 
-	phases := []routing.RoutePhase{routing.PhasePlan, routing.PhaseExecute, routing.PhaseReview}
+	prompt := UserTurnPrompt(t.Prompt)
+	complexity := routing.ClassifyPrompt(prompt, t.RoutineID != "")
+	phases := routing.PhasesFor(complexity, defaults.ForcePhases)
 	var steps []DelegateStep
 	var decisions []routing.RouteDecision
 
 	for _, phase := range phases {
 		req := routing.ResolveRequest{
-			TaskID:    t.ID,
-			Team:      sel.Team,
-			Objective: objective,
-			Phase:     phase,
-			Prompt:    UserTurnPrompt(t.Prompt),
+			TaskID:       t.ID,
+			Team:         sel.Team,
+			Objective:    objective,
+			Phase:        phase,
+			Prompt:       prompt,
+			Routine:      t.RoutineID != "",
+			QualityFloor: defaults.QualityFloor,
 		}
 		dec, err := e.routingResolver.Resolve(ctx, req)
 		if err != nil {
@@ -598,7 +604,7 @@ func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePl
 			continue
 		}
 
-		instruction := phaseInstruction(phase, UserTurnPrompt(t.Prompt))
+		instruction := phaseInstruction(phase, prompt)
 		steps = append(steps, DelegateStep{
 			Agent:       dec.Agent,
 			Model:       dec.Model,
@@ -609,16 +615,24 @@ func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePl
 		})
 
 		decisions = append(decisions, routing.RouteDecision{
-			Type:      routing.RouteDecisionType,
-			Team:      sel.Team,
-			Objective: objective,
-			Phase:     phase,
-			Agent:     dec.Agent,
-			Provider:  dec.Provider,
-			Model:     dec.Model,
-			Tier:      dec.Tier,
-			Reason:    dec.Reason,
-			Skipped:   dec.Skipped,
+			Type:         routing.RouteDecisionType,
+			Team:         sel.Team,
+			Objective:    objective,
+			Phase:        phase,
+			Agent:        dec.Agent,
+			Provider:     dec.Provider,
+			Model:        dec.Model,
+			Tier:         dec.Tier,
+			Reason:       dec.Reason,
+			Skipped:      dec.Skipped,
+			QualityFloor: dec.QualityFloor,
+			Complexity: func() *routing.Complexity {
+				c := dec.Complexity
+				return &c
+			}(),
+			CostLabel:  dec.CostLabel,
+			Score:      dec.Score,
+			ScoreParts: dec.ScoreParts,
 		})
 	}
 
@@ -627,8 +641,8 @@ func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePl
 	}
 
 	plan := DelegatePlan{
-		Overview: UserTurnPrompt(t.Prompt),
-		Raw:      UserTurnPrompt(t.Prompt),
+		Overview: prompt,
+		Raw:      prompt,
 		Steps:    steps,
 	}
 	return plan, decisions, nil
@@ -696,16 +710,24 @@ func (e *Engine) emitRouteFallbackWithExecution(
 	next routing.Decision,
 ) {
 	d := routing.RouteDecision{
-		Type:      routing.RouteFallbackType,
-		Team:      next.Team,
-		Objective: next.Objective,
-		Phase:     next.Phase,
-		Agent:     next.Agent,
-		Provider:  next.Provider,
-		Model:     next.Model,
-		Tier:      next.Tier,
-		Reason:    next.Reason,
-		Skipped:   next.Skipped,
+		Type:         routing.RouteFallbackType,
+		Team:         next.Team,
+		Objective:    next.Objective,
+		Phase:        next.Phase,
+		Agent:        next.Agent,
+		Provider:     next.Provider,
+		Model:        next.Model,
+		Tier:         next.Tier,
+		Reason:       next.Reason,
+		Skipped:      next.Skipped,
+		QualityFloor: next.QualityFloor,
+		Complexity: func() *routing.Complexity {
+			c := next.Complexity
+			return &c
+		}(),
+		CostLabel:  next.CostLabel,
+		Score:      next.Score,
+		ScoreParts: next.ScoreParts,
 		FallbackFrom: &routing.FallbackSource{
 			Provider: f.Provider,
 			Model:    f.Model,

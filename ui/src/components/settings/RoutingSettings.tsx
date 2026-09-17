@@ -29,6 +29,8 @@ export function RoutingDefaultsSection() {
   const [maxAttempts, setMaxAttempts] = useState(3);
   const [terminalPolicy, setTerminalPolicy] = useState("ask");
   const [manualFallback, setManualFallback] = useState(false);
+  const [qualityFloor, setQualityFloor] = useState<"" | "light" | "medium" | "heavy">("");
+  const [forcePhases, setForcePhases] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -43,6 +45,11 @@ export function RoutingDefaultsSection() {
       setMaxAttempts(d.max_attempts_per_step);
       setTerminalPolicy(d.terminal_limit_policy || "ask");
       setManualFallback(d.manual_fallback);
+      const floor = d.quality_floor;
+      setQualityFloor(
+        floor === "light" || floor === "medium" || floor === "heavy" ? floor : "",
+      );
+      setForcePhases(d.force_phases ?? []);
     } catch {
       // ignore
     }
@@ -64,6 +71,8 @@ export function RoutingDefaultsSection() {
         max_attempts_per_step: maxAttempts,
         terminal_limit_policy: terminalPolicy,
         manual_fallback: manualFallback,
+        quality_floor: qualityFloor,
+        force_phases: forcePhases,
       });
       setSaved(true);
     } catch (e) {
@@ -131,6 +140,54 @@ export function RoutingDefaultsSection() {
               <option value="intelligent-max">{tr("settings.routing.objectiveIntelligentMax")}</option>
             </select>
           </label>
+
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.routing.qualityFloor")}
+            </span>
+            <select
+              value={qualityFloor}
+              onChange={(e) => {
+                const value = e.target.value;
+                setQualityFloor(
+                  value === "light" || value === "medium" || value === "heavy" ? value : "",
+                );
+              }}
+              className="kin-input min-h-[44px]"
+            >
+              <option value="">{tr("settings.routing.qualityFloorAdaptive")}</option>
+              <option value="light">{tr("settings.routing.qualityFloorLight")}</option>
+              <option value="medium">{tr("settings.routing.qualityFloorMedium")}</option>
+              <option value="heavy">{tr("settings.routing.qualityFloorHeavy")}</option>
+            </select>
+          </label>
+
+          <fieldset className="space-y-2">
+            <legend className="text-xs font-medium text-kin-secondary">
+              {tr("settings.routing.forcePhases")}
+            </legend>
+            <p className="text-[11px] text-kin-muted">
+              {tr("settings.routing.forcePhasesHint")}
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {(["plan", "execute", "review"] as const).map((phase) => (
+                <label key={phase} className="flex items-center gap-2 text-xs text-kin-secondary">
+                  <input
+                    type="checkbox"
+                    checked={forcePhases.includes(phase)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setForcePhases((current) => [...current, phase]);
+                      } else {
+                        setForcePhases((current) => current.filter((item) => item !== phase));
+                      }
+                    }}
+                  />
+                  {tr(`settings.routing.phase${phase[0].toUpperCase()}${phase.slice(1)}` as "settings.routing.phasePlan")}
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           <label className="block space-y-1">
             <span className="text-xs font-medium text-kin-secondary">

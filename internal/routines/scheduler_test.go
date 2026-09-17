@@ -140,3 +140,39 @@ func TestTickConcurrentSafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestTickReservesOnlyInteractiveSlotWhenEngineHasOneWorker(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	e := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"kin": stubAdapter{}}, task.NewBus(), 1)
+	t.Cleanup(e.Close)
+	now := time.Now()
+	ctx := context.Background()
+	if err := st.InsertRoutine(ctx, store.Routine{
+		ID: "r1", Cwd: t.TempDir(), Agent: "kin", Prompt: "p",
+		IntervalSecs: 60, Enabled: true, NextDueAt: now.UnixMilli() - 1, CreatedAt: now.UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sch := &Scheduler{Store: st, Engine: e, TotalConcurrency: 1}
+	if err := sch.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := st.ListTasks(ctx, store.ListTasksOpts{RoutineID: "r1", Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("routine consumed the only worker slot: %d runs", len(runs))
+	}
+	health, err := st.RoutineHealthSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health.DueBacklog != 1 {
+		t.Fatalf("due backlog=%d want 1", health.DueBacklog)
+	}
+}

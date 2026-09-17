@@ -150,6 +150,21 @@ type Preview struct {
 // It uses the same candidate expansion as the resolver so preview always
 // matches what the resolver would select.
 func BuildAutoPreview(team TeamProfile, objective DispatchObjective, providers []ProviderProfile) Preview {
+	return BuildAutoPreviewWithMetadata(team, objective, providers, "", false, "", nil)
+}
+
+// BuildAutoPreviewWithMetadata previews the same adaptive phase and quality
+// rules used by task execution. Prompt text is classified locally and never
+// sent to a provider.
+func BuildAutoPreviewWithMetadata(
+	team TeamProfile,
+	objective DispatchObjective,
+	providers []ProviderProfile,
+	prompt string,
+	routine bool,
+	qualityFloor string,
+	forcedPhases []RoutePhase,
+) Preview {
 	preview := Preview{
 		Mode:      DispatchAuto,
 		Team:      team.ID,
@@ -170,13 +185,21 @@ func BuildAutoPreview(team TeamProfile, objective DispatchObjective, providers [
 		}
 	}
 
-	// Sort phases for deterministic output.
-	phaseOrder := []RoutePhase{PhasePlan, PhaseExecute, PhaseReview, PhaseChat}
-	preview.Phases = make([]PreviewPhase, 0, len(team.Phases))
+	complexity := ClassifyPrompt(prompt, routine)
+	floor := NormalizeQualityFloor(qualityFloor)
+	if floor == "" {
+		floor = complexity.Floor
+	}
+	phases := PhasesFor(complexity, forcedPhases)
+	preview.Phases = make([]PreviewPhase, 0, len(phases))
 
-	for _, phase := range phaseOrder {
+	for _, phase := range phases {
 		pp, ok := team.Phases[phase]
 		if !ok {
+			if phase == PhaseExecute {
+				preview.Blocked = true
+				preview.BlockedReason = "Cannot resolve required execute phase"
+			}
 			continue
 		}
 
@@ -193,6 +216,26 @@ func BuildAutoPreview(team TeamProfile, objective DispatchObjective, providers [
 			preview.Blocked = true
 			preview.BlockedReason = "Cannot resolve provider/model for phase " + string(phase)
 		} else {
+			qualityCandidates := make([]candidate, 0, len(candidates))
+			for _, c := range candidates {
+				if qualityMeetsFloor(c.Tier, floor) {
+					qualityCandidates = append(qualityCandidates, c)
+				}
+			}
+			if len(qualityCandidates) == 0 {
+				p.Status = "blocked"
+				preview.Blocked = true
+				preview.BlockedReason = "No candidate meets quality floor " + string(floor)
+				preview.Phases = append(preview.Phases, p)
+				continue
+			}
+			candidates = qualityCandidates
+			sort.SliceStable(candidates, func(i, j int) bool {
+				if routine && costOrder(candidates[i].CostLabel) != costOrder(candidates[j].CostLabel) {
+					return costOrder(candidates[i].CostLabel) < costOrder(candidates[j].CostLabel)
+				}
+				return candidates[i].Priority < candidates[j].Priority
+			})
 			selected := candidates[0]
 			p.Provider = selected.ProviderID
 			p.Model = selected.ModelID

@@ -21,6 +21,7 @@ import {
   forkTask,
   markRoutineRunRead,
   getTaskUsage,
+  getTaskLimitWait,
   getToken,
   isTerminal,
   listAgents,
@@ -31,6 +32,7 @@ import {
   type AgentInfo,
   type LimitHit,
   type TaskUsage,
+  type TaskLimitWait,
   type Upload,
 } from "../api/client";
 import { liveResources } from "../api/liveResources";
@@ -114,6 +116,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           ? tr("task.loadFailed")
           : null;
   const [usage, setUsage] = useState<TaskUsage | null>(null);
+  const [limitWait, setLimitWait] = useState<TaskLimitWait | null>(null);
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
@@ -176,6 +179,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   useEffect(() => {
     lastObservedEventSeq.current = 0;
     setUsage(null);
+    setLimitWait(null);
     setFilesOpen(false);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
@@ -410,6 +414,13 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     // Terminal cards still render (actions hide themselves inside LimitCard).
     return hit;
   }, [events]);
+
+  useEffect(() => {
+    if (!task || !latestLimitHit) return;
+    void getTaskLimitWait(task.id)
+      .then(setLimitWait)
+      .catch(() => setLimitWait(null));
+  }, [task?.id, task?.status, latestLimitHit?.seq]);
 
   const needsYou = useMemo(() => {
     const a = approvals.map((item) => ({
@@ -953,6 +964,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   <div className="mt-2" key={`limit-${latestLimitHit.seq}`}>
                     <LimitCard
                       hit={latestLimitHit.payload}
+                      wait={limitWait}
                       hostAgentId={task.agent || ""}
                       agents={agents}
                       busy={limitBusy}

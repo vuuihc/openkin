@@ -98,7 +98,21 @@ func (s *Server) handleGetRoutingPreview(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		preview := routing.BuildAutoPreview(*team, objective, providerProfiles)
+		defaults, err := catalog.GetRoutingDefaults(ctx)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		routine := q.Get("routine") == "1" || q.Get("routine") == "true"
+		preview := routing.BuildAutoPreviewWithMetadata(
+			*team,
+			objective,
+			providerProfiles,
+			q.Get("prompt"),
+			routine,
+			defaults.QualityFloor,
+			defaults.ForcePhases,
+		)
 		writeJSON(w, http.StatusOK, preview)
 
 	case routing.DispatchManual:

@@ -154,6 +154,10 @@ type RoutingDefaults struct {
 	TerminalLimitPolicy string `json:"terminal_limit_policy"` // wait | ask | switch
 	// ManualFallback allows manual dispatch to auto-fallback when set to true.
 	ManualFallback bool `json:"manual_fallback"` // default false
+	// QualityFloor overrides the local classifier when set.
+	QualityFloor string `json:"quality_floor,omitempty"` // light | medium | heavy
+	// ForcePhases keeps an explicit phase plan for users who need it.
+	ForcePhases []RoutePhase `json:"force_phases,omitempty"`
 }
 
 // DefaultRoutingDefaults returns a sensible default configuration.
@@ -165,6 +169,7 @@ func DefaultRoutingDefaults() RoutingDefaults {
 		MaxAttemptsPerStep:  3,
 		TerminalLimitPolicy: "ask",
 		ManualFallback:      false,
+		QualityFloor:        "",
 	}
 }
 
@@ -254,6 +259,11 @@ type RouteDecision struct {
 	Reason       string             `json:"reason"`
 	FallbackFrom *FallbackSource    `json:"fallback_from,omitempty"`
 	Skipped      []SkippedCandidate `json:"candidates_skipped,omitempty"`
+	QualityFloor QualityFloor       `json:"quality_floor,omitempty"`
+	Complexity   *Complexity        `json:"complexity,omitempty"`
+	CostLabel    string             `json:"cost_label,omitempty"`
+	Score        float64            `json:"score,omitempty"`
+	ScoreParts   map[string]float64 `json:"score_parts,omitempty"`
 }
 
 // RouteDecisionType is the event type constant for route decisions.
@@ -268,24 +278,32 @@ const RouteFallbackType = "route_fallback"
 
 // ResolveRequest is the input to a routing resolution.
 type ResolveRequest struct {
-	TaskID    string
-	Team      string
-	Objective string
-	Phase     RoutePhase
-	Agent     string
-	Model     string
-	Tier      string
-	Prompt    string
+	TaskID       string
+	Team         string
+	Objective    string
+	Phase        RoutePhase
+	Agent        string
+	Model        string
+	Tier         string
+	Prompt       string
+	Routine      bool
+	QualityFloor string
 }
 
 // Decision is the output of a routing resolution.
 type Decision struct {
-	Agent    string
-	Provider string
-	Model    string
-	Tier     string
-	Reason   string
-	Skipped  []SkippedCandidate
+	Agent        string
+	Provider     string
+	Model        string
+	Tier         string
+	Reason       string
+	Skipped      []SkippedCandidate
+	QualityFloor QualityFloor
+	Complexity   Complexity
+	CostLabel    string
+	Score        float64
+	ScoreParts   map[string]float64
+	Routine      bool
 	// Team is the resolved team/profile id, carried for fallback.
 	Team string
 	// Phase is the phase this decision was resolved for, carried for fallback.

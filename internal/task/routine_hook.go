@@ -89,7 +89,11 @@ func (e *Engine) onRoutineTerminal(ctx context.Context, t store.Task, status str
 
 	if status == StatusSucceeded {
 		zero := 0
-		_ = e.store.UpdateRoutine(ctx, r.ID, store.RoutinePatch{ConsecFailures: &zero})
+		outcome := "succeeded"
+		empty := ""
+		_ = e.store.UpdateRoutine(ctx, r.ID, store.RoutinePatch{
+			ConsecFailures: &zero, LastOutcome: &outcome, LastError: &empty,
+		})
 		if noteworthy {
 			e.pushRoutine(ctx, t, true)
 		}
@@ -98,7 +102,11 @@ func (e *Engine) onRoutineTerminal(ctx context.Context, t store.Task, status str
 
 	// failed / canceled → bump consec_failures; auto-disable after N.
 	fails := r.ConsecFailures + 1
-	patchR := store.RoutinePatch{ConsecFailures: &fails}
+	outcome := "failed"
+	errText := "run " + status
+	patchR := store.RoutinePatch{
+		ConsecFailures: &fails, LastOutcome: &outcome, LastError: &errText,
+	}
 	tripped := fails >= store.RoutineMaxConsecFailures
 	if tripped {
 		off := false

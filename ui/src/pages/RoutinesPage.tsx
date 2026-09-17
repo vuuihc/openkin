@@ -78,6 +78,10 @@ function statusLabel(
 export default function RoutinesPage() {
   const tr = useT();
   const [routines, setRoutines] = useState<Routine[]>([]);
+  const [routineQuery, setRoutineQuery] = useState("");
+  const [routineCursor, setRoutineCursor] = useState("");
+  const [routineHasMore, setRoutineHasMore] = useState(false);
+  const [loadingMoreRoutines, setLoadingMoreRoutines] = useState(false);
   const [runs, setRuns] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,11 +109,13 @@ export default function RoutinesPage() {
     if (!getToken()) return;
     try {
       const [rs, feed, agentList] = await Promise.all([
-        listRoutines({ limit: 100 }) as Promise<Routine[]>,
+        listRoutines({ limit: 100, q: routineQuery.trim() || undefined }),
         listRoutineRuns(80),
         listAgents().catch(() => [] as AgentInfo[]),
       ]);
-      setRoutines(Array.isArray(rs) ? rs : []);
+      setRoutines(rs.routines ?? []);
+      setRoutineCursor(rs.next_cursor ?? "");
+      setRoutineHasMore(rs.has_more);
       setRuns(feed);
       setAgents(agentList);
       setAgentId((cur) => {
@@ -125,7 +131,26 @@ export default function RoutinesPage() {
     } finally {
       setLoading(false);
     }
-  }, [tr]);
+  }, [tr, routineQuery]);
+
+  const loadMoreRoutines = async () => {
+    if (!routineCursor || !routineHasMore || loadingMoreRoutines) return;
+    setLoadingMoreRoutines(true);
+    try {
+      const page = await listRoutines({
+        limit: 100,
+        cursor: routineCursor,
+        q: routineQuery.trim() || undefined,
+      });
+      setRoutines((current) => [...current, ...(page.routines ?? [])]);
+      setRoutineCursor(page.next_cursor ?? "");
+      setRoutineHasMore(page.has_more);
+    } catch (e) {
+      pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+    } finally {
+      setLoadingMoreRoutines(false);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -460,8 +485,17 @@ export default function RoutinesPage() {
           </section>
 
           <section className="mt-10">
-            <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-              {tr("routines.listSection")}
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+                {tr("routines.listSection")}
+              </div>
+              <input
+                value={routineQuery}
+                onChange={(e) => setRoutineQuery(e.target.value)}
+                placeholder={tr("routines.searchPlaceholder")}
+                aria-label={tr("routines.searchPlaceholder")}
+                className="min-h-[34px] w-full max-w-[260px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-[12px] text-kin-text outline-none focus:border-kin-blue/40"
+              />
             </div>
             {routines.length === 0 ? (
               <p className="text-[13px] text-kin-secondary">{tr("routines.emptyList")}</p>
@@ -528,6 +562,16 @@ export default function RoutinesPage() {
                   </li>
                 ))}
               </ul>
+            )}
+            {routineHasMore && (
+              <button
+                type="button"
+                onClick={() => void loadMoreRoutines()}
+                disabled={loadingMoreRoutines}
+                className="mt-3 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-secondary hover:bg-[var(--kin-fill)]"
+              >
+                {loadingMoreRoutines ? tr("tree.loadingMore") : tr("routines.loadMore")}
+              </button>
             )}
           </section>
         </>

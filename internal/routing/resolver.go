@@ -113,6 +113,31 @@ func (r *DefaultResolver) Resolve(ctx context.Context, req ResolveRequest) (Deci
 			req.Team, req.Phase, pp.Agent)
 	}
 
+	complexity := ClassifyPrompt(req.Prompt, req.Routine)
+	floor := NormalizeQualityFloor(req.QualityFloor)
+	if floor == "" {
+		floor = complexity.Floor
+	}
+	allCandidates := append([]candidate(nil), candidates...)
+	qualityCandidates := candidates[:0]
+	for _, c := range candidates {
+		if qualityMeetsFloor(c.Tier, floor) {
+			qualityCandidates = append(qualityCandidates, c)
+		}
+	}
+	if len(qualityCandidates) == 0 {
+		return Decision{}, fmt.Errorf("no candidate meets quality floor %q for team %q phase %q", floor, req.Team, req.Phase)
+	}
+	candidates = qualityCandidates
+	sort.SliceStable(candidates, func(i, j int) bool {
+		// Routine work is cost-sensitive by default, while interactive work
+		// keeps the configured provider priority as its first signal.
+		if req.Routine && costOrder(candidates[i].CostLabel) != costOrder(candidates[j].CostLabel) {
+			return costOrder(candidates[i].CostLabel) < costOrder(candidates[j].CostLabel)
+		}
+		return candidates[i].Priority < candidates[j].Priority
+	})
+
 	// Filter out exhausted windows.
 	available := r.filterExhausted(ctx, candidates, pp.Agent)
 	if len(available) == 0 {
@@ -120,18 +145,24 @@ func (r *DefaultResolver) Resolve(ctx context.Context, req ResolveRequest) (Deci
 	}
 
 	selected := available[0]
-	skipped := makeSkippedList(candidates, selected, available)
+	skipped := makeSkippedList(allCandidates, selected, available, floor)
 
 	return Decision{
-		Agent:     pp.Agent,
-		Provider:  selected.ProviderID,
-		Model:     selected.ModelID,
-		Tier:      selected.Tier,
-		Reason:    fmt.Sprintf("selected from %d candidate(s) for team %q phase %q", len(candidates), req.Team, req.Phase),
-		Skipped:   skipped,
-		Team:      req.Team,
-		Phase:     req.Phase,
-		Objective: objective,
+		Agent:        pp.Agent,
+		Provider:     selected.ProviderID,
+		Model:        selected.ModelID,
+		Tier:         selected.Tier,
+		Reason:       fmt.Sprintf("selected from %d candidate(s) for team %q phase %q", len(candidates), req.Team, req.Phase),
+		Skipped:      skipped,
+		QualityFloor: floor,
+		Complexity:   complexity,
+		CostLabel:    selected.CostLabel,
+		Score:        scoreCandidate(selected, req),
+		ScoreParts:   scoreParts(selected, req),
+		Routine:      req.Routine,
+		Team:         req.Team,
+		Phase:        req.Phase,
+		Objective:    objective,
 	}, nil
 }
 
@@ -221,6 +252,9 @@ func (r *DefaultResolver) Next(ctx context.Context, previous Decision, failure F
 	// Remove the exact failed candidate and any previously exhausted models.
 	var baseCandidates []candidate
 	for _, c := range candidates {
+		if previous.QualityFloor != "" && !qualityMeetsFloor(c.Tier, previous.QualityFloor) {
+			continue
+		}
 		if c.ProviderID == failure.Provider && c.ModelID == failure.Model {
 			continue
 		}
@@ -264,8 +298,13 @@ func (r *DefaultResolver) Next(ctx context.Context, previous Decision, failure F
 				}
 			}
 		}
-		// Sort pool by priority (provider order), then tier.
+		// Routine and cost-min fallback keep the same cost preference as the
+		// primary route; interactive balanced fallback retains provider order.
 		sort.Slice(pool, func(i, j int) bool {
+			if (previous.Routine || objective == string(ObjectiveCostMin)) &&
+				costOrder(pool[i].CostLabel) != costOrder(pool[j].CostLabel) {
+				return costOrder(pool[i].CostLabel) < costOrder(pool[j].CostLabel)
+			}
 			if pool[i].Priority != pool[j].Priority {
 				return pool[i].Priority < pool[j].Priority
 			}
@@ -275,7 +314,7 @@ func (r *DefaultResolver) Next(ctx context.Context, previous Decision, failure F
 		available := r.filterExhausted(ctx, pool, previous.Agent)
 		if len(available) > 0 {
 			selected := available[0]
-			skipped := makeSkippedList(baseCandidates, selected, available)
+			skipped := makeSkippedList(baseCandidates, selected, available, previous.QualityFloor)
 
 			reason := fmt.Sprintf("fallback from %s/%s (step: %s): %s", failure.Provider, failure.Model, step, failure.Message)
 			if failure.Class != "" {
@@ -289,6 +328,12 @@ func (r *DefaultResolver) Next(ctx context.Context, previous Decision, failure F
 				Tier:            selected.Tier,
 				Reason:          reason,
 				Skipped:         skipped,
+				QualityFloor:    previous.QualityFloor,
+				Complexity:      previous.Complexity,
+				CostLabel:       selected.CostLabel,
+				Score:           scoreCandidate(selected, ResolveRequest{Objective: objective, Routine: previous.Routine}),
+				ScoreParts:      scoreParts(selected, ResolveRequest{Objective: objective, Routine: previous.Routine}),
+				Routine:         previous.Routine,
 				Team:            previous.Team,
 				Phase:           previous.Phase,
 				Objective:       objective,
@@ -342,6 +387,25 @@ type candidate struct {
 	CostLabel  string
 	Priority   int    // lower = higher priority in provider_priority list
 	Kind       string // routing provider kind
+}
+
+func scoreCandidate(c candidate, req ResolveRequest) float64 {
+	score := float64(c.Priority)
+	if req.Routine {
+		score += float64(costOrder(c.CostLabel)) * 10
+	}
+	if req.Objective == string(ObjectiveCostMin) {
+		score += float64(costOrder(c.CostLabel)) * 10
+	}
+	return -score
+}
+
+func scoreParts(c candidate, req ResolveRequest) map[string]float64 {
+	parts := map[string]float64{"priority": float64(c.Priority)}
+	if req.Routine || req.Objective == string(ObjectiveCostMin) {
+		parts["cost_order"] = float64(costOrder(c.CostLabel))
+	}
+	return parts
 }
 
 // expandCandidates generates ordered candidates for a phase policy.
@@ -421,7 +485,7 @@ func allowsLowerTierFallback(fallbacks []string) bool {
 	return false
 }
 
-func makeSkippedList(all []candidate, selected candidate, available []candidate) []SkippedCandidate {
+func makeSkippedList(all []candidate, selected candidate, available []candidate, floor QualityFloor) []SkippedCandidate {
 	skipped := make([]SkippedCandidate, 0, len(all)-1)
 	seen := make(map[string]bool, len(all))
 	for _, c := range all {
@@ -434,6 +498,9 @@ func makeSkippedList(all []candidate, selected candidate, available []candidate)
 		}
 		seen[key] = true
 		reason := "lower priority"
+		if floor != "" && !qualityMeetsFloor(c.Tier, floor) {
+			reason = fmt.Sprintf("below quality floor %q", floor)
+		}
 		// Check if it was in the available list.
 		found := false
 		for _, a := range available {
@@ -442,7 +509,7 @@ func makeSkippedList(all []candidate, selected candidate, available []candidate)
 				break
 			}
 		}
-		if !found {
+		if !found && reason == "lower priority" {
 			reason = "window exhausted or unavailable"
 		}
 		skipped = append(skipped, SkippedCandidate{

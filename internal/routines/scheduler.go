@@ -6,10 +6,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/store"
@@ -41,6 +43,16 @@ type Scheduler struct {
 	Clock func() time.Time
 	// Logf optional; defaults to log.Printf.
 	Logf func(format string, args ...any)
+	// Concurrency bounds Routine work independently from interactive tasks.
+	// Zero means one, preserving an interactive slot in the shared engine.
+	Concurrency int
+	// TotalConcurrency is the task engine limit. One slot is reserved for
+	// interactive work whenever the engine has more than one slot.
+	TotalConcurrency int
+
+	mu        sync.Mutex
+	tickMu    sync.Mutex
+	lastError string
 }
 
 // StartLoop runs Tick every interval until ctx is done.
@@ -79,23 +91,68 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if s == nil || s.Store == nil || s.Engine == nil {
 		return nil
 	}
+	s.tickMu.Lock()
+	defer s.tickMu.Unlock()
+
 	now := s.now()
 	nowMs := now.UnixMilli()
-	due, err := s.Store.ListDueRoutines(ctx, nowMs, 50)
+	limit := s.Concurrency
+	if limit <= 0 {
+		limit = 1
+	}
+	if s.TotalConcurrency == 1 {
+		// There is no background capacity without stealing the only
+		// interactive slot. Leave the due row visible as backlog instead.
+		return nil
+	}
+	if s.TotalConcurrency > 1 && limit >= s.TotalConcurrency {
+		limit = s.TotalConcurrency - 1
+	}
+	inFlight, err := s.Store.CountRoutineInFlight(ctx)
 	if err != nil {
+		s.recordError(err)
+		return err
+	}
+	available := limit - inFlight
+	if available <= 0 {
+		return nil
+	}
+	due, err := s.Store.ListDueRoutines(ctx, nowMs, available*4)
+	if err != nil {
+		s.recordError(err)
 		return err
 	}
 	for _, r := range due {
-		if err := s.dispatch(ctx, r, now); err != nil {
+		if available <= 0 {
+			break
+		}
+		token := fmt.Sprintf("%d:%s", now.UnixNano(), r.ID)
+		claimed, err := s.Store.ClaimDueRoutine(ctx, r.ID, token, nowMs, int64(2*time.Minute/time.Millisecond))
+		if err != nil {
+			if errors.Is(err, store.ErrConflict) {
+				continue
+			}
+			s.recordError(err)
+			return err
+		}
+		available--
+		if err := s.dispatch(ctx, claimed, token, now); err != nil {
+			s.recordError(err)
 			s.logf("routines: dispatch %s: %v", r.ID, err)
-			// Still advance schedule so a permanent create error does not hot-loop.
-			_ = s.advanceSchedule(ctx, r, now)
 		}
 	}
 	return nil
 }
 
-func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, now time.Time) error {
+func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string, now time.Time) error {
+	next := s.nextDue(r, now)
+	if strings.EqualFold(r.MissedRunPolicy, "skip") &&
+		now.UnixMilli()-r.NextDueAt > r.IntervalSecs*1000 {
+		if err := s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "skipped", "missed run coalesced by skip policy"); err != nil {
+			return err
+		}
+		return nil
+	}
 	prompt := r.Prompt
 	if !strings.Contains(prompt, "noteworthy:") {
 		prompt = prompt + task.ReportSignalTrailer
@@ -116,17 +173,25 @@ func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, now time.Time
 		UserPrompt:     r.Prompt, // show original prompt without trailer in timeline
 	}
 	if _, err := s.Engine.Create(ctx, req); err != nil {
+		completeErr := s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "failed", err.Error())
+		if completeErr != nil {
+			return fmt.Errorf("create: %v; release claim: %w", err, completeErr)
+		}
 		return fmt.Errorf("create: %w", err)
 	}
-	return s.advanceSchedule(ctx, r, now)
+	return s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "dispatched", "")
 }
 
-// advanceSchedule sets last_run_at=now and next_due_at with bounded catch-up + jitter.
-func (s *Scheduler) advanceSchedule(ctx context.Context, r store.Routine, now time.Time) error {
+// nextDue applies explicit missed-run semantics. Both policies emit at most
+// one run after downtime; skip suppresses an overdue run, coalesce executes it.
+func (s *Scheduler) nextDue(r store.Routine, now time.Time) int64 {
 	nowMs := now.UnixMilli()
 	intervalMs := r.IntervalSecs * 1000
 	if intervalMs <= 0 {
 		intervalMs = 60_000
+	}
+	if strings.EqualFold(r.MissedRunPolicy, "coalesce") || strings.EqualFold(r.MissedRunPolicy, "skip") || r.MissedRunPolicy == "" {
+		return applyJitter(nowMs+intervalMs, intervalMs, JitterFraction)
 	}
 	next := r.NextDueAt
 	// Catch up at most MaxCatchUpSteps intervals past "now" so a long outage
@@ -141,10 +206,28 @@ func (s *Scheduler) advanceSchedule(ctx context.Context, r store.Routine, now ti
 		next = nowMs + intervalMs
 	}
 	next = applyJitter(next, intervalMs, JitterFraction)
-	return s.Store.UpdateRoutine(ctx, r.ID, store.RoutinePatch{
-		LastRunAt: &nowMs,
-		NextDueAt: &next,
-	})
+	return next
+}
+
+// Health returns scheduler backlog plus the latest scheduler error.
+func (s *Scheduler) Health(ctx context.Context) (store.RoutineHealth, error) {
+	health, err := s.Store.RoutineHealthSnapshot(ctx)
+	if err != nil {
+		return store.RoutineHealth{}, err
+	}
+	s.mu.Lock()
+	health.LastSchedulerError = s.lastError
+	s.mu.Unlock()
+	return health, nil
+}
+
+func (s *Scheduler) recordError(err error) {
+	if err == nil {
+		return
+	}
+	s.mu.Lock()
+	s.lastError = err.Error()
+	s.mu.Unlock()
 }
 
 func applyJitter(nextMs, intervalMs int64, fraction float64) int64 {

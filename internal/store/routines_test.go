@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -129,5 +131,83 @@ func TestTaskRoutineFieldsAndUnread(t *testing.T) {
 	n, _ = s.CountUnreadRoutineRuns(ctx)
 	if n != 0 {
 		t.Fatalf("unread after mark=%d", n)
+	}
+}
+
+func TestRoutineCursorSearchScalesBeyondLegacyCap(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	for i := 0; i < 10000; i++ {
+		if err := s.InsertRoutine(ctx, Routine{
+			ID:  "routine-" + fmt.Sprintf("%05d", i),
+			Cwd: "/tmp/project", Agent: "kin", Prompt: "audit repository",
+			IntervalSecs: 3600, Enabled: true, NextDueAt: now + int64(i),
+			CreatedAt: now + int64(i), Title: "Audit " + fmt.Sprintf("%05d", i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var cursor string
+	count := 0
+	for page := 0; page < 200; page++ {
+		result, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{
+			Limit: 137, Before: cursor, Query: "audit",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		count += len(result.Routines)
+		if !result.HasMore {
+			break
+		}
+		cursor = result.NextCursor
+		if cursor == "" {
+			t.Fatal("page reported more without cursor")
+		}
+	}
+	if count != 10000 {
+		t.Fatalf("count=%d want 10000", count)
+	}
+}
+
+func TestListRoutinesPageCursorSurvivesDeletedRow(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := time.Now().UnixMilli()
+	for i := 0; i < 3; i++ {
+		if err := s.InsertRoutine(ctx, Routine{
+			ID:  "cursor-routine-" + fmt.Sprintf("%d", i),
+			Cwd: "/tmp", Agent: "kin", Prompt: "cursor",
+			IntervalSecs: 60, Enabled: true, NextDueAt: now,
+			CreatedAt: now + int64(i), Title: "Cursor",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.HasMore || len(first.Routines) != 2 {
+		t.Fatalf("first page = %+v", first)
+	}
+	if err := s.DeleteRoutine(ctx, first.Routines[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.ListRoutinesPage(ctx, ListRoutinesOpts{Limit: 2, Before: first.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(next.Routines) != 1 || next.Routines[0].ID == first.Routines[0].ID {
+		t.Fatalf("next page after deletion = %+v", next)
 	}
 }
