@@ -180,6 +180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/browser/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["runBrowserAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{taskId}": {
         parameters: {
             query?: never;
@@ -502,6 +518,21 @@ export interface components {
             agent?: string;
             model?: string;
             permission_mode?: string;
+        };
+        BrowserAction: {
+            /** @enum {string} */
+            type: "navigate" | "click" | "fill" | "press" | "download" | "upload" | "screenshot";
+            url?: string;
+            selector?: string;
+            value?: string;
+            key?: string;
+            path?: string;
+            filename?: string;
+            name?: string;
+            side_effect?: boolean;
+            sensitive?: boolean;
+        } & {
+            [key: string]: unknown;
         };
         ApprovalDecisionRequest: {
             /** @enum {string} */
@@ -963,6 +994,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+        };
+    };
+    runBrowserAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserAction"];
+            };
+        };
+        responses: {
+            /** @description Browser action completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        task_id: string;
+                        /** @constant */
+                        status: "completed";
+                    };
+                };
+            };
+            /** @description Invalid action or worker failure */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Another browser action is already running for the task */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Browser worker is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

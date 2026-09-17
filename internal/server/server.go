@@ -20,6 +20,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/api"
+	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
@@ -249,6 +250,13 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err := eng.Start(context.Background()); err != nil {
 		return err
 	}
+	browser, err := configureBrowserWorker(stateDir, st, eng, taskBus)
+	if err != nil {
+		return err
+	}
+	if browser != nil {
+		defer browser.Close()
+	}
 	// Keep macOS awake while any durable task is active. This is deliberately
 	// derived from the task bus so it also covers work started by Routines,
 	// MCP, iOS, or a headless remote client.
@@ -342,6 +350,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,
+		Browser:      browser,
 		ProviderResolve: func(c context.Context) (provider.Client, provider.Config, error) {
 			cfg, err := provider.LoadConfig(c, st)
 			if err != nil {
@@ -822,6 +831,53 @@ func mostPublicOpen(listeners []listenerInfo) string {
 		}
 	}
 	return best
+}
+
+func configureBrowserWorker(
+	stateDir string,
+	st *store.Store,
+	eng *task.Engine,
+	bus *task.Bus,
+) (*browserworker.Runner, error) {
+	script := strings.TrimSpace(os.Getenv("KIN_BROWSER_WORKER_SCRIPT"))
+	if script == "" {
+		return nil, nil
+	}
+	script, err := filepath.Abs(script)
+	if err != nil {
+		return nil, fmt.Errorf("browser worker script path: %w", err)
+	}
+	if info, statErr := os.Stat(script); statErr != nil || info.IsDir() {
+		if statErr != nil {
+			return nil, fmt.Errorf("browser worker script: %w", statErr)
+		}
+		return nil, fmt.Errorf("browser worker script is a directory: %s", script)
+	}
+	node := strings.TrimSpace(os.Getenv("KIN_BROWSER_WORKER_NODE"))
+	if node == "" {
+		node = "node"
+	}
+	workingDir := strings.TrimSpace(os.Getenv("KIN_BROWSER_WORKER_WORKDIR"))
+	if workingDir == "" {
+		workingDir = filepath.Dir(script)
+	}
+	domains := make([]string, 0)
+	for _, raw := range strings.Split(os.Getenv("KIN_BROWSER_DOMAINS"), ",") {
+		if domain := strings.TrimSpace(raw); domain != "" {
+			domains = append(domains, domain)
+		}
+	}
+	return browserworker.New(browserworker.Config{
+		Command:        []string{node, script},
+		WorkingDir:     workingDir,
+		AllowedDomains: domains,
+		DownloadDir:    filepath.Join(stateDir, "browser-downloads"),
+		UploadDir:      filepath.Join(stateDir, "browser-uploads"),
+		ArtifactsDir:   filepath.Join(stateDir, "artifacts"),
+		Store:          st,
+		Engine:         eng,
+		Bus:            bus,
+	})
 }
 
 func uiHandler() (http.Handler, error) {

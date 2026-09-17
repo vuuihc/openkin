@@ -41,6 +41,33 @@ func (e *Engine) eventWriter() eventWriter {
 	return storeEventWriter{st: e.store}
 }
 
+// AppendExternalEvent appends an event produced by a task-attached worker.
+// It shares the engine event mutex so external workers cannot race the
+// adapter event loop while allocating the next task sequence number.
+func (e *Engine) AppendExternalEvent(
+	ctx context.Context,
+	taskID, typ string,
+	payload json.RawMessage,
+) (store.Event, error) {
+	if e == nil {
+		return store.Event{}, fmt.Errorf("task engine is nil")
+	}
+	e.eventMu.Lock()
+	defer e.eventMu.Unlock()
+	w := e.eventWriter()
+	if w == nil {
+		return store.Event{}, fmt.Errorf("event writer unavailable")
+	}
+	event, err := w.AppendEvent(ctx, taskID, typ, payload)
+	if err != nil {
+		return store.Event{}, err
+	}
+	if e.bus != nil {
+		e.bus.PublishEvent(event)
+	}
+	return event, nil
+}
+
 func (e *Engine) persistRunEvent(
 	ctx context.Context,
 	taskID, executionID, typ string,
