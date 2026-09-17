@@ -17,6 +17,7 @@ import (
 	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/routing"
+	"github.com/vuuihc/openkin/internal/skills"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -90,6 +91,12 @@ type TitleResolver func(ctx context.Context) (provider.Client, provider.Config, 
 // configuration.
 type ProviderEntryResolver func(ctx context.Context, providerID string) (adapter.ProviderConfig, error)
 
+// SkillResolver loads the effective file-backed Skills for a task's project.
+// The resolver is optional so embedded/test engines keep their existing behavior.
+type SkillResolver interface {
+	Context(context.Context, string, string) (skills.Context, error)
+}
+
 // EngineConfig is the validated production construction path. Optional
 // integrations such as notifications and title resolution may be nil, but
 // execution, workspace, and routing dependencies must be complete before the
@@ -106,6 +113,7 @@ type EngineConfig struct {
 	UsageWindows          UsageWindowProber
 	RoutingResolver       RoutingResolver
 	ProviderEntryResolver ProviderEntryResolver
+	Skills                SkillResolver
 	ExpiryInterval        time.Duration
 }
 
@@ -169,6 +177,7 @@ type Engine struct {
 	// providerEntryResolver resolves a routing provider ID to its runtime
 	// config (API key, base URL, model).
 	providerEntryResolver ProviderEntryResolver
+	skillResolver         SkillResolver
 
 	startMu        sync.Mutex
 	requiresStart  bool
@@ -195,6 +204,7 @@ func NewConfiguredEngine(cfg EngineConfig) (*Engine, error) {
 	engine.usageWindows = cfg.UsageWindows
 	engine.routingResolver = cfg.RoutingResolver
 	engine.providerEntryResolver = cfg.ProviderEntryResolver
+	engine.skillResolver = cfg.Skills
 	engine.requiresStart = true
 	engine.expiryInterval = cfg.ExpiryInterval
 	if engine.expiryInterval <= 0 {
@@ -416,6 +426,9 @@ func (e *Engine) SetWorkspaceRuntime(runtime WorkspaceRuntime) { e.workspace = r
 
 // SetTitleResolver wires provider-backed session title summarization. Optional.
 func (e *Engine) SetTitleResolver(fn TitleResolver) { e.titleFn = fn }
+
+// SetSkillResolver wires the optional file-backed Skill runtime.
+func (e *Engine) SetSkillResolver(resolver SkillResolver) { e.skillResolver = resolver }
 
 // Bus returns the WebSocket bus.
 func (e *Engine) Bus() *Bus { return e.bus }
@@ -1071,6 +1084,21 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	}
 
 	var err error
+	originalPrompt := req.Prompt
+	var skillContext skills.Context
+	if e.skillResolver != nil {
+		skillContext, err = e.skillResolver.Context(ctx, req.Cwd, req.Agent)
+		if err != nil {
+			return store.Task{}, fmt.Errorf("load Skills: %w", err)
+		}
+		if strings.TrimSpace(skillContext.Instructions) != "" {
+			req.Prompt = skillContext.Instructions + "\n\nUser request:\n" + originalPrompt
+			if strings.TrimSpace(req.UserPrompt) == "" {
+				req.UserPrompt = originalPrompt
+			}
+		}
+	}
+
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
 		id, err = e.newID()
@@ -1247,6 +1275,19 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		failed := StatusFailed
 		_ = e.store.UpdateTask(ctx, id, store.TaskPatch{Status: &failed})
 		return store.Task{}, fmt.Errorf("persist user message: %w", err)
+	}
+	if len(skillContext.References) > 0 {
+		payload, _ := json.Marshal(map[string]any{
+			"skills": skillContext.References,
+			"source": "skill_runtime",
+		})
+		skillEvent, skillErr := e.store.AppendEvent(ctx, id, "skill_context", payload)
+		if skillErr != nil {
+			failed := "failed"
+			_ = e.store.UpdateTask(ctx, id, store.TaskPatch{Status: &failed})
+			return store.Task{}, fmt.Errorf("persist Skill attribution: %w", skillErr)
+		}
+		e.bus.PublishEvent(skillEvent)
 	}
 	e.captureCheckpoint(ctx, t, ev.Seq)
 

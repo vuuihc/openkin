@@ -14,6 +14,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/kinagent"
 	"github.com/vuuihc/openkin/internal/adapter/rawpty"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -27,9 +28,13 @@ func buildAgentRegistry(
 	daemonURL string,
 	tokenFn func() string,
 	catalog *routing.Catalog,
+	connectorHost connectors.Host,
 ) (*agent.Registry, error) {
 	factories := []agent.Factory{
-		kinagent.NewPluginFactory(st),
+		kinagent.NewPluginFactoryWithConfig(kinagent.PluginConfig{
+			Store:      st,
+			Connectors: connectorHost,
+		}),
 		claudecode.NewPluginFactory(claudecode.PluginConfig{
 			DaemonURL: daemonURL,
 			TokenFunc: tokenFn,

@@ -6,13 +6,15 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
 // PluginConfig configures the Kin built-in plugin factory.
 type PluginConfig struct {
-	Store *store.Store
+	Store      *store.Store
+	Connectors connectors.Host
 	// Resolve optional override; default loads provider config from Store.
 	Resolve Resolver
 }
@@ -70,6 +72,7 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 	}
 
 	ad := New(resolve)
+	ad.Connectors = f.cfg.Connectors
 	if st != nil {
 		bridge := StoreTranscript{Store: st}
 		ad.Transcript = bridge

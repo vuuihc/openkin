@@ -1,6 +1,6 @@
 # Agent Platform Gap-Closure Plan
 
-**Status:** M0/M1/M2 complete; M3 core supervision slice complete; Git handoff and M4-M8 pending
+**Status:** M0/M1/M2 complete; M3 core supervision slice complete; M4 Skills and bounded connector host complete
 **Date:** 2026-09-17
 **Goal:** Turn OpenKin from a strong local agent console into a reliable,
 extensible agent control plane without giving up local-first ownership,
@@ -447,6 +447,18 @@ for every workflow.
 - A connector can be disabled or revoked immediately.
 - Tool calls identify connector, tool, principal, task, arguments hash, result
   status, latency, and approval decision.
+
+#### Implementation status
+
+- `internal/skills` now validates and resolves bundled, user, and project
+  `SKILL.md` packages with deterministic precedence, explicit imports, bounded
+  instructions, and task attribution events.
+- `internal/connectors` now provides stdio and HTTPS Streamable HTTP JSON-RPC
+  calls with allowlists, secret references, cancellation, output limits,
+  disable/revoke controls, and task-event audit persistence.
+- Marketplace discovery, OAuth browser flows, and reference connector presets
+  remain intentionally deferred until their provenance and approval contracts
+  are specified.
 
 ### M5 — Background and optional remote workers
 

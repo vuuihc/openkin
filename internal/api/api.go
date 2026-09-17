@@ -19,6 +19,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
@@ -59,12 +60,13 @@ type AgentModelOption struct {
 
 // Server holds HTTP handlers and dependencies for the Kin API.
 type Server struct {
-	Store     *store.Store
-	Auth      *remote.Auth
-	Engine    *task.Engine
-	MCP       *mcp.Server
-	Terminals *terminal.Manager
-	Version   string
+	Store      *store.Store
+	Auth       *remote.Auth
+	Engine     *task.Engine
+	MCP        *mcp.Server
+	Connectors *connectors.Manager
+	Terminals  *terminal.Manager
+	Version    string
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
 	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
@@ -162,6 +164,14 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/agents", s.handleListAgents)
 		r.Get("/api/agents/management", s.handleAgentsManagement)
 		r.With(masterOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
+		r.Get("/api/connectors", s.handleListConnectors)
+		r.With(masterOnly).Post("/api/connectors", s.handleRegisterConnector)
+		r.With(masterOnly).Patch("/api/connectors/{id}", s.handleUpdateConnector)
+		r.With(masterOnly).Delete("/api/connectors/{id}", s.handleDisableConnector)
+		r.Get("/api/connectors/{id}/tools", s.handleListConnectorTools)
+		r.With(masterOnly).Post("/api/connectors/{id}/call", s.handleCallConnector)
+		r.With(masterOnly).Put("/api/connectors/credentials/{ref}", s.handleSetConnectorCredential)
+		r.With(masterOnly).Delete("/api/connectors/credentials/{ref}", s.handleDeleteConnectorCredential)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
