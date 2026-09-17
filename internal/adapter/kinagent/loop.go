@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/sessionctx"
 )
@@ -36,6 +37,23 @@ func runAgentLoop(
 	ch chan<- adapter.Event,
 	cancel <-chan struct{},
 ) []provider.Message {
+	return runAgentLoopWithConnectors(ctx, client, model, system, userPrompt, cwd, taskID, searcher, nil, prior, ch, cancel)
+}
+
+func runAgentLoopWithConnectors(
+	ctx context.Context,
+	client provider.Client,
+	model string,
+	system string,
+	userPrompt string,
+	cwd string,
+	taskID string,
+	searcher SessionSearcher,
+	connectorHost connectors.Host,
+	prior []provider.Message,
+	ch chan<- adapter.Event,
+	cancel <-chan struct{},
+) []provider.Message {
 	env, err := newToolEnv(cwd)
 	if err != nil {
 		emitErr(ch, fmt.Sprintf("workspace: %v", err))
@@ -44,9 +62,12 @@ func runAgentLoop(
 	}
 	env.TaskID = taskID
 	env.Search = searcher
+	env.Connectors = connectorHost
+	connectorDefs, connectorInvocations := connectorToolDefinitions(ctx, connectorHost)
+	env.ConnectorTools = connectorInvocations
 
 	messages := buildInitialMessages(system, userPrompt, prior)
-	tools := agentTools(searcher != nil)
+	tools := append(agentTools(searcher != nil), connectorDefs...)
 
 	var totalIn, totalOut, totalCached int
 	lastModel := model

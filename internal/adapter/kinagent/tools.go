@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/provider"
 )
 
@@ -38,7 +39,9 @@ type toolEnv struct {
 	// TaskID scopes session_search when set.
 	TaskID string
 	// Search optional archive retrieval.
-	Search SessionSearcher
+	Search         SessionSearcher
+	Connectors     connectors.Host
+	ConnectorTools map[string]connectorInvocation
 }
 
 type workspacePathLock struct {
@@ -219,6 +222,9 @@ func (e *toolEnv) runTool(ctx context.Context, name, argsJSON string) (string, e
 	}
 	if args == nil {
 		args = map[string]any{}
+	}
+	if _, ok := e.ConnectorTools[name]; ok {
+		return e.runConnectorTool(ctx, name, args)
 	}
 	switch name {
 	case "bash":

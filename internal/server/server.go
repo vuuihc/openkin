@@ -20,6 +20,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/api"
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
@@ -29,6 +30,7 @@ import (
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/secret"
+	"github.com/vuuihc/openkin/internal/skills"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 	"github.com/vuuihc/openkin/internal/terminal"
@@ -123,6 +125,11 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	provider.SetSecretStore(secretStore)
+	taskBus := task.NewBus()
+	connectorManager := connectors.NewManager(secretStore, connectors.StoreAuditSink{
+		Store:     st,
+		Publisher: taskBus,
+	})
 
 	// Persist control URL setting when provided.
 	ctx := context.Background()
@@ -146,7 +153,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		return strings.TrimSpace(string(b))
 	}
 	routingCatalog := routing.NewCatalog(st, nil)
-	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn, routingCatalog)
+	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn, routingCatalog, connectorManager)
 	if err != nil {
 		return err
 	}
@@ -194,6 +201,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	// Share the same window prober with the engine for start-time preflight + auto-wait.
 	usageWin := usagewindows.New(60*time.Second, &usagewindows.ClaudeProber{}, &usagewindows.CodexProber{})
 	resolver := routing.NewDefaultResolver(routingCatalog, routing.WithUsageWindowChecker(usageWin))
+	skillManager := skills.NewManager(skills.Config{
+		BundledDir: filepath.Join(stateDir, "bundled-skills"),
+		UserDir:    filepath.Join(stateDir, "skills"),
+	})
 	providerEntryResolver := func(ctx context.Context, providerID string) (adapter.ProviderConfig, error) {
 		providerRegistry, err := provider.LoadRegistry(ctx, st)
 		if err != nil {
@@ -214,7 +225,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	eng, err := task.NewConfiguredEngine(task.EngineConfig{
 		Store:                 st,
 		Agents:                reg,
-		Bus:                   task.NewBus(),
+		Bus:                   taskBus,
 		MaxConcurrent:         maxConcurrent,
 		Workspace:             wsMgr,
 		DefaultPreference:     defaultPreference,
@@ -223,6 +234,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		UsageWindows:          usageWin,
 		RoutingResolver:       resolver,
 		ProviderEntryResolver: providerEntryResolver,
+		Skills:                skillManager,
 		ExpiryInterval:        time.Minute,
 	})
 	if err != nil {
@@ -253,9 +265,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	defer terminals.Close()
 
 	srvAPI := &api.Server{
-		Store:  st,
-		Auth:   auth,
-		Engine: eng,
+		Store:      st,
+		Auth:       auth,
+		Engine:     eng,
+		Connectors: connectorManager,
 		RunRoutine: func(c context.Context, id string) (store.Task, error) {
 			return routineScheduler.RunNow(c, id)
 		},

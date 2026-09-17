@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/provider"
 )
 
@@ -35,6 +36,8 @@ type Adapter struct {
 	Transcript TranscriptStore
 	// Search optional event archive search for session_search tool.
 	Search SessionSearcher
+	// Connectors exposes the normalized, policy-filtered MCP tool surface.
+	Connectors connectors.Host
 }
 
 // New returns a Kin agent adapter.
@@ -129,7 +132,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 			}
 		}()
 
-		finalMsgs := runAgentLoop(runCtx, client, model, sys, spec.Prompt, spec.Cwd, spec.ID, a.Search, prior, ch, h.cancel)
+		finalMsgs := runAgentLoopWithConnectors(runCtx, client, model, sys, spec.Prompt, spec.Cwd, spec.ID, a.Search, a.Connectors, prior, ch, h.cancel)
 		if a.Transcript != nil && spec.ID != "" && len(finalMsgs) > 0 {
 			// Persist full model-path transcript for next same-agent follow-up (Policy K).
 			_ = a.Transcript.SaveKinMessages(context.Background(), spec.ID, finalMsgs)
