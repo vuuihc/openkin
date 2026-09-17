@@ -100,6 +100,63 @@ func (s *Sender) NotifyApproval(ctx context.Context, approvalID, taskID, title s
 	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
 }
 
+// NotifyUserQuestion sends an input-required notification.
+func (s *Sender) NotifyUserQuestion(ctx context.Context, questionID, taskID, title string) {
+	if title == "" {
+		title = "Input needed"
+	}
+	body := "A task needs your answer"
+	if taskID != "" {
+		body = fmt.Sprintf("Task %s needs your answer", shortID(taskID))
+	}
+	link := s.DeepLink(ctx, "/inbox?focus="+url.QueryEscape(questionID))
+	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
+}
+
+// NotifyQuota sends a quota wait/resume/block update.
+func (s *Sender) NotifyQuota(ctx context.Context, taskID, taskTitle, status string, resetAt int64) {
+	title := "Provider quota"
+	switch status {
+	case "open", "waiting":
+		title = "Waiting for provider quota"
+	case "continued", "resumed":
+		title = "Provider quota available"
+	case "blocked":
+		title = "Provider quota wait blocked"
+	}
+	body := "A task is waiting for a provider quota window"
+	if taskID != "" {
+		body = fmt.Sprintf("Task %s: %s", shortID(taskID), strings.ToLower(title))
+	}
+	if taskTitle != "" {
+		title = taskTitle + " — " + title
+	}
+	link := s.DeepLink(ctx, "/tasks/"+url.PathEscape(taskID))
+	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
+	if resetAt > 0 {
+		// Keep resetAt in the event/API contract; notification providers do not
+		// need a second timestamp header and should remain concise.
+	}
+}
+
+// NotifyWorkerOffline sends a worker-loss notification. The worker is
+// user-owned; this message never implies a cloud fallback or data upload.
+func (s *Sender) NotifyWorkerOffline(ctx context.Context, workerID, taskID, label string) {
+	title := "Worker offline"
+	if label != "" {
+		title = label + " — worker offline"
+	}
+	body := "A remote worker lost its lease"
+	if workerID != "" {
+		body = fmt.Sprintf("Worker %s is offline", shortID(workerID))
+	}
+	link := s.DeepLink(ctx, "/tasks/"+url.PathEscape(taskID))
+	if taskID == "" {
+		link = s.DeepLink(ctx, "/settings")
+	}
+	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
+}
+
 // NotifyTaskTerminal sends a notification when a task reaches a terminal status.
 func (s *Sender) NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string) {
 	title := "Task " + status

@@ -83,6 +83,21 @@ type Notifier interface {
 	NotifyTaskTerminal(ctx context.Context, taskID, taskTitle, status string)
 }
 
+// UserQuestionNotifier is an optional extension for input-required pushes.
+type UserQuestionNotifier interface {
+	NotifyUserQuestion(ctx context.Context, questionID, taskID, title string)
+}
+
+// QuotaNotifier is an optional extension for quota wait lifecycle pushes.
+type QuotaNotifier interface {
+	NotifyQuota(ctx context.Context, taskID, taskTitle, status string, resetAt int64)
+}
+
+// WorkerNotifier is an optional extension for remote worker loss pushes.
+type WorkerNotifier interface {
+	NotifyWorkerOffline(ctx context.Context, workerID, taskID, label string)
+}
+
 // TitleResolver optionally loads the cognition provider for async session naming.
 // When unset or not configured, titles stay as the prompt truncation fallback.
 type TitleResolver func(ctx context.Context) (provider.Client, provider.Config, error)
@@ -163,7 +178,10 @@ type Engine struct {
 	approvalTTL time.Duration
 
 	// limitWaitCancel holds in-memory auto-continue timers after rate limits.
-	limitWaitCancel map[string]context.CancelFunc
+	limitWaitCancel   map[string]context.CancelFunc
+	limitNotifyCancel map[string]context.CancelFunc
+	quotaNotifyMu     sync.Mutex
+	quotaNotified     map[string]int64
 	// usageWindows optionally probes Claude/Codex subscription windows for preflight.
 	usageWindows UsageWindowProber
 
@@ -280,6 +298,8 @@ func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		userQuestionWaiters: make(map[string][]chan store.UserQuestion),
 		approvalTTL:         store.DefaultApprovalTTL,
 		limitWaitCancel:     make(map[string]context.CancelFunc),
+		limitNotifyCancel:   make(map[string]context.CancelFunc),
+		quotaNotified:       make(map[string]int64),
 	}
 }
 

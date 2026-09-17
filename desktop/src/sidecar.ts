@@ -13,12 +13,19 @@ const execFileAsync = promisify(execFile);
 export type SidecarStatus =
   | { state: "external"; version: string }
   | { state: "spawned"; version: string; pid: number }
+  | { state: "restarting"; reason: string; attempt: number }
   | { state: "unavailable"; reason: string };
 
 export class Sidecar {
   private child: ChildProcess | null = null;
   private weStarted = false;
   private status: SidecarStatus = { state: "unavailable", reason: "not started" };
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private restartAttempt = 0;
+  private stopping = false;
+  private ensurePromise: Promise<SidecarStatus> | null = null;
+  private generation = 0;
 
   get weOwnProcess(): boolean {
     return this.weStarted;
@@ -84,11 +91,31 @@ export class Sidecar {
    * If down, spawn our binary.
    */
   async ensureRunning(): Promise<SidecarStatus> {
+    if (this.ensurePromise) return this.ensurePromise;
+    const pending = this.ensureRunningOnce();
+    this.ensurePromise = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.ensurePromise === pending) this.ensurePromise = null;
+    }
+  }
+
+  private async ensureRunningOnce(): Promise<SidecarStatus> {
+    const generation = ++this.generation;
+    this.stopping = false;
     const expected = await this.binaryVersion();
     const healthy = await this.probeHealth();
 
     if (healthy) {
+      if (generation !== this.generation) return this.status;
+      if (this.restartTimer) {
+        clearTimeout(this.restartTimer);
+        this.restartTimer = null;
+      }
       const running = (await this.probeVersion()) ?? "unknown";
+      if (generation !== this.generation) return this.status;
+      const owned = this.weStarted && this.child !== null;
       if (expected && running !== expected) {
         console.warn(
           `[kin-desktop] daemon version mismatch: running=${running} expected=${expected}; attaching to existing process`,
@@ -98,8 +125,18 @@ export class Sidecar {
           `[kin-desktop] daemon already running version=${running} (external)`,
         );
       }
-      this.weStarted = false;
-      this.status = { state: "external", version: running };
+      if (!owned) {
+        this.weStarted = false;
+        this.restartAttempt = 0;
+        this.status = { state: "external", version: running };
+      } else {
+        this.markStable();
+        this.status = {
+          state: "spawned",
+          version: running,
+          pid: this.child?.pid ?? -1,
+        };
+      }
       return this.status;
     }
 
@@ -112,42 +149,59 @@ export class Sidecar {
       console.error(`[kin-desktop] ${this.status.reason}`);
       return this.status;
     }
+    if (generation !== this.generation || this.stopping) return this.status;
 
     console.log(
-      `[kin-desktop] no daemon on :7777; spawning ${bin} serve (dev=${isDev()})`,
+      `[kin-desktop] no daemon on :7777; spawning ${bin} supervise (dev=${isDev()})`,
     );
     try {
-      const child = spawn(bin, ["serve"], {
-        stdio: ["ignore", "pipe", "pipe"],
+      const child = spawn(bin, ["supervise"], {
+        // The daemon is a durable background service. It must outlive the
+        // Electron shell when the user quits the menu-bar app.
+        stdio: ["ignore", "ignore", "ignore"],
         env: { ...process.env },
-        detached: false,
+        detached: true,
       });
       this.child = child;
       this.weStarted = true;
       const pid = child.pid ?? -1;
-      child.stdout?.on("data", (d: Buffer) => {
-        console.log(`[kin-daemon] ${d.toString().trimEnd()}`);
-      });
-      child.stderr?.on("data", (d: Buffer) => {
-        console.error(`[kin-daemon] ${d.toString().trimEnd()}`);
-      });
       child.on("exit", (code, signal) => {
+        if (this.child !== child) return;
         console.log(
           `[kin-desktop] daemon exited code=${code} signal=${signal}`,
         );
         this.child = null;
         if (this.weStarted) {
+          this.clearStableTimer();
+          this.invalidatePendingEnsure();
           this.weStarted = false;
           this.status = {
             state: "unavailable",
             reason: `daemon exited (code=${code})`,
           };
+          if (!this.stopping) this.scheduleRestart();
         }
       });
+      child.on("error", (err) => {
+        console.error("[kin-desktop] daemon process error", err);
+        if (this.child !== child || !this.weStarted) return;
+        this.clearStableTimer();
+        this.invalidatePendingEnsure();
+        this.child = null;
+        this.weStarted = false;
+        this.status = {
+          state: "unavailable",
+          reason: `daemon process error: ${err.message}`,
+        };
+        if (!this.stopping) this.scheduleRestart();
+      });
+      child.unref();
 
       // Wait until health answers (up to ~15s).
       const ok = await this.waitHealthy(15_000);
+      if (generation !== this.generation) return this.status;
       if (!ok) {
+        await this.stopIfOwned();
         this.status = {
           state: "unavailable",
           reason: "spawned daemon did not become healthy in time",
@@ -156,6 +210,8 @@ export class Sidecar {
         return this.status;
       }
       const ver = (await this.probeVersion()) ?? expected ?? "unknown";
+      if (generation !== this.generation) return this.status;
+      this.markStable();
       this.status = { state: "spawned", version: ver, pid };
       console.log(
         `[kin-desktop] daemon ready version=${ver} pid=${pid}`,
@@ -192,6 +248,13 @@ export class Sidecar {
    * External daemons are left alone on app quit.
    */
   async stopIfOwned(): Promise<void> {
+    this.stopping = true;
+    this.invalidatePendingEnsure();
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    this.clearStableTimer();
     if (!this.weStarted || !this.child) {
       console.log("[kin-desktop] quit: not stopping external/unowned daemon");
       return;
@@ -207,7 +270,7 @@ export class Sidecar {
           /* ignore */
         }
         resolve();
-      }, 4000);
+      }, 8000);
       child.once("exit", () => {
         clearTimeout(t);
         resolve();
@@ -222,6 +285,23 @@ export class Sidecar {
     this.child = null;
   }
 
+  /**
+   * Release the Electron shell without stopping the daemon. Used on app quit:
+   * explicit tray "Stop daemon" remains the destructive operation.
+   */
+  detach(): void {
+    this.stopping = true;
+    this.invalidatePendingEnsure();
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    this.clearStableTimer();
+    if (this.child) this.child.unref();
+    this.child = null;
+    this.weStarted = false;
+  }
+
   /** Explicit user Start from tray — spawn if not healthy. */
   async startFromMenu(): Promise<SidecarStatus> {
     return this.ensureRunning();
@@ -229,6 +309,24 @@ export class Sidecar {
 
   /** Explicit user Stop — only kills our child; for external, refuse. */
   async stopFromMenu(): Promise<{ ok: boolean; message: string }> {
+    if (this.restartTimer) {
+      this.stopping = true;
+      this.invalidatePendingEnsure();
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+      this.restartAttempt = 0;
+      this.status = { state: "unavailable", reason: "stopped by user" };
+      return { ok: true, message: "Daemon restart canceled" };
+    }
+    if (this.ensurePromise) {
+      this.stopping = true;
+      this.invalidatePendingEnsure();
+      if (this.weStarted && this.child) {
+        await this.stopIfOwned();
+      }
+      this.status = { state: "unavailable", reason: "stopped by user" };
+      return { ok: true, message: "Daemon start canceled" };
+    }
     if (!this.weStarted || !this.child) {
       return {
         ok: false,
@@ -238,6 +336,52 @@ export class Sidecar {
     await this.stopIfOwned();
     this.status = { state: "unavailable", reason: "stopped by user" };
     return { ok: true, message: "Daemon stopped" };
+  }
+
+  private scheduleRestart(): void {
+    if (this.stopping || this.restartTimer || this.restartAttempt >= 3) {
+      if (this.restartAttempt >= 3) {
+        console.error("[kin-desktop] daemon restart limit reached");
+      }
+      return;
+    }
+    this.restartAttempt += 1;
+    const attempt = this.restartAttempt;
+    const delay = Math.min(15_000, 1_000 * 2 ** (attempt - 1));
+    this.status = {
+      state: "restarting",
+      reason: "daemon exited unexpectedly",
+      attempt,
+    };
+    console.warn(
+      `[kin-desktop] scheduling daemon restart attempt=${attempt} delay=${delay}ms`,
+    );
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = null;
+      void this.ensureRunning().catch((err) => {
+        console.error("[kin-desktop] daemon restart failed", err);
+      });
+    }, delay);
+  }
+
+  private invalidatePendingEnsure(): void {
+    this.generation += 1;
+    this.ensurePromise = null;
+  }
+
+  private markStable(): void {
+    this.clearStableTimer();
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null;
+      this.restartAttempt = 0;
+    }, 30_000);
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
   }
 }
 

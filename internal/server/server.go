@@ -27,10 +27,12 @@ import (
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/relay"
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/secret"
 	"github.com/vuuihc/openkin/internal/skills"
+	"github.com/vuuihc/openkin/internal/sleepguard"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 	"github.com/vuuihc/openkin/internal/terminal"
@@ -186,6 +188,9 @@ func ServeWith(version string, flags ServeFlags) error {
 		return strings.TrimSpace(pref), err
 	}
 	notifier := &notify.Sender{Store: st}
+	workerRegistry := worker.NewRegistry(worker.DefaultLeaseTTL, func(record worker.Record) {
+		notifier.NotifyWorkerOffline(context.Background(), record.WorkerID, "", record.Label)
+	})
 	// Session titles: truncate immediately, then replace via cognition provider when configured.
 	titleResolver := func(c context.Context) (provider.Client, provider.Config, error) {
 		cfg, err := provider.LoadConfig(c, st)
@@ -244,6 +249,16 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err := eng.Start(context.Background()); err != nil {
 		return err
 	}
+	// Keep macOS awake while any durable task is active. This is deliberately
+	// derived from the task bus so it also covers work started by Routines,
+	// MCP, iOS, or a headless remote client.
+	sleepGuard := sleepguard.New()
+	guardCtx, guardCancel := context.WithCancel(context.Background())
+	defer guardCancel()
+	defer sleepGuard.Close()
+	go runSleepGuard(guardCtx, sleepGuard, taskBus, func(ctx context.Context) (bool, error) {
+		return st.HasActiveTasks(ctx)
+	})
 	// Routines start only after Engine recovery and dependency validation.
 	routineScheduler := &routines.Scheduler{
 		Store:            st,
@@ -326,6 +341,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		UploadsDir:   filepath.Join(stateDir, "uploads"),
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
+		Workers:      workerRegistry,
 		ProviderResolve: func(c context.Context) (provider.Client, provider.Config, error) {
 			cfg, err := provider.LoadConfig(c, st)
 			if err != nil {
@@ -437,6 +453,7 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	listenCtx, listenCancel := context.WithCancel(context.Background())
 	defer listenCancel()
+	go runWorkerLeaseSweep(listenCtx, workerRegistry)
 
 	var listeners []listenerInfo
 
@@ -620,6 +637,92 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 	wg.Wait()
 	return nil
+}
+
+func runSleepGuard(
+	ctx context.Context,
+	guard *sleepguard.Guard,
+	bus *task.Bus,
+	hasActive func(context.Context) (bool, error),
+) {
+	for {
+		if bus == nil {
+			_ = guard.Close()
+			return
+		}
+		sub := bus.Subscribe()
+		active := false
+		if hasActive != nil {
+			if current, err := hasActive(ctx); err == nil {
+				active = current
+			}
+		}
+		if err := guard.SetActive(ctx, active); err != nil && ctx.Err() == nil {
+			fmt.Fprintf(os.Stderr, "kin: sleep guard: %v\n", err)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				bus.Unsubscribe(sub)
+				_ = guard.SetActive(context.Background(), false)
+				return
+			case msg, ok := <-sub:
+				if !ok {
+					// The bus closes a lagging subscriber. Release the
+					// inhibitor before resubscribing so state is rebuilt.
+					_ = guard.SetActive(context.Background(), false)
+					goto resubscribe
+				}
+				switch msg.Kind {
+				case "task_update", "task_deleted":
+					if hasActive != nil {
+						current, err := hasActive(ctx)
+						if err != nil {
+							continue
+						}
+						active = current
+					} else if t, ok := msg.Data.(store.Task); ok {
+						active = isActiveTaskStatus(t.Status)
+					}
+				default:
+					continue
+				}
+				if err := guard.SetActive(ctx, active); err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "kin: sleep guard: %v\n", err)
+				}
+			}
+		}
+	resubscribe:
+		if ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+func runWorkerLeaseSweep(ctx context.Context, registry *worker.Registry) {
+	if registry == nil {
+		return
+	}
+	ticker := time.NewTicker(worker.DefaultLeaseTTL / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			registry.Sweep()
+		}
+	}
+}
+
+func isActiveTaskStatus(status string) bool {
+	switch status {
+	case task.StatusQueued, task.StatusRunning, task.StatusWaitingApproval,
+		task.StatusWaitingInput, task.StatusRetrying:
+		return true
+	default:
+		return false
+	}
 }
 
 func newTerminalManager(detectProfiles func() []terminal.Profile) *terminal.Manager {

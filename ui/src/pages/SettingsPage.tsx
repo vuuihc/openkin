@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [bark, setBark] = useState("");
   const [ntfy, setNtfy] = useState("");
+  const [quotaWaitNotifySecs, setQuotaWaitNotifySecs] = useState("900");
   const [baseURL, setBaseURL] = useState("");
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
@@ -80,6 +81,7 @@ export default function SettingsPage() {
       setSettings(s);
       setBark(s["notify.bark_url"] ?? "");
       setNtfy(s["notify.ntfy_topic"] ?? "");
+      setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setBaseURL(s["ui.base_url"] ?? "");
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
@@ -144,6 +146,7 @@ export default function SettingsPage() {
       const body: Parameters<typeof updateSettings>[0] = {
         "notify.bark_url": bark.trim(),
         "notify.ntfy_topic": ntfy.trim(),
+        "notify.quota_wait_after_secs": quotaWaitNotifySecs.trim() || "900",
         "ui.base_url": baseURL.trim(),
         price_table: priceTable,
         agent_limits: agentLimitsText,
@@ -156,6 +159,7 @@ export default function SettingsPage() {
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
+      setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
       try {
         setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
@@ -951,6 +955,22 @@ export default function SettingsPage() {
           />
           <span className="text-xs text-kin-muted">
             {tr("settings.notify.uiBaseUrlHint")}
+          </span>
+        </label>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-kin-secondary">
+            {tr("settings.notify.quotaWaitAfter")}
+          </span>
+          <input
+            type="number"
+            min={60}
+            step={60}
+            value={quotaWaitNotifySecs}
+            onChange={(e) => setQuotaWaitNotifySecs(e.target.value)}
+            className="kin-input min-h-[44px]"
+          />
+          <span className="text-xs text-kin-muted">
+            {tr("settings.notify.quotaWaitAfterHint")}
           </span>
         </label>
         <div className="flex flex-wrap items-center gap-3">

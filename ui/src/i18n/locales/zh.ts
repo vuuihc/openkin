@@ -610,6 +610,8 @@ const zh = {
       ntfyTopic: "ntfy 主题",
       uiBaseUrl: "UI base URL",
       uiBaseUrlHint: "在 serve 启动时按最公开的监听地址自动设置；隧道场景可覆盖。",
+      quotaWaitAfter: "额度等待通知阈值（秒）",
+      quotaWaitAfterHint: "额度等待持续到该时长时通知一次，最少 60 秒。",
       save: "保存",
       sendTest: "发送测试通知",
       sending: "发送中…",

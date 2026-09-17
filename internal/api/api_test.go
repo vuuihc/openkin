@@ -16,6 +16,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -79,6 +80,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 		Auth:    remote.NewAuth(token),
 		Engine:  eng,
 		Version: "test",
+		Workers: worker.NewRegistry(time.Minute, nil),
 	}, token
 }
 
