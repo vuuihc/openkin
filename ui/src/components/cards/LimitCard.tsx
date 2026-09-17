@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgentInfo, LimitHit } from "../../api/client";
+import type { AgentInfo, LimitHit, TaskLimitWait } from "../../api/client";
 import { agentDisplayName } from "../../lib/agentMention";
 import { useT } from "../../i18n/react";
 import { IconAlert } from "../icons";
 
 type Props = {
   hit: LimitHit;
+  wait?: TaskLimitWait | null;
   hostAgentId: string;
   agents: AgentInfo[];
   focused?: boolean;
@@ -35,6 +36,7 @@ function formatRemain(secs: number): string {
 
 export default function LimitCard({
   hit,
+  wait,
   hostAgentId,
   agents,
   focused,
@@ -102,6 +104,14 @@ export default function LimitCard({
           {hit.message || tr("limit.defaultMessage")}
         </p>
         <p className="mt-1 text-[12px] text-kin-muted">{resetLabel}</p>
+        {wait && (wait.state === "waiting" || wait.state === "probing") && (
+          <p className="mt-1 text-[11px] text-kin-muted">
+            {tr("limit.durableStatus", {
+              attempts: wait.attempts,
+              next: new Date(wait.next_probe_at).toLocaleTimeString(),
+            })}
+          </p>
+        )}
 
         {terminal ? (
           <p className="mt-3 text-[12px] text-kin-muted">

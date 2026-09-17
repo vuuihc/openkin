@@ -166,6 +166,24 @@ struct AgentUsageLimit: Identifiable, Codable, Hashable {
     }
 }
 
+struct TaskLimitWait: Codable, Hashable {
+    let taskId: String
+    let eventEpoch: Int64
+    let userSeq: Int
+    let agent: String?
+    let provider: String?
+    let window: String?
+    let resetAt: Int64?
+    let state: String
+    let attempts: Int
+    let nextProbeAt: Int64
+    let firstWaitAt: Int64
+    let lastProbeAt: Int64?
+    let lastError: String?
+    let claimedAt: Int64?
+    let updatedAt: Int64
+}
+
 struct ProviderEntry: Identifiable, Codable, Hashable {
     let id: String
     var name: String

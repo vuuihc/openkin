@@ -155,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
 		r.Get("/api/tasks/{id}/events", s.handleListEvents)
+		r.Get("/api/tasks/{id}/limit-wait", s.handleTaskLimitWait)
 		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
@@ -221,6 +222,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/routines", s.handleListRoutines)
 		r.With(masterOnly).Post("/api/routines", s.handleCreateRoutine)
 		r.Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
+		r.Get("/api/routines/health", s.handleRoutineHealth)
 		r.With(masterOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
 		r.Get("/api/routines/{id}", s.handleGetRoutine)
 		r.With(masterOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
@@ -492,6 +494,20 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (s *Server) handleTaskLimitWait(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	wait, err := s.Store.GetTaskLimitWait(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, wait)
 }
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {

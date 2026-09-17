@@ -101,8 +101,8 @@ export default function ProjectDetailPage() {
       setSummary(op.one_pager_summary ?? null);
 
       try {
-        const rs = (await listRoutines({ project_id: id, limit: 50 })) as Routine[];
-        setProjectRoutines(Array.isArray(rs) ? rs : []);
+        const rs = await listRoutines({ project_id: id, limit: 50 });
+        setProjectRoutines(rs.routines ?? []);
       } catch {
         setProjectRoutines([]);
       }

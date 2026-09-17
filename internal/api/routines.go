@@ -16,51 +16,60 @@ import (
 )
 
 type createRoutineBody struct {
-	Title          string `json:"title"`
-	ProjectID      string `json:"project_id"`
-	Cwd            string `json:"cwd"`
-	Agent          string `json:"agent"`
-	PermissionMode string `json:"permission_mode"`
-	Prompt         string `json:"prompt"`
-	IntervalSecs   int64  `json:"interval_secs"`
-	Enabled        *bool  `json:"enabled"`
+	Title           string `json:"title"`
+	ProjectID       string `json:"project_id"`
+	Cwd             string `json:"cwd"`
+	Agent           string `json:"agent"`
+	PermissionMode  string `json:"permission_mode"`
+	Prompt          string `json:"prompt"`
+	IntervalSecs    int64  `json:"interval_secs"`
+	Enabled         *bool  `json:"enabled"`
+	MissedRunPolicy string `json:"missed_run_policy"`
+	Lane            string `json:"lane"`
 	// NextDueAt optional; default = now (fires on next tick / run-now).
 	NextDueAt *int64 `json:"next_due_at"`
 }
 
 type patchRoutineBody struct {
-	Title          *string `json:"title"`
-	ProjectID      *string `json:"project_id"`
-	Cwd            *string `json:"cwd"`
-	Agent          *string `json:"agent"`
-	PermissionMode *string `json:"permission_mode"`
-	Prompt         *string `json:"prompt"`
-	IntervalSecs   *int64  `json:"interval_secs"`
-	Enabled        *bool   `json:"enabled"`
-	NextDueAt      *int64  `json:"next_due_at"`
+	Title           *string `json:"title"`
+	ProjectID       *string `json:"project_id"`
+	Cwd             *string `json:"cwd"`
+	Agent           *string `json:"agent"`
+	PermissionMode  *string `json:"permission_mode"`
+	Prompt          *string `json:"prompt"`
+	IntervalSecs    *int64  `json:"interval_secs"`
+	Enabled         *bool   `json:"enabled"`
+	NextDueAt       *int64  `json:"next_due_at"`
+	MissedRunPolicy *string `json:"missed_run_policy"`
+	Lane            *string `json:"lane"`
 }
 
 func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
-	opts := store.ListRoutinesOpts{ProjectID: r.URL.Query().Get("project_id")}
-	if v := r.URL.Query().Get("enabled"); v != "" {
+	q := r.URL.Query()
+	opts := store.ListRoutinesOpts{
+		ProjectID: q.Get("project_id"),
+		Before:    q.Get("cursor"),
+		Query:     q.Get("q"),
+	}
+	if v := q.Get("enabled"); v != "" {
 		b := v == "1" || strings.EqualFold(v, "true")
 		opts.Enabled = &b
 	}
-	if lim := r.URL.Query().Get("limit"); lim != "" {
+	if lim := q.Get("limit"); lim != "" {
 		if n, err := strconv.Atoi(lim); err == nil {
 			opts.Limit = n
 		}
 	}
-	list, err := s.Store.ListRoutines(r.Context(), opts)
+	page, err := s.Store.ListRoutinesPage(r.Context(), opts)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	if list == nil {
-		list = []store.Routine{}
+	if page.Routines == nil {
+		page.Routines = []store.Routine{}
 	}
 	// Optional: include recent runs feed when ?runs=1
-	if r.URL.Query().Get("runs") == "1" {
+	if q.Get("runs") == "1" {
 		limit := 50
 		if lim := r.URL.Query().Get("runs_limit"); lim != "" {
 			if n, err := strconv.Atoi(lim); err == nil && n > 0 {
@@ -75,10 +84,19 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 		if runs == nil {
 			runs = []store.Task{}
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"routines": list, "runs": runs})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"routines": page.Routines, "runs": runs,
+			"next_cursor": page.NextCursor, "has_more": page.HasMore,
+		})
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	// Preserve the original array response for legacy clients that do not opt
+	// into the cursor contract. New clients send page=1 or a cursor.
+	if q.Get("page") == "" && q.Get("cursor") == "" && q.Get("q") == "" {
+		writeJSON(w, http.StatusOK, page.Routines)
+		return
+	}
+	writeJSON(w, http.StatusOK, page)
 }
 
 func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +132,18 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 	if perm == "" {
 		perm = "default"
 	}
+	policy := strings.ToLower(strings.TrimSpace(body.MissedRunPolicy))
+	if policy == "" {
+		policy = "coalesce"
+	}
+	if policy != "coalesce" && policy != "skip" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missed_run_policy must be coalesce or skip"})
+		return
+	}
+	lane := strings.TrimSpace(body.Lane)
+	if lane == "" {
+		lane = "routine"
+	}
 	projectID := strings.TrimSpace(body.ProjectID)
 	if projectID == "" {
 		if resolved, err := s.Store.ResolveProjectIDForCwd(r.Context(), body.Cwd); err == nil {
@@ -131,17 +161,19 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rec := store.Routine{
-		ID:             ulid.Make().String(),
-		ProjectID:      projectID,
-		Cwd:            body.Cwd,
-		Agent:          agent,
-		PermissionMode: perm,
-		Prompt:         body.Prompt,
-		IntervalSecs:   body.IntervalSecs,
-		Enabled:        enabled,
-		NextDueAt:      next,
-		CreatedAt:      now,
-		Title:          title,
+		ID:              ulid.Make().String(),
+		ProjectID:       projectID,
+		Cwd:             body.Cwd,
+		Agent:           agent,
+		PermissionMode:  perm,
+		Prompt:          body.Prompt,
+		IntervalSecs:    body.IntervalSecs,
+		Enabled:         enabled,
+		NextDueAt:       next,
+		CreatedAt:       now,
+		Title:           title,
+		MissedRunPolicy: policy,
+		Lane:            lane,
 	}
 	if err := s.Store.InsertRoutine(r.Context(), rec); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -176,15 +208,25 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	patch := store.RoutinePatch{
-		Title:          body.Title,
-		ProjectID:      body.ProjectID,
-		Cwd:            body.Cwd,
-		Agent:          body.Agent,
-		PermissionMode: body.PermissionMode,
-		Prompt:         body.Prompt,
-		IntervalSecs:   body.IntervalSecs,
-		Enabled:        body.Enabled,
-		NextDueAt:      body.NextDueAt,
+		Title:           body.Title,
+		ProjectID:       body.ProjectID,
+		Cwd:             body.Cwd,
+		Agent:           body.Agent,
+		PermissionMode:  body.PermissionMode,
+		Prompt:          body.Prompt,
+		IntervalSecs:    body.IntervalSecs,
+		Enabled:         body.Enabled,
+		NextDueAt:       body.NextDueAt,
+		MissedRunPolicy: body.MissedRunPolicy,
+		Lane:            body.Lane,
+	}
+	if body.MissedRunPolicy != nil {
+		policy := strings.ToLower(strings.TrimSpace(*body.MissedRunPolicy))
+		if policy != "coalesce" && policy != "skip" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missed_run_policy must be coalesce or skip"})
+			return
+		}
+		patch.MissedRunPolicy = &policy
 	}
 	if err := s.Store.UpdateRoutine(r.Context(), id, patch); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -266,6 +308,15 @@ func (s *Server) handleRoutineUnreadCount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"count": n})
+}
+
+func (s *Server) handleRoutineHealth(w http.ResponseWriter, r *http.Request) {
+	health, err := s.Store.RoutineHealthSnapshot(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, health)
 }
 
 func (s *Server) handleMarkRoutineRunRead(w http.ResponseWriter, r *http.Request) {

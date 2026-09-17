@@ -132,6 +132,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/limit-wait": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getTaskLimitWait"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks/{taskId}/prompt": {
         parameters: {
             query?: never;
@@ -411,6 +427,24 @@ export interface components {
             dispatch?: unknown;
         } & {
             [key: string]: unknown;
+        };
+        TaskLimitWait: {
+            task_id: string;
+            event_epoch: number;
+            user_seq: number;
+            agent?: string;
+            provider?: string;
+            window?: string;
+            reset_at?: number;
+            /** @enum {string} */
+            state: "waiting" | "probing" | "retrying" | "completed" | "canceled" | "blocked";
+            attempts: number;
+            next_probe_at: number;
+            first_wait_at: number;
+            last_probe_at?: number | null;
+            last_error?: string;
+            claimed_at?: number | null;
+            updated_at: number;
         };
         TaskEvent: {
             task_id: string;
@@ -729,6 +763,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+        };
+    };
+    getTaskLimitWait: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable quota wait state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskLimitWait"];
+                };
+            };
+            /** @description No active or historical quota wait */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

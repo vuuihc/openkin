@@ -167,6 +167,26 @@ struct TaskDetailView: View {
 
                 Spacer()
             }
+
+            if let wait = viewModel.limitWait,
+               wait.state == "waiting" || wait.state == "probing"
+            {
+                let retryText = String(localized: "task.automatic_retry")
+                let attemptsText = String.localizedStringWithFormat(
+                    String(
+                        localized: "task.attempts_format",
+                        defaultValue: "%lld attempt(s)",
+                        comment: "Task detail: quota retry count"
+                    ),
+                    wait.attempts
+                )
+                Label(
+                    "\(retryText) · \(attemptsText)",
+                    systemImage: "arrow.clockwise.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
         }
         .padding()
         .background(.background)

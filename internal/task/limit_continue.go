@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -199,8 +200,8 @@ func (e *Engine) LimitContinue(ctx context.Context, id string, req LimitContinue
 		}
 		// Schedule auto-continue when we have a reset time; otherwise leave it
 		// armed for a manual Continue (status=waiting still helps the UI).
-		if resetAt > 0 {
-			e.scheduleLimitWait(id, resetAt)
+		if err := e.scheduleLimitWaitExplicit(ctx, id, resetAt); err != nil {
+			return store.Task{}, err
 		}
 		return e.store.GetTask(ctx, id)
 
@@ -212,6 +213,7 @@ func (e *Engine) LimitContinue(ctx context.Context, id string, req LimitContinue
 			e.patchLimitHitStatus(ctx, id, hitSeq, info, "continued", "")
 		}
 		e.cancelLimitWait(id)
+		_ = e.store.SetTaskLimitWaitState(ctx, id, "canceled", "continued manually", 0)
 		return e.Retry(ctx, id, RetryRequest{})
 
 	case "switch":
@@ -233,6 +235,7 @@ func (e *Engine) LimitContinue(ctx context.Context, id string, req LimitContinue
 			e.patchLimitHitStatus(ctx, id, hitSeq, info, "switched", agentID)
 		}
 		e.cancelLimitWait(id)
+		_ = e.store.SetTaskLimitWaitState(ctx, id, "canceled", "switched manually", 0)
 		return e.FollowUpWith(ctx, id, FollowUpRequest{Prompt: prompt, Agent: agentID})
 	}
 
@@ -324,9 +327,119 @@ func (e *Engine) lastUserPrompt(ctx context.Context, taskID, fallback string) (s
 	return text, nil
 }
 
-// --- auto wait scheduler (in-memory; process lifetime only) ---
+// --- auto wait scheduler (durable state plus an in-memory wakeup) ---
 
-func (e *Engine) scheduleLimitWait(taskID string, resetAt int64) {
+func (e *Engine) scheduleLimitWait(ctx context.Context, taskID string, resetAt int64) error {
+	return e.scheduleLimitWaitMode(ctx, taskID, resetAt, false)
+}
+
+func (e *Engine) scheduleLimitWaitExplicit(ctx context.Context, taskID string, resetAt int64) error {
+	return e.scheduleLimitWaitMode(ctx, taskID, resetAt, true)
+}
+
+func (e *Engine) scheduleLimitWaitMode(ctx context.Context, taskID string, resetAt int64, force bool) error {
+	info, _, hasHit := e.latestOpenLimitHit(ctx, taskID)
+	if !hasHit {
+		info = adapter.RateLimitInfo{Kind: adapter.RateLimitKind}
+	}
+	if resetAt > 0 {
+		// The caller's explicit reset overrides a stale event payload. Keep the
+		// durable row and the in-memory timer anchored to the same deadline.
+		info.ResetAt = resetAt
+	}
+	now := time.Now()
+	next := now.Add(limitWaitProbeStart).UnixMilli()
+	if resetAt > 0 {
+		next = time.Unix(resetAt, 0).Add(2 * time.Second).UnixMilli()
+		if next < now.UnixMilli() {
+			next = now.UnixMilli()
+		}
+	}
+	if err := e.persistLimitWait(ctx, taskID, info, next, 0, "", force); err != nil {
+		return err
+	}
+	if wait, err := e.store.GetTaskLimitWait(ctx, taskID); err == nil {
+		e.armLimitWaitTimer(taskID, wait.NextProbeAt)
+	} else {
+		e.armLimitWaitTimer(taskID, next)
+	}
+	return nil
+}
+
+func (e *Engine) persistLimitWait(
+	ctx context.Context,
+	taskID string,
+	info adapter.RateLimitInfo,
+	nextProbeAt int64,
+	attempts int,
+	lastError string,
+	force bool,
+) error {
+	t, err := e.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	userSeq := e.latestUserSeq(ctx, taskID)
+	now := time.Now().UnixMilli()
+	firstWaitAt := now
+	if old, err := e.store.GetTaskLimitWait(ctx, taskID); err == nil &&
+		old.EventEpoch == t.EventEpoch && old.UserSeq == userSeq && old.FirstWaitAt > 0 {
+		firstWaitAt = old.FirstWaitAt
+		if attempts == 0 {
+			attempts = old.Attempts
+		}
+	}
+	if info.Agent == "" {
+		info.Agent = t.Agent
+	}
+	if info.Provider == "" {
+		info.Provider = providerForAgent(info.Agent)
+	}
+	wait := store.TaskLimitWait{
+		TaskID:      taskID,
+		EventEpoch:  t.EventEpoch,
+		UserSeq:     userSeq,
+		Agent:       info.Agent,
+		Provider:    info.Provider,
+		Window:      info.Window,
+		ResetAt:     info.ResetAt,
+		State:       "waiting",
+		Attempts:    attempts,
+		NextProbeAt: nextProbeAt,
+		FirstWaitAt: firstWaitAt,
+		LastError:   lastError,
+		UpdatedAt:   now,
+	}
+	if force {
+		return e.store.UpsertTaskLimitWait(ctx, wait)
+	}
+	return e.store.UpsertTaskLimitWaitMonotonic(ctx, wait)
+}
+
+func (e *Engine) latestUserSeq(ctx context.Context, taskID string) int {
+	evs, err := e.store.ListEvents(ctx, taskID, 0)
+	if err != nil {
+		return 0
+	}
+	latest := 0
+	for _, ev := range evs {
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal(ev.Payload, &m) != nil {
+			continue
+		}
+		role, _ := m["role"].(string)
+		speaker, _ := m["speaker"].(string)
+		if role == "user" || speaker == "user" {
+			latest = ev.Seq
+		}
+	}
+	return latest
+}
+
+func (e *Engine) armLimitWaitTimer(taskID string, dueAt int64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.limitWaitCancel == nil {
@@ -336,15 +449,14 @@ func (e *Engine) scheduleLimitWait(taskID string, resetAt int64) {
 		cancel()
 		delete(e.limitWaitCancel, taskID)
 	}
-	delay := time.Until(time.Unix(resetAt, 0))
+	delay := time.Until(time.UnixMilli(dueAt))
 	if delay < 0 {
 		delay = 0
 	}
-	// Small grace so the provider window is actually open.
-	delay += 2 * time.Second
-	// Cap absurd delays (e.g. bad reset_at far in the future) at 48h.
-	if delay > 48*time.Hour {
-		delay = 48 * time.Hour
+	// Do not rely on a runtime timer for long waits. The durable due time is
+	// retained and the timer wakes in chunks so process sleep does not lose it.
+	if delay > limitWaitTimerChunk {
+		delay = limitWaitTimerChunk
 	}
 	ctx, cancel := context.WithCancel(e.ctx)
 	e.limitWaitCancel[taskID] = cancel
@@ -378,26 +490,189 @@ func (e *Engine) runLimitWait(ctx context.Context, taskID string, delay time.Dur
 	}
 	e.mu.Unlock()
 
+	// Re-arm a chunked timer if the durable due time is still in the future.
+	wait, err := e.store.GetTaskLimitWait(ctx, taskID)
+	if err != nil || (wait.State != "waiting" && wait.State != "probing") {
+		return
+	}
+	if wait.NextProbeAt > time.Now().UnixMilli() {
+		e.armLimitWaitTimer(taskID, wait.NextProbeAt)
+		return
+	}
+	wait, err = e.store.ClaimTaskLimitWait(ctx, taskID, time.Now().UnixMilli())
+	if err != nil {
+		return
+	}
+
 	// Only auto-continue if still failed and still waiting.
 	t, err := e.store.GetTask(ctx, taskID)
-	if err != nil || t.Status != StatusFailed {
+	if err != nil {
+		_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "canceled", "task is unavailable", 0)
 		return
 	}
+	if t.Status != StatusFailed {
+		// Retry may have committed a new epoch before returning an error. Keep
+		// the durable wait alive while that run is still active so startup or a
+		// later provider failure can re-arm it under the new turn identity.
+		switch t.Status {
+		case StatusQueued, StatusRunning, StatusWaitingApproval, StatusWaitingInput:
+			wait.EventEpoch = t.EventEpoch
+			wait.UserSeq = e.latestUserSeq(ctx, taskID)
+			wait.Attempts++
+			wait.LastError = "retry is still in progress"
+			wait.NextProbeAt = time.Now().Add(limitWaitBackoff(wait.Attempts)).UnixMilli()
+			wait.State = "waiting"
+			wait.UpdatedAt = time.Now().UnixMilli()
+			if err := e.store.UpdateTaskLimitWait(ctx, wait); err == nil {
+				e.armLimitWaitTimer(taskID, wait.NextProbeAt)
+			}
+			return
+		default:
+			_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "canceled", "task is no longer failed", 0)
+			return
+		}
+	}
+	if t.EventEpoch != wait.EventEpoch || e.latestUserSeq(ctx, taskID) != wait.UserSeq {
+		_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "canceled", "a newer user turn superseded this wait", 0)
+		return
+	}
+
+	if wait.ResetAt == 0 {
+		retry, next, probeErr := e.probeUnknownLimitWait(ctx, wait)
+		if !retry {
+			if e.limitWaitExpired(wait) {
+				_ = e.store.SetTaskLimitWaitStateClaimed(
+					ctx,
+					taskID,
+					wait.ClaimedAt,
+					"blocked",
+					firstNonEmptyStr(probeErr, "provider reset remains unknown"),
+					0,
+				)
+				info, hitSeq, hasHit := e.latestOpenLimitHit(ctx, taskID)
+				if hasHit {
+					e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "blocked", "")
+				}
+				return
+			}
+			wait.Attempts++
+			wait.LastProbeAt = time.Now().UnixMilli()
+			wait.LastError = probeErr
+			wait.NextProbeAt = next
+			wait.State = "waiting"
+			wait.UpdatedAt = time.Now().UnixMilli()
+			if err := e.store.UpdateTaskLimitWait(ctx, wait); err != nil {
+				return
+			}
+			e.armLimitWaitTimer(taskID, next)
+			return
+		}
+		if next > 0 {
+			wait.ResetAt = next / 1000
+			wait.NextProbeAt = next
+			wait.State = "waiting"
+			wait.UpdatedAt = time.Now().UnixMilli()
+			if err := e.store.UpdateTaskLimitWait(ctx, wait); err != nil {
+				return
+			}
+			e.armLimitWaitTimer(taskID, next)
+			return
+		}
+	}
+
 	info, hitSeq, hasHit := e.latestOpenLimitHit(ctx, taskID)
 	if !hasHit {
+		_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "canceled", "limit event no longer open", 0)
 		return
 	}
-	if hasHit {
-		e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "continued", "")
-	}
+	e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "continued", "")
 	if _, err := e.Retry(ctx, taskID, RetryRequest{}); err != nil {
+		next := time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli()
+		wait.Attempts++
+		wait.LastError = err.Error()
+		wait.NextProbeAt = next
+		wait.State = "waiting"
+		wait.UpdatedAt = time.Now().UnixMilli()
+		if current, getErr := e.store.GetTask(ctx, taskID); getErr == nil {
+			wait.EventEpoch = current.EventEpoch
+			wait.UserSeq = e.latestUserSeq(ctx, taskID)
+		}
+		if err := e.store.UpdateTaskLimitWait(ctx, wait); err != nil {
+			return
+		}
+		// Retry itself failed, so keep the limit event actionable for the
+		// next durable wakeup instead of leaving it terminal as "continued".
+		e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "waiting", "")
+		e.armLimitWaitTimer(taskID, next)
 		payload, _ := json.Marshal(map[string]string{
 			"message": "auto-continue after rate limit failed: " + err.Error(),
 		})
 		if ev, err := e.store.AppendEvent(ctx, taskID, "error", payload); err == nil {
 			e.bus.PublishEvent(ev)
 		}
+		return
 	}
+	_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "completed", "", 0)
+}
+
+func limitWaitBackoff(attempts int) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+	d := limitWaitProbeStart
+	for i := 1; i < attempts; i++ {
+		if d >= limitWaitProbeMax/2 {
+			return limitWaitProbeMax
+		}
+		d *= 2
+	}
+	if d > limitWaitProbeMax {
+		return limitWaitProbeMax
+	}
+	return d
+}
+
+func (e *Engine) limitWaitMaxElapsed(ctx context.Context) time.Duration {
+	if e.store != nil {
+		if raw, err := e.store.GetSetting(ctx, KeyLimitWaitMaxElapsedSecs); err == nil {
+			if seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && seconds > 0 {
+				return time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	return limitWaitDefaultMax
+}
+
+func (e *Engine) limitWaitExpired(wait store.TaskLimitWait) bool {
+	return wait.FirstWaitAt > 0 && time.Since(time.UnixMilli(wait.FirstWaitAt)) >= e.limitWaitMaxElapsed(context.Background())
+}
+
+// probeUnknownLimitWait returns retry=true when the provider window is known
+// to be available. A positive next value means a reset was discovered.
+func (e *Engine) probeUnknownLimitWait(ctx context.Context, wait store.TaskLimitWait) (retry bool, next int64, lastError string) {
+	if e.usageWindows == nil || strings.TrimSpace(wait.Provider) == "" {
+		return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), "provider reset is unavailable"
+	}
+	pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	for _, p := range e.usageWindows.Statuses(pctx) {
+		if p.Provider != wait.Provider {
+			continue
+		}
+		if p.Error != "" {
+			return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), p.Error
+		}
+		for _, w := range p.Windows {
+			if w.Status == "over" {
+				if w.ResetAt > 0 {
+					return false, time.Unix(w.ResetAt, 0).Add(2 * time.Second).UnixMilli(), ""
+				}
+				return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), "provider still reports an exhausted window"
+			}
+		}
+		return true, 0, ""
+	}
+	return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), "provider window status unavailable"
 }
 
 func firstNonEmptyStr(vals ...string) string {

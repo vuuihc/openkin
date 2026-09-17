@@ -105,6 +105,17 @@ actor APIClient {
         try await perform(.taskEvents(id: id, sinceSeq: sinceSeq), timeout: 30)
     }
 
+    /// Returns the durable quota wait, or nil when this task has no wait record.
+    /// Other transport, authorization, and server errors remain visible to the
+    /// caller instead of being mistaken for an absent wait.
+    func taskLimitWait(id: String) async throws -> TaskLimitWait? {
+        do {
+            return try await perform(.taskLimitWait(id: id), timeout: 30)
+        } catch APIError.notFound {
+            return nil
+        }
+    }
+
     func deleteTask(id: String) async throws {
         try await performEmpty(.deleteTask(id: id))
     }

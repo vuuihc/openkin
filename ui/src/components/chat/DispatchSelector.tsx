@@ -24,9 +24,18 @@ type Props = {
   onChange: (sel: DispatchSelection) => void;
   disabled?: boolean;
   onPreviewBlocked?: (blocked: boolean) => void;
+  prompt?: string;
+  routine?: boolean;
 };
 
-export function DispatchSelector({ value, onChange, disabled, onPreviewBlocked }: Props) {
+export function DispatchSelector({
+  value,
+  onChange,
+  disabled,
+  onPreviewBlocked,
+  prompt,
+  routine,
+}: Props) {
   const tr = useT();
   const [options, setOptions] = useState<RoutingOptions | null>(null);
   const [preview, setPreview] = useState<RoutingPreview | null>(null);
@@ -76,6 +85,8 @@ export function DispatchSelector({ value, onChange, disabled, onPreviewBlocked }
     if (value.mode === "auto") {
       if (value.team) params.team = value.team;
       if (value.objective) params.objective = value.objective;
+      if (prompt) params.prompt = prompt;
+      if (routine) params.routine = "1";
     } else if (value.mode === "manual") {
       if (value.agent) params.agent = value.agent;
       if (value.provider) params.provider = value.provider;
@@ -93,7 +104,7 @@ export function DispatchSelector({ value, onChange, disabled, onPreviewBlocked }
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [value, open]);
+  }, [value, open, prompt, routine]);
 
   // Report preview blocked status to parent.
   useEffect(() => {

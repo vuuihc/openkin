@@ -19,6 +19,16 @@ const (
 	// KeyLimitFallbackAgents is an optional JSON array of agent ids used when
 	// policy=switch (e.g. `["codex","kin"]`). Empty → registry order, skip current.
 	KeyLimitFallbackAgents = "limit_policy.fallback_agents"
+	// KeyLimitWaitMaxElapsedSecs bounds automatic waiting when a provider never
+	// reports a usable reset. Empty or invalid values use the safe default.
+	KeyLimitWaitMaxElapsedSecs = "limit_wait.max_elapsed_secs"
+)
+
+const (
+	limitWaitTimerChunk = 24 * time.Hour
+	limitWaitProbeStart = 30 * time.Second
+	limitWaitProbeMax   = 15 * time.Minute
+	limitWaitDefaultMax = 7 * 24 * time.Hour
 )
 
 // Limit policy values.
@@ -125,8 +135,8 @@ func (e *Engine) autoArmWait(ctx context.Context, taskID, agent string, info ada
 		return
 	}
 	e.patchLimitHitStatus(ctx, taskID, 0, info, "waiting", "")
-	if info.ResetAt > 0 {
-		e.scheduleLimitWait(taskID, info.ResetAt)
+	if err := e.scheduleLimitWait(ctx, taskID, info.ResetAt); err != nil {
+		return
 	}
 }
 
@@ -306,49 +316,83 @@ func (e *Engine) handleNewLimitHit(ctx context.Context, taskID, agent string, in
 	}
 }
 
-// recoverLimitWaits re-arms auto-continue timers for failed tasks that were left
-// in status=waiting after a daemon restart.
+// recoverLimitWaits re-arms durable auto-continue timers after a daemon restart.
 func (e *Engine) recoverLimitWaits(ctx context.Context) {
 	if e.store == nil {
 		return
 	}
-	tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Status: StatusFailed, Limit: 200})
-	if err != nil {
+	// Any probing row belongs to a worker from the previous process lifetime.
+	// Release it before arming timers so a quick restart is recoverable too.
+	if err := e.store.RequeueTaskLimitWaitClaims(ctx); err != nil {
 		return
 	}
-	for _, t := range tasks {
-		info, _, has := e.latestOpenLimitHit(ctx, t.ID)
-		if !has {
-			continue
-		}
-		// latestOpenLimitHit returns open|waiting. Only re-arm explicit waiting
-		// with a known reset; open cards stay for the user (or default wait on next hit).
-		evs, err := e.store.ListEvents(ctx, t.ID, 0)
+	var afterProbeAt int64
+	var afterTaskID string
+	for {
+		waits, err := e.store.ListActiveTaskLimitWaitsPage(ctx, afterProbeAt, afterTaskID, 1000)
 		if err != nil {
-			continue
+			return
 		}
-		status := "open"
-		for i := len(evs) - 1; i >= 0; i-- {
-			if evs[i].Type != "limit_hit" {
-				continue
-			}
-			var m map[string]any
-			_ = json.Unmarshal(evs[i].Payload, &m)
-			if s, _ := m["status"].(string); s != "" {
-				status = strings.ToLower(s)
-			}
+		for _, wait := range waits {
+			e.armLimitWaitTimer(wait.TaskID, wait.NextProbeAt)
+		}
+		if len(waits) < 1000 {
 			break
 		}
-		if status != "waiting" {
-			// Default policy is wait: also re-arm open cards with reset_at so
-			// restart does not strand sessions that never got a user click.
-			if status == "open" && info.ResetAt > 0 && e.LimitPolicy(ctx) == LimitPolicyWait {
-				e.autoArmWait(ctx, t.ID, t.Agent, info)
-			}
-			continue
+		last := waits[len(waits)-1]
+		afterProbeAt = last.NextProbeAt
+		afterTaskID = last.TaskID
+	}
+
+	// Backfill waits created before migration 018. Paginate instead of relying
+	// on ListTasks' UI-oriented 200-row cap.
+	var before string
+	for {
+		tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Status: StatusFailed, Limit: 200, Before: before})
+		if err != nil || len(tasks) == 0 {
+			break
 		}
-		if info.ResetAt > 0 {
-			e.scheduleLimitWait(t.ID, info.ResetAt)
+		for _, t := range tasks {
+			if _, err := e.store.GetTaskLimitWait(ctx, t.ID); err == nil {
+				continue
+			}
+			info, _, has := e.latestOpenLimitHit(ctx, t.ID)
+			if !has {
+				continue
+			}
+			// latestOpenLimitHit returns open|waiting. Only re-arm explicit waiting
+			// with a known reset; open cards stay for the user (or default wait on next hit).
+			evs, err := e.store.ListEvents(ctx, t.ID, 0)
+			if err != nil {
+				continue
+			}
+			status := "open"
+			for i := len(evs) - 1; i >= 0; i-- {
+				if evs[i].Type != "limit_hit" {
+					continue
+				}
+				var m map[string]any
+				_ = json.Unmarshal(evs[i].Payload, &m)
+				if s, _ := m["status"].(string); s != "" {
+					status = strings.ToLower(s)
+				}
+				break
+			}
+			if status != "waiting" {
+				// Default policy is wait: also re-arm open cards with reset_at so
+				// restart does not strand sessions that never got a user click.
+				if status == "open" && info.ResetAt > 0 && e.LimitPolicy(ctx) == LimitPolicyWait {
+					e.autoArmWait(ctx, t.ID, t.Agent, info)
+				} else if status == "waiting" && e.LimitPolicy(ctx) == LimitPolicyWait {
+					_ = e.scheduleLimitWait(ctx, t.ID, info.ResetAt)
+				}
+				continue
+			}
+			_ = e.scheduleLimitWait(ctx, t.ID, info.ResetAt)
+		}
+		before = tasks[len(tasks)-1].ID
+		if len(tasks) < 200 {
+			break
 		}
 	}
 }

@@ -6,6 +6,7 @@ import Observation
 final class TaskDetailViewModel {
     var task: KinTask?
     var events: [TaskEvent] = []
+    var limitWait: TaskLimitWait?
     var workspaces: [Workspace] = []
     var isLoading = false
     var isSending = false
@@ -28,10 +29,12 @@ final class TaskDetailViewModel {
         do {
             async let fetchedTask = apiClient.task(id: taskId)
             async let fetchedEvents = apiClient.taskEvents(id: taskId)
+            async let fetchedLimitWait = apiClient.taskLimitWait(id: taskId)
 
             let (taskResult, eventsResult) = try await (fetchedTask, fetchedEvents)
 
             task = taskResult
+            limitWait = try await fetchedLimitWait
             events = eventsResult.sorted {
                 ($0.eventEpoch, $0.seq) < ($1.eventEpoch, $1.seq)
             }
@@ -77,6 +80,7 @@ final class TaskDetailViewModel {
             // Also refresh the task object to get updated status/elapsed
             let updatedTask = try await apiClient.task(id: taskId)
             task = updatedTask
+            limitWait = try await apiClient.taskLimitWait(id: taskId)
         } catch {
             // Silently fail for poll — the next poll will retry
         }

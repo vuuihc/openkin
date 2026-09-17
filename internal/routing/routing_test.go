@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -443,6 +444,52 @@ func TestValidateRoutingDefaults(t *testing.T) {
 			err := ValidateRoutingDefaults(tt.defaults, teamExists)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateRoutingDefaults() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRoutingDefaultsComplexitySettings(t *testing.T) {
+	teamExists := func(id string) bool { return id == "default-team" }
+	tests := []struct {
+		name     string
+		defaults RoutingDefaults
+		wantErr  string
+	}{
+		{
+			name:     "unknown quality floor",
+			defaults: RoutingDefaults{QualityFloor: "extreme"},
+			wantErr:  "unknown quality_floor",
+		},
+		{
+			name:     "forced phases require execute",
+			defaults: RoutingDefaults{ForcePhases: []RoutePhase{PhasePlan}},
+			wantErr:  "must include",
+		},
+		{
+			name:     "duplicate forced phase",
+			defaults: RoutingDefaults{ForcePhases: []RoutePhase{PhaseExecute, PhaseExecute}},
+			wantErr:  "duplicate",
+		},
+		{
+			name: "valid complexity settings",
+			defaults: RoutingDefaults{
+				QualityFloor: "medium",
+				ForcePhases:  []RoutePhase{PhasePlan, PhaseExecute, PhaseReview},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRoutingDefaults(tt.defaults, teamExists)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateRoutingDefaults() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ValidateRoutingDefaults() error = %v, want substring %q", err, tt.wantErr)
 			}
 		})
 	}

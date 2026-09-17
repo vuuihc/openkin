@@ -232,7 +232,11 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	// Routines start only after Engine recovery and dependency validation.
-	(&routines.Scheduler{Store: st, Engine: eng}).StartLoop(context.Background(), routines.DefaultTickInterval)
+	(&routines.Scheduler{
+		Store:            st,
+		Engine:           eng,
+		TotalConcurrency: maxConcurrent,
+	}).StartLoop(context.Background(), routines.DefaultTickInterval)
 
 	static, err := uiHandler()
 	if err != nil {

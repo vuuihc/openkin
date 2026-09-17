@@ -62,6 +62,7 @@ export default function NewChatPage() {
 
   const [cwd, setCwd] = useState(() => getDraftCwd());
   const [initialValue, setInitialValue] = useState(() => getDraftPrompt());
+  const [previewPrompt, setPreviewPrompt] = useState(() => getDraftPrompt());
   const [initialAttachments] = useState(() => getDraftAttachments());
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(
     () => getDraftPermissionMode(),
@@ -114,6 +115,7 @@ export default function NewChatPage() {
     const q = params.get("q");
     if (q) {
       setInitialValue(q);
+      setPreviewPrompt(q);
       setDraftPrompt(q);
     }
     const cwdParam = params.get("cwd");
@@ -417,7 +419,10 @@ export default function NewChatPage() {
             initialAttachments={initialAttachments}
             placeholder={asRoutine ? tr("routines.promptPlaceholder") : tr("newChat.placeholder", { name: mainAgentName })}
             onAttachmentsChange={setDraftAttachments}
-            onValueChange={setDraftPrompt}
+            onValueChange={(value) => {
+              setDraftPrompt(value);
+              setPreviewPrompt(value);
+            }}
             onSubmit={onSubmit}
           />
           <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 px-0.5 min-w-0 sm:overflow-x-auto kin-scroll">
@@ -455,6 +460,8 @@ export default function NewChatPage() {
                   value={dispatch}
                   onChange={setDispatch}
                   disabled={sending}
+                  prompt={previewPrompt}
+                  routine={asRoutine}
                   onPreviewBlocked={setDispatchPreviewBlocked}
                 />
               </>
