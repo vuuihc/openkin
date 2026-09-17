@@ -150,6 +150,19 @@ Multi-device reading of Artifacts uses the same ladder: **the phone opens the li
 
 Current choices; may change with evidence. The one invariant: **UI talks to the core only over HTTP/WebSocket** — never in-process bindings across the language boundary.
 
+**Agent-platform implementation status (2026-09):** automatic routing is
+shipped for the current local M1 scope, including deterministic complexity
+classification, adaptive phases, quality floors, same-agent provider/model
+fallback, and auditable route decisions. Routines have no product-level
+definition-count cap; pagination, search, bounded background concurrency,
+missed-run policy, and backlog health are part of the current contract. Quota
+waits are durable work: reset-aware waits, unknown-reset probing, transactional
+claims, and restart recovery are persisted rather than reconstructed only from
+an open page. The existing `approve-mcp` command is an internal, per-worker
+approval/lifecycle bridge. It is not the public OpenKin control-plane MCP
+server; public MCP calls must use the same task, approval, credential, scope,
+and audit services as REST.
+
 | Layer | Choice |
 |-------|--------|
 | Daemon | Go, single static binary; pure-Go SQLite (no CGO); embeds the web console; tsnet built in |

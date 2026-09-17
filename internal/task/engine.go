@@ -43,6 +43,9 @@ const DefaultMaxConcurrent = 16
 // CreateRequest is the body for POST /api/tasks.
 // Agent is optional: empty → engine picks default available agent.
 type CreateRequest struct {
+	// ID is reserved for durable schedulers that need crash-safe idempotency.
+	// Normal callers leave it empty and the engine generates a ULID.
+	ID             string                  `json:"-"`
 	Agent          string                  `json:"agent"`
 	Cwd            string                  `json:"cwd"`
 	Prompt         string                  `json:"prompt"`
@@ -1063,9 +1066,13 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q (available: %v): %w", req.Agent, e.AgentIDs(), err)
 	}
 
-	id, err := e.newID()
-	if err != nil {
-		return store.Task{}, err
+	var err error
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id, err = e.newID()
+		if err != nil {
+			return store.Task{}, err
+		}
 	}
 	explicitTitle := req.Title != nil && strings.TrimSpace(*req.Title) != ""
 	title := ""

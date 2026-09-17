@@ -2,6 +2,7 @@ package routines
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -174,5 +175,118 @@ func TestTickReservesOnlyInteractiveSlotWhenEngineHasOneWorker(t *testing.T) {
 	}
 	if health.DueBacklog != 1 {
 		t.Fatalf("due backlog=%d want 1", health.DueBacklog)
+	}
+}
+
+func TestTickDoesNotTreatRecoveredTerminalDispatchAsSuccess(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	e := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"kin": stubAdapter{}}, task.NewBus(), 2)
+	t.Cleanup(e.Close)
+
+	ctx := context.Background()
+	fixed := time.Unix(1_700_000_000, 0)
+	nowMs := fixed.UnixMilli()
+	r := store.Routine{
+		ID: "recovery-routine", Cwd: t.TempDir(), Agent: "kin", Prompt: "recover",
+		IntervalSecs: 60, Enabled: true, NextDueAt: nowMs - 1, CreatedAt: nowMs - 1000,
+	}
+	if err := st.InsertRoutine(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertTask(ctx, store.Task{
+		ID: "recovered-task", Title: "recovered", Agent: "kin", Cwd: r.Cwd,
+		Prompt: r.Prompt, Status: task.StatusFailed, CreatedAt: nowMs,
+		RoutineID: r.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.BeginRoutineDispatch(ctx, r.ID, r.NextDueAt, "recovered-task", nowMs); err != nil {
+		t.Fatal(err)
+	}
+
+	sch := &Scheduler{
+		Store: st, Engine: e, Clock: func() time.Time { return fixed }, TotalConcurrency: 2,
+	}
+	if err := sch.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetRoutine(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastOutcome != "failed" {
+		t.Fatalf("last outcome=%q want failed", got.LastOutcome)
+	}
+	if !strings.Contains(got.LastError, "terminal task status") {
+		t.Fatalf("last error=%q", got.LastError)
+	}
+	var state string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT state FROM routine_dispatches WHERE routine_id = ? AND due_at = ?`,
+		r.ID, r.NextDueAt,
+	).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "failed" {
+		t.Fatalf("dispatch state=%q want failed", state)
+	}
+}
+
+func TestTickRecoversManualDispatchWithoutCreatingDuplicate(t *testing.T) {
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	e := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"kin": stubAdapter{}}, task.NewBus(), 1)
+	t.Cleanup(e.Close)
+
+	ctx := context.Background()
+	fixed := time.Unix(1_700_000_000, 0)
+	nowMs := fixed.UnixMilli()
+	r := store.Routine{
+		ID: "manual-recovery", Cwd: t.TempDir(), Agent: "kin", Prompt: "manual",
+		IntervalSecs: 60, Enabled: true, NextDueAt: nowMs + 60_000, CreatedAt: nowMs,
+	}
+	if err := st.InsertRoutine(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	dueAt := nowMs*1000 + 1
+	if _, _, err := st.BeginManualRoutineDispatch(ctx, r.ID, dueAt, "manual-task", nowMs); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertTask(ctx, store.Task{
+		ID: "manual-task", Title: "manual", Agent: "kin", Cwd: r.Cwd,
+		Prompt: r.Prompt, Status: task.StatusQueued, CreatedAt: nowMs, RoutineID: r.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sch := &Scheduler{
+		Store: st, Engine: e, Clock: func() time.Time { return fixed }, TotalConcurrency: 2,
+	}
+	if err := sch.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT state FROM routine_dispatches WHERE routine_id = ? AND due_at = ?`,
+		r.ID, dueAt,
+	).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "dispatched" {
+		t.Fatalf("dispatch state=%q want dispatched", state)
+	}
+	runs, err := st.ListTasks(ctx, store.ListTasksOpts{RoutineID: r.ID, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].ID != "manual-task" {
+		t.Fatalf("runs=%+v", runs)
 	}
 }

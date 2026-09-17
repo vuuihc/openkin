@@ -488,13 +488,32 @@ func (s *Store) SetRoutineEnabled(ctx context.Context, id string, enabled bool) 
 
 // DeleteRoutine removes a routine. Tasks keep routine_id (historical).
 func (s *Store) DeleteRoutine(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM routines WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete routine: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var pending int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM routine_dispatches
+		WHERE routine_id = ? AND state IN ('pending', 'manual_pending', 'mcp_manual_pending')`,
+		id,
+	).Scan(&pending); err != nil {
+		return fmt.Errorf("check routine dispatches: %w", err)
+	}
+	if pending > 0 {
+		return ErrConflict
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM routines WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete routine: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete routine: %w", err)
 	}
 	return nil
 }

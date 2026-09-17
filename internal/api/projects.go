@@ -715,3 +715,9 @@ func (s *Server) maybeInjectProjectContext(ctx context.Context, req *task.Create
 	}
 	req.Prompt = store.BuildContinuePrompt(p.Name, p.Mode, string(data), req.UserPrompt)
 }
+
+// PrepareTaskCreate is the transport-neutral project-context preparation used
+// by REST and public MCP task creation.
+func PrepareTaskCreate(ctx context.Context, st *store.Store, projectsDir string, req *task.CreateRequest) {
+	(&Server{Store: st, ProjectsDir: projectsDir}).maybeInjectProjectContext(ctx, req)
+}

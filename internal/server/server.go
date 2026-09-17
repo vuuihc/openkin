@@ -20,6 +20,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/api"
+	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -232,11 +233,14 @@ func ServeWith(version string, flags ServeFlags) error {
 		return err
 	}
 	// Routines start only after Engine recovery and dependency validation.
-	(&routines.Scheduler{
+	routineScheduler := &routines.Scheduler{
 		Store:            st,
 		Engine:           eng,
 		TotalConcurrency: maxConcurrent,
-	}).StartLoop(context.Background(), routines.DefaultTickInterval)
+		ValidateCreate:   api.ValidateTaskCreateRequest,
+		OnCreateFailed:   st.DeleteMCPTaskOrigin,
+	}
+	routineScheduler.StartLoop(context.Background(), routines.DefaultTickInterval)
 
 	static, err := uiHandler()
 	if err != nil {
@@ -249,9 +253,59 @@ func ServeWith(version string, flags ServeFlags) error {
 	defer terminals.Close()
 
 	srvAPI := &api.Server{
-		Store:        st,
-		Auth:         auth,
-		Engine:       eng,
+		Store:  st,
+		Auth:   auth,
+		Engine: eng,
+		RunRoutine: func(c context.Context, id string) (store.Task, error) {
+			return routineScheduler.RunNow(c, id)
+		},
+		MCP: &mcp.Server{
+			Store:        st,
+			Engine:       eng,
+			ArtifactsDir: filepath.Join(stateDir, "artifacts"),
+			Version:      version,
+			ValidateCreate: func(c context.Context, req *task.CreateRequest) error {
+				if req == nil {
+					return fmt.Errorf("create request is required")
+				}
+				if req.Agent == "" {
+					req.Agent = eng.DefaultAgentContext(c)
+				}
+				return api.ValidateTaskCreateRequest(c, *req)
+			},
+			ValidateFollowUp: func(c context.Context, id string, req *task.FollowUpRequest) error {
+				return api.ValidateTaskFollowUpRequest(c, eng, id, req)
+			},
+			RunRoutine: func(c context.Context, id string, origin store.MCPTaskOrigin) (any, error) {
+				return routineScheduler.RunNowWithOrigin(c, id, func(reserved store.Task) error {
+					origin.TaskID = reserved.ID
+					origin.CreatedAt = reserved.CreatedAt
+					return st.RecordMCPTaskOrigin(c, origin)
+				})
+			},
+			PrepareCreate: func(c context.Context, req *task.CreateRequest) {
+				api.PrepareTaskCreate(c, st, filepath.Join(stateDir, "projects"), req)
+			},
+			RoutingStatus: func(c context.Context) (any, error) {
+				defaults, err := routingCatalog.GetRoutingDefaults(c)
+				if err != nil {
+					return nil, err
+				}
+				teams, err := routingCatalog.ListTeamProfiles(c)
+				if err != nil {
+					return nil, err
+				}
+				providers, err := routingCatalog.ListProviderProfiles(c)
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"defaults":  defaults,
+					"teams":     teams,
+					"providers": providers,
+				}, nil
+			},
+		},
 		Workspace:    wsMgr,
 		Terminals:    terminals,
 		Version:      version,

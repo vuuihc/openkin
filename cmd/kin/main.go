@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/openkin/internal/approvemcp"
+	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/server"
@@ -42,6 +44,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "kin approve-mcp: %v\n", err)
 			os.Exit(1)
 		}
+	case "mcp":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runMCP(ctx, os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "kin mcp: %v\n", err)
+			os.Exit(1)
+		}
 	case "notify":
 		if err := runNotify(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "kin notify: %v\n", err)
@@ -60,6 +69,34 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		usage(2)
 	}
+}
+
+func runMCP(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	defaultDaemon := os.Getenv("KIN_DAEMON")
+	if defaultDaemon == "" {
+		defaultDaemon = "http://127.0.0.1:7777"
+	}
+	defaultClient := os.Getenv("KIN_MCP_CLIENT")
+	if defaultClient == "" {
+		defaultClient = "stdio-client"
+	}
+	daemon := fs.String("daemon", defaultDaemon, "Kin daemon MCP URL")
+	client := fs.String("client", defaultClient, "MCP client identity for audit")
+	scopes := fs.String("scope", "read,write", "MCP scopes: read,write,admin")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	token, err := remote.ReadToken(filepath.Join(home, ".kin"))
+	if err != nil {
+		return fmt.Errorf("read daemon token: %w", err)
+	}
+	return mcp.RunStdio(ctx, *daemon, token, *client, *scopes, os.Stdin, os.Stdout, os.Stderr)
 }
 
 func runToken(args []string) error {
@@ -142,6 +179,7 @@ Usage:
   kin notify test     send a test notification via configured Bark/ntfy
   kin export --output <path.zip>
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
+  kin mcp              public MCP client bridge for local hosts
   kin version         print version
   kin help            show this help
 

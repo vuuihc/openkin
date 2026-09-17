@@ -12,7 +12,10 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
@@ -37,6 +40,11 @@ type Engine interface {
 type Scheduler struct {
 	Store  *store.Store
 	Engine Engine
+	// ValidateCreate is an optional defense-in-depth check shared with the
+	// HTTP/MCP task creation boundary.
+	ValidateCreate func(context.Context, task.CreateRequest) error
+	// OnCreateFailed cleans up metadata reserved before task creation.
+	OnCreateFailed func(context.Context, string) error
 	// Interval between scans. Zero → DefaultTickInterval.
 	Interval time.Duration
 	// Clock for tests. nil → time.Now.
@@ -53,6 +61,7 @@ type Scheduler struct {
 	mu        sync.Mutex
 	tickMu    sync.Mutex
 	lastError string
+	manualSeq atomic.Int64
 }
 
 // StartLoop runs Tick every interval until ctx is done.
@@ -114,6 +123,12 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		return err
 	}
 	available := limit - inFlight
+	used, err := s.recoverManualDispatches(ctx, now, available)
+	if err != nil {
+		s.recordError(err)
+		return err
+	}
+	available -= used
 	if available <= 0 {
 		return nil
 	}
@@ -144,6 +159,97 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	return nil
 }
 
+func (s *Scheduler) recoverManualDispatches(ctx context.Context, now time.Time, available int) (int, error) {
+	pending, err := s.Store.ListPendingManualRoutineDispatches(ctx, available*4)
+	if err != nil {
+		return 0, err
+	}
+	used := 0
+	for _, dispatch := range pending {
+		routine, err := s.Store.GetRoutine(ctx, dispatch.RoutineID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				_ = s.Store.CompleteRoutineDispatch(ctx, dispatch.RoutineID, dispatch.DueAt, "failed")
+				continue
+			}
+			return used, err
+		}
+		existing, err := s.Store.GetTask(ctx, dispatch.TaskID)
+		if err == nil {
+			if dispatch.State == "mcp_manual_pending" {
+				if _, originErr := s.Store.GetMCPTaskOrigin(ctx, dispatch.TaskID); originErr != nil {
+					_ = s.Store.CompleteRoutineDispatch(ctx, routine.ID, dispatch.DueAt, "failed")
+					_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{
+						LastRunAt:   &dispatch.CreatedAt,
+						LastOutcome: stringPtr("failed"),
+						LastError:   stringPtr("MCP task origin is unavailable"),
+					})
+					continue
+				}
+			}
+			if existing.Status == task.StatusFailed || existing.Status == task.StatusCanceled {
+				_ = s.Store.CompleteRoutineDispatch(ctx, dispatch.RoutineID, dispatch.DueAt, "failed")
+				_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{
+					LastRunAt:   &dispatch.CreatedAt,
+					LastOutcome: stringPtr("failed"),
+					LastError:   stringPtr(fmt.Sprintf("recovered manual dispatch has terminal task status %q", existing.Status)),
+				})
+			} else {
+				_ = s.Store.CompleteRoutineDispatch(ctx, dispatch.RoutineID, dispatch.DueAt, "dispatched")
+				_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{LastRunAt: &dispatch.CreatedAt})
+			}
+			continue
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return used, err
+		}
+		if dispatch.State == "mcp_manual_pending" {
+			if _, originErr := s.Store.GetMCPTaskOrigin(ctx, dispatch.TaskID); originErr != nil {
+				_ = s.Store.CompleteRoutineDispatch(ctx, routine.ID, dispatch.DueAt, "failed")
+				_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{
+					LastRunAt:   &dispatch.CreatedAt,
+					LastOutcome: stringPtr("failed"),
+					LastError:   stringPtr("MCP task origin is unavailable"),
+				})
+				continue
+			}
+		}
+		if used >= available {
+			break
+		}
+		req := s.routineCreateRequest(routine, dispatch.TaskID)
+		if s.ValidateCreate != nil {
+			if err := s.ValidateCreate(ctx, req); err != nil {
+				_ = s.Store.CompleteRoutineDispatch(ctx, routine.ID, dispatch.DueAt, "failed")
+				_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{
+					LastRunAt:   &dispatch.CreatedAt,
+					LastOutcome: stringPtr("failed"),
+					LastError:   stringPtr(err.Error()),
+				})
+				continue
+			}
+		}
+		if _, err := s.Engine.Create(ctx, req); err != nil {
+			if s.OnCreateFailed != nil {
+				_ = s.OnCreateFailed(ctx, dispatch.TaskID)
+			}
+			_ = s.Store.CompleteRoutineDispatch(ctx, routine.ID, dispatch.DueAt, "failed")
+			_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{
+				LastRunAt:   &dispatch.CreatedAt,
+				LastOutcome: stringPtr("failed"),
+				LastError:   stringPtr(err.Error()),
+			})
+			continue
+		}
+		if err := s.Store.CompleteRoutineDispatch(ctx, routine.ID, dispatch.DueAt, "dispatched"); err != nil {
+			return used, err
+		}
+		_ = s.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{LastRunAt: &dispatch.CreatedAt})
+		used++
+	}
+	return used, nil
+}
+
 func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string, now time.Time) error {
 	next := s.nextDue(r, now)
 	if strings.EqualFold(r.MissedRunPolicy, "skip") &&
@@ -153,31 +259,50 @@ func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string,
 		}
 		return nil
 	}
-	prompt := r.Prompt
-	if !strings.Contains(prompt, "noteworthy:") {
-		prompt = prompt + task.ReportSignalTrailer
+	dispatch, _, err := s.Store.BeginRoutineDispatch(
+		ctx, r.ID, r.NextDueAt, ulid.Make().String(), now.UnixMilli(),
+	)
+	if err != nil {
+		return err
 	}
-	title := r.Title
-	if title == "" {
-		title = "Routine"
+	if _, err := s.Store.GetTask(ctx, dispatch.TaskID); err == nil {
+		existing, err := s.Store.GetTask(ctx, dispatch.TaskID)
+		if err != nil {
+			return err
+		}
+		if dispatch.State == "failed" || existing.Status == task.StatusFailed || existing.Status == task.StatusCanceled {
+			message := fmt.Sprintf("recovered routine dispatch has terminal task status %q", existing.Status)
+			_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "failed")
+			return s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "failed", message)
+		}
+		if err := s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "dispatched"); err != nil {
+			return err
+		}
+		return s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "dispatched", "")
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return err
 	}
-	titlePtr := title
-	req := task.CreateRequest{
-		Agent:          r.Agent,
-		Cwd:            r.Cwd,
-		Prompt:         prompt,
-		Title:          &titlePtr,
-		PermissionMode: r.PermissionMode,
-		ProjectID:      r.ProjectID,
-		RoutineID:      r.ID,
-		UserPrompt:     r.Prompt, // show original prompt without trailer in timeline
+	req := s.routineCreateRequest(r, dispatch.TaskID)
+	if s.ValidateCreate != nil {
+		if err := s.ValidateCreate(ctx, req); err != nil {
+			_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "failed")
+			completeErr := s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "failed", err.Error())
+			if completeErr != nil {
+				return fmt.Errorf("validate: %v; release claim: %w", err, completeErr)
+			}
+			return fmt.Errorf("validate: %w", err)
+		}
 	}
 	if _, err := s.Engine.Create(ctx, req); err != nil {
+		_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "failed")
 		completeErr := s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "failed", err.Error())
 		if completeErr != nil {
 			return fmt.Errorf("create: %v; release claim: %w", err, completeErr)
 		}
 		return fmt.Errorf("create: %w", err)
+	}
+	if err := s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "dispatched"); err != nil {
+		return err
 	}
 	return s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "dispatched", "")
 }
@@ -207,6 +332,124 @@ func (s *Scheduler) nextDue(r store.Routine, now time.Time) int64 {
 	}
 	next = applyJitter(next, intervalMs, JitterFraction)
 	return next
+}
+
+// RunNow dispatches a manual Routine through the same background capacity
+// budget as scheduled work. It deliberately leaves next_due_at unchanged.
+func (s *Scheduler) RunNow(ctx context.Context, routineID string) (store.Task, error) {
+	return s.runNow(ctx, routineID, nil, false)
+}
+
+// RunNowWithOrigin is used by protocol adapters that need to persist the
+// authenticated origin before the dispatch is considered complete.
+func (s *Scheduler) RunNowWithOrigin(ctx context.Context, routineID string, onCreated func(store.Task) error) (store.Task, error) {
+	return s.runNow(ctx, routineID, onCreated, true)
+}
+
+func (s *Scheduler) runNow(ctx context.Context, routineID string, onCreated func(store.Task) error, requireOrigin bool) (store.Task, error) {
+	if s == nil || s.Store == nil || s.Engine == nil {
+		return store.Task{}, fmt.Errorf("routine services unavailable")
+	}
+	s.tickMu.Lock()
+	defer s.tickMu.Unlock()
+
+	limit := s.Concurrency
+	if limit <= 0 {
+		limit = 1
+	}
+	if s.TotalConcurrency == 1 {
+		return store.Task{}, fmt.Errorf("routine background lane has no available slot: %w", store.ErrConflict)
+	}
+	if s.TotalConcurrency > 1 && limit >= s.TotalConcurrency {
+		limit = s.TotalConcurrency - 1
+	}
+	inFlight, err := s.Store.CountRoutineInFlight(ctx)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if inFlight >= limit {
+		return store.Task{}, fmt.Errorf("routine background lane is full: %w", store.ErrConflict)
+	}
+	r, err := s.Store.GetRoutine(ctx, routineID)
+	if err != nil {
+		return store.Task{}, err
+	}
+	now := s.now()
+	lastRunAt := now.UnixMilli()
+	dueAt := lastRunAt*1000 + s.manualSeq.Add(1)
+	var dispatch store.RoutineDispatch
+	if requireOrigin {
+		dispatch, _, err = s.Store.BeginMCPRoutineDispatch(ctx, r.ID, dueAt, ulid.Make().String(), lastRunAt)
+	} else {
+		dispatch, _, err = s.Store.BeginManualRoutineDispatch(ctx, r.ID, dueAt, ulid.Make().String(), lastRunAt)
+	}
+	if err != nil {
+		return store.Task{}, err
+	}
+	if existing, err := s.Store.GetTask(ctx, dispatch.TaskID); err == nil {
+		if dispatch.State == "failed" || existing.Status == task.StatusFailed || existing.Status == task.StatusCanceled {
+			return store.Task{}, fmt.Errorf("recovered routine dispatch has terminal task status %q: %w", existing.Status, store.ErrConflict)
+		}
+		return existing, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.Task{}, err
+	}
+	req := s.routineCreateRequest(r, dispatch.TaskID)
+	if s.ValidateCreate != nil {
+		if err := s.ValidateCreate(ctx, req); err != nil {
+			_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, dueAt, "failed")
+			return store.Task{}, err
+		}
+	}
+	if onCreated != nil {
+		if err := onCreated(store.Task{
+			ID:        dispatch.TaskID,
+			RoutineID: r.ID,
+			CreatedAt: lastRunAt,
+		}); err != nil {
+			_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, dueAt, "failed")
+			return store.Task{}, err
+		}
+	}
+	created, err := s.Engine.Create(ctx, req)
+	if err != nil {
+		if s.OnCreateFailed != nil {
+			_ = s.OnCreateFailed(ctx, dispatch.TaskID)
+		}
+		_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, dueAt, "failed")
+		return store.Task{}, err
+	}
+	if err := s.Store.CompleteRoutineDispatch(ctx, r.ID, dueAt, "dispatched"); err != nil {
+		return store.Task{}, err
+	}
+	_ = s.Store.UpdateRoutine(ctx, r.ID, store.RoutinePatch{LastRunAt: &lastRunAt})
+	return created, nil
+}
+
+func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.CreateRequest {
+	prompt := r.Prompt
+	if !strings.Contains(prompt, "noteworthy:") {
+		prompt += task.ReportSignalTrailer
+	}
+	title := r.Title
+	if title == "" {
+		title = "Routine"
+	}
+	return task.CreateRequest{
+		ID:             taskID,
+		Agent:          r.Agent,
+		Cwd:            r.Cwd,
+		Prompt:         prompt,
+		Title:          &title,
+		PermissionMode: r.PermissionMode,
+		ProjectID:      r.ProjectID,
+		RoutineID:      r.ID,
+		UserPrompt:     r.Prompt,
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 // Health returns scheduler backlog plus the latest scheduler error.
