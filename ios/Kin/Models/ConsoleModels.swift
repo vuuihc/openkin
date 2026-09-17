@@ -221,6 +221,33 @@ struct SettingsSnapshot: Codable, Hashable {
     var notifyNtfyTopic: String?
 }
 
+struct WorkerCapability: Codable, Hashable {
+    let name: String
+    let version: String?
+    let features: [String]?
+}
+
+struct WorkerLease: Codable, Hashable {
+    let leaseId: String
+    let workerId: String
+    let issuedAt: Int64
+    let expiresAt: Int64
+}
+
+struct WorkerRecord: Identifiable, Codable, Hashable {
+    var id: String { workerId }
+    let version: Int
+    let workerId: String
+    let label: String?
+    let ownerDeviceId: String?
+    let capabilities: [WorkerCapability]
+    let maxConcurrent: Int
+    let lease: WorkerLease
+    let state: String
+    let lastSeenAt: Int64
+    let revokedAt: Int64?
+}
+
 struct WorkspaceTreeResponse: Codable, Hashable {
     let workspaceId: String?
     let path: String

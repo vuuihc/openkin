@@ -617,6 +617,9 @@ const en: MessageTree = {
       uiBaseUrl: "UI base URL",
       uiBaseUrlHint:
         "Set automatically from the most-public listener at serve start; override for tunnels.",
+      quotaWaitAfter: "Quota wait notification threshold (seconds)",
+      quotaWaitAfterHint:
+        "Notify once when a quota wait has lasted this long. Minimum 60 seconds.",
       save: "Save",
       sendTest: "Send test notification",
       sending: "Sending…",

@@ -1256,6 +1256,7 @@ export const uploadImage = uploadFile;
 export type Settings = {
   "notify.bark_url": string;
   "notify.ntfy_topic": string;
+  "notify.quota_wait_after_secs"?: string;
   "ui.base_url": string;
   price_table: string;
   agent_limits: string;
@@ -1278,6 +1279,7 @@ export type SettingsUpdate = Partial<
     Settings,
     | "notify.bark_url"
     | "notify.ntfy_topic"
+    | "notify.quota_wait_after_secs"
     | "ui.base_url"
     | "price_table"
     | "agent_limits"

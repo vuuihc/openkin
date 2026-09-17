@@ -100,6 +100,62 @@ paths:
       responses:
         "204":
           description: Device revoked
+  /api/workers:
+    get:
+      operationId: listWorkers
+      responses:
+        "200":
+          description: User-owned worker leases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Worker"
+  /api/workers/register:
+    post:
+      operationId: registerWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerHello"
+      responses:
+        "201":
+          description: Registered worker lease
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Worker"
+  /api/workers/heartbeat:
+    post:
+      operationId: heartbeatWorker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerHeartbeat"
+      responses:
+        "200":
+          description: Renewed worker lease
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Worker"
+  /api/workers/{workerId}/revoke:
+    post:
+      operationId: revokeWorker
+      parameters:
+        - in: path
+          name: workerId
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Worker lease revoked
   /api/tasks:
     get:
       operationId: listTasks
@@ -481,6 +537,83 @@ components:
           type: [integer, "null"]
         revoked_at:
           type: [integer, "null"]
+    WorkerCapability:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+    WorkerHello:
+      type: object
+      required: [version, capabilities, max_concurrent]
+      properties:
+        version:
+          type: integer
+        worker_id:
+          type: string
+        label:
+          type: string
+        capabilities:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/WorkerCapability"
+        max_concurrent:
+          type: integer
+          minimum: 1
+    WorkerHeartbeat:
+      type: object
+      required: [worker_id, lease_id, at]
+      properties:
+        worker_id:
+          type: string
+        lease_id:
+          type: string
+        at:
+          type: integer
+    Worker:
+      type: object
+      required: [version, worker_id, capabilities, max_concurrent, lease, state, last_seen_at]
+      properties:
+        version:
+          type: integer
+        worker_id:
+          type: string
+        label:
+          type: string
+        owner_device_id:
+          type: string
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkerCapability"
+        max_concurrent:
+          type: integer
+        lease:
+          type: object
+          required: [lease_id, worker_id, issued_at, expires_at]
+          properties:
+            lease_id:
+              type: string
+            worker_id:
+              type: string
+            issued_at:
+              type: integer
+            expires_at:
+              type: integer
+        state:
+          type: string
+          enum: [online, offline, revoked]
+        last_seen_at:
+          type: integer
+        revoked_at:
+          type: integer
     CreateTaskRequest:
       type: object
       required:

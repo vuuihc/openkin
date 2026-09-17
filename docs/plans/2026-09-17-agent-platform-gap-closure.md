@@ -500,6 +500,22 @@ additional compute user-owned and optional.
 - A user-owned remote worker can be revoked without rotating unrelated device
   credentials.
 
+#### Implementation status
+
+- Electron now detaches the daemon on close, retries unexpected daemon exits
+  with a bounded backoff, and keeps explicit tray stop behavior.
+- Active task states drive the macOS sleep guard; approval, question, quota,
+  terminal, Routine, and worker-offline notification/deep-link hooks are
+  wired through existing task events.
+- `internal/remote/worker` defines validated v1 capability, lease, heartbeat,
+  assignment, event, artifact, cancellation, and acknowledgement frames.
+- `/api/workers/register` and `/api/workers/heartbeat` use paired device
+  credentials; master-only list/revoke routes and device-revocation lease
+  cleanup are implemented. Lease expiry is swept by the daemon and emits a
+  worker-offline notification.
+- The first slice keeps worker presence in memory. Workers re-register after
+  daemon restart; durable task state remains the source of truth.
+
 ### M6 — Browser and computer-use worker
 
 **Goal:** Let tasks inspect and operate web applications with evidence while

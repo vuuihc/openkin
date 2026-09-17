@@ -100,6 +100,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listWorkers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workers/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["registerWorker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workers/heartbeat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["heartbeatWorker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workers/{workerId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["revokeWorker"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -385,6 +449,41 @@ export interface components {
             created_at: number;
             last_used_at?: number | null;
             revoked_at?: number | null;
+        };
+        WorkerCapability: {
+            name: string;
+            version?: string;
+            features?: string[];
+        };
+        WorkerHello: {
+            version: number;
+            worker_id?: string;
+            label?: string;
+            capabilities: components["schemas"]["WorkerCapability"][];
+            max_concurrent: number;
+        };
+        WorkerHeartbeat: {
+            worker_id: string;
+            lease_id: string;
+            at: number;
+        };
+        Worker: {
+            version: number;
+            worker_id: string;
+            label?: string;
+            owner_device_id?: string;
+            capabilities: components["schemas"]["WorkerCapability"][];
+            max_concurrent: number;
+            lease: {
+                lease_id: string;
+                worker_id: string;
+                issued_at: number;
+                expires_at: number;
+            };
+            /** @enum {string} */
+            state: "online" | "offline" | "revoked";
+            last_seen_at: number;
+            revoked_at?: number;
         };
         CreateTaskRequest: {
             agent?: string;
@@ -722,6 +821,94 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Device revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listWorkers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User-owned worker leases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Worker"][];
+                };
+            };
+        };
+    };
+    registerWorker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkerHello"];
+            };
+        };
+        responses: {
+            /** @description Registered worker lease */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Worker"];
+                };
+            };
+        };
+    };
+    heartbeatWorker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkerHeartbeat"];
+            };
+        };
+        responses: {
+            /** @description Renewed worker lease */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Worker"];
+                };
+            };
+        };
+    };
+    revokeWorker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Worker lease revoked */
             204: {
                 headers: {
                     [name: string]: unknown;

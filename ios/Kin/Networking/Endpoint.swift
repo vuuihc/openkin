@@ -52,6 +52,10 @@ enum Endpoint {
     case usageLimits
     case usageWindows
     case settings
+    case workers
+    case registerWorker
+    case heartbeatWorker
+    case revokeWorker(id: String)
     case providers
     case provider(id: String)
     case providerActivate(id: String)
@@ -66,12 +70,14 @@ enum Endpoint {
              .artifact, .artifactContent, .projects, .project, .onePager,
              .projectPulse, .projectTasks, .projectArtifacts, .routines,
              .routine, .routineUnreadCount, .agentsManagement, .usageLimits,
-             .usageWindows, .settings, .providers:
+             .usageWindows, .settings, .providers, .workers:
             return "GET"
         case .createTask, .createProject, .cancelTask, .promptTask, .retryTask,
              .limitContinue, .forkTask, .approve, .deny, .answerQuestion,
              .artifactStatus, .routineRunNow, .routineRunRead,
              .providerActivate, .createRoutine:
+            return "POST"
+        case .registerWorker, .heartbeatWorker, .revokeWorker:
             return "POST"
         case .writeWorkspaceFile, .putOnePager:
             return "PUT"
@@ -184,6 +190,14 @@ enum Endpoint {
             return "/api/usage/windows"
         case .settings:
             return "/api/settings"
+        case .workers:
+            return "/api/workers"
+        case .registerWorker:
+            return "/api/workers/register"
+        case .heartbeatWorker:
+            return "/api/workers/heartbeat"
+        case .revokeWorker(let id):
+            return "/api/workers/\(id)/revoke"
         case .providers, .provider:
             return "/api/providers" + {
                 if case .provider(let id) = self { return "/\(id)" }

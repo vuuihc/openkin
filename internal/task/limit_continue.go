@@ -209,12 +209,13 @@ func (e *Engine) LimitContinue(ctx context.Context, id string, req LimitContinue
 		if t.Status != StatusFailed && t.Status != StatusCanceled && t.Status != StatusSucceeded {
 			return store.Task{}, fmt.Errorf("%w: continue requires a terminal task", ErrConflict)
 		}
-		if hasHit {
-			e.patchLimitHitStatus(ctx, id, hitSeq, info, "continued", "")
-		}
 		e.cancelLimitWait(id)
 		_ = e.store.SetTaskLimitWaitState(ctx, id, "canceled", "continued manually", 0)
-		return e.Retry(ctx, id, RetryRequest{})
+		result, err := e.Retry(ctx, id, RetryRequest{})
+		if err == nil && hasHit {
+			e.patchLimitHitStatus(ctx, id, hitSeq, info, "continued", "")
+		}
+		return result, err
 
 	case "switch":
 		agentID := strings.TrimSpace(req.Agent)
@@ -308,6 +309,7 @@ func (e *Engine) patchLimitHitStatus(ctx context.Context, taskID string, seq int
 	b, _ := json.Marshal(payload)
 	if ev, err := e.store.AppendEvent(ctx, taskID, "limit_hit", b); err == nil {
 		e.bus.PublishEvent(ev)
+		e.notifyQuota(ctx, taskID, info, status)
 	}
 }
 
@@ -411,9 +413,17 @@ func (e *Engine) persistLimitWait(
 		UpdatedAt:   now,
 	}
 	if force {
-		return e.store.UpsertTaskLimitWait(ctx, wait)
+		if err := e.store.UpsertTaskLimitWait(ctx, wait); err != nil {
+			return err
+		}
+		e.armQuotaWaitNotification(taskID, wait.FirstWaitAt)
+		return nil
 	}
-	return e.store.UpsertTaskLimitWaitMonotonic(ctx, wait)
+	if err := e.store.UpsertTaskLimitWaitMonotonic(ctx, wait); err != nil {
+		return err
+	}
+	e.armQuotaWaitNotification(taskID, wait.FirstWaitAt)
+	return nil
 }
 
 func (e *Engine) latestUserSeq(ctx context.Context, taskID string) int {
@@ -473,6 +483,53 @@ func (e *Engine) cancelLimitWait(taskID string) {
 		cancel()
 		delete(e.limitWaitCancel, taskID)
 	}
+	if cancel, ok := e.limitNotifyCancel[taskID]; ok {
+		cancel()
+		delete(e.limitNotifyCancel, taskID)
+	}
+}
+
+func (e *Engine) armQuotaWaitNotification(taskID string, firstWaitAt int64) {
+	if e.store == nil || e.notify == nil || firstWaitAt <= 0 {
+		return
+	}
+	if _, ok := e.notify.(QuotaNotifier); !ok {
+		return
+	}
+	e.mu.Lock()
+	if e.limitNotifyCancel == nil {
+		e.limitNotifyCancel = make(map[string]context.CancelFunc)
+	}
+	if cancel, ok := e.limitNotifyCancel[taskID]; ok {
+		cancel()
+	}
+	ctx, cancel := context.WithCancel(e.ctx)
+	e.limitNotifyCancel[taskID] = cancel
+	e.mu.Unlock()
+	dueAt := time.UnixMilli(firstWaitAt).Add(e.quotaWaitNotifyAfter(context.Background()))
+	delay := time.Until(dueAt)
+	if delay < 0 {
+		delay = 0
+	}
+	go e.runQuotaWaitNotification(ctx, taskID, firstWaitAt, delay)
+}
+
+func (e *Engine) runQuotaWaitNotification(ctx context.Context, taskID string, firstWaitAt int64, delay time.Duration) {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-timer.C:
+	}
+	wait, err := e.store.GetTaskLimitWait(ctx, taskID)
+	if err != nil || wait.FirstWaitAt != firstWaitAt ||
+		(wait.State != "waiting" && wait.State != "probing") {
+		return
+	}
+	e.notifyQuota(ctx, taskID, adapter.RateLimitInfo{
+		Agent: wait.Agent, Provider: wait.Provider, Window: wait.Window, ResetAt: wait.ResetAt,
+	}, "waiting")
 }
 
 func (e *Engine) runLimitWait(ctx context.Context, taskID string, delay time.Duration) {
@@ -585,7 +642,6 @@ func (e *Engine) runLimitWait(ctx context.Context, taskID string, delay time.Dur
 		_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "canceled", "limit event no longer open", 0)
 		return
 	}
-	e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "continued", "")
 	if _, err := e.Retry(ctx, taskID, RetryRequest{}); err != nil {
 		next := time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli()
 		wait.Attempts++
@@ -612,6 +668,7 @@ func (e *Engine) runLimitWait(ctx context.Context, taskID string, delay time.Dur
 		}
 		return
 	}
+	e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "continued", "")
 	_ = e.store.SetTaskLimitWaitStateClaimed(ctx, taskID, wait.ClaimedAt, "completed", "", 0)
 }
 

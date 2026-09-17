@@ -70,6 +70,10 @@ actor APIClient {
         try await perform(.agents)
     }
 
+    func workers() async throws -> [WorkerRecord] {
+        try await perform(.workers)
+    }
+
     func recentCwds() async throws -> [String] {
         try await perform(.recentCwds)
     }

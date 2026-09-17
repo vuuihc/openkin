@@ -196,7 +196,9 @@ async function quitApp(): Promise<void> {
   quitting = true;
   mainWindow.prepareQuit();
   ws?.disconnect();
-  await sidecar.stopIfOwned();
+  // Closing Electron must not cancel daemon-managed work. The tray Stop
+  // action is the explicit operation that terminates a daemon we spawned.
+  sidecar.detach();
   popover?.destroy();
   tray?.destroy();
   app.quit();

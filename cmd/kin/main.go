@@ -32,6 +32,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "kin serve: %v\n", err)
 			os.Exit(1)
 		}
+	case "supervise":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runSupervise(ctx, os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "kin supervise: %v\n", err)
+			os.Exit(1)
+		}
 	case "token":
 		if err := runToken(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "kin token: %v\n", err)
@@ -175,6 +182,7 @@ func usage(code int) {
 
 Usage:
   kin serve [flags]   start the daemon
+  kin supervise       run the daemon with bounded crash recovery
   kin token rotate    regenerate ~/.kin/token
   kin notify test     send a test notification via configured Bark/ntfy
   kin export --output <path.zip>

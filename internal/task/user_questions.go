@@ -185,6 +185,14 @@ func (e *Engine) RequestUserQuestion(ctx context.Context, req CreateUserQuestion
 		return store.UserQuestion{}, fmt.Errorf("persist user_question_requested: %w", err)
 	}
 	e.bus.PublishUserQuestion(q)
+	if n, ok := e.notify.(UserQuestionNotifier); ok {
+		title := "Input needed"
+		var p userQuestionPayload
+		if json.Unmarshal(payload, &p) == nil && p.Header != "" {
+			title = p.Header
+		}
+		n.NotifyUserQuestion(ctx, q.ID, q.TaskID, title)
+	}
 	return q, nil
 }
 

@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var errorMessage = ""
     @State private var isReconnecting = false
     @State private var showConnection = false
+    @State private var workers: [WorkerRecord] = []
+    @State private var workerLoadGeneration = 0
 
     private var profile: ServerProfile? {
         appSession.activeProfile
@@ -22,6 +24,7 @@ struct SettingsView: View {
                 devicesSection
                 consoleSection
                 daemonSection
+                workersSection
                 aboutSection
             }
             .navigationTitle(String(localized: "settings.title"))
@@ -39,6 +42,7 @@ struct SettingsView: View {
             }
             .task {
                 await loadVersion()
+                await loadWorkers()
                 settingsModel.load()
                 settingsModel.activeProfileId = appSession.activeProfileID
             }
@@ -50,6 +54,9 @@ struct SettingsView: View {
                     if let profile = appSession.profiles.last {
                         appSession.activate(profile: profile)
                         settingsModel.activeProfileId = profile.id
+                        workers = []
+                        workerLoadGeneration += 1
+                        Task { await loadWorkers() }
                     }
                 }
             }
@@ -143,6 +150,9 @@ struct SettingsView: View {
                 .onTapGesture {
                     appSession.activate(profile: savedProfile)
                     settingsModel.activeProfileId = savedProfile.id
+                    workers = []
+                    workerLoadGeneration += 1
+                    Task { await loadWorkers() }
                 }
             }
             .onDelete { indexSet in
@@ -167,6 +177,25 @@ struct SettingsView: View {
         Section("Daemon") {
             LabeledContent(String(localized: "settings.version")) {
                 Text(serverVersion ?? "—")
+            }
+        }
+    }
+
+    private var workersSection: some View {
+        Section(String(localized: "settings.workers")) {
+            if workers.isEmpty {
+                Text(String(localized: "settings.workers.none"))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(workers) { worker in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(worker.label?.isEmpty == false ? worker.label! : worker.workerId)
+                        .fontWeight(.medium)
+                    LabeledContent(String(localized: "settings.worker.state")) {
+                        Text(worker.state)
+                            .foregroundStyle(worker.state == "online" ? .green : .orange)
+                    }
+                }
             }
         }
     }
@@ -248,6 +277,22 @@ struct SettingsView: View {
     private func loadVersion() async {
         guard let client = appSession.apiClient else { return }
         serverVersion = try? await client.version()
+    }
+
+    private func loadWorkers() async {
+        guard let client = appSession.apiClient else {
+            workers = []
+            return
+        }
+        let generation = workerLoadGeneration
+        do {
+            let loaded = try await client.workers()
+            guard generation == workerLoadGeneration else { return }
+            workers = loaded
+        } catch {
+            guard generation == workerLoadGeneration else { return }
+            workers = []
+        }
     }
 
     private func disconnect() {

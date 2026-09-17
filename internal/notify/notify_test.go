@@ -228,3 +228,46 @@ func TestNotifyApprovalUsesDeepLink(t *testing.T) {
 		t.Fatalf("click = %q", click)
 	}
 }
+
+func TestNotifyQuestionAndQuotaUseActionableLinks(t *testing.T) {
+	var clicks []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clicks = append(clicks, r.Header.Get("Click"))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := &Sender{
+		Store: memSettings{
+			KeyNtfyTopic: srv.URL,
+			KeyBaseURL:   "http://host:7777",
+		},
+		Client: &http.Client{Timeout: 2 * time.Second},
+	}
+	if err := s.SendSync(context.Background(), Payload{
+		Title: "question", Body: "answer", URL: s.DeepLink(context.Background(), "/inbox?focus=q1"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s.NotifyUserQuestion(context.Background(), "q1", "task1", "Choose")
+	s.NotifyQuota(context.Background(), "task1", "Build", "waiting", time.Now().Add(time.Minute).Unix())
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(clicks) < 3 {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(clicks) < 3 {
+		t.Fatalf("notification clicks = %v", clicks)
+	}
+	seen := map[string]bool{}
+	for _, click := range clicks {
+		seen[click] = true
+	}
+	for _, want := range []string{
+		"http://host:7777/inbox?focus=q1",
+		"http://host:7777/tasks/task1",
+	} {
+		if !seen[want] {
+			t.Fatalf("missing click %q in %v", want, clicks)
+		}
+	}
+}

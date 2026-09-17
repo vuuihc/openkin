@@ -171,5 +171,8 @@ func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if s.Workers != nil {
+		s.Workers.RevokeOwner(id, time.Now())
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

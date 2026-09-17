@@ -24,6 +24,7 @@ import (
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 	"github.com/vuuihc/openkin/internal/terminal"
@@ -104,6 +105,11 @@ type Server struct {
 	// the same background capacity and durable dispatch ledger.
 	RunRoutine func(context.Context, string) (store.Task, error)
 
+	// Workers is the in-memory registry for optional user-owned headless
+	// workers. Leases are intentionally ephemeral and workers reconnect after
+	// daemon restart.
+	Workers *worker.Registry
+
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
 	BaseURL     string // ui.base_url without token
@@ -161,6 +167,10 @@ func (s *Server) Handler() http.Handler {
 		r.With(masterOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
 		r.With(masterOnly).Get("/api/devices", s.handleListDevices)
 		r.With(masterOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
+		r.Get("/api/workers", s.handleListWorkers)
+		r.With(masterOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
+		r.Post("/api/workers/register", s.handleRegisterWorker)
+		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)
 		r.Get("/api/agents", s.handleListAgents)
 		r.Get("/api/agents/management", s.handleAgentsManagement)
 		r.With(masterOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
@@ -1003,6 +1013,7 @@ type settingsResponse struct {
 	AgentDefault     string `json:"agent.default"`
 	LimitPolicy      string `json:"limit_policy"`
 	LimitFallback    string `json:"limit_policy.fallback_agents"`
+	QuotaWaitNotify  string `json:"notify.quota_wait_after_secs"`
 	NetworkMode      string `json:"network_mode"`
 	ConnectURL       string `json:"connect_url"`
 	Token            string `json:"token"`
@@ -1023,6 +1034,7 @@ var puttableSettings = map[string]bool{
 	"agent.default":                true,
 	"limit_policy":                 true,
 	"limit_policy.fallback_agents": true,
+	"notify.quota_wait_after_secs": true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -1101,6 +1113,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		AgentDefault:     get("agent.default"),
 		LimitPolicy:      firstNonEmpty(get(task.KeyLimitPolicy), task.LimitPolicyWait),
 		LimitFallback:    get(task.KeyLimitFallbackAgents),
+		QuotaWaitNotify:  get(task.KeyQuotaWaitNotifyAfterSecs),
 		NetworkMode:      s.NetworkMode,
 		ConnectURL:       connect,
 		Token:            tok,

@@ -241,6 +241,21 @@ type ListTasksOpts struct {
 	RoutineUnreadOnly bool
 }
 
+// HasActiveTasks reports whether any task requires the daemon to remain
+// available. It is used by process-level guards during startup and after
+// dropped event subscriptions.
+func (s *Store) HasActiveTasks(ctx context.Context) (bool, error) {
+	var found int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM tasks
+			WHERE status IN (?, ?, ?, ?, ?)
+		)`,
+		"queued", "running", "waiting_approval", "waiting_input", "retrying",
+	).Scan(&found)
+	return found == 1, err
+}
+
 func scanTask(scanner interface {
 	Scan(dest ...any) error
 }) (Task, error) {

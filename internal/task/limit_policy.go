@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,13 +23,18 @@ const (
 	// KeyLimitWaitMaxElapsedSecs bounds automatic waiting when a provider never
 	// reports a usable reset. Empty or invalid values use the safe default.
 	KeyLimitWaitMaxElapsedSecs = "limit_wait.max_elapsed_secs"
+	// KeyQuotaWaitNotifyAfterSecs controls when a long quota wait becomes
+	// push-worthy. Empty or invalid values use the 15-minute default.
+	KeyQuotaWaitNotifyAfterSecs = "notify.quota_wait_after_secs"
 )
 
 const (
-	limitWaitTimerChunk = 24 * time.Hour
-	limitWaitProbeStart = 30 * time.Second
-	limitWaitProbeMax   = 15 * time.Minute
-	limitWaitDefaultMax = 7 * 24 * time.Hour
+	limitWaitTimerChunk    = 24 * time.Hour
+	limitWaitProbeStart    = 30 * time.Second
+	limitWaitProbeMax      = 15 * time.Minute
+	limitWaitDefaultMax    = 7 * 24 * time.Hour
+	quotaWaitNotifyDefault = 15 * time.Minute
+	maxQuotaWaitNotifySecs = int64((1<<63 - 1) / int64(time.Second))
 )
 
 // Limit policy values.
@@ -280,15 +286,68 @@ func (e *Engine) emitOpenLimitHit(ctx context.Context, taskID, agent string, inf
 	if w := e.eventWriter(); w != nil {
 		if ev, err := w.AppendEvent(ctx, taskID, "limit_hit", b); err == nil {
 			e.bus.PublishEvent(ev)
+			e.notifyQuota(ctx, taskID, info, "open")
 			return true
 		}
 	} else if e.store != nil {
 		if ev, err := e.store.AppendEvent(ctx, taskID, "limit_hit", b); err == nil {
 			e.bus.PublishEvent(ev)
+			e.notifyQuota(ctx, taskID, info, "open")
 			return true
 		}
 	}
 	return false
+}
+
+func (e *Engine) notifyQuota(ctx context.Context, taskID string, info adapter.RateLimitInfo, status string) {
+	n, ok := e.notify.(QuotaNotifier)
+	if !ok || e.store == nil {
+		return
+	}
+	if status != "continued" && status != "resumed" && status != "blocked" &&
+		status != "open" && status != "waiting" {
+		return
+	}
+	t, err := e.store.GetTask(ctx, taskID)
+	if err != nil {
+		return
+	}
+	if status == "open" || status == "waiting" {
+		wait, err := e.store.GetTaskLimitWait(ctx, taskID)
+		if err != nil {
+			return
+		}
+		threshold := e.quotaWaitNotifyAfter(ctx)
+		now := time.Now()
+		longWait := wait.FirstWaitAt > 0 && now.Sub(time.UnixMilli(wait.FirstWaitAt)) >= threshold
+		if !longWait {
+			return
+		}
+		e.quotaNotifyMu.Lock()
+		if e.quotaNotified == nil {
+			e.quotaNotified = make(map[string]int64)
+		}
+		if e.quotaNotified[taskID] == wait.FirstWaitAt {
+			e.quotaNotifyMu.Unlock()
+			return
+		}
+		e.quotaNotified[taskID] = wait.FirstWaitAt
+		e.quotaNotifyMu.Unlock()
+	}
+	n.NotifyQuota(ctx, taskID, t.Title, status, info.ResetAt)
+}
+
+func (e *Engine) quotaWaitNotifyAfter(ctx context.Context) time.Duration {
+	threshold := quotaWaitNotifyDefault
+	if e.store != nil {
+		if raw, err := e.store.GetSetting(ctx, KeyQuotaWaitNotifyAfterSecs); err == nil {
+			if seconds, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); parseErr == nil &&
+				seconds > 0 && seconds <= maxQuotaWaitNotifySecs {
+				threshold = time.Duration(seconds) * time.Second
+			}
+		}
+	}
+	return threshold
 }
 
 // handleNewLimitHit emits a card (if needed) and applies the global policy.
@@ -335,6 +394,7 @@ func (e *Engine) recoverLimitWaits(ctx context.Context) {
 		}
 		for _, wait := range waits {
 			e.armLimitWaitTimer(wait.TaskID, wait.NextProbeAt)
+			e.armQuotaWaitNotification(wait.TaskID, wait.FirstWaitAt)
 		}
 		if len(waits) < 1000 {
 			break
