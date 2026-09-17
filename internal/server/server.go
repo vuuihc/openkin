@@ -17,11 +17,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/a2a"
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/api"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/connectors"
+	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
@@ -286,6 +288,20 @@ func ServeWith(version string, flags ServeFlags) error {
 	mode := networkMode(flags)
 	terminals := newTerminalManager(terminal.DetectProfiles)
 	defer terminals.Close()
+	suitesDir := os.Getenv("KIN_EVAL_SUITES_DIR")
+	if strings.TrimSpace(suitesDir) == "" {
+		suitesDir = filepath.Join(stateDir, "eval", "suites")
+	}
+	evalRunner := &eval.Runner{
+		Store:        st,
+		Engine:       eng,
+		SuitesDir:    suitesDir,
+		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
+	}
+	if err := evalRunner.Resume(context.Background()); err != nil {
+		return fmt.Errorf("resume eval runs: %w", err)
+	}
+	routineScheduler.RunEval = evalRunner.StartRoutine
 
 	srvAPI := &api.Server{
 		Store:      st,
@@ -351,6 +367,8 @@ func ServeWith(version string, flags ServeFlags) error {
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,
 		Browser:      browser,
+		Eval:         evalRunner,
+		A2A:          &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},
 		ProviderResolve: func(c context.Context) (provider.Client, provider.Config, error) {
 			cfg, err := provider.LoadConfig(c, st)
 			if err != nil {

@@ -473,6 +473,8 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		`DELETE FROM task_checkpoints WHERE task_id = ?`,
 		`DELETE FROM routine_dispatches WHERE task_id = ?`,
 		`DELETE FROM mcp_task_origins WHERE task_id = ?`,
+		`DELETE FROM a2a_idempotency WHERE task_id = ?`,
+		`DELETE FROM a2a_operations WHERE task_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
 			return fmt.Errorf("delete task children: %w", err)

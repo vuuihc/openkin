@@ -45,6 +45,9 @@ type Scheduler struct {
 	ValidateCreate func(context.Context, task.CreateRequest) error
 	// OnCreateFailed cleans up metadata reserved before task creation.
 	OnCreateFailed func(context.Context, string) error
+	// RunEval handles routines with lane=eval. The task id is reserved by the
+	// routine dispatch ledger and must become the first eval task id.
+	RunEval func(context.Context, store.Routine, string) (store.Task, error)
 	// Interval between scans. Zero → DefaultTickInterval.
 	Interval time.Duration
 	// Clock for tests. nil → time.Now.
@@ -229,7 +232,7 @@ func (s *Scheduler) recoverManualDispatches(ctx context.Context, now time.Time, 
 				continue
 			}
 		}
-		if _, err := s.Engine.Create(ctx, req); err != nil {
+		if _, err := s.createRoutineTask(ctx, routine, req, dispatch.TaskID); err != nil {
 			if s.OnCreateFailed != nil {
 				_ = s.OnCreateFailed(ctx, dispatch.TaskID)
 			}
@@ -293,7 +296,7 @@ func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string,
 			return fmt.Errorf("validate: %w", err)
 		}
 	}
-	if _, err := s.Engine.Create(ctx, req); err != nil {
+	if _, err := s.createRoutineTask(ctx, r, req, dispatch.TaskID); err != nil {
 		_ = s.Store.CompleteRoutineDispatch(ctx, r.ID, r.NextDueAt, "failed")
 		completeErr := s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "failed", err.Error())
 		if completeErr != nil {
@@ -411,7 +414,7 @@ func (s *Scheduler) runNow(ctx context.Context, routineID string, onCreated func
 			return store.Task{}, err
 		}
 	}
-	created, err := s.Engine.Create(ctx, req)
+	created, err := s.createRoutineTask(ctx, r, req, dispatch.TaskID)
 	if err != nil {
 		if s.OnCreateFailed != nil {
 			_ = s.OnCreateFailed(ctx, dispatch.TaskID)
@@ -424,6 +427,13 @@ func (s *Scheduler) runNow(ctx context.Context, routineID string, onCreated func
 	}
 	_ = s.Store.UpdateRoutine(ctx, r.ID, store.RoutinePatch{LastRunAt: &lastRunAt})
 	return created, nil
+}
+
+func (s *Scheduler) createRoutineTask(ctx context.Context, routine store.Routine, req task.CreateRequest, taskID string) (store.Task, error) {
+	if s.RunEval != nil && strings.EqualFold(routine.Lane, "eval") {
+		return s.RunEval(ctx, routine, taskID)
+	}
+	return s.Engine.Create(ctx, req)
 }
 
 func (s *Scheduler) routineCreateRequest(r store.Routine, taskID string) task.CreateRequest {

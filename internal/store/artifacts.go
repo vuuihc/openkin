@@ -100,6 +100,7 @@ func (s *Store) GetArtifact(ctx context.Context, id string) (Artifact, error) {
 type ListArtifactsOpts struct {
 	Status    string // empty = all
 	ProjectID string // empty = all; filter via source task.project_id
+	TaskID    string // empty = all; filter by source task
 	Limit     int
 }
 
@@ -114,7 +115,7 @@ func (s *Store) ListArtifacts(ctx context.Context, opts ListArtifactsOpts) ([]Ar
 	}
 
 	var b strings.Builder
-	args := make([]any, 0, 2)
+	args := make([]any, 0, 3)
 	b.WriteString(`
 		SELECT a.id, a.title, a.kind, a.rel_path, a.size, a.status,
 		       a.source_task_id, a.created_at, a.updated_at, t.title
@@ -128,6 +129,10 @@ func (s *Store) ListArtifacts(ctx context.Context, opts ListArtifactsOpts) ([]Ar
 	if opts.ProjectID != "" {
 		b.WriteString(` AND t.project_id = ?`)
 		args = append(args, opts.ProjectID)
+	}
+	if opts.TaskID != "" {
+		b.WriteString(` AND a.source_task_id = ?`)
+		args = append(args, opts.TaskID)
 	}
 	b.WriteString(` ORDER BY a.created_at DESC LIMIT ?`)
 	args = append(args, limit)

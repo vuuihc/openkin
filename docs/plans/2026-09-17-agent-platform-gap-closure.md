@@ -1,6 +1,6 @@
 # Agent Platform Gap-Closure Plan
 
-**Status:** M0/M1/M2 complete; M3 core supervision slice complete; M4 Skills and bounded connector host complete
+**Status:** M0/M1 complete; M3 core supervision slice complete; M4 Skills and bounded connector host complete; M5/M6/M7/M8 complete
 **Date:** 2026-09-17
 **Goal:** Turn OpenKin from a strong local agent console into a reliable,
 extensible agent control plane without giving up local-first ownership,
@@ -590,6 +590,11 @@ keeping browser authority narrower than daemon authority.
 4. Update routing score inputs only from reviewed eval summaries.
 5. Add a Routine that runs the routing regression suite and notifies only on a
    meaningful quality or cost regression.
+
+Implementation note: the current P0 evaluator accepts `condition=cold` only.
+`warm` and `poisoned` remain reserved until the memory snapshot primitive
+exists; the API rejects them rather than reporting an experiment it did not
+perform.
 
 #### Acceptance
 

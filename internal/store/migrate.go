@@ -6,7 +6,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 25
+const schemaVersion = 30
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -392,6 +392,71 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations
+
+const migrationEvalTables = `
+CREATE TABLE IF NOT EXISTS eval_runs (
+  id                  TEXT PRIMARY KEY,
+  suite               TEXT NOT NULL,
+  suite_version       TEXT NOT NULL,
+  condition           TEXT NOT NULL DEFAULT 'cold',
+  route_objective     TEXT NOT NULL DEFAULT '',
+  kin_git_sha         TEXT NOT NULL DEFAULT '',
+  n_reps              INTEGER NOT NULL DEFAULT 1,
+  status              TEXT NOT NULL DEFAULT 'running',
+  started_at          INTEGER NOT NULL,
+  finished_at         INTEGER,
+  report_artifact_id  TEXT NOT NULL DEFAULT '',
+  created_at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_started
+ON eval_runs(started_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS eval_results (
+  id           TEXT PRIMARY KEY,
+  run_id       TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  case_id      TEXT NOT NULL,
+  rep_idx      INTEGER NOT NULL,
+  task_id      TEXT,
+  pass         INTEGER NOT NULL DEFAULT 0,
+  turns        INTEGER NOT NULL DEFAULT 0,
+  tokens_in    INTEGER NOT NULL DEFAULT 0,
+  tokens_out   INTEGER NOT NULL DEFAULT 0,
+  cost_usd     REAL,
+  latency_ms   INTEGER NOT NULL DEFAULT 0,
+  checker_json TEXT NOT NULL DEFAULT '{}',
+  created_at   INTEGER NOT NULL,
+  UNIQUE(run_id, case_id, rep_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_eval_results_run
+ON eval_results(run_id, case_id, rep_idx);
+`
+
+const migrationA2ATables = `
+CREATE TABLE IF NOT EXISTS a2a_idempotency (
+  principal_id TEXT NOT NULL,
+  idem_key     TEXT NOT NULL,
+  task_id      TEXT NOT NULL,
+  request_hash TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (principal_id, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_a2a_idempotency_task
+ON a2a_idempotency(task_id);
+`
+
+const migrationA2AOperations = `
+CREATE TABLE IF NOT EXISTS a2a_operations (
+  principal_id TEXT NOT NULL,
+  task_id      TEXT NOT NULL,
+  idem_key     TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  state        TEXT NOT NULL DEFAULT 'started',
+  response     TEXT NOT NULL DEFAULT '',
+  http_status  INTEGER NOT NULL DEFAULT 200,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (principal_id, task_id, idem_key)
+);
 `
 
 const migration002 = `
@@ -1507,6 +1572,144 @@ ON task_worker_steps(task_id, created_at, step_index);
 			return fmt.Errorf("commit migration 025: %w", err)
 		}
 		v = 25
+	}
+
+	if v == 25 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 026: %w", err)
+		}
+		if _, err := tx.Exec(migrationEvalTables); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 026 eval tables: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 26`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 026: %w", err)
+		}
+		v = 26
+	}
+
+	if v == 26 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 027: %w", err)
+		}
+		if _, err := tx.Exec(migrationA2ATables); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 027 a2a table: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 27`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 027: %w", err)
+		}
+		v = 27
+	}
+
+	if v == 27 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 028: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE eval_results_new (
+  id           TEXT PRIMARY KEY,
+  run_id       TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  case_id      TEXT NOT NULL,
+  rep_idx      INTEGER NOT NULL,
+  task_id      TEXT,
+  pass         INTEGER NOT NULL DEFAULT 0,
+  turns        INTEGER NOT NULL DEFAULT 0,
+  tokens_in    INTEGER NOT NULL DEFAULT 0,
+  tokens_out   INTEGER NOT NULL DEFAULT 0,
+  cost_usd     REAL,
+  latency_ms   INTEGER NOT NULL DEFAULT 0,
+  checker_json TEXT NOT NULL DEFAULT '{}',
+  created_at   INTEGER NOT NULL,
+  UNIQUE(run_id, case_id, rep_idx)
+);
+INSERT INTO eval_results_new
+  SELECT id, run_id, case_id, rep_idx, task_id, pass, turns, tokens_in,
+         tokens_out, cost_usd, latency_ms, checker_json, created_at
+  FROM eval_results;
+DROP TABLE eval_results;
+ALTER TABLE eval_results_new RENAME TO eval_results;
+CREATE INDEX IF NOT EXISTS idx_eval_results_run
+ON eval_results(run_id, case_id, rep_idx);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 028 eval result table: %w", err)
+		}
+		if _, err := tx.Exec(migrationA2AOperations); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 028 a2a operations: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 28`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 028: %w", err)
+		}
+		v = 28
+	}
+
+	if v == 28 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 029: %w", err)
+		}
+		var hasHash int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('a2a_idempotency') WHERE name = 'request_hash'`).Scan(&hasHash); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 029 inspect a2a idempotency hash: %w", err)
+		}
+		if hasHash == 0 {
+			if _, err := tx.Exec(`ALTER TABLE a2a_idempotency ADD COLUMN request_hash TEXT NOT NULL DEFAULT ''`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration 029 a2a idempotency hash: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 29`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 029: %w", err)
+		}
+		v = 29
+	}
+
+	if v == 29 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 030: %w", err)
+		}
+		var hasStatus int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('a2a_operations') WHERE name = 'http_status'`).Scan(&hasStatus); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 030 inspect a2a operation status: %w", err)
+		}
+		if hasStatus == 0 {
+			if _, err := tx.Exec(`ALTER TABLE a2a_operations ADD COLUMN http_status INTEGER NOT NULL DEFAULT 200`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration 030 a2a operation status: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 30`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 030: %w", err)
+		}
+		v = 30
 	}
 
 	return nil
