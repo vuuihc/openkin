@@ -19,6 +19,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -61,6 +62,7 @@ type Server struct {
 	Store     *store.Store
 	Auth      *remote.Auth
 	Engine    *task.Engine
+	MCP       *mcp.Server
 	Terminals *terminal.Manager
 	Version   string
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
@@ -94,6 +96,11 @@ type Server struct {
 	// ProviderResolve returns the active cognition provider for short LLM jobs
 	// (chat titles, model routing, …). May be nil.
 	ProviderResolve func(ctx context.Context) (provider.Client, provider.Config, error)
+
+	// RunRoutine dispatches a manual Routine through the shared scheduler.
+	// Keeping this behind the application boundary ensures REST and MCP use
+	// the same background capacity and durable dispatch ledger.
+	RunRoutine func(context.Context, string) (store.Task, error)
 
 	// M3 connection metadata for Settings (set by server.Serve).
 	NetworkMode string
@@ -144,6 +151,11 @@ func (s *Server) Handler() http.Handler {
 	// Public API (token auth).
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware)
+		if s.MCP != nil {
+			r.Post("/mcp", func(w http.ResponseWriter, req *http.Request) {
+				s.MCP.Handler().ServeHTTP(w, req)
+			})
+		}
 		r.With(masterOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
 		r.With(masterOnly).Get("/api/devices", s.handleListDevices)
 		r.With(masterOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
@@ -429,13 +441,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	// Validate permission for the effective agent: manual dispatch may override
-	// req.Agent, so check the dispatch selection first.
-	effectiveAgent := req.Agent
-	if sel := parseDispatchSelection(req.Dispatch); sel.Mode == "manual" && sel.Agent != "" {
-		effectiveAgent = sel.Agent
-	}
-	if err := s.validateGenericCLIPermission(r.Context(), effectiveAgent, req.PermissionMode); err != nil {
+	if err := s.validateTaskCreateRequest(r.Context(), req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -447,6 +453,22 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+func (s *Server) validateTaskCreateRequest(ctx context.Context, req task.CreateRequest) error {
+	if strings.TrimSpace(req.Agent) == "" && s.Engine != nil {
+		req.Agent = s.Engine.DefaultAgentContext(ctx)
+	}
+	return ValidateTaskCreateRequest(ctx, req)
+}
+
+// ValidateTaskCreateRequest is shared by REST and public MCP task creation.
+func ValidateTaskCreateRequest(ctx context.Context, req task.CreateRequest) error {
+	effectiveAgent := req.Agent
+	if sel := parseDispatchSelection(req.Dispatch); sel.Mode == "manual" && sel.Agent != "" {
+		effectiveAgent = sel.Agent
+	}
+	return validateGenericCLIPermission(ctx, effectiveAgent, req.PermissionMode)
 }
 
 // dispatchSelection is a minimal parse of the raw dispatch JSON for permission validation.
@@ -467,6 +489,10 @@ func parseDispatchSelection(raw json.RawMessage) dispatchSelection {
 // validateGenericCLIPermission rejects Tier-2 agents under default permission mode.
 // Those agents have no Kin approval channel and require accept_edits or yolo.
 func (s *Server) validateGenericCLIPermission(ctx context.Context, agentID, permissionMode string) error {
+	return validateGenericCLIPermission(ctx, agentID, permissionMode)
+}
+
+func validateGenericCLIPermission(ctx context.Context, agentID, permissionMode string) error {
 	_ = ctx
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" || !detect.IsGenericCLI(agentID) {
@@ -571,39 +597,13 @@ func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	// The effective (agent, permission) for this turn must be honorable: Tier-2
-	// generic CLIs have no Kin approval channel and cannot run under "default".
-	// Validate whenever the follow-up could change either — a permission switch
-	// (PermissionMode set) or a handoff (Agent set) — resolving the unspecified
-	// side from the current task so a handoff cannot slip a generic CLI onto the
-	// task's existing default mode without a gate.
-	if body.PermissionMode != nil || strings.TrimSpace(body.Agent) != "" {
-		agentID := strings.TrimSpace(body.Agent)
-		permMode := ""
-		if body.PermissionMode != nil {
-			permMode = *body.PermissionMode
-		}
-		if agentID == "" || body.PermissionMode == nil {
-			cur, err := s.Engine.Get(r.Context(), id)
-			if errors.Is(err, store.ErrNotFound) {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-				return
-			}
-			if err != nil {
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-				return
-			}
-			if agentID == "" {
-				agentID = cur.Agent
-			}
-			if body.PermissionMode == nil {
-				permMode = cur.PermissionMode
-			}
-		}
-		if err := s.validateGenericCLIPermission(r.Context(), agentID, permMode); err != nil {
+	if err := ValidateTaskFollowUpRequest(r.Context(), s.Engine, id, &body); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		} else {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
 		}
+		return
 	}
 	t, err := s.Engine.FollowUpWith(r.Context(), id, body)
 	if errors.Is(err, store.ErrNotFound) {
@@ -619,6 +619,34 @@ func (s *Server) handleFollowUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+// ValidateTaskFollowUpRequest is shared by REST and public MCP handoffs.
+func ValidateTaskFollowUpRequest(ctx context.Context, engine *task.Engine, id string, body *task.FollowUpRequest) error {
+	if engine == nil || body == nil {
+		return fmt.Errorf("task engine and follow-up are required")
+	}
+	if body.PermissionMode == nil && strings.TrimSpace(body.Agent) == "" {
+		return nil
+	}
+	agentID := strings.TrimSpace(body.Agent)
+	permMode := ""
+	if body.PermissionMode != nil {
+		permMode = *body.PermissionMode
+	}
+	if agentID == "" || body.PermissionMode == nil {
+		cur, err := engine.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if agentID == "" {
+			agentID = cur.Agent
+		}
+		if body.PermissionMode == nil {
+			permMode = cur.PermissionMode
+		}
+	}
+	return validateGenericCLIPermission(ctx, agentID, permMode)
 }
 
 func (s *Server) handleRestoreTaskWorkspace(w http.ResponseWriter, r *http.Request) {

@@ -140,6 +140,13 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missed_run_policy must be coalesce or skip"})
 		return
 	}
+	if err := s.validateTaskCreateRequest(r.Context(), task.CreateRequest{
+		Agent:          agent,
+		PermissionMode: perm,
+	}); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	lane := strings.TrimSpace(body.Lane)
 	if lane == "" {
 		lane = "routine"
@@ -220,6 +227,15 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 		MissedRunPolicy: body.MissedRunPolicy,
 		Lane:            body.Lane,
 	}
+	current, err := s.Store.GetRoutine(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	if body.MissedRunPolicy != nil {
 		policy := strings.ToLower(strings.TrimSpace(*body.MissedRunPolicy))
 		if policy != "coalesce" && policy != "skip" {
@@ -227,6 +243,26 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		patch.MissedRunPolicy = &policy
+	}
+	effectiveAgent := current.Agent
+	if body.Agent != nil {
+		effectiveAgent = strings.TrimSpace(*body.Agent)
+		if effectiveAgent == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent must not be empty"})
+			return
+		}
+		patch.Agent = &effectiveAgent
+	}
+	effectivePermission := current.PermissionMode
+	if body.PermissionMode != nil {
+		effectivePermission = strings.TrimSpace(*body.PermissionMode)
+	}
+	if err := s.validateTaskCreateRequest(r.Context(), task.CreateRequest{
+		Agent:          effectiveAgent,
+		PermissionMode: effectivePermission,
+	}); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
 	if err := s.Store.UpdateRoutine(r.Context(), id, patch); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -251,6 +287,10 @@ func (s *Server) handleDeleteRoutine(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
+		if errors.Is(err, store.ErrConflict) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "routine has a dispatch in progress"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -259,45 +299,23 @@ func (s *Server) handleDeleteRoutine(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRunRoutineNow(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	rec, err := s.Store.GetRoutine(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	if s.RunRoutine == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "routine scheduler unavailable"})
 		return
 	}
+	t, err := s.RunRoutine(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	if s.Engine == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "engine unavailable"})
-		return
-	}
-	prompt := rec.Prompt
-	if !strings.Contains(prompt, "noteworthy:") {
-		prompt = prompt + task.ReportSignalTrailer
-	}
-	title := rec.Title
-	if title == "" {
-		title = "Routine"
-	}
-	titlePtr := title
-	t, err := s.Engine.Create(r.Context(), task.CreateRequest{
-		Agent:          rec.Agent,
-		Cwd:            rec.Cwd,
-		Prompt:         prompt,
-		Title:          &titlePtr,
-		PermissionMode: rec.PermissionMode,
-		ProjectID:      rec.ProjectID,
-		RoutineID:      rec.ID,
-		UserPrompt:     rec.Prompt,
-	})
-	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if errors.Is(err, store.ErrConflict) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	// Manual run does not advance next_due_at (schedule stays intact).
-	now := time.Now().UnixMilli()
-	_ = s.Store.UpdateRoutine(r.Context(), rec.ID, store.RoutinePatch{LastRunAt: &now})
 	writeJSON(w, http.StatusCreated, t)
 }
 

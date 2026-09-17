@@ -6,7 +6,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 19
+const schemaVersion = 24
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -210,6 +210,16 @@ CREATE INDEX idx_routines_due_claim ON routines(enabled, next_due_at, claim_unti
 CREATE INDEX idx_routines_project ON routines(project_id);
 CREATE INDEX idx_tasks_routine ON tasks(routine_id, id DESC);
 CREATE INDEX idx_tasks_routine_unread ON tasks(routine_unread, id DESC) WHERE routine_id IS NOT NULL;
+
+CREATE TABLE routine_dispatches (
+  routine_id  TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+  due_at      INTEGER NOT NULL,
+  task_id     TEXT NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'pending',
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (routine_id, due_at)
+);
+CREATE UNIQUE INDEX routine_dispatches_task ON routine_dispatches(task_id);
 ;
 
 CREATE TABLE IF NOT EXISTS task_workspaces (
@@ -319,6 +329,44 @@ CREATE TABLE IF NOT EXISTS task_limit_waits (
 );
 CREATE INDEX IF NOT EXISTS idx_task_limit_waits_due
 ON task_limit_waits(state, next_probe_at, task_id);
+
+CREATE TABLE IF NOT EXISTS mcp_audit_calls (
+  id              TEXT PRIMARY KEY,
+  occurred_at     INTEGER NOT NULL,
+  principal_kind  TEXT NOT NULL,
+  principal_id    TEXT NOT NULL DEFAULT '',
+  client_id       TEXT NOT NULL DEFAULT '',
+  method          TEXT NOT NULL,
+  tool            TEXT NOT NULL DEFAULT '',
+  scope           TEXT NOT NULL DEFAULT '',
+  success         INTEGER NOT NULL DEFAULT 0,
+  error_code      TEXT NOT NULL DEFAULT '',
+  request_hash    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_audit_calls_time
+ON mcp_audit_calls(occurred_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS mcp_idempotency (
+  principal_id  TEXT NOT NULL,
+  client_id     TEXT NOT NULL,
+  idem_key      TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  state         TEXT NOT NULL DEFAULT 'completed',
+  response      TEXT NOT NULL,
+  PRIMARY KEY (principal_id, client_id, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_idempotency_expiry
+ON mcp_idempotency(expires_at);
+
+CREATE TABLE IF NOT EXISTS mcp_task_origins (
+  task_id         TEXT PRIMARY KEY,
+  principal_kind  TEXT NOT NULL,
+  principal_id    TEXT NOT NULL,
+  client_id       TEXT NOT NULL,
+  session_id      TEXT NOT NULL,
+  created_at      INTEGER NOT NULL
+);
 
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
@@ -1233,6 +1281,170 @@ ON routines(enabled, next_due_at, claim_until_at, id);
 			return fmt.Errorf("commit migration 019: %w", err)
 		}
 		v = 19
+	}
+
+	if v == 19 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 020: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS mcp_audit_calls (
+  id              TEXT PRIMARY KEY,
+  occurred_at     INTEGER NOT NULL,
+  principal_kind  TEXT NOT NULL,
+  principal_id    TEXT NOT NULL DEFAULT '',
+  client_id       TEXT NOT NULL DEFAULT '',
+  method          TEXT NOT NULL,
+  tool            TEXT NOT NULL DEFAULT '',
+  scope           TEXT NOT NULL DEFAULT '',
+  success         INTEGER NOT NULL DEFAULT 0,
+  error_code      TEXT NOT NULL DEFAULT '',
+  request_hash    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_audit_calls_time
+ON mcp_audit_calls(occurred_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS mcp_idempotency (
+  principal_id  TEXT NOT NULL,
+  client_id     TEXT NOT NULL,
+  idem_key      TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  response      TEXT NOT NULL,
+  PRIMARY KEY (principal_id, client_id, idem_key)
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_idempotency_expiry
+ON mcp_idempotency(expires_at);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 020 mcp tables: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 20`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 020: %w", err)
+		}
+		v = 20
+	}
+
+	if v == 20 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 021: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS mcp_task_origins (
+  task_id         TEXT PRIMARY KEY,
+  principal_kind  TEXT NOT NULL,
+  principal_id    TEXT NOT NULL,
+  client_id       TEXT NOT NULL,
+  session_id      TEXT NOT NULL,
+  created_at      INTEGER NOT NULL
+);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 021 MCP task origins: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 21`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 021: %w", err)
+		}
+		v = 21
+	}
+
+	if v == 21 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 022: %w", err)
+		}
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('mcp_idempotency') WHERE name = 'state'`).Scan(&exists); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 022 inspect MCP idempotency: %w", err)
+		}
+		if exists == 0 {
+			if _, err := tx.Exec(`ALTER TABLE mcp_idempotency ADD COLUMN state TEXT NOT NULL DEFAULT 'completed'`); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration 022 MCP idempotency state: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 22`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 022: %w", err)
+		}
+		v = 22
+	}
+
+	if v == 22 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 023: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS routine_dispatches (
+  routine_id  TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+  due_at      INTEGER NOT NULL,
+  task_id     TEXT NOT NULL,
+  state       TEXT NOT NULL DEFAULT 'pending',
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (routine_id, due_at)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS routine_dispatches_task ON routine_dispatches(task_id);
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 023 routine dispatches: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 23`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 023: %w", err)
+		}
+		v = 23
+	}
+
+	if v == 23 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 024: %w", err)
+		}
+		if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS mcp_task_origins_new (
+  task_id         TEXT PRIMARY KEY,
+  principal_kind  TEXT NOT NULL,
+  principal_id    TEXT NOT NULL,
+  client_id       TEXT NOT NULL,
+  session_id      TEXT NOT NULL,
+  created_at      INTEGER NOT NULL
+);
+INSERT OR REPLACE INTO mcp_task_origins_new
+  (task_id, principal_kind, principal_id, client_id, session_id, created_at)
+SELECT task_id, principal_kind, principal_id, client_id, session_id, created_at
+FROM mcp_task_origins;
+DROP TABLE mcp_task_origins;
+ALTER TABLE mcp_task_origins_new RENAME TO mcp_task_origins;
+`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 024 MCP task origins: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 24`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 024: %w", err)
+		}
+		v = 24
 	}
 
 	return nil

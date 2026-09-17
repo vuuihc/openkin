@@ -150,6 +150,16 @@ Artifacts 的多端阅读走同一梯子：**手机打开的是你的 daemon 上
 
 当前选择；随证据可变。唯一不变量：**UI 只通过 HTTP/WebSocket 与核心通信** —— 跨语言边界绝不做进程内绑定。
 
+**Agent 平台实现状态（2026-09）：** 当前 M1 本地切片已经交付自动路由，
+包括确定性的复杂度分类、自适应阶段、质量 floor、同 agent 的
+Provider/模型 fallback，以及可审计的路由决策。Routine 在产品层没有定义
+数量上限；分页、搜索、受限后台并发、错过运行策略和 backlog 健康指标已经
+纳入当前契约。Quota wait 是持久化工作：有 reset 的等待、未知 reset 探测、
+事务 claim 和重启恢复都写入 durable state，不依赖用户保持页面打开。现有
+`approve-mcp` 命令是受管 Worker 的内部、按任务运行的审批/生命周期桥接，
+不是公共 OpenKin 控制面 MCP Server；公共 MCP 调用必须复用与 REST 相同的
+任务、审批、凭据、scope 和审计服务。
+
 | 层 | 选型 |
 |----|------|
 | Daemon | Go，单静态二进制；纯 Go SQLite（无 CGO）；内嵌 Web 控制台；内建 tsnet |

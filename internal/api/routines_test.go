@@ -12,6 +12,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -41,7 +42,14 @@ func newRoutinesTestServer(t *testing.T) (*Server, *store.Store) {
 	auth := remote.NewAuth("test-token")
 	eng := task.NewEngineFromAdapters(st, map[string]adapter.Adapter{"kin": noopAdapter{}}, task.NewBus(), 2)
 	t.Cleanup(eng.Close)
-	s := &Server{Store: st, Auth: auth, Engine: eng, Version: "test"}
+	scheduler := &routines.Scheduler{Store: st, Engine: eng, TotalConcurrency: 2}
+	s := &Server{
+		Store:      st,
+		Auth:       auth,
+		Engine:     eng,
+		RunRoutine: scheduler.RunNow,
+		Version:    "test",
+	}
 	return s, st
 }
 

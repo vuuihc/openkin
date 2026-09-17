@@ -456,6 +456,8 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		`DELETE FROM kin_messages WHERE task_id = ?`,
 		`DELETE FROM usage_records WHERE task_id = ?`,
 		`DELETE FROM task_checkpoints WHERE task_id = ?`,
+		`DELETE FROM routine_dispatches WHERE task_id = ?`,
+		`DELETE FROM mcp_task_origins WHERE task_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
 			return fmt.Errorf("delete task children: %w", err)
@@ -1000,12 +1002,27 @@ func nullableInt(v sql.NullInt64) *int {
 
 // ListEvents returns events for a task with seq > sinceSeq, ordered by seq asc.
 func (s *Store) ListEvents(ctx context.Context, taskID string, sinceSeq int) ([]Event, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return s.ListEventsLimit(ctx, taskID, sinceSeq, 0)
+}
+
+// ListEventsLimit returns at most limit events. A non-positive limit preserves
+// the historical unbounded behavior for internal callers.
+func (s *Store) ListEventsLimit(ctx context.Context, taskID string, sinceSeq, limit int) ([]Event, error) {
+	query := `
 			SELECT e.task_id, t.event_epoch, e.seq, e.ts, e.type, e.payload
 			FROM events e
 			JOIN tasks t ON t.id = e.task_id
 			WHERE e.task_id = ? AND e.seq > ?
-			ORDER BY e.seq ASC`, taskID, sinceSeq)
+			ORDER BY e.seq ASC`
+	args := []any{taskID, sinceSeq}
+	if limit > 0 {
+		if limit > 500 {
+			limit = 500
+		}
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
 	}

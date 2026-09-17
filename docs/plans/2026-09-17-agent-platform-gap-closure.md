@@ -1,6 +1,6 @@
 # Agent Platform Gap-Closure Plan
 
-**Status:** Draft
+**Status:** M0/M1 complete; M2 local implementation complete; M3-M8 pending
 **Date:** 2026-09-17
 **Goal:** Turn OpenKin from a strong local agent console into a reliable,
 extensible agent control plane without giving up local-first ownership,
@@ -43,12 +43,12 @@ obvious rather than rebuilt.
 
 | Capability | Current state | Remaining gap |
 |---|---|---|
-| Quota wait and continue | Shipped. `limit_policy=wait` is the default; reset-aware timers retry automatically; daemon startup re-arms recent waiting tasks. | Wait state is reconstructed from events, recovery scans only 200 failed tasks, unknown reset times remain manual, timers are capped at 48 hours, and retry/backoff health is not a durable first-class record. |
-| Scheduled tasks | Shipped as Routines. Creation has no product-level count cap. | List APIs/UI show bounded pages, each scheduler tick scans only 50 due rows, Routine work shares the interactive FIFO, and backlog/fairness are not visible. |
-| Auto model routing | Shipped. Profiles, phase policies, `cost-min`, provider/model compatibility, usage-window preflight, same-agent fallback, previews, and route audit events exist. | Routing is mostly static policy. It does not score predicted complexity, remaining budget, historical quality, latency, or Routine priority; trivial tasks may still pay for unnecessary phases. |
+| Quota wait and continue | Shipped. `limit_policy=wait` is the default; reset-aware timers retry automatically; durable waits survive daemon restart, unknown reset times probe, and claims prevent duplicate retries. | Notification thresholds and long-term wait analytics remain follow-up work. |
+| Scheduled tasks | Shipped as Routines. Creation has no product-level count cap. Cursor/search listing, atomic claims, bounded background concurrency, explicit missed-run policy, and backlog health are implemented. | Queue watermark tuning and richer delay estimates remain follow-up work. |
+| Auto model routing | Shipped for the local M1 scope. Profiles, adaptive complexity/quality floors, provider/model compatibility, usage-window preflight, same-agent fallback, previews, and route audit events exist. | Learned latency/quality weights, full savings simulation, and cross-agent fallback remain follow-up work. |
 | Isolated workspaces | Shipped. Workspace generations, lazy promotion, durable diff review, fast-forward integration, and physical worktree release exist. | No first-class multi-worker mission view or optional GitHub/GitLab PR handoff. Parallel writers must remain serialized until merge semantics are explicit. |
 | Mobile control | Shipped for iOS P0/P1. | Push/deep-link coverage and background-task summaries need product hardening. |
-| MCP | Internal stdio lifecycle/approval bridge exists for managed workers. | OpenKin is not yet a general MCP server for external Claude/Codex/Droid hosts, nor an MCP client/host for third-party connectors. |
+| MCP | Internal worker bridge and public control-plane MCP server now coexist. Public MCP supports bounded read tools, scoped writes/admin actions, stdio proxy, Streamable HTTP, audit, and idempotency. | External Claude/Codex/Droid conformance runs and the connector-host side remain follow-up work. |
 | Skills | Agent discovery knows common skill directories. Prompt recipes and Routines exist. | No OpenKin-owned file-backed Skill registry, validation, permission manifest, installation flow, or invocation audit. |
 | Eval/replay | Durable events, usage, checkpoints, and ADR 0012 exist. | No implemented eval service, suite runner, comparison report, or regression dashboard. |
 | Browser/computer use | Can be delegated indirectly to capable external agents. | No OpenKin-owned, scoped browser worker with evidence capture and approval gates. |

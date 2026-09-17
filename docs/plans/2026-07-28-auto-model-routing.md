@@ -1,6 +1,6 @@
 # Auto Model Routing Plan
 
-**Status:** Draft
+**Status:** Implemented for the current M1 scope; residual gaps remain
 **Date:** 2026-07-28
 **Owner:** Implementation by dpsk v4, review by Kin maintainer
 
@@ -25,6 +25,24 @@ are covered by tests. The main acceptance path is:
 3. start tasks with `Manual -> Agent -> Provider -> Model`;
 4. persist and render dispatch selection, preview, decisions, and fallback;
 5. keep old tasks readable after later provider/profile edits.
+
+## Implementation Snapshot
+
+The current implementation covers the first local, deterministic routing slice:
+
+- team/profile/provider/model resolution with same-agent fallback;
+- quality-floor routing driven by a deterministic prompt complexity classifier;
+- adaptive light/medium/heavy phase plans;
+- Routine cost preference and route score audit fields;
+- offline preview using the same classifier and candidate ordering as execution;
+- Web and iOS display of durable quota wait state.
+
+The following remain outside the shipped slice:
+
+- learned latency/error/quality weights and historical savings reports;
+- a full saved-task routing simulator with fixture comparison;
+- cross-agent fallback at an explicit durable phase boundary;
+- provider-specific cost/usage forecasting beyond current availability metadata.
 
 ## Goals
 
