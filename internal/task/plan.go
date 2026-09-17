@@ -32,6 +32,7 @@ type DelegateStep struct {
 	Model       string // optional model id from @agent[model]
 	Provider    string // optional provider id from auto routing resolution
 	Phase       string // optional phase (plan/execute/review) from auto routing
+	Access      string // workspace access: read or write
 	Instruction string // text after the @mention until the next one
 	Mention     string // raw token as typed
 }
@@ -186,6 +187,7 @@ func ParseDelegatePlan(raw string, available map[string]bool) DelegatePlan {
 		plan.Steps = append(plan.Steps, DelegateStep{
 			Agent:       h.agent,
 			Model:       h.model,
+			Access:      inferStepAccess("", instr),
 			Instruction: instr,
 			Mention:     h.mention,
 		})
@@ -240,7 +242,9 @@ func PlanWaves(steps []DelegateStep) [][]int {
 				}
 			}
 			if ready {
-				wave = append(wave, i)
+				if !waveWouldConflict(wave, steps, i) {
+					wave = append(wave, i)
+				}
 			}
 		}
 		if len(wave) == 0 {
@@ -264,6 +268,58 @@ func PlanWaves(steps []DelegateStep) [][]int {
 		}
 	}
 	return waves
+}
+
+func waveWouldConflict(wave []int, steps []DelegateStep, candidate int) bool {
+	candidateAccess := normalizedStepAccess(steps[candidate])
+	for _, existing := range wave {
+		existingAccess := normalizedStepAccess(steps[existing])
+		if candidateAccess == "write" || existingAccess == "write" {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedStepAccess(step DelegateStep) string {
+	if strings.EqualFold(strings.TrimSpace(step.Access), "write") {
+		return "write"
+	}
+	if strings.TrimSpace(step.Access) == "" {
+		return inferStepAccess(step.Phase, step.Instruction)
+	}
+	return "read"
+}
+
+func inferStepAccess(phase, instruction string) string {
+	if strings.EqualFold(strings.TrimSpace(phase), "execute") {
+		return "write"
+	}
+	if strings.EqualFold(strings.TrimSpace(phase), "plan") ||
+		strings.EqualFold(strings.TrimSpace(phase), "review") {
+		return "read"
+	}
+	lower := strings.ToLower(instruction)
+	for _, word := range []string{
+		"implement", "execute", "build", "run", "fix", "write", "refactor", "code",
+		"update", "modify", "edit", "add", "delete", "remove", "rename", "create", "change",
+		"实现", "执行", "构建", "修复", "编写", "重构", "编码", "落地", "修改", "编辑",
+		"新增", "删除", "重命名", "创建", "变更",
+	} {
+		if strings.Contains(lower, word) {
+			return "write"
+		}
+	}
+	for _, word := range []string{
+		"inspect", "research", "investigate", "review", "audit", "analy", "check",
+		"调研", "调查", "检查", "审查", "评审", "分析", "查看", "研究", "查",
+	} {
+		if strings.Contains(lower, word) {
+			return "read"
+		}
+	}
+	// Unknown explicit work is conservative: it may mutate the workspace.
+	return "write"
 }
 
 func instructionMentionsAgent(instrLower, agentID string) bool {

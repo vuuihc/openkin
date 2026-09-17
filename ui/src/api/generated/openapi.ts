@@ -196,6 +196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listTaskWorkerSteps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/approvals": {
         parameters: {
             query?: never;
@@ -453,6 +469,25 @@ export interface components {
             ts: number;
             type: string;
             payload: unknown;
+        };
+        WorkerStep: {
+            task_id: string;
+            execution_id: string;
+            step_index: number;
+            role: string;
+            depends_on?: number[];
+            agent: string;
+            provider?: string;
+            model?: string;
+            /** @enum {string} */
+            access: "read" | "write";
+            status: string;
+            attempt: number;
+            execution_ref?: string;
+            result_summary?: string;
+            error?: string;
+            created_at: number;
+            updated_at: number;
         };
         Approval: {
             id: string;
@@ -863,6 +898,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskEvent"][];
+                };
+            };
+        };
+    };
+    listTaskWorkerSteps: {
+        parameters: {
+            query?: {
+                execution_id?: string;
+            };
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Persisted multi-worker plan and latest step states */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        steps: components["schemas"]["WorkerStep"][];
+                    };
                 };
             };
         };

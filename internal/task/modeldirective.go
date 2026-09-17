@@ -282,8 +282,8 @@ func (d ModelDirective) BuildRoleSplitPlan(agent, userTurn string, cat ModelCata
 		Overview: turn,
 		Raw:      turn,
 		Steps: []DelegateStep{
-			{Agent: agent, Model: planModel, Instruction: planInstr, Mention: agent},
-			{Agent: agent, Model: execModel, Instruction: execInstr, Mention: agent},
+			{Agent: agent, Model: planModel, Phase: "plan", Access: "read", Instruction: planInstr, Mention: agent},
+			{Agent: agent, Model: execModel, Phase: "execute", Access: "write", Instruction: execInstr, Mention: agent},
 		},
 	}, true
 }

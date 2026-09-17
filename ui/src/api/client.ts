@@ -266,6 +266,29 @@ export type LimitHit = {
   replaces_seq?: number;
 };
 
+export type WorkerStep = {
+  task_id: string;
+  execution_id: string;
+  step_index: number;
+  role: string;
+  depends_on?: number[];
+  agent: string;
+  provider?: string;
+  model?: string;
+  access: "read" | "write" | string;
+  status: string;
+  attempt: number;
+  execution_ref?: string;
+  result_summary?: string;
+  error?: string;
+  created_at: number;
+  updated_at: number;
+};
+
+export type WorkerStepsResponse = {
+  steps: WorkerStep[];
+};
+
 
 export type CreateTaskBody = CreateTaskRequest;
 
@@ -666,6 +689,12 @@ export function forkTask(
 export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
   const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
   return apiFetch<TaskEvent[]>(`/api/tasks/${encodeURIComponent(id)}/events${q}`);
+}
+
+export function listWorkerSteps(id: string): Promise<WorkerStep[]> {
+  return apiFetch<WorkerStepsResponse>(
+    `/api/tasks/${encodeURIComponent(id)}/workers`,
+  ).then((response) => response.steps);
 }
 
 export async function getTaskLimitWait(id: string): Promise<TaskLimitWait | null> {

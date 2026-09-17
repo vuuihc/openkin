@@ -472,6 +472,9 @@ func (e *Engine) Recover(ctx context.Context) error {
 		if t, err := e.store.GetTask(ctx, id); err == nil {
 			e.bus.PublishTask(t)
 		}
+		if err := e.store.MarkWorkerStepsTerminal(ctx, id, StatusFailed, "daemon restarted", e.nowMilli()); err != nil {
+			return err
+		}
 	}
 
 	// Retry restore intents reserve their tasks as retrying, so they are not
@@ -613,6 +616,7 @@ func (e *Engine) resolveAutoRoute(ctx context.Context, t store.Task) (DelegatePl
 			Model:       dec.Model,
 			Provider:    dec.Provider,
 			Phase:       string(phase),
+			Access:      inferStepAccess(string(phase), instruction),
 			Instruction: instruction,
 			Mention:     "auto-" + string(phase),
 		})
@@ -1351,6 +1355,7 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	}
 	e.canceled[id] = true
 	e.mu.Unlock()
+	_ = e.store.MarkWorkerStepsTerminal(ctx, id, StatusCanceled, "task canceled", e.nowMilli())
 
 	// Deny any pending approvals so MCP waiters unblock.
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {

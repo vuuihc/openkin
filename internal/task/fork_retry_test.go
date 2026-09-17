@@ -451,7 +451,7 @@ func TestOrchestratedFollowUpUsesGenerationAfterRelease(t *testing.T) {
 			t.Fatalf("%s worker cwd=%q want %q", name, spec.Cwd, current.ExecutionCwd)
 		}
 		if spec.RunMeta.WorkspaceID != current.ID ||
-			spec.RunMeta.WorkspaceAccess != adapter.AccessWritable ||
+			spec.RunMeta.WorkspaceAccess != adapter.AccessSourceReadOnly ||
 			spec.RunMeta.Generation != current.Generation {
 			t.Fatalf("%s worker run metadata=%+v want workspace %s generation %d", name, spec.RunMeta, current.ID, current.Generation)
 		}

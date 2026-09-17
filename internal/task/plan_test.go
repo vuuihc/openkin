@@ -77,6 +77,45 @@ func TestPlanWaves_parallelIndependent(t *testing.T) {
 	}
 }
 
+func TestPlanWavesSerializesWritableSteps(t *testing.T) {
+	steps := []DelegateStep{
+		{Agent: "claude-code", Access: "read", Instruction: "inspect auth"},
+		{Agent: "codex", Access: "read", Instruction: "inspect tests"},
+		{Agent: "kin", Access: "write", Instruction: "implement the fix"},
+		{Agent: "grok", Access: "write", Instruction: "update documentation"},
+	}
+	waves := PlanWaves(steps)
+	if len(waves) != 3 {
+		t.Fatalf("waves=%v want three waves", waves)
+	}
+	if len(waves[0]) != 2 || waves[0][0] != 0 || waves[0][1] != 1 {
+		t.Fatalf("read wave=%v", waves[0])
+	}
+	if len(waves[1]) != 1 || waves[1][0] != 2 || len(waves[2]) != 1 || waves[2][0] != 3 {
+		t.Fatalf("write waves=%v", waves[1:])
+	}
+}
+
+func TestPlanWavesInfersAccessForProgrammaticSteps(t *testing.T) {
+	steps := []DelegateStep{
+		{Agent: "claude-code", Phase: "plan", Instruction: "Do not modify files or run commands"},
+		{Agent: "codex", Phase: "execute", Instruction: "Review the implementation"},
+	}
+	waves := PlanWaves(steps)
+	if len(waves) != 2 || len(waves[0]) != 1 || waves[0][0] != 0 || len(waves[1]) != 1 || waves[1][0] != 1 {
+		t.Fatalf("waves=%v want phase-aware serialized waves", waves)
+	}
+}
+
+func TestInferStepAccessUsesPhaseBeforeInstructionKeywords(t *testing.T) {
+	if got := inferStepAccess("plan", "Do not modify files or run commands"); got != "read" {
+		t.Fatalf("plan access=%q want read", got)
+	}
+	if got := inferStepAccess("execute", "Review the implementation"); got != "write" {
+		t.Fatalf("execute access=%q want write", got)
+	}
+}
+
 func TestPlanWaves_serialOnDependency(t *testing.T) {
 	steps := []DelegateStep{
 		{Agent: "claude-code", Instruction: "你去做实验"},
@@ -177,7 +216,6 @@ func TestIsDelegateWorkerStep_modelAliasCase(t *testing.T) {
 		t.Fatal("case-insensitive same model should not fan out")
 	}
 }
-
 
 func TestHasDelegateWorkers_sameAgentMultiStep(t *testing.T) {
 	plan := DelegatePlan{Steps: []DelegateStep{

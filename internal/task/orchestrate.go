@@ -90,8 +90,22 @@ func (e *Engine) runOrchestrated(
 		e.finishOrchestrated(ctx, id, executionID, true)
 		return
 	}
+	if workerPlanNeedsWrite(plan) && runMeta.WorkspaceAccess == adapter.AccessSourceReadOnly {
+		var err error
+		t, runMeta, err = e.promoteWorkerWorkspace(ctx, t, executionID, runMeta)
+		if err != nil {
+			e.emitError(ctx, id, executionID, "prepare writable worker workspace failed: "+err.Error())
+			e.finishOrchestrated(ctx, id, executionID, true)
+			return
+		}
+	}
 
 	waves := PlanWaves(plan.Steps)
+	if err := e.persistWorkerPlan(ctx, id, executionID, plan, waves); err != nil {
+		e.emitError(ctx, id, executionID, "persist worker plan failed: "+err.Error())
+		e.finishOrchestrated(ctx, id, executionID, true)
+		return
+	}
 	parallelN := 0
 	for _, w := range waves {
 		if len(w) > 1 {
@@ -157,9 +171,10 @@ func (e *Engine) runOrchestrated(
 		}
 
 		type stepOut struct {
-			idx  int
-			text string
-			err  bool
+			idx     int
+			text    string
+			err     bool
+			errText string
 		}
 		outs := make([]stepOut, len(wave))
 		var wg sync.WaitGroup
@@ -172,11 +187,15 @@ func (e *Engine) runOrchestrated(
 
 			// Use fallback-aware start when routing metadata is present.
 			h, execRef, failedProviders, err := e.startWorkerWithFallback(
-				ctx, id, t, step, brief, si, runMeta,
+				ctx, id, t, step, brief, si, workerRunMeta(runMeta, step),
 			)
 			if err != nil {
 				e.emitError(ctx, id, executionID, fmt.Sprintf("%s failed to start: %v", step.Agent, err))
-				outs[i] = stepOut{idx: si, err: true}
+				e.updateWorkerStep(ctx, id, executionID, si, store.WorkerStepPatch{
+					Status: workerStringPtr(StatusFailed),
+					Error:  workerStringPtr(err.Error()),
+				})
+				outs[i] = stepOut{idx: si, err: true, errText: err.Error()}
 				anyErr = true
 				continue
 			}
@@ -197,6 +216,15 @@ func (e *Engine) runOrchestrated(
 			if execRef.Model != "" {
 				step.Model = execRef.Model
 			}
+			execJSON, _ := json.Marshal(execRef)
+			attempt := len(failedProviders) + 1
+			e.updateWorkerStep(ctx, id, executionID, si, store.WorkerStepPatch{
+				Status:       workerStringPtr("running"),
+				Attempt:      workerIntPtr(attempt),
+				Provider:     workerStringPtr(step.Provider),
+				Model:        workerStringPtr(execRef.Model),
+				ExecutionRef: workerStringPtr(string(execJSON)),
+			})
 			outs[i] = stepOut{idx: si} // placeholder; filled by goroutine
 
 			// Capture indices / step data for goroutine (incl. meta-output retry).
@@ -253,7 +281,7 @@ func (e *Engine) runOrchestrated(
 								SessionRef:     "",
 								PermissionMode: adapter.NormalizePermissionMode(t.PermissionMode),
 								Execution:      retryExec,
-								RunMeta:        runMeta,
+								RunMeta:        workerRunMeta(runMeta, gstep),
 							}
 							if cfg, err := e.resolveProviderCfg(ctx, retryExec.ProviderID); err == nil && cfg.BaseURL != "" {
 								spec.ProviderCfg = &cfg
@@ -268,6 +296,12 @@ func (e *Engine) runOrchestrated(
 									outs[gi] = stepOut{idx: gsi, text: text, err: true}
 									return
 								}
+								retryJSON, _ := json.Marshal(retryExec)
+								e.updateWorkerStep(ctx, id, executionID, gsi, store.WorkerStepPatch{
+									Attempt:      workerIntPtr(2),
+									Model:        workerStringPtr(gmodel),
+									ExecutionRef: workerStringPtr(string(retryJSON)),
+								})
 								text2, failed2, _ := e.forwardWorkerEvents(
 									ctx, id, executionID, gagent, gmodel, retryExec, h2,
 								)
@@ -307,16 +341,23 @@ func (e *Engine) runOrchestrated(
 						retryStep := gstep
 						retryStep.Provider = next.Provider
 						retryStep.Model = next.Model
-						h2, exec2, _, err2 := e.startWorkerWithFallback(
-							ctx, id, t, retryStep, gbrief, gsi, runMeta,
+						h2, exec2, fallbackFailures, err2 := e.startWorkerWithFallback(
+							ctx, id, t, retryStep, gbrief, gsi, workerRunMeta(runMeta, retryStep),
 						)
 						if err2 == nil {
 							if !e.registerWorkerHandle(id, executionID, h2) {
 								outs[gi] = stepOut{idx: gsi, text: text, err: true}
 								return
 							}
+							fallbackJSON, _ := json.Marshal(exec2)
+							e.updateWorkerStep(ctx, id, executionID, gsi, store.WorkerStepPatch{
+								Attempt:      workerIntPtr(2 + len(gfailedProviders) + len(fallbackFailures)),
+								Provider:     workerStringPtr(exec2.ProviderID),
+								Model:        workerStringPtr(exec2.Model),
+								ExecutionRef: workerStringPtr(string(fallbackJSON)),
+							})
 							text2, failed2, _ := e.forwardWorkerEvents(
-								ctx, id, executionID, gagent, next.Model, exec2, h2,
+								ctx, id, executionID, gagent, exec2.Model, exec2, h2,
 							)
 							text, failed = text2, failed2
 						} else {
@@ -353,6 +394,7 @@ func (e *Engine) runOrchestrated(
 			}
 			wg.Wait()
 			e.clearHandleGroup(id, executionID)
+			e.cancelWorkerSteps(ctx, id, executionID)
 			e.finishOrchestrated(ctx, id, executionID, true)
 			return
 		}
@@ -364,6 +406,7 @@ func (e *Engine) runOrchestrated(
 		canceled = e.canceled[id]
 		e.mu.Unlock()
 		if canceled {
+			e.cancelWorkerSteps(ctx, id, executionID)
 			e.finishOrchestrated(ctx, id, executionID, true)
 			return
 		}
@@ -376,6 +419,23 @@ func (e *Engine) runOrchestrated(
 			if strings.TrimSpace(o.text) != "" {
 				priorByStep[o.idx] = o.text
 			}
+			status := "succeeded"
+			if o.err {
+				status = StatusFailed
+			}
+			summary := o.text
+			errText := ""
+			if o.err {
+				errText = o.errText
+				if errText == "" {
+					errText = "worker step failed"
+				}
+			}
+			e.updateWorkerStep(ctx, id, executionID, o.idx, store.WorkerStepPatch{
+				Status:        workerStringPtr(status),
+				ResultSummary: workerStringPtr(truncate(summary, 2000)),
+				Error:         workerStringPtr(errText),
+			})
 		}
 	}
 
@@ -451,6 +511,137 @@ func (e *Engine) runOrchestrated(
 	e.finishOrchestrated(ctx, id, executionID, anyErr)
 }
 
+func (e *Engine) persistWorkerPlan(
+	ctx context.Context,
+	taskID, executionID string,
+	plan DelegatePlan,
+	waves [][]int,
+) error {
+	now := e.nowMilli()
+	waveOf := make(map[int]int, len(plan.Steps))
+	for wi, wave := range waves {
+		for _, index := range wave {
+			waveOf[index] = wi
+		}
+	}
+	steps := make([]store.WorkerStep, 0, len(plan.Steps))
+	for index, step := range plan.Steps {
+		deps := make([]int, 0)
+		for prior := 0; prior < index; prior++ {
+			if waveOf[prior] < waveOf[index] {
+				deps = append(deps, prior)
+			}
+		}
+		role := step.Phase
+		if role == "" {
+			role = "worker"
+		}
+		steps = append(steps, store.WorkerStep{
+			TaskID:      taskID,
+			ExecutionID: executionID,
+			StepIndex:   index,
+			Role:        role,
+			DependsOn:   deps,
+			Agent:       step.Agent,
+			Provider:    step.Provider,
+			Model:       step.Model,
+			Access:      workerStepAccess(step),
+			Status:      "planned",
+			Attempt:     1,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		})
+	}
+	return e.store.InsertWorkerPlan(ctx, steps)
+}
+
+func (e *Engine) updateWorkerStep(
+	ctx context.Context,
+	taskID, executionID string,
+	stepIndex int,
+	patch store.WorkerStepPatch,
+) {
+	if err := e.store.UpdateWorkerStep(ctx, taskID, executionID, stepIndex, patch, e.nowMilli()); err != nil {
+		e.noteRunPersistFailure(taskID, executionID, "result", nil, err)
+	}
+}
+
+func (e *Engine) cancelWorkerSteps(ctx context.Context, taskID, executionID string) {
+	status := StatusCanceled
+	steps, err := e.store.ListWorkerSteps(ctx, taskID, executionID)
+	if err != nil {
+		e.noteRunPersistFailure(taskID, executionID, "result", nil, err)
+		return
+	}
+	for _, step := range steps {
+		if step.Status == "planned" || step.Status == "running" {
+			e.updateWorkerStep(ctx, taskID, executionID, step.StepIndex, store.WorkerStepPatch{
+				Status: &status,
+			})
+		}
+	}
+}
+
+func workerStringPtr(value string) *string {
+	return &value
+}
+
+func workerIntPtr(value int) *int {
+	return &value
+}
+
+func workerRunMeta(meta adapter.RunMetadata, step DelegateStep) adapter.RunMetadata {
+	if workerStepAccess(step) == "read" {
+		meta.WorkspaceAccess = adapter.AccessSourceReadOnly
+	} else if meta.WorkspaceAccess == adapter.AccessSourceReadOnly {
+		meta.WorkspaceAccess = adapter.AccessWritable
+	}
+	return meta
+}
+
+func workerStepAccess(step DelegateStep) string {
+	return normalizedStepAccess(step)
+}
+
+func workerPlanNeedsWrite(plan DelegatePlan) bool {
+	for _, step := range plan.Steps {
+		if workerStepAccess(step) == "write" {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) promoteWorkerWorkspace(
+	ctx context.Context,
+	t store.Task,
+	executionID string,
+	runMeta adapter.RunMetadata,
+) (store.Task, adapter.RunMetadata, error) {
+	if e.workspace == nil {
+		return t, runMeta, fmt.Errorf("workspace runtime unavailable")
+	}
+	ws, err := e.RequestWorkspace(ctx, WorkspaceIntentRequest{
+		TaskID:      t.ID,
+		ExecutionID: executionID,
+		Agent:       t.Agent,
+		Reason:      "writable multi-worker step",
+	})
+	if err != nil {
+		return t, runMeta, err
+	}
+	t.CurrentWorkspaceID = ws.ID
+	runMeta = e.resolveRunWorkspace(ctx, &t)
+	runMeta.WorkspaceExecutionID = executionID
+	if runMeta.WorkspaceAccess != adapter.AccessWritable {
+		return t, runMeta, fmt.Errorf("writable worker workspace was not activated")
+	}
+	if err := e.claimCurrentWorkspaceExecution(ctx, t.ID, executionID); err != nil {
+		return t, runMeta, err
+	}
+	return t, runMeta, nil
+}
+
 func (e *Engine) clearHandleGroup(id, executionID string) {
 	e.mu.Lock()
 	if e.activeRuns[id] == executionID {
@@ -518,6 +709,7 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 	e.active--
 	e.mu.Unlock()
 	if !currentRun {
+		e.cancelWorkerSteps(ctx, id, executionID)
 		e.pump()
 		return
 	}

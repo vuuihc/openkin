@@ -45,6 +45,7 @@ Read tools:
 
 ```text
 list_tasks              get_task                 list_task_events
+list_worker_steps
 list_projects           list_artifacts            read_artifact
 list_routines           get_usage                get_routing_status
 ```
