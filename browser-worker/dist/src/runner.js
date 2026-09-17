@@ -1,4 +1,4 @@
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 import { assertActionAllowed, assertAllowedURL, assertPathWithinRoot, isPrivateDestination, requiresApproval, redactURL, sanitizeActionForEvidence, } from "./policy.js";
@@ -25,6 +25,7 @@ export class BrowserWorker {
         });
         this.context = await this.browser.newContext({
             acceptDownloads: true,
+            serviceWorkers: "block",
         });
         await this.context.route("**/*", async (route) => {
             const rawURL = route.request().url();
@@ -95,13 +96,22 @@ export class BrowserWorker {
                     const downloadPromise = this.page.waitForEvent("download");
                     await this.page.goto(action.url, { waitUntil: "domcontentloaded" });
                     const download = await downloadPromise;
-                    const target = path.join(this.config.download_dir, action.filename);
-                    await download.saveAs(target);
-                    const size = (await stat(target)).size;
-                    if (size > this.config.max_download_bytes) {
-                        await rm(target, { force: true });
-                        throw new Error("download exceeds configured size limit");
+                    const stream = await download.createReadStream();
+                    if (!stream)
+                        throw new Error("download stream is unavailable");
+                    const chunks = [];
+                    let size = 0;
+                    for await (const chunk of stream) {
+                        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                        size += bytes.byteLength;
+                        if (size > this.config.max_download_bytes) {
+                            stream.destroy();
+                            throw new Error("download exceeds configured size limit");
+                        }
+                        chunks.push(bytes);
                     }
+                    const target = path.join(this.config.download_dir, action.filename);
+                    await writeFile(target, Buffer.concat(chunks), { flag: "wx" });
                     break;
                 }
                 case "screenshot": {

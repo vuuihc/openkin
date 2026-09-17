@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { BrowserWorker } from "./runner.js";
+import { redactError } from "./evidence.js";
 const config = {
     allowed_domains: (process.env.KIN_BROWSER_DOMAINS ?? "")
         .split(",")
@@ -85,7 +86,7 @@ async function handleLine(line) {
             id: request.id,
             type: "result",
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: redactError(error instanceof Error ? error.message : String(error)),
             evidence: worker.evidence.slice(before).map(toWireEvidence),
         });
     }

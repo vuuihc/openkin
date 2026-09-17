@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,6 +165,17 @@ sleep 10
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("worker did not stop after cancellation")
+	}
+}
+
+func TestRedactWorkerError(t *testing.T) {
+	message := redactWorkerError(
+		`failed /Users/alice/private.txt Bearer abc123 https://example.com/?token=secret`,
+	)
+	if strings.Contains(message, "private.txt") ||
+		strings.Contains(message, "abc123") ||
+		strings.Contains(message, "token=secret") {
+		t.Fatalf("message was not redacted: %q", message)
 	}
 }
 

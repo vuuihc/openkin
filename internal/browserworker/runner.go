@@ -141,7 +141,7 @@ type evidence struct {
 }
 
 // Execute runs an action attached to taskID and persists its evidence.
-func (r *Runner) Execute(ctx context.Context, taskID string, action Action) error {
+func (r *Runner) Execute(ctx context.Context, taskID string, action Action) (err error) {
 	if strings.TrimSpace(taskID) == "" {
 		return fmt.Errorf("task_id is required")
 	}
@@ -171,6 +171,16 @@ func (r *Runner) Execute(ctx context.Context, taskID string, action Action) erro
 	defer r.release(taskID)
 
 	requestID := ulid.Make().String()
+	failureEventEmitted := false
+	defer func() {
+		if err == nil || failureEventEmitted {
+			return
+		}
+		_ = r.emit(context.Background(), taskID, "browser_action_failed", map[string]any{
+			"request_id": requestID,
+			"error":      redactWorkerError(err.Error()),
+		})
+	}()
 	if err := r.emit(ctx, taskID, "browser_action_started", map[string]any{
 		"request_id": requestID,
 		"action":     sanitizeAction(action),
@@ -275,6 +285,7 @@ func (r *Runner) Execute(ctx context.Context, taskID string, action Action) erro
 	}
 	if !result.OK {
 		message := redactWorkerError(result.Error)
+		failureEventEmitted = true
 		_ = r.emit(ctx, taskID, "browser_action_failed", map[string]any{
 			"request_id": requestID,
 			"error":      message,
@@ -469,10 +480,18 @@ func workerEnvironment() []string {
 	return env
 }
 
-var workerURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
+var (
+	workerURLPattern  = regexp.MustCompile(`https?://[^\s"'<>]+`)
+	workerBearer      = regexp.MustCompile(`(?i)Bearer\s+[A-Za-z0-9._~+/=-]+`)
+	workerSecretParam = regexp.MustCompile(`(?i)(password|token|secret|api[_-]?key|authorization)=([^&\s]+)`)
+	workerPathPattern = regexp.MustCompile(`(?:^|[\s("'` + "`" + `])/(?:[^/\s"'` + "`" + `]+/)+[^/\s"'` + "`" + `]+`)
+)
 
 func redactWorkerError(message string) string {
-	return workerURLPattern.ReplaceAllStringFunc(message, redactURL)
+	message = workerBearer.ReplaceAllString(message, "Bearer [REDACTED]")
+	message = workerSecretParam.ReplaceAllString(message, "$1=[REDACTED]")
+	message = workerURLPattern.ReplaceAllStringFunc(message, redactURL)
+	return workerPathPattern.ReplaceAllString(message, "$1[PATH_REDACTED]")
 }
 
 func redactURL(raw string) string {
