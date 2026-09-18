@@ -307,6 +307,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		Store:      st,
 		Auth:       auth,
 		Engine:     eng,
+		Agents:     reg,
 		Connectors: connectorManager,
 		RunRoutine: func(c context.Context, id string) (store.Task, error) {
 			return routineScheduler.RunNow(c, id)

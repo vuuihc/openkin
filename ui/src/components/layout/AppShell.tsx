@@ -2,13 +2,18 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   deleteTask,
+  getSettings,
   getUsageSummary,
+  importAgentSessions,
+  listAgentSessionsPage,
+  type AgentSession,
   type Task,
 } from "../../api/client";
 import { liveResources } from "../../api/liveResources";
@@ -63,9 +68,49 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [externalSessions, setExternalSessions] = useState<AgentSession[]>([]);
+  const autoImportInFlight = useRef(false);
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
+
+  const loadExternalSessions = useCallback(async () => {
+    try {
+      if (!autoImportInFlight.current) {
+        const settings = await getSettings().catch(() => null);
+        if (settings?.["agent_sessions.auto_import_mode"] === "enabled") {
+          autoImportInFlight.current = true;
+          try {
+            await importAgentSessions();
+          } finally {
+            autoImportInFlight.current = false;
+          }
+        }
+      }
+      const sessions: AgentSession[] = [];
+      let before = "";
+      for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
+        const page = await listAgentSessionsPage({
+          limit: 500,
+          before: before || undefined,
+        });
+        sessions.push(...page.items);
+        if (!page.next_cursor) break;
+        before = page.next_cursor;
+      }
+      setExternalSessions(sessions);
+    } catch {
+      setExternalSessions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (wsStatus === "disconnected") return;
+    void loadExternalSessions();
+    const refresh = () => void loadExternalSessions();
+    window.addEventListener("kin:agent-sessions-changed", refresh);
+    return () => window.removeEventListener("kin:agent-sessions-changed", refresh);
+  }, [loadExternalSessions, wsStatus]);
 
   const openNewChat = useCallback(() => {
     // Single draft entry: always jump to /new (create-or-focus).
@@ -194,6 +239,10 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         onNewChat={openNewChat}
         onNewSessionInProject={openNewSessionInProject}
         onDeleteSession={(task) => void handleDeleteSession(task)}
+        externalSessions={externalSessions}
+        onOpenExternalSession={(session) => {
+          navigate(`/agent-sessions/${encodeURIComponent(session.id)}`);
+        }}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
         searchQuery={searchQuery}

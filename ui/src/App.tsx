@@ -22,6 +22,7 @@ import TasksPage from "./pages/TasksPage";
 import TrayPage from "./pages/TrayPage";
 import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
+import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { dispatchWS, useAppStore } from "./store/appStore";
 import { clearSessionViewed } from "./lib/sessionViewed";
@@ -141,6 +142,7 @@ export default function App() {
             <Route path="/routines" element={<RoutinesPage />} />
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
             <Route path="*" element={<Navigate to="/new" replace />} />
           </Routes>
         </ErrorBoundary>

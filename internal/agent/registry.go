@@ -207,6 +207,9 @@ func dedupeCaps(caps []Capability) []Capability {
 	// Stable preferred order.
 	pref := []Capability{
 		CapabilityRun, CapabilityResume, CapabilityTools,
+		CapabilitySessionList, CapabilitySessionInspect,
+		CapabilitySessionHistoryRead, CapabilitySessionAttach,
+		CapabilitySessionContextExport,
 		CapabilityApprovals, CapabilityOrchestrate, CapabilityLazyWorkspace,
 	}
 	for _, p := range pref {
@@ -335,6 +338,45 @@ func (r *Registry) ResetSession(ctx context.Context, id, taskID string) error {
 		return nil
 	}
 	return reg.Sessions.Reset(ctx, taskID)
+}
+
+// SessionCatalog returns the optional provider session catalog for an agent.
+func (r *Registry) SessionCatalog(id string) (SessionCatalog, bool) {
+	if r == nil {
+		return nil, false
+	}
+	reg, ok := r.byID[id]
+	if !ok || reg.Catalog == nil {
+		return nil, false
+	}
+	return reg.Catalog, true
+}
+
+// ListSessions discovers provider-owned sessions through an optional catalog.
+func (r *Registry) ListSessions(ctx context.Context, id string, q SessionQuery) ([]SessionInfo, error) {
+	catalog, ok := r.SessionCatalog(id)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSessionCatalogUnavailable, id)
+	}
+	return catalog.List(ctx, q)
+}
+
+// ReadSessionHistory reads provider-owned history without writing it to Kin.
+func (r *Registry) ReadSessionHistory(ctx context.Context, id, externalRef string, q HistoryQuery) (HistoryPage, error) {
+	catalog, ok := r.SessionCatalog(id)
+	if !ok {
+		return HistoryPage{}, fmt.Errorf("%w: %s", ErrSessionCatalogUnavailable, id)
+	}
+	return catalog.ReadHistory(ctx, externalRef, q)
+}
+
+// InspectSession loads bounded metadata for one provider-owned session.
+func (r *Registry) InspectSession(ctx context.Context, id, externalRef string) (SessionInfo, error) {
+	catalog, ok := r.SessionCatalog(id)
+	if !ok {
+		return SessionInfo{}, fmt.Errorf("%w: %s", ErrSessionCatalogUnavailable, id)
+	}
+	return catalog.Inspect(ctx, externalRef)
 }
 
 // LazyWorkspaceSupport checks whether an agent supports lazy workspace promotion.

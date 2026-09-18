@@ -156,6 +156,183 @@ paths:
       responses:
         "204":
           description: Worker lease revoked
+  /api/agent-sessions:
+    get:
+      operationId: listAgentSessions
+      parameters:
+        - in: query
+          name: agent
+          schema:
+            type: string
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: cwd
+          schema:
+            type: string
+        - in: query
+          name: linked
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Metadata-only index of provider-owned local sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentSession"
+  /api/agent-sessions/page:
+    get:
+      operationId: listAgentSessionsPage
+      parameters:
+        - in: query
+          name: agent
+          schema:
+            type: string
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: cwd
+          schema:
+            type: string
+        - in: query
+          name: linked
+          schema:
+            type: boolean
+        - in: query
+          name: before
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Cursor page of provider-owned local session metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionListPage"
+  /api/agent-sessions/{id}:
+    get:
+      operationId: getAgentSession
+      parameters:
+        - $ref: "#/components/parameters/AgentSessionId"
+      responses:
+        "200":
+          description: One indexed provider-owned local session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSession"
+        "404":
+          description: Indexed session not found
+  /api/agent-sessions/import:
+    post:
+      operationId: importAgentSessions
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentSessionImportRequest"
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionImportResponse"
+  /api/agent-sessions/{id}/history:
+    get:
+      operationId: getAgentSessionHistory
+      parameters:
+        - $ref: "#/components/parameters/AgentSessionId"
+        - in: query
+          name: cursor
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Provider history page read directly from the source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionHistoryPage"
+        "404":
+          description: Indexed session not found
+        "501":
+          description: Provider history is not supported
+  /api/agent-sessions/{id}/attach:
+    post:
+      operationId: attachAgentSession
+      parameters:
+        - $ref: "#/components/parameters/AgentSessionId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentSessionAttachRequest"
+      responses:
+        "200":
+          description: Existing Kin task attached to the provider session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionAttachResponse"
+        "201":
+          description: New Kin task created and attached to the provider session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSessionAttachResponse"
+        "409":
+          description: Session, task, or provider cannot be attached
+  /api/settings:
+    get:
+      operationId: getSettings
+      responses:
+        "200":
+          description: Daemon settings and connection projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      operationId: updateSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
   /api/tasks:
     get:
       operationId: listTasks
@@ -734,6 +911,12 @@ components:
       required: true
       schema:
         type: string
+    AgentSessionId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
     RelayRoom:
       in: query
       name: room
@@ -777,6 +960,259 @@ components:
         token:
           type: string
         label:
+          type: string
+    AgentSession:
+      type: object
+      required:
+        - id
+        - agent_id
+        - external_ref
+        - title
+        - cwd
+        - status
+        - first_seen_at
+        - last_seen_at
+        - updated_at
+        - linked
+      properties:
+        id:
+          type: string
+        agent_id:
+          type: string
+        external_ref:
+          type: string
+        title:
+          type: string
+        cwd:
+          type: string
+        project_id:
+          type: string
+        project_label:
+          type: string
+        status:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        source_cursor:
+          type: string
+        content_digest:
+          type: string
+        first_seen_at:
+          type: integer
+        last_seen_at:
+          type: integer
+        updated_at:
+          type: integer
+        linked:
+          type: boolean
+    AgentSessionListPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSession"
+        next_cursor:
+          type: string
+    AgentSessionImportRequest:
+      type: object
+      properties:
+        agents:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+    AgentSessionImportResponse:
+      type: object
+      required: [imported, providers]
+      properties:
+        imported:
+          type: integer
+        providers:
+          type: object
+          additionalProperties:
+            type: integer
+        errors:
+          type: object
+          additionalProperties:
+            type: string
+    AgentSessionAttachRequest:
+      type: object
+      properties:
+        task_id:
+          type: string
+        prompt:
+          type: string
+        cwd:
+          type: string
+        title:
+          type: string
+        permission_mode:
+          type: string
+    AgentSessionAttachResponse:
+      type: object
+      required: [task, binding]
+      properties:
+        task:
+          $ref: "#/components/schemas/Task"
+        binding:
+          $ref: "#/components/schemas/TaskAgentSession"
+    TaskAgentSession:
+      type: object
+      required: [id, task_id, agent_session_id, role, state, first_turn_seq, last_turn_seq, attached_at]
+      properties:
+        id:
+          type: string
+        task_id:
+          type: string
+        agent_session_id:
+          type: string
+        role:
+          type: string
+        state:
+          type: string
+        workspace_id:
+          type: string
+        first_turn_seq:
+          type: integer
+        last_turn_seq:
+          type: integer
+        attached_at:
+          type: integer
+        detached_at:
+          type:
+            - integer
+            - "null"
+        last_error:
+          type: string
+    AgentSessionHistoryItem:
+      type: object
+      required: [agent_id, external_ref, message_id, role, text, occurred_at, source_rev]
+      properties:
+        agent_id:
+          type: string
+        external_ref:
+          type: string
+        message_id:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        text:
+          type: string
+        occurred_at:
+          type: integer
+        source_rev:
+          type: string
+    AgentSessionHistoryPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSessionHistoryItem"
+        next_cursor:
+          type: string
+        source_rev:
+          type: string
+    Settings:
+      type: object
+      required:
+        - notify.bark_url
+        - notify.ntfy_topic
+        - ui.base_url
+        - price_table
+        - agent_limits
+        - provider.kind
+        - provider.base_url
+        - provider.api_key
+        - provider.model
+        - provider.active_id
+        - agent.default
+        - network_mode
+        - connect_url
+        - token
+      properties:
+        notify.bark_url:
+          type: string
+        notify.ntfy_topic:
+          type: string
+        notify.quota_wait_after_secs:
+          type: string
+        ui.base_url:
+          type: string
+        price_table:
+          type: string
+        agent_limits:
+          type: string
+        provider.kind:
+          type: string
+        provider.base_url:
+          type: string
+        provider.api_key:
+          type: string
+        provider.model:
+          type: string
+        provider.stream:
+          type: string
+        provider.active_id:
+          type: string
+        agent.default:
+          type: string
+        limit_policy:
+          type: string
+        limit_policy.fallback_agents:
+          type: string
+        agent_sessions.auto_import_mode:
+          type: string
+          enum: [prompt, enabled, disabled]
+        network_mode:
+          type: string
+        connect_url:
+          type: string
+        token:
+          type: string
+    SettingsUpdate:
+      type: object
+      properties:
+        notify.bark_url:
+          type: string
+        notify.ntfy_topic:
+          type: string
+        notify.quota_wait_after_secs:
+          type: string
+        ui.base_url:
+          type: string
+        price_table:
+          type: string
+        agent_limits:
+          type: string
+        provider.kind:
+          type: string
+        provider.base_url:
+          type: string
+        provider.api_key:
+          type: string
+        provider.model:
+          type: string
+        agent.default:
+          type: string
+        limit_policy:
+          type: string
+        limit_policy.fallback_agents:
+          type: string
+        agent_sessions.auto_import_mode:
+          type: string
+          enum: [prompt, enabled, disabled]
+        provider.clear_api_key:
           type: string
     Device:
       type: object

@@ -164,6 +164,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent-sessions/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentSessionsPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent-sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgentSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent-sessions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["importAgentSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent-sessions/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAgentSessionHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent-sessions/{id}/attach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["attachAgentSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getSettings"];
+        put: operations["updateSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -667,6 +779,119 @@ export interface components {
             token: string;
             label?: string;
         };
+        AgentSession: {
+            id: string;
+            agent_id: string;
+            external_ref: string;
+            title: string;
+            cwd: string;
+            project_id?: string;
+            project_label?: string;
+            status: string;
+            capabilities?: string[];
+            source_cursor?: string;
+            content_digest?: string;
+            first_seen_at: number;
+            last_seen_at: number;
+            updated_at: number;
+            linked: boolean;
+        };
+        AgentSessionListPage: {
+            items: components["schemas"]["AgentSession"][];
+            next_cursor?: string;
+        };
+        AgentSessionImportRequest: {
+            agents?: string[];
+            limit?: number;
+        };
+        AgentSessionImportResponse: {
+            imported: number;
+            providers: {
+                [key: string]: number;
+            };
+            errors?: {
+                [key: string]: string;
+            };
+        };
+        AgentSessionAttachRequest: {
+            task_id?: string;
+            prompt?: string;
+            cwd?: string;
+            title?: string;
+            permission_mode?: string;
+        };
+        AgentSessionAttachResponse: {
+            task: components["schemas"]["Task"];
+            binding: components["schemas"]["TaskAgentSession"];
+        };
+        TaskAgentSession: {
+            id: string;
+            task_id: string;
+            agent_session_id: string;
+            role: string;
+            state: string;
+            workspace_id?: string;
+            first_turn_seq: number;
+            last_turn_seq: number;
+            attached_at: number;
+            detached_at?: number | null;
+            last_error?: string;
+        };
+        AgentSessionHistoryItem: {
+            agent_id: string;
+            external_ref: string;
+            message_id: string;
+            /** @enum {string} */
+            role: "user" | "assistant";
+            text: string;
+            occurred_at: number;
+            source_rev: string;
+        };
+        AgentSessionHistoryPage: {
+            items: components["schemas"]["AgentSessionHistoryItem"][];
+            next_cursor?: string;
+            source_rev?: string;
+        };
+        Settings: {
+            "notify.bark_url": string;
+            "notify.ntfy_topic": string;
+            "notify.quota_wait_after_secs"?: string;
+            "ui.base_url": string;
+            price_table: string;
+            agent_limits: string;
+            "provider.kind": string;
+            "provider.base_url": string;
+            "provider.api_key": string;
+            "provider.model": string;
+            "provider.stream"?: string;
+            "provider.active_id": string;
+            "agent.default": string;
+            limit_policy?: string;
+            "limit_policy.fallback_agents"?: string;
+            /** @enum {string} */
+            "agent_sessions.auto_import_mode"?: "prompt" | "enabled" | "disabled";
+            network_mode: string;
+            connect_url: string;
+            token: string;
+        };
+        SettingsUpdate: {
+            "notify.bark_url"?: string;
+            "notify.ntfy_topic"?: string;
+            "notify.quota_wait_after_secs"?: string;
+            "ui.base_url"?: string;
+            price_table?: string;
+            agent_limits?: string;
+            "provider.kind"?: string;
+            "provider.base_url"?: string;
+            "provider.api_key"?: string;
+            "provider.model"?: string;
+            "agent.default"?: string;
+            limit_policy?: string;
+            "limit_policy.fallback_agents"?: string;
+            /** @enum {string} */
+            "agent_sessions.auto_import_mode"?: "prompt" | "enabled" | "disabled";
+            "provider.clear_api_key"?: string;
+        };
         Device: {
             id: string;
             label?: string;
@@ -1036,6 +1261,7 @@ export interface components {
         ApprovalId: string;
         QuestionId: string;
         WorkspaceId: string;
+        AgentSessionId: string;
         RelayRoom: string;
         RelayKey: string;
     };
@@ -1273,6 +1499,237 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listAgentSessions: {
+        parameters: {
+            query?: {
+                agent?: string;
+                q?: string;
+                cwd?: string;
+                linked?: boolean;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Metadata-only index of provider-owned local sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"][];
+                };
+            };
+        };
+    };
+    listAgentSessionsPage: {
+        parameters: {
+            query?: {
+                agent?: string;
+                q?: string;
+                cwd?: string;
+                linked?: boolean;
+                before?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cursor page of provider-owned local session metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionListPage"];
+                };
+            };
+        };
+    };
+    getAgentSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AgentSessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One indexed provider-owned local session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSession"];
+                };
+            };
+            /** @description Indexed session not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    importAgentSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AgentSessionImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Import summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionImportResponse"];
+                };
+            };
+        };
+    };
+    getAgentSessionHistory: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["AgentSessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider history page read directly from the source */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionHistoryPage"];
+                };
+            };
+            /** @description Indexed session not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Provider history is not supported */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    attachAgentSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["AgentSessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AgentSessionAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Existing Kin task attached to the provider session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionAttachResponse"];
+                };
+            };
+            /** @description New Kin task created and attached to the provider session */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSessionAttachResponse"];
+                };
+            };
+            /** @description Session, task, or provider cannot be attached */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Daemon settings and connection projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated settings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
             };
         };
     };

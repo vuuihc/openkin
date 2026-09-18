@@ -46,7 +46,11 @@ const DefaultMaxConcurrent = 16
 type CreateRequest struct {
 	// ID is reserved for durable schedulers that need crash-safe idempotency.
 	// Normal callers leave it empty and the engine generates a ULID.
-	ID             string                  `json:"-"`
+	ID string `json:"-"`
+	// SessionRef is set by the local Agent session attach flow. It is kept out
+	// of the public task-create contract so ordinary callers cannot impersonate
+	// a provider-owned session.
+	SessionRef     string                  `json:"-"`
 	Agent          string                  `json:"agent"`
 	Cwd            string                  `json:"cwd"`
 	Prompt         string                  `json:"prompt"`
@@ -1162,6 +1166,9 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		RoutineID:      strings.TrimSpace(req.RoutineID),
 		Dispatch:       req.Dispatch,
 	}
+	if sessionRef := strings.TrimSpace(req.SessionRef); sessionRef != "" {
+		t.SessionRef = &sessionRef
+	}
 
 	// Resolve workspace mode and policy.
 	workspaceMode := req.WorkspaceMode
@@ -1327,6 +1334,79 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 
 	// Re-read in case pump already advanced status / title.
 	return e.store.GetTask(ctx, id)
+}
+
+// syncNativeSessionBinding projects provider session identity into the
+// metadata-only catalog when an adapter reports a native session id. Provider
+// files remain the source of history; the fallback row contains no transcript.
+func (e *Engine) syncNativeSessionBinding(ctx context.Context, taskID, agentID, externalRef string) {
+	if e.agents == nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(externalRef) == "" {
+		return
+	}
+	if _, ok := e.agents.SessionCatalog(agentID); !ok {
+		return
+	}
+	task, err := e.store.GetTask(ctx, taskID)
+	if err != nil {
+		return
+	}
+	info, err := e.agents.InspectSession(ctx, agentID, externalRef)
+	if err != nil {
+		if existing, existingErr := e.store.GetAgentSession(ctx, agentID, externalRef); existingErr == nil {
+			now := time.Now().UnixMilli()
+			existing.Status = "active"
+			existing.LastSeenAt = now
+			existing.UpdatedAt = now
+			row, upsertErr := e.store.UpsertAgentSession(ctx, existing)
+			if upsertErr != nil {
+				return
+			}
+			_, _ = e.store.InsertTaskAgentSession(ctx, store.TaskAgentSession{
+				TaskID:         taskID,
+				AgentSessionID: row.ID,
+				Role:           "host",
+				State:          "attached",
+			})
+			return
+		}
+		now := time.Now()
+		info = agent.SessionInfo{
+			AgentID:     agentID,
+			ExternalRef: externalRef,
+			Title:       externalRef,
+			Cwd:         task.Cwd,
+			Status:      "active",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+	}
+	capabilities := make([]string, 0, len(info.Capabilities))
+	for _, capability := range info.Capabilities {
+		capabilities = append(capabilities, string(capability))
+	}
+	row, err := e.store.UpsertAgentSession(ctx, store.AgentSession{
+		AgentID:       agentID,
+		ExternalRef:   externalRef,
+		SourceURI:     info.SourceURI,
+		Title:         info.Title,
+		Cwd:           firstNonEmptyStr(info.Cwd, task.Cwd),
+		Status:        firstNonEmptyStr(info.Status, "active"),
+		Capabilities:  capabilities,
+		SourceCursor:  info.SourceCursor,
+		ContentDigest: info.ContentDigest,
+		FirstSeenAt:   info.CreatedAt.UnixMilli(),
+		LastSeenAt:    info.UpdatedAt.UnixMilli(),
+		UpdatedAt:     info.UpdatedAt.UnixMilli(),
+	})
+	if err != nil {
+		return
+	}
+	_, _ = e.store.InsertTaskAgentSession(ctx, store.TaskAgentSession{
+		TaskID:         taskID,
+		AgentSessionID: row.ID,
+		Role:           "host",
+		State:          "attached",
+	})
 }
 
 // maybeSummarizeTitle fires a best-effort provider call to replace the fallback title.
@@ -2202,6 +2282,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 				}
 				e.mu.Unlock()
+				e.syncNativeSessionBinding(ctx, id, speaker, sid)
 				if t, err := e.store.GetTask(ctx, id); err == nil {
 					e.bus.PublishTask(t)
 				}
@@ -2220,6 +2301,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
 				}
 				e.mu.Unlock()
+				e.syncNativeSessionBinding(ctx, id, speaker, sid)
 			}
 		}
 	}

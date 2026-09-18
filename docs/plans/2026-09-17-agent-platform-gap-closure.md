@@ -1,6 +1,6 @@
 # Agent Platform Gap-Closure Plan
 
-**Status:** M0/M1 complete; M3 core supervision slice complete; M4 Skills and bounded connector host complete; M5/M6/M7/M8 complete
+**Status:** M0/M1 complete; M3 core supervision slice complete; M4 Skills and bounded connector host complete; M5/M6/M7/M8 complete; M9.1-M9.4 implemented
 **Date:** 2026-09-17
 **Goal:** Turn OpenKin from a strong local agent console into a reliable,
 extensible agent control plane without giving up local-first ownership,
@@ -625,6 +625,19 @@ task and authority contracts are stable.
   granted scope.
 - Loss/retry behavior remains idempotent.
 
+### M9 — Local Agent Session Hub (proposed)
+
+**Goal:** Make Kin Desktop the single entry point for local Agent sessions.
+Claude Code, Codex, Droid, WorkBuddy, and future local agents remain external
+execution backends while Kin owns the logical task timeline, approvals,
+workspace policy, audit, and artifacts.
+
+The proposed design keeps the existing Task as the user-visible logical
+session, preserves `tasks.session_ref` as a compatibility projection, and adds
+durable provider-session discovery/binding plus explicit cross-agent handoff.
+It does not require remote A2A for the first slice. See the full proposal:
+[M9 Local Agent Session Hub](./2026-09-17-local-agent-session-hub.md).
+
 ## 6. Dependency Order
 
 ```text
@@ -649,6 +662,10 @@ supervision cost and strengthens advantages OpenKin already has. M2 follows
 because it makes the existing control plane useful from Claude, Codex, and
 Droid immediately. A2A is intentionally last: its value depends on a stable
 task contract, while MCP can deliver practical interoperability sooner.
+
+M9 depends on the existing M3 task/execution attribution, M4 connector
+boundaries, M5 worker supervision, and M8 task authority contract. Its first
+local slices do not depend on outbound A2A or macOS Computer Use.
 
 ## 7. Release Slices
 
@@ -733,7 +750,7 @@ Additional gates:
   Droid.
 - A2A before the MCP and task authority contracts are stable.
 
-## 11. First Implementation Cut
+## 11. Historical First Implementation Cut
 
 Start with **M1 only**, split into three reviewed changes:
 
@@ -741,10 +758,23 @@ Start with **M1 only**, split into three reviewed changes:
 2. `feat(routines): scale scheduling without definition caps`
 3. `feat(routing): make auto routing budget and complexity aware`
 
-Do not begin public MCP or additional platform surfaces until these checks are
-green:
+These checks are now historical evidence for the completed M1 work:
 
 - restart recovery for known and unknown quota windows;
 - Routine backlog fairness and 10,000-definition load test;
 - routing fixture demonstrating lower usage without quality-floor regression;
 - Desktop/Web and iOS show the same durable state.
+
+## 12. Next Implementation Cut
+
+Begin M9.1 from
+[the Local Agent Session Hub proposal](./2026-09-17-local-agent-session-hub.md):
+
+1. add provider session capability types and the metadata-only session index;
+2. add `auto_import_mode=prompt` with explicit user confirmation;
+3. add direct, bounded provider history reads without transcript duplication;
+4. preserve legacy `tasks.session_ref` and existing Task Engine lifecycle;
+5. add migration, restart, ownership, and source-revision tests.
+
+Auto-import must never silently create wrapper Tasks or copy provider session
+transcripts into Kin's durable event store.
