@@ -12,7 +12,9 @@ import {
   getSettings,
   getUsageSummary,
   importAgentSessions,
+  listAgents,
   listAgentSessionsPage,
+  type AgentInfo,
   type AgentSession,
   type Task,
 } from "../../api/client";
@@ -69,14 +71,25 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [externalSessions, setExternalSessions] = useState<AgentSession[]>([]);
+  const [agentCatalog, setAgentCatalog] = useState<AgentInfo[]>([]);
+  const agentCatalogRequest = useRef(0);
   const autoImportInFlight = useRef(false);
+  const [importingExternalSessions, setImportingExternalSessions] = useState(false);
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
 
-  const loadExternalSessions = useCallback(async () => {
+  const loadExternalSessions = useCallback(async (skipAutoImport = false) => {
     try {
-      if (!autoImportInFlight.current) {
+      const catalogRequest = ++agentCatalogRequest.current;
+      listAgents()
+        .then((catalog) => {
+          if (catalogRequest === agentCatalogRequest.current) setAgentCatalog(catalog);
+        })
+        .catch(() => {
+          if (catalogRequest === agentCatalogRequest.current) setAgentCatalog([]);
+        });
+      if (!skipAutoImport && !autoImportInFlight.current) {
         const settings = await getSettings().catch(() => null);
         if (settings?.["agent_sessions.auto_import_mode"] === "enabled") {
           autoImportInFlight.current = true;
@@ -100,9 +113,35 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
       }
       setExternalSessions(sessions);
     } catch {
-      setExternalSessions([]);
+      // Keep the last successful snapshot visible during transient refresh failures.
     }
   }, []);
+
+  const importExternalSessions = useCallback(
+    async (agents?: string[]) => {
+      if (importingExternalSessions) return;
+      setImportingExternalSessions(true);
+      try {
+        const result = await importAgentSessions(agents);
+        await loadExternalSessions(true);
+        const errorCount = Object.keys(result.errors ?? {}).length;
+        pushToast(
+          errorCount > 0
+            ? tr("settings.localAgents.importPartial", {
+                imported: result.imported,
+                errors: errorCount,
+              })
+            : tr("settings.localAgents.imported", { imported: result.imported }),
+          errorCount > 0 ? "error" : "info",
+        );
+      } catch (e) {
+        pushToast(tr("settings.localAgents.importFailed"), "error");
+      } finally {
+        setImportingExternalSessions(false);
+      }
+    },
+    [importingExternalSessions, loadExternalSessions, pushToast, tr],
+  );
 
   useEffect(() => {
     if (wsStatus === "disconnected") return;
@@ -240,6 +279,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         onNewSessionInProject={openNewSessionInProject}
         onDeleteSession={(task) => void handleDeleteSession(task)}
         externalSessions={externalSessions}
+        agentCatalog={agentCatalog}
+        importingExternalSessions={importingExternalSessions}
+        onImportExternalSessions={(agents) => void importExternalSessions(agents)}
         onOpenExternalSession={(session) => {
           navigate(`/agent-sessions/${encodeURIComponent(session.id)}`);
         }}

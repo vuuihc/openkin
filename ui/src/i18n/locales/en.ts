@@ -42,6 +42,12 @@ const en: MessageTree = {
     groupProjectShort: "Project",
     groupAgentShort: "Agent",
     externalSession: "External",
+    importAgentSessions: "Import Agent sessions",
+    importingAgentSessions: "Importing Agent sessions…",
+    importAllAgents: "Import all available Agents",
+    noSessionProviders: "No local Agent session providers detected",
+    collapseProject: "Collapse project",
+    expandProject: "Expand project",
   },
   home: {
     slogan: "Talk to Kin, orchestrate your agents",
@@ -633,6 +639,7 @@ const en: MessageTree = {
       save: "Save session settings",
       imported: "Indexed {imported} sessions",
       importPartial: "Indexed {imported} sessions; {errors} providers unavailable",
+      importFailed: "Failed to import Agent sessions",
     },
     appearance: {
       heading: "Appearance",

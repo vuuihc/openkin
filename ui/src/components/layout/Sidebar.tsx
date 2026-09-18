@@ -1,9 +1,17 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   ensureProject,
   formatCost,
   isTerminal,
+  type AgentInfo,
   type AgentSession,
   type Task,
 } from "../../api/client";
@@ -34,6 +42,8 @@ import {
   IconArchive,
   IconFile,
   IconArtifacts,
+  IconChevron,
+  IconDownload,
   IconInbox,
   IconPin,
   IconPlus,
@@ -59,6 +69,9 @@ type Props = {
   /** Permanently delete a session/task. */
   onDeleteSession?: (task: Task) => void;
   externalSessions?: AgentSession[];
+  agentCatalog?: AgentInfo[];
+  importingExternalSessions?: boolean;
+  onImportExternalSessions?: (agents?: string[]) => void;
   onOpenExternalSession?: (session: AgentSession) => void;
   /** Mobile drawer open. Desktop always visible. */
   mobileOpen: boolean;
@@ -77,6 +90,67 @@ function normCwd(cwd: string): string {
 const footLink =
   "flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-[40px]";
 
+function readSidebarDisclosure(key: string): boolean {
+  try {
+    return localStorage.getItem(`kin_sidebar_open:${key}`) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function useSidebarDisclosure(key: string): [boolean, () => void] {
+  const [open, setOpen] = useState(() => readSidebarDisclosure(key));
+  const toggle = () => {
+    setOpen((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(`kin_sidebar_open:${key}`, next ? "1" : "0");
+      } catch {
+        // Ignore unavailable local storage.
+      }
+      return next;
+    });
+  };
+  return [open, toggle];
+}
+
+function SidebarDisclosure({
+  storageKey,
+  label,
+  count,
+  children,
+  className = "",
+}: {
+  storageKey: string;
+  label: string;
+  count?: number;
+  children: ReactNode;
+  className?: string;
+}) {
+  const [open, toggle] = useSidebarDisclosure(storageKey);
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-1 px-2 py-1 text-left text-[10px] text-kin-muted hover:text-kin-secondary transition-colors"
+      >
+        <IconChevron
+          size={11}
+          className={[
+            "flex-none transition-transform",
+            open ? "rotate-90" : "",
+          ].join(" ")}
+        />
+        <span className="truncate flex-1">{label}</span>
+        {count != null && <span className="tabular-nums opacity-70">{count}</span>}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
 export default function Sidebar({
   tasks,
   selectedTaskId,
@@ -88,6 +162,9 @@ export default function Sidebar({
   onNewSessionInProject,
   onDeleteSession,
   externalSessions = [],
+  agentCatalog = [],
+  importingExternalSessions = false,
+  onImportExternalSessions,
   onOpenExternalSession,
   mobileOpen,
   onCloseMobile,
@@ -143,6 +220,11 @@ export default function Sidebar({
       return "project";
     }
   });
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
+  const importMenuRef = useRef<HTMLDivElement>(null);
+  const sessionProviders = agentCatalog.filter((agent) =>
+    agent.capabilities?.includes("session_list"),
+  );
 
   useEffect(() => {
     if (!sortMenuOpen) return;
@@ -159,6 +241,22 @@ export default function Sidebar({
       document.removeEventListener("keydown", onKey);
     };
   }, [sortMenuOpen]);
+
+  useEffect(() => {
+    if (!importMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!importMenuRef.current?.contains(e.target as Node)) setImportMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setImportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [importMenuOpen]);
 
   // When the user opens a task, bump its project last-interact so "recent" stays fresh.
   // Also restores the project if it was archived (open ⇒ unarchive).
@@ -295,6 +393,70 @@ export default function Sidebar({
         </div>
       </div>
 
+      <div className="px-2.5 pb-2 relative" ref={importMenuRef}>
+        <button
+          type="button"
+          disabled={importingExternalSessions || !onImportExternalSessions}
+          aria-haspopup="menu"
+          aria-expanded={importMenuOpen}
+          onClick={() => setImportMenuOpen((open) => !open)}
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-[8px] text-[12.5px] text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
+        >
+          <IconDownload size={14} />
+          <span className="flex-1 text-left">
+            {importingExternalSessions
+              ? tr("nav.importingAgentSessions")
+              : tr("nav.importAgentSessions")}
+          </span>
+          <IconChevron
+            size={13}
+            className={importMenuOpen ? "rotate-90 transition-transform" : "transition-transform"}
+          />
+        </button>
+        {importMenuOpen && (
+          <div
+            role="menu"
+            aria-label={tr("nav.importAgentSessions")}
+            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setImportMenuOpen(false);
+                onImportExternalSessions?.();
+              }}
+              className="w-full text-left px-3 py-2 text-[12px] text-kin-text hover:bg-[var(--kin-fill-strong)]"
+            >
+              {tr("nav.importAllAgents")}
+            </button>
+            <div className="my-1 border-t border-kin-border" />
+            {sessionProviders.length > 0 ? (
+              sessionProviders.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setImportMenuOpen(false);
+                    onImportExternalSessions?.([provider.id]);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-kin-blue" />
+                  <span className="truncate">{provider.name || provider.id}</span>
+                  <span className="ml-auto text-[10px] text-kin-muted">{provider.id}</span>
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-[11px] text-kin-muted">
+                {tr("nav.noSessionProviders")}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="px-2.5 pb-2">
         <button
           type="button"
@@ -406,6 +568,8 @@ export default function Sidebar({
               onTogglePin={() => toggleProjectPinned(g.cwd)}
               onArchive={() => onArchive(g)}
               pinLabel={g.pinned ? tr("nav.unpinProject") : tr("nav.pinProject")}
+              collapseLabel={tr("nav.collapseProject")}
+              expandLabel={tr("nav.expandProject")}
               coverLabel={tr("nav.openCover")}
               archiveLabel={tr("nav.archiveProject")}
               newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
@@ -483,6 +647,8 @@ export default function Sidebar({
                       onTogglePin={() => toggleProjectPinned(g.cwd)}
                       onArchive={() => unarchiveProject(g.cwd)}
                       pinLabel={tr("nav.pinProject")}
+                      collapseLabel={tr("nav.collapseProject")}
+                      expandLabel={tr("nav.expandProject")}
                       coverLabel={tr("nav.openCover")}
                       archiveLabel={tr("nav.unarchiveProject")}
                       newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
@@ -590,6 +756,8 @@ function ProjectBlock({
   onTogglePin,
   onArchive,
   pinLabel,
+  collapseLabel,
+  expandLabel,
   archiveLabel,
   coverLabel,
   newSessionLabel,
@@ -610,6 +778,8 @@ function ProjectBlock({
   onTogglePin: () => void;
   onArchive: () => void;
   pinLabel: string;
+  collapseLabel: string;
+  expandLabel: string;
   archiveLabel: string;
   coverLabel: string;
   newSessionLabel: string;
@@ -617,6 +787,9 @@ function ProjectBlock({
   mode: "active" | "archived";
 }) {
   const navigate = useNavigate();
+  const [open, toggle] = useSidebarDisclosure(
+    `project:${mode}:${projectKey(g.cwd)}`,
+  );
 
   const openCover = async () => {
     try {
@@ -630,6 +803,19 @@ function ProjectBlock({
   return (
     <div className={mode === "archived" ? "opacity-80" : undefined}>
       <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5">
+        <button
+          type="button"
+          title={open ? collapseLabel : expandLabel}
+          aria-label={open ? collapseLabel : expandLabel}
+          aria-expanded={open}
+          onClick={toggle}
+          className="flex-none text-kin-muted hover:text-kin-text transition-colors"
+        >
+          <IconChevron
+            size={11}
+            className={["transition-transform", open ? "rotate-90" : ""].join(" ")}
+          />
+        </button>
         {g.pinned && mode === "active" && (
           <IconPin size={11} className="flex-none text-kin-blue opacity-90" />
         )}
@@ -698,21 +884,26 @@ function ProjectBlock({
         </button>
       </div>
 
-      {nestDraft && (
-        <DraftRow active={draftRowActive} label={draftLabel} onClick={onDraftClick} />
-      )}
+      {open && (
+        <>
+          {nestDraft && (
+            <DraftRow active={draftRowActive} label={draftLabel} onClick={onDraftClick} />
+          )}
 
-      <div className="space-y-0.5 max-h-[min(280px,40vh)] overflow-y-auto kin-scroll pr-0.5">
-        <ProjectAgentTree
-          tasks={g.items}
-          sessions={externalSessions}
-          selectedTaskId={selectedTaskId}
-          onDeleteSession={onDeleteSession}
-          deleteLabel={deleteLabel}
-          onOpenExternalSession={onOpenExternalSession}
-          onCloseMobile={onCloseMobile}
-        />
-      </div>
+          <div className="space-y-0.5 max-h-[min(280px,40vh)] overflow-y-auto kin-scroll pr-0.5">
+            <ProjectAgentTree
+              tasks={g.items}
+              sessions={externalSessions}
+              storagePrefix={`project:${projectKey(g.cwd)}`}
+              selectedTaskId={selectedTaskId}
+              onDeleteSession={onDeleteSession}
+              deleteLabel={deleteLabel}
+              onOpenExternalSession={onOpenExternalSession}
+              onCloseMobile={onCloseMobile}
+            />
+          </div>
+        </>
+      )}
 
     </div>
   );
@@ -821,23 +1012,23 @@ function AgentGroupedTree({
   return (
     <div className="space-y-2">
       {groups.map((group) => (
-        <div key={group.agentID}>
-          <div className="kin-section-label flex items-center gap-1">
-            <span className="truncate">{group.agentID}</span>
-            <span className="text-[10px] opacity-70">
-              {group.tasks.length + group.sessions.length}
-            </span>
-          </div>
+        <SidebarDisclosure
+          key={group.agentID}
+          storageKey={`agent:${group.agentID}`}
+          label={group.agentID}
+          count={group.tasks.length + group.sessions.length}
+        >
           <div className="pl-2 border-l border-kin-border ml-1">
             <AgentProjectTree
               tasks={group.tasks}
               sessions={group.sessions}
+              storagePrefix={`agent:${group.agentID}`}
               selectedTaskId={selectedTaskId}
               onOpenExternalSession={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
             />
           </div>
-        </div>
+        </SidebarDisclosure>
       ))}
     </div>
   );
@@ -846,6 +1037,7 @@ function AgentGroupedTree({
 function AgentProjectTree({
   tasks,
   sessions,
+  storagePrefix,
   selectedTaskId,
   onDeleteSession,
   deleteLabel,
@@ -854,6 +1046,7 @@ function AgentProjectTree({
 }: {
   tasks: Task[];
   sessions: AgentSession[];
+  storagePrefix?: string;
   selectedTaskId?: string | null;
   onDeleteSession?: (task: Task) => void;
   deleteLabel?: string;
@@ -891,10 +1084,13 @@ function AgentProjectTree({
   return (
     <div className="space-y-1">
       {projects.map(([key, project]) => (
-        <div key={key}>
-          <div className="px-2 py-1 text-[10px] text-kin-muted truncate">
-            {project.label}
-          </div>
+        <SidebarDisclosure
+          key={key}
+          storageKey={`${storagePrefix ?? "agent"}:project:${key}`}
+          label={project.label}
+          count={project.tasks.length + project.sessions.length}
+          className="ml-1"
+        >
           <AgentSessionRows
             tasks={project.tasks}
             sessions={project.sessions}
@@ -904,7 +1100,7 @@ function AgentProjectTree({
             onOpenExternalSession={onOpenExternalSession}
             onCloseMobile={onCloseMobile}
           />
-        </div>
+        </SidebarDisclosure>
       ))}
     </div>
   );
@@ -913,6 +1109,7 @@ function AgentProjectTree({
 function ProjectAgentTree({
   tasks,
   sessions,
+  storagePrefix,
   selectedTaskId,
   onDeleteSession,
   deleteLabel,
@@ -921,6 +1118,7 @@ function ProjectAgentTree({
 }: {
   tasks: Task[];
   sessions: AgentSession[];
+  storagePrefix?: string;
   selectedTaskId?: string | null;
   onDeleteSession?: (task: Task) => void;
   deleteLabel: string;
@@ -946,10 +1144,13 @@ function ProjectAgentTree({
   return (
     <div className="space-y-1">
       {groups.map(([agentID, group]) => (
-        <div key={agentID}>
-          <div className="px-2 py-1 text-[10px] text-kin-muted uppercase tracking-wide">
-            {agentID}
-          </div>
+        <SidebarDisclosure
+          key={agentID}
+          storageKey={`${storagePrefix ?? "project"}:agent:${agentID}`}
+          label={agentID}
+          count={group.tasks.length + group.sessions.length}
+          className="ml-1"
+        >
           <AgentSessionRows
             tasks={group.tasks}
             sessions={group.sessions}
@@ -959,7 +1160,7 @@ function ProjectAgentTree({
             onOpenExternalSession={onOpenExternalSession}
             onCloseMobile={onCloseMobile}
           />
-        </div>
+        </SidebarDisclosure>
       ))}
     </div>
   );
