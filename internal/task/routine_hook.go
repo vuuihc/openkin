@@ -54,6 +54,11 @@ func (e *Engine) onRoutineTerminal(ctx context.Context, t store.Task, status str
 	if e == nil || e.store == nil || t.RoutineID == "" {
 		return
 	}
+	// Eval suites aggregate routine state at the durable EvalRun boundary.
+	// Individual case tasks must not race the routine circuit breaker.
+	if e.isEvalCaseTask(ctx, t.ID) {
+		return
+	}
 	tldr, noteworthy := e.extractRoutineSignal(ctx, t.ID)
 	if status != StatusSucceeded {
 		// Failures are always surfaced as noteworthy in the feed, but push is
@@ -116,6 +121,51 @@ func (e *Engine) onRoutineTerminal(ctx context.Context, t store.Task, status str
 	if tripped {
 		e.pushRoutineFailure(ctx, r, fmt.Sprintf("auto-disabled after %d consecutive failures", fails))
 	}
+}
+
+func (e *Engine) isEvalCaseTask(ctx context.Context, taskID string) bool {
+	if t, err := e.store.GetTask(ctx, taskID); err == nil {
+		var marker struct {
+			EvalRunID string `json:"eval_run_id"`
+		}
+		if json.Unmarshal(t.Dispatch, &marker) == nil && strings.TrimSpace(marker.EvalRunID) != "" &&
+			e.isEvalRunForRoutine(ctx, marker.EvalRunID, t.RoutineID) {
+			return true
+		}
+	}
+	events, err := e.store.ListEvents(ctx, taskID, 0)
+	if err != nil {
+		return false
+	}
+	for _, event := range events {
+		if event.Type != "eval_metadata" {
+			continue
+		}
+		var metadata struct {
+			RunID string `json:"run_id"`
+		}
+		if json.Unmarshal(event.Payload, &metadata) == nil &&
+			e.isEvalRunForRoutine(ctx, metadata.RunID, taskIDRoutineID(ctx, e.store, taskID)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *Engine) isEvalRunForRoutine(ctx context.Context, runID, routineID string) bool {
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(routineID) == "" {
+		return false
+	}
+	run, err := e.store.GetEvalRun(ctx, runID)
+	return err == nil && run.RoutineID == routineID
+}
+
+func taskIDRoutineID(ctx context.Context, s *store.Store, taskID string) string {
+	t, err := s.GetTask(ctx, taskID)
+	if err != nil {
+		return ""
+	}
+	return t.RoutineID
 }
 
 func (e *Engine) extractRoutineSignal(ctx context.Context, taskID string) (string, bool) {

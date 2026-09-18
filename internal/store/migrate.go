@@ -6,7 +6,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 30
+const schemaVersion = 31
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -401,6 +401,8 @@ CREATE TABLE IF NOT EXISTS eval_runs (
   suite_version       TEXT NOT NULL,
   condition           TEXT NOT NULL DEFAULT 'cold',
   route_objective     TEXT NOT NULL DEFAULT '',
+  team                TEXT NOT NULL DEFAULT '',
+  routine_id          TEXT NOT NULL DEFAULT '',
   kin_git_sha         TEXT NOT NULL DEFAULT '',
   n_reps              INTEGER NOT NULL DEFAULT 1,
   status              TEXT NOT NULL DEFAULT 'running',
@@ -411,6 +413,8 @@ CREATE TABLE IF NOT EXISTS eval_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_eval_runs_started
 ON eval_runs(started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_eval_runs_routine_status
+ON eval_runs(routine_id, status);
 
 CREATE TABLE IF NOT EXISTS eval_results (
   id           TEXT PRIMARY KEY,
@@ -1710,6 +1714,44 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 030: %w", err)
 		}
 		v = 30
+	}
+
+	if v == 30 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 031: %w", err)
+		}
+		for _, column := range []struct {
+			name string
+			ddl  string
+		}{
+			{name: "team", ddl: `ALTER TABLE eval_runs ADD COLUMN team TEXT NOT NULL DEFAULT ''`},
+			{name: "routine_id", ddl: `ALTER TABLE eval_runs ADD COLUMN routine_id TEXT NOT NULL DEFAULT ''`},
+		} {
+			var exists int
+			if err := tx.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('eval_runs') WHERE name = ?`, column.name).Scan(&exists); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migration 031 inspect eval_runs.%s: %w", column.name, err)
+			}
+			if exists == 0 {
+				if _, err := tx.Exec(column.ddl); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("migration 031 eval_runs.%s: %w", column.name, err)
+				}
+			}
+		}
+		if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_eval_runs_routine_status ON eval_runs(routine_id, status)`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 031 eval run routine index: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 31`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 031: %w", err)
+		}
+		v = 31
 	}
 
 	return nil

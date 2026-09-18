@@ -16,6 +16,8 @@ type EvalRun struct {
 	SuiteVersion     string `json:"suite_version"`
 	Condition        string `json:"condition"`
 	RouteObjective   string `json:"route_objective,omitempty"`
+	Team             string `json:"-"`
+	RoutineID        string `json:"-"`
 	KinGitSHA        string `json:"kin_git_sha,omitempty"`
 	NReps            int    `json:"n_reps"`
 	Status           string `json:"status"`
@@ -42,14 +44,14 @@ type EvalResult struct {
 	CreatedAt   int64           `json:"created_at"`
 }
 
-const evalRunColumns = `id, suite, suite_version, condition, route_objective,
+const evalRunColumns = `id, suite, suite_version, condition, route_objective, team, routine_id,
 	kin_git_sha, n_reps, status, started_at, finished_at, report_artifact_id, created_at`
 
 func scanEvalRun(scanner interface{ Scan(...any) error }) (EvalRun, error) {
 	var run EvalRun
 	var finished sql.NullInt64
 	if err := scanner.Scan(&run.ID, &run.Suite, &run.SuiteVersion, &run.Condition,
-		&run.RouteObjective, &run.KinGitSHA, &run.NReps, &run.Status, &run.StartedAt,
+		&run.RouteObjective, &run.Team, &run.RoutineID, &run.KinGitSHA, &run.NReps, &run.Status, &run.StartedAt,
 		&finished, &run.ReportArtifactID, &run.CreatedAt); err != nil {
 		return EvalRun{}, err
 	}
@@ -81,10 +83,10 @@ func (s *Store) InsertEvalRun(ctx context.Context, run EvalRun) error {
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO eval_runs (
-			id, suite, suite_version, condition, route_objective, kin_git_sha,
+			id, suite, suite_version, condition, route_objective, team, routine_id, kin_git_sha,
 			n_reps, status, started_at, finished_at, report_artifact_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, run.Suite, run.SuiteVersion, run.Condition, run.RouteObjective,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.Suite, run.SuiteVersion, run.Condition, run.RouteObjective, run.Team, run.RoutineID,
 		run.KinGitSHA, run.NReps, run.Status, run.StartedAt, evalNullableInt64(run.FinishedAt),
 		run.ReportArtifactID, run.CreatedAt,
 	)
@@ -147,6 +149,82 @@ func (s *Store) FinishEvalRun(ctx context.Context, id, status, artifactID string
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// FinishEvalRunAndRoutine atomically closes an eval run and updates its
+// routine aggregate, so a restart cannot leave the two durable states split.
+func (s *Store) FinishEvalRunAndRoutine(
+	ctx context.Context,
+	runID, routineID, status, artifactID, lastError string,
+	finishedAt int64,
+) error {
+	if routineID == "" {
+		return s.FinishEvalRun(ctx, runID, status, artifactID, finishedAt)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin finish eval routine: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `UPDATE eval_runs
+		SET status = ?, finished_at = ?, report_artifact_id = ?
+		WHERE id = ?`, status, finishedAt, artifactID, runID)
+	if err != nil {
+		return fmt.Errorf("finish eval run: %w", err)
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
+		return ErrNotFound
+	}
+
+	var failures, enabled int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT consec_failures, enabled FROM routines WHERE id = ?`, routineID,
+	).Scan(&failures, &enabled); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			if err := tx.Commit(); err != nil {
+				return fmt.Errorf("commit eval run without deleted routine: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("read eval routine: %w", err)
+	}
+	outcome := "failed"
+	if status == "succeeded" {
+		failures = 0
+		lastError = ""
+		outcome = "succeeded"
+	} else {
+		failures++
+		if strings.TrimSpace(lastError) == "" {
+			lastError = "eval run " + status
+		}
+		if failures >= RoutineMaxConsecFailures {
+			enabled = 0
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE routines SET consec_failures = ?, enabled = ?, last_outcome = ?, last_error = ?
+		WHERE id = ?`, failures, enabled, outcome, lastError, routineID); err != nil {
+		return fmt.Errorf("update eval routine: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit finish eval routine: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SetEvalRunRoutine(ctx context.Context, runID, routineID, team string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE eval_runs SET routine_id = ?, team = ? WHERE id = ?`,
+		routineID, team, runID)
+	if err != nil {
+		return fmt.Errorf("set eval run routine: %w", err)
+	}
+	if changed, _ := result.RowsAffected(); changed == 0 {
 		return ErrNotFound
 	}
 	return nil

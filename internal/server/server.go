@@ -269,16 +269,6 @@ func ServeWith(version string, flags ServeFlags) error {
 	go runSleepGuard(guardCtx, sleepGuard, taskBus, func(ctx context.Context) (bool, error) {
 		return st.HasActiveTasks(ctx)
 	})
-	// Routines start only after Engine recovery and dependency validation.
-	routineScheduler := &routines.Scheduler{
-		Store:            st,
-		Engine:           eng,
-		TotalConcurrency: maxConcurrent,
-		ValidateCreate:   api.ValidateTaskCreateRequest,
-		OnCreateFailed:   st.DeleteMCPTaskOrigin,
-	}
-	routineScheduler.StartLoop(context.Background(), routines.DefaultTickInterval)
-
 	static, err := uiHandler()
 	if err != nil {
 		return err
@@ -301,7 +291,17 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err := evalRunner.Resume(context.Background()); err != nil {
 		return fmt.Errorf("resume eval runs: %w", err)
 	}
-	routineScheduler.RunEval = evalRunner.StartRoutine
+	// Routines start only after Engine recovery, eval recovery, and dependency
+	// validation so eval lanes cannot fall back to ordinary task creation.
+	routineScheduler := &routines.Scheduler{
+		Store:            st,
+		Engine:           eng,
+		TotalConcurrency: maxConcurrent,
+		ValidateCreate:   api.ValidateTaskCreateRequest,
+		OnCreateFailed:   st.DeleteMCPTaskOrigin,
+		RunEval:          evalRunner.StartRoutine,
+	}
+	routineScheduler.StartLoop(context.Background(), routines.DefaultTickInterval)
 
 	srvAPI := &api.Server{
 		Store:      st,

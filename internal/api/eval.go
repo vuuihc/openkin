@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/openkin/internal/eval"
+	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -88,6 +89,13 @@ func (s *Server) handleCompareEvalRuns(w http.ResponseWriter, r *http.Request) {
 	if len(body.Objectives) > 2 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at most two route objectives can be compared"})
 		return
+	}
+	for i, objective := range body.Objectives {
+		body.Objectives[i] = strings.TrimSpace(objective)
+		if !routing.ValidDispatchObjective(routing.DispatchObjective(body.Objectives[i])) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid route objective"})
+			return
+		}
 	}
 	runs := make([]store.EvalRun, 0, len(body.Objectives))
 	for _, objective := range body.Objectives {
@@ -220,12 +228,17 @@ func (s *Server) handleReplayTask(w http.ResponseWriter, r *http.Request) {
 		if prompt == "" {
 			prompt = original.Prompt
 		}
-		t, err := s.Engine.Create(r.Context(), task.CreateRequest{
+		createReq := task.CreateRequest{
 			Cwd: original.Cwd, Prompt: prompt, Agent: original.Agent,
 			Model: original.Model, PermissionMode: original.PermissionMode,
 			ProjectID: original.ProjectID, Dispatch: body.Dispatch,
 			Title: stringPtr("Replay · " + original.Title),
-		})
+		}
+		if err := s.validateTaskCreateRequest(r.Context(), createReq); err != nil {
+			replayError(w, err)
+			return
+		}
+		t, err := s.Engine.Create(r.Context(), createReq)
 		if err != nil {
 			replayError(w, err)
 			return
