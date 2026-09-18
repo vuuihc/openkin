@@ -40,6 +40,12 @@ const zh = {
     groupProjectShort: "项目",
     groupAgentShort: "Agent",
     externalSession: "外部",
+    importAgentSessions: "导入 Agent 会话",
+    importingAgentSessions: "正在导入 Agent 会话…",
+    importAllAgents: "导入全部可用 Agent",
+    noSessionProviders: "没有检测到可导入的本机 Agent 会话",
+    collapseProject: "收起项目",
+    expandProject: "展开项目",
   },
   home: {
     slogan: "和 Kin 对话，编排你的 agent",
@@ -627,6 +633,7 @@ const zh = {
       save: "保存会话设置",
       imported: "已索引 {imported} 个会话",
       importPartial: "已索引 {imported} 个会话；{errors} 个 Provider 不可用",
+      importFailed: "导入 Agent 会话失败",
     },
     appearance: {
       heading: "外观",
