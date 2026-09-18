@@ -1102,9 +1102,14 @@ components:
           type: string
         message_id:
           type: string
+        kind:
+          type: string
+          enum: [message, tool_call, tool_result, reasoning]
         role:
           type: string
-          enum: [user, assistant]
+          enum: [user, assistant, tool]
+        tool_name:
+          type: string
         text:
           type: string
         occurred_at:

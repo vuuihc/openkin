@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ApiError,
@@ -24,9 +24,28 @@ function formatTimestamp(value: number): string {
 }
 
 function roleLabel(role: AgentSessionHistoryItem["role"], tr: ReturnType<typeof useT>): string {
-  return role === "user"
-    ? tr("agentSession.user")
-    : tr("agentSession.assistant");
+  if (role === "user") return tr("agentSession.user");
+  if (role === "tool") return tr("agentSession.tool");
+  return tr("agentSession.assistant");
+}
+
+function mergeMessageChunks(items: AgentSessionHistoryItem[]): AgentSessionHistoryItem[] {
+  const merged: AgentSessionHistoryItem[] = [];
+  for (const item of items) {
+    const previous = merged[merged.length - 1];
+    if (
+      previous &&
+      (item.kind ?? "message") === "message" &&
+      (previous.kind ?? "message") === "message" &&
+      item.role === previous.role
+    ) {
+      previous.text = `${previous.text}\n\n${item.text}`;
+      previous.message_id = `${previous.message_id}:${item.message_id}`;
+      continue;
+    }
+    merged.push({ ...item });
+  }
+  return merged;
 }
 
 export default function AgentSessionDetailPage() {
@@ -43,6 +62,7 @@ export default function AgentSessionDetailPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [attachPrompt, setAttachPrompt] = useState("");
   const [attachBusy, setAttachBusy] = useState(false);
+  const displayItems = useMemo(() => mergeMessageChunks(items), [items]);
   const slow = useSlowHint(loading);
 
   const loadSession = useCallback(async () => {
@@ -231,24 +251,75 @@ export default function AgentSessionDetailPage() {
               {tr("agentSession.historyEmpty")}
             </p>
           )}
-          {items.map((item) => (
-            <article
-              key={`${item.message_id}:${item.source_rev}`}
-              className="rounded-lg border border-[var(--kin-hairline)] bg-kin-elevated/60 px-4 py-3"
-            >
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-                  {roleLabel(item.role, tr)}
-                </span>
-                <span className="text-[10.5px] text-kin-muted">
-                  {formatTimestamp(item.occurred_at)}
-                </span>
+          {displayItems.map((item) => {
+            const kind = item.kind ?? "message";
+            if (kind === "tool_call" || kind === "tool_result") {
+              return (
+                <details
+                  key={`${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`}
+                  className="rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[12px] text-kin-muted"
+                >
+                  <summary className="cursor-pointer select-none flex items-center gap-2">
+                    <span className="font-medium text-kin-secondary">
+                      {kind === "tool_call"
+                        ? tr("agentSession.toolCall")
+                        : tr("agentSession.toolResult")}
+                    </span>
+                    {item.tool_name && (
+                      <code className="text-[11px] text-kin-text">{item.tool_name}</code>
+                    )}
+                    <span className="ml-auto text-[10px]">
+                      {formatTimestamp(item.occurred_at)}
+                    </span>
+                  </summary>
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-black/5 p-2 text-[11px] leading-5">
+                    {item.text}
+                  </pre>
+                </details>
+              );
+            }
+            if (kind === "reasoning") {
+              return (
+                <details
+                  key={`${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`}
+                  className="rounded-md border border-dashed border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-muted"
+                >
+                  <summary className="cursor-pointer select-none">
+                    {tr("agentSession.reasoning")}
+                  </summary>
+                  <p className="mt-2 whitespace-pre-wrap break-words leading-5">{item.text}</p>
+                </details>
+              );
+            }
+            const isUser = item.role === "user";
+            return (
+              <div
+                key={`${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`}
+                className={["flex", isUser ? "justify-end" : "justify-start"].join(" ")}
+              >
+                <article
+                  className={[
+                    "max-w-[88%] rounded-xl px-4 py-3",
+                    isUser
+                      ? "bg-kin-blue-soft text-kin-text"
+                      : "border border-[var(--kin-hairline)] bg-kin-elevated/70 text-kin-text",
+                  ].join(" ")}
+                >
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
+                      {roleLabel(item.role, tr)}
+                    </span>
+                    <span className="text-[10px] text-kin-muted">
+                      {formatTimestamp(item.occurred_at)}
+                    </span>
+                  </div>
+                  <p className="text-[13.5px] leading-6 whitespace-pre-wrap break-words">
+                    {item.text}
+                  </p>
+                </article>
               </div>
-              <p className="text-[13.5px] leading-6 text-kin-text whitespace-pre-wrap break-words">
-                {item.text}
-              </p>
-            </article>
-          ))}
+            );
+          })}
           {historyLoading && (
             <div className="space-y-2 py-2" role="status">
               <SkeletonLine className="h-20 w-full" />

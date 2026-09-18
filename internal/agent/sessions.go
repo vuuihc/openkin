@@ -60,7 +60,9 @@ type HistoryItem struct {
 	AgentID     string
 	ExternalRef string
 	MessageID   string
+	Kind        string
 	Role        string
+	ToolName    string
 	Text        string
 	OccurredAt  time.Time
 	SourceRev   string

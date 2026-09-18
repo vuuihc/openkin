@@ -49,6 +49,7 @@ export default function SettingsPage() {
   const [limitFallbackText, setLimitFallbackText] = useState("[]");
   const [autoImportMode, setAutoImportMode] = useState<"prompt" | "enabled" | "disabled">("prompt");
   const [importingSessions, setImportingSessions] = useState(false);
+  const [refreshingAgentCatalog, setRefreshingAgentCatalog] = useState(false);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [activeProviderId, setActiveProviderId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null); // null = closed, "" = new
@@ -110,7 +111,7 @@ export default function SettingsPage() {
       }
       listAgents()
         .then(setAgentList)
-        .catch(() => setAgentList([]));
+        .catch(() => undefined);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof ApiError ? e.message : String(e));
@@ -210,6 +211,17 @@ export default function SettingsPage() {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setImportingSessions(false);
+    }
+  };
+
+  const refreshAgentCatalog = async () => {
+    setRefreshingAgentCatalog(true);
+    try {
+      setAgentList(await listAgents());
+    } catch {
+      // Keep the last-known-good snapshot visible when the daemon is reconnecting.
+    } finally {
+      setRefreshingAgentCatalog(false);
     }
   };
 
@@ -839,12 +851,83 @@ export default function SettingsPage() {
       {/* Local Agent sessions */}
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div>
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-            {tr("settings.localAgents.heading")}
-          </h2>
-          <p className="mt-1 text-xs text-kin-muted leading-relaxed">
-            {tr("settings.localAgents.desc")}
-          </p>
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+                {tr("settings.localAgents.heading")}
+              </h2>
+              <p className="mt-1 text-xs text-kin-muted leading-relaxed">
+                {tr("settings.localAgents.desc")}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={refreshingAgentCatalog}
+              onClick={() => void refreshAgentCatalog()}
+              className="kin-btn-secondary text-[11px] min-h-[32px] disabled:opacity-50"
+            >
+              {refreshingAgentCatalog
+                ? tr("settings.localAgents.refreshing")
+                : tr("settings.localAgents.refresh")}
+            </button>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <div className="text-xs font-medium text-kin-secondary">
+            {tr("settings.localAgents.providersHeading")}
+          </div>
+          <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
+            {agentList.map((agent) => {
+              const capabilities = new Set(agent.capabilities ?? []);
+              return (
+                <div key={agent.id} className="px-3 py-2.5 flex items-center gap-3">
+                  <span
+                    className={[
+                      "w-2 h-2 rounded-full flex-none",
+                      agent.available ? "bg-kin-blue" : "bg-kin-muted",
+                    ].join(" ")}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12.5px] text-kin-text truncate">
+                      {agent.name || agent.id}
+                    </div>
+                    <div className="text-[10.5px] text-kin-muted truncate">
+                      {agent.id}
+                      {" · "}
+                      {agent.available
+                        ? tr("settings.localAgents.available")
+                        : tr("settings.localAgents.unavailable")}
+                      {agent.reason ? ` · ${agent.reason}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-1">
+                    {capabilities.has("session_list") && (
+                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.listCapability")}</span>
+                    )}
+                    {capabilities.has("session_history_read") && (
+                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.historyCapability")}</span>
+                    )}
+                    {capabilities.has("session_attach") && (
+                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.attachCapability")}</span>
+                    )}
+                    {capabilities.has("resume") && (
+                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.resumeCapability")}</span>
+                    )}
+                    {capabilities.size === 0 && (
+                      <span className="text-[10.5px] text-kin-muted">
+                        {tr("settings.localAgents.noCapabilities")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {agentList.length === 0 && (
+              <div className="px-3 py-3 text-[11px] text-kin-muted">
+                {tr("settings.localAgents.noProviders")}
+              </div>
+            )}
+          </div>
         </div>
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-kin-secondary">
