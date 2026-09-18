@@ -1428,7 +1428,9 @@ export type AgentSessionHistoryItem = {
   agent_id: string;
   external_ref: string;
   message_id: string;
-  role: "user" | "assistant";
+  kind?: "message" | "tool_call" | "tool_result" | "reasoning";
+  role: "user" | "assistant" | "tool";
+  tool_name?: string;
   text: string;
   occurred_at: number;
   source_rev: string;

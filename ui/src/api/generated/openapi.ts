@@ -842,7 +842,10 @@ export interface components {
             external_ref: string;
             message_id: string;
             /** @enum {string} */
-            role: "user" | "assistant";
+            kind?: "message" | "tool_call" | "tool_result" | "reasoning";
+            /** @enum {string} */
+            role: "user" | "assistant" | "tool";
+            tool_name?: string;
             text: string;
             occurred_at: number;
             source_rev: string;

@@ -396,6 +396,16 @@ func ServeWith(version string, flags ServeFlags) error {
 				for _, c := range i.Capabilities {
 					caps = append(caps, string(c))
 				}
+				if _, hasCatalog := reg.SessionCatalog(i.ID); !hasCatalog {
+					filtered := caps[:0]
+					for _, capability := range caps {
+						if strings.HasPrefix(capability, "session_") {
+							continue
+						}
+						filtered = append(filtered, capability)
+					}
+					caps = filtered
+				}
 				models := make([]api.AgentModelOption, len(i.Models))
 				for j, model := range i.Models {
 					models[j] = api.AgentModelOption{

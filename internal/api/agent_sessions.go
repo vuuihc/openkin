@@ -63,7 +63,9 @@ type agentHistoryItem struct {
 	AgentID     string `json:"agent_id"`
 	ExternalRef string `json:"external_ref"`
 	MessageID   string `json:"message_id"`
+	Kind        string `json:"kind,omitempty"`
 	Role        string `json:"role"`
+	ToolName    string `json:"tool_name,omitempty"`
 	Text        string `json:"text"`
 	OccurredAt  int64  `json:"occurred_at"`
 	SourceRev   string `json:"source_rev"`
@@ -294,7 +296,8 @@ func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Req
 	for _, item := range page.Items {
 		items = append(items, agentHistoryItem{
 			AgentID: item.AgentID, ExternalRef: item.ExternalRef,
-			MessageID: item.MessageID, Role: item.Role, Text: item.Text,
+			MessageID: item.MessageID, Kind: item.Kind, Role: item.Role,
+			ToolName: item.ToolName, Text: item.Text,
 			OccurredAt: item.OccurredAt.UnixMilli(), SourceRev: item.SourceRev,
 		})
 	}
