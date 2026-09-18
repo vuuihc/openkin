@@ -42,10 +42,11 @@ type RunRequest struct {
 	Team           string `json:"team,omitempty"`
 	FirstTaskID    string `json:"-"`
 	RoutineID      string `json:"-"`
+	Sequential     bool   `json:"-"`
 }
 
-// Start creates all ordinary Tasks immediately and completes the run in the
-// background. The returned run is durable even if the daemon restarts.
+// Start creates ordinary Tasks and completes the run in the background. Routine
+// runs are serialized so one suite cannot flood the shared task FIFO.
 func (r *Runner) Start(ctx context.Context, req RunRequest) (store.EvalRun, error) {
 	if r == nil || r.Store == nil || r.Engine == nil {
 		return store.EvalRun{}, fmt.Errorf("eval runner unavailable")
@@ -54,29 +55,9 @@ func (r *Runner) Start(ctx context.Context, req RunRequest) (store.EvalRun, erro
 	if err != nil {
 		return store.EvalRun{}, err
 	}
-	reps := req.Repetitions
-	if reps <= 0 {
-		reps = 1
-	}
-	if reps > maxRepetitions {
-		return store.EvalRun{}, fmt.Errorf("repetitions must be <= %d", maxRepetitions)
-	}
-	if len(suite.Cases)*reps > maxEvalTasks {
-		return store.EvalRun{}, fmt.Errorf("suite fan-out must be <= %d tasks per run", maxEvalTasks)
-	}
-	condition := strings.TrimSpace(req.Condition)
-	if condition == "" {
-		condition = "cold"
-	}
-	if condition != "cold" {
-		return store.EvalRun{}, fmt.Errorf("eval condition %q is not implemented; use cold", condition)
-	}
-	objective := strings.TrimSpace(req.RouteObjective)
-	if objective != "" && !routing.ValidDispatchObjective(routing.DispatchObjective(objective)) {
-		return store.EvalRun{}, fmt.Errorf("unknown route objective %q", objective)
-	}
-	if objective != "" && strings.TrimSpace(req.Team) == "" {
-		return store.EvalRun{}, fmt.Errorf("team is required for route objective %q", objective)
+	reps, condition, objective, err := normalizeRunRequest(suite, req)
+	if err != nil {
+		return store.EvalRun{}, err
 	}
 	now := time.Now().UnixMilli()
 	run := store.EvalRun{
@@ -85,6 +66,8 @@ func (r *Runner) Start(ctx context.Context, req RunRequest) (store.EvalRun, erro
 		SuiteVersion:   suite.Version,
 		Condition:      condition,
 		RouteObjective: objective,
+		Team:           strings.TrimSpace(req.Team),
+		RoutineID:      strings.TrimSpace(req.RoutineID),
 		NReps:          reps,
 		Status:         "running",
 		KinGitSHA:      strings.TrimSpace(os.Getenv("KIN_GIT_SHA")),
@@ -106,54 +89,114 @@ func (r *Runner) Start(ctx context.Context, req RunRequest) (store.EvalRun, erro
 				TaskID: stringPtr(taskID), CheckerJSON: json.RawMessage(`{}`),
 			}
 			if err := r.Store.InsertEvalResult(ctx, result); err != nil {
-				_ = r.Store.FinishEvalRun(ctx, run.ID, "failed", "", time.Now().UnixMilli())
+				_ = r.finishRun(ctx, run, "failed", "", err.Error())
 				return store.EvalRun{}, fmt.Errorf("persist eval manifest %s/%d: %w", c.ID, rep, err)
 			}
 			pending = append(pending, pendingCase{caseDef: c, rep: rep, taskID: taskID, resultID: result.ID})
 		}
 	}
-	pendingIndex := 0
-	for _, c := range suite.Cases {
-		for rep := 0; rep < reps; rep++ {
-			item := pending[pendingIndex]
-			pendingIndex++
-			createReq := task.CreateRequest{
-				Cwd:            c.Cwd,
-				Prompt:         c.Prompt,
-				Agent:          c.Agent,
-				PermissionMode: c.PermissionMode,
-				ProjectID:      c.ProjectID,
-				Title:          stringPtr(fmt.Sprintf("eval/%s/%s/%d", run.ID, c.ID, rep)),
-				Dispatch:       c.Dispatch,
-				RoutineID:      req.RoutineID,
-			}
-			createReq.ID = item.taskID
-			if objective != "" {
-				dispatch, _ := json.Marshal(routing.DispatchSelection{
-					Mode:      routing.DispatchAuto,
-					Team:      req.Team,
-					Objective: routing.DispatchObjective(objective),
-				})
-				createReq.Dispatch = dispatch
-			}
-			created, err := r.Engine.Create(ctx, createReq)
-			if err != nil {
+	if req.Sequential {
+		if _, err := r.createEvalTask(ctx, run, suite, pending[0]); err != nil {
+			_ = r.finishRun(ctx, run, "failed", "", err.Error())
+			return store.EvalRun{}, fmt.Errorf("create first eval task: %w", err)
+		}
+	} else {
+		for _, item := range pending {
+			if _, err := r.createEvalTask(ctx, run, suite, item); err != nil {
 				for _, previous := range pending {
 					_, _ = r.Engine.Cancel(ctx, previous.taskID)
 				}
-				_ = r.Store.FinishEvalRun(ctx, run.ID, "failed", "", time.Now().UnixMilli())
-				return store.EvalRun{}, fmt.Errorf("create eval task %s/%d: %w", c.ID, rep, err)
-			}
-			if payload, marshalErr := json.Marshal(map[string]any{
-				"run_id": run.ID, "suite": suite.Name, "suite_version": suite.Version,
-				"case_id": c.ID, "rep_idx": rep, "condition": condition,
-			}); marshalErr == nil {
-				_, _ = r.Store.AppendEvent(ctx, created.ID, "eval_metadata", payload)
+				_ = r.finishRun(ctx, run, "failed", "", err.Error())
+				return store.EvalRun{}, fmt.Errorf("create eval task %s/%d: %w", item.caseDef.ID, item.rep, err)
 			}
 		}
 	}
-	go r.finish(context.Background(), run, pending)
+	go r.finish(context.Background(), run, pending, req.Sequential)
 	return run, nil
+}
+
+func normalizeRunRequest(suite Suite, req RunRequest) (int, string, string, error) {
+	reps := req.Repetitions
+	if reps <= 0 {
+		reps = 1
+	}
+	if reps > maxRepetitions {
+		return 0, "", "", fmt.Errorf("repetitions must be <= %d", maxRepetitions)
+	}
+	if len(suite.Cases)*reps > maxEvalTasks {
+		return 0, "", "", fmt.Errorf("suite fan-out must be <= %d tasks per run", maxEvalTasks)
+	}
+	condition := strings.TrimSpace(req.Condition)
+	if condition == "" {
+		condition = "cold"
+	}
+	if condition != "cold" {
+		return 0, "", "", fmt.Errorf("eval condition %q is not implemented; use cold", condition)
+	}
+	objective := strings.TrimSpace(req.RouteObjective)
+	if objective != "" && !routing.ValidDispatchObjective(routing.DispatchObjective(objective)) {
+		return 0, "", "", fmt.Errorf("unknown route objective %q", objective)
+	}
+	if objective != "" && strings.TrimSpace(req.Team) == "" {
+		return 0, "", "", fmt.Errorf("team is required for route objective %q", objective)
+	}
+	return reps, condition, objective, nil
+}
+
+func (r *Runner) createEvalTask(ctx context.Context, run store.EvalRun, suite Suite, item pendingCase) (store.Task, error) {
+	createReq := task.CreateRequest{
+		ID:             item.taskID,
+		Cwd:            item.caseDef.Cwd,
+		Prompt:         item.caseDef.Prompt,
+		Agent:          item.caseDef.Agent,
+		PermissionMode: item.caseDef.PermissionMode,
+		ProjectID:      item.caseDef.ProjectID,
+		Title:          stringPtr(fmt.Sprintf("eval/%s/%s/%d", run.ID, item.caseDef.ID, item.rep)),
+		Dispatch:       markEvalDispatch(item.caseDef.Dispatch, run.ID),
+		RoutineID:      run.RoutineID,
+	}
+	if run.RouteObjective != "" {
+		dispatch, _ := json.Marshal(routing.DispatchSelection{
+			Mode:      routing.DispatchAuto,
+			Team:      run.Team,
+			Objective: routing.DispatchObjective(run.RouteObjective),
+		})
+		createReq.Dispatch = markEvalDispatch(dispatch, run.ID)
+	}
+	created, err := r.Engine.Create(ctx, createReq)
+	if err != nil {
+		return store.Task{}, err
+	}
+	payload, err := json.Marshal(map[string]any{
+		"run_id": run.ID, "suite": suite.Name, "suite_version": suite.Version,
+		"case_id": item.caseDef.ID, "rep_idx": item.rep, "condition": run.Condition,
+		"routine_id": run.RoutineID,
+	})
+	if err == nil {
+		_, _ = r.Store.AppendEvent(ctx, created.ID, "eval_metadata", payload)
+	}
+	return created, nil
+}
+
+func markEvalDispatch(raw json.RawMessage, runID string) json.RawMessage {
+	if strings.TrimSpace(runID) == "" {
+		return raw
+	}
+	payload := map[string]any{}
+	if len(strings.TrimSpace(string(raw))) > 0 {
+		if json.Unmarshal(raw, &payload) != nil {
+			return raw
+		}
+		if payload == nil {
+			payload = map[string]any{}
+		}
+	}
+	payload["eval_run_id"] = runID
+	marked, err := json.Marshal(payload)
+	if err != nil {
+		return raw
+	}
+	return marked
 }
 
 type routineConfig struct {
@@ -169,18 +212,43 @@ type routineConfig struct {
 func (r *Runner) StartRoutine(ctx context.Context, routine store.Routine, firstTaskID string) (store.Task, error) {
 	var config routineConfig
 	if err := json.Unmarshal([]byte(routine.Prompt), &config); err != nil {
-		return store.Task{}, fmt.Errorf("parse eval routine: %w", err)
+		err = fmt.Errorf("parse eval routine: %w", err)
+		_ = r.failRoutineStart(ctx, routine, err)
+		return store.Task{}, err
 	}
 	configured := RunRequest{
 		Suite: config.Suite, Condition: config.Condition, Repetitions: config.Repetitions,
 		RouteObjective: config.RouteObjective, Team: config.Team, FirstTaskID: firstTaskID,
-		RoutineID: routine.ID,
+		RoutineID: routine.ID, Sequential: true,
 	}
-	_, err := r.Start(ctx, configured)
+	suite, err := LoadSuite(r.SuitesDir, configured.Suite)
+	if err != nil {
+		_ = r.failRoutineStart(ctx, routine, err)
+		return store.Task{}, err
+	}
+	if _, _, _, err := normalizeRunRequest(suite, configured); err != nil {
+		_ = r.failRoutineStart(ctx, routine, err)
+		return store.Task{}, err
+	}
+	_, err = r.Start(ctx, configured)
 	if err != nil {
 		return store.Task{}, err
 	}
 	return r.Engine.Get(ctx, firstTaskID)
+}
+
+func (r *Runner) failRoutineStart(ctx context.Context, routine store.Routine, cause error) error {
+	failures := routine.ConsecFailures + 1
+	enabled := routine.Enabled
+	if failures >= store.RoutineMaxConsecFailures {
+		enabled = false
+	}
+	outcome := "failed"
+	lastError := cause.Error()
+	return r.Store.UpdateRoutine(ctx, routine.ID, store.RoutinePatch{
+		Enabled: &enabled, ConsecFailures: &failures,
+		LastOutcome: &outcome, LastError: &lastError,
+	})
 }
 
 type pendingCase struct {
@@ -190,10 +258,14 @@ type pendingCase struct {
 	resultID string
 }
 
-func (r *Runner) finish(ctx context.Context, run store.EvalRun, pending []pendingCase) {
+func (r *Runner) finish(ctx context.Context, run store.EvalRun, pending []pendingCase, sequential bool) {
 	interval := r.PollInterval
 	if interval <= 0 {
 		interval = defaultPoll
+	}
+	if sequential {
+		r.finishSequential(ctx, run, pending, interval)
+		return
 	}
 	remaining := append([]pendingCase(nil), pending...)
 	for len(remaining) > 0 {
@@ -202,7 +274,7 @@ func (r *Runner) finish(ctx context.Context, run store.EvalRun, pending []pendin
 			t, err := r.Store.GetTask(ctx, item.taskID)
 			if err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					_ = r.Store.FinishEvalRun(ctx, run.ID, "failed", "", time.Now().UnixMilli())
+					_ = r.finishRun(ctx, run, "failed", "", "eval task disappeared")
 					return
 				}
 				next = append(next, item)
@@ -213,7 +285,7 @@ func (r *Runner) finish(ctx context.Context, run store.EvalRun, pending []pendin
 				continue
 			}
 			if err := r.recordResult(ctx, run.ID, item, t); err != nil {
-				_ = r.Store.FinishEvalRun(ctx, run.ID, "failed", "", time.Now().UnixMilli())
+				_ = r.finishRun(ctx, run, "failed", "", err.Error())
 				return
 			}
 		}
@@ -224,10 +296,55 @@ func (r *Runner) finish(ctx context.Context, run store.EvalRun, pending []pendin
 	}
 	artifactID, err := r.writeReport(ctx, run)
 	if err != nil {
-		_ = r.Store.FinishEvalRun(ctx, run.ID, "failed", "", time.Now().UnixMilli())
+		_ = r.finishRun(ctx, run, "failed", "", err.Error())
 		return
 	}
-	_ = r.Store.FinishEvalRun(ctx, run.ID, "succeeded", artifactID, time.Now().UnixMilli())
+	_ = r.finishRun(ctx, run, "succeeded", artifactID, "")
+}
+
+func (r *Runner) finishSequential(ctx context.Context, run store.EvalRun, pending []pendingCase, interval time.Duration) {
+	suite, err := LoadSuite(r.SuitesDir, run.Suite)
+	if err != nil {
+		_ = r.finishRun(ctx, run, "failed", "", err.Error())
+		return
+	}
+	remaining := append([]pendingCase(nil), pending...)
+	for len(remaining) > 0 {
+		item := remaining[0]
+		t, err := r.Store.GetTask(ctx, item.taskID)
+		if errors.Is(err, store.ErrNotFound) {
+			if _, createErr := r.createEvalTask(ctx, run, suite, item); createErr != nil {
+				_ = r.finishRun(ctx, run, "failed", "", createErr.Error())
+				return
+			}
+			continue
+		}
+		if err != nil {
+			time.Sleep(interval)
+			continue
+		}
+		if !terminal(t.Status) {
+			time.Sleep(interval)
+			continue
+		}
+		if err := r.recordResult(ctx, run.ID, item, t); err != nil {
+			_ = r.finishRun(ctx, run, "failed", "", err.Error())
+			return
+		}
+		remaining = remaining[1:]
+	}
+	artifactID, err := r.writeReport(ctx, run)
+	if err != nil {
+		_ = r.finishRun(ctx, run, "failed", "", err.Error())
+		return
+	}
+	_ = r.finishRun(ctx, run, "succeeded", artifactID, "")
+}
+
+func (r *Runner) finishRun(ctx context.Context, run store.EvalRun, status, artifactID, lastError string) error {
+	return r.Store.FinishEvalRunAndRoutine(
+		ctx, run.ID, run.RoutineID, status, artifactID, lastError, time.Now().UnixMilli(),
+	)
 }
 
 func (r *Runner) recordResult(ctx context.Context, runID string, item pendingCase, t store.Task) error {
@@ -279,32 +396,64 @@ func (r *Runner) Resume(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		byCase := make(map[string]Case, len(suite.Cases))
-		for _, c := range suite.Cases {
-			byCase[c.ID] = c
-		}
 		results, err := r.Store.ListEvalResults(ctx, run.ID)
 		if err != nil {
 			continue
 		}
-		pending := make([]pendingCase, 0)
+		inferredRoutine, inferredTeam := run.RoutineID, run.Team
 		for _, result := range results {
-			if result.TaskID == nil || string(result.CheckerJSON) != "{}" {
+			if result.TaskID == nil {
 				continue
 			}
-			c, ok := byCase[result.CaseID]
-			if !ok {
+			t, taskErr := r.Store.GetTask(ctx, *result.TaskID)
+			if taskErr != nil {
 				continue
 			}
-			pending = append(pending, pendingCase{
-				caseDef: c, rep: result.RepIdx, taskID: *result.TaskID, resultID: result.ID,
-			})
+			if inferredRoutine == "" && t.RoutineID != "" {
+				inferredRoutine = t.RoutineID
+			}
+			if inferredTeam == "" {
+				inferredTeam = dispatchTeam(t.Dispatch)
+			}
+		}
+		if inferredRoutine != run.RoutineID || inferredTeam != run.Team {
+			run.RoutineID, run.Team = inferredRoutine, inferredTeam
+			if err := r.Store.SetEvalRunRoutine(ctx, run.ID, run.RoutineID, run.Team); err != nil {
+				return fmt.Errorf("backfill eval run routing %s: %w", run.ID, err)
+			}
+		}
+		resultsByKey := make(map[string]store.EvalResult, len(results))
+		for _, result := range results {
+			resultsByKey[result.CaseID+":"+fmt.Sprint(result.RepIdx)] = result
+		}
+		pending := make([]pendingCase, 0, len(results))
+		for _, c := range suite.Cases {
+			for rep := 0; rep < run.NReps; rep++ {
+				result, ok := resultsByKey[c.ID+":"+fmt.Sprint(rep)]
+				if !ok || result.TaskID == nil || string(result.CheckerJSON) != "{}" {
+					continue
+				}
+				pending = append(pending, pendingCase{
+					caseDef: c, rep: rep, taskID: *result.TaskID, resultID: result.ID,
+				})
+			}
 		}
 		if len(results) > 0 {
-			go r.finish(ctx, run, pending)
+			go r.finish(ctx, run, pending, run.RoutineID != "")
 		}
 	}
 	return nil
+}
+
+func dispatchTeam(raw json.RawMessage) string {
+	var selection struct {
+		Mode string `json:"mode"`
+		Team string `json:"team"`
+	}
+	if json.Unmarshal(raw, &selection) != nil || selection.Mode != string(routing.DispatchAuto) {
+		return ""
+	}
+	return strings.TrimSpace(selection.Team)
 }
 
 type checkResult struct {
@@ -356,16 +505,43 @@ func evaluate(expect Expectation, t store.Task, events []store.Event) checkResul
 }
 
 func countTurns(events []store.Event, fallback int) int {
-	count := 0
+	resultCount := 0
+	usageCount := 0
+	sawUsage := false
 	for _, event := range events {
-		if event.Type == "task_started" || event.Type == "result" {
-			count++
+		if event.Type == "result" && !isOrchestratorResult(event.Payload) {
+			resultCount++
+		}
+		if event.Type == "usage" {
+			sawUsage = true
+			if !isControllerUsage(event.Payload) {
+				usageCount++
+			}
 		}
 	}
-	if count == 0 {
-		return fallback
+	if sawUsage {
+		return usageCount
 	}
-	return count
+	if resultCount > 0 {
+		return resultCount
+	}
+	return fallback
+}
+
+func isOrchestratorResult(payload json.RawMessage) bool {
+	var metadata struct {
+		Source string `json:"source"`
+	}
+	return json.Unmarshal(payload, &metadata) == nil &&
+		strings.EqualFold(strings.TrimSpace(metadata.Source), "orchestrator")
+}
+
+func isControllerUsage(payload json.RawMessage) bool {
+	var metadata struct {
+		Source string `json:"source"`
+	}
+	return json.Unmarshal(payload, &metadata) == nil &&
+		strings.EqualFold(strings.TrimSpace(metadata.Source), "controller")
 }
 
 func eventText(events []store.Event) string {

@@ -134,6 +134,72 @@ func TestTaskRoutineFieldsAndUnread(t *testing.T) {
 	}
 }
 
+func TestCountRoutineInFlightDeduplicatesEvalRunAndCases(t *testing.T) {
+	s, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	now := NowMilli()
+
+	if err := s.InsertRoutine(ctx, Routine{
+		ID: "eval-routine", Cwd: "/tmp", Agent: "kin", Prompt: "eval",
+		IntervalSecs: 60, Enabled: true, NextDueAt: now, CreatedAt: now,
+		Lane: "eval",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertEvalRun(ctx, EvalRun{
+		ID: "eval-run", Suite: "smoke", SuiteVersion: "v1",
+		RoutineID: "eval-routine", NReps: 1, Status: "running", StartedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"eval-case-1", "eval-case-2"} {
+		if err := s.InsertTask(ctx, Task{
+			ID: id, Title: "eval/" + id, Agent: "kin", Cwd: "/tmp", Prompt: "p",
+			Status: "queued", CreatedAt: now, RoutineID: "eval-routine",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AppendEvent(ctx, id, "eval_metadata", []byte(`{"run_id":"eval-run"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.CountRoutineInFlight(ctx); err != nil || got != 1 {
+		t.Fatalf("in-flight=%d err=%v, want one logical eval routine", got, err)
+	}
+	if err := s.FinishEvalRun(ctx, "eval-run", "succeeded", "", now+1); err != nil {
+		t.Fatal(err)
+	}
+	status := "succeeded"
+	for _, id := range []string{"eval-case-1", "eval-case-2"} {
+		if err := s.UpdateTask(ctx, id, TaskPatch{Status: &status}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"ordinary-1", "ordinary-2"} {
+		if err := s.InsertTask(ctx, Task{
+			ID: id, Title: "ordinary", Agent: "kin", Cwd: "/tmp", Prompt: "p",
+			Status: "queued", CreatedAt: now, RoutineID: "eval-routine",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.CountRoutineInFlight(ctx); err != nil || got != 2 {
+		t.Fatalf("in-flight=%d err=%v, want two ordinary routine tasks", got, err)
+	}
+	for _, id := range []string{"ordinary-1", "ordinary-2"} {
+		if err := s.UpdateTask(ctx, id, TaskPatch{Status: &status}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.CountRoutineInFlight(ctx); err != nil || got != 0 {
+		t.Fatalf("in-flight=%d err=%v, want no active routine work", got, err)
+	}
+}
+
 func TestRoutineCursorSearchScalesBeyondLegacyCap(t *testing.T) {
 	s, err := Open(":memory:")
 	if err != nil {

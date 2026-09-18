@@ -352,9 +352,30 @@ func (s *Store) CompleteRoutineClaim(ctx context.Context, r Routine, token strin
 func (s *Store) CountRoutineInFlight(ctx context.Context) (int, error) {
 	var n int
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM tasks
-		WHERE routine_id IS NOT NULL
-		  AND status IN ('queued', 'running', 'waiting_approval', 'waiting_input')`).Scan(&n); err != nil {
+		SELECT COUNT(*) FROM (
+			SELECT 'task:' || t.id FROM tasks t
+			WHERE t.routine_id IS NOT NULL
+			  AND t.status IN ('queued', 'running', 'waiting_approval', 'waiting_input')
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM eval_runs er
+				WHERE er.id = json_extract(t.dispatch, '$.eval_run_id')
+				  AND er.routine_id = t.routine_id
+				  AND er.status = 'running'
+			  )
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM events ev
+				JOIN eval_runs er ON er.id = json_extract(ev.payload, '$.run_id')
+				WHERE ev.task_id = t.id
+				  AND ev.type = 'eval_metadata'
+				  AND er.routine_id = t.routine_id
+				  AND er.status = 'running'
+			  )
+			UNION
+			SELECT 'eval:' || er.routine_id FROM eval_runs er
+			WHERE er.routine_id <> '' AND er.status = 'running'
+		)`).Scan(&n); err != nil {
 		return 0, fmt.Errorf("count routine in-flight: %w", err)
 	}
 	return n, nil
@@ -383,8 +404,30 @@ func (s *Store) RoutineHealthSnapshot(ctx context.Context) (RoutineHealth, error
 		h.OldestDueAt = &oldest.Int64
 	}
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM tasks
-		WHERE routine_id IS NOT NULL AND status IN ('queued', 'running', 'waiting_approval', 'waiting_input')`,
+		SELECT COUNT(*) FROM (
+			SELECT 'task:' || t.id FROM tasks t
+			WHERE t.routine_id IS NOT NULL
+			  AND t.status IN ('queued', 'running', 'waiting_approval', 'waiting_input')
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM eval_runs er
+				WHERE er.id = json_extract(t.dispatch, '$.eval_run_id')
+				  AND er.routine_id = t.routine_id
+				  AND er.status = 'running'
+			  )
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM events ev
+				JOIN eval_runs er ON er.id = json_extract(ev.payload, '$.run_id')
+				WHERE ev.task_id = t.id
+				  AND ev.type = 'eval_metadata'
+				  AND er.routine_id = t.routine_id
+				  AND er.status = 'running'
+			  )
+			UNION
+			SELECT 'eval:' || er.routine_id FROM eval_runs er
+			WHERE er.routine_id <> '' AND er.status = 'running'
+		)`,
 	).Scan(&h.Running); err != nil {
 		return RoutineHealth{}, fmt.Errorf("routine running health: %w", err)
 	}

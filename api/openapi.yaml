@@ -1014,6 +1014,7 @@ components:
           type: string
         objectives:
           type: array
+          maxItems: 2
           items:
             type: string
             enum: [balanced, cost-min, intelligent-max]

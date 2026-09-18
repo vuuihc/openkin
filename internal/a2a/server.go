@@ -156,7 +156,7 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "a2a does not grant yolo execution"})
 		return
 	}
-	if detect.IsGenericCLI(body.Agent) && adapter.NormalizePermissionMode(body.PermissionMode) != adapter.PermissionAcceptEdits {
+	if detect.IsGenericCLI(effectiveA2AAgent(body)) && adapter.NormalizePermissionMode(body.PermissionMode) != adapter.PermissionAcceptEdits {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "generic CLI agents require permission_mode accept_edits"})
 		return
 	}
@@ -485,6 +485,18 @@ func messageText(message Message) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func effectiveA2AAgent(body taskRequest) string {
+	agent := body.Agent
+	var dispatch struct {
+		Mode  string `json:"mode"`
+		Agent string `json:"agent"`
+	}
+	if json.Unmarshal(body.Dispatch, &dispatch) == nil && dispatch.Mode == "manual" && dispatch.Agent != "" {
+		agent = dispatch.Agent
+	}
+	return agent
 }
 
 func normalizeStatus(status string) string {

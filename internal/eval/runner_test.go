@@ -77,3 +77,34 @@ func TestRunnerCreatesTasksAndReport(t *testing.T) {
 	}
 	t.Fatal("eval run did not finish")
 }
+
+func TestCountTurnsExcludesOrchestratorSummary(t *testing.T) {
+	events := []store.Event{
+		{Type: "result", Payload: json.RawMessage(`{"source":"worker","is_error":false}`)},
+		{Type: "result", Payload: json.RawMessage(`{"source":"orchestrator","is_error":false}`)},
+	}
+	if got := countTurns(events, 0); got != 1 {
+		t.Fatalf("countTurns=%d, want one provider result", got)
+	}
+	if got := countTurns([]store.Event{
+		{Type: "result", Payload: json.RawMessage(`{"source":"orchestrator"}`)},
+	}, 3); got != 3 {
+		t.Fatalf("countTurns fallback=%d, want usage fallback", got)
+	}
+	if got := countTurns([]store.Event{
+		{Type: "usage", Payload: json.RawMessage(`{"source":"controller","tokens_in":10}`)},
+	}, 3); got != 0 {
+		t.Fatalf("countTurns controller-only=%d, want zero provider turns", got)
+	}
+	if got := countTurns([]store.Event{
+		{Type: "usage", Payload: json.RawMessage(`{"source":"codex","tokens_in":10}`)},
+	}, 3); got != 1 {
+		t.Fatalf("countTurns provider usage=%d, want one provider turn", got)
+	}
+	if got := countTurns([]store.Event{
+		{Type: "usage", Payload: json.RawMessage(`{"source":"codex","tokens_in":10}`)},
+		{Type: "result", Payload: json.RawMessage(`{"source":"worker"}`)},
+	}, 3); got != 1 {
+		t.Fatalf("countTurns mixed usage/result=%d, want usage count", got)
+	}
+}
