@@ -130,6 +130,7 @@ type Registration struct {
 	Runner        adapter.Adapter
 	Controller    Controller
 	Sessions      SessionHooks
+	Catalog       SessionCatalog
 	Status        func(context.Context) Status
 	Models        func(context.Context) ModelList
 	LazyWorkspace func(context.Context) LazyWorkspaceSupport

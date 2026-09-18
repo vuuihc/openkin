@@ -6,7 +6,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 31
+const schemaVersion = 32
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -392,7 +392,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -461,6 +461,51 @@ CREATE TABLE IF NOT EXISTS a2a_operations (
   created_at   INTEGER NOT NULL,
   PRIMARY KEY (principal_id, task_id, idem_key)
 );
+`
+
+const migrationSessionTables = `
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  id              TEXT PRIMARY KEY,
+  agent_id        TEXT NOT NULL,
+  external_ref    TEXT NOT NULL,
+  source_uri      TEXT NOT NULL DEFAULT '',
+  title           TEXT NOT NULL DEFAULT '',
+  cwd             TEXT NOT NULL DEFAULT '',
+  status          TEXT NOT NULL DEFAULT 'unknown',
+  capabilities    TEXT NOT NULL DEFAULT '[]',
+  metadata        TEXT NOT NULL DEFAULT '{}',
+  source_cursor   TEXT NOT NULL DEFAULT '',
+  content_digest  TEXT NOT NULL DEFAULT '',
+  first_seen_at   INTEGER NOT NULL,
+  last_seen_at    INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  UNIQUE(agent_id, external_ref)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated
+  ON agent_sessions(updated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
+  ON agent_sessions(agent_id, updated_at DESC, id DESC);
+CREATE TABLE IF NOT EXISTS task_agent_sessions (
+  id               TEXT PRIMARY KEY,
+  task_id          TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  role             TEXT NOT NULL DEFAULT 'host',
+  state            TEXT NOT NULL DEFAULT 'attached',
+  workspace_id     TEXT NOT NULL DEFAULT '',
+  first_turn_seq   INTEGER NOT NULL DEFAULT 0,
+  last_turn_seq    INTEGER NOT NULL DEFAULT 0,
+  attached_at      INTEGER NOT NULL,
+  detached_at      INTEGER,
+  last_error       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_task_agent_sessions_task
+  ON task_agent_sessions(task_id, attached_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_agent_sessions_active_host
+  ON task_agent_sessions(task_id)
+  WHERE role = 'host' AND state = 'attached';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_agent_sessions_active_source
+  ON task_agent_sessions(agent_session_id)
+  WHERE role = 'host' AND state = 'attached';
 `
 
 const migration002 = `
@@ -1752,6 +1797,25 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 031: %w", err)
 		}
 		v = 31
+	}
+
+	if v == 31 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 032: %w", err)
+		}
+		if _, err := tx.Exec(migrationSessionTables); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 032 session tables: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 32`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 032: %w", err)
+		}
+		v = 32
 	}
 
 	return nil

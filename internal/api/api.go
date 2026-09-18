@@ -20,6 +20,7 @@ import (
 	"github.com/vuuihc/openkin/internal/a2a"
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
@@ -64,13 +65,14 @@ type AgentModelOption struct {
 
 // Server holds HTTP handlers and dependencies for the Kin API.
 type Server struct {
-	Store      *store.Store
-	Auth       *remote.Auth
-	Engine     *task.Engine
-	MCP        *mcp.Server
-	Connectors *connectors.Manager
-	Terminals  *terminal.Manager
-	Version    string
+	Store                *store.Store
+	Auth                 *remote.Auth
+	Engine               *task.Engine
+	MCP                  *mcp.Server
+	Connectors           *connectors.Manager
+	Terminals            *terminal.Manager
+	Version              string
+	agentSessionAttachMu sync.Mutex
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
 	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
@@ -85,6 +87,8 @@ type Server struct {
 
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
+	// Agents is the opened local Agent registry used for session discovery.
+	Agents *agent.Registry
 
 	// SmokeAgents runs headless probes for installed Tier-2 agents (optional).
 	SmokeAgents SmokeAgents
@@ -187,6 +191,12 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)
 		r.Get("/api/agents", s.handleListAgents)
+		r.Get("/api/agent-sessions", s.handleListAgentSessions)
+		r.Get("/api/agent-sessions/page", s.handleListAgentSessionsPage)
+		r.Get("/api/agent-sessions/{id}", s.handleGetAgentSession)
+		r.With(masterOnly).Post("/api/agent-sessions/import", s.handleImportAgentSessions)
+		r.With(masterOnly).Get("/api/agent-sessions/{id}/history", s.handleGetAgentSessionHistory)
+		r.With(masterOnly).Post("/api/agent-sessions/{id}/attach", s.handleAttachAgentSession)
 		r.Get("/api/agents/management", s.handleAgentsManagement)
 		r.With(masterOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
 		r.Get("/api/connectors", s.handleListConnectors)
@@ -1046,6 +1056,7 @@ type settingsResponse struct {
 	LimitPolicy      string `json:"limit_policy"`
 	LimitFallback    string `json:"limit_policy.fallback_agents"`
 	QuotaWaitNotify  string `json:"notify.quota_wait_after_secs"`
+	AutoImportMode   string `json:"agent_sessions.auto_import_mode"`
 	NetworkMode      string `json:"network_mode"`
 	ConnectURL       string `json:"connect_url"`
 	Token            string `json:"token"`
@@ -1067,6 +1078,7 @@ var puttableSettings = map[string]bool{
 	"limit_policy":                 true,
 	"limit_policy.fallback_agents": true,
 	"notify.quota_wait_after_secs": true,
+	store.KeyAutoImportMode:        true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -1102,6 +1114,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	agentLimits := get(store.KeyAgentLimits)
 	if strings.TrimSpace(agentLimits) == "" {
 		agentLimits = "{}"
+	}
+	autoImportMode, err := store.NormalizeAutoImportMode(get(store.KeyAutoImportMode))
+	if err != nil {
+		autoImportMode = store.AutoImportPrompt
 	}
 	// Active cognition provider from multi-provider registry (legacy keys mirrored).
 	provKind := firstNonEmpty(get("provider.kind"), "openai-compatible")
@@ -1146,6 +1162,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		LimitPolicy:      firstNonEmpty(get(task.KeyLimitPolicy), task.LimitPolicyWait),
 		LimitFallback:    get(task.KeyLimitFallbackAgents),
 		QuotaWaitNotify:  get(task.KeyQuotaWaitNotifyAfterSecs),
+		AutoImportMode:   autoImportMode,
 		NetworkMode:      s.NetworkMode,
 		ConnectURL:       connect,
 		Token:            tok,
@@ -1248,6 +1265,14 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+		}
+		if k == store.KeyAutoImportMode {
+			normalized, err := store.NormalizeAutoImportMode(v)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			v = normalized
 		}
 		body[k] = v
 	}

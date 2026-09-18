@@ -1331,6 +1331,7 @@ export type Settings = {
   "agent.default": string;
   limit_policy?: string;
   "limit_policy.fallback_agents"?: string;
+  "agent_sessions.auto_import_mode"?: "prompt" | "enabled" | "disabled";
   network_mode: string;
   connect_url: string;
   token: string;
@@ -1352,6 +1353,7 @@ export type SettingsUpdate = Partial<
     | "agent.default"
     | "limit_policy"
     | "limit_policy.fallback_agents"
+    | "agent_sessions.auto_import_mode"
   >
 > & {
   "provider.clear_api_key"?: string;
@@ -1402,6 +1404,148 @@ export function updateSettings(body: SettingsUpdate): Promise<Settings> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export type AgentSession = {
+  id: string;
+  agent_id: string;
+  external_ref: string;
+  title: string;
+  cwd: string;
+  project_id?: string;
+  project_label?: string;
+  status: string;
+  capabilities?: string[];
+  source_cursor?: string;
+  content_digest?: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  updated_at: number;
+  linked: boolean;
+};
+
+export type AgentSessionHistoryItem = {
+  agent_id: string;
+  external_ref: string;
+  message_id: string;
+  role: "user" | "assistant";
+  text: string;
+  occurred_at: number;
+  source_rev: string;
+};
+
+export type AgentSessionHistoryPage = {
+  items: AgentSessionHistoryItem[];
+  next_cursor?: string;
+  source_rev?: string;
+};
+
+export type AgentSessionListPage = {
+  items: AgentSession[];
+  next_cursor?: string;
+};
+
+export type AgentSessionBinding = {
+  id: string;
+  task_id: string;
+  agent_session_id: string;
+  role: string;
+  state: string;
+  workspace_id?: string;
+  first_turn_seq: number;
+  last_turn_seq: number;
+  attached_at: number;
+  detached_at?: number | null;
+  last_error?: string;
+};
+
+export function listAgentSessions(params?: {
+  agent?: string;
+  q?: string;
+  cwd?: string;
+  linked?: boolean;
+  limit?: number;
+}): Promise<AgentSession[]> {
+  const query = new URLSearchParams();
+  if (params?.agent) query.set("agent", params.agent);
+  if (params?.q?.trim()) query.set("q", params.q.trim());
+  if (params?.cwd) query.set("cwd", params.cwd);
+  if (params?.linked !== undefined) query.set("linked", String(params.linked));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const suffix = query.toString();
+  return apiFetch<AgentSession[]>(`/api/agent-sessions${suffix ? `?${suffix}` : ""}`);
+}
+
+export function listAgentSessionsPage(params?: {
+  agent?: string;
+  q?: string;
+  cwd?: string;
+  linked?: boolean;
+  limit?: number;
+  before?: string;
+}): Promise<AgentSessionListPage> {
+  const query = new URLSearchParams();
+  if (params?.agent) query.set("agent", params.agent);
+  if (params?.q?.trim()) query.set("q", params.q.trim());
+  if (params?.cwd) query.set("cwd", params.cwd);
+  if (params?.linked !== undefined) query.set("linked", String(params.linked));
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.before) query.set("before", params.before);
+  const suffix = query.toString();
+  return apiFetch<AgentSessionListPage>(
+    `/api/agent-sessions/page${suffix ? `?${suffix}` : ""}`,
+  );
+}
+
+export function getAgentSession(id: string): Promise<AgentSession> {
+  return apiFetch<AgentSession>(
+    `/api/agent-sessions/${encodeURIComponent(id)}`,
+  );
+}
+
+export function importAgentSessions(agents?: string[]): Promise<{
+  imported: number;
+  providers: Record<string, number>;
+  errors?: Record<string, string>;
+}> {
+  return apiFetch("/api/agent-sessions/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(agents?.length ? { agents } : {}),
+  });
+}
+
+export function getAgentSessionHistory(
+  id: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<AgentSessionHistoryPage> {
+  const query = new URLSearchParams();
+  if (params?.cursor) query.set("cursor", params.cursor);
+  if (params?.limit) query.set("limit", String(params.limit));
+  const suffix = query.toString();
+  return apiFetch<AgentSessionHistoryPage>(
+    `/api/agent-sessions/${encodeURIComponent(id)}/history${suffix ? `?${suffix}` : ""}`,
+  );
+}
+
+export function attachAgentSession(
+  id: string,
+  body: {
+    task_id?: string;
+    prompt?: string;
+    cwd?: string;
+    title?: string;
+    permission_mode?: string;
+  },
+): Promise<{ task: Task; binding: AgentSessionBinding }> {
+  return apiFetch<{ task: Task; binding: AgentSessionBinding }>(
+    `/api/agent-sessions/${encodeURIComponent(id)}/attach`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 /** Model spec with tier and cost label for routing decisions. */

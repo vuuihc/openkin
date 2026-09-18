@@ -691,6 +691,11 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
 		return store.Task{}, err
 	}
+	if handoff {
+		if err := e.store.DetachTaskAgentSessions(ctx, id, "cross-agent handoff"); err != nil {
+			return store.Task{}, err
+		}
+	}
 	e.invalidateActiveRun(id)
 	e.clearPersistTracking(id)
 	t, err := e.store.GetTask(ctx, id)

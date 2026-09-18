@@ -6,6 +6,7 @@ import {
   createProvider,
   deleteProvider,
   getSettings,
+  importAgentSessions,
   listAgents,
   listProviderModels,
   listProviders,
@@ -46,6 +47,8 @@ export default function SettingsPage() {
   const [agentLimitsText, setAgentLimitsText] = useState("");
   const [limitPolicy, setLimitPolicy] = useState("wait");
   const [limitFallbackText, setLimitFallbackText] = useState("[]");
+  const [autoImportMode, setAutoImportMode] = useState<"prompt" | "enabled" | "disabled">("prompt");
+  const [importingSessions, setImportingSessions] = useState(false);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [activeProviderId, setActiveProviderId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null); // null = closed, "" = new
@@ -86,6 +89,7 @@ export default function SettingsPage() {
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
+      setAutoImportMode(s["agent_sessions.auto_import_mode"] || "prompt");
       setActiveProviderId(s["provider.active_id"] ?? "");
       try {
         const reg = await listProviders();
@@ -153,12 +157,14 @@ export default function SettingsPage() {
         "agent.default": agentDefault.trim(),
         limit_policy: limitPolicy,
         "limit_policy.fallback_agents": limitFallbackText.trim() || "[]",
+        "agent_sessions.auto_import_mode": autoImportMode,
       };
       const s = await updateSettings(body);
       setSettings(s);
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
+      setAutoImportMode(s["agent_sessions.auto_import_mode"] || "prompt");
       setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setActiveProviderId(s["provider.active_id"] ?? activeProviderId);
       try {
@@ -173,6 +179,7 @@ export default function SettingsPage() {
       }
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
+      window.dispatchEvent(new Event("kin:agent-sessions-changed"));
       listAgents()
         .then(setAgentList)
         .catch(() => undefined);
@@ -180,6 +187,29 @@ export default function SettingsPage() {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const importSessions = async () => {
+    setImportingSessions(true);
+    setError(null);
+    try {
+      const result = await importAgentSessions();
+      window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      const errorCount = Object.keys(result.errors ?? {}).length;
+      pushToast(
+        errorCount > 0
+          ? tr("settings.localAgents.importPartial", {
+              imported: result.imported,
+              errors: errorCount,
+            })
+          : tr("settings.localAgents.imported", { imported: result.imported }),
+        errorCount > 0 ? "error" : "info",
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setImportingSessions(false);
     }
   };
 
@@ -804,6 +834,57 @@ export default function SettingsPage() {
         >
           {busy ? tr("settings.saving") : tr("settings.provider.save")}
         </button>
+      </section>
+
+      {/* Local Agent sessions */}
+      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <div>
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            {tr("settings.localAgents.heading")}
+          </h2>
+          <p className="mt-1 text-xs text-kin-muted leading-relaxed">
+            {tr("settings.localAgents.desc")}
+          </p>
+        </div>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-kin-secondary">
+            {tr("settings.localAgents.autoImport")}
+          </span>
+          <select
+            value={autoImportMode}
+            onChange={(e) =>
+              setAutoImportMode(e.target.value as "prompt" | "enabled" | "disabled")
+            }
+            className="kin-input min-h-[44px]"
+          >
+            <option value="prompt">{tr("settings.localAgents.modePrompt")}</option>
+            <option value="enabled">{tr("settings.localAgents.modeEnabled")}</option>
+            <option value="disabled">{tr("settings.localAgents.modeDisabled")}</option>
+          </select>
+          <span className="text-[11px] text-kin-muted">
+            {tr("settings.localAgents.policy")}
+          </span>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={importingSessions}
+            onClick={() => void importSessions()}
+            className="kin-btn-secondary disabled:opacity-50"
+          >
+            {importingSessions
+              ? tr("settings.localAgents.importing")
+              : tr("settings.localAgents.import")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="kin-btn-primary disabled:opacity-50"
+          >
+            {busy ? tr("settings.saving") : tr("settings.localAgents.save")}
+          </button>
+        </div>
       </section>
 
       {/* Appearance (design 3c / 3e) */}

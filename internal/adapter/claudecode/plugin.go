@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/sessioncatalog"
 )
 
 // PluginConfig configures Claude Code discovery and the approval bridge.
@@ -44,6 +46,10 @@ func (f *PluginFactory) Descriptor() agent.Descriptor {
 			agent.CapabilityApprovals,
 			agent.CapabilityOrchestrate,
 			agent.CapabilityLazyWorkspace,
+			agent.CapabilitySessionList,
+			agent.CapabilitySessionInspect,
+			agent.CapabilitySessionHistoryRead,
+			agent.CapabilitySessionAttach,
 		},
 	}
 }
@@ -73,11 +79,20 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 		Binary:   bin,
 		LookPath: look,
 	}
+	var catalog agent.SessionCatalog
+	if home, err := os.UserHomeDir(); err == nil {
+		catalog = &sessioncatalog.FileCatalog{
+			AgentID: "claude-code",
+			Format:  sessioncatalog.FormatClaude,
+			Roots:   []string{filepath.Join(home, ".claude", "projects")},
+		}
+	}
 
 	return agent.Registration{
 		Descriptor: f.Descriptor(),
 		Runner:     ad,
 		Controller: controller,
+		Catalog:    catalog,
 		Status: func(context.Context) agent.Status {
 			path, err := look(bin)
 			if err != nil {

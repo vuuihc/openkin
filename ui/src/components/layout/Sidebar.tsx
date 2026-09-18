@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { ensureProject, formatCost, isTerminal, type Task } from "../../api/client";
+import {
+  ensureProject,
+  formatCost,
+  isTerminal,
+  type AgentSession,
+  type Task,
+} from "../../api/client";
 import { useT } from "../../i18n/react";
 import { getDraftCwd, getDraftPrompt, subscribeDraft } from "../../lib/draftChat";
 import {
@@ -52,6 +58,8 @@ type Props = {
   onNewSessionInProject?: (cwd: string) => void;
   /** Permanently delete a session/task. */
   onDeleteSession?: (task: Task) => void;
+  externalSessions?: AgentSession[];
+  onOpenExternalSession?: (session: AgentSession) => void;
   /** Mobile drawer open. Desktop always visible. */
   mobileOpen: boolean;
   onCloseMobile: () => void;
@@ -79,6 +87,8 @@ export default function Sidebar({
   onNewChat,
   onNewSessionInProject,
   onDeleteSession,
+  externalSessions = [],
+  onOpenExternalSession,
   mobileOpen,
   onCloseMobile,
   searchQuery = "",
@@ -103,14 +113,36 @@ export default function Sidebar({
 
   const sortMode = getProjectSortMode();
   // prefsTick invalidates after localStorage updates (sort / pin / archive / interact).
-  const groups = useMemo(() => groupByProject(tasks), [tasks, prefsTick]);
   const archivedGroups = useMemo(
     () => groupByProject(tasks, null, false, true),
     [tasks, prefsTick],
   );
+  const archivedProjectKeys = useMemo(
+    () => new Set(archivedGroups.map((group) => projectKey(group.cwd))),
+    [archivedGroups],
+  );
+  const groups = useMemo(
+    () =>
+      mergeExternalProjectGroups(
+        groupByProject(tasks),
+        externalSessions.filter(
+          (session) => !archivedProjectKeys.has(projectKey(session.cwd)),
+        ),
+      ),
+    [tasks, externalSessions, archivedProjectKeys, prefsTick],
+  );
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const sortMenuRef = useRef<HTMLDivElement>(null);
+  const [groupMode, setGroupMode] = useState<"project" | "agent">(() => {
+    try {
+      return localStorage.getItem("kin_session_group_mode") === "agent"
+        ? "agent"
+        : "project";
+    } catch {
+      return "project";
+    }
+  });
 
   useEffect(() => {
     if (!sortMenuOpen) return;
@@ -186,6 +218,36 @@ export default function Sidebar({
           K
         </div>
         <span className="text-[14px] font-semibold tracking-tight">{tr("app.name")}</span>
+        <div
+          role="group"
+          aria-label={tr("nav.groupSessions")}
+          className="ml-auto flex items-center rounded-md border border-kin-border overflow-hidden"
+        >
+          {(["project", "agent"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={groupMode === mode}
+              title={tr(`nav.groupBy${mode === "project" ? "Project" : "Agent"}`)}
+              onClick={() => {
+                setGroupMode(mode);
+                try {
+                  localStorage.setItem("kin_session_group_mode", mode);
+                } catch {
+                  // ignore unavailable local storage
+                }
+              }}
+              className={[
+                "px-1.5 h-6 text-[10px] transition-colors",
+                groupMode === mode
+                  ? "bg-kin-blue-soft text-kin-blue"
+                  : "text-kin-muted hover:bg-[var(--kin-fill-strong)]",
+              ].join(" ")}
+            >
+              {mode === "project" ? tr("nav.groupProjectShort") : tr("nav.groupAgentShort")}
+            </button>
+          ))}
+        </div>
         <div className="ml-auto relative" ref={sortMenuRef}>
           <button
             type="button"
@@ -302,6 +364,16 @@ export default function Sidebar({
           )}
         </button>
 
+        {groupMode === "agent" && (
+          <AgentGroupedTree
+            tasks={tasks}
+            sessions={externalSessions}
+            selectedTaskId={selectedTaskId}
+            onOpenExternalSession={onOpenExternalSession}
+            onCloseMobile={onCloseMobile}
+          />
+        )}
+        <div className={groupMode === "agent" ? "hidden" : undefined}>
         {groups.length === 0 && archivedGroups.length === 0 && (
           <div className="px-2 py-4 text-[12.5px] text-kin-muted leading-relaxed">
             {searchQuery.trim()
@@ -339,6 +411,8 @@ export default function Sidebar({
               newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
               onDeleteSession={onDeleteSession}
               deleteLabel={tr("task.deleteSession")}
+              externalSessions={sessionsForProject(externalSessions, g)}
+              onOpenExternalSession={onOpenExternalSession}
               mode="active"
             />
           );
@@ -414,6 +488,8 @@ export default function Sidebar({
                       newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
                       onDeleteSession={onDeleteSession}
                       deleteLabel={tr("task.deleteSession")}
+                      externalSessions={sessionsForProject(externalSessions, g)}
+                      onOpenExternalSession={onOpenExternalSession}
                       mode="archived"
                     />
                   );
@@ -422,6 +498,7 @@ export default function Sidebar({
             )}
           </div>
         )}
+        </div>
       </nav>
 
       <div className="border-t border-kin-border px-2 py-2 space-y-0.5">        <NavLink
@@ -508,6 +585,8 @@ function ProjectBlock({
   onCloseMobile,
   onNewSession,
   onDeleteSession,
+  externalSessions = [],
+  onOpenExternalSession,
   onTogglePin,
   onArchive,
   pinLabel,
@@ -526,6 +605,8 @@ function ProjectBlock({
   onCloseMobile: () => void;
   onNewSession: () => void;
   onDeleteSession?: (task: Task) => void;
+  externalSessions?: AgentSession[];
+  onOpenExternalSession?: (session: AgentSession) => void;
   onTogglePin: () => void;
   onArchive: () => void;
   pinLabel: string;
@@ -622,56 +703,342 @@ function ProjectBlock({
       )}
 
       <div className="space-y-0.5 max-h-[min(280px,40vh)] overflow-y-auto kin-scroll pr-0.5">
-        {g.items.map((t) => {
-          const active = t.id === selectedTaskId;
-          const dot = sessionStatusDotClass(t.status, isSessionViewed(t.id));
-          return (
-            <div
-              key={t.id}
-              className={[
-                "group/session flex items-center gap-0.5 rounded-[7px] min-h-[34px]",
-                active
-                  ? "bg-[var(--kin-fill-strong)] text-kin-text"
-                  : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-              ].join(" ")}
-            >
-              <NavLink
-                to={`/tasks/${t.id}`}
-                onClick={() => {
-                  touchProject(t.cwd || g.cwd);
-                  if (isTerminal(t.status)) markSessionViewed(t.id);
-                  onCloseMobile();
-                }}
-                className="flex flex-1 items-center gap-2 px-2 py-1.5 text-[13px] min-w-0"
-              >
-                <span
-                  className={[
-                    "w-1.5 h-1.5 rounded-full flex-none",
-                    dot ?? "bg-transparent",
-                  ].join(" ")}
-                />
-                <span className="truncate flex-1 min-w-0">{t.title || displayUserPrompt(t.prompt || "")}</span>
-              </NavLink>
-              {onDeleteSession && (
-                <button
-                  type="button"
-                  title={deleteLabel}
-                  aria-label={deleteLabel}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onDeleteSession(t);
-                  }}
-                  className="flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-[#ff8a80] hover:bg-[rgba(255,69,58,.12)] opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
-                >
-                  <IconTrash size={12} />
-                </button>
-              )}
-            </div>
-          );
-        })}
+        <ProjectAgentTree
+          tasks={g.items}
+          sessions={externalSessions}
+          selectedTaskId={selectedTaskId}
+          onDeleteSession={onDeleteSession}
+          deleteLabel={deleteLabel}
+          onOpenExternalSession={onOpenExternalSession}
+          onCloseMobile={onCloseMobile}
+        />
       </div>
 
+    </div>
+  );
+}
+
+function projectKey(cwd: string): string {
+  return normCwd(cwd) || "__unassigned__";
+}
+
+function projectLabelForSession(session: AgentSession): string {
+  return session.project_label || (session.cwd ? session.cwd.split("/").filter(Boolean).pop() : "") || "Unassigned";
+}
+
+function sessionsForProject(sessions: AgentSession[], group: ProjectGroup): AgentSession[] {
+  return sessions.filter((session) => projectKey(session.cwd) === projectKey(group.cwd));
+}
+
+function mergeExternalProjectGroups(
+  groups: ProjectGroup[],
+  sessions: AgentSession[],
+): ProjectGroup[] {
+  const out = [...groups];
+  const known = new Set(out.map((group) => projectKey(group.cwd)));
+  for (const session of sessions) {
+    const key = projectKey(session.cwd);
+    if (known.has(key)) continue;
+    known.add(key);
+    out.push({
+      label: projectLabelForSession(session),
+      cwd: session.cwd,
+      items: [],
+      pinned: false,
+      archived: false,
+      lastInteractedAt: session.updated_at,
+      createdAt: session.first_seen_at,
+      hasActiveTask: false,
+    });
+  }
+  return out;
+}
+
+function ExternalSessionRow({
+  session,
+  label,
+  onOpen,
+  onCloseMobile,
+}: {
+  session: AgentSession;
+  label: string;
+  onOpen?: (session: AgentSession) => void;
+  onCloseMobile: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onOpen?.(session);
+        onCloseMobile();
+      }}
+      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-left text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text min-h-[34px]"
+      title={`${label}: ${session.title}`}
+    >
+      <span
+        className={[
+          "w-1.5 h-1.5 rounded-full flex-none",
+          session.status === "active" ? "bg-kin-blue" : "bg-kin-muted",
+        ].join(" ")}
+      />
+      <span className="truncate flex-1 min-w-0">{session.title}</span>
+      {!session.linked && (
+        <span className="text-[9px] text-kin-muted border border-kin-border rounded px-1">
+          {label}
+        </span>
+      )}
+    </button>
+  );
+}
+
+function AgentGroupedTree({
+  tasks,
+  sessions,
+  selectedTaskId,
+  onOpenExternalSession,
+  onCloseMobile,
+}: {
+  tasks: Task[];
+  sessions: AgentSession[];
+  selectedTaskId?: string | null;
+  onOpenExternalSession?: (session: AgentSession) => void;
+  onCloseMobile: () => void;
+}) {
+  const tr = useT();
+  const groups = useMemo(() => {
+    const ids = new Set<string>();
+    for (const task of tasks) ids.add(task.agent || "kin");
+    for (const session of sessions) ids.add(session.agent_id);
+    return [...ids].sort().map((agentID) => ({
+      agentID,
+      tasks: tasks.filter((task) => (task.agent || "kin") === agentID),
+      sessions: sessions.filter((session) => session.agent_id === agentID),
+    }));
+  }, [sessions, tasks]);
+  if (groups.length === 0) {
+    return <div className="px-2 py-4 text-[12.5px] text-kin-muted">{tr("nav.emptyHint")}</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {groups.map((group) => (
+        <div key={group.agentID}>
+          <div className="kin-section-label flex items-center gap-1">
+            <span className="truncate">{group.agentID}</span>
+            <span className="text-[10px] opacity-70">
+              {group.tasks.length + group.sessions.length}
+            </span>
+          </div>
+          <div className="pl-2 border-l border-kin-border ml-1">
+            <AgentProjectTree
+              tasks={group.tasks}
+              sessions={group.sessions}
+              selectedTaskId={selectedTaskId}
+              onOpenExternalSession={onOpenExternalSession}
+              onCloseMobile={onCloseMobile}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AgentProjectTree({
+  tasks,
+  sessions,
+  selectedTaskId,
+  onDeleteSession,
+  deleteLabel,
+  onOpenExternalSession,
+  onCloseMobile,
+}: {
+  tasks: Task[];
+  sessions: AgentSession[];
+  selectedTaskId?: string | null;
+  onDeleteSession?: (task: Task) => void;
+  deleteLabel?: string;
+  onOpenExternalSession?: (session: AgentSession) => void;
+  onCloseMobile: () => void;
+}) {
+  const projects = useMemo(() => {
+    const map = new Map<
+      string,
+      { label: string; tasks: Task[]; sessions: AgentSession[] }
+    >();
+    for (const task of tasks) {
+      const key = projectKey(task.cwd);
+      const project = map.get(key) ?? {
+        label: task.cwd ? task.cwd.split("/").filter(Boolean).pop() || "Unassigned" : "Unassigned",
+        tasks: [],
+        sessions: [],
+      };
+      project.tasks.push(task);
+      map.set(key, project);
+    }
+    for (const session of sessions) {
+      const key = projectKey(session.cwd);
+      const project = map.get(key) ?? {
+        label: projectLabelForSession(session),
+        tasks: [],
+        sessions: [],
+      };
+      project.sessions.push(session);
+      map.set(key, project);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [sessions, tasks]);
+
+  return (
+    <div className="space-y-1">
+      {projects.map(([key, project]) => (
+        <div key={key}>
+          <div className="px-2 py-1 text-[10px] text-kin-muted truncate">
+            {project.label}
+          </div>
+          <AgentSessionRows
+            tasks={project.tasks}
+            sessions={project.sessions}
+            selectedTaskId={selectedTaskId}
+            onDeleteSession={onDeleteSession}
+            deleteLabel={deleteLabel}
+            onOpenExternalSession={onOpenExternalSession}
+            onCloseMobile={onCloseMobile}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProjectAgentTree({
+  tasks,
+  sessions,
+  selectedTaskId,
+  onDeleteSession,
+  deleteLabel,
+  onOpenExternalSession,
+  onCloseMobile,
+}: {
+  tasks: Task[];
+  sessions: AgentSession[];
+  selectedTaskId?: string | null;
+  onDeleteSession?: (task: Task) => void;
+  deleteLabel: string;
+  onOpenExternalSession?: (session: AgentSession) => void;
+  onCloseMobile: () => void;
+}) {
+  const groups = useMemo(() => {
+    const map = new Map<string, { tasks: Task[]; sessions: AgentSession[] }>();
+    for (const task of tasks) {
+      const key = task.agent || "kin";
+      const group = map.get(key) ?? { tasks: [], sessions: [] };
+      group.tasks.push(task);
+      map.set(key, group);
+    }
+    for (const session of sessions) {
+      const group = map.get(session.agent_id) ?? { tasks: [], sessions: [] };
+      group.sessions.push(session);
+      map.set(session.agent_id, group);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [sessions, tasks]);
+
+  return (
+    <div className="space-y-1">
+      {groups.map(([agentID, group]) => (
+        <div key={agentID}>
+          <div className="px-2 py-1 text-[10px] text-kin-muted uppercase tracking-wide">
+            {agentID}
+          </div>
+          <AgentSessionRows
+            tasks={group.tasks}
+            sessions={group.sessions}
+            selectedTaskId={selectedTaskId}
+            onDeleteSession={onDeleteSession}
+            deleteLabel={deleteLabel}
+            onOpenExternalSession={onOpenExternalSession}
+            onCloseMobile={onCloseMobile}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AgentSessionRows({
+  tasks,
+  sessions,
+  selectedTaskId,
+  onDeleteSession,
+  deleteLabel,
+  onOpenExternalSession,
+  onCloseMobile,
+}: {
+  tasks: Task[];
+  sessions: AgentSession[];
+  selectedTaskId?: string | null;
+  onDeleteSession?: (task: Task) => void;
+  deleteLabel?: string;
+  onOpenExternalSession?: (session: AgentSession) => void;
+  onCloseMobile: () => void;
+}) {
+  const tr = useT();
+  return (
+    <div className="space-y-0.5">
+      {tasks.map((task) => {
+        const active = task.id === selectedTaskId;
+        const dot = sessionStatusDotClass(task.status, isSessionViewed(task.id));
+        return (
+          <div
+            key={task.id}
+            className={[
+              "group/session flex items-center gap-0.5 rounded-[7px] min-h-[34px]",
+              active
+                ? "bg-[var(--kin-fill-strong)] text-kin-text"
+                : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+            ].join(" ")}
+          >
+            <NavLink
+              to={`/tasks/${task.id}`}
+              onClick={() => {
+                touchProject(task.cwd);
+                if (isTerminal(task.status)) markSessionViewed(task.id);
+                onCloseMobile();
+              }}
+              className="flex flex-1 items-center gap-2 px-2 py-1.5 text-[12.5px] min-w-0"
+            >
+              <span className={["w-1.5 h-1.5 rounded-full flex-none", dot ?? "bg-transparent"].join(" ")} />
+              <span className="truncate flex-1 min-w-0">
+                {task.title || displayUserPrompt(task.prompt || "")}
+              </span>
+            </NavLink>
+            {onDeleteSession && deleteLabel && (
+              <button
+                type="button"
+                title={deleteLabel}
+                aria-label={deleteLabel}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDeleteSession(task);
+                }}
+                className="flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-[#ff8a80] hover:bg-[rgba(255,69,58,.12)] opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
+              >
+                <IconTrash size={12} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {sessions.map((session) => (
+        <ExternalSessionRow
+          key={session.id}
+          session={session}
+          label={tr("nav.externalSession")}
+          onOpen={onOpenExternalSession}
+          onCloseMobile={onCloseMobile}
+        />
+      ))}
     </div>
   );
 }

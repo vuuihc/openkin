@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/sessioncatalog"
 )
 
 // PluginConfig configures Codex discovery.
@@ -44,6 +46,10 @@ func (f *PluginFactory) Descriptor() agent.Descriptor {
 			agent.CapabilityResume,
 			agent.CapabilityTools,
 			agent.CapabilityOrchestrate,
+			agent.CapabilitySessionList,
+			agent.CapabilitySessionInspect,
+			agent.CapabilitySessionHistoryRead,
+			agent.CapabilitySessionAttach,
 		},
 	}
 }
@@ -67,11 +73,23 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 	ad.LookPath = look
 
 	controller := &Controller{Binary: bin, LookPath: look}
+	var catalog agent.SessionCatalog
+	if home, err := os.UserHomeDir(); err == nil {
+		catalog = &sessioncatalog.FileCatalog{
+			AgentID: "codex",
+			Format:  sessioncatalog.FormatCodex,
+			Roots: []string{
+				filepath.Join(home, ".codex", "sessions"),
+				filepath.Join(home, ".codex", "archived_sessions"),
+			},
+		}
+	}
 
 	return agent.Registration{
 		Descriptor: f.Descriptor(),
 		Runner:     ad,
 		Controller: controller,
+		Catalog:    catalog,
 		Status: func(context.Context) agent.Status {
 			path, err := look(bin)
 			if err != nil {
