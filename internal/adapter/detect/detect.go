@@ -54,6 +54,7 @@ type Presence struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	Binary       string `json:"binary,omitempty"`
+	ConfigPath   string `json:"config_path,omitempty"`
 	Installed    bool   `json:"installed"` // binary and/or config dir present
 	Available    bool   `json:"available"` // same as Installed for discovery
 	RunnableHint bool   `json:"runnable_hint"`
@@ -178,6 +179,7 @@ func ScanPresence(defaultPref string) []Presence {
 			ID:           sp.ID,
 			Name:         sp.Name,
 			Binary:       binPath,
+			ConfigPath:   configPath,
 			Installed:    inst,
 			Available:    inst,
 			RunnableHint: sp.RunnableHint,

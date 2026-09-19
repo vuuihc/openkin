@@ -20,6 +20,7 @@ import (
 	"github.com/vuuihc/openkin/internal/a2a"
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/api"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/connectors"
@@ -460,6 +461,9 @@ func ServeWith(version string, flags ServeFlags) error {
 				seen[p.ID] = true
 			}
 			return out
+		},
+		ListAgentProviders: func() []agent.ProviderInfo {
+			return listAgentProviders(reg)
 		},
 		SmokeAgents: func(c context.Context, ids []string) []api.AgentSmokeResult {
 			return api.RunGenericCLISmoke(c, st, ids)

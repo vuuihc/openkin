@@ -87,6 +87,8 @@ type Server struct {
 
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
+	// ListAgentProviders returns unified discovery/session capability evidence.
+	ListAgentProviders func() []agent.ProviderInfo
 	// Agents is the opened local Agent registry used for session discovery.
 	Agents *agent.Registry
 
@@ -191,6 +193,7 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)
 		r.Get("/api/agents", s.handleListAgents)
+		r.Get("/api/agent-providers", s.handleListAgentProviders)
 		r.Get("/api/agent-sessions", s.handleListAgentSessions)
 		r.Get("/api/agent-sessions/page", s.handleListAgentSessionsPage)
 		r.Get("/api/agent-sessions/{id}", s.handleGetAgentSession)

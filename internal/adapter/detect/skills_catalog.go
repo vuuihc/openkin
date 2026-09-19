@@ -9,15 +9,18 @@ package detect
 // Presence is best-effort: PATH binaries and/or well-known config directories
 // (the same signals npx skills uses when choosing skill install targets).
 type DiscoverySpec struct {
-	ID           string
-	Name         string
-	Bins         []string // optional CLI names on PATH
-	EnvBin       string   // optional absolute-path override env
-	HomeDirs     []string // paths relative to $HOME
-	ConfigDirs   []string // paths relative to XDG config home (~/.config)
-	SkillsDir    string   // project-relative skills dir (skills ecosystem)
-	Priority     int      // lower = preferred when ranking discoveries
-	RunnableHint bool     // true when Kin has a first-class process adapter
+	ID                string
+	Name              string
+	Bins              []string // optional CLI names on PATH
+	EnvBin            string   // optional absolute-path override env
+	HomeDirs          []string // paths relative to $HOME
+	ConfigDirs        []string // paths relative to XDG config home (~/.config)
+	SessionRoots      []string // provider-owned metadata roots, relative to $HOME
+	SessionMode       string   // native | presence_only | unsupported
+	UnsupportedReason string
+	SkillsDir         string // project-relative skills dir (skills ecosystem)
+	Priority          int    // lower = preferred when ranking discoveries
+	RunnableHint      bool   // true when Kin has a first-class process adapter
 }
 
 // SkillsDiscoveryCatalog is the skills-ecosystem agent list for local discovery
@@ -394,6 +397,8 @@ func SkillsDiscoveryCatalog() []DiscoverySpec {
 			Bins:         []string{"droid"},
 			EnvBin:       "KIN_DROID_BIN",
 			HomeDirs:     []string{".factory"},
+			SessionRoots: []string{".factory/sessions"},
+			SessionMode:  "native",
 			ConfigDirs:   nil,
 			SkillsDir:    ".factory/skills",
 			Priority:     35,
@@ -730,26 +735,30 @@ func SkillsDiscoveryCatalog() []DiscoverySpec {
 			RunnableHint: false,
 		},
 		{
-			ID:           "trae",
-			Name:         "Trae",
-			Bins:         nil,
-			EnvBin:       "",
-			HomeDirs:     []string{".trae"},
-			ConfigDirs:   nil,
-			SkillsDir:    ".trae/skills",
-			Priority:     565,
-			RunnableHint: false,
+			ID:                "trae",
+			Name:              "Trae",
+			Bins:              nil,
+			EnvBin:            "",
+			HomeDirs:          []string{".trae", "Library/Application Support/Trae"},
+			SessionMode:       "presence_only",
+			UnsupportedReason: "no reviewed local session protocol; GUI-only fallback is non-native",
+			ConfigDirs:        nil,
+			SkillsDir:         ".trae/skills",
+			Priority:          565,
+			RunnableHint:      false,
 		},
 		{
-			ID:           "trae-cn",
-			Name:         "Trae CN",
-			Bins:         nil,
-			EnvBin:       "",
-			HomeDirs:     []string{".trae-cn"},
-			ConfigDirs:   nil,
-			SkillsDir:    ".trae/skills",
-			Priority:     566,
-			RunnableHint: false,
+			ID:                "trae-cn",
+			Name:              "Trae CN",
+			Bins:              nil,
+			EnvBin:            "",
+			HomeDirs:          []string{".trae-cn", "Library/Application Support/Trae CN"},
+			SessionMode:       "presence_only",
+			UnsupportedReason: "no reviewed local session protocol; GUI-only fallback is non-native",
+			ConfigDirs:        nil,
+			SkillsDir:         ".trae/skills",
+			Priority:          566,
+			RunnableHint:      false,
 		},
 		{
 			ID:           "warp",
@@ -763,15 +772,43 @@ func SkillsDiscoveryCatalog() []DiscoverySpec {
 			RunnableHint: false,
 		},
 		{
-			ID:           "zcode",
-			Name:         "ZCode",
-			Bins:         nil,
-			EnvBin:       "",
-			HomeDirs:     nil,
-			ConfigDirs:   nil,
-			SkillsDir:    ".zcode/skills",
-			Priority:     568,
-			RunnableHint: false,
+			ID:                "workbuddy",
+			Name:              "WorkBuddy",
+			Bins:              []string{"workbuddy"},
+			EnvBin:            "KIN_WORKBUDDY_BIN",
+			HomeDirs:          []string{".workbuddy", "Library/Application Support/WorkBuddy"},
+			ConfigDirs:        []string{"workbuddy"},
+			SessionMode:       "presence_only",
+			UnsupportedReason: "no reviewed local session protocol; GUI-only fallback is non-native",
+			SkillsDir:         ".workbuddy/skills",
+			Priority:          570,
+			RunnableHint:      false,
+		},
+		{
+			ID:                "doubao",
+			Name:              "Doubao",
+			Bins:              []string{"doubao"},
+			EnvBin:            "KIN_DOUBAO_BIN",
+			HomeDirs:          []string{".doubao", "Library/Application Support/Doubao"},
+			ConfigDirs:        []string{"doubao"},
+			SessionMode:       "presence_only",
+			UnsupportedReason: "no reviewed local session protocol; GUI-only fallback is non-native",
+			SkillsDir:         ".doubao/skills",
+			Priority:          571,
+			RunnableHint:      false,
+		},
+		{
+			ID:                "zcode",
+			Name:              "ZCode",
+			Bins:              nil,
+			EnvBin:            "",
+			HomeDirs:          []string{".zcode", "Library/Application Support/ZCode"},
+			SessionMode:       "presence_only",
+			UnsupportedReason: "no reviewed local session protocol; GUI-only fallback is non-native",
+			ConfigDirs:        nil,
+			SkillsDir:         ".zcode/skills",
+			Priority:          568,
+			RunnableHint:      false,
 		},
 		{
 			ID:           "zed",
@@ -818,4 +855,14 @@ func SkillsDiscoveryCatalog() []DiscoverySpec {
 			RunnableHint: true,
 		},
 	}
+}
+
+// DiscoverySpecFor returns the declarative manifest for one known provider.
+func DiscoverySpecFor(id string) (DiscoverySpec, bool) {
+	for _, spec := range SkillsDiscoveryCatalog() {
+		if spec.ID == id {
+			return spec, true
+		}
+	}
+	return DiscoverySpec{}, false
 }

@@ -206,3 +206,42 @@ func TestDroidDiscoveryUsesBinaryAndEnvironmentOverride(t *testing.T) {
 	}
 	t.Fatal("Droid missing from skills discovery catalog")
 }
+
+func TestPresenceOnlyProviderManifests(t *testing.T) {
+	for _, id := range []string{"trae", "trae-cn", "workbuddy", "doubao", "zcode"} {
+		spec, ok := DiscoverySpecFor(id)
+		if !ok {
+			t.Fatalf("missing provider manifest %q", id)
+		}
+		if spec.SessionMode != "presence_only" || spec.UnsupportedReason == "" {
+			t.Fatalf("manifest %q=%+v", id, spec)
+		}
+	}
+	droid, ok := DiscoverySpecFor("droid")
+	if !ok || droid.SessionMode != "native" || len(droid.SessionRoots) != 1 {
+		t.Fatalf("droid manifest=%+v, ok=%v", droid, ok)
+	}
+}
+
+func TestScanPresenceReportsConfigEvidence(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "Library/Application Support/WorkBuddy"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldHome := HomeDir
+	HomeDir = func() (string, error) { return home, nil }
+	t.Cleanup(func() { HomeDir = oldHome })
+	oldLook := LookPath
+	LookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	t.Cleanup(func() { LookPath = oldLook })
+
+	for _, item := range ScanPresence("") {
+		if item.ID == "workbuddy" {
+			if !item.Installed || item.ConfigPath == "" || item.Source != "config" {
+				t.Fatalf("workbuddy presence=%+v", item)
+			}
+			return
+		}
+	}
+	t.Fatal("workbuddy missing from presence scan")
+}

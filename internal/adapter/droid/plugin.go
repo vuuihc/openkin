@@ -6,20 +6,23 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/sessioncatalog"
 )
 
 // PluginConfig configures Droid discovery and Kin approval bridging.
 type PluginConfig struct {
-	Binary     string
-	DaemonURL  string
-	Token      string
-	TokenFunc  func() string
-	LookPath   func(file string) (string, error)
-	HTTPClient *http.Client
+	Binary      string
+	DaemonURL   string
+	Token       string
+	TokenFunc   func() string
+	LookPath    func(file string) (string, error)
+	HTTPClient  *http.Client
+	SessionRoot string
 	// ConfiguredModels returns optional provider-backed model overlays.
 	ConfiguredModels func(context.Context) ([]agent.ModelOption, error)
 }
@@ -46,6 +49,10 @@ func (f *PluginFactory) Descriptor() agent.Descriptor {
 			agent.CapabilityResume,
 			agent.CapabilityTools,
 			agent.CapabilityApprovals,
+			agent.CapabilitySessionList,
+			agent.CapabilitySessionInspect,
+			agent.CapabilitySessionHistoryRead,
+			agent.CapabilitySessionAttach,
 		},
 	}
 }
@@ -72,9 +79,31 @@ func (f *PluginFactory) Open(context.Context) (agent.Registration, error) {
 	runner.TokenFunc = f.cfg.TokenFunc
 	runner.HTTPClient = f.cfg.HTTPClient
 
+	var catalog agent.SessionCatalog
+	sessionRoot := strings.TrimSpace(f.cfg.SessionRoot)
+	if sessionRoot == "" {
+		configRoot := strings.TrimSpace(os.Getenv("FACTORY_CONFIG_DIR"))
+		if configRoot == "" {
+			if home, err := os.UserHomeDir(); err == nil {
+				configRoot = filepath.Join(home, ".factory")
+			}
+		}
+		if configRoot != "" {
+			sessionRoot = filepath.Join(configRoot, "sessions")
+		}
+	}
+	if sessionRoot != "" {
+		catalog = &sessioncatalog.FileCatalog{
+			AgentID: "droid",
+			Format:  sessioncatalog.FormatDroid,
+			Roots:   []string{sessionRoot},
+		}
+	}
+
 	return agent.Registration{
 		Descriptor: f.Descriptor(),
 		Runner:     runner,
+		Catalog:    catalog,
 		Status: func(context.Context) agent.Status {
 			path, err := look(bin)
 			if err != nil {

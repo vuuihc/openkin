@@ -164,6 +164,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listAgentProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent-sessions": {
         parameters: {
             query?: never;
@@ -778,6 +794,28 @@ export interface components {
             device_id: string;
             token: string;
             label?: string;
+        };
+        AgentProviderCapability: {
+            capability: string;
+            /** @enum {string} */
+            state: "not_detected" | "detected" | "available" | "unsupported" | "degraded" | "permission_required";
+            evidence?: string;
+        };
+        AgentProvider: {
+            id: string;
+            name: string;
+            kind: string;
+            /** @enum {string} */
+            state: "not_detected" | "detected" | "available" | "unsupported" | "degraded" | "permission_required";
+            installed: boolean;
+            available: boolean;
+            binary?: string;
+            source?: string;
+            reason?: string;
+            evidence?: string[];
+            capabilities?: components["schemas"]["AgentProviderCapability"][];
+            /** Format: date-time */
+            last_scanned_at: string;
         };
         AgentSession: {
             id: string;
@@ -1502,6 +1540,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listAgentProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local Agent discovery and session capability evidence */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentProvider"][];
+                };
             };
         };
     };

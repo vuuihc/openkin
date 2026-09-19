@@ -156,6 +156,18 @@ paths:
       responses:
         "204":
           description: Worker lease revoked
+  /api/agent-providers:
+    get:
+      operationId: listAgentProviders
+      responses:
+        "200":
+          description: Local Agent discovery and session capability evidence
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentProvider"
   /api/agent-sessions:
     get:
       operationId: listAgentSessions
@@ -961,6 +973,51 @@ components:
           type: string
         label:
           type: string
+    AgentProviderCapability:
+      type: object
+      required: [capability, state]
+      properties:
+        capability:
+          type: string
+        state:
+          type: string
+          enum: [not_detected, detected, available, unsupported, degraded, permission_required]
+        evidence:
+          type: string
+    AgentProvider:
+      type: object
+      required: [id, name, kind, state, installed, available, last_scanned_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+        state:
+          type: string
+          enum: [not_detected, detected, available, unsupported, degraded, permission_required]
+        installed:
+          type: boolean
+        available:
+          type: boolean
+        binary:
+          type: string
+        source:
+          type: string
+        reason:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+        capabilities:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentProviderCapability"
+        last_scanned_at:
+          type: string
+          format: date-time
     AgentSession:
       type: object
       required:

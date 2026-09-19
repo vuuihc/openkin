@@ -205,3 +205,93 @@ func TestFileCatalogCodexNormalizesToolEvents(t *testing.T) {
 		t.Fatalf("reasoning=%+v", page.Items[2])
 	}
 }
+
+func TestFileCatalogDroidNormalizesMetadataAndEvents(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "droid-session.jsonl")
+	content := `{"type":"session_start","id":"droid-1","cwd":"/tmp/droid","title":"Droid session"}
+{"type":"message","id":"m1","timestamp":"2026-09-19T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"inspect workspace"}]}}
+{"type":"message","id":"m2","timestamp":"2026-09-19T10:00:01Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"checking"},{"type":"tool_use","id":"call-1","name":"shell","input":{"cmd":"pwd","token":"secret-value"}},{"type":"text","text":"done"}]}}
+{"type":"message","id":"m3","timestamp":"2026-09-19T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"call-1","content":" /tmp/droid "}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "droid", Format: FormatDroid, Roots: []string{root}}
+	sessions, err := catalog.List(context.Background(), agent.SessionQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ExternalRef != "droid-1" ||
+		sessions[0].Cwd != "/tmp/droid" || sessions[0].Title != "Droid session" {
+		t.Fatalf("sessions=%+v", sessions)
+	}
+
+	page, err := catalog.ReadHistory(context.Background(), "droid-1", agent.HistoryQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(page.Items) != 5 {
+		t.Fatalf("items=%d, want 5: %+v", len(page.Items), page.Items)
+	}
+	if page.Items[0].Role != "user" || page.Items[0].Text != "inspect workspace" {
+		t.Fatalf("user item=%+v", page.Items[0])
+	}
+	if page.Items[1].Kind != "reasoning" || page.Items[2].Kind != "tool_call" ||
+		page.Items[2].ToolName != "shell" || strings.Contains(page.Items[2].Text, "secret-value") ||
+		page.Items[3].Text != "done" {
+		t.Fatalf("assistant items=%+v", page.Items)
+	}
+	if page.Items[4].Kind != "tool_result" || !strings.Contains(page.Items[4].Text, "/tmp/droid") {
+		t.Fatalf("tool result=%+v", page.Items[4])
+	}
+	if err := CheckConformance(context.Background(), catalog, "droid-1"); err != nil {
+		t.Fatalf("catalog conformance: %v", err)
+	}
+}
+
+func TestFileCatalogDroidAcceptsClaudeShapedMessages(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "droid-claude-shaped.jsonl")
+	content := `{"type":"user","sessionId":"droid-2","cwd":"/tmp/droid","uuid":"u1","message":{"role":"user","content":"hello"}}
+{"type":"assistant","sessionId":"droid-2","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"answer"},{"type":"tool_use","id":"tool-1","name":"shell","input":{"cmd":"pwd"}}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "droid", Format: FormatDroid, Roots: []string{root}}
+	sessions, err := catalog.List(context.Background(), agent.SessionQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ExternalRef != "droid-2" {
+		t.Fatalf("sessions=%+v", sessions)
+	}
+	page, err := catalog.ReadHistory(context.Background(), "droid-2", agent.HistoryQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(page.Items) != 3 || page.Items[2].Kind != "tool_call" {
+		t.Fatalf("items=%+v", page.Items)
+	}
+}
+
+func TestFileCatalogDroidDerivesRefFromSessionFilename(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "droid-file-ref.jsonl")
+	content := `{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}
+{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":"answer"}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog := &FileCatalog{AgentID: "droid", Format: FormatDroid, Roots: []string{root}}
+	sessions, err := catalog.List(context.Background(), agent.SessionQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 1 || sessions[0].ExternalRef != "droid-file-ref" {
+		t.Fatalf("sessions=%+v", sessions)
+	}
+}

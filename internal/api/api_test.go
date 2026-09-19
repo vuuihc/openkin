@@ -14,6 +14,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
@@ -377,6 +378,41 @@ func TestListAgentsExactlyOneDefault(t *testing.T) {
 	}
 	if got := list[1].ModelListStatus; got != "default_only" || len(list[1].Models) != 0 {
 		t.Fatalf("codex model list status=%q models=%+v", got, list[1].Models)
+	}
+}
+
+func TestListAgentProvidersReturnsCapabilityEvidence(t *testing.T) {
+	s, token := newTestServer(t)
+	s.ListAgentProviders = func() []agent.ProviderInfo {
+		return []agent.ProviderInfo{{
+			ID:        "trae",
+			Name:      "Trae",
+			Kind:      agent.KindCLI,
+			State:     agent.ProviderUnsupported,
+			Installed: true,
+			Reason:    "no reviewed local session protocol",
+			Capabilities: []agent.CapabilityEvidence{{
+				Capability: agent.CapabilitySessionList,
+				State:      agent.ProviderUnsupported,
+				Evidence:   "presence-only manifest",
+			}},
+		}}
+	}
+	h := s.Handler()
+	req := httptest.NewRequest(http.MethodGet, "/api/agent-providers", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var list []agent.ProviderInfo
+	if err := json.NewDecoder(rr.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].State != agent.ProviderUnsupported ||
+		len(list[0].Capabilities) != 1 || list[0].Capabilities[0].Evidence == "" {
+		t.Fatalf("providers=%+v", list)
 	}
 }
 

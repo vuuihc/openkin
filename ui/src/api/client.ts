@@ -332,6 +332,39 @@ export function listAgents(): Promise<AgentInfo[]> {
   return apiFetch<AgentInfo[]>("/api/agents");
 }
 
+export type AgentProviderState =
+  | "not_detected"
+  | "detected"
+  | "available"
+  | "unsupported"
+  | "degraded"
+  | "permission_required";
+
+export type AgentProviderCapability = {
+  capability: string;
+  state: AgentProviderState;
+  evidence?: string;
+};
+
+export type AgentProvider = {
+  id: string;
+  name: string;
+  kind: string;
+  state: AgentProviderState;
+  installed: boolean;
+  available: boolean;
+  binary?: string;
+  source?: string;
+  reason?: string;
+  evidence?: string[];
+  capabilities?: AgentProviderCapability[];
+  last_scanned_at: string;
+};
+
+export function listAgentProviders(): Promise<AgentProvider[]> {
+  return apiFetch<AgentProvider[]>("/api/agent-providers");
+}
+
 /** Best-effort install/auth/version metadata from GET /api/agents/management. */
 export type AgentManagement = {
   id: string;
