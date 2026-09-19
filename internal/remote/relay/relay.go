@@ -40,6 +40,7 @@ type Bridge struct {
 	ws                                  *websocket.Conn
 	streams                             map[string]*websocket.Conn
 	httpClient                          *http.Client
+	lastError                           string
 }
 
 type envelope struct {
@@ -139,7 +140,8 @@ func newSecret() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func validateRelayURL(raw string) error {
+// ValidateURL verifies a user-provided Relay endpoint before it is persisted.
+func ValidateURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return errors.New("relay URL must include a host")
@@ -150,6 +152,26 @@ func validateRelayURL(raw string) error {
 	default:
 		return errors.New("relay URL must use ws(s) or http(s)")
 	}
+}
+
+func validateRelayURL(raw string) error {
+	return ValidateURL(raw)
+}
+
+// Connected reports whether the daemon currently has an established Relay
+// WebSocket generation.
+func (b *Bridge) Connected() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ws != nil
+}
+
+// LastError reports a sanitized reconnect error, if the most recent Relay
+// generation failed. It never includes the URL or persistent Relay key.
+func (b *Bridge) LastError() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.lastError
 }
 
 // Run maintains the daemon connection until ctx is cancelled.
@@ -176,7 +198,11 @@ func (b *Bridge) Run(ctx context.Context) error {
 				delay = 15 * time.Second
 			}
 		}
-		_ = err
+		if err != nil {
+			b.mu.Lock()
+			b.lastError = "relay connection failed; retrying"
+			b.mu.Unlock()
+		}
 	}
 }
 
@@ -199,6 +225,9 @@ func (b *Bridge) runGeneration(ctx context.Context) error {
 	if err := b.send(ctx, "hello", helloData{Role: "daemon", Room: b.room, Key: b.relayKey}); err != nil {
 		return err
 	}
+	b.mu.Lock()
+	b.lastError = ""
+	b.mu.Unlock()
 	for {
 		typ, msg, err := c.Read(ctx)
 		if err != nil {

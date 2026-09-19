@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   ApiError,
+  adoptRelayURL,
   activateProvider,
   createProvider,
   deleteProvider,
@@ -11,6 +12,7 @@ import {
   listAgents,
   listProviderModels,
   listProviders,
+  refreshRelayPairing,
   testNotify,
   updateProvider,
   updateSettings,
@@ -68,6 +70,8 @@ export default function SettingsPage() {
   const [ntfy, setNtfy] = useState("");
   const [quotaWaitNotifySecs, setQuotaWaitNotifySecs] = useState("900");
   const [baseURL, setBaseURL] = useState("");
+  const [relayURL, setRelayURL] = useState("");
+  const [relayBusy, setRelayBusy] = useState(false);
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
   const [limitPolicy, setLimitPolicy] = useState("wait");
@@ -114,6 +118,7 @@ export default function SettingsPage() {
       setNtfy(s["notify.ntfy_topic"] ?? "");
       setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setBaseURL(s["ui.base_url"] ?? "");
+      setRelayURL(s["relay.url"] ?? "");
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
@@ -156,6 +161,16 @@ export default function SettingsPage() {
     if (reconnectGen === 0) return;
     void load();
   }, [reconnectGen, load]);
+
+  useEffect(() => {
+    if (!settings?.["relay.url"]) return;
+    const timer = window.setInterval(() => {
+      void getSettings()
+        .then((next) => setSettings(next))
+        .catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [settings?.["relay.url"]]);
 
   useEffect(() => {
     try {
@@ -482,6 +497,42 @@ export default function SettingsPage() {
     }
   };
 
+  const saveRelay = async () => {
+    setRelayBusy(true);
+    setError(null);
+    try {
+      const s = await updateSettings({ "relay.url": relayURL.trim() });
+      setSettings(s);
+      setRelayURL(s["relay.url"] ?? "");
+      pushToast(tr("settings.relay.saved"), "info");
+      adoptRelayURL(s["relay.open_url"] ?? "");
+      const target = s["relay.open_url"]
+        ? s["relay.open_url"]
+        : s["ui.base_url"]
+          ? `${s["ui.base_url"].replace(/\/+$/, "")}/?token=${encodeURIComponent(s.token)}`
+          : "";
+      if (target) window.location.assign(target);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setRelayBusy(false);
+    }
+  };
+
+  const refreshPairing = async () => {
+    setRelayBusy(true);
+    setError(null);
+    try {
+      const s = await refreshRelayPairing();
+      setSettings(s);
+      pushToast(tr("settings.relay.pairingRefreshed"), "info");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setRelayBusy(false);
+    }
+  };
+
   const sendTest = async () => {
     setTesting(true);
     try {
@@ -530,6 +581,13 @@ export default function SettingsPage() {
   const connectURL = settings.connect_url || "";
   const token = settings.token || "";
   const mode = settings.network_mode || "—";
+  const relayState =
+    settings["relay.state"] === "connected" ||
+    settings["relay.state"] === "connecting" ||
+    settings["relay.state"] === "disabled" ||
+    settings["relay.state"] === "error"
+      ? settings["relay.state"]
+      : "disabled";
 
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
@@ -1134,6 +1192,97 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      {/* Remote Relay */}
+      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+              {tr("settings.relay.heading")}
+            </h2>
+            <p className="text-[12px] text-kin-secondary leading-relaxed">
+              {tr("settings.relay.desc")}
+            </p>
+          </div>
+          <span
+            className={[
+              "shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+              relayState === "connected"
+                ? "bg-kin-green/15 text-kin-green"
+                : relayState === "connecting"
+                  ? "bg-kin-yellow/15 text-kin-yellow"
+                : relayState === "disabled"
+                    ? "bg-[var(--kin-fill)] text-kin-muted"
+                    : "bg-kin-red/15 text-kin-red",
+            ].join(" ")}
+          >
+            {tr(`settings.relay.state.${relayState}` as "settings.relay.state.disabled")}
+          </span>
+        </div>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-kin-secondary">
+            {tr("settings.relay.workerUrl")}
+          </span>
+          <input
+            type="url"
+            value={relayURL}
+            onChange={(e) => setRelayURL(e.target.value)}
+            placeholder="https://kin-relay.example.workers.dev"
+            className="kin-input min-h-[44px] font-mono text-xs"
+            autoComplete="url"
+          />
+          <span className="text-[11px] text-kin-muted">
+            {tr("settings.relay.workerUrlHint")}
+          </span>
+        </label>
+        {settings["relay.last_error"] ? (
+          <p className="text-xs text-kin-red" role="alert">
+            {settings["relay.last_error"]}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={relayBusy}
+            onClick={() => void saveRelay()}
+            className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+          >
+            {relayBusy ? tr("settings.saving") : tr("settings.relay.save")}
+          </button>
+          {settings["relay.url"] ? (
+            <button
+              type="button"
+              disabled={relayBusy}
+              onClick={() => void refreshPairing()}
+              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+            >
+              {tr("settings.relay.refreshPairing")}
+            </button>
+          ) : null}
+        </div>
+        {settings["relay.pairing_url"] ? (
+          <div className="flex flex-col sm:flex-row gap-4 items-start border-t border-[var(--kin-hairline)] pt-4">
+            <div className="rounded-lg bg-white p-3 shrink-0">
+              <QRCodeSVG value={settings["relay.pairing_url"]} size={160} level="M" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="text-xs font-medium text-kin-secondary">
+                {tr("settings.relay.pairingTitle")}
+              </p>
+              <p className="break-all font-mono text-[11px] text-kin-muted">
+                {settings["relay.pairing_url"]}
+              </p>
+              <button
+                type="button"
+                onClick={() => void copy(settings["relay.pairing_url"])}
+                className="min-h-[40px] text-xs text-kin-blue hover:underline"
+              >
+                {tr("settings.connection.copyUrl")}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {/* Connection */}

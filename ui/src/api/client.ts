@@ -62,6 +62,27 @@ export function clearToken(): void {
   }
 }
 
+/** Adopt a master Relay URL emitted by the authenticated Settings API. */
+export function adoptRelayURL(raw: string): void {
+  const value = raw.trim();
+  if (!value) {
+    try {
+      localStorage.removeItem(RELAY_ROOM_KEY);
+      localStorage.removeItem(RELAY_KEY_KEY);
+    } catch {
+      // ignore
+    }
+    return;
+  }
+  const parsed = new URL(value, window.location.href);
+  const token = parsed.searchParams.get("token");
+  const room = parsed.searchParams.get("room");
+  const key = parsed.searchParams.get("key");
+  if (token) setToken(token);
+  if (room) localStorage.setItem(RELAY_ROOM_KEY, room);
+  if (key) localStorage.setItem(RELAY_KEY_KEY, key);
+}
+
 function getRelayValue(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -1368,6 +1389,12 @@ export type Settings = {
   network_mode: string;
   connect_url: string;
   token: string;
+  "relay.url": string;
+  "relay.state": "disabled" | "connecting" | "connected" | "error";
+  "relay.connect_url": string;
+  "relay.open_url": string;
+  "relay.pairing_url": string;
+  "relay.last_error"?: string;
 };
 
 export type SettingsUpdate = Partial<
@@ -1387,6 +1414,7 @@ export type SettingsUpdate = Partial<
     | "limit_policy"
     | "limit_policy.fallback_agents"
     | "agent_sessions.auto_import_mode"
+    | "relay.url"
   >
 > & {
   "provider.clear_api_key"?: string;
@@ -1437,6 +1465,10 @@ export function updateSettings(body: SettingsUpdate): Promise<Settings> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export function refreshRelayPairing(): Promise<Settings> {
+  return apiFetch<Settings>("/api/relay/pairing", { method: "POST" });
 }
 
 export type AgentSession = {

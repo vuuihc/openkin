@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +73,62 @@ func TestSettingsGetPut(t *testing.T) {
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("no auth: %d", rr.Code)
+	}
+}
+
+func TestRelaySettingsConfigureAndPairing(t *testing.T) {
+	s, token := newTestServer(t)
+	var configured string
+	var snapshot RelayStatus
+	s.ConfigureRelay = func(_ context.Context, rawURL string) (RelayStatus, error) {
+		configured = rawURL
+		snapshot = RelayStatus{
+			URL:        rawURL,
+			State:      "connecting",
+			ConnectURL: rawURL + "?room=test",
+			PairingURL: rawURL + "?room=test&pairing=1",
+		}
+		return snapshot, nil
+	}
+	s.RelaySnapshot = func() RelayStatus {
+		return snapshot
+	}
+	s.RefreshRelayPairing = func(context.Context) (RelayStatus, error) {
+		snapshot = RelayStatus{
+			URL:        configured,
+			State:      "connected",
+			PairingURL: "https://relay.example.test?pairing=refreshed",
+		}
+		return snapshot, nil
+	}
+	h := s.Handler()
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(
+		`{"relay.url":"https://relay.example.test"}`,
+	)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("relay settings status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if configured != "https://relay.example.test" {
+		t.Fatalf("configured URL=%q", configured)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/relay/pairing", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("pairing refresh status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["relay.pairing_url"] != "https://relay.example.test?pairing=refreshed" {
+		t.Fatalf("pairing URL=%q", got["relay.pairing_url"])
 	}
 }
 

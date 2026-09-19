@@ -248,7 +248,10 @@ struct ConnectionView: View {
         baseURL: URL, secret: String, relayKey: String?, relayRoom: String?
     ) async throws -> String {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/api/pairing/exchange"
+        if var value = components {
+            value.path = kinJoinedPath(value.path, "/api/pairing/exchange")
+            components = value
+        }
         components?.query = nil
         components?.queryItems = (relayRoom.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
             (relayKey.map { [URLQueryItem(name: "key", value: $0)] } ?? [])

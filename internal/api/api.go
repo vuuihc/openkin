@@ -114,6 +114,14 @@ type Server struct {
 	// the same background capacity and durable dispatch ledger.
 	RunRoutine func(context.Context, string) (store.Task, error)
 
+	// RelaySnapshot returns the process-local Relay connection state. It is
+	// optional so API tests and embedders do not need to configure Relay.
+	RelaySnapshot func() RelayStatus
+	// ConfigureRelay applies a Relay URL at runtime. Empty URL disables Relay.
+	ConfigureRelay func(context.Context, string) (RelayStatus, error)
+	// RefreshRelayPairing creates a fresh, short-lived phone pairing URL.
+	RefreshRelayPairing func(context.Context) (RelayStatus, error)
+
 	// Workers is the in-memory registry for optional user-owned headless
 	// workers. Leases are intentionally ephemeral and workers reconnect after
 	// daemon restart.
@@ -131,6 +139,18 @@ type Server struct {
 	ConnectURL  string // full URL with ?token= for QR
 	Token       string // initial token; prefer TokenFn
 	TokenFn     func() string
+}
+
+// RelayStatus is the Relay projection exposed to the master-only Settings UI.
+// OpenURL and PairingURL contain credentials and must not be persisted or
+// logged. They are returned only on this already master-authenticated surface.
+type RelayStatus struct {
+	URL        string `json:"relay.url"`
+	State      string `json:"relay.state"`
+	ConnectURL string `json:"relay.connect_url"`
+	OpenURL    string `json:"relay.open_url"`
+	PairingURL string `json:"relay.pairing_url"`
+	LastError  string `json:"relay.last_error,omitempty"`
 }
 
 // peerAddrKey stores the TCP peer before RealIP rewrites RemoteAddr.
@@ -245,6 +265,7 @@ func (s *Server) Handler() http.Handler {
 		r.With(masterOnly).Post("/api/git/checkout", s.handleGitCheckout)
 		r.With(masterOnly).Get("/api/settings", s.handleGetSettings)
 		r.With(masterOnly).Put("/api/settings", s.handlePutSettings)
+		r.With(masterOnly).Post("/api/relay/pairing", s.handleRefreshRelayPairing)
 		r.With(masterOnly).Get("/api/providers", s.handleListProviders)
 		r.With(masterOnly).Post("/api/providers", s.handleCreateProvider)
 		r.With(masterOnly).Post("/api/providers/models", s.handleListProviderModels)
@@ -1063,6 +1084,7 @@ type settingsResponse struct {
 	NetworkMode      string `json:"network_mode"`
 	ConnectURL       string `json:"connect_url"`
 	Token            string `json:"token"`
+	RelayStatus
 }
 
 // Allowed settings keys for PUT (subset of store keys).
@@ -1082,6 +1104,7 @@ var puttableSettings = map[string]bool{
 	"limit_policy.fallback_agents": true,
 	"notify.quota_wait_after_secs": true,
 	store.KeyAutoImportMode:        true,
+	"relay.url":                    true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -1149,6 +1172,24 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 			provStream = "false"
 		}
 	}
+	relayStatus := RelayStatus{URL: get("relay.url"), State: "disabled"}
+	if s.RelaySnapshot != nil {
+		relayStatus = s.RelaySnapshot()
+	}
+	networkMode := s.NetworkMode
+	networkParts := make([]string, 0, 3)
+	for _, part := range strings.Split(networkMode, "+") {
+		if part != "" && part != "relay" {
+			networkParts = append(networkParts, part)
+		}
+	}
+	if relayStatus.URL != "" {
+		networkParts = append(networkParts, "relay")
+	}
+	networkMode = strings.Join(networkParts, "+")
+	if relayStatus.PairingURL != "" {
+		connect = relayStatus.PairingURL
+	}
 	writeJSON(w, http.StatusOK, settingsResponse{
 		NotifyBarkURL:    get("notify.bark_url"),
 		NotifyNtfyTopic:  get("notify.ntfy_topic"),
@@ -1166,9 +1207,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		LimitFallback:    get(task.KeyLimitFallbackAgents),
 		QuotaWaitNotify:  get(task.KeyQuotaWaitNotifyAfterSecs),
 		AutoImportMode:   autoImportMode,
-		NetworkMode:      s.NetworkMode,
+		NetworkMode:      networkMode,
 		ConnectURL:       connect,
 		Token:            tok,
+		RelayStatus:      relayStatus,
 	})
 }
 
@@ -1279,6 +1321,10 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		body[k] = v
 	}
+	oldRelayURL, _ := s.Store.GetSetting(ctx, "relay.url")
+	if oldRelayURL == "" && s.RelaySnapshot != nil {
+		oldRelayURL = s.RelaySnapshot().URL
+	}
 	// Keep multi-provider registry and its legacy mirror in the same atomic
 	// settings write as the rest of this request.
 	if providerSlotTouched {
@@ -1290,10 +1336,36 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if relayURL, ok := body["relay.url"]; ok && s.ConfigureRelay != nil {
+		if _, err := s.ConfigureRelay(ctx, strings.TrimSpace(relayURL)); err != nil {
+			if rollbackErr := s.Store.SetSetting(ctx, "relay.url", oldRelayURL); rollbackErr != nil {
+				_, _ = s.ConfigureRelay(ctx, oldRelayURL)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{
+					"error": fmt.Sprintf("configure relay: %v; rollback relay setting: %v", err, rollbackErr),
+				})
+				return
+			}
+			_, _ = s.ConfigureRelay(ctx, oldRelayURL)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
 	if value, ok := body["ui.base_url"]; ok {
 		s.BaseURL = strings.TrimRight(strings.TrimSpace(value), "/")
 	}
 	// Return updated snapshot.
+	s.handleGetSettings(w, r)
+}
+
+func (s *Server) handleRefreshRelayPairing(w http.ResponseWriter, r *http.Request) {
+	if s.RefreshRelayPairing == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "relay is not available"})
+		return
+	}
+	if _, err := s.RefreshRelayPairing(r.Context()); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	s.handleGetSettings(w, r)
 }
 
