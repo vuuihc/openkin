@@ -345,6 +345,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Settings"
+  /api/relay/pairing:
+    post:
+      operationId: refreshRelayPairing
+      responses:
+        "200":
+          description: Updated Relay pairing projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          description: Relay is not configured or pairing could not be refreshed
+        "401":
+          description: Master authentication required
+        "501":
+          description: Relay runtime is unavailable
   /api/tasks:
     get:
       operationId: listTasks
@@ -1202,6 +1218,11 @@ components:
         - network_mode
         - connect_url
         - token
+        - relay.url
+        - relay.state
+        - relay.connect_url
+        - relay.open_url
+        - relay.pairing_url
       properties:
         notify.bark_url:
           type: string
@@ -1242,6 +1263,19 @@ components:
           type: string
         token:
           type: string
+        relay.url:
+          type: string
+        relay.state:
+          type: string
+          enum: [disabled, connecting, connected, error]
+        relay.connect_url:
+          type: string
+        relay.open_url:
+          type: string
+        relay.pairing_url:
+          type: string
+        relay.last_error:
+          type: string
     SettingsUpdate:
       type: object
       properties:
@@ -1256,6 +1290,8 @@ components:
         price_table:
           type: string
         agent_limits:
+          type: string
+        relay.url:
           type: string
         provider.kind:
           type: string

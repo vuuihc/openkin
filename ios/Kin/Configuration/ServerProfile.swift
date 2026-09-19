@@ -1,5 +1,13 @@
 import Foundation
 
+func kinJoinedPath(_ basePath: String, _ endpoint: String) -> String {
+    let base = basePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    let suffix = endpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    if base.isEmpty { return "/" + suffix }
+    if suffix.isEmpty { return "/" + base }
+    return "/" + base + "/" + suffix
+}
+
 /// Connection profile for a Kin desktop daemon.
 /// Metadata is stored in UserDefaults; the auth token is stored separately in Keychain.
 struct ServerProfile: Codable, Hashable, Identifiable {
@@ -53,12 +61,14 @@ struct ServerProfile: Codable, Hashable, Identifiable {
         credentialScope = try container.decodeIfPresent(CredentialScope.self, forKey: .credentialScope) ?? .device
     }
 
-    /// The origin string (e.g. "http://192.168.1.42:7777")
+    /// The public base string (e.g. "http://192.168.1.42:7777").
     var origin: String {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return baseURL.absoluteString
         }
-        components.path = ""
+        if components.path == "/" {
+            components.path = ""
+        }
         components.query = nil
         components.fragment = nil
         return components.url?.absoluteString ?? baseURL.absoluteString
@@ -90,7 +100,7 @@ struct ServerProfileValidator {
         guard var healthComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw ServerProfileError.invalidURL
         }
-        healthComponents.path = "/api/health"
+        healthComponents.path = kinJoinedPath(healthComponents.path, "/api/health")
         healthComponents.queryItems = relayQueryItems(key: relayKey, room: relayRoom)
         healthComponents.fragment = nil
 
@@ -130,7 +140,7 @@ struct ServerProfileValidator {
         // Health is intentionally public, so validate the bearer token against
         // an authenticated read before accepting the profile.
         var probeComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        probeComponents.path = "/api/tasks"
+        probeComponents.path = kinJoinedPath(probeComponents.path, "/api/tasks")
         probeComponents.queryItems = [URLQueryItem(name: "limit", value: "1")] +
             (relayQueryItems(key: relayKey, room: relayRoom) ?? [])
         guard let probeURL = probeComponents.url else {
@@ -161,7 +171,7 @@ struct ServerProfileValidator {
 
         // Fetch version
         var versionComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        versionComponents.path = "/api/version"
+        versionComponents.path = kinJoinedPath(versionComponents.path, "/api/version")
         versionComponents.queryItems = relayQueryItems(key: relayKey, room: relayRoom)
         versionComponents.fragment = nil
 

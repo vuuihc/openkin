@@ -29,7 +29,6 @@ import (
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
-	"github.com/vuuihc/openkin/internal/remote/relay"
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
@@ -158,6 +157,17 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		return strings.TrimSpace(string(b))
 	}
+	relayCtx, relayCancel := context.WithCancel(context.Background())
+	defer relayCancel()
+	relayRuntime := newRelayRuntime(
+		relayCtx,
+		stateDir,
+		daemonURL,
+		st,
+		tokenFn,
+	)
+	defer relayRuntime.Stop()
+	fallbackBaseURL := daemonURL
 	routingCatalog := routing.NewCatalog(st, nil)
 	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn, routingCatalog, connectorManager)
 	if err != nil {
@@ -382,7 +392,9 @@ func ServeWith(version string, flags ServeFlags) error {
 			cli, err := provider.NewClient(cfg)
 			return cli, cfg, err
 		},
-		NetworkMode: mode,
+		RelaySnapshot:       relayRuntime.Snapshot,
+		RefreshRelayPairing: relayRuntime.RefreshPairing,
+		NetworkMode:         mode,
 		// Probe provider subscription windows (5h/weekly) from the tokens the
 		// Claude Code and Codex CLIs already store. Cached 60s to avoid
 		// hammering providers (and spending Codex quota) on every page view.
@@ -468,6 +480,23 @@ func ServeWith(version string, flags ServeFlags) error {
 		SmokeAgents: func(c context.Context, ids []string) []api.AgentSmokeResult {
 			return api.RunGenericCLISmoke(c, st, ids)
 		},
+	}
+	srvAPI.ConfigureRelay = func(c context.Context, rawURL string) (api.RelayStatus, error) {
+		status, err := relayRuntime.Configure(c, rawURL)
+		if err != nil {
+			return status, err
+		}
+		baseURL := daemonURL
+		if status.URL != "" {
+			baseURL = relayRuntime.BaseURL()
+		} else {
+			baseURL = fallbackBaseURL
+		}
+		if err := st.SetSetting(c, notify.KeyBaseURL, baseURL); err != nil {
+			return status, fmt.Errorf("persist relay base URL: %w", err)
+		}
+		srvAPI.BaseURL = baseURL
+		return status, nil
 	}
 
 	handler := srvAPI.Handler()
@@ -560,34 +589,27 @@ func ServeWith(version string, flags ServeFlags) error {
 		listeners = append(listeners, a)
 	}
 
-	// Start relay bridge if configured.
-	var relayBridge *relay.Bridge
-	if flags.RelayURL != "" {
-		var relayErr error
-		relayBridge, relayErr = relay.NewPersistentBridge(flags.RelayURL, stateDir, daemonURL)
-		if relayErr != nil {
-			return fmt.Errorf("initialize relay: %w", relayErr)
-		}
-
-		// Add synthetic listener entry for QR / URL display.
-		relayConnectURL, relayErr := issuePairingURL(
-			ctx, st, relayBridge.ConnectURLWithKey()+"&token="+auth.Token(), "relay",
-		)
+	// Start Relay from the CLI override or the persisted Settings value.
+	// Settings can later reconfigure the same runtime without restarting the
+	// daemon.
+	initialRelayURL := strings.TrimSpace(flags.RelayURL)
+	if initialRelayURL == "" {
+		initialRelayURL, _ = st.GetSetting(ctx, "relay.url")
+	}
+	if directURL := mostPublicURL(listeners); directURL != "" {
+		fallbackBaseURL = directURL
+	}
+	if initialRelayURL != "" {
+		relayStatus, relayErr := srvAPI.ConfigureRelay(ctx, initialRelayURL)
 		if relayErr != nil {
 			return relayErr
 		}
 		listeners = append(listeners, listenerInfo{
 			name: "relay",
-			url:  relayBridge.ConnectURL(),
-			open: relayBridge.ConnectURLWithKey() + "&token=" + auth.Token(),
-			qr:   relayConnectURL,
+			url:  relayRuntime.BaseURL(),
+			open: relayStatus.OpenURL,
+			qr:   relayStatus.PairingURL,
 		})
-
-		go func() {
-			if err := relayBridge.Run(listenCtx); err != nil && listenCtx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "relay bridge error: %v\n", err)
-			}
-		}()
 	}
 
 	// ui.base_url = most-public active listener (funnel > tsnet > relay > lan > loopback).
@@ -607,7 +629,11 @@ func ServeWith(version string, flags ServeFlags) error {
 	// Print status + QR.
 	fmt.Printf("kin listening (%s)\n", mode)
 	for _, a := range listeners {
-		fmt.Printf("  [%s] %s\n", a.name, a.ln.Addr())
+		if a.ln != nil {
+			fmt.Printf("  [%s] %s\n", a.name, a.ln.Addr())
+		} else {
+			fmt.Printf("  [%s]\n", a.name)
+		}
 		if a.url != "" {
 			fmt.Printf("       %s\n", a.url)
 		}

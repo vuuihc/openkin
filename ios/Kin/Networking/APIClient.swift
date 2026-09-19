@@ -309,7 +309,7 @@ actor APIClient {
         default:
             throw APIError.invalidResponse
         }
-        components.path = Endpoint.webSocket(token: token).path
+        components.path = kinJoinedPath(components.path, Endpoint.webSocket(token: token).path)
         components.queryItems = [URLQueryItem(name: "token", value: token)] +
             (relayRoom.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
             (relayKey.map { [URLQueryItem(name: "key", value: $0)] } ?? [])
@@ -330,7 +330,7 @@ actor APIClient {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw APIError.invalidResponse
         }
-        components.path = endpoint.path
+        components.path = kinJoinedPath(components.path, endpoint.path)
         if let queryItems = endpoint.queryItems {
             components.queryItems = queryItems
         }

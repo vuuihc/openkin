@@ -680,6 +680,23 @@ const en: MessageTree = {
       light: "Light",
       dark: "Dark",
     },
+    relay: {
+      heading: "Remote Relay",
+      desc: "Access this Mac from your phone through a Cloudflare Worker you control. No Tailscale or shared Wi-Fi required.",
+      workerUrl: "Relay Worker URL",
+      workerUrlHint: "Enter the deployed Worker address, for example https://kin-relay.example.workers.dev.",
+      save: "Save and connect",
+      refreshPairing: "Refresh pairing",
+      pairingTitle: "Scan this code with Kin for iOS",
+      saved: "Relay settings saved",
+      pairingRefreshed: "Phone pairing refreshed",
+      state: {
+        disabled: "Disabled",
+        connecting: "Connecting",
+        connected: "Connected",
+        error: "Connection error",
+      },
+    },
     connection: {
       heading: "Connection",
       noUrl: "No URL",

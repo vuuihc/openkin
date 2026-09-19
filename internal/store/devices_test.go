@@ -26,7 +26,7 @@ func TestPairingSessionExpiresAndCannotBeReplayed(t *testing.T) {
 	now := time.Now().UnixMilli()
 	if err := s.CreatePairingSession(context.Background(), PairingSession{
 		SecretHash: remote.HashToken("pairing"),
-		CreatedAt: now, ExpiresAt: now + 100,
+		CreatedAt:  now, ExpiresAt: now + 100,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestPairingSessionExpiresAndCannotBeReplayed(t *testing.T) {
 
 	if err := s.CreatePairingSession(context.Background(), PairingSession{
 		SecretHash: remote.HashToken("usable"),
-		CreatedAt: now, ExpiresAt: now + 1000,
+		CreatedAt:  now, ExpiresAt: now + 1000,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestPairingSessionConcurrentConsumeIsSingleUse(t *testing.T) {
 	now := time.Now().UnixMilli()
 	if err := s.CreatePairingSession(context.Background(), PairingSession{
 		SecretHash: remote.HashToken("concurrent"),
-		CreatedAt: now, ExpiresAt: now + time.Minute.Milliseconds(),
+		CreatedAt:  now, ExpiresAt: now + time.Minute.Milliseconds(),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +83,29 @@ func TestPairingSessionConcurrentConsumeIsSingleUse(t *testing.T) {
 	}
 	if success != 1 || notFound != 1 {
 		t.Fatalf("success=%d notFound=%d, want one each", success, notFound)
+	}
+}
+
+func TestPairingSessionInvalidationByLabel(t *testing.T) {
+	s := openDeviceTestStore(t)
+	now := time.Now().UnixMilli()
+	for _, secret := range []string{"old-1", "old-2"} {
+		if err := s.CreatePairingSession(context.Background(), PairingSession{
+			SecretHash: remote.HashToken(secret),
+			Label:      "relay",
+			CreatedAt:  now,
+			ExpiresAt:  now + time.Minute.Milliseconds(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.InvalidatePairingSessions(context.Background(), "relay", now+1); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"old-1", "old-2"} {
+		if _, err := s.ConsumePairingSession(context.Background(), remote.HashToken(secret), now+2); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s invalidation error = %v, want ErrNotFound", secret, err)
+		}
 	}
 }
 

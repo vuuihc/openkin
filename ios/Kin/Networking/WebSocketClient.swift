@@ -117,7 +117,7 @@ actor WebSocketClient: NSObject {
         default:
             return nil
         }
-        components.path = "/api/ws"
+        components.path = kinJoinedPath(components.path, "/api/ws")
         components.queryItems = [URLQueryItem(name: "token", value: token)] +
             (relayRoom.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
             (relayKey.map { [URLQueryItem(name: "key", value: $0)] } ?? [])

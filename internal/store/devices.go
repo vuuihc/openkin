@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,21 @@ func (s *Store) CreatePairingSession(ctx context.Context, session PairingSession
 		session.SecretHash, session.Label, session.CreatedAt, session.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("create pairing session: %w", err)
+	}
+	return nil
+}
+
+// InvalidatePairingSessions marks unused sessions for a label as consumed.
+// Issuing a replacement pairing code should make older codes unusable.
+func (s *Store) InvalidatePairingSessions(ctx context.Context, label string, now int64) error {
+	if strings.TrimSpace(label) == "" || now <= 0 {
+		return fmt.Errorf("invalid pairing invalidation")
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE pairing_sessions SET used_at = ?
+		WHERE label = ? AND used_at IS NULL`, now, label)
+	if err != nil {
+		return fmt.Errorf("invalidate pairing sessions: %w", err)
 	}
 	return nil
 }

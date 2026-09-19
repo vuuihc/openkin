@@ -674,6 +674,23 @@ const zh = {
       light: "浅色",
       dark: "深色",
     },
+    relay: {
+      heading: "远程 Relay",
+      desc: "通过你自己部署的 Cloudflare Worker 从手机远程访问这台 Mac。不需要 Tailscale 或局域网。",
+      workerUrl: "Relay Worker URL",
+      workerUrlHint: "填写已部署的 Worker 地址，例如 https://kin-relay.example.workers.dev。",
+      save: "保存并连接",
+      refreshPairing: "刷新配对码",
+      pairingTitle: "用 Kin iOS 扫描此二维码",
+      saved: "Relay 设置已保存",
+      pairingRefreshed: "手机配对码已刷新",
+      state: {
+        disabled: "未启用",
+        connecting: "连接中",
+        connected: "已连接",
+        error: "连接异常",
+      },
+    },
     connection: {
       heading: "连接",
       noUrl: "无 URL",

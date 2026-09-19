@@ -16,7 +16,8 @@ struct PairingPayload: Equatable, CustomStringConvertible {
 
     /// Parse and validate a QR URL payload.
     /// - Rejects credentials embedded in the URL outside the `token` query item.
-    /// - Normalizes away paths, query, fragments, trailing slash from baseURL.
+    /// - Preserves a deployment path while removing query, fragments, and a
+    ///   trailing slash from baseURL.
     /// - Enforces HTTP/HTTPS policy: LAN HTTP ok, public HTTP rejected, HTTPS always ok.
     /// - Parameter urlString: The raw URL string from QR scan.
     /// - Returns: A valid PairingPayload.
@@ -50,11 +51,15 @@ struct PairingPayload: Equatable, CustomStringConvertible {
             throw PairingError.invalidURL
         }
 
-        // 6. Build normalized baseURL (scheme://host:port)
+        // 6. Build normalized baseURL (scheme://host:port[/deployment-path])
         var baseComponents = URLComponents()
         baseComponents.scheme = scheme
         baseComponents.host = components.host
         baseComponents.port = components.port
+        if components.path != "/" {
+            baseComponents.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                .isEmpty ? "" : "/" + components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
 
         guard let baseURL = baseComponents.url else {
             throw PairingError.invalidURL

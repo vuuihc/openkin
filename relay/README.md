@@ -26,6 +26,12 @@ The daemon creates a random room ID and relay key in
 phone includes that key; keep it private and rotate the relay credentials by
 stopping Kin and removing that file.
 
+When using the Desktop console, the same setup is available in
+**Settings → Remote Relay**. Enter the deployed Worker URL and save; the
+running daemon connects without a restart and the console displays a
+short-lived phone pairing QR. The command above remains useful for headless
+or scripted deployments.
+
 The room accepts one authenticated daemon, bounded client sockets, and bounded
 REST requests. A client WebSocket is bridged to the daemon's local `/api/ws`.
 Reconnects are expected; SQLite remains the source of truth.

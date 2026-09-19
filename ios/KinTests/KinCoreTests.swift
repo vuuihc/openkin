@@ -43,9 +43,9 @@ final class KinCoreTests: XCTestCase {
         XCTAssertThrowsError(try PairingPayload.parse("http://user:pass@192.168.1.20:7777/?token=x"))
     }
 
-    func testPairingNormalizesPathAndFragments() throws {
+    func testPairingPreservesDeploymentPathAndRemovesFragment() throws {
         let payload = try PairingPayload.parse("http://10.0.0.5:7777/tasks/abc?token=secret#fragment")
-        XCTAssertEqual(payload.baseURL.absoluteString, "http://10.0.0.5:7777")
+        XCTAssertEqual(payload.baseURL.absoluteString, "http://10.0.0.5:7777/tasks/abc")
         XCTAssertEqual(payload.token, "secret")
     }
 

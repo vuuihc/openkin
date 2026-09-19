@@ -16,6 +16,9 @@ func issuePairingURL(ctx context.Context, st *store.Store, rawURL, label string)
 		return "", err
 	}
 	now := time.Now().UnixMilli()
+	if err := st.InvalidatePairingSessions(ctx, label, now); err != nil {
+		return "", fmt.Errorf("invalidate previous pairing sessions: %w", err)
+	}
 	if err := st.CreatePairingSession(ctx, store.PairingSession{
 		SecretHash: remote.HashToken(secret),
 		Label:      label, CreatedAt: now, ExpiresAt: now + (5 * time.Minute).Milliseconds(),

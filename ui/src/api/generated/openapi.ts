@@ -292,6 +292,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/relay/pairing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["refreshRelayPairing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -914,6 +930,13 @@ export interface components {
             network_mode: string;
             connect_url: string;
             token: string;
+            "relay.url": string;
+            /** @enum {string} */
+            "relay.state": "disabled" | "connecting" | "connected" | "error";
+            "relay.connect_url": string;
+            "relay.open_url": string;
+            "relay.pairing_url": string;
+            "relay.last_error"?: string;
         };
         SettingsUpdate: {
             "notify.bark_url"?: string;
@@ -922,6 +945,7 @@ export interface components {
             "ui.base_url"?: string;
             price_table?: string;
             agent_limits?: string;
+            "relay.url"?: string;
             "provider.kind"?: string;
             "provider.base_url"?: string;
             "provider.api_key"?: string;
@@ -1791,6 +1815,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Settings"];
                 };
+            };
+        };
+    };
+    refreshRelayPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated Relay pairing projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Relay is not configured or pairing could not be refreshed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Master authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Relay runtime is unavailable */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
