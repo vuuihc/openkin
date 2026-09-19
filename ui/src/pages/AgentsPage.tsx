@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ApiError,
   formatCost,
@@ -50,6 +51,7 @@ const PROVIDER_BY_AGENT: Record<string, string> = {
  */
 export default function AgentsPage() {
   const tr = useT();
+  const navigate = useNavigate();
   const [days, setDays] = useState(7);
   const [rows, setRows] = useState<UsageRow[] | null>(null);
   const [limitStatuses, setLimitStatuses] = useState<AgentLimitStatus[]>([]);
@@ -249,6 +251,14 @@ export default function AgentsPage() {
     } catch {
       pushToast(tr("agents.copyFailed"), "error");
     }
+  }
+
+  function askDefaultAgentToInstall(agent: AgentInfo, command: string) {
+    const prompt = tr("agents.installPrompt", {
+      agent: agent.name || agent.id,
+      command,
+    });
+    navigate(`/new?q=${encodeURIComponent(prompt)}`);
   }
 
   function statusLabel(a: AgentInfo): string {
@@ -790,13 +800,25 @@ export default function AgentsPage() {
                           </button>
                         ) : null}
                         {m?.install_cmd ? (
-                          <button
-                            type="button"
-                            className="text-[12px] text-kin-secondary hover:underline"
-                            onClick={() => void copyText(m.install_cmd!)}
-                          >
-                            {tr("agents.copyInstall")}
-                          </button>
+                          <>
+                            {!a.installed ? (
+                              <button
+                                type="button"
+                                className="text-[12px] text-kin-blue hover:underline"
+                                title={tr("agents.askInstallHint")}
+                                onClick={() => askDefaultAgentToInstall(a, m.install_cmd!)}
+                              >
+                                {tr("agents.askInstall")}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="text-[12px] text-kin-secondary hover:underline"
+                              onClick={() => void copyText(m.install_cmd!)}
+                            >
+                              {tr("agents.copyInstall")}
+                            </button>
+                          </>
                         ) : null}
                         {m?.update_cmd && a.installed ? (
                           <button

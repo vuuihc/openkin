@@ -16,6 +16,7 @@ import {
   updateSettings,
   type AgentInfo,
   type AgentProvider,
+  type AgentSessionImportResult,
   type ModelSpec,
   type ProviderEntry,
   type Settings,
@@ -37,6 +38,28 @@ import {
   runnableAgents,
   sortAgentCatalog,
 } from "../lib/agentCatalog";
+
+type AutoImportSnapshot = AgentSessionImportResult & { synced_at: number };
+
+function isAutoImportSnapshot(value: unknown): value is AutoImportSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<AutoImportSnapshot>;
+  return (
+    typeof snapshot.synced_at === "number" &&
+    Number.isFinite(snapshot.synced_at) &&
+    typeof snapshot.imported === "number" &&
+    Number.isFinite(snapshot.imported) &&
+    !!snapshot.providers &&
+    typeof snapshot.providers === "object"
+  );
+}
+
+function formatSyncTime(value: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
 
 export default function SettingsPage() {
   const tr = useT();
@@ -71,6 +94,7 @@ export default function SettingsPage() {
   const [agentDefault, setAgentDefault] = useState("");
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
   const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
+  const [lastAutoImport, setLastAutoImport] = useState<AutoImportSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
@@ -132,6 +156,24 @@ export default function SettingsPage() {
     if (reconnectGen === 0) return;
     void load();
   }, [reconnectGen, load]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("kin_agent_sessions_last_sync");
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw);
+        if (isAutoImportSnapshot(parsed)) setLastAutoImport(parsed);
+      }
+    } catch {
+      // Ignore unavailable or stale browser storage.
+    }
+    const onSync = (event: Event) => {
+      const detail: unknown = (event as CustomEvent<unknown>).detail;
+      if (isAutoImportSnapshot(detail)) setLastAutoImport(detail);
+    };
+    window.addEventListener("kin:agent-sessions-sync", onSync);
+    return () => window.removeEventListener("kin:agent-sessions-sync", onSync);
+  }, []);
 
   const save = async () => {
     setBusy(true);
@@ -205,7 +247,11 @@ export default function SettingsPage() {
     setError(null);
     try {
       const result = await importAgentSessions();
-      window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      window.dispatchEvent(
+        new CustomEvent("kin:agent-sessions-changed", {
+          detail: { skipAutoImport: true },
+        }),
+      );
       const errorCount = Object.keys(result.errors ?? {}).length;
       pushToast(
         errorCount > 0
@@ -228,7 +274,11 @@ export default function SettingsPage() {
     setError(null);
     try {
       const result = await importAgentSessions([agentId]);
-      window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      window.dispatchEvent(
+        new CustomEvent("kin:agent-sessions-changed", {
+          detail: { skipAutoImport: true },
+        }),
+      );
       const errorCount = Object.keys(result.errors ?? {}).length;
       pushToast(
         errorCount > 0
@@ -1020,6 +1070,21 @@ export default function SettingsPage() {
           <span className="text-[11px] text-kin-muted">
             {tr("settings.localAgents.policy")}
           </span>
+          <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2 text-[11px] text-kin-muted" role="status">
+            <span className="font-medium text-kin-secondary">
+              {autoImportMode === "enabled"
+                ? tr("settings.localAgents.autoSyncEnabled")
+                : tr("settings.localAgents.autoSyncDisabled")}
+            </span>
+            {" · "}
+            {lastAutoImport
+              ? tr("settings.localAgents.lastSync", {
+                  value: formatSyncTime(lastAutoImport.synced_at),
+                  imported: lastAutoImport.imported,
+                  errors: Object.keys(lastAutoImport.errors ?? {}).length,
+                })
+              : tr("settings.localAgents.neverSynced")}
+          </div>
         </label>
         <div className="flex flex-wrap gap-2">
           <button

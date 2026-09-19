@@ -449,6 +449,10 @@ func parseCodexHistoryItems(record map[string]any, info agent.SessionInfo, rev s
 		if role != "user" && role != "assistant" {
 			return nil
 		}
+		content, visible := codexVisibleContent(payload)
+		if !visible {
+			return nil
+		}
 		item = historyItem(
 			info,
 			rev,
@@ -456,7 +460,7 @@ func parseCodexHistoryItems(record map[string]any, info agent.SessionInfo, rev s
 			"message",
 			role,
 			"",
-			contentText(payload["content"]),
+			contentText(content),
 		)
 	case "function_call":
 		toolName := firstNonEmpty(stringValue(payload["name"]), "tool")
@@ -517,6 +521,9 @@ func parseClaudeHistoryItems(record map[string]any, info agent.SessionInfo, rev 
 	if typ != "user" && typ != "assistant" {
 		return nil
 	}
+	if isInternalClaudeRecord(record) {
+		return nil
+	}
 	msg, _ := record["message"].(map[string]any)
 	role := stringValue(msg["role"])
 	if role != "user" && role != "assistant" {
@@ -525,7 +532,11 @@ func parseClaudeHistoryItems(record map[string]any, info agent.SessionInfo, rev 
 	id := firstNonEmpty(stringValue(record["uuid"]), strconv.Itoa(lineNo))
 	content, ok := msg["content"].([]any)
 	if !ok {
-		item := historyItem(info, rev, id, "message", role, "", contentText(msg["content"]))
+		text := contentText(msg["content"])
+		if role == "user" && shouldStripClaudePromptBlocks(record) {
+			text = stripInternalPromptBlocks(text)
+		}
+		item := historyItem(info, rev, id, "message", role, "", text)
 		if strings.TrimSpace(item.Text) == "" {
 			return nil
 		}
@@ -544,6 +555,10 @@ func parseClaudeHistoryItems(record map[string]any, info agent.SessionInfo, rev 
 		)
 		switch stringValue(block["type"]) {
 		case "text":
+			text := stringValue(block["text"])
+			if role == "user" && shouldStripClaudePromptBlocks(record) {
+				text = stripInternalPromptBlocks(text)
+			}
 			items = appendClaudeHistoryItem(items, historyItem(
 				info,
 				rev,
@@ -551,7 +566,7 @@ func parseClaudeHistoryItems(record map[string]any, info agent.SessionInfo, rev 
 				"message",
 				role,
 				"",
-				stringValue(block["text"]),
+				text,
 			))
 		case "thinking":
 			items = appendClaudeHistoryItem(items, historyItem(
@@ -595,6 +610,110 @@ func parseClaudeHistoryItems(record map[string]any, info agent.SessionInfo, rev 
 		}
 	}
 	return items
+}
+
+// codexVisibleContent uses Codex's metadata passthrough to remove content
+// inserted by the client (plugin recommendations, environment context, and
+// similar bootstrap material) while preserving ordinary user blocks.
+func codexVisibleContent(payload map[string]any) (any, bool) {
+	content := payload["content"]
+	metadata, _ := payload["internal_chat_message_metadata_passthrough"].(map[string]any)
+	rawKinds, _ := metadata["content_item_kinds"].([]any)
+	if len(rawKinds) == 0 {
+		return content, true
+	}
+
+	kinds := make([]string, 0, len(rawKinds))
+	for _, raw := range rawKinds {
+		kinds = append(kinds, stringValue(raw))
+	}
+	blocks, ok := content.([]any)
+	if !ok {
+		for _, kind := range kinds {
+			if !codexInternalContentKind(kind) {
+				return content, true
+			}
+		}
+		return nil, false
+	}
+
+	visible := make([]any, 0, len(blocks))
+	for index, block := range blocks {
+		kind := ""
+		if index < len(kinds) {
+			kind = kinds[index]
+		}
+		if kind == "" || !codexInternalContentKind(kind) {
+			visible = append(visible, block)
+		}
+	}
+	if len(visible) == 0 {
+		return nil, false
+	}
+	return visible, true
+}
+
+func codexInternalContentKind(kind string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return strings.HasPrefix(kind, "plugins.") ||
+		strings.HasPrefix(kind, "environments.") ||
+		strings.HasPrefix(kind, "additional_content.")
+}
+
+func isInternalClaudeRecord(record map[string]any) bool {
+	for _, key := range []string{
+		"isMeta",
+		"isSidechain",
+		"isCompactSummary",
+		"isSummary",
+		"isSynthetic",
+	} {
+		if value, ok := record[key].(bool); ok && value {
+			return true
+		}
+	}
+	return strings.EqualFold(strings.TrimSpace(stringValue(record["userType"])), "internal")
+}
+
+var internalPromptBlockTags = []string{
+	"system-reminder",
+	"environment_context",
+	"permissions_instructions",
+	"task-notification",
+	"recommended_plugins",
+	"multi_agent_mode",
+}
+
+func shouldStripClaudePromptBlocks(record map[string]any) bool {
+	// Claude Code's SDK-backed transcripts mark provider-injected context with
+	// the sdk-cli entrypoint. Ordinary CLI records are left untouched so a user
+	// can discuss these tag names literally.
+	return strings.EqualFold(strings.TrimSpace(stringValue(record["entrypoint"])), "sdk-cli")
+}
+
+func stripInternalPromptBlocks(value string) string {
+	original := value
+	for _, tag := range internalPromptBlockTags {
+		pattern := regexp.MustCompile(`(?is)<` + regexp.QuoteMeta(tag) + `\b[^>]*>(.*?)</` + regexp.QuoteMeta(tag) + `\s*>`)
+		value = pattern.ReplaceAllStringFunc(value, func(block string) string {
+			matches := pattern.FindStringSubmatch(block)
+			if len(matches) < 2 || !likelyInternalPromptBody(tag, matches[1]) {
+				return block
+			}
+			return ""
+		})
+	}
+	if value == original {
+		return strings.TrimSpace(original)
+	}
+	return strings.TrimSpace(value)
+}
+
+func likelyInternalPromptBody(tag, body string) bool {
+	// Short tagged text is more likely to be a user's literal example than a
+	// provider bootstrap block. Real Claude system wrappers observed in the
+	// transcript store are substantially longer.
+	return len([]rune(strings.TrimSpace(body))) >= 64 && tag != ""
 }
 
 func appendClaudeHistoryItem(items []agent.HistoryItem, item agent.HistoryItem) []agent.HistoryItem {

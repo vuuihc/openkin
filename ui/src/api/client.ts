@@ -1538,16 +1538,48 @@ export function getAgentSession(id: string): Promise<AgentSession> {
   );
 }
 
-export function importAgentSessions(agents?: string[]): Promise<{
+export type AgentSessionImportResult = {
   imported: number;
   providers: Record<string, number>;
   errors?: Record<string, string>;
-}> {
-  return apiFetch("/api/agent-sessions/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(agents?.length ? { agents } : {}),
+};
+
+let agentSessionImportTail: Promise<void> = Promise.resolve();
+const agentSessionImportInFlight = new Map<
+  string,
+  Promise<AgentSessionImportResult>
+>();
+
+export function importAgentSessions(agents?: string[]): Promise<AgentSessionImportResult> {
+  const key = agents?.length
+    ? [...agents].map((agent) => agent.trim()).filter(Boolean).sort().join(",")
+    : "*";
+  const existing = agentSessionImportInFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+  const promise = agentSessionImportTail.then(() =>
+    apiFetch<AgentSessionImportResult>("/api/agent-sessions/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(agents?.length ? { agents } : {}),
+    }),
+  );
+  agentSessionImportInFlight.set(key, promise);
+  agentSessionImportTail = promise.then(
+    () => undefined,
+    () => undefined,
+  );
+  void promise.then(() => {
+    if (agentSessionImportInFlight.get(key) === promise) {
+      agentSessionImportInFlight.delete(key);
+    }
+  }, () => {
+    if (agentSessionImportInFlight.get(key) === promise) {
+      agentSessionImportInFlight.delete(key);
+    }
   });
+  return promise;
 }
 
 export function getAgentSessionHistory(
