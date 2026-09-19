@@ -10,10 +10,16 @@ import {
   type AgentSessionHistoryItem,
 } from "../api/client";
 import { IconBack } from "../components/icons";
+import Markdown from "../components/Markdown";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { useAppStore } from "../store/appStore";
+import {
+  groupAgentSessionHistory,
+  mergeAgentSessionMessageChunks,
+  type AgentSessionTurn,
+} from "../lib/agentSessionHistory";
 
 function formatTimestamp(value: number): string {
   if (!value) return "";
@@ -29,23 +35,161 @@ function roleLabel(role: AgentSessionHistoryItem["role"], tr: ReturnType<typeof 
   return tr("agentSession.assistant");
 }
 
-function mergeMessageChunks(items: AgentSessionHistoryItem[]): AgentSessionHistoryItem[] {
-  const merged: AgentSessionHistoryItem[] = [];
-  for (const item of items) {
-    const previous = merged[merged.length - 1];
-    if (
-      previous &&
-      (item.kind ?? "message") === "message" &&
-      (previous.kind ?? "message") === "message" &&
-      item.role === previous.role
-    ) {
-      previous.text = `${previous.text}\n\n${item.text}`;
-      previous.message_id = `${previous.message_id}:${item.message_id}`;
-      continue;
-    }
-    merged.push({ ...item });
+function historyItemKey(item: AgentSessionHistoryItem): string {
+  return `${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`;
+}
+
+function UserMessage({
+  item,
+  tr,
+}: {
+  item: AgentSessionHistoryItem;
+  tr: ReturnType<typeof useT>;
+}) {
+  return (
+    <div className="flex justify-end">
+      <article className="max-w-[88%] rounded-xl bg-kin-blue-soft px-4 py-3 text-kin-text">
+        <div className="flex items-center gap-3 mb-1.5">
+          <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
+            {roleLabel(item.role, tr)}
+          </span>
+          <span className="text-[10px] text-kin-muted">
+            {formatTimestamp(item.occurred_at)}
+          </span>
+        </div>
+        <p className="text-[13.5px] leading-6 whitespace-pre-wrap break-words">{item.text}</p>
+      </article>
+    </div>
+  );
+}
+
+function AssistantConclusion({
+  item,
+  tr,
+  provisional = false,
+}: {
+  item: AgentSessionHistoryItem;
+  tr: ReturnType<typeof useT>;
+  provisional?: boolean;
+}) {
+  return (
+    <div className="flex justify-start">
+      <article className="max-w-[92%] rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/70 px-4 py-3 text-kin-text">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
+            {provisional
+              ? tr("agentSession.assistant")
+              : tr("agentSession.finalOutput")}
+          </span>
+          <span className="text-[10px] text-kin-muted">
+            {formatTimestamp(item.occurred_at)}
+          </span>
+        </div>
+        <Markdown text={item.text} className="text-[13.5px] sm:text-[14px]" />
+      </article>
+    </div>
+  );
+}
+
+function ProcessEvent({
+  item,
+  tr,
+}: {
+  item: AgentSessionHistoryItem;
+  tr: ReturnType<typeof useT>;
+}) {
+  const kind = item.kind ?? "message";
+  if (kind === "tool_call" || kind === "tool_result") {
+    return (
+      <div
+        className="rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[12px] text-kin-muted"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-kin-secondary">
+            {kind === "tool_call"
+              ? tr("agentSession.toolCall")
+              : tr("agentSession.toolResult")}
+          </span>
+          {item.tool_name ? (
+            <code className="text-[11px] text-kin-text">{item.tool_name}</code>
+          ) : null}
+          <span className="ml-auto text-[10px]">
+            {formatTimestamp(item.occurred_at)}
+          </span>
+        </div>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-black/5 p-2 text-[11px] leading-5">
+          {item.text}
+        </pre>
+      </div>
+    );
   }
-  return merged;
+  if (kind === "reasoning") {
+    return (
+      <div className="rounded-md border border-dashed border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-muted">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-kin-secondary">
+            {tr("agentSession.reasoning")}
+          </span>
+          <span className="ml-auto text-[10px]">
+            {formatTimestamp(item.occurred_at)}
+          </span>
+        </div>
+        <p className="mt-2 whitespace-pre-wrap break-words leading-5">{item.text}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-muted">
+      <div className="flex items-center gap-2">
+        <span className="font-medium text-kin-secondary">
+          {tr("agentSession.progress")}
+        </span>
+        <span className="ml-auto text-[10px]">
+          {formatTimestamp(item.occurred_at)}
+        </span>
+      </div>
+      <p className="mt-2 whitespace-pre-wrap break-words leading-5">{item.text}</p>
+    </div>
+  );
+}
+
+function HistoryTurnView({
+  turn,
+  tr,
+  provisionalFinal = false,
+}: {
+  turn: AgentSessionTurn;
+  tr: ReturnType<typeof useT>;
+  provisionalFinal?: boolean;
+}) {
+  return (
+    <section className="space-y-3">
+      {turn.userItems.map((item) => (
+        <UserMessage key={historyItemKey(item)} item={item} tr={tr} />
+      ))}
+      {turn.processItems.length > 0 ? (
+        <details className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45">
+          <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-kin-muted">
+            <span className="font-medium text-kin-secondary">
+              {tr("agentSession.process", { count: turn.processItems.length })}
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-[var(--kin-hairline)] p-2.5">
+            {turn.processItems.map((item) => (
+              <ProcessEvent key={historyItemKey(item)} item={item} tr={tr} />
+            ))}
+          </div>
+        </details>
+      ) : null}
+      {turn.finalAssistant ? (
+        <AssistantConclusion
+          item={turn.finalAssistant}
+          tr={tr}
+          provisional={provisionalFinal}
+        />
+      ) : null}
+    </section>
+  );
 }
 
 export default function AgentSessionDetailPage() {
@@ -62,7 +206,10 @@ export default function AgentSessionDetailPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [attachPrompt, setAttachPrompt] = useState("");
   const [attachBusy, setAttachBusy] = useState(false);
-  const displayItems = useMemo(() => mergeMessageChunks(items), [items]);
+  const displayTurns = useMemo(
+    () => groupAgentSessionHistory(mergeAgentSessionMessageChunks(items)),
+    [items],
+  );
   const slow = useSlowHint(loading);
 
   const loadSession = useCallback(async () => {
@@ -104,11 +251,16 @@ export default function AgentSessionDetailPage() {
               ? e.message
               : tr("agentSession.historyFailed"),
         );
+        if (cursor) {
+          setItems([]);
+          setNextCursor("");
+          void loadSession();
+        }
       } finally {
         setHistoryLoading(false);
       }
     },
-    [session, tr],
+    [loadSession, session, tr],
   );
 
   useEffect(() => {
@@ -251,75 +403,14 @@ export default function AgentSessionDetailPage() {
               {tr("agentSession.historyEmpty")}
             </p>
           )}
-          {displayItems.map((item) => {
-            const kind = item.kind ?? "message";
-            if (kind === "tool_call" || kind === "tool_result") {
-              return (
-                <details
-                  key={`${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`}
-                  className="rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[12px] text-kin-muted"
-                >
-                  <summary className="cursor-pointer select-none flex items-center gap-2">
-                    <span className="font-medium text-kin-secondary">
-                      {kind === "tool_call"
-                        ? tr("agentSession.toolCall")
-                        : tr("agentSession.toolResult")}
-                    </span>
-                    {item.tool_name && (
-                      <code className="text-[11px] text-kin-text">{item.tool_name}</code>
-                    )}
-                    <span className="ml-auto text-[10px]">
-                      {formatTimestamp(item.occurred_at)}
-                    </span>
-                  </summary>
-                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-black/5 p-2 text-[11px] leading-5">
-                    {item.text}
-                  </pre>
-                </details>
-              );
-            }
-            if (kind === "reasoning") {
-              return (
-                <details
-                  key={`${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`}
-                  className="rounded-md border border-dashed border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-muted"
-                >
-                  <summary className="cursor-pointer select-none">
-                    {tr("agentSession.reasoning")}
-                  </summary>
-                  <p className="mt-2 whitespace-pre-wrap break-words leading-5">{item.text}</p>
-                </details>
-              );
-            }
-            const isUser = item.role === "user";
-            return (
-              <div
-                key={`${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`}
-                className={["flex", isUser ? "justify-end" : "justify-start"].join(" ")}
-              >
-                <article
-                  className={[
-                    "max-w-[88%] rounded-xl px-4 py-3",
-                    isUser
-                      ? "bg-kin-blue-soft text-kin-text"
-                      : "border border-[var(--kin-hairline)] bg-kin-elevated/70 text-kin-text",
-                  ].join(" ")}
-                >
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
-                      {roleLabel(item.role, tr)}
-                    </span>
-                    <span className="text-[10px] text-kin-muted">
-                      {formatTimestamp(item.occurred_at)}
-                    </span>
-                  </div>
-                  <p className="text-[13.5px] leading-6 whitespace-pre-wrap break-words">
-                    {item.text}
-                  </p>
-                </article>
-              </div>
-            );
-          })}
+          {displayTurns.map((turn, index) => (
+            <HistoryTurnView
+              key={turn.id}
+              turn={turn}
+              tr={tr}
+              provisionalFinal={Boolean(nextCursor) && index === displayTurns.length - 1}
+            />
+          ))}
           {historyLoading && (
             <div className="space-y-2 py-2" role="status">
               <SkeletonLine className="h-20 w-full" />
