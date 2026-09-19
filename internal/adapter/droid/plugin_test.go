@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/sessioncatalog"
 )
 
 func TestPluginDescriptor(t *testing.T) {
@@ -21,6 +22,10 @@ func TestPluginDescriptor(t *testing.T) {
 		agent.CapabilityResume,
 		agent.CapabilityTools,
 		agent.CapabilityApprovals,
+		agent.CapabilitySessionList,
+		agent.CapabilitySessionInspect,
+		agent.CapabilitySessionHistoryRead,
+		agent.CapabilitySessionAttach,
 	} {
 		if !descriptor.Has(capability) {
 			t.Errorf("missing capability %q", capability)
@@ -178,6 +183,29 @@ func TestPluginStatusAndEnvironmentOverride(t *testing.T) {
 			if registration.Controller != nil || registration.LazyWorkspace != nil {
 				t.Fatal("Droid must not expose orchestrate or lazy workspace handlers")
 			}
+			if registration.Catalog == nil {
+				t.Fatal("Droid must expose its metadata-only session catalog")
+			}
 		})
+	}
+}
+
+func TestPluginUsesFactoryConfigDirForSessions(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "factory")
+	t.Setenv("FACTORY_CONFIG_DIR", root)
+	factory := NewPluginFactory(PluginConfig{
+		LookPath: func(string) (string, error) { return "/opt/droid", nil },
+	})
+	registration, err := factory.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, ok := registration.Catalog.(*sessioncatalog.FileCatalog)
+	if !ok {
+		t.Fatalf("catalog type=%T", registration.Catalog)
+	}
+	want := filepath.Join(root, "sessions")
+	if len(catalog.Roots) != 1 || catalog.Roots[0] != want {
+		t.Fatalf("catalog roots=%v want %q", catalog.Roots, want)
 	}
 }

@@ -7,6 +7,7 @@ import {
   deleteProvider,
   getSettings,
   importAgentSessions,
+  listAgentProviders,
   listAgents,
   listProviderModels,
   listProviders,
@@ -14,6 +15,7 @@ import {
   updateProvider,
   updateSettings,
   type AgentInfo,
+  type AgentProvider,
   type ModelSpec,
   type ProviderEntry,
   type Settings,
@@ -68,6 +70,7 @@ export default function SettingsPage() {
   const [showRouting, setShowRouting] = useState(false);
   const [agentDefault, setAgentDefault] = useState("");
   const [agentList, setAgentList] = useState<AgentInfo[]>([]);
+  const [agentProviders, setAgentProviders] = useState<AgentProvider[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [reveal, setReveal] = useState(false);
@@ -111,6 +114,9 @@ export default function SettingsPage() {
       }
       listAgents()
         .then(setAgentList)
+        .catch(() => undefined);
+      listAgentProviders()
+        .then(setAgentProviders)
         .catch(() => undefined);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
@@ -184,6 +190,9 @@ export default function SettingsPage() {
       listAgents()
         .then(setAgentList)
         .catch(() => undefined);
+      listAgentProviders()
+        .then(setAgentProviders)
+        .catch(() => undefined);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -214,10 +223,35 @@ export default function SettingsPage() {
     }
   };
 
+  const importProviderSessions = async (agentId: string) => {
+    setImportingSessions(true);
+    setError(null);
+    try {
+      const result = await importAgentSessions([agentId]);
+      window.dispatchEvent(new Event("kin:agent-sessions-changed"));
+      const errorCount = Object.keys(result.errors ?? {}).length;
+      pushToast(
+        errorCount > 0
+          ? tr("settings.localAgents.importPartial", {
+              imported: result.imported,
+              errors: errorCount,
+            })
+          : tr("settings.localAgents.imported", { imported: result.imported }),
+        errorCount > 0 ? "error" : "info",
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setImportingSessions(false);
+    }
+  };
+
   const refreshAgentCatalog = async () => {
     setRefreshingAgentCatalog(true);
     try {
-      setAgentList(await listAgents());
+      const [agents, providers] = await Promise.all([listAgents(), listAgentProviders()]);
+      setAgentList(agents);
+      setAgentProviders(providers);
     } catch {
       // Keep the last-known-good snapshot visible when the daemon is reconnecting.
     } finally {
@@ -877,14 +911,53 @@ export default function SettingsPage() {
             {tr("settings.localAgents.providersHeading")}
           </div>
           <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
-            {agentList.map((agent) => {
-              const capabilities = new Set(agent.capabilities ?? []);
+            {agentProviders.map((agent) => {
+              const capabilities = new Map(
+                (agent.capabilities ?? []).map((capability) => [capability.capability, capability]),
+              );
+              const statusText =
+                agent.state === "available"
+                  ? tr("settings.localAgents.available")
+                  : agent.state === "unsupported"
+                    ? tr("settings.localAgents.unsupported")
+                    : agent.state === "not_detected"
+                      ? tr("settings.localAgents.notDetected")
+                      : agent.state === "degraded"
+                        ? tr("settings.localAgents.degraded")
+                        : agent.state === "permission_required"
+                          ? tr("settings.localAgents.permissionRequired")
+                          : tr("settings.localAgents.unavailable");
+              const canImport = capabilities.get("session_list")?.state === "available";
+              const capabilityBadge = (id: string, label: string) => {
+                const capability = capabilities.get(id);
+                if (!capability) return null;
+                const supported = capability.state === "available";
+                return (
+                  <span
+                    title={capability.evidence}
+                    className={[
+                      "px-1.5 py-0.5 rounded border text-[10px]",
+                      supported
+                        ? "border-kin-border text-kin-muted"
+                        : "border-kin-orange/40 text-kin-orange",
+                    ].join(" ")}
+                  >
+                    {supported
+                      ? label
+                      : `${label} · ${tr("settings.localAgents.capabilityUnsupported")}`}
+                  </span>
+                );
+              };
               return (
                 <div key={agent.id} className="px-3 py-2.5 flex items-center gap-3">
                   <span
                     className={[
                       "w-2 h-2 rounded-full flex-none",
-                      agent.available ? "bg-kin-blue" : "bg-kin-muted",
+                      agent.state === "available"
+                        ? "bg-kin-blue"
+                        : agent.state === "unsupported"
+                          ? "bg-kin-orange"
+                          : "bg-kin-muted",
                     ].join(" ")}
                   />
                   <div className="min-w-0 flex-1">
@@ -894,35 +967,35 @@ export default function SettingsPage() {
                     <div className="text-[10.5px] text-kin-muted truncate">
                       {agent.id}
                       {" · "}
-                      {agent.available
-                        ? tr("settings.localAgents.available")
-                        : tr("settings.localAgents.unavailable")}
+                      {statusText}
                       {agent.reason ? ` · ${agent.reason}` : ""}
                     </div>
                   </div>
                   <div className="flex flex-wrap justify-end gap-1">
-                    {capabilities.has("session_list") && (
-                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.listCapability")}</span>
-                    )}
-                    {capabilities.has("session_history_read") && (
-                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.historyCapability")}</span>
-                    )}
-                    {capabilities.has("session_attach") && (
-                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.attachCapability")}</span>
-                    )}
-                    {capabilities.has("resume") && (
-                      <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">{tr("settings.localAgents.resumeCapability")}</span>
-                    )}
+                    {capabilityBadge("session_list", tr("settings.localAgents.listCapability"))}
+                    {capabilityBadge("session_history_read", tr("settings.localAgents.historyCapability"))}
+                    {capabilityBadge("session_attach", tr("settings.localAgents.attachCapability"))}
+                    {capabilityBadge("resume", tr("settings.localAgents.resumeCapability"))}
                     {capabilities.size === 0 && (
                       <span className="text-[10.5px] text-kin-muted">
                         {tr("settings.localAgents.noCapabilities")}
                       </span>
                     )}
+                    {canImport && (
+                      <button
+                        type="button"
+                        disabled={importingSessions}
+                        onClick={() => void importProviderSessions(agent.id)}
+                        className="kin-btn-secondary px-2 py-1 text-[10px] min-h-[26px] disabled:opacity-50"
+                      >
+                        {tr("settings.localAgents.importProvider")}
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })}
-            {agentList.length === 0 && (
+            {agentProviders.length === 0 && (
               <div className="px-3 py-3 text-[11px] text-kin-muted">
                 {tr("settings.localAgents.noProviders")}
               </div>

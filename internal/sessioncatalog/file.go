@@ -21,6 +21,7 @@ import (
 const (
 	FormatCodex  = "codex"
 	FormatClaude = "claude"
+	FormatDroid  = "droid"
 
 	defaultMaxFiles     = 500
 	defaultMaxFileBytes = 128 << 20
@@ -196,9 +197,6 @@ func (c *FileCatalog) scan(ctx context.Context) ([]fileSession, error) {
 		}
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 			if walkErr != nil {
-				if os.IsPermission(walkErr) {
-					return nil
-				}
 				return walkErr
 			}
 			select {
@@ -256,16 +254,29 @@ func (c *FileCatalog) summarize(ctx context.Context, path string, maxBytes int64
 	info.SourceURI = "file://" + path
 	info.SourceCursor = sourceRevision(st)
 	info.Status = "idle"
+	droidRecordSeen := false
 	for i := 0; i < 4096 && sc.Scan(); i++ {
 		select {
 		case <-ctx.Done():
 			return agent.SessionInfo{}, ctx.Err()
 		default:
 		}
-		c.applySummaryRecord(&info, sc.Bytes())
+		raw := sc.Bytes()
+		if c.Format == FormatDroid {
+			if record, ok := decodeRecord(raw); ok {
+				switch stringValue(record["type"]) {
+				case "session_start", "message", "user", "assistant":
+					droidRecordSeen = true
+				}
+			}
+		}
+		c.applySummaryRecord(&info, raw)
 	}
 	if err := sc.Err(); err != nil {
 		return agent.SessionInfo{}, err
+	}
+	if info.ExternalRef == "" && c.Format == FormatDroid && droidRecordSeen {
+		info.ExternalRef = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
 	if info.ExternalRef == "" {
 		return agent.SessionInfo{}, os.ErrNotExist
@@ -320,6 +331,30 @@ func (c *FileCatalog) applySummaryRecord(info *agent.SessionInfo, raw []byte) {
 		); title != "" && info.Title == "" {
 			info.Title = title
 		}
+	case FormatDroid:
+		recordType := stringValue(record["type"])
+		if ref := firstNonEmpty(
+			stringValue(record["id"]),
+			stringValue(record["sessionId"]),
+			stringValue(record["session_id"]),
+		); recordType == "session_start" && ref != "" {
+			info.ExternalRef = ref
+		}
+		if recordType == "session_start" {
+			if cwd := firstNonEmpty(stringValue(record["cwd"]), stringValue(record["lastCwd"])); cwd != "" {
+				info.Cwd = filepath.Clean(cwd)
+			}
+			if title := stringValue(record["title"]); title != "" && info.Title == "" {
+				info.Title = title
+			}
+			return
+		}
+		if ref := firstNonEmpty(stringValue(record["sessionId"]), stringValue(record["session_id"])); ref != "" {
+			info.ExternalRef = ref
+		}
+		if cwd := stringValue(record["cwd"]); cwd != "" {
+			info.Cwd = filepath.Clean(cwd)
+		}
 	}
 }
 
@@ -333,9 +368,75 @@ func (c *FileCatalog) parseHistoryItems(raw []byte, info agent.SessionInfo, rev 
 		return parseClaudeHistoryItems(record, info, rev, lineNo)
 	case FormatCodex:
 		return parseCodexHistoryItems(record, info, rev, lineNo)
+	case FormatDroid:
+		return parseDroidHistoryItems(record, info, rev, lineNo)
 	default:
 		return nil
 	}
+}
+
+func parseDroidHistoryItems(record map[string]any, info agent.SessionInfo, rev string, lineNo int) []agent.HistoryItem {
+	recordType := stringValue(record["type"])
+	if recordType == "user" || recordType == "assistant" {
+		return parseClaudeHistoryItems(record, info, rev, lineNo)
+	}
+	if recordType != "message" {
+		return nil
+	}
+	message, _ := record["message"].(map[string]any)
+	role := stringValue(message["role"])
+	if role != "user" && role != "assistant" {
+		return nil
+	}
+	id := firstNonEmpty(stringValue(record["id"]), strconv.Itoa(lineNo))
+	content, ok := message["content"].([]any)
+	if !ok {
+		item := historyItem(info, rev, id, "message", role, "", contentText(message["content"]))
+		if strings.TrimSpace(item.Text) == "" {
+			return nil
+		}
+		return []agent.HistoryItem{item}
+	}
+	items := make([]agent.HistoryItem, 0, len(content))
+	for index, rawBlock := range content {
+		block, ok := rawBlock.(map[string]any)
+		if !ok {
+			continue
+		}
+		blockID := firstNonEmpty(
+			stringValue(block["id"]),
+			stringValue(block["tool_use_id"]),
+			fmt.Sprintf("%s:%d", id, index),
+		)
+		switch stringValue(block["type"]) {
+		case "text":
+			items = appendClaudeHistoryItem(items, historyItem(
+				info, rev, blockID, "message", role, "", stringValue(block["text"]),
+			))
+		case "thinking":
+			items = appendClaudeHistoryItem(items, historyItem(
+				info, rev, blockID, "reasoning", "assistant", "", stringValue(block["thinking"]),
+			))
+		case "tool_use":
+			toolName := firstNonEmpty(stringValue(block["name"]), "tool")
+			text := "调用工具: " + toolName
+			if input := safeToolSummary(block["input"]); input != "" {
+				text += "\n" + input
+			}
+			items = appendClaudeHistoryItem(items, historyItem(
+				info, rev, blockID, "tool_call", "tool", toolName, text,
+			))
+		case "tool_result":
+			text := "工具结果"
+			if output := safeToolSummary(block["content"]); output != "" {
+				text += "\n" + output
+			}
+			items = appendClaudeHistoryItem(items, historyItem(
+				info, rev, blockID, "tool_result", "tool", "", text,
+			))
+		}
+	}
+	return items
 }
 
 func parseCodexHistoryItems(record map[string]any, info agent.SessionInfo, rev string, lineNo int) []agent.HistoryItem {

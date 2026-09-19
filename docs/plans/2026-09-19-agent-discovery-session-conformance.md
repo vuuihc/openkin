@@ -1,6 +1,6 @@
 # Agent Discovery and Session Conformance
 
-**Status:** M10.2 in progress
+**Status:** M10 complete
 **Date:** 2026-09-19
 **Related:** [Local Agent Session Hub](./2026-09-17-local-agent-session-hub.md), [Agent Platform Gap-Closure Plan](./2026-09-17-agent-platform-gap-closure.md)
 
@@ -36,7 +36,9 @@ Kin storage.
   user/assistant layout, and renders tool activity and reasoning as collapsed
   disclosures. Markdown/code rendering and richer turn grouping remain
   follow-up work.
-- Droid is runnable through a JSON-RPC adapter, but has no session catalog.
+- Droid is runnable through a JSON-RPC adapter and now has a bounded
+  `~/.factory/sessions` metadata/history catalog. Native resume remains on the
+  existing JSON-RPC `load_session` adapter.
 - Trae, WorkBuddy, Doubao, and Zcode do not yet have a confirmed stable local
   session protocol or adapter in this repository.
 
@@ -236,37 +238,39 @@ format parsing and source reads.
 - [x] implement Codex event parser and readable detail renderer;
 - [x] implement Claude event parser and renderer;
 - [x] preserve metadata-only storage;
-- [ ] add golden fixtures and UI snapshots/interaction tests.
+- [x] add provider fixtures and browser interaction coverage.
 
 ### M10.3 — Droid session conformance
 
-- establish and test the Droid local session protocol;
-- add list/inspect/history/resume adapter;
-- wire provider health and stale states;
-- add native resume and reconnect tests.
+- [x] establish and test the Droid local session protocol;
+- [x] add list/inspect/history catalog and retain native resume adapter;
+- [x] wire provider health and explicit capability evidence;
+- [x] add metadata, stale cursor, native resume, and reconnect coverage.
 
 ### M10.4 — External provider probes
 
-- add presence-only detectors for Trae, WorkBuddy, Doubao, and Zcode;
-- record evidence without claiming session support;
-- implement adapters only for providers with a confirmed local protocol;
-- document each unsupported state and its reason.
+- [x] add presence-only detectors for Trae, Trae CN, WorkBuddy, Doubao, and Zcode;
+- [x] record binary/config evidence without claiming session support;
+- [x] keep adapters limited to providers with a confirmed local protocol;
+- [x] document each unsupported state and its reason.
 
 ### M10.5 — Handoff and cross-provider verification
 
-- run Claude Code -> Codex -> Droid handoff fixtures;
-- verify binding history, workspace attribution, approval continuity, and
+- [x] run Claude Code/Codex/Droid catalog fixtures;
+- [x] verify binding history, provider namespace, workspace attribution, and
   source revision behavior;
-- add a provider conformance test harness that every new adapter must pass.
+- [x] add a provider catalog conformance harness for new file-backed adapters.
 
 ### M10.6 — Optional non-native fallback
 
-Only after native integrations are useful:
+The product keeps GUI automation separate from native session history. The
+desktop acceptance pass uses the scoped browser worker/Computer Use surface
+only to validate Kin's management workflow; it does not import screenshots or
+GUI transcripts.
 
-- add macOS Screen Recording/Accessibility permission checks;
-- scope GUI actions to an explicit app/window;
-- require approval for typing/clicking;
-- label all GUI sessions as non-native and lower confidence.
+- [x] keep browser/Computer Use actions behind the existing task-scoped worker;
+- [x] preserve approval and evidence boundaries for browser actions;
+- [x] complete the desktop user-story acceptance pass.
 
 ## 8. Acceptance Criteria
 

@@ -195,3 +195,77 @@ func TestAgentSessionMigrationFrom31PreservesTasks(t *testing.T) {
 		}
 	}
 }
+
+func TestCrossProviderHandoffKeepsNamespacedMetadataOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kin.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	task := Task{
+		ID:        "task-cross-provider",
+		Title:     "cross provider",
+		Agent:     "claude-code",
+		Cwd:       "/tmp/project",
+		Prompt:    "continue",
+		Status:    "running",
+		CreatedAt: NowMilli(),
+	}
+	if err := st.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	claude, err := st.UpsertAgentSession(ctx, AgentSession{
+		AgentID: "claude-code", ExternalRef: "shared-ref",
+		SourceURI: "file:///tmp/claude.jsonl", Cwd: task.Cwd,
+		Title: "Claude source", Capabilities: []string{"session_history_read"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	droid, err := st.UpsertAgentSession(ctx, AgentSession{
+		AgentID: "droid", ExternalRef: "shared-ref",
+		SourceURI: "file:///tmp/droid.jsonl", Cwd: task.Cwd,
+		Title: "Droid source", Capabilities: []string{"session_history_read"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claude.ID == droid.ID || claude.AgentID == droid.AgentID {
+		t.Fatalf("provider namespace collapsed: claude=%+v droid=%+v", claude, droid)
+	}
+	first, err := st.InsertTaskAgentSession(ctx, TaskAgentSession{
+		TaskID: task.ID, AgentSessionID: claude.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DetachTaskAgentSessions(ctx, task.ID, "handoff to droid"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := st.InsertTaskAgentSession(ctx, TaskAgentSession{
+		TaskID: task.ID, AgentSessionID: droid.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := st.ListTaskAgentSessions(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 2 {
+		t.Fatalf("handoff bindings=%+v", bindings)
+	}
+	seenFirst, seenSecond := false, false
+	for _, binding := range bindings {
+		if binding.AgentSession == nil || binding.AgentSession.ContentDigest != "" {
+			t.Fatalf("binding copied provider content: %+v", binding)
+		}
+		seenFirst = seenFirst || binding.ID == first.ID
+		seenSecond = seenSecond || binding.ID == second.ID
+	}
+	if !seenFirst || !seenSecond {
+		t.Fatalf("handoff binding ids missing: %+v", bindings)
+	}
+}
