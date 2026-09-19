@@ -16,6 +16,7 @@ import {
   listAgentSessionsPage,
   type AgentInfo,
   type AgentSession,
+  type AgentSessionImportResult,
   type Task,
 } from "../../api/client";
 import { liveResources } from "../../api/liveResources";
@@ -35,6 +36,24 @@ type Props = {
   pendingCount: number;
   routineUnreadCount?: number;
 };
+
+function publishAgentSessionSync(result: AgentSessionImportResult): void {
+  const detail = {
+    ...result,
+    synced_at: Date.now(),
+  } satisfies AgentSessionImportResult & { synced_at: number };
+  try {
+    window.localStorage.setItem(
+      "kin_agent_sessions_last_sync",
+      JSON.stringify(detail),
+    );
+  } catch {
+    // Session sync must remain useful when browser storage is unavailable.
+  }
+  window.dispatchEvent(
+    new CustomEvent("kin:agent-sessions-sync", { detail }),
+  );
+}
 
 function taskIdFromPath(pathname: string): string | null {
   const m = pathname.match(/^\/tasks\/([^/]+)\/?$/);
@@ -74,15 +93,22 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const [agentCatalog, setAgentCatalog] = useState<AgentInfo[]>([]);
   const agentCatalogRequest = useRef(0);
   const autoImportInFlight = useRef(false);
+  const externalRefreshInFlight = useRef(false);
+  const externalRefreshQueued = useRef(false);
   const [importingExternalSessions, setImportingExternalSessions] = useState(false);
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
 
   const loadExternalSessions = useCallback(async (skipAutoImport = false) => {
+    if (externalRefreshInFlight.current) {
+      externalRefreshQueued.current = true;
+      return;
+    }
+    externalRefreshInFlight.current = true;
     try {
       const catalogRequest = ++agentCatalogRequest.current;
-      listAgents()
+      await listAgents()
         .then((catalog) => {
           if (catalogRequest === agentCatalogRequest.current) setAgentCatalog(catalog);
         })
@@ -94,7 +120,16 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         if (settings?.["agent_sessions.auto_import_mode"] === "enabled") {
           autoImportInFlight.current = true;
           try {
-            await importAgentSessions();
+            const result = await importAgentSessions();
+            publishAgentSessionSync(result);
+          } catch (error) {
+            publishAgentSessionSync({
+              imported: 0,
+              providers: {},
+              errors: {
+                sync: error instanceof Error ? error.message : "sync failed",
+              },
+            });
           } finally {
             autoImportInFlight.current = false;
           }
@@ -114,6 +149,12 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
       setExternalSessions(sessions);
     } catch {
       // Keep the last successful snapshot visible during transient refresh failures.
+    } finally {
+      externalRefreshInFlight.current = false;
+      if (externalRefreshQueued.current) {
+        externalRefreshQueued.current = false;
+        void loadExternalSessions(true);
+      }
     }
   }, []);
 
@@ -146,9 +187,16 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   useEffect(() => {
     if (wsStatus === "disconnected") return;
     void loadExternalSessions();
-    const refresh = () => void loadExternalSessions();
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ skipAutoImport?: boolean }>).detail;
+      void loadExternalSessions(detail?.skipAutoImport === true);
+    };
+    const timer = window.setInterval(() => void loadExternalSessions(), 30_000);
     window.addEventListener("kin:agent-sessions-changed", refresh);
-    return () => window.removeEventListener("kin:agent-sessions-changed", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("kin:agent-sessions-changed", refresh);
+    };
   }, [loadExternalSessions, wsStatus]);
 
   const openNewChat = useCallback(() => {

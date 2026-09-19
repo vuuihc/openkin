@@ -63,6 +63,35 @@ func TestFileCatalogCodexListAndHistoryCursor(t *testing.T) {
 	}
 }
 
+func TestFileCatalogCodexFiltersInternalUserContext(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "codex-context.jsonl")
+	content := `{"payload":{"type":"session_meta","session_id":"codex-context","cwd":"/tmp/project"}}
+{"payload":{"type":"message","session_id":"codex-context","role":"developer","content":[{"type":"input_text","text":"developer bootstrap"}]},"ordinal":"1"}
+{"payload":{"type":"message","session_id":"codex-context","role":"user","internal_chat_message_metadata_passthrough":{"content_item_kinds":["plugins.recommendations","environments.environment_context"]},"content":[{"type":"input_text","text":"plugin recommendations and environment context"}]},"ordinal":"2"}
+{"payload":{"type":"message","session_id":"codex-context","role":"user","internal_chat_message_metadata_passthrough":{"content_item_kinds":["user.text"]},"content":[{"type":"input_text","text":"actual user question"}]},"ordinal":"3"}
+{"payload":{"type":"message","session_id":"codex-context","role":"user","content":[{"type":"input_text","text":"follow-up question"}]},"ordinal":"4"}
+{"payload":{"type":"message","session_id":"codex-context","role":"assistant","content":[{"type":"output_text","text":"answer"}]},"ordinal":"5"}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	page, err := catalog.ReadHistory(context.Background(), "codex-context", agent.HistoryQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("items=%d, want 3: %+v", len(page.Items), page.Items)
+	}
+	if page.Items[0].Role != "user" || page.Items[0].Text != "actual user question" ||
+		page.Items[1].Role != "user" || page.Items[1].Text != "follow-up question" ||
+		page.Items[2].Role != "assistant" || page.Items[2].Text != "answer" {
+		t.Fatalf("items=%+v", page.Items)
+	}
+}
+
 func TestFileCatalogClaudeSkipsNonMessages(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "session.jsonl")
@@ -90,6 +119,39 @@ func TestFileCatalogClaudeSkipsNonMessages(t *testing.T) {
 		page.Items[2].ToolName != "shell" ||
 		strings.Contains(page.Items[2].Text, "secret-value") ||
 		!strings.Contains(page.Items[2].Text, "[redacted]") {
+		t.Fatalf("items=%+v", page.Items)
+	}
+}
+
+func TestFileCatalogClaudeFiltersInternalContextButKeepsUserText(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "claude-context.jsonl")
+	longReminder := "<system-reminder>" + strings.Repeat("internal system instruction. ", 4) + "</system-reminder>"
+	longLiteral := "<system-reminder>" + strings.Repeat("literal user example. ", 4) + "</system-reminder>"
+	content := `{"type":"system","sessionId":"claude-context","subtype":"init"}
+{"type":"user","sessionId":"claude-context","uuid":"meta","isMeta":true,"message":{"role":"user","content":"hidden bootstrap"}}
+{"type":"user","sessionId":"claude-context","uuid":"sidechain","isSidechain":true,"message":{"role":"user","content":"hidden sidechain"}}
+{"type":"user","sessionId":"claude-context","uuid":"summary","isCompactSummary":true,"message":{"role":"user","content":"hidden compact summary"}}
+` + `{"type":"user","sessionId":"claude-context","uuid":"wrapped","entrypoint":"sdk-cli","message":{"role":"user","content":"` + longReminder + `actual user question"}}
+` + `{"type":"user","sessionId":"claude-context","uuid":"literal","entrypoint":"cli","message":{"role":"user","content":"Please show ` + longLiteral + ` exactly."}}
+{"type":"assistant","sessionId":"claude-context","uuid":"answer","message":{"role":"assistant","content":[{"type":"text","text":"answer"}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "claude-code", Format: FormatClaude, Roots: []string{root}}
+	page, err := catalog.ReadHistory(context.Background(), "claude-context", agent.HistoryQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("items=%d, want 3: %+v", len(page.Items), page.Items)
+	}
+	if page.Items[0].Role != "user" || page.Items[0].Text != "actual user question" ||
+		page.Items[1].Role != "user" ||
+		page.Items[1].Text != "Please show "+longLiteral+" exactly." ||
+		page.Items[2].Role != "assistant" || page.Items[2].Text != "answer" {
 		t.Fatalf("items=%+v", page.Items)
 	}
 }
