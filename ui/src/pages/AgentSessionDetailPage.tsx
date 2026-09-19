@@ -14,6 +14,8 @@ import Markdown from "../components/Markdown";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
+import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
+import { displayAgentSessionTitle } from "../lib/agentSessionTitle";
 import { useAppStore } from "../store/appStore";
 import {
   groupAgentSessionHistory,
@@ -37,6 +39,23 @@ function roleLabel(role: AgentSessionHistoryItem["role"], tr: ReturnType<typeof 
 
 function historyItemKey(item: AgentSessionHistoryItem): string {
   return `${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`;
+}
+
+function AgentAvatar({ agentID, small = false }: { agentID: string; small?: boolean }) {
+  const meta = agentAvatarMeta(agentID);
+  return (
+    <span
+      className={[
+        "inline-flex flex-none items-center justify-center font-semibold",
+        small ? "h-5 w-5 rounded-[6px] text-[9px]" : "h-7 w-7 rounded-[8px] text-[11px]",
+        meta.className,
+      ].join(" ")}
+      role="img"
+      aria-label={meta.label}
+    >
+      {meta.initials}
+    </span>
+  );
 }
 
 function UserMessage({
@@ -66,14 +85,17 @@ function UserMessage({
 function AssistantConclusion({
   item,
   tr,
+  agentID,
   provisional = false,
 }: {
   item: AgentSessionHistoryItem;
   tr: ReturnType<typeof useT>;
+  agentID: string;
   provisional?: boolean;
 }) {
   return (
-    <div className="flex justify-start">
+    <div className="flex items-start gap-2 justify-start">
+      <AgentAvatar agentID={agentID} />
       <article className="max-w-[92%] rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/70 px-4 py-3 text-kin-text">
         <div className="flex items-center gap-3 mb-2">
           <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
@@ -156,10 +178,12 @@ function ProcessEvent({
 function HistoryTurnView({
   turn,
   tr,
+  agentID,
   provisionalFinal = false,
 }: {
   turn: AgentSessionTurn;
   tr: ReturnType<typeof useT>;
+  agentID: string;
   provisionalFinal?: boolean;
 }) {
   return (
@@ -185,6 +209,7 @@ function HistoryTurnView({
         <AssistantConclusion
           item={turn.finalAssistant}
           tr={tr}
+          agentID={agentID}
           provisional={provisionalFinal}
         />
       ) : null}
@@ -280,7 +305,7 @@ export default function AgentSessionDetailPage() {
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
       navigate(`/tasks/${encodeURIComponent(result.task.id)}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : tr("agentSession.attachFailed"));
+      setError(e instanceof Error ? e.message : tr("agentSession.continueFailed"));
     } finally {
       setAttachBusy(false);
     }
@@ -313,6 +338,20 @@ export default function AgentSessionDetailPage() {
     );
   }
 
+  const agentName = agentDisplayName(session.agent_id);
+  const sessionTitle = displayAgentSessionTitle(
+    session,
+    tr("agentSession.sessionFallback", { agent: agentName }),
+  );
+  const canContinue =
+    !session.linked &&
+    Boolean(session.cwd.trim()) &&
+    session.capabilities?.includes("session_attach") === true;
+  const missingContinueCwd =
+    !session.linked &&
+    !session.cwd.trim() &&
+    session.capabilities?.includes("session_attach") === true;
+
   return (
     <div className="flex-1 flex flex-col min-h-0 min-w-0">
       <header className="flex-none border-b border-[var(--kin-hairline)] px-3 sm:px-5 py-3 flex items-start gap-2">
@@ -324,17 +363,18 @@ export default function AgentSessionDetailPage() {
         >
           <IconBack size={16} />
         </button>
+        <AgentAvatar agentID={session.agent_id} />
         <div className="min-w-0 flex-1">
           <h1 className="text-[15px] font-semibold truncate text-kin-text">
-            {session.title || session.external_ref}
+            {sessionTitle}
           </h1>
           <p className="text-[11.5px] text-kin-muted truncate">
-            {session.agent_id}
+            {agentName}
             {session.project_label ? ` · ${session.project_label}` : ""}
             {session.cwd ? ` · ${session.cwd}` : ""}
           </p>
           <p className="mt-1 text-[11px] text-kin-muted truncate">
-            {session.external_ref}
+            {tr("agentSession.sourceId", { value: session.external_ref })}
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-1.5 max-w-[45%]">
@@ -343,14 +383,11 @@ export default function AgentSessionDetailPage() {
           </span>
           <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">
             {session.linked
-              ? tr("agentSession.attached")
-              : tr("agentSession.unlinked")}
+              ? tr("agentSession.connected")
+              : canContinue
+                ? tr("agentSession.available")
+                : tr("agentSession.readOnly")}
           </span>
-          {!session.linked && (
-            <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">
-              {tr("agentSession.readOnly")}
-            </span>
-          )}
         </div>
       </header>
 
@@ -363,18 +400,35 @@ export default function AgentSessionDetailPage() {
         <span>{tr("agentSession.historySource")}</span>
       </div>
 
-      {!session.linked &&
-        session.capabilities?.includes("session_attach") && (
+      {missingContinueCwd && (
+        <div className="flex-none border-b border-[var(--kin-hairline)] px-4 sm:px-6 py-3 text-[12px] text-kin-muted">
+          {tr("agentSession.continueUnavailable")}
+        </div>
+      )}
+
+      {canContinue && (
           <div className="flex-none border-b border-[var(--kin-hairline)] px-4 sm:px-6 py-3">
-            <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-2">
+            <div className="max-w-3xl mx-auto">
+              <div className="mb-2 flex items-center gap-2">
+                <AgentAvatar agentID={session.agent_id} small />
+                <div className="min-w-0">
+                  <p className="text-[12.5px] font-medium text-kin-text">
+                    {tr("agentSession.continueTitle", { agent: agentName })}
+                  </p>
+                  <p className="text-[11.5px] text-kin-muted">
+                    {tr("agentSession.continueDescription", { agent: agentName })}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
               <input
                 value={attachPrompt}
                 onChange={(e) => setAttachPrompt(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void attach();
                 }}
-                placeholder={tr("agentSession.attachPlaceholder")}
-                aria-label={tr("agentSession.attachPrompt")}
+                placeholder={tr("agentSession.continuePlaceholder", { agent: agentName })}
+                aria-label={tr("agentSession.continuePrompt", { agent: agentName })}
                 className="kin-input min-h-[40px] flex-1"
               />
               <button
@@ -384,9 +438,10 @@ export default function AgentSessionDetailPage() {
                 className="kin-btn-primary disabled:opacity-50"
               >
                 {attachBusy
-                  ? tr("agentSession.attaching")
-                  : tr("agentSession.attach")}
+                  ? tr("agentSession.continuing")
+                  : tr("agentSession.continue")}
               </button>
+              </div>
             </div>
           </div>
         )}
@@ -408,6 +463,7 @@ export default function AgentSessionDetailPage() {
               key={turn.id}
               turn={turn}
               tr={tr}
+              agentID={session.agent_id}
               provisionalFinal={Boolean(nextCursor) && index === displayTurns.length - 1}
             />
           ))}

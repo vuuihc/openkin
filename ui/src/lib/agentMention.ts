@@ -141,6 +141,16 @@ export function agentDisplayName(id: string): string {
       return "Claude Code";
     case "codex":
       return "Codex";
+    case "droid":
+      return "Droid";
+    case "workbuddy":
+      return "WorkBuddy";
+    case "trae":
+      return "TRAE";
+    case "doubao":
+      return "Doubao";
+    case "zcode":
+      return "Zcode";
     case "grok":
       return "Grok";
     case "user":
@@ -180,6 +190,36 @@ export function agentAvatarMeta(id: string): {
         label: "Codex",
         initials: "X",
         className: "bg-[#10a37f] text-white",
+      };
+    case "droid":
+      return {
+        label: "Droid",
+        initials: "D",
+        className: "bg-[#2f6fed] text-white",
+      };
+    case "workbuddy":
+      return {
+        label: "WorkBuddy",
+        initials: "W",
+        className: "bg-[#6f5bd3] text-white",
+      };
+    case "trae":
+      return {
+        label: "TRAE",
+        initials: "T",
+        className: "bg-[#f05a47] text-white",
+      };
+    case "doubao":
+      return {
+        label: "Doubao",
+        initials: "D",
+        className: "bg-[#2678ff] text-white",
+      };
+    case "zcode":
+      return {
+        label: "Zcode",
+        initials: "Z",
+        className: "bg-[#202124] text-white border border-zinc-500",
       };
     case "grok":
       return {
