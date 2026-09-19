@@ -2,6 +2,7 @@ package sessioncatalog
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,59 @@ func TestFileCatalogCodexListAndHistoryCursor(t *testing.T) {
 	}
 	if second.NextCursor != "" {
 		t.Fatalf("last page cursor=%q, want empty", second.NextCursor)
+	}
+}
+
+func TestFileCatalogUsesFirstVisiblePromptWhenTitleIsOpaque(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "session.jsonl")
+	content := `{"payload":{"type":"session_meta","session_id":"6d8f4e35-3b8f-4a6a-8e1a-7ce0fca2d6f4","cwd":"/tmp/kin"}}
+{"payload":{"type":"message","session_id":"6d8f4e35-3b8f-4a6a-8e1a-7ce0fca2d6f4","role":"user","content":"Fix the sidebar session title"},"ordinal":"1"}
+{"payload":{"type":"message","session_id":"6d8f4e35-3b8f-4a6a-8e1a-7ce0fca2d6f4","role":"assistant","content":"Done"},"ordinal":"2"}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	sessions, err := catalog.List(context.Background(), agent.SessionQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions=%d, want 1", len(sessions))
+	}
+	if sessions[0].Title != "Fix the sidebar session title" {
+		t.Fatalf("title=%q, want first visible prompt", sessions[0].Title)
+	}
+}
+
+func TestFileCatalogDisambiguatesDuplicatePromptTitles(t *testing.T) {
+	root := t.TempDir()
+	for _, ref := range []string{
+		"6d8f4e35-3b8f-4a6a-8e1a-7ce0fca2d6f4",
+		"6d8f4e35-4c9f-4b7b-9f2b-8df1gdb3e7g5",
+	} {
+		path := filepath.Join(root, ref+".jsonl")
+		content := fmt.Sprintf(
+			"{\"payload\":{\"type\":\"session_meta\",\"session_id\":%q,\"cwd\":\"/tmp/kin\"}}\n"+
+				"{\"payload\":{\"type\":\"message\",\"session_id\":%q,\"role\":\"user\",\"content\":\"Review the sidebar\"},\"ordinal\":\"1\"}\n",
+			ref, ref,
+		)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	sessions, err := catalog.List(context.Background(), agent.SessionQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(sessions) != 2 || sessions[0].Title == sessions[1].Title ||
+		!strings.Contains(sessions[0].Title, " · ") ||
+		!strings.Contains(sessions[1].Title, " · ") {
+		t.Fatalf("sessions=%+v, want distinct prompt titles", sessions)
 	}
 }
 

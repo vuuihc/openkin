@@ -38,6 +38,8 @@ import {
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
 import { displayUserPrompt } from "../../lib/attachments";
+import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
+import { displayAgentSessionTitle } from "../../lib/agentSessionTitle";
 import {
   IconArchive,
   IconFile,
@@ -948,14 +950,17 @@ function mergeExternalProjectGroups(
 function ExternalSessionRow({
   session,
   label,
+  sessionTitle,
   onOpen,
   onCloseMobile,
 }: {
   session: AgentSession;
   label: string;
+  sessionTitle: string;
   onOpen?: (session: AgentSession) => void;
   onCloseMobile: () => void;
 }) {
+  const avatar = agentAvatarMeta(session.agent_id);
   return (
     <button
       type="button"
@@ -964,15 +969,26 @@ function ExternalSessionRow({
         onCloseMobile();
       }}
       className="w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-left text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text min-h-[34px]"
-      title={`${label}: ${session.title}`}
+      title={`${label}: ${sessionTitle}`}
     >
       <span
         className={[
-          "w-1.5 h-1.5 rounded-full flex-none",
+          "inline-flex h-5 w-5 items-center justify-center rounded-[6px] text-[9px] font-semibold",
+          avatar.className,
+        ].join(" ")}
+        role="img"
+        aria-label={avatar.label}
+      >
+        {avatar.initials}
+      </span>
+      <span
+        className={[
+          "h-1.5 w-1.5 flex-none rounded-full",
           session.status === "active" ? "bg-kin-blue" : "bg-kin-muted",
         ].join(" ")}
+        aria-hidden="true"
       />
-      <span className="truncate flex-1 min-w-0">{session.title}</span>
+      <span className="truncate flex-1 min-w-0">{sessionTitle}</span>
       {!session.linked && (
         <span className="text-[9px] text-kin-muted border border-kin-border rounded px-1">
           {label}
@@ -1236,6 +1252,12 @@ function AgentSessionRows({
           key={session.id}
           session={session}
           label={tr("nav.externalSession")}
+          sessionTitle={displayAgentSessionTitle(
+            session,
+            tr("agentSession.sessionFallback", {
+              agent: agentDisplayName(session.agent_id),
+            }),
+          )}
           onOpen={onOpenExternalSession}
           onCloseMobile={onCloseMobile}
         />

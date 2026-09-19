@@ -30,6 +30,10 @@ const (
 	maxTitleRunes       = 160
 )
 
+var opaqueSessionTitlePattern = regexp.MustCompile(
+	`(?i)^(?:[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}|[a-z0-9][a-z0-9_-]{23,})$`,
+)
+
 // FileCatalog is a bounded JSONL provider session catalog.
 type FileCatalog struct {
 	AgentID      string
@@ -231,6 +235,7 @@ func (c *FileCatalog) scan(ctx context.Context) ([]fileSession, error) {
 			break
 		}
 	}
+	disambiguateSessionTitles(out)
 	return out, nil
 }
 
@@ -255,6 +260,7 @@ func (c *FileCatalog) summarize(ctx context.Context, path string, maxBytes int64
 	info.SourceCursor = sourceRevision(st)
 	info.Status = "idle"
 	droidRecordSeen := false
+	firstPrompt := ""
 	for i := 0; i < 4096 && sc.Scan(); i++ {
 		select {
 		case <-ctx.Done():
@@ -271,6 +277,14 @@ func (c *FileCatalog) summarize(ctx context.Context, path string, maxBytes int64
 			}
 		}
 		c.applySummaryRecord(&info, raw)
+		if firstPrompt == "" {
+			for _, item := range c.parseHistoryItems(raw, info, info.SourceCursor, i) {
+				if item.Role == "user" && strings.TrimSpace(item.Text) != "" {
+					firstPrompt = item.Text
+					break
+				}
+			}
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return agent.SessionInfo{}, err
@@ -281,8 +295,16 @@ func (c *FileCatalog) summarize(ctx context.Context, path string, maxBytes int64
 	if info.ExternalRef == "" {
 		return agent.SessionInfo{}, os.ErrNotExist
 	}
-	if info.Title == "" {
-		info.Title = info.ExternalRef
+	if titleNeedsReadableFallback(info.Title, info.ExternalRef) {
+		shortRef := shortSessionRef(info.ExternalRef)
+		switch {
+		case firstPrompt != "":
+			info.Title = firstPrompt
+		case filepath.Base(filepath.Clean(info.Cwd)) != ".":
+			info.Title = c.AgentID + " · " + filepath.Base(filepath.Clean(info.Cwd)) + " · " + shortRef
+		default:
+			info.Title = c.AgentID + " session · " + shortRef
+		}
 	}
 	info.Title = boundedTitle(info.Title, info.ExternalRef)
 	info.UpdatedAt = st.ModTime()
@@ -294,6 +316,68 @@ func (c *FileCatalog) summarize(ctx context.Context, path string, maxBytes int64
 		agent.CapabilitySessionAttach,
 	}
 	return info, nil
+}
+
+func titleNeedsReadableFallback(title, externalRef string) bool {
+	title = strings.TrimSpace(title)
+	externalRef = strings.TrimSpace(externalRef)
+	return title == "" || title == externalRef || opaqueSessionTitlePattern.MatchString(title)
+}
+
+func shortSessionRef(externalRef string) string {
+	externalRef = strings.TrimSpace(externalRef)
+	runes := []rune(externalRef)
+	if len(runes) > 12 {
+		return string(runes[:8])
+	}
+	return externalRef
+}
+
+func disambiguateSessionTitles(sessions []fileSession) {
+	counts := make(map[string]int, len(sessions))
+	for _, session := range sessions {
+		key := strings.ToLower(strings.TrimSpace(session.info.Title))
+		if key != "" {
+			counts[key]++
+		}
+	}
+	used := make(map[string]bool, len(sessions))
+	for i := range sessions {
+		info := &sessions[i].info
+		key := strings.ToLower(strings.TrimSpace(info.Title))
+		if counts[key] <= 1 {
+			used[key] = true
+			continue
+		}
+		digest := sha256.Sum256([]byte(info.ExternalRef))
+		suffixes := []string{
+			shortSessionRef(info.ExternalRef),
+			shortSessionRef(info.ExternalRef) + "-" + hex.EncodeToString(digest[:2]),
+			hex.EncodeToString(digest[:6]),
+		}
+		assigned := false
+		for _, suffix := range suffixes {
+			candidate := titleWithSuffix(info.Title, suffix)
+			candidateKey := strings.ToLower(candidate)
+			if used[candidateKey] {
+				continue
+			}
+			info.Title = candidate
+			used[candidateKey] = true
+			assigned = true
+			break
+		}
+		if !assigned {
+			info.Title = titleWithSuffix(info.Title, hex.EncodeToString(digest[:]))
+			used[strings.ToLower(info.Title)] = true
+		}
+	}
+}
+
+func titleWithSuffix(title, suffix string) string {
+	prefixLimit := maxTitleRunes - len([]rune(suffix)) - 3
+	prefix := truncate(title, prefixLimit)
+	return strings.TrimSpace(prefix) + " · " + suffix
 }
 
 func (c *FileCatalog) applySummaryRecord(info *agent.SessionInfo, raw []byte) {
