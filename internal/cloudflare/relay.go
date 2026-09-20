@@ -192,12 +192,22 @@ func (s *Service) CompleteAuth(ctx context.Context, state, code string) error {
 		_ = s.rememberError(ctx, err.Error())
 		return err
 	}
-	return s.Store.SetSettings(ctx, map[string]string{
+	if err := s.Store.SetSettings(ctx, map[string]string{
 		keyOAuthState:    "",
 		keyOAuthExpires:  "",
 		keyOAuthVerifier: "",
 		keyLastError:     "",
-	})
+	}); err != nil {
+		return err
+	}
+	if accounts, err := s.Accounts(ctx); err == nil && len(accounts) == 1 {
+		_ = s.Store.SetSettings(ctx, map[string]string{
+			keyAccountID:   accounts[0].ID,
+			keyAccountName: accounts[0].Name,
+			keyLastError:   "",
+		})
+	}
+	return nil
 }
 
 func (s *Service) Accounts(ctx context.Context) ([]Account, error) {
