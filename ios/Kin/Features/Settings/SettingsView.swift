@@ -47,17 +47,15 @@ struct SettingsView: View {
                 settingsModel.activeProfileId = appSession.activeProfileID
             }
             .sheet(isPresented: $showConnection) {
-                ConnectionView { _ in
+                ConnectionView { _, profile in
                     showConnection = false
                     settingsModel.load()
                     appSession.refreshProfiles()
-                    if let profile = appSession.profiles.last {
-                        appSession.activate(profile: profile)
-                        settingsModel.activeProfileId = profile.id
-                        workers = []
-                        workerLoadGeneration += 1
-                        Task { await loadWorkers() }
-                    }
+                    appSession.activate(profile: profile)
+                    settingsModel.activeProfileId = profile.id
+                    workers = []
+                    workerLoadGeneration += 1
+                    Task { await loadWorkers() }
                 }
             }
         }

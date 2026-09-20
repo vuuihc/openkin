@@ -6,10 +6,10 @@ import SwiftUI
 /// 1. Scan QR code (camera-based via `QRScannerView`)
 /// 2. Manual URL + token entry
 ///
-/// On success, calls `onConnected` with a configured `APIClient` for the caller
+/// On success, calls `onConnected` with a configured `APIClient` and profile for the caller
 /// to wire into the rest of the app (Reconciler, view models, etc.).
 struct ConnectionView: View {
-    let onConnected: (APIClient) -> Void
+    let onConnected: (APIClient, ServerProfile) -> Void
 
     @State private var showScanner = false
     @State private var scannedCode: String?
@@ -234,7 +234,7 @@ struct ConnectionView: View {
             await MainActor.run {
                 isLoading = false
                 errorMessage = nil
-                onConnected(client)
+                onConnected(client, profile)
             }
         } catch {
             await MainActor.run {
@@ -283,6 +283,6 @@ struct ConnectionView: View {
 
 #if DEBUG
 #Preview("Unconnected") {
-    ConnectionView(onConnected: { _ in })
+    ConnectionView(onConnected: { _, _ in })
 }
 #endif

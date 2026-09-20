@@ -42,12 +42,10 @@ struct ControlView: View {
 
     // MARK: - Connection handling
 
-    private func handleConnected(client: APIClient) {
+    private func handleConnected(client: APIClient, profile: ServerProfile) {
         viewModel.configure(apiClient: client)
         appSession.refreshProfiles()
-        if let profile = appSession.profiles.last {
-            appSession.activate(profile: profile)
-        }
+        appSession.activate(profile: profile)
         Task {
             await viewModel.load()
         }
@@ -260,7 +258,7 @@ struct ControlView: View {
                 case .settings:
                     SettingsView()
                 case .connection:
-                    ConnectionView { _ in }
+                    ConnectionView { _, _ in }
                 }
             }
             .toolbar {

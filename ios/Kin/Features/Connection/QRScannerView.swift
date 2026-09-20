@@ -1,5 +1,5 @@
 import SwiftUI
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// Camera-based QR code scanner wrapped as a SwiftUI view via `UIViewControllerRepresentable`.
 ///
@@ -35,6 +35,7 @@ private final class CameraQRViewController: UIViewController {
     private let captureSession = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "dev.openkin.ios.qr-session", qos: .userInitiated)
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var hasScanned = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -61,10 +62,12 @@ private final class CameraQRViewController: UIViewController {
             startSession()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                if granted {
-                    self?.startSession()
-                } else {
-                    self?.showUnauthorizedAlert()
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.startSession()
+                    } else {
+                        self?.showUnauthorizedAlert()
+                    }
                 }
             }
         default:
@@ -89,7 +92,8 @@ private final class CameraQRViewController: UIViewController {
     // MARK: - Session
 
     private func startSession() {
-        sessionQueue.async { [weak self] in
+        let captureSession = captureSession
+        sessionQueue.async { [weak self, captureSession] in
             guard let self else { return }
 
             guard let captureDevice = AVCaptureDevice.default(for: .video),
@@ -99,27 +103,37 @@ private final class CameraQRViewController: UIViewController {
                 return
             }
 
-            self.captureSession.beginConfiguration()
-            self.captureSession.addInput(input)
-
-            let output = AVCaptureMetadataOutput()
-            guard self.captureSession.canAddOutput(output) else {
-                self.captureSession.commitConfiguration()
+            captureSession.beginConfiguration()
+            if captureSession.canAddInput(input) {
+                captureSession.addInput(input)
+            } else {
+                captureSession.commitConfiguration()
+                DispatchQueue.main.async { self.showUnauthorizedAlert() }
                 return
             }
-            self.captureSession.addOutput(output)
+
+            let output = AVCaptureMetadataOutput()
+            guard captureSession.canAddOutput(output) else {
+                captureSession.commitConfiguration()
+                DispatchQueue.main.async { self.showUnauthorizedAlert() }
+                return
+            }
+            captureSession.addOutput(output)
             output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
             output.metadataObjectTypes = [.qr]
-            self.captureSession.commitConfiguration()
+            captureSession.commitConfiguration()
 
-            self.addPreviewLayer()
-            self.captureSession.startRunning()
+            DispatchQueue.main.async { [weak self] in
+                self?.addPreviewLayer()
+            }
+            captureSession.startRunning()
         }
     }
 
     private func stopSession() {
-        sessionQueue.async { [weak self] in
-            self?.captureSession.stopRunning()
+        let captureSession = captureSession
+        sessionQueue.async { [captureSession] in
+            captureSession.stopRunning()
         }
     }
 
@@ -169,10 +183,12 @@ extension CameraQRViewController: @preconcurrency AVCaptureMetadataOutputObjects
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
+        guard !hasScanned else { return }
         guard let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
               let stringValue = metadataObject.stringValue
         else { return }
 
+        hasScanned = true
         stopSession()
         onScan?(stringValue)
     }
