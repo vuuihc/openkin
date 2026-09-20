@@ -19,6 +19,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/secret"
@@ -43,6 +44,7 @@ const (
 	keyScriptName    = "cloudflare.relay_script_name"
 	keyWorkerURL     = "cloudflare.relay_worker_url"
 	keyLastError     = "cloudflare.relay_last_error"
+	keyAuthenticated = "cloudflare.authenticated"
 	keyOAuthState    = "cloudflare.oauth_state"
 	keyOAuthExpires  = "cloudflare.oauth_state_expires"
 	keyOAuthVerifier = "cloudflare.oauth_verifier"
@@ -61,6 +63,8 @@ type Service struct {
 	AuthURL     string
 	TokenURL    string
 	RedirectURI string
+	tokenMu     sync.Mutex
+	tokenCache  *tokenSet
 }
 
 type Status struct {
@@ -114,9 +118,8 @@ func (s *Service) Status(ctx context.Context) Status {
 		v, _ := s.Store.GetSetting(ctx, key)
 		return v
 	}
-	_, tokenErr := s.loadToken()
 	return Status{
-		Authenticated: tokenErr == nil,
+		Authenticated: get(keyAuthenticated) == "true",
 		AccountID:     get(keyAccountID),
 		AccountName:   get(keyAccountName),
 		ScriptName:    firstNonEmpty(get(keyScriptName), defaultScriptName),
@@ -196,6 +199,7 @@ func (s *Service) CompleteAuth(ctx context.Context, state, code string) error {
 		keyOAuthState:    "",
 		keyOAuthExpires:  "",
 		keyOAuthVerifier: "",
+		keyAuthenticated: "true",
 		keyLastError:     "",
 	}); err != nil {
 		return err
@@ -281,10 +285,9 @@ func (s *Service) uploadRelay(ctx context.Context, accountID, scriptName string)
 			"name":       "RELAY_ROOM",
 			"class_name": "RelayRoom",
 		}},
-		"migrations": []map[string]any{{
-			"tag":                "v1",
+		"migrations": map[string]any{
 			"new_sqlite_classes": []string{"RelayRoom"},
-		}},
+		},
 	}
 	meta, err := json.Marshal(metadata)
 	if err != nil {
@@ -461,6 +464,13 @@ func (s *Service) exchangeToken(ctx context.Context, form url.Values) (tokenSet,
 }
 
 func (s *Service) loadToken() (tokenSet, error) {
+	s.tokenMu.Lock()
+	if s.tokenCache != nil {
+		tok := *s.tokenCache
+		s.tokenMu.Unlock()
+		return tok, nil
+	}
+	s.tokenMu.Unlock()
 	if s.Secrets == nil {
 		return tokenSet{}, errors.New("secret store is unavailable")
 	}
@@ -475,6 +485,9 @@ func (s *Service) loadToken() (tokenSet, error) {
 	if tok.AccessToken == "" && tok.RefreshToken == "" {
 		return tokenSet{}, errors.New("empty token")
 	}
+	s.tokenMu.Lock()
+	s.tokenCache = &tok
+	s.tokenMu.Unlock()
 	return tok, nil
 }
 
@@ -483,7 +496,13 @@ func (s *Service) saveToken(tok tokenSet) error {
 	if err != nil {
 		return err
 	}
-	return s.Secrets.Put(refOAuthToken, string(data))
+	if err := s.Secrets.Put(refOAuthToken, string(data)); err != nil {
+		return err
+	}
+	s.tokenMu.Lock()
+	s.tokenCache = &tok
+	s.tokenMu.Unlock()
+	return nil
 }
 
 func (s *Service) rememberError(ctx context.Context, msg string) error {

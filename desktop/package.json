@@ -56,7 +56,15 @@
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "LSUIElement": false
+        "LSUIElement": false,
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "Kin",
+            "CFBundleURLSchemes": [
+              "kin"
+            ]
+          }
+        ]
       }
     },
     "dmg": {
