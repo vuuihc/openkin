@@ -275,6 +275,16 @@ func (r Registry) Public() []PublicEntry {
 // If the registry key is empty but a legacy single-slot config exists, it is
 // migrated and persisted into one entry.
 func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
+	return loadRegistry(ctx, st, true)
+}
+
+// LoadRegistryMetadata reads provider metadata for API display without
+// hydrating secret:// API keys. Use LoadRegistry for runtime provider execution.
+func LoadRegistryMetadata(ctx context.Context, st *store.Store) (Registry, error) {
+	return loadRegistry(ctx, st, false)
+}
+
+func loadRegistry(ctx context.Context, st *store.Store, hydrateSecrets bool) (Registry, error) {
 	if st == nil {
 		return Registry{}, fmt.Errorf("store required")
 	}
@@ -312,6 +322,9 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 		if reg.ActiveID == "" && len(reg.Entries) > 0 {
 			reg.ActiveID = reg.Entries[0].ID
 		}
+		if !hydrateSecrets {
+			return reg, nil
+		}
 		var changed bool
 		for i := range reg.Entries {
 			key, err := hydrateAPIKey(reg.Entries[i].APIKey)
@@ -336,7 +349,7 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 	}
 
 	// Legacy single-slot → one registry entry.
-	legacy, err := loadLegacyConfig(ctx, st)
+	legacy, err := loadLegacyConfig(ctx, st, hydrateSecrets)
 	if err != nil {
 		return Registry{}, err
 	}
@@ -354,6 +367,9 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 		Stream:  legacy.Stream,
 	}.Normalize()
 	reg = Registry{ActiveID: id, Entries: []Entry{entry}}.Normalize()
+	if !hydrateSecrets {
+		return reg, nil
+	}
 	// Persist migration so subsequent loads hit the registry path.
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, fmt.Errorf("persist legacy provider migration: %w", err)
@@ -361,7 +377,7 @@ func LoadRegistry(ctx context.Context, st *store.Store) (Registry, error) {
 	return reg, nil
 }
 
-func loadLegacyConfig(ctx context.Context, st *store.Store) (Config, error) {
+func loadLegacyConfig(ctx context.Context, st *store.Store, hydrateSecret bool) (Config, error) {
 	get := func(k string) (string, error) {
 		v, err := st.GetSetting(ctx, k)
 		if err != nil {
@@ -392,9 +408,11 @@ func loadLegacyConfig(ctx context.Context, st *store.Store) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("load %s: %w", KeyStream, err)
 	}
-	apiKey, err = hydrateAPIKey(apiKey)
-	if err != nil {
-		return Config{}, fmt.Errorf("load provider secret: %w", err)
+	if hydrateSecret {
+		apiKey, err = hydrateAPIKey(apiKey)
+		if err != nil {
+			return Config{}, fmt.Errorf("load provider secret: %w", err)
+		}
 	}
 	return Config{
 		Kind:    kind,
@@ -479,7 +497,7 @@ func LoadConfig(ctx context.Context, st *store.Store) (Config, error) {
 	}
 	// Fall back to legacy keys if registry is empty but slot still set
 	// (e.g. concurrent write mid-migration).
-	return loadLegacyConfig(ctx, st)
+	return loadLegacyConfig(ctx, st, true)
 }
 
 // SetActive switches the active provider id and mirrors legacy keys.

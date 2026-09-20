@@ -194,24 +194,7 @@ export default function SettingsPage() {
       listAgentProviders()
         .then(setAgentProviders)
         .catch(() => undefined);
-      if (s["cloudflare.authenticated"]) {
-        listCloudflareAccounts()
-          .then((res) => {
-            setCloudflareAccounts(res.accounts ?? []);
-            if (!s["cloudflare.account_id"] && res.accounts?.length === 1) {
-              setCloudflareAccountID(res.accounts[0].id);
-            }
-          })
-          .catch(() => undefined);
-        listCloudflareZones(s["cloudflare.account_id"])
-          .then((res) => {
-            setCloudflareZones(res.zones ?? []);
-            if (!s["cloudflare.relay_zone_id"] && res.zones?.length === 1) {
-              setCloudflareZoneID(res.zones[0].id);
-            }
-          })
-          .catch(() => undefined);
-      } else {
+      if (!s["cloudflare.authenticated"]) {
         setCloudflareAccounts([]);
         setCloudflareZones([]);
       }
@@ -803,6 +786,30 @@ export default function SettingsPage() {
     settings["relay.state"] === "error"
       ? settings["relay.state"]
       : "disabled";
+  const hasCloudflareWorker = !!settings["cloudflare.relay_worker_url"];
+  const hasCloudflareCustomDomain = !!settings["cloudflare.relay_custom_domain_url"];
+  const accountOptions =
+    cloudflareAccountID && !cloudflareAccounts.some((account) => account.id === cloudflareAccountID)
+      ? [
+          {
+            id: cloudflareAccountID,
+            name: settings["cloudflare.account_name"] || cloudflareAccountID,
+          },
+          ...cloudflareAccounts,
+        ]
+      : cloudflareAccounts;
+  const zoneOptions =
+    cloudflareZoneID && !cloudflareZones.some((zone) => zone.id === cloudflareZoneID)
+      ? [
+          {
+            id: cloudflareZoneID,
+            name: settings["cloudflare.relay_zone_name"] || cloudflareZoneID,
+          },
+          ...cloudflareZones,
+        ]
+      : cloudflareZones;
+  const cloudflareNeedsAccountRefresh =
+    !!settings["cloudflare.authenticated"] && !cloudflareAccountID.trim() && accountOptions.length === 0;
 
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
@@ -1451,7 +1458,7 @@ export default function SettingsPage() {
             </div>
             <button
               type="button"
-              disabled={cloudflareBusy || cloudflareDeploying}
+              disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
               onClick={() => void connectCloudflare()}
               className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
             >
@@ -1487,7 +1494,7 @@ export default function SettingsPage() {
                     ? tr("settings.relay.selectAccount")
                     : tr("settings.relay.loginFirst")}
                 </option>
-                {cloudflareAccounts.map((account) => (
+                {accountOptions.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.name || account.id}
                   </option>
@@ -1508,55 +1515,60 @@ export default function SettingsPage() {
               />
             </label>
           </div>
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.relay.cloudflareZone")}
-              </span>
-              <select
-                value={cloudflareZoneID}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setCloudflareZoneID(next);
-                  const zone = cloudflareZones.find((z) => z.id === next);
-                  setCloudflareHostname((current) => current || defaultRelayHostname(zone?.name ?? ""));
-                }}
-                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                className="kin-input min-h-[44px]"
-              >
-                <option value="">
-                  {settings["cloudflare.authenticated"]
-                    ? tr("settings.relay.selectZone")
-                    : tr("settings.relay.loginFirst")}
-                </option>
-                {cloudflareZones.map((zone) => (
-                  <option key={zone.id} value={zone.id}>
-                    {zone.name}
+          {hasCloudflareWorker ? (
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-kin-secondary">
+                  {tr("settings.relay.cloudflareZone")}
+                </span>
+                <select
+                  value={cloudflareZoneID}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setCloudflareZoneID(next);
+                    const zone = cloudflareZones.find((z) => z.id === next);
+                    setCloudflareHostname((current) => current || defaultRelayHostname(zone?.name ?? ""));
+                  }}
+                  disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                  className="kin-input min-h-[44px]"
+                >
+                  <option value="">
+                    {settings["cloudflare.authenticated"]
+                      ? tr("settings.relay.selectZone")
+                      : tr("settings.relay.loginFirst")}
                   </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.relay.customDomain")}
-              </span>
-              <input
-                type="text"
-                value={cloudflareHostname}
-                onChange={(e) => setCloudflareHostname(e.target.value)}
-                disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                placeholder={tr("settings.relay.customDomainPlaceholder")}
-                className="kin-input min-h-[44px] font-mono text-xs"
-                autoComplete="off"
-              />
-            </label>
-          </div>
+                  {zoneOptions.map((zone) => (
+                    <option key={zone.id} value={zone.id}>
+                      {zone.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-kin-secondary">
+                  {tr("settings.relay.customDomain")}
+                </span>
+                <input
+                  type="text"
+                  value={cloudflareHostname}
+                  onChange={(e) => setCloudflareHostname(e.target.value)}
+                  disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                  placeholder={tr("settings.relay.customDomainPlaceholder")}
+                  className="kin-input min-h-[44px] font-mono text-xs"
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain || !settings["cloudflare.authenticated"]}
               onClick={() => void refreshCloudflareAccounts()}
-              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+              className={[
+                cloudflareNeedsAccountRefresh ? "kin-btn-primary" : "kin-btn-secondary",
+                "min-h-[40px] disabled:opacity-50",
+              ].join(" ")}
             >
               {tr("settings.relay.refreshAccounts")}
             </button>
@@ -1570,30 +1582,45 @@ export default function SettingsPage() {
                 !cloudflareAccountID.trim()
               }
               onClick={() => void deployRelayWorker()}
-              className="kin-btn-primary min-h-[40px] disabled:opacity-50"
+              className={[
+                hasCloudflareWorker ? "kin-btn-secondary" : "kin-btn-primary",
+                "min-h-[40px] disabled:opacity-50",
+              ].join(" ")}
             >
               {cloudflareDeploying
                 ? tr("settings.relay.deployingWorker")
-                : tr("settings.relay.deployWorker")}
+                : hasCloudflareWorker
+                  ? tr("settings.relay.updateWorker")
+                  : tr("settings.relay.deployWorker")}
             </button>
-            <button
-              type="button"
-              disabled={
-                cloudflareBusy ||
-                cloudflareDeploying ||
-                cloudflareBindingDomain ||
-                !settings["cloudflare.authenticated"] ||
-                !cloudflareAccountID.trim() ||
-                !cloudflareZoneID.trim()
-              }
-              onClick={() => void bindRelayCustomDomain()}
-              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
-            >
-              {cloudflareBindingDomain
-                ? tr("settings.relay.bindingDomain")
-                : tr("settings.relay.bindDomain")}
-            </button>
+            {hasCloudflareWorker ? (
+              <button
+                type="button"
+                disabled={
+                  cloudflareBusy ||
+                  cloudflareDeploying ||
+                  cloudflareBindingDomain ||
+                  !settings["cloudflare.authenticated"] ||
+                  !cloudflareAccountID.trim() ||
+                  !cloudflareZoneID.trim()
+                }
+                onClick={() => void bindRelayCustomDomain()}
+                className={[
+                  hasCloudflareCustomDomain ? "kin-btn-secondary" : "kin-btn-primary",
+                  "min-h-[40px] disabled:opacity-50",
+                ].join(" ")}
+              >
+                {cloudflareBindingDomain
+                  ? tr("settings.relay.bindingDomain")
+                  : tr("settings.relay.bindDomain")}
+              </button>
+            ) : null}
           </div>
+          {!hasCloudflareWorker && settings["cloudflare.authenticated"] ? (
+            <p className="text-[11px] text-kin-muted leading-relaxed">
+              {tr("settings.relay.deployFirst")}
+            </p>
+          ) : null}
           {settings["cloudflare.relay_worker_url"] ? (
             <p className="break-all font-mono text-[11px] text-kin-muted">
               {settings["cloudflare.relay_worker_url"]}

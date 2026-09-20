@@ -418,6 +418,17 @@ func (s *Service) RememberRelayDomain(ctx context.Context, result DomainResult) 
 }
 
 func (s *Service) uploadRelay(ctx context.Context, accountID, scriptName string) error {
+	err := s.uploadRelayOnce(ctx, accountID, scriptName, true)
+	if err == nil {
+		return nil
+	}
+	if !isExistingDurableObjectMigrationError(err) {
+		return err
+	}
+	return s.uploadRelayOnce(ctx, accountID, scriptName, false)
+}
+
+func (s *Service) uploadRelayOnce(ctx context.Context, accountID, scriptName string, includeMigration bool) error {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	metadata := map[string]any{
@@ -428,9 +439,11 @@ func (s *Service) uploadRelay(ctx context.Context, accountID, scriptName string)
 			"name":       "RELAY_ROOM",
 			"class_name": "RelayRoom",
 		}},
-		"migrations": map[string]any{
+	}
+	if includeMigration {
+		metadata["migrations"] = map[string]any{
 			"new_sqlite_classes": []string{"RelayRoom"},
-		},
+		}
 	}
 	meta, err := json.Marshal(metadata)
 	if err != nil {
@@ -463,6 +476,15 @@ func (s *Service) uploadRelay(ctx context.Context, accountID, scriptName string)
 		contentType: writer.FormDataContentType(),
 		body:        &body,
 	}, nil)
+}
+
+func isExistingDurableObjectMigrationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Cannot apply new-sqlite-class migration") &&
+		strings.Contains(msg, "RelayRoom")
 }
 
 func (s *Service) enableScriptSubdomain(ctx context.Context, accountID, scriptName string) error {

@@ -19,7 +19,7 @@ type providersResponse struct {
 }
 
 func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
-	reg, err := provider.LoadRegistry(r.Context(), s.Store)
+	reg, err := provider.LoadRegistryMetadata(r.Context(), s.Store)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

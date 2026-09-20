@@ -96,6 +96,22 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
    finished work only on a side branch. Do not commit known failing work unless
    the user explicitly requests a checkpoint.
 
+## External integration UX gates
+
+- Opening settings or other passive views must not read secure-store secrets or
+  call third-party APIs implicitly. Use persisted non-sensitive metadata for
+  status display; read secrets only after an explicit user action such as
+  connect, refresh, deploy, or test.
+- Third-party OAuth scopes must be checked against the provider's current
+  documentation or a real authorization flow. Add a regression test for the
+  exact generated scope string when changing scopes.
+- Deployment flows must be idempotent. Test both first-time creation and repeat
+  update paths, especially provider-side migrations, unique names, and already
+  exists responses.
+- UI for multi-step integrations should expose one primary next action at a
+  time. Do not present later-step actions as equally prominent before their
+  prerequisites are satisfied.
+
 ## Go conventions
 
 - Follow standard Go style and run `gofmt` on every changed `.go` file.
