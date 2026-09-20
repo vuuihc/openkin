@@ -193,6 +193,9 @@ func MaskAPIKey(key string) string {
 	if key == "" {
 		return ""
 	}
+	if isSecretReference(key) {
+		return "••••••••"
+	}
 	if len(key) <= 8 {
 		return "••••••••"
 	}

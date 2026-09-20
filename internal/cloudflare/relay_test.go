@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -194,6 +195,83 @@ func TestDeployRelayRejectsCloudflareSuccessFalseEnvelope(t *testing.T) {
 	}
 	if got, _ := st.GetSetting(context.Background(), keyWorkerURL); got != "" {
 		t.Fatalf("worker URL persisted after failed upload: %q", got)
+	}
+}
+
+func TestDeployRelayRetriesWithoutMigrationWhenDurableObjectClassExists(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	secrets := &memorySecretStore{}
+	token, err := json.Marshal(tokenSet{
+		AccessToken: "access-1",
+		ExpiresAt:   time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.Put(refOAuthToken, string(token)); err != nil {
+		t.Fatal(err)
+	}
+	var uploadAttempts int
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/client/v4/accounts":
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  []map[string]string{{"id": "acc1", "name": "Primary"}},
+			})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay" && r.Method == http.MethodPut:
+			uploadAttempts++
+			body, _ := io.ReadAll(r.Body)
+			hasMigration := strings.Contains(string(body), "new_sqlite_classes")
+			if uploadAttempts == 1 {
+				if !hasMigration {
+					t.Fatal("first upload omitted Durable Object migration")
+				}
+				writeTestJSON(w, http.StatusBadRequest, map[string]any{
+					"success": false,
+					"errors": []map[string]string{{
+						"message": "Cannot apply new-sqlite-class migration to class 'RelayRoom' that is already depended on by existing Durable Objects",
+					}},
+				})
+				return
+			}
+			if hasMigration {
+				t.Fatal("retry should omit Durable Object migration")
+			}
+			writeTestJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]any{}})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay/subdomain" && r.Method == http.MethodPost:
+			writeTestJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]bool{"enabled": true}})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/subdomain":
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  map[string]string{"subdomain": "example-user"},
+			})
+		default:
+			t.Fatalf("unexpected Cloudflare request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cf.Close()
+	svc := &Service{
+		Store:   st,
+		Secrets: secrets,
+		Client:  cf.Client(),
+		APIBase: cf.URL + "/client/v4",
+	}
+
+	result, err := svc.DeployRelay(context.Background(), DeployRequest{AccountID: "acc1", ScriptName: "kin-relay"})
+	if err != nil {
+		t.Fatalf("DeployRelay error=%v", err)
+	}
+	if uploadAttempts != 2 {
+		t.Fatalf("upload attempts=%d, want 2", uploadAttempts)
+	}
+	if result.WorkerURL != "https://kin-relay.example-user.workers.dev" {
+		t.Fatalf("worker URL=%q", result.WorkerURL)
 	}
 }
 

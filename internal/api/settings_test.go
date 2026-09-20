@@ -16,13 +16,20 @@ import (
 
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/notify"
+	"github.com/vuuihc/openkin/internal/provider"
 )
 
 type memorySecretStore struct {
-	values map[string]string
+	values  map[string]string
+	gets    int
+	failGet bool
 }
 
 func (s *memorySecretStore) Get(ref string) (string, error) {
+	s.gets++
+	if s.failGet {
+		return "", errors.New("unexpected secret read")
+	}
 	if s.values == nil {
 		return "", errors.New("not found")
 	}
@@ -44,6 +51,51 @@ func (s *memorySecretStore) Put(ref, value string) error {
 func (s *memorySecretStore) Delete(ref string) error {
 	delete(s.values, ref)
 	return nil
+}
+
+func TestSettingsAndProviderListDoNotReadProviderSecrets(t *testing.T) {
+	s, token := newTestServer(t)
+	secrets := &memorySecretStore{
+		values: map[string]string{
+			"secret-provider-p1": "sk-private",
+		},
+		failGet: true,
+	}
+	provider.SetSecretStore(secrets)
+	t.Cleanup(func() { provider.SetSecretStore(nil) })
+	if err := s.Store.SetSettings(t.Context(), map[string]string{
+		provider.KeyActiveProvider: "p1",
+		provider.KeyProviders:      `{"active_id":"p1","entries":[{"id":"p1","name":"Primary","kind":"openai-compatible","base_url":"https://api.example.test/v1","api_key":"secret://secret-provider-p1","model":"gpt-test"}]}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET settings: %d %s", rr.Code, rr.Body.String())
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["provider.api_key"] == "" || strings.Contains(settings["provider.api_key"].(string), "secret://") {
+		t.Fatalf("provider.api_key mask = %q", settings["provider.api_key"])
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/providers", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET providers: %d %s", rr.Code, rr.Body.String())
+	}
+	if secrets.gets != 0 {
+		t.Fatalf("settings display read provider secret %d time(s)", secrets.gets)
+	}
 }
 
 func TestSettingsGetPut(t *testing.T) {

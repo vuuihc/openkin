@@ -1178,7 +1178,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		provStream = "false"
 	}
 	provActive := get(provider.KeyActiveProvider)
-	reg, err := provider.LoadRegistry(ctx, s.Store)
+	reg, err := provider.LoadRegistryMetadata(ctx, s.Store)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -1237,7 +1237,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		AgentLimits:           agentLimits,
 		ProviderKind:          provKind,
 		ProviderBaseURL:       provBase,
-		ProviderAPIKey:        maskSettingSecret(provKey),
+		ProviderAPIKey:        provider.MaskAPIKey(provKey),
 		ProviderModel:         provModel,
 		ProviderStream:        provStream,
 		ProviderActiveID:      provActive,
@@ -1252,17 +1252,6 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		RelayStatus:           relayStatus,
 		CloudflareRelayStatus: cloudflareStatus,
 	})
-}
-
-func maskSettingSecret(key string) string {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return ""
-	}
-	if len(key) <= 8 {
-		return "••••••••"
-	}
-	return key[:3] + "…" + key[len(key)-4:]
 }
 
 func firstNonEmpty(a, b string) string {
