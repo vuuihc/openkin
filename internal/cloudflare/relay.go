@@ -45,6 +45,7 @@ const (
 	keyLastError     = "cloudflare.relay_last_error"
 	keyOAuthState    = "cloudflare.oauth_state"
 	keyOAuthExpires  = "cloudflare.oauth_state_expires"
+	keyOAuthVerifier = "cloudflare.oauth_verifier"
 	refOAuthVerifier = "secret-cloudflare-oauth-verifier"
 	refOAuthToken    = "secret-cloudflare-oauth-token"
 )
@@ -136,13 +137,11 @@ func (s *Service) BeginAuth(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("generate pkce verifier: %w", err)
 	}
-	if err := s.Secrets.Put(refOAuthVerifier, verifier); err != nil {
-		return "", fmt.Errorf("store pkce verifier: %w", err)
-	}
 	if err := s.Store.SetSettings(ctx, map[string]string{
-		keyOAuthState:   state,
-		keyOAuthExpires: fmt.Sprintf("%d", time.Now().Add(10*time.Minute).Unix()),
-		keyLastError:    "",
+		keyOAuthState:    state,
+		keyOAuthExpires:  fmt.Sprintf("%d", time.Now().Add(10*time.Minute).Unix()),
+		keyOAuthVerifier: verifier,
+		keyLastError:     "",
 	}); err != nil {
 		return "", fmt.Errorf("persist oauth state: %w", err)
 	}
@@ -173,10 +172,10 @@ func (s *Service) CompleteAuth(ctx context.Context, state, code string) error {
 		_ = s.rememberError(ctx, "Cloudflare OAuth state expired")
 		return errors.New("Cloudflare OAuth state expired")
 	}
-	verifier, err := s.Secrets.Get(refOAuthVerifier)
-	if err != nil {
+	verifier, _ := s.Store.GetSetting(ctx, keyOAuthVerifier)
+	if len(verifier) < 43 {
 		_ = s.rememberError(ctx, "missing Cloudflare OAuth verifier")
-		return fmt.Errorf("read OAuth verifier: %w", err)
+		return errors.New("missing Cloudflare OAuth verifier")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
@@ -193,11 +192,11 @@ func (s *Service) CompleteAuth(ctx context.Context, state, code string) error {
 		_ = s.rememberError(ctx, err.Error())
 		return err
 	}
-	_ = s.Secrets.Delete(refOAuthVerifier)
 	return s.Store.SetSettings(ctx, map[string]string{
-		keyOAuthState:   "",
-		keyOAuthExpires: "",
-		keyLastError:    "",
+		keyOAuthState:    "",
+		keyOAuthExpires:  "",
+		keyOAuthVerifier: "",
+		keyLastError:     "",
 	})
 }
 
