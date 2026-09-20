@@ -33,6 +33,10 @@ final class AppSession {
     /// Activates one profile and loads only its Keychain credential.
     func activate(profile: ServerProfile) {
         reconciler?.stopWebSocket()
+        var profile = profile
+        profile.lastAccessed = Date()
+        UserDefaults.upsertServerProfile(profile)
+        profiles = UserDefaults.loadServerProfiles()
         let profileToken = try? KeychainStore.readToken(for: profile.id)
         let legacyToken = profileToken == nil ? (try? KeychainStore.readToken()) : nil
         guard let token = profileToken ?? legacyToken, !token.isEmpty else {

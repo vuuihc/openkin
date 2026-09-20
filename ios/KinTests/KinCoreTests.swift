@@ -193,6 +193,39 @@ final class KinCoreTests: XCTestCase {
         XCTAssertFalse(ConnectionState.unconfigured.isConnected)
     }
 
+    func testServerProfilesLoadMostRecentlyAccessedFirst() throws {
+        let defaults = UserDefaults.standard
+        let originalProfiles = defaults.data(forKey: "kin_server_profiles")
+        defer {
+            if let originalProfiles {
+                defaults.set(originalProfiles, forKey: "kin_server_profiles")
+            } else {
+                defaults.removeObject(forKey: "kin_server_profiles")
+            }
+        }
+        let old = ServerProfile(
+            id: UUID(),
+            displayName: "old",
+            baseURL: try XCTUnwrap(URL(string: "https://old.example.test")),
+            relayKey: nil,
+            relayRoom: nil,
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 1)
+        )
+        let recent = ServerProfile(
+            id: UUID(),
+            displayName: "recent",
+            baseURL: try XCTUnwrap(URL(string: "https://recent.example.test")),
+            relayKey: "key",
+            relayRoom: "room",
+            dateAdded: Date(timeIntervalSince1970: 2),
+            lastAccessed: Date(timeIntervalSince1970: 3)
+        )
+        UserDefaults.saveServerProfiles([old, recent])
+
+        XCTAssertEqual(UserDefaults.loadServerProfiles().first?.id, recent.id)
+    }
+
     // MARK: - QuestionType
 
     func testQuestionTypeDecodes() throws {

@@ -117,10 +117,25 @@ final class NewTaskViewModel {
     // MARK: - Private helpers
 
     private static func makeAPIClientFromStorage() -> APIClient? {
-        guard let profile = UserDefaults.loadServerProfile(),
-              let token = try? KeychainStore.readToken() else {
-            return nil
+        for profile in UserDefaults.loadServerProfiles() {
+            if let token = try? KeychainStore.readToken(for: profile.id), !token.isEmpty {
+                return APIClient(
+                    baseURL: profile.baseURL,
+                    token: token,
+                    relayKey: profile.relayKey,
+                    relayRoom: profile.relayRoom
+                )
+            }
         }
-        return APIClient(baseURL: profile.baseURL, token: token)
+        if let profile = UserDefaults.loadServerProfile(),
+           let token = try? KeychainStore.readToken(), !token.isEmpty {
+            return APIClient(
+                baseURL: profile.baseURL,
+                token: token,
+                relayKey: profile.relayKey,
+                relayRoom: profile.relayRoom
+            )
+        }
+        return nil
     }
 }

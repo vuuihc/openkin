@@ -266,7 +266,8 @@ extension UserDefaults {
             }
             return []
         }
-        return (try? JSONDecoder().decode([ServerProfile].self, from: data)) ?? []
+        return ((try? JSONDecoder().decode([ServerProfile].self, from: data)) ?? [])
+            .sorted { $0.lastAccessed > $1.lastAccessed }
     }
 
     /// Save all server profiles.
