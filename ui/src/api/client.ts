@@ -1400,6 +1400,10 @@ export type Settings = {
   "cloudflare.account_name"?: string;
   "cloudflare.relay_script_name"?: string;
   "cloudflare.relay_worker_url"?: string;
+  "cloudflare.relay_custom_domain"?: string;
+  "cloudflare.relay_custom_domain_url"?: string;
+  "cloudflare.relay_zone_id"?: string;
+  "cloudflare.relay_zone_name"?: string;
   "cloudflare.relay_last_error"?: string;
 };
 
@@ -1486,6 +1490,12 @@ export type CloudflareAccount = {
   name: string;
 };
 
+export type CloudflareZone = {
+  id: string;
+  name: string;
+  status?: string;
+};
+
 export function startCloudflareOAuth(): Promise<CloudflareOAuthStart> {
   return apiFetch<CloudflareOAuthStart>("/api/cloudflare/oauth/start", {
     method: "POST",
@@ -1496,11 +1506,29 @@ export function listCloudflareAccounts(): Promise<{ accounts: CloudflareAccount[
   return apiFetch<{ accounts: CloudflareAccount[] }>("/api/cloudflare/accounts");
 }
 
+export function listCloudflareZones(accountID?: string): Promise<{ zones: CloudflareZone[] }> {
+  const qs = accountID ? `?account_id=${encodeURIComponent(accountID)}` : "";
+  return apiFetch<{ zones: CloudflareZone[] }>(`/api/cloudflare/zones${qs}`);
+}
+
 export function deployCloudflareRelay(body: {
   account_id?: string;
   script_name?: string;
 }): Promise<Settings> {
   return apiFetch<Settings>("/api/cloudflare/relay/deploy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function bindCloudflareRelayDomain(body: {
+  account_id?: string;
+  zone_id?: string;
+  hostname?: string;
+  script_name?: string;
+}): Promise<Settings> {
+  return apiFetch<Settings>("/api/cloudflare/relay/domain", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

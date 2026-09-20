@@ -4,12 +4,14 @@ import {
   ApiError,
   adoptRelayURL,
   activateProvider,
+  bindCloudflareRelayDomain,
   createProvider,
   deleteProvider,
   deployCloudflareRelay,
   getSettings,
   importAgentSessions,
   listCloudflareAccounts,
+  listCloudflareZones,
   listAgentProviders,
   listAgents,
   listProviderModels,
@@ -23,6 +25,7 @@ import {
   type AgentProvider,
   type AgentSessionImportResult,
   type CloudflareAccount,
+  type CloudflareZone,
   type ModelSpec,
   type ProviderEntry,
   type Settings,
@@ -71,6 +74,29 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+async function probePublicURL(rawURL: string, timeoutMs = 5000): Promise<boolean> {
+  if (!rawURL) return false;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    await fetch(rawURL, {
+      method: "GET",
+      mode: "no-cors",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function defaultRelayHostname(zoneName: string): string {
+  return zoneName ? `kin-relay.${zoneName}` : "";
+}
+
 export default function SettingsPage() {
   const tr = useT();
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -81,10 +107,14 @@ export default function SettingsPage() {
   const [relayURL, setRelayURL] = useState("");
   const [relayBusy, setRelayBusy] = useState(false);
   const [cloudflareAccounts, setCloudflareAccounts] = useState<CloudflareAccount[]>([]);
+  const [cloudflareZones, setCloudflareZones] = useState<CloudflareZone[]>([]);
   const [cloudflareAccountID, setCloudflareAccountID] = useState("");
+  const [cloudflareZoneID, setCloudflareZoneID] = useState("");
+  const [cloudflareHostname, setCloudflareHostname] = useState("");
   const [cloudflareScriptName, setCloudflareScriptName] = useState("kin-relay");
   const [cloudflareBusy, setCloudflareBusy] = useState(false);
   const [cloudflareDeploying, setCloudflareDeploying] = useState(false);
+  const [cloudflareBindingDomain, setCloudflareBindingDomain] = useState(false);
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
   const [limitPolicy, setLimitPolicy] = useState("wait");
@@ -133,6 +163,8 @@ export default function SettingsPage() {
       setBaseURL(s["ui.base_url"] ?? "");
       setRelayURL(s["relay.url"] ?? "");
       setCloudflareAccountID(s["cloudflare.account_id"] ?? "");
+      setCloudflareZoneID(s["cloudflare.relay_zone_id"] ?? "");
+      setCloudflareHostname(s["cloudflare.relay_custom_domain"] ?? "");
       setCloudflareScriptName(s["cloudflare.relay_script_name"] || "kin-relay");
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
@@ -171,8 +203,17 @@ export default function SettingsPage() {
             }
           })
           .catch(() => undefined);
+        listCloudflareZones(s["cloudflare.account_id"])
+          .then((res) => {
+            setCloudflareZones(res.zones ?? []);
+            if (!s["cloudflare.relay_zone_id"] && res.zones?.length === 1) {
+              setCloudflareZoneID(res.zones[0].id);
+            }
+          })
+          .catch(() => undefined);
       } else {
         setCloudflareAccounts([]);
+        setCloudflareZones([]);
       }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
@@ -524,9 +565,13 @@ export default function SettingsPage() {
     }
   };
 
-  const adoptRelaySettings = (s: Settings) => {
+  const applyRelaySettings = (s: Settings) => {
     setSettings(s);
     setRelayURL(s["relay.url"] ?? "");
+  };
+
+  const adoptRelaySettings = (s: Settings) => {
+    applyRelaySettings(s);
     adoptRelayURL(s["relay.open_url"] ?? "");
     const target = s["relay.open_url"]
       ? s["relay.open_url"]
@@ -583,8 +628,17 @@ export default function SettingsPage() {
           try {
             const res = await listCloudflareAccounts();
             setCloudflareAccounts(res.accounts ?? []);
+            const accountID = next["cloudflare.account_id"] || res.accounts?.[0]?.id || "";
             if (!next["cloudflare.account_id"] && res.accounts?.length === 1) {
               setCloudflareAccountID(res.accounts[0].id);
+            }
+            if (accountID) {
+              const zoneRes = await listCloudflareZones(accountID);
+              setCloudflareZones(zoneRes.zones ?? []);
+              if (!next["cloudflare.relay_zone_id"] && zoneRes.zones?.length === 1) {
+                setCloudflareZoneID(zoneRes.zones[0].id);
+                setCloudflareHostname((current) => current || defaultRelayHostname(zoneRes.zones[0].name));
+              }
             }
           } catch (accountErr) {
             setError(accountErr instanceof ApiError ? accountErr.message : String(accountErr));
@@ -616,10 +670,54 @@ export default function SettingsPage() {
       if (next["cloudflare.account_id"]) {
         setCloudflareAccountID(next["cloudflare.account_id"]);
       }
+      const accountID = next["cloudflare.account_id"] || cloudflareAccountID || res.accounts?.[0]?.id || "";
+      if (accountID) {
+        const zoneRes = await listCloudflareZones(accountID);
+        setCloudflareZones(zoneRes.zones ?? []);
+        if (!cloudflareZoneID && zoneRes.zones?.length === 1) {
+          setCloudflareZoneID(zoneRes.zones[0].id);
+          setCloudflareHostname((current) => current || defaultRelayHostname(zoneRes.zones[0].name));
+        }
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setCloudflareBusy(false);
+    }
+  };
+
+  const refreshCloudflareZones = async (accountID = cloudflareAccountID) => {
+    if (!accountID) return [];
+    const res = await listCloudflareZones(accountID);
+    const zones = res.zones ?? [];
+    setCloudflareZones(zones);
+    if (!cloudflareZoneID && zones.length === 1) {
+      setCloudflareZoneID(zones[0].id);
+      setCloudflareHostname((current) => current || defaultRelayHostname(zones[0].name));
+    }
+    return zones;
+  };
+
+  const bindRelayCustomDomain = async (zoneID = cloudflareZoneID, hostname = cloudflareHostname) => {
+    setCloudflareBindingDomain(true);
+    setError(null);
+    try {
+      const zone = cloudflareZones.find((z) => z.id === zoneID);
+      const nextHostname = hostname.trim() || defaultRelayHostname(zone?.name ?? "");
+      const s = await bindCloudflareRelayDomain({
+        account_id: cloudflareAccountID,
+        zone_id: zoneID,
+        hostname: nextHostname,
+        script_name: cloudflareScriptName,
+      });
+      setCloudflareHostname(s["cloudflare.relay_custom_domain"] || nextHostname);
+      setCloudflareZoneID(s["cloudflare.relay_zone_id"] || zoneID);
+      pushToast(tr("settings.relay.cloudflareDomainBound"), "info");
+      adoptRelaySettings(s);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setCloudflareBindingDomain(false);
     }
   };
 
@@ -632,7 +730,17 @@ export default function SettingsPage() {
         script_name: cloudflareScriptName,
       });
       pushToast(tr("settings.relay.cloudflareDeployed"), "info");
-      adoptRelaySettings(s);
+      applyRelaySettings(s);
+      const workerURL = s["cloudflare.relay_worker_url"] || s["relay.url"];
+      if (workerURL && !(await probePublicURL(workerURL))) {
+        pushToast(tr("settings.relay.workerDevUnreachable"), "error");
+        const zones = cloudflareZones.length ? cloudflareZones : await refreshCloudflareZones(cloudflareAccountID);
+        if (zones.length === 1) {
+          await bindRelayCustomDomain(zones[0].id, defaultRelayHostname(zones[0].name));
+        }
+      } else {
+        adoptRelaySettings(s);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -1364,8 +1472,14 @@ export default function SettingsPage() {
               </span>
               <select
                 value={cloudflareAccountID}
-                onChange={(e) => setCloudflareAccountID(e.target.value)}
-                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCloudflareAccountID(next);
+                  setCloudflareZoneID("");
+                  setCloudflareHostname("");
+                  void refreshCloudflareZones(next);
+                }}
+                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
                 className="kin-input min-h-[44px]"
               >
                 <option value="">
@@ -1388,7 +1502,50 @@ export default function SettingsPage() {
                 type="text"
                 value={cloudflareScriptName}
                 onChange={(e) => setCloudflareScriptName(e.target.value)}
-                disabled={cloudflareBusy || cloudflareDeploying}
+                disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                className="kin-input min-h-[44px] font-mono text-xs"
+                autoComplete="off"
+              />
+            </label>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-kin-secondary">
+                {tr("settings.relay.cloudflareZone")}
+              </span>
+              <select
+                value={cloudflareZoneID}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setCloudflareZoneID(next);
+                  const zone = cloudflareZones.find((z) => z.id === next);
+                  setCloudflareHostname((current) => current || defaultRelayHostname(zone?.name ?? ""));
+                }}
+                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                className="kin-input min-h-[44px]"
+              >
+                <option value="">
+                  {settings["cloudflare.authenticated"]
+                    ? tr("settings.relay.selectZone")
+                    : tr("settings.relay.loginFirst")}
+                </option>
+                {cloudflareZones.map((zone) => (
+                  <option key={zone.id} value={zone.id}>
+                    {zone.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-kin-secondary">
+                {tr("settings.relay.customDomain")}
+              </span>
+              <input
+                type="text"
+                value={cloudflareHostname}
+                onChange={(e) => setCloudflareHostname(e.target.value)}
+                disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                placeholder={tr("settings.relay.customDomainPlaceholder")}
                 className="kin-input min-h-[44px] font-mono text-xs"
                 autoComplete="off"
               />
@@ -1397,7 +1554,7 @@ export default function SettingsPage() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={cloudflareBusy || cloudflareDeploying || !settings["cloudflare.authenticated"]}
+              disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain || !settings["cloudflare.authenticated"]}
               onClick={() => void refreshCloudflareAccounts()}
               className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
             >
@@ -1408,6 +1565,7 @@ export default function SettingsPage() {
               disabled={
                 cloudflareBusy ||
                 cloudflareDeploying ||
+                cloudflareBindingDomain ||
                 !settings["cloudflare.authenticated"] ||
                 !cloudflareAccountID.trim()
               }
@@ -1418,10 +1576,32 @@ export default function SettingsPage() {
                 ? tr("settings.relay.deployingWorker")
                 : tr("settings.relay.deployWorker")}
             </button>
+            <button
+              type="button"
+              disabled={
+                cloudflareBusy ||
+                cloudflareDeploying ||
+                cloudflareBindingDomain ||
+                !settings["cloudflare.authenticated"] ||
+                !cloudflareAccountID.trim() ||
+                !cloudflareZoneID.trim()
+              }
+              onClick={() => void bindRelayCustomDomain()}
+              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+            >
+              {cloudflareBindingDomain
+                ? tr("settings.relay.bindingDomain")
+                : tr("settings.relay.bindDomain")}
+            </button>
           </div>
           {settings["cloudflare.relay_worker_url"] ? (
             <p className="break-all font-mono text-[11px] text-kin-muted">
               {settings["cloudflare.relay_worker_url"]}
+            </p>
+          ) : null}
+          {settings["cloudflare.relay_custom_domain_url"] ? (
+            <p className="break-all font-mono text-[11px] text-kin-green">
+              {settings["cloudflare.relay_custom_domain_url"]}
             </p>
           ) : null}
         </div>

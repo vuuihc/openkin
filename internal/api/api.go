@@ -162,6 +162,10 @@ type CloudflareRelayStatus struct {
 	AccountName   string `json:"cloudflare.account_name,omitempty"`
 	ScriptName    string `json:"cloudflare.relay_script_name,omitempty"`
 	WorkerURL     string `json:"cloudflare.relay_worker_url,omitempty"`
+	CustomDomain  string `json:"cloudflare.relay_custom_domain,omitempty"`
+	CustomURL     string `json:"cloudflare.relay_custom_domain_url,omitempty"`
+	ZoneID        string `json:"cloudflare.relay_zone_id,omitempty"`
+	ZoneName      string `json:"cloudflare.relay_zone_name,omitempty"`
 	LastError     string `json:"cloudflare.relay_last_error,omitempty"`
 }
 
@@ -281,7 +285,9 @@ func (s *Server) Handler() http.Handler {
 		r.With(masterOnly).Post("/api/relay/pairing", s.handleRefreshRelayPairing)
 		r.With(masterOnly).Post("/api/cloudflare/oauth/start", s.handleCloudflareOAuthStart)
 		r.With(masterOnly).Get("/api/cloudflare/accounts", s.handleCloudflareAccounts)
+		r.With(masterOnly).Get("/api/cloudflare/zones", s.handleCloudflareZones)
 		r.With(masterOnly).Post("/api/cloudflare/relay/deploy", s.handleCloudflareRelayDeploy)
+		r.With(masterOnly).Post("/api/cloudflare/relay/domain", s.handleCloudflareRelayDomain)
 		r.With(masterOnly).Get("/api/providers", s.handleListProviders)
 		r.With(masterOnly).Post("/api/providers", s.handleCreateProvider)
 		r.With(masterOnly).Post("/api/providers/models", s.handleListProviderModels)
@@ -1202,6 +1208,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 			AccountName:   status.AccountName,
 			ScriptName:    status.ScriptName,
 			WorkerURL:     status.WorkerURL,
+			CustomDomain:  status.CustomDomain,
+			CustomURL:     status.CustomURL,
+			ZoneID:        status.ZoneID,
+			ZoneName:      status.ZoneName,
 			LastError:     status.LastError,
 		}
 	}
@@ -1445,6 +1455,19 @@ func (s *Server) handleCloudflareAccounts(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
 }
 
+func (s *Server) handleCloudflareZones(w http.ResponseWriter, r *http.Request) {
+	if s.Cloudflare == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Cloudflare integration is not available"})
+		return
+	}
+	zones, err := s.Cloudflare.Zones(r.Context(), r.URL.Query().Get("account_id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"zones": zones})
+}
+
 func (s *Server) handleCloudflareRelayDeploy(w http.ResponseWriter, r *http.Request) {
 	if s.Cloudflare == nil {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Cloudflare integration is not available"})
@@ -1488,6 +1511,66 @@ func (s *Server) handleCloudflareRelayDeploy(w http.ResponseWriter, r *http.Requ
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+	}
+	s.handleGetSettings(w, r)
+}
+
+func (s *Server) handleCloudflareRelayDomain(w http.ResponseWriter, r *http.Request) {
+	if s.Cloudflare == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Cloudflare integration is not available"})
+		return
+	}
+	var body cloudflare.DomainRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	result, err := s.Cloudflare.BindRelayDomain(r.Context(), body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	oldRelayURL := ""
+	if s.Store != nil {
+		oldRelayURL, _ = s.Store.GetSetting(r.Context(), "relay.url")
+	}
+	if oldRelayURL == "" && s.RelaySnapshot != nil {
+		oldRelayURL = s.RelaySnapshot().URL
+	}
+	if s.Store != nil {
+		if err := s.Store.SetSetting(r.Context(), "relay.url", result.URL); err != nil {
+			_ = s.Cloudflare.DetachRelayDomain(r.Context(), result.AccountID, result.ID)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if s.ConfigureRelay != nil {
+		if _, err := s.ConfigureRelay(r.Context(), result.URL); err != nil {
+			_ = s.Cloudflare.DetachRelayDomain(r.Context(), result.AccountID, result.ID)
+			if s.Store != nil {
+				if rollbackErr := s.Store.SetSetting(r.Context(), "relay.url", oldRelayURL); rollbackErr != nil {
+					_, _ = s.ConfigureRelay(r.Context(), oldRelayURL)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{
+						"error": fmt.Sprintf("configure relay: %v; rollback relay setting: %v", err, rollbackErr),
+					})
+					return
+				}
+			}
+			_, _ = s.ConfigureRelay(r.Context(), oldRelayURL)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if err := s.Cloudflare.RememberRelayDomain(r.Context(), result); err != nil {
+		if s.Store != nil {
+			_ = s.Store.SetSetting(r.Context(), "relay.url", oldRelayURL)
+		}
+		if s.ConfigureRelay != nil {
+			_, _ = s.ConfigureRelay(r.Context(), oldRelayURL)
+		}
+		_ = s.Cloudflare.DetachRelayDomain(r.Context(), result.AccountID, result.ID)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
 	}
 	s.handleGetSettings(w, r)
 }

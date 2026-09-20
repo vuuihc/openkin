@@ -37,12 +37,16 @@ const (
 
 	defaultScriptName = "kin-relay"
 	compatDate        = "2026-09-15"
-	oauthScopes       = "workers-scripts.read workers-scripts.write account-settings.read"
+	oauthScopes       = "workers-scripts.read workers-scripts.write account-settings.read zone.zone.read"
 
 	keyAccountID     = "cloudflare.account_id"
 	keyAccountName   = "cloudflare.account_name"
 	keyScriptName    = "cloudflare.relay_script_name"
 	keyWorkerURL     = "cloudflare.relay_worker_url"
+	keyCustomDomain  = "cloudflare.relay_custom_domain"
+	keyCustomURL     = "cloudflare.relay_custom_domain_url"
+	keyZoneID        = "cloudflare.relay_zone_id"
+	keyZoneName      = "cloudflare.relay_zone_name"
 	keyLastError     = "cloudflare.relay_last_error"
 	keyAuthenticated = "cloudflare.authenticated"
 	keyOAuthState    = "cloudflare.oauth_state"
@@ -73,6 +77,10 @@ type Status struct {
 	AccountName   string `json:"account_name,omitempty"`
 	ScriptName    string `json:"script_name,omitempty"`
 	WorkerURL     string `json:"worker_url,omitempty"`
+	CustomDomain  string `json:"custom_domain,omitempty"`
+	CustomURL     string `json:"custom_url,omitempty"`
+	ZoneID        string `json:"zone_id,omitempty"`
+	ZoneName      string `json:"zone_name,omitempty"`
 	LastError     string `json:"last_error,omitempty"`
 }
 
@@ -81,8 +89,21 @@ type Account struct {
 	Name string `json:"name"`
 }
 
+type Zone struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status,omitempty"`
+}
+
 type DeployRequest struct {
 	AccountID  string `json:"account_id"`
+	ScriptName string `json:"script_name"`
+}
+
+type DomainRequest struct {
+	AccountID  string `json:"account_id"`
+	ZoneID     string `json:"zone_id"`
+	Hostname   string `json:"hostname"`
 	ScriptName string `json:"script_name"`
 }
 
@@ -91,6 +112,16 @@ type DeployResult struct {
 	AccountName string `json:"account_name,omitempty"`
 	ScriptName  string `json:"script_name"`
 	WorkerURL   string `json:"worker_url"`
+}
+
+type DomainResult struct {
+	ID         string `json:"id,omitempty"`
+	AccountID  string `json:"account_id"`
+	ScriptName string `json:"script_name"`
+	ZoneID     string `json:"zone_id"`
+	ZoneName   string `json:"zone_name"`
+	Hostname   string `json:"hostname"`
+	URL        string `json:"url"`
 }
 
 type tokenSet struct {
@@ -124,6 +155,10 @@ func (s *Service) Status(ctx context.Context) Status {
 		AccountName:   get(keyAccountName),
 		ScriptName:    firstNonEmpty(get(keyScriptName), defaultScriptName),
 		WorkerURL:     get(keyWorkerURL),
+		CustomDomain:  get(keyCustomDomain),
+		CustomURL:     get(keyCustomURL),
+		ZoneID:        get(keyZoneID),
+		ZoneName:      get(keyZoneName),
 		LastError:     get(keyLastError),
 	}
 }
@@ -225,6 +260,25 @@ func (s *Service) Accounts(ctx context.Context) ([]Account, error) {
 	return out.Result, nil
 }
 
+func (s *Service) Zones(ctx context.Context, accountID string) ([]Zone, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" && s.Store != nil {
+		accountID, _ = s.Store.GetSetting(ctx, keyAccountID)
+	}
+	apiPath := "/zones?per_page=50&status=active"
+	if accountID != "" {
+		apiPath += "&account.id=" + url.QueryEscape(accountID)
+	}
+	var out struct {
+		Result []Zone `json:"result"`
+	}
+	if err := s.apiJSON(ctx, http.MethodGet, apiPath, nil, &out); err != nil {
+		_ = s.rememberError(ctx, err.Error())
+		return nil, err
+	}
+	return out.Result, nil
+}
+
 func (s *Service) DeployRelay(ctx context.Context, req DeployRequest) (DeployResult, error) {
 	accountID := strings.TrimSpace(req.AccountID)
 	if accountID == "" && s.Store != nil {
@@ -272,6 +326,95 @@ func (s *Service) DeployRelay(ctx context.Context, req DeployRequest) (DeployRes
 		return DeployResult{}, err
 	}
 	return DeployResult{AccountID: accountID, AccountName: accountName, ScriptName: scriptName, WorkerURL: workerURL}, nil
+}
+
+func (s *Service) BindRelayDomain(ctx context.Context, req DomainRequest) (DomainResult, error) {
+	if s.Store == nil {
+		return DomainResult{}, errors.New("cloudflare settings store is unavailable")
+	}
+	accountID := strings.TrimSpace(req.AccountID)
+	if accountID == "" && s.Store != nil {
+		accountID, _ = s.Store.GetSetting(ctx, keyAccountID)
+	}
+	if accountID == "" {
+		return DomainResult{}, errors.New("select a Cloudflare account first")
+	}
+	scriptName := normalizeScriptName(req.ScriptName)
+	if scriptName == "" && s.Store != nil {
+		scriptName, _ = s.Store.GetSetting(ctx, keyScriptName)
+	}
+	if scriptName == "" {
+		scriptName = defaultScriptName
+	}
+	if !scriptNamePattern.MatchString(scriptName) {
+		return DomainResult{}, errors.New("Worker name must use lowercase letters, numbers, and hyphens")
+	}
+	zoneID := strings.TrimSpace(req.ZoneID)
+	if zoneID == "" && s.Store != nil {
+		zoneID, _ = s.Store.GetSetting(ctx, keyZoneID)
+	}
+	if zoneID == "" {
+		return DomainResult{}, errors.New("select a Cloudflare zone first")
+	}
+	zones, err := s.Zones(ctx, accountID)
+	if err != nil {
+		return DomainResult{}, err
+	}
+	var zone Zone
+	for _, candidate := range zones {
+		if candidate.ID == zoneID {
+			zone = candidate
+			break
+		}
+	}
+	if zone.ID == "" {
+		return DomainResult{}, errors.New("selected Cloudflare zone was not found")
+	}
+	hostname := normalizeHostname(req.Hostname)
+	if hostname == "" {
+		hostname = "kin-relay." + zone.Name
+	}
+	if !hostnameBelongsToZone(hostname, zone.Name) {
+		return DomainResult{}, fmt.Errorf("hostname must be %s or a subdomain of %s", zone.Name, zone.Name)
+	}
+	result, err := s.attachWorkerDomain(ctx, accountID, zone.ID, hostname, scriptName)
+	if err != nil {
+		_ = s.rememberError(ctx, err.Error())
+		return DomainResult{}, err
+	}
+	if result.Hostname == "" {
+		result.Hostname = hostname
+	}
+	if result.ZoneName == "" {
+		result.ZoneName = zone.Name
+	}
+	if result.ZoneID == "" {
+		result.ZoneID = zone.ID
+	}
+	return DomainResult{
+		AccountID:  accountID,
+		ScriptName: scriptName,
+		ZoneID:     result.ZoneID,
+		ZoneName:   result.ZoneName,
+		Hostname:   result.Hostname,
+		URL:        "https://" + result.Hostname,
+		ID:         result.ID,
+	}, nil
+}
+
+func (s *Service) RememberRelayDomain(ctx context.Context, result DomainResult) error {
+	if s.Store == nil {
+		return errors.New("cloudflare settings store is unavailable")
+	}
+	return s.Store.SetSettings(ctx, map[string]string{
+		keyAccountID:    result.AccountID,
+		keyScriptName:   result.ScriptName,
+		keyCustomDomain: result.Hostname,
+		keyCustomURL:    result.URL,
+		keyZoneID:       result.ZoneID,
+		keyZoneName:     result.ZoneName,
+		keyLastError:    "",
+	})
 }
 
 func (s *Service) uploadRelay(ctx context.Context, accountID, scriptName string) error {
@@ -341,6 +484,47 @@ func (s *Service) accountSubdomain(ctx context.Context, accountID string) (strin
 		return "", errors.New("Cloudflare account has no workers.dev subdomain")
 	}
 	return out.Result.Subdomain, nil
+}
+
+func (s *Service) attachWorkerDomain(ctx context.Context, accountID, zoneID, hostname, scriptName string) (DomainResult, error) {
+	bodyBytes, err := json.Marshal(map[string]string{
+		"hostname": hostname,
+		"service":  scriptName,
+		"zone_id":  zoneID,
+	})
+	if err != nil {
+		return DomainResult{}, err
+	}
+	var out cfEnvelope[struct {
+		ID       string `json:"id"`
+		Hostname string `json:"hostname"`
+		Service  string `json:"service"`
+		ZoneID   string `json:"zone_id"`
+		ZoneName string `json:"zone_name"`
+	}]
+	if err := s.apiJSON(ctx, http.MethodPut, "/accounts/"+url.PathEscape(accountID)+"/workers/domains", &requestBody{
+		contentType: "application/json",
+		body:        bytes.NewReader(bodyBytes),
+	}, &out); err != nil {
+		return DomainResult{}, err
+	}
+	return DomainResult{
+		ID:         out.Result.ID,
+		AccountID:  accountID,
+		ScriptName: firstNonEmpty(out.Result.Service, scriptName),
+		ZoneID:     firstNonEmpty(out.Result.ZoneID, zoneID),
+		ZoneName:   out.Result.ZoneName,
+		Hostname:   firstNonEmpty(out.Result.Hostname, hostname),
+	}, nil
+}
+
+func (s *Service) DetachRelayDomain(ctx context.Context, accountID, domainID string) error {
+	accountID = strings.TrimSpace(accountID)
+	domainID = strings.TrimSpace(domainID)
+	if accountID == "" || domainID == "" {
+		return nil
+	}
+	return s.apiJSON(ctx, http.MethodDelete, "/accounts/"+url.PathEscape(accountID)+"/workers/domains/"+url.PathEscape(domainID), nil, nil)
 }
 
 type requestBody struct {
@@ -564,6 +748,23 @@ func normalizeScriptName(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	value = strings.ReplaceAll(value, "_", "-")
 	return value
+}
+
+func normalizeHostname(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	value = strings.TrimPrefix(value, "https://")
+	value = strings.TrimPrefix(value, "http://")
+	value = strings.TrimSuffix(value, ".")
+	if slash := strings.IndexByte(value, '/'); slash >= 0 {
+		value = value[:slash]
+	}
+	return value
+}
+
+func hostnameBelongsToZone(hostname, zoneName string) bool {
+	hostname = normalizeHostname(hostname)
+	zoneName = normalizeHostname(zoneName)
+	return hostname == zoneName || strings.HasSuffix(hostname, "."+zoneName)
 }
 
 func summarizeCloudflareBody(data []byte) string {
