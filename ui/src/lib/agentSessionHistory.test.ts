@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSessionHistoryItem } from "../api/client";
 import {
-  groupAgentSessionHistory,
+  buildChatItems,
+  groupIntoTurns,
+  mergeProcessRuns,
+} from "../components/chat/transcriptProjection";
+import {
+  agentSessionHistoryToTaskEvents,
   mergeAgentSessionMessageChunks,
 } from "./agentSessionHistory";
 
@@ -23,41 +28,73 @@ function item(
   };
 }
 
-describe("groupAgentSessionHistory", () => {
-  it("keeps process events collapsed separately from the final assistant message", () => {
-    const turns = groupAgentSessionHistory([
-      item("u1", "user", "Draw a diagram"),
-      item("a1", "assistant", "I will inspect the workspace"),
-      item("r1", "assistant", "thinking", "reasoning"),
-      item("t1", "tool", "call draw", "tool_call"),
-      item("tr1", "tool", "draw complete", "tool_result"),
-      item("a2", "assistant", "# Result\n\nDone"),
-      item("u2", "user", "Make it larger"),
-      item("a3", "assistant", "## Updated\n\nDone"),
-    ]);
+describe("agentSessionHistoryToTaskEvents", () => {
+  it("projects imported history into the shared chat transcript model", () => {
+    const events = agentSessionHistoryToTaskEvents(
+      [
+        item("u1", "user", "Draw a diagram"),
+        item("a1", "assistant", "I will inspect the workspace"),
+        item("r1", "assistant", "thinking", "reasoning"),
+        item("t1", "tool", "call draw", "tool_call"),
+        item("t1", "tool", "draw complete", "tool_result"),
+        item("a2", "assistant", "# Result\n\nDone"),
+        item("u2", "user", "Make it larger"),
+        item("a3", "assistant", "## Updated\n\nDone"),
+      ],
+      "agent-session-1",
+      "claude-code",
+    );
+    const chatItems = mergeProcessRuns(
+      buildChatItems(events, "claude-code", undefined, true),
+    );
 
-    expect(turns).toHaveLength(2);
-    expect(turns[0].userItems.map((entry) => entry.text)).toEqual(["Draw a diagram"]);
-    expect(turns[0].finalAssistant?.text).toBe("# Result\n\nDone");
-    expect(turns[0].processItems.map((entry) => entry.message_id)).toEqual([
-      "a1",
-      "r1",
-      "t1",
-      "tr1",
+    expect(chatItems.map((entry) => entry.kind)).toEqual([
+      "message",
+      "progress",
+      "message",
+      "message",
+      "message",
     ]);
-    expect(turns[1].finalAssistant?.text).toBe("## Updated\n\nDone");
-    expect(turns[1].processItems).toEqual([]);
+    expect(chatItems[0]).toMatchObject({ kind: "message", speaker: "user" });
+    expect(chatItems[1]).toMatchObject({ kind: "progress" });
+    if (chatItems[1].kind !== "progress") throw new Error("expected progress");
+    expect(chatItems[1].steps.map((entry) => entry.kind)).toEqual([
+      "note",
+      "note",
+      "tool",
+    ]);
+    expect(chatItems[2]).toMatchObject({
+      kind: "message",
+      speaker: "claude-code",
+      text: "# Result\n\nDone",
+    });
+    expect(chatItems[4]).toMatchObject({
+      kind: "message",
+      speaker: "claude-code",
+      text: "## Updated\n\nDone",
+    });
   });
 
-  it("keeps assistant process events when a turn has no final message", () => {
-    const [turn] = groupAgentSessionHistory([
-      item("u1", "user", "Draw"),
-      item("r1", "assistant", "thinking", "reasoning"),
-      item("t1", "tool", "call draw", "tool_call"),
-    ]);
+  it("keeps assistant process events when a page ends mid-turn", () => {
+    const events = agentSessionHistoryToTaskEvents(
+      [
+        item("u1", "user", "Draw"),
+        item("r1", "assistant", "thinking", "reasoning"),
+        item("t1", "tool", "call draw", "tool_call"),
+      ],
+      "agent-session-1",
+      "claude-code",
+    );
+    const turns = groupIntoTurns(
+      mergeProcessRuns(buildChatItems(events, "claude-code", undefined, true)),
+      "claude-code",
+    );
 
-    expect(turn.finalAssistant).toBeNull();
-    expect(turn.processItems).toHaveLength(2);
+    expect(turns).toHaveLength(2);
+    expect(turns[1]).toMatchObject({ kind: "agent" });
+    if (turns[1].kind !== "agent") throw new Error("expected agent turn");
+    expect(turns[1].items).toHaveLength(1);
+    expect(turns[1].items[0]).toMatchObject({ kind: "progress" });
   });
 });
 

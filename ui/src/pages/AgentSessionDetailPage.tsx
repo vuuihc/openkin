@@ -9,19 +9,18 @@ import {
   type AgentSession,
   type AgentSessionHistoryItem,
 } from "../api/client";
+import ChatStream from "../components/chat/ChatStream";
+import BranchPicker from "../components/chat/BranchPicker";
+import Composer from "../components/chat/Composer";
+import CwdPicker from "../components/chat/CwdPicker";
 import { IconBack } from "../components/icons";
-import Markdown from "../components/Markdown";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { displayAgentSessionTitle } from "../lib/agentSessionTitle";
 import { useAppStore } from "../store/appStore";
-import {
-  groupAgentSessionHistory,
-  mergeAgentSessionMessageChunks,
-  type AgentSessionTurn,
-} from "../lib/agentSessionHistory";
+import { agentSessionHistoryToTaskEvents } from "../lib/agentSessionHistory";
 
 function formatTimestamp(value: number): string {
   if (!value) return "";
@@ -29,16 +28,6 @@ function formatTimestamp(value: number): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
-}
-
-function roleLabel(role: AgentSessionHistoryItem["role"], tr: ReturnType<typeof useT>): string {
-  if (role === "user") return tr("agentSession.user");
-  if (role === "tool") return tr("agentSession.tool");
-  return tr("agentSession.assistant");
-}
-
-function historyItemKey(item: AgentSessionHistoryItem): string {
-  return `${item.kind ?? "message"}:${item.message_id}:${item.source_rev}`;
 }
 
 function AgentAvatar({ agentID, small = false }: { agentID: string; small?: boolean }) {
@@ -58,165 +47,6 @@ function AgentAvatar({ agentID, small = false }: { agentID: string; small?: bool
   );
 }
 
-function UserMessage({
-  item,
-  tr,
-}: {
-  item: AgentSessionHistoryItem;
-  tr: ReturnType<typeof useT>;
-}) {
-  return (
-    <div className="flex justify-end">
-      <article className="max-w-[88%] rounded-xl bg-kin-blue-soft px-4 py-3 text-kin-text">
-        <div className="flex items-center gap-3 mb-1.5">
-          <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
-            {roleLabel(item.role, tr)}
-          </span>
-          <span className="text-[10px] text-kin-muted">
-            {formatTimestamp(item.occurred_at)}
-          </span>
-        </div>
-        <p className="text-[13.5px] leading-6 whitespace-pre-wrap break-words">{item.text}</p>
-      </article>
-    </div>
-  );
-}
-
-function AssistantConclusion({
-  item,
-  tr,
-  agentID,
-  provisional = false,
-}: {
-  item: AgentSessionHistoryItem;
-  tr: ReturnType<typeof useT>;
-  agentID: string;
-  provisional?: boolean;
-}) {
-  return (
-    <div className="flex items-start gap-2 justify-start">
-      <AgentAvatar agentID={agentID} />
-      <article className="max-w-[92%] rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/70 px-4 py-3 text-kin-text">
-        <div className="flex items-center gap-3 mb-2">
-          <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
-            {provisional
-              ? tr("agentSession.assistant")
-              : tr("agentSession.finalOutput")}
-          </span>
-          <span className="text-[10px] text-kin-muted">
-            {formatTimestamp(item.occurred_at)}
-          </span>
-        </div>
-        <Markdown text={item.text} className="text-[13.5px] sm:text-[14px]" />
-      </article>
-    </div>
-  );
-}
-
-function ProcessEvent({
-  item,
-  tr,
-}: {
-  item: AgentSessionHistoryItem;
-  tr: ReturnType<typeof useT>;
-}) {
-  const kind = item.kind ?? "message";
-  if (kind === "tool_call" || kind === "tool_result") {
-    return (
-      <div
-        className="rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[12px] text-kin-muted"
-      >
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-kin-secondary">
-            {kind === "tool_call"
-              ? tr("agentSession.toolCall")
-              : tr("agentSession.toolResult")}
-          </span>
-          {item.tool_name ? (
-            <code className="text-[11px] text-kin-text">{item.tool_name}</code>
-          ) : null}
-          <span className="ml-auto text-[10px]">
-            {formatTimestamp(item.occurred_at)}
-          </span>
-        </div>
-        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-black/5 p-2 text-[11px] leading-5">
-          {item.text}
-        </pre>
-      </div>
-    );
-  }
-  if (kind === "reasoning") {
-    return (
-      <div className="rounded-md border border-dashed border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-muted">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-kin-secondary">
-            {tr("agentSession.reasoning")}
-          </span>
-          <span className="ml-auto text-[10px]">
-            {formatTimestamp(item.occurred_at)}
-          </span>
-        </div>
-        <p className="mt-2 whitespace-pre-wrap break-words leading-5">{item.text}</p>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-md border border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-muted">
-      <div className="flex items-center gap-2">
-        <span className="font-medium text-kin-secondary">
-          {tr("agentSession.progress")}
-        </span>
-        <span className="ml-auto text-[10px]">
-          {formatTimestamp(item.occurred_at)}
-        </span>
-      </div>
-      <p className="mt-2 whitespace-pre-wrap break-words leading-5">{item.text}</p>
-    </div>
-  );
-}
-
-function HistoryTurnView({
-  turn,
-  tr,
-  agentID,
-  provisionalFinal = false,
-}: {
-  turn: AgentSessionTurn;
-  tr: ReturnType<typeof useT>;
-  agentID: string;
-  provisionalFinal?: boolean;
-}) {
-  return (
-    <section className="space-y-3">
-      {turn.userItems.map((item) => (
-        <UserMessage key={historyItemKey(item)} item={item} tr={tr} />
-      ))}
-      {turn.processItems.length > 0 ? (
-        <details className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45">
-          <summary className="cursor-pointer select-none px-3 py-2 text-[12px] text-kin-muted">
-            <span className="font-medium text-kin-secondary">
-              {tr("agentSession.process", { count: turn.processItems.length })}
-            </span>
-          </summary>
-          <div className="space-y-2 border-t border-[var(--kin-hairline)] p-2.5">
-            {turn.processItems.map((item) => (
-              <ProcessEvent key={historyItemKey(item)} item={item} tr={tr} />
-            ))}
-          </div>
-        </details>
-      ) : null}
-      {turn.finalAssistant ? (
-        <AssistantConclusion
-          item={turn.finalAssistant}
-          tr={tr}
-          agentID={agentID}
-          provisional={provisionalFinal}
-        />
-      ) : null}
-    </section>
-  );
-}
-
 export default function AgentSessionDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -229,11 +59,13 @@ export default function AgentSessionDetailPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [attachPrompt, setAttachPrompt] = useState("");
   const [attachBusy, setAttachBusy] = useState(false);
-  const displayTurns = useMemo(
-    () => groupAgentSessionHistory(mergeAgentSessionMessageChunks(items)),
-    [items],
+  const historyEvents = useMemo(
+    () =>
+      session
+        ? agentSessionHistoryToTaskEvents(items, session.id, session.agent_id)
+        : [],
+    [items, session],
   );
   const slow = useSlowHint(loading);
 
@@ -296,8 +128,8 @@ export default function AgentSessionDetailPage() {
     if (session) void loadHistory();
   }, [session, loadHistory]);
 
-  const attach = async () => {
-    const prompt = attachPrompt.trim();
+  const attach = async (text: string) => {
+    const prompt = text.trim();
     if (!session || !prompt || attachBusy) return;
     setAttachBusy(true);
     try {
@@ -305,7 +137,9 @@ export default function AgentSessionDetailPage() {
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
       navigate(`/tasks/${encodeURIComponent(result.task.id)}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : tr("agentSession.continueFailed"));
+      const message = e instanceof Error ? e.message : tr("agentSession.continueFailed");
+      setHistoryError(message);
+      throw new Error(message);
     } finally {
       setAttachBusy(false);
     }
@@ -406,86 +240,74 @@ export default function AgentSessionDetailPage() {
         </div>
       )}
 
-      {canContinue && (
-          <div className="flex-none border-b border-[var(--kin-hairline)] px-4 sm:px-6 py-3">
-            <div className="max-w-3xl mx-auto">
-              <div className="mb-2 flex items-center gap-2">
-                <AgentAvatar agentID={session.agent_id} small />
-                <div className="min-w-0">
-                  <p className="text-[12.5px] font-medium text-kin-text">
-                    {tr("agentSession.continueTitle", { agent: agentName })}
-                  </p>
-                  <p className="text-[11.5px] text-kin-muted">
-                    {tr("agentSession.continueDescription", { agent: agentName })}
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={attachPrompt}
-                onChange={(e) => setAttachPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void attach();
-                }}
-                placeholder={tr("agentSession.continuePlaceholder", { agent: agentName })}
-                aria-label={tr("agentSession.continuePrompt", { agent: agentName })}
-                className="kin-input min-h-[40px] flex-1"
-              />
-              <button
-                type="button"
-                disabled={attachBusy || !attachPrompt.trim()}
-                onClick={() => void attach()}
-                className="kin-btn-primary disabled:opacity-50"
-              >
-                {attachBusy
-                  ? tr("agentSession.continuing")
-                  : tr("agentSession.continue")}
-              </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-      <div className="flex-1 min-h-0 overflow-y-auto kin-scroll px-3 sm:px-6 py-5">
-        <div className="max-w-3xl mx-auto space-y-4">
-          {historyError && (
+      <div className="flex-1 min-h-0 overflow-y-auto kin-scroll py-5">
+        {historyError && (
+          <div className="max-w-[720px] mx-auto px-4 sm:px-7">
             <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-[13px] text-kin-orange">
               {historyError}
             </div>
-          )}
-          {!historyError && !historyLoading && items.length === 0 && (
-            <p className="py-10 text-center text-[13px] text-kin-muted">
-              {tr("agentSession.historyEmpty")}
-            </p>
-          )}
-          {displayTurns.map((turn, index) => (
-            <HistoryTurnView
-              key={turn.id}
-              turn={turn}
-              tr={tr}
-              agentID={session.agent_id}
-              provisionalFinal={Boolean(nextCursor) && index === displayTurns.length - 1}
-            />
-          ))}
-          {historyLoading && (
-            <div className="space-y-2 py-2" role="status">
-              <SkeletonLine className="h-20 w-full" />
-              <SkeletonLine className="h-16 w-5/6" />
-            </div>
-          )}
-          {!historyLoading && nextCursor && (
-            <div className="flex justify-center pt-2">
-              <button
-                type="button"
-                onClick={() => void loadHistory(nextCursor)}
-                className="kin-btn-secondary"
-              >
-                {tr("agentSession.loadMore")}
-              </button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!historyError && !historyLoading && items.length === 0 && (
+          <p className="py-10 text-center text-[13px] text-kin-muted">
+            {tr("agentSession.historyEmpty")}
+          </p>
+        )}
+        <ChatStream
+          events={historyEvents}
+          loadingSpeaker={session.agent_id}
+          hostSpeaker={session.agent_id}
+        />
+        {historyLoading && (
+          <div className="max-w-[720px] mx-auto px-4 sm:px-7 space-y-2 py-2" role="status">
+            <SkeletonLine className="h-20 w-full" />
+            <SkeletonLine className="h-16 w-5/6" />
+          </div>
+        )}
+        {!historyLoading && nextCursor && (
+          <div className="flex justify-center pt-2">
+            <button
+              type="button"
+              onClick={() => void loadHistory(nextCursor)}
+              className="kin-btn-secondary"
+            >
+              {tr("agentSession.loadMore")}
+            </button>
+          </div>
+        )}
       </div>
+
+      {canContinue && (
+        <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+          <div className="max-w-[720px] mx-auto space-y-1.5">
+            <Composer
+              key={session.id}
+              busy={attachBusy}
+              disabled={attachBusy}
+              placeholder={tr("agentSession.continuePlaceholder", { agent: agentName })}
+              onSubmit={attach}
+            />
+            <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
+              <CwdPicker
+                className="min-w-0 max-w-[min(40%,18rem)]"
+                cwd={session.cwd}
+                locked
+                compact
+                onChange={() => undefined}
+              />
+              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                ·
+              </span>
+              <BranchPicker
+                cwd={session.cwd}
+                locked
+                compact
+                className="flex-none"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
