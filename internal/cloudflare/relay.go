@@ -36,6 +36,7 @@ const (
 
 	defaultScriptName = "kin-relay"
 	compatDate        = "2026-09-15"
+	oauthScopes       = "workers-scripts.read workers-scripts.write account-settings.read"
 
 	keyAccountID     = "cloudflare.account_id"
 	keyAccountName   = "cloudflare.account_name"
@@ -149,6 +150,7 @@ func (s *Service) BeginAuth(ctx context.Context) (string, error) {
 	params.Set("response_type", "code")
 	params.Set("client_id", ClientID)
 	params.Set("redirect_uri", s.redirectURI())
+	params.Set("scope", oauthScopes)
 	params.Set("state", state)
 	params.Set("code_challenge", codeChallenge(verifier))
 	params.Set("code_challenge_method", "S256")
