@@ -172,7 +172,7 @@ func TestPriceTableSettingValidation(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("valid put: %d %s", rr.Code, rr.Body.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	_ = json.Unmarshal(rr.Body.Bytes(), &got)
 	if got["price_table"] == "" {
 		t.Fatal("price_table missing from GET snapshot")
@@ -196,9 +196,9 @@ func TestPriceTableSettingValidation(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 	req.Header.Set("Authorization", "Bearer "+token2)
 	s2.Handler().ServeHTTP(rr, req)
-	got = map[string]string{}
+	got = map[string]any{}
 	_ = json.Unmarshal(rr.Body.Bytes(), &got)
-	if _, err := store.ParsePriceTable(got["price_table"]); err != nil {
+	if _, err := store.ParsePriceTable(got["price_table"].(string)); err != nil {
 		t.Fatalf("default price_table: %v body=%q", err, got["price_table"])
 	}
 }
@@ -293,7 +293,7 @@ func TestAgentLimitsSettingsRoundTrip(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("PUT agent_limits: %d %s", rr.Code, rr.Body.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +309,7 @@ func TestAgentLimitsSettingsRoundTrip(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET settings: %d", rr.Code)
 	}
-	var settings map[string]string
+	var settings map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
 		t.Fatal(err)
 	}

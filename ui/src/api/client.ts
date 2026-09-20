@@ -1395,6 +1395,12 @@ export type Settings = {
   "relay.open_url": string;
   "relay.pairing_url": string;
   "relay.last_error"?: string;
+  "cloudflare.authenticated"?: boolean;
+  "cloudflare.account_id"?: string;
+  "cloudflare.account_name"?: string;
+  "cloudflare.relay_script_name"?: string;
+  "cloudflare.relay_worker_url"?: string;
+  "cloudflare.relay_last_error"?: string;
 };
 
 export type SettingsUpdate = Partial<
@@ -1469,6 +1475,36 @@ export function updateSettings(body: SettingsUpdate): Promise<Settings> {
 
 export function refreshRelayPairing(): Promise<Settings> {
   return apiFetch<Settings>("/api/relay/pairing", { method: "POST" });
+}
+
+export type CloudflareOAuthStart = {
+  auth_url: string;
+};
+
+export type CloudflareAccount = {
+  id: string;
+  name: string;
+};
+
+export function startCloudflareOAuth(): Promise<CloudflareOAuthStart> {
+  return apiFetch<CloudflareOAuthStart>("/api/cloudflare/oauth/start", {
+    method: "POST",
+  });
+}
+
+export function listCloudflareAccounts(): Promise<{ accounts: CloudflareAccount[] }> {
+  return apiFetch<{ accounts: CloudflareAccount[] }>("/api/cloudflare/accounts");
+}
+
+export function deployCloudflareRelay(body: {
+  account_id?: string;
+  script_name?: string;
+}): Promise<Settings> {
+  return apiFetch<Settings>("/api/cloudflare/relay/deploy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export type AgentSession = {

@@ -361,6 +361,93 @@ paths:
           description: Master authentication required
         "501":
           description: Relay runtime is unavailable
+  /api/cloudflare/oauth/start:
+    post:
+      operationId: startCloudflareOAuth
+      responses:
+        "200":
+          description: Cloudflare OAuth authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [auth_url]
+                properties:
+                  auth_url:
+                    type: string
+        "401":
+          description: Master authentication required
+        "400":
+          description: Cloudflare authorization could not be started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "501":
+          description: Cloudflare integration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/cloudflare/accounts:
+    get:
+      operationId: listCloudflareAccounts
+      responses:
+        "200":
+          description: Cloudflare accounts available to the authorized user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accounts]
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CloudflareAccount"
+        "400":
+          description: Cloudflare accounts could not be listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Master authentication required
+        "501":
+          description: Cloudflare integration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/cloudflare/relay/deploy:
+    post:
+      operationId: deployCloudflareRelay
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloudflareRelayDeployRequest"
+      responses:
+        "200":
+          description: Updated settings after Worker deployment and Relay configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          description: Cloudflare authorization, deployment, or Relay configuration failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Master authentication required
+        "501":
+          description: Cloudflare integration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/tasks:
     get:
       operationId: listTasks
@@ -958,6 +1045,12 @@ components:
       schema:
         type: string
   schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
     PairingSessionRequest:
       type: object
       properties:
@@ -1275,6 +1368,33 @@ components:
         relay.pairing_url:
           type: string
         relay.last_error:
+          type: string
+        cloudflare.authenticated:
+          type: boolean
+        cloudflare.account_id:
+          type: string
+        cloudflare.account_name:
+          type: string
+        cloudflare.relay_script_name:
+          type: string
+        cloudflare.relay_worker_url:
+          type: string
+        cloudflare.relay_last_error:
+          type: string
+    CloudflareAccount:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    CloudflareRelayDeployRequest:
+      type: object
+      properties:
+        account_id:
+          type: string
+        script_name:
           type: string
     SettingsUpdate:
       type: object

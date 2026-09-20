@@ -22,6 +22,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/browserworker"
+	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/mcp"
@@ -121,6 +122,8 @@ type Server struct {
 	ConfigureRelay func(context.Context, string) (RelayStatus, error)
 	// RefreshRelayPairing creates a fresh, short-lived phone pairing URL.
 	RefreshRelayPairing func(context.Context) (RelayStatus, error)
+	// Cloudflare optionally deploys the user-owned Relay Worker from Settings.
+	Cloudflare *cloudflare.Service
 
 	// Workers is the in-memory registry for optional user-owned headless
 	// workers. Leases are intentionally ephemeral and workers reconnect after
@@ -151,6 +154,15 @@ type RelayStatus struct {
 	OpenURL    string `json:"relay.open_url"`
 	PairingURL string `json:"relay.pairing_url"`
 	LastError  string `json:"relay.last_error,omitempty"`
+}
+
+type CloudflareRelayStatus struct {
+	Authenticated bool   `json:"cloudflare.authenticated"`
+	AccountID     string `json:"cloudflare.account_id,omitempty"`
+	AccountName   string `json:"cloudflare.account_name,omitempty"`
+	ScriptName    string `json:"cloudflare.relay_script_name,omitempty"`
+	WorkerURL     string `json:"cloudflare.relay_worker_url,omitempty"`
+	LastError     string `json:"cloudflare.relay_last_error,omitempty"`
 }
 
 // peerAddrKey stores the TCP peer before RealIP rewrites RemoteAddr.
@@ -189,6 +201,7 @@ func (s *Server) Handler() http.Handler {
 
 	r.Get("/api/health", s.handleHealth)
 	r.Get("/api/version", s.handleVersion)
+	r.Get("/api/cloudflare/oauth/callback", s.handleCloudflareOAuthCallback)
 	r.Post("/api/pairing/exchange", s.handlePairingExchange)
 	if s.A2A != nil && s.A2A.Enabled {
 		a2aHandler := s.A2A.Handler()
@@ -266,6 +279,9 @@ func (s *Server) Handler() http.Handler {
 		r.With(masterOnly).Get("/api/settings", s.handleGetSettings)
 		r.With(masterOnly).Put("/api/settings", s.handlePutSettings)
 		r.With(masterOnly).Post("/api/relay/pairing", s.handleRefreshRelayPairing)
+		r.With(masterOnly).Post("/api/cloudflare/oauth/start", s.handleCloudflareOAuthStart)
+		r.With(masterOnly).Get("/api/cloudflare/accounts", s.handleCloudflareAccounts)
+		r.With(masterOnly).Post("/api/cloudflare/relay/deploy", s.handleCloudflareRelayDeploy)
 		r.With(masterOnly).Get("/api/providers", s.handleListProviders)
 		r.With(masterOnly).Post("/api/providers", s.handleCreateProvider)
 		r.With(masterOnly).Post("/api/providers/models", s.handleListProviderModels)
@@ -1085,6 +1101,7 @@ type settingsResponse struct {
 	ConnectURL       string `json:"connect_url"`
 	Token            string `json:"token"`
 	RelayStatus
+	CloudflareRelayStatus
 }
 
 // Allowed settings keys for PUT (subset of store keys).
@@ -1176,6 +1193,18 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	if s.RelaySnapshot != nil {
 		relayStatus = s.RelaySnapshot()
 	}
+	cloudflareStatus := CloudflareRelayStatus{ScriptName: "kin-relay"}
+	if s.Cloudflare != nil {
+		status := s.Cloudflare.Status(ctx)
+		cloudflareStatus = CloudflareRelayStatus{
+			Authenticated: status.Authenticated,
+			AccountID:     status.AccountID,
+			AccountName:   status.AccountName,
+			ScriptName:    status.ScriptName,
+			WorkerURL:     status.WorkerURL,
+			LastError:     status.LastError,
+		}
+	}
 	networkMode := s.NetworkMode
 	networkParts := make([]string, 0, 3)
 	for _, part := range strings.Split(networkMode, "+") {
@@ -1191,26 +1220,27 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		connect = relayStatus.PairingURL
 	}
 	writeJSON(w, http.StatusOK, settingsResponse{
-		NotifyBarkURL:    get("notify.bark_url"),
-		NotifyNtfyTopic:  get("notify.ntfy_topic"),
-		UIBaseURL:        base,
-		PriceTable:       priceTable,
-		AgentLimits:      agentLimits,
-		ProviderKind:     provKind,
-		ProviderBaseURL:  provBase,
-		ProviderAPIKey:   maskSettingSecret(provKey),
-		ProviderModel:    provModel,
-		ProviderStream:   provStream,
-		ProviderActiveID: provActive,
-		AgentDefault:     get("agent.default"),
-		LimitPolicy:      firstNonEmpty(get(task.KeyLimitPolicy), task.LimitPolicyWait),
-		LimitFallback:    get(task.KeyLimitFallbackAgents),
-		QuotaWaitNotify:  get(task.KeyQuotaWaitNotifyAfterSecs),
-		AutoImportMode:   autoImportMode,
-		NetworkMode:      networkMode,
-		ConnectURL:       connect,
-		Token:            tok,
-		RelayStatus:      relayStatus,
+		NotifyBarkURL:         get("notify.bark_url"),
+		NotifyNtfyTopic:       get("notify.ntfy_topic"),
+		UIBaseURL:             base,
+		PriceTable:            priceTable,
+		AgentLimits:           agentLimits,
+		ProviderKind:          provKind,
+		ProviderBaseURL:       provBase,
+		ProviderAPIKey:        maskSettingSecret(provKey),
+		ProviderModel:         provModel,
+		ProviderStream:        provStream,
+		ProviderActiveID:      provActive,
+		AgentDefault:          get("agent.default"),
+		LimitPolicy:           firstNonEmpty(get(task.KeyLimitPolicy), task.LimitPolicyWait),
+		LimitFallback:         get(task.KeyLimitFallbackAgents),
+		QuotaWaitNotify:       get(task.KeyQuotaWaitNotifyAfterSecs),
+		AutoImportMode:        autoImportMode,
+		NetworkMode:           networkMode,
+		ConnectURL:            connect,
+		Token:                 tok,
+		RelayStatus:           relayStatus,
+		CloudflareRelayStatus: cloudflareStatus,
 	})
 }
 
@@ -1365,6 +1395,96 @@ func (s *Server) handleRefreshRelayPairing(w http.ResponseWriter, r *http.Reques
 	if _, err := s.RefreshRelayPairing(r.Context()); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	s.handleGetSettings(w, r)
+}
+
+func (s *Server) handleCloudflareOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if s.Cloudflare == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Cloudflare integration is not available"})
+		return
+	}
+	authURL, err := s.Cloudflare.BeginAuth(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"auth_url": authURL})
+}
+
+func (s *Server) handleCloudflareOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if s.Cloudflare == nil {
+		http.Error(w, "Cloudflare integration is not available", http.StatusNotImplemented)
+		return
+	}
+	if errText := strings.TrimSpace(r.URL.Query().Get("error")); errText != "" {
+		http.Error(w, "Cloudflare authorization failed: "+errText, http.StatusBadRequest)
+		return
+	}
+	if err := s.Cloudflare.CompleteAuth(r.Context(), r.URL.Query().Get("state"), r.URL.Query().Get("code")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Cloudflare connected</title><body style="font:14px -apple-system,BlinkMacSystemFont,sans-serif;padding:24px"><h1>Cloudflare connected</h1><p>You can return to Kin Settings and deploy the Relay Worker.</p><script>setTimeout(()=>window.close(),1200)</script></body>`)
+}
+
+func (s *Server) handleCloudflareAccounts(w http.ResponseWriter, r *http.Request) {
+	if s.Cloudflare == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Cloudflare integration is not available"})
+		return
+	}
+	accounts, err := s.Cloudflare.Accounts(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
+}
+
+func (s *Server) handleCloudflareRelayDeploy(w http.ResponseWriter, r *http.Request) {
+	if s.Cloudflare == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Cloudflare integration is not available"})
+		return
+	}
+	var body cloudflare.DeployRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	result, err := s.Cloudflare.DeployRelay(r.Context(), body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	oldRelayURL := ""
+	if s.Store != nil {
+		oldRelayURL, _ = s.Store.GetSetting(r.Context(), "relay.url")
+	}
+	if oldRelayURL == "" && s.RelaySnapshot != nil {
+		oldRelayURL = s.RelaySnapshot().URL
+	}
+	if s.Store != nil {
+		if err := s.Store.SetSetting(r.Context(), "relay.url", result.WorkerURL); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	if s.ConfigureRelay != nil {
+		if _, err := s.ConfigureRelay(r.Context(), result.WorkerURL); err != nil {
+			if s.Store != nil {
+				if rollbackErr := s.Store.SetSetting(r.Context(), "relay.url", oldRelayURL); rollbackErr != nil {
+					_, _ = s.ConfigureRelay(r.Context(), oldRelayURL)
+					writeJSON(w, http.StatusInternalServerError, map[string]string{
+						"error": fmt.Sprintf("configure relay: %v; rollback relay setting: %v", err, rollbackErr),
+					})
+					return
+				}
+			}
+			_, _ = s.ConfigureRelay(r.Context(), oldRelayURL)
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	s.handleGetSettings(w, r)
 }

@@ -116,7 +116,7 @@ func TestProvidersCRUDAndActivate(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("settings: %d %s", rr.Code, rr.Body.String())
 	}
-	var settings map[string]string
+	var settings map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestUpdateProviderClearAPIKey(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	h.ServeHTTP(rr, req)
-	var settings map[string]string
+	var settings map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestProviderStreamFlag(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	h.ServeHTTP(rr, req)
-	var settings map[string]string
+	var settings map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
 		t.Fatal(err)
 	}
