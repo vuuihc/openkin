@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -201,6 +203,30 @@ func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
 			if !strings.Contains(text, `"main_module":"relay.js"`) || !strings.Contains(text, "class RelayRoom") {
 				t.Fatalf("upload body missing relay module: %s", text[:min(len(text), 500)])
 			}
+			_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+			var metadata map[string]any
+			for {
+				part, err := reader.NextPart()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if part.FormName() != "metadata" {
+					continue
+				}
+				if err := json.NewDecoder(part).Decode(&metadata); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, ok := metadata["migrations"].(map[string]any); !ok {
+				t.Fatalf("metadata migrations must be object, got %#v", metadata["migrations"])
+			}
 			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]any{}})
 		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay/subdomain" && r.Method == http.MethodPost:
 			sawEnable = true
@@ -249,6 +275,9 @@ func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
 	if auth.Query().Get("code_challenge") == "" {
 		t.Fatalf("auth URL missing PKCE challenge: %s", started["auth_url"])
 	}
+	if auth.Query().Get("scope") != "workers-scripts.read workers-scripts.write account-settings.read" {
+		t.Fatalf("auth URL scope=%q", auth.Query().Get("scope"))
+	}
 	if auth.Query().Get("redirect_uri") != "http://127.0.0.1:9999/api/cloudflare/oauth/callback" {
 		t.Fatalf("auth URL redirect_uri=%q", auth.Query().Get("redirect_uri"))
 	}
@@ -258,6 +287,9 @@ func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("callback: %d %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "kin://settings?cloudflare=connected") {
+		t.Fatalf("callback did not deep-link to desktop: %s", rr.Body.String())
 	}
 	if !sawTokenExchange {
 		t.Fatal("token exchange not called")

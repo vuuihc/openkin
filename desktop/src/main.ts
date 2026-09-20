@@ -46,6 +46,56 @@ let ws: DaemonWS | null = null;
 let notifier: Notifier | null = null;
 let pending: Approval[] = [];
 let quitting = false;
+let pendingDeepLinkPath: string | null = null;
+
+const DEEP_LINK_SCHEME = "kin";
+
+function registerDeepLinkProtocol(): void {
+  try {
+    if (process.defaultApp && process.argv[1]) {
+      app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME, process.execPath, [
+        process.argv[1],
+      ]);
+    } else {
+      app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+    }
+  } catch (err) {
+    console.warn("[kin-desktop] register deep link protocol failed", err);
+  }
+}
+
+function pathFromDeepLink(rawURL: string): string | null {
+  try {
+    const u = new URL(rawURL);
+    if (u.protocol !== `${DEEP_LINK_SCHEME}:`) return null;
+    let path = u.pathname || "/";
+    if (u.hostname === "settings") {
+      path = "/settings";
+    } else if (u.hostname) {
+      path = `/${u.hostname}${u.pathname === "/" ? "" : u.pathname}`;
+    }
+    const qs = u.searchParams.toString();
+    return `${path.startsWith("/") ? path : `/${path}`}${qs ? `?${qs}` : ""}${u.hash || ""}`;
+  } catch {
+    return null;
+  }
+}
+
+function handleDeepLink(rawURL: string): boolean {
+  const path = pathFromDeepLink(rawURL);
+  if (!path) return false;
+  console.log("[kin-desktop] deep link", path);
+  if (!app.isReady()) {
+    pendingDeepLinkPath = path;
+    return true;
+  }
+  mainWindow.show(path);
+  return true;
+}
+
+function deepLinkFromArgv(argv: string[]): string | null {
+  return argv.find((arg) => arg.startsWith(`${DEEP_LINK_SCHEME}://`)) ?? null;
+}
 
 function applyAppBranding(): void {
   app.setAboutPanelOptions({
@@ -221,15 +271,23 @@ if (!gotLock) {
   );
   app.exit(0);
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    const deepLink = deepLinkFromArgv(argv);
+    if (deepLink && handleDeepLink(deepLink)) return;
     // Re-launch / second npm run: bring UI forward instead of looking dead.
     mainWindow.show("/");
+  });
+
+  app.on("open-url", (event, rawURL) => {
+    event.preventDefault();
+    handleDeepLink(rawURL);
   });
 
   app
     .whenReady()
     .then(async () => {
       console.log("[kin-desktop] app ready");
+      registerDeepLinkProtocol();
       applyAppBranding();
       registerIpcHandlers();
 
@@ -277,9 +335,13 @@ if (!gotLock) {
         );
       }
 
+      const launchPath = pendingDeepLinkPath;
+      pendingDeepLinkPath = null;
       if (isDev()) {
-        mainWindow.show("/");
+        mainWindow.show(launchPath ?? "/");
         console.log("[kin-desktop] dev: main window opened");
+      } else if (launchPath) {
+        mainWindow.show(launchPath);
       } else {
         console.log(
           "[kin-desktop] tray setup complete — idle in menu bar (window hidden)",
