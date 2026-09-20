@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -1425,8 +1426,20 @@ func (s *Server) handleCloudflareOAuthCallback(w http.ResponseWriter, r *http.Re
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	tok := s.Token
+	if s.TokenFn != nil {
+		if t := s.TokenFn(); t != "" {
+			tok = t
+		}
+	}
+	target := "/settings?cloudflare=connected"
+	if tok != "" {
+		target = "/settings?" + url.Values{"token": {tok}, "cloudflare": {"connected"}}.Encode()
+	}
+	targetJSON, _ := json.Marshal(target)
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>Cloudflare connected</title><body style="font:14px -apple-system,BlinkMacSystemFont,sans-serif;padding:24px"><h1>Cloudflare connected</h1><p>You can return to Kin Settings and deploy the Relay Worker.</p><script>setTimeout(()=>window.close(),1200)</script></body>`)
+	_, _ = fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>Cloudflare connected</title><body style="font:14px -apple-system,BlinkMacSystemFont,sans-serif;padding:24px"><h1>Cloudflare connected</h1><p>Returning to Kin Settings...</p><p><a href="%s">Open Kin Settings</a></p><script>setTimeout(()=>window.location.replace(%s),600)</script></body>`, target, string(targetJSON))
 }
 
 func (s *Server) handleCloudflareAccounts(w http.ResponseWriter, r *http.Request) {

@@ -84,6 +84,7 @@ export default function SettingsPage() {
   const [cloudflareAccountID, setCloudflareAccountID] = useState("");
   const [cloudflareScriptName, setCloudflareScriptName] = useState("kin-relay");
   const [cloudflareBusy, setCloudflareBusy] = useState(false);
+  const [cloudflareDeploying, setCloudflareDeploying] = useState(false);
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
   const [limitPolicy, setLimitPolicy] = useState("wait");
@@ -579,10 +580,14 @@ export default function SettingsPage() {
           connected = true;
           setCloudflareAccountID(next["cloudflare.account_id"] ?? "");
           setCloudflareScriptName(next["cloudflare.relay_script_name"] || "kin-relay");
-          const res = await listCloudflareAccounts();
-          setCloudflareAccounts(res.accounts ?? []);
-          if (!next["cloudflare.account_id"] && res.accounts?.length === 1) {
-            setCloudflareAccountID(res.accounts[0].id);
+          try {
+            const res = await listCloudflareAccounts();
+            setCloudflareAccounts(res.accounts ?? []);
+            if (!next["cloudflare.account_id"] && res.accounts?.length === 1) {
+              setCloudflareAccountID(res.accounts[0].id);
+            }
+          } catch (accountErr) {
+            setError(accountErr instanceof ApiError ? accountErr.message : String(accountErr));
           }
           break;
         }
@@ -606,7 +611,11 @@ export default function SettingsPage() {
       if (!cloudflareAccountID && res.accounts?.length === 1) {
         setCloudflareAccountID(res.accounts[0].id);
       }
-      await load();
+      const next = await getSettings();
+      setSettings(next);
+      if (next["cloudflare.account_id"]) {
+        setCloudflareAccountID(next["cloudflare.account_id"]);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -615,7 +624,7 @@ export default function SettingsPage() {
   };
 
   const deployRelayWorker = async () => {
-    setCloudflareBusy(true);
+    setCloudflareDeploying(true);
     setError(null);
     try {
       const s = await deployCloudflareRelay({
@@ -627,7 +636,7 @@ export default function SettingsPage() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
-      setCloudflareBusy(false);
+      setCloudflareDeploying(false);
     }
   };
 
@@ -1334,7 +1343,7 @@ export default function SettingsPage() {
             </div>
             <button
               type="button"
-              disabled={cloudflareBusy}
+              disabled={cloudflareBusy || cloudflareDeploying}
               onClick={() => void connectCloudflare()}
               className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
             >
@@ -1356,7 +1365,7 @@ export default function SettingsPage() {
               <select
                 value={cloudflareAccountID}
                 onChange={(e) => setCloudflareAccountID(e.target.value)}
-                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy}
+                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying}
                 className="kin-input min-h-[44px]"
               >
                 <option value="">
@@ -1379,7 +1388,7 @@ export default function SettingsPage() {
                 type="text"
                 value={cloudflareScriptName}
                 onChange={(e) => setCloudflareScriptName(e.target.value)}
-                disabled={cloudflareBusy}
+                disabled={cloudflareBusy || cloudflareDeploying}
                 className="kin-input min-h-[44px] font-mono text-xs"
                 autoComplete="off"
               />
@@ -1388,7 +1397,7 @@ export default function SettingsPage() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={cloudflareBusy || !settings["cloudflare.authenticated"]}
+              disabled={cloudflareBusy || cloudflareDeploying || !settings["cloudflare.authenticated"]}
               onClick={() => void refreshCloudflareAccounts()}
               className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
             >
@@ -1398,13 +1407,14 @@ export default function SettingsPage() {
               type="button"
               disabled={
                 cloudflareBusy ||
+                cloudflareDeploying ||
                 !settings["cloudflare.authenticated"] ||
                 !cloudflareAccountID.trim()
               }
               onClick={() => void deployRelayWorker()}
               className="kin-btn-primary min-h-[40px] disabled:opacity-50"
             >
-              {cloudflareBusy
+              {cloudflareDeploying
                 ? tr("settings.relay.deployingWorker")
                 : tr("settings.relay.deployWorker")}
             </button>
