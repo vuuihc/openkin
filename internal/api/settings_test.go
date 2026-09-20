@@ -275,7 +275,7 @@ func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
 	if auth.Query().Get("code_challenge") == "" {
 		t.Fatalf("auth URL missing PKCE challenge: %s", started["auth_url"])
 	}
-	if auth.Query().Get("scope") != "workers-scripts.read workers-scripts.write account-settings.read" {
+	if auth.Query().Get("scope") != "workers-scripts.read workers-scripts.write account-settings.read zone.zone.read" {
 		t.Fatalf("auth URL scope=%q", auth.Query().Get("scope"))
 	}
 	if auth.Query().Get("redirect_uri") != "http://127.0.0.1:9999/api/cloudflare/oauth/callback" {
@@ -315,6 +315,250 @@ func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
 	}
 	if got["relay.url"] != configured || got["cloudflare.relay_worker_url"] != configured {
 		t.Fatalf("settings response = %#v", got)
+	}
+}
+
+func TestCloudflareRelayDomainConfiguresCustomDomain(t *testing.T) {
+	s, token := newTestServer(t)
+	secrets := &memorySecretStore{}
+	var sawDomainPut bool
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/oauth2/token":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"access_token":  "access-1",
+				"refresh_token": "refresh-1",
+				"expires_in":    3600,
+			})
+		case r.URL.Path == "/client/v4/accounts":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  []map[string]string{{"id": "acc1", "name": "Primary"}},
+			})
+		case r.URL.Path == "/client/v4/zones":
+			if got := r.URL.Query().Get("account.id"); got != "acc1" {
+				t.Fatalf("zones account.id=%q", got)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result": []map[string]string{{
+					"id":     "zone1",
+					"name":   "example.com",
+					"status": "active",
+				}},
+			})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/domains" && r.Method == http.MethodPut:
+			sawDomainPut = true
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["hostname"] != "kin-relay.example.com" || body["service"] != "kin-relay" || body["zone_id"] != "zone1" {
+				t.Fatalf("domain body=%#v", body)
+			}
+			if _, ok := body["environment"]; ok {
+				t.Fatalf("domain body must not include deprecated environment field: %#v", body)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result": map[string]string{
+					"id":        "domain1",
+					"hostname":  "kin-relay.example.com",
+					"service":   "kin-relay",
+					"zone_id":   "zone1",
+					"zone_name": "example.com",
+				},
+			})
+		default:
+			t.Fatalf("unexpected Cloudflare request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cf.Close()
+	s.Cloudflare = &cloudflare.Service{
+		Store:       s.Store,
+		Secrets:     secrets,
+		Client:      cf.Client(),
+		APIBase:     cf.URL + "/client/v4",
+		AuthURL:     cf.URL + "/oauth2/auth",
+		TokenURL:    cf.URL + "/oauth2/token",
+		RedirectURI: "http://127.0.0.1:9999/api/cloudflare/oauth/callback",
+	}
+	var configured string
+	s.ConfigureRelay = func(_ context.Context, rawURL string) (RelayStatus, error) {
+		configured = rawURL
+		return RelayStatus{URL: rawURL, State: "connecting", PairingURL: rawURL + "?pairing=1"}, nil
+	}
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/cloudflare/oauth/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start oauth: %d %s", rr.Code, rr.Body.String())
+	}
+	var started map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := url.Parse(started["auth_url"])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/cloudflare/oauth/callback?state="+url.QueryEscape(auth.Query().Get("state"))+"&code=code-1", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("callback: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/cloudflare/zones?account_id=acc1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("zones: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/cloudflare/relay/domain", strings.NewReader(`{"account_id":"acc1","zone_id":"zone1","script_name":"kin-relay"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("domain: %d %s", rr.Code, rr.Body.String())
+	}
+	if !sawDomainPut {
+		t.Fatal("domain PUT not called")
+	}
+	if configured != "https://kin-relay.example.com" {
+		t.Fatalf("configured relay=%q", configured)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["relay.url"] != configured || got["cloudflare.relay_custom_domain"] != "kin-relay.example.com" {
+		t.Fatalf("settings response=%#v", got)
+	}
+}
+
+func TestCloudflareRelayDomainRollsBackWhenConfigureFails(t *testing.T) {
+	s, token := newTestServer(t)
+	secrets := &memorySecretStore{}
+	var sawDetach bool
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/oauth2/token":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"access_token":  "access-1",
+				"refresh_token": "refresh-1",
+				"expires_in":    3600,
+			})
+		case r.URL.Path == "/client/v4/accounts":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  []map[string]string{{"id": "acc1", "name": "Primary"}},
+			})
+		case r.URL.Path == "/client/v4/zones":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result": []map[string]string{{
+					"id":     "zone1",
+					"name":   "example.com",
+					"status": "active",
+				}},
+			})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/domains" && r.Method == http.MethodPut:
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result": map[string]string{
+					"id":        "domain1",
+					"hostname":  "kin-relay.example.com",
+					"service":   "kin-relay",
+					"zone_id":   "zone1",
+					"zone_name": "example.com",
+				},
+			})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/domains/domain1" && r.Method == http.MethodDelete:
+			sawDetach = true
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]any{}})
+		default:
+			t.Fatalf("unexpected Cloudflare request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cf.Close()
+	s.Cloudflare = &cloudflare.Service{
+		Store:       s.Store,
+		Secrets:     secrets,
+		Client:      cf.Client(),
+		APIBase:     cf.URL + "/client/v4",
+		AuthURL:     cf.URL + "/oauth2/auth",
+		TokenURL:    cf.URL + "/oauth2/token",
+		RedirectURI: "http://127.0.0.1:9999/api/cloudflare/oauth/callback",
+	}
+	s.RelaySnapshot = func() RelayStatus {
+		return RelayStatus{URL: "https://old-relay.example.test", State: "connected"}
+	}
+	var configured []string
+	s.ConfigureRelay = func(_ context.Context, rawURL string) (RelayStatus, error) {
+		configured = append(configured, rawURL)
+		if rawURL == "https://kin-relay.example.com" {
+			return RelayStatus{}, errors.New("relay refused custom domain")
+		}
+		return RelayStatus{URL: rawURL, State: "connected"}, nil
+	}
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/cloudflare/oauth/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start oauth: %d %s", rr.Code, rr.Body.String())
+	}
+	var started map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := url.Parse(started["auth_url"])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/cloudflare/oauth/callback?state="+url.QueryEscape(auth.Query().Get("state"))+"&code=code-1", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("callback: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/cloudflare/relay/domain", strings.NewReader(`{"account_id":"acc1","zone_id":"zone1","script_name":"kin-relay"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("domain status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if !sawDetach {
+		t.Fatal("custom domain was not detached after configure failure")
+	}
+	if got, _ := s.Store.GetSetting(t.Context(), "relay.url"); got != "https://old-relay.example.test" {
+		t.Fatalf("relay.url after rollback=%q", got)
+	}
+	if got, _ := s.Store.GetSetting(t.Context(), "cloudflare.relay_custom_domain"); got != "" {
+		t.Fatalf("custom domain should not be remembered after rollback, got %q", got)
+	}
+	wantConfigured := []string{"https://kin-relay.example.com", "https://old-relay.example.test"}
+	if len(configured) != len(wantConfigured) {
+		t.Fatalf("configured calls=%v", configured)
+	}
+	for i := range wantConfigured {
+		if configured[i] != wantConfigured[i] {
+			t.Fatalf("configured calls=%v", configured)
+		}
 	}
 }
 

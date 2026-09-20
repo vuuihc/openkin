@@ -340,6 +340,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cloudflare/zones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listCloudflareZones"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cloudflare/relay/deploy": {
         parameters: {
             query?: never;
@@ -350,6 +366,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["deployCloudflareRelay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloudflare/relay/domain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["bindCloudflareRelayDomain"];
         delete?: never;
         options?: never;
         head?: never;
@@ -993,14 +1025,29 @@ export interface components {
             "cloudflare.account_name"?: string;
             "cloudflare.relay_script_name"?: string;
             "cloudflare.relay_worker_url"?: string;
+            "cloudflare.relay_custom_domain"?: string;
+            "cloudflare.relay_custom_domain_url"?: string;
+            "cloudflare.relay_zone_id"?: string;
+            "cloudflare.relay_zone_name"?: string;
             "cloudflare.relay_last_error"?: string;
         };
         CloudflareAccount: {
             id: string;
             name: string;
         };
+        CloudflareZone: {
+            id: string;
+            name: string;
+            status?: string;
+        };
         CloudflareRelayDeployRequest: {
             account_id?: string;
+            script_name?: string;
+        };
+        CloudflareRelayDomainRequest: {
+            account_id?: string;
+            zone_id?: string;
+            hostname?: string;
             script_name?: string;
         };
         SettingsUpdate: {
@@ -2018,6 +2065,55 @@ export interface operations {
             };
         };
     };
+    listCloudflareZones: {
+        parameters: {
+            query?: {
+                account_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cloudflare zones available to the authorized user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        zones: components["schemas"]["CloudflareZone"][];
+                    };
+                };
+            };
+            /** @description Cloudflare zones could not be listed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Master authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Cloudflare integration is unavailable */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     deployCloudflareRelay: {
         parameters: {
             query?: never;
@@ -2041,6 +2137,55 @@ export interface operations {
                 };
             };
             /** @description Cloudflare authorization, deployment, or Relay configuration failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Master authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Cloudflare integration is unavailable */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    bindCloudflareRelayDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CloudflareRelayDomainRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated settings after custom domain binding and Relay configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Settings"];
+                };
+            };
+            /** @description Cloudflare authorization, domain binding, or Relay configuration failed */
             400: {
                 headers: {
                     [name: string]: unknown;

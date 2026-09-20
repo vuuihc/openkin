@@ -66,6 +66,7 @@ func TestBeginAuthIncludesCloudflareScopes(t *testing.T) {
 		"workers-scripts.read":  false,
 		"workers-scripts.write": false,
 		"account-settings.read": false,
+		"zone.zone.read":        false,
 	}
 	if len(scope) != len(wantScope) {
 		t.Fatalf("scope count=%d, want %d: %q", len(scope), len(wantScope), auth.Query().Get("scope"))

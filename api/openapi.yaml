@@ -419,6 +419,41 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /api/cloudflare/zones:
+    get:
+      operationId: listCloudflareZones
+      parameters:
+        - in: query
+          name: account_id
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cloudflare zones available to the authorized user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [zones]
+                properties:
+                  zones:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CloudflareZone"
+        "400":
+          description: Cloudflare zones could not be listed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Master authentication required
+        "501":
+          description: Cloudflare integration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/cloudflare/relay/deploy:
     post:
       operationId: deployCloudflareRelay
@@ -436,6 +471,35 @@ paths:
                 $ref: "#/components/schemas/Settings"
         "400":
           description: Cloudflare authorization, deployment, or Relay configuration failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Master authentication required
+        "501":
+          description: Cloudflare integration is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/cloudflare/relay/domain:
+    post:
+      operationId: bindCloudflareRelayDomain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloudflareRelayDomainRequest"
+      responses:
+        "200":
+          description: Updated settings after custom domain binding and Relay configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "400":
+          description: Cloudflare authorization, domain binding, or Relay configuration failed
           content:
             application/json:
               schema:
@@ -1379,6 +1443,14 @@ components:
           type: string
         cloudflare.relay_worker_url:
           type: string
+        cloudflare.relay_custom_domain:
+          type: string
+        cloudflare.relay_custom_domain_url:
+          type: string
+        cloudflare.relay_zone_id:
+          type: string
+        cloudflare.relay_zone_name:
+          type: string
         cloudflare.relay_last_error:
           type: string
     CloudflareAccount:
@@ -1389,10 +1461,31 @@ components:
           type: string
         name:
           type: string
+    CloudflareZone:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
     CloudflareRelayDeployRequest:
       type: object
       properties:
         account_id:
+          type: string
+        script_name:
+          type: string
+    CloudflareRelayDomainRequest:
+      type: object
+      properties:
+        account_id:
+          type: string
+        zone_id:
+          type: string
+        hostname:
           type: string
         script_name:
           type: string
