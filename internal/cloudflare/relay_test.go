@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,6 +37,36 @@ func (s *memorySecretStore) Put(ref, value string) error {
 func (s *memorySecretStore) Delete(ref string) error {
 	delete(s.values, ref)
 	return nil
+}
+
+func TestBeginAuthIncludesCloudflareScopes(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc := &Service{
+		Store:       st,
+		Secrets:     &memorySecretStore{},
+		AuthURL:     "https://dash.cloudflare.test/oauth2/auth",
+		RedirectURI: "http://127.0.0.1:9999/api/cloudflare/oauth/callback",
+	}
+
+	rawURL, err := svc.BeginAuth(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth.Query().Get("scope") != oauthScopes {
+		t.Fatalf("scope=%q", auth.Query().Get("scope"))
+	}
+	if auth.Query().Get("code_challenge") == "" {
+		t.Fatalf("missing code_challenge in %s", rawURL)
+	}
 }
 
 func TestDeployRelayRejectsCloudflareSuccessFalseEnvelope(t *testing.T) {
