@@ -275,7 +275,7 @@ func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
 	if auth.Query().Get("code_challenge") == "" {
 		t.Fatalf("auth URL missing PKCE challenge: %s", started["auth_url"])
 	}
-	if auth.Query().Get("scope") != "workers-scripts.read workers-scripts.write account-settings.read zone.zone.read" {
+	if auth.Query().Get("scope") != "workers-scripts.read workers-scripts.write account-settings.read zone.read" {
 		t.Fatalf("auth URL scope=%q", auth.Query().Get("scope"))
 	}
 	if auth.Query().Get("redirect_uri") != "http://127.0.0.1:9999/api/cloudflare/oauth/callback" {

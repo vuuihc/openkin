@@ -37,7 +37,7 @@ const (
 
 	defaultScriptName = "kin-relay"
 	compatDate        = "2026-09-15"
-	oauthScopes       = "workers-scripts.read workers-scripts.write account-settings.read zone.zone.read"
+	oauthScopes       = "workers-scripts.read workers-scripts.write account-settings.read zone.read"
 
 	keyAccountID     = "cloudflare.account_id"
 	keyAccountName   = "cloudflare.account_name"
