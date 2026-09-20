@@ -4,12 +4,45 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
+	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/notify"
 )
+
+type memorySecretStore struct {
+	values map[string]string
+}
+
+func (s *memorySecretStore) Get(ref string) (string, error) {
+	if s.values == nil {
+		return "", errors.New("not found")
+	}
+	v, ok := s.values[ref]
+	if !ok {
+		return "", errors.New("not found")
+	}
+	return v, nil
+}
+
+func (s *memorySecretStore) Put(ref, value string) error {
+	if s.values == nil {
+		s.values = map[string]string{}
+	}
+	s.values[ref] = value
+	return nil
+}
+
+func (s *memorySecretStore) Delete(ref string) error {
+	delete(s.values, ref)
+	return nil
+}
 
 func TestSettingsGetPut(t *testing.T) {
 	s, token := newTestServer(t)
@@ -26,7 +59,7 @@ func TestSettingsGetPut(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET settings: %d %s", rr.Code, rr.Body.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +80,7 @@ func TestSettingsGetPut(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("PUT settings: %d %s", rr.Code, rr.Body.String())
 	}
-	got = map[string]string{}
+	got = map[string]any{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -123,12 +156,229 @@ func TestRelaySettingsConfigureAndPairing(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("pairing refresh status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got["relay.pairing_url"] != "https://relay.example.test?pairing=refreshed" {
 		t.Fatalf("pairing URL=%q", got["relay.pairing_url"])
+	}
+}
+
+func TestCloudflareRelayDeployConfiguresRelay(t *testing.T) {
+	s, token := newTestServer(t)
+	secrets := &memorySecretStore{}
+	var sawTokenExchange bool
+	var sawUpload bool
+	var sawEnable bool
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/oauth2/token":
+			sawTokenExchange = true
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("parse token form: %v", err)
+			}
+			if r.Form.Get("code_verifier") == "" {
+				t.Fatalf("missing code verifier")
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"access_token":  "access-1",
+				"refresh_token": "refresh-1",
+				"expires_in":    3600,
+			})
+		case r.URL.Path == "/client/v4/accounts":
+			if got := r.Header.Get("Authorization"); got != "Bearer access-1" {
+				t.Fatalf("accounts authorization=%q", got)
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  []map[string]string{{"id": "acc1", "name": "Primary"}},
+			})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay" && r.Method == http.MethodPut:
+			sawUpload = true
+			body, _ := io.ReadAll(r.Body)
+			text := string(body)
+			if !strings.Contains(text, `"main_module":"relay.js"`) || !strings.Contains(text, "class RelayRoom") {
+				t.Fatalf("upload body missing relay module: %s", text[:min(len(text), 500)])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]any{}})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay/subdomain" && r.Method == http.MethodPost:
+			sawEnable = true
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]bool{"enabled": true}})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/subdomain":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  map[string]string{"subdomain": "example-user"},
+			})
+		default:
+			t.Fatalf("unexpected Cloudflare request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cf.Close()
+	s.Cloudflare = &cloudflare.Service{
+		Store:       s.Store,
+		Secrets:     secrets,
+		Client:      cf.Client(),
+		APIBase:     cf.URL + "/client/v4",
+		AuthURL:     cf.URL + "/oauth2/auth",
+		TokenURL:    cf.URL + "/oauth2/token",
+		RedirectURI: "http://127.0.0.1:9999/api/cloudflare/oauth/callback",
+	}
+	var configured string
+	s.ConfigureRelay = func(_ context.Context, rawURL string) (RelayStatus, error) {
+		configured = rawURL
+		return RelayStatus{URL: rawURL, State: "connecting", PairingURL: rawURL + "?pairing=1"}, nil
+	}
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/cloudflare/oauth/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start oauth: %d %s", rr.Code, rr.Body.String())
+	}
+	var started map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := url.Parse(started["auth_url"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth.Query().Get("code_challenge") == "" {
+		t.Fatalf("auth URL missing PKCE challenge: %s", started["auth_url"])
+	}
+	if auth.Query().Get("redirect_uri") != "http://127.0.0.1:9999/api/cloudflare/oauth/callback" {
+		t.Fatalf("auth URL redirect_uri=%q", auth.Query().Get("redirect_uri"))
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/cloudflare/oauth/callback?state="+url.QueryEscape(auth.Query().Get("state"))+"&code=code-1", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("callback: %d %s", rr.Code, rr.Body.String())
+	}
+	if !sawTokenExchange {
+		t.Fatal("token exchange not called")
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/cloudflare/relay/deploy", strings.NewReader(`{"account_id":"acc1","script_name":"kin-relay"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("deploy: %d %s", rr.Code, rr.Body.String())
+	}
+	if !sawUpload || !sawEnable {
+		t.Fatalf("deploy incomplete upload=%v enable=%v", sawUpload, sawEnable)
+	}
+	if configured != "https://kin-relay.example-user.workers.dev" {
+		t.Fatalf("configured relay=%q", configured)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["relay.url"] != configured || got["cloudflare.relay_worker_url"] != configured {
+		t.Fatalf("settings response = %#v", got)
+	}
+}
+
+func TestCloudflareRelayDeployRollsBackRelayURLWhenConfigureFails(t *testing.T) {
+	s, token := newTestServer(t)
+	secrets := &memorySecretStore{}
+	cf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/oauth2/token":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"access_token":  "access-1",
+				"refresh_token": "refresh-1",
+				"expires_in":    3600,
+			})
+		case r.URL.Path == "/client/v4/accounts":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  []map[string]string{{"id": "acc1", "name": "Primary"}},
+			})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay" && r.Method == http.MethodPut:
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]any{}})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/scripts/kin-relay/subdomain" && r.Method == http.MethodPost:
+			writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": map[string]bool{"enabled": true}})
+		case r.URL.Path == "/client/v4/accounts/acc1/workers/subdomain":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"success": true,
+				"result":  map[string]string{"subdomain": "example-user"},
+			})
+		default:
+			t.Fatalf("unexpected Cloudflare request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer cf.Close()
+	s.Cloudflare = &cloudflare.Service{
+		Store:    s.Store,
+		Secrets:  secrets,
+		Client:   cf.Client(),
+		APIBase:  cf.URL + "/client/v4",
+		AuthURL:  cf.URL + "/oauth2/auth",
+		TokenURL: cf.URL + "/oauth2/token",
+	}
+	s.RelaySnapshot = func() RelayStatus {
+		return RelayStatus{URL: "https://old-relay.example.test", State: "connected"}
+	}
+	var configured []string
+	s.ConfigureRelay = func(_ context.Context, rawURL string) (RelayStatus, error) {
+		configured = append(configured, rawURL)
+		if rawURL == "https://kin-relay.example-user.workers.dev" {
+			return RelayStatus{}, errors.New("relay refused worker URL")
+		}
+		return RelayStatus{URL: rawURL, State: "connected"}, nil
+	}
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/cloudflare/oauth/start", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("start oauth: %d %s", rr.Code, rr.Body.String())
+	}
+	var started map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := url.Parse(started["auth_url"])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/cloudflare/oauth/callback?state="+url.QueryEscape(auth.Query().Get("state"))+"&code=code-1", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("callback: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/cloudflare/relay/deploy", strings.NewReader(`{"account_id":"acc1","script_name":"kin-relay"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("deploy status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if got, _ := s.Store.GetSetting(t.Context(), "relay.url"); got != "https://old-relay.example.test" {
+		t.Fatalf("relay.url after snapshot rollback=%q", got)
+	}
+	wantConfigured := []string{"https://kin-relay.example-user.workers.dev", "https://old-relay.example.test"}
+	if len(configured) != len(wantConfigured) {
+		t.Fatalf("configured calls=%v", configured)
+	}
+	for i := range wantConfigured {
+		if configured[i] != wantConfigured[i] {
+			t.Fatalf("configured calls=%v", configured)
+		}
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/api"
 	"github.com/vuuihc/openkin/internal/browserworker"
+	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/mcp"
@@ -479,6 +480,11 @@ func ServeWith(version string, flags ServeFlags) error {
 		},
 		SmokeAgents: func(c context.Context, ids []string) []api.AgentSmokeResult {
 			return api.RunGenericCLISmoke(c, st, ids)
+		},
+		Cloudflare: &cloudflare.Service{
+			Store:       st,
+			Secrets:     secretStore,
+			RedirectURI: daemonURL + "/api/cloudflare/oauth/callback",
 		},
 	}
 	srvAPI.ConfigureRelay = func(c context.Context, rawURL string) (api.RelayStatus, error) {

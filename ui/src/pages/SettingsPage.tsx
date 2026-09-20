@@ -6,19 +6,23 @@ import {
   activateProvider,
   createProvider,
   deleteProvider,
+  deployCloudflareRelay,
   getSettings,
   importAgentSessions,
+  listCloudflareAccounts,
   listAgentProviders,
   listAgents,
   listProviderModels,
   listProviders,
   refreshRelayPairing,
+  startCloudflareOAuth,
   testNotify,
   updateProvider,
   updateSettings,
   type AgentInfo,
   type AgentProvider,
   type AgentSessionImportResult,
+  type CloudflareAccount,
   type ModelSpec,
   type ProviderEntry,
   type Settings,
@@ -63,6 +67,10 @@ function formatSyncTime(value: number): string {
   }).format(new Date(value));
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export default function SettingsPage() {
   const tr = useT();
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -72,6 +80,10 @@ export default function SettingsPage() {
   const [baseURL, setBaseURL] = useState("");
   const [relayURL, setRelayURL] = useState("");
   const [relayBusy, setRelayBusy] = useState(false);
+  const [cloudflareAccounts, setCloudflareAccounts] = useState<CloudflareAccount[]>([]);
+  const [cloudflareAccountID, setCloudflareAccountID] = useState("");
+  const [cloudflareScriptName, setCloudflareScriptName] = useState("kin-relay");
+  const [cloudflareBusy, setCloudflareBusy] = useState(false);
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
   const [limitPolicy, setLimitPolicy] = useState("wait");
@@ -119,6 +131,8 @@ export default function SettingsPage() {
       setQuotaWaitNotifySecs(s["notify.quota_wait_after_secs"] || "900");
       setBaseURL(s["ui.base_url"] ?? "");
       setRelayURL(s["relay.url"] ?? "");
+      setCloudflareAccountID(s["cloudflare.account_id"] ?? "");
+      setCloudflareScriptName(s["cloudflare.relay_script_name"] || "kin-relay");
       setAgentDefault(s["agent.default"] ?? "");
       setLimitPolicy((s.limit_policy as string) || "wait");
       setLimitFallbackText(s["limit_policy.fallback_agents"] || "[]");
@@ -147,6 +161,18 @@ export default function SettingsPage() {
       listAgentProviders()
         .then(setAgentProviders)
         .catch(() => undefined);
+      if (s["cloudflare.authenticated"]) {
+        listCloudflareAccounts()
+          .then((res) => {
+            setCloudflareAccounts(res.accounts ?? []);
+            if (!s["cloudflare.account_id"] && res.accounts?.length === 1) {
+              setCloudflareAccountID(res.accounts[0].id);
+            }
+          })
+          .catch(() => undefined);
+      } else {
+        setCloudflareAccounts([]);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setError(e instanceof ApiError ? e.message : String(e));
@@ -497,21 +523,25 @@ export default function SettingsPage() {
     }
   };
 
+  const adoptRelaySettings = (s: Settings) => {
+    setSettings(s);
+    setRelayURL(s["relay.url"] ?? "");
+    adoptRelayURL(s["relay.open_url"] ?? "");
+    const target = s["relay.open_url"]
+      ? s["relay.open_url"]
+      : s["ui.base_url"]
+        ? `${s["ui.base_url"].replace(/\/+$/, "")}/?token=${encodeURIComponent(s.token)}`
+        : "";
+    if (target) window.location.assign(target);
+  };
+
   const saveRelay = async () => {
     setRelayBusy(true);
     setError(null);
     try {
       const s = await updateSettings({ "relay.url": relayURL.trim() });
-      setSettings(s);
-      setRelayURL(s["relay.url"] ?? "");
       pushToast(tr("settings.relay.saved"), "info");
-      adoptRelayURL(s["relay.open_url"] ?? "");
-      const target = s["relay.open_url"]
-        ? s["relay.open_url"]
-        : s["ui.base_url"]
-          ? `${s["ui.base_url"].replace(/\/+$/, "")}/?token=${encodeURIComponent(s.token)}`
-          : "";
-      if (target) window.location.assign(target);
+      adoptRelaySettings(s);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -530,6 +560,74 @@ export default function SettingsPage() {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setRelayBusy(false);
+    }
+  };
+
+  const connectCloudflare = async () => {
+    setCloudflareBusy(true);
+    setError(null);
+    try {
+      const { auth_url } = await startCloudflareOAuth();
+      window.open(auth_url, "_blank", "noopener,noreferrer");
+      pushToast(tr("settings.relay.cloudflareLoginOpened"), "info");
+      let connected = false;
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        await wait(2000);
+        const next = await getSettings();
+        setSettings(next);
+        if (next["cloudflare.authenticated"]) {
+          connected = true;
+          setCloudflareAccountID(next["cloudflare.account_id"] ?? "");
+          setCloudflareScriptName(next["cloudflare.relay_script_name"] || "kin-relay");
+          const res = await listCloudflareAccounts();
+          setCloudflareAccounts(res.accounts ?? []);
+          if (!next["cloudflare.account_id"] && res.accounts?.length === 1) {
+            setCloudflareAccountID(res.accounts[0].id);
+          }
+          break;
+        }
+      }
+      if (!connected) {
+        pushToast(tr("settings.relay.cloudflareLoginTimedOut"), "error");
+      }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setCloudflareBusy(false);
+    }
+  };
+
+  const refreshCloudflareAccounts = async () => {
+    setCloudflareBusy(true);
+    setError(null);
+    try {
+      const res = await listCloudflareAccounts();
+      setCloudflareAccounts(res.accounts ?? []);
+      if (!cloudflareAccountID && res.accounts?.length === 1) {
+        setCloudflareAccountID(res.accounts[0].id);
+      }
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setCloudflareBusy(false);
+    }
+  };
+
+  const deployRelayWorker = async () => {
+    setCloudflareBusy(true);
+    setError(null);
+    try {
+      const s = await deployCloudflareRelay({
+        account_id: cloudflareAccountID,
+        script_name: cloudflareScriptName,
+      });
+      pushToast(tr("settings.relay.cloudflareDeployed"), "info");
+      adoptRelaySettings(s);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setCloudflareBusy(false);
     }
   };
 
@@ -1219,6 +1317,103 @@ export default function SettingsPage() {
           >
             {tr(`settings.relay.state.${relayState}` as "settings.relay.state.disabled")}
           </span>
+        </div>
+        <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 p-3 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-kin-secondary">
+                {tr("settings.relay.cloudflareTitle")}
+              </p>
+              <p className="text-[11px] text-kin-muted leading-relaxed">
+                {settings["cloudflare.authenticated"]
+                  ? tr("settings.relay.cloudflareConnected", {
+                      account: settings["cloudflare.account_name"] || settings["cloudflare.account_id"] || "Cloudflare",
+                    })
+                  : tr("settings.relay.cloudflareDesc")}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={cloudflareBusy}
+              onClick={() => void connectCloudflare()}
+              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+            >
+              {settings["cloudflare.authenticated"]
+                ? tr("settings.relay.reconnectCloudflare")
+                : tr("settings.relay.connectCloudflare")}
+            </button>
+          </div>
+          {settings["cloudflare.relay_last_error"] ? (
+            <p className="text-xs text-kin-red" role="alert">
+              {settings["cloudflare.relay_last_error"]}
+            </p>
+          ) : null}
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-kin-secondary">
+                {tr("settings.relay.cloudflareAccount")}
+              </span>
+              <select
+                value={cloudflareAccountID}
+                onChange={(e) => setCloudflareAccountID(e.target.value)}
+                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy}
+                className="kin-input min-h-[44px]"
+              >
+                <option value="">
+                  {settings["cloudflare.authenticated"]
+                    ? tr("settings.relay.selectAccount")
+                    : tr("settings.relay.loginFirst")}
+                </option>
+                {cloudflareAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name || account.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-kin-secondary">
+                {tr("settings.relay.workerName")}
+              </span>
+              <input
+                type="text"
+                value={cloudflareScriptName}
+                onChange={(e) => setCloudflareScriptName(e.target.value)}
+                disabled={cloudflareBusy}
+                className="kin-input min-h-[44px] font-mono text-xs"
+                autoComplete="off"
+              />
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={cloudflareBusy || !settings["cloudflare.authenticated"]}
+              onClick={() => void refreshCloudflareAccounts()}
+              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+            >
+              {tr("settings.relay.refreshAccounts")}
+            </button>
+            <button
+              type="button"
+              disabled={
+                cloudflareBusy ||
+                !settings["cloudflare.authenticated"] ||
+                !cloudflareAccountID.trim()
+              }
+              onClick={() => void deployRelayWorker()}
+              className="kin-btn-primary min-h-[40px] disabled:opacity-50"
+            >
+              {cloudflareBusy
+                ? tr("settings.relay.deployingWorker")
+                : tr("settings.relay.deployWorker")}
+            </button>
+          </div>
+          {settings["cloudflare.relay_worker_url"] ? (
+            <p className="break-all font-mono text-[11px] text-kin-muted">
+              {settings["cloudflare.relay_worker_url"]}
+            </p>
+          ) : null}
         </div>
         <label className="block space-y-1">
           <span className="text-xs font-medium text-kin-secondary">
