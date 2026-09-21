@@ -823,7 +823,7 @@ export default function SettingsPage() {
 
       {/* Cognition providers — powers agent "kin" */}
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1 min-w-0">
             <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
               {tr("settings.provider.heading")}
@@ -838,7 +838,7 @@ export default function SettingsPage() {
             type="button"
             disabled={provBusy}
             onClick={openNewProvider}
-            className="kin-btn-secondary shrink-0 disabled:opacity-50"
+            className="kin-btn-secondary w-full shrink-0 disabled:opacity-50 sm:w-auto"
           >
             {tr("settings.provider.add")}
           </button>

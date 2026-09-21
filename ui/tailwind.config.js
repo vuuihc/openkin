@@ -14,6 +14,7 @@ export default {
           elevated: "var(--kin-elevated)",
           // Solid floating surface (modals/cards). Never leave undefined — missing token = transparent.
           panel: "var(--kin-panel)",
+          surface: "var(--kin-surface)",
           sidebar: "var(--kin-sidebar)",
           chat: "var(--kin-chat)",
           inspector: "var(--kin-inspector)",
@@ -33,6 +34,7 @@ export default {
           "orange-soft": "rgba(255, 159, 10, 0.12)",
           green: "#30D158",
           red: "#FF453A",
+          warning: "var(--kin-warning)",
         },
         // Keep legacy aliases so unmigrated bits don't break mid-refactor.
         surface: {

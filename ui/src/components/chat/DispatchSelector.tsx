@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   getRoutingOptions,
   getRoutingPreview,
@@ -28,6 +28,66 @@ type Props = {
   routine?: boolean;
 };
 
+type Translate = (path: string) => string;
+
+type DispatchSummaryOptions = {
+  teams?: Array<{ id: string; name?: string }>;
+  agents?: Array<{ id: string; name?: string }>;
+  providers?: Array<{ id: string; name?: string }>;
+};
+
+function formatObjectiveLabel(objective: string, tr: Translate): string {
+  switch (objective) {
+    case "balanced":
+      return tr("settings.routing.objectiveBalanced");
+    case "cost-min":
+      return tr("settings.routing.objectiveCostMin");
+    case "intelligent-max":
+      return tr("settings.routing.objectiveIntelligentMax");
+    default:
+      return objective;
+  }
+}
+
+function formatPreviewStatus(status: string, tr: Translate): string {
+  switch (status) {
+    case "blocked":
+      return tr("settings.routing.blocked");
+    case "resolved":
+      return tr("settings.routing.resolved");
+    case "unresolved":
+      return tr("settings.routing.unresolved");
+    default:
+      return status;
+  }
+}
+
+export function getDispatchSummary(
+  value: DispatchSelection,
+  options: DispatchSummaryOptions | null,
+  tr: Translate,
+): string {
+  const mode = value.mode || "auto";
+  const teams = options?.teams ?? [];
+  const agents = options?.agents ?? [];
+  const providers = options?.providers ?? [];
+
+  if (!value.mode) return tr("dispatch.label");
+  if (mode === "auto") {
+    const team = teams.find((t) => t.id === value.team);
+    const obj = formatObjectiveLabel(value.objective || "balanced", tr);
+    const teamLabel = team?.name || value.team || tr("dispatch.auto");
+    return `${tr("dispatch.auto")} · ${teamLabel} · ${obj}`;
+  }
+
+  const agent = agents.find((a) => a.id === value.agent);
+  const prov = providers.find((p) => p.id === value.provider);
+  const agentLabel = agent?.name || value.agent || tr("dispatch.manual");
+  const provLabel = prov?.name || value.provider || "";
+  const modelLabel = value.model || "";
+  return `${tr("dispatch.manual")} · ${agentLabel}${provLabel ? ` · ${provLabel}` : ""}${modelLabel ? ` · ${modelLabel}` : ""}`;
+}
+
 export function DispatchSelector({
   value,
   onChange,
@@ -43,6 +103,7 @@ export function DispatchSelector({
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [open, setOpen] = useState(false);
+  const popoverId = useId();
   const popRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -74,6 +135,17 @@ export function DispatchSelector({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
   }, [open]);
 
   // Fetch preview when selection changes and popover is open.
@@ -134,21 +206,7 @@ export function DispatchSelector({
   const enabledTeams = teams.filter((t) => t.enabled);
 
   // Compact summary for the trigger button.
-  const summary = (() => {
-    if (!value.mode) return "Dispatch";
-    if (mode === "auto") {
-      const team = teams.find((t) => t.id === value.team);
-      const obj = value.objective || "balanced";
-      const teamLabel = team?.name || value.team || "Auto";
-      return `Auto · ${teamLabel} · ${obj}`;
-    }
-    const agent = agents.find((a) => a.id === value.agent);
-    const prov = providers.find((p) => p.id === value.provider);
-    const agentLabel = agent?.name || value.agent || "Manual";
-    const provLabel = prov?.name || value.provider || "";
-    const modelLabel = value.model || "";
-    return `Manual · ${agentLabel}${provLabel ? ` · ${provLabel}` : ""}${modelLabel ? ` · ${modelLabel}` : ""}`;
-  })();
+  const summary = getDispatchSummary(value, options, tr);
 
   return (
     <div className="relative inline-flex items-center">
@@ -157,6 +215,9 @@ export function DispatchSelector({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? popoverId : undefined}
         className={`text-[11px] font-medium px-2 py-1 rounded min-h-[28px] border truncate max-w-[220px] ${
           open
             ? "border-kin-blue bg-kin-blue/10 text-kin-blue"
@@ -170,8 +231,11 @@ export function DispatchSelector({
       {/* Popover */}
       {open && (
         <div
+          id={popoverId}
           ref={popRef}
-          className="absolute bottom-full left-0 mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-surface p-3 shadow-lg min-w-[240px] max-w-[320px]"
+          role="dialog"
+          aria-label={tr("dispatch.popoverLabel")}
+          className="absolute bottom-full left-0 mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-lg min-w-[240px] max-w-[320px]"
         >
           <div className="text-xs space-y-2">
             {/* Mode toggle */}
@@ -186,7 +250,7 @@ export function DispatchSelector({
                     : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
                 }`}
               >
-                Auto
+                {tr("dispatch.auto")}
               </button>
               <button
                 type="button"
@@ -198,7 +262,7 @@ export function DispatchSelector({
                     : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
                 }`}
               >
-                Manual
+                {tr("dispatch.manual")}
               </button>
             </div>
 
@@ -240,7 +304,7 @@ export function DispatchSelector({
                   disabled={disabled}
                   className="kin-input min-h-[32px] text-xs w-full"
                 >
-                  <option value="">Agent…</option>
+                  <option value="">{tr("dispatch.agentPlaceholder")}</option>
                   {agents.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.id})
@@ -253,7 +317,7 @@ export function DispatchSelector({
                   disabled={disabled || !value.agent}
                   className="kin-input min-h-[32px] text-xs w-full"
                 >
-                  <option value="">Provider…</option>
+                  <option value="">{tr("dispatch.providerPlaceholder")}</option>
                   {compatibleProviders.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.id})
@@ -268,7 +332,7 @@ export function DispatchSelector({
                     disabled={disabled || !value.provider}
                     className="kin-input min-h-[32px] text-xs w-full"
                   >
-                    <option value="">Model…</option>
+                    <option value="">{tr("dispatch.modelPlaceholder")}</option>
                     {providerModels.map((m: ModelSpec) => (
                       <option key={m.id} value={m.id}>
                         {m.id} ({m.tier || "?"})
@@ -276,7 +340,7 @@ export function DispatchSelector({
                     ))}
                   </select>
                 ) : value.provider ? (
-                  <div className="text-xs text-[var(--kin-warning)] px-1">No models listed for this provider</div>
+                  <div className="text-xs text-kin-warning px-1">{tr("dispatch.noModels")}</div>
                 ) : null}
               </div>
             )}
@@ -288,13 +352,13 @@ export function DispatchSelector({
                 onClick={() => setShowPreview((v) => !v)}
                 className="text-[10px] text-kin-blue hover:underline"
               >
-                {showPreview ? "Hide preview" : "Show preview"}
+                {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
               </button>
             ) : null}
 
             {showPreview && (
               <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]/40">
-                {loading && <span className="text-[10px] text-kin-muted">Loading preview…</span>}
+                {loading && <span className="text-[10px] text-kin-muted">{tr("dispatch.loadingPreview")}</span>}
                 {error && <span className="text-[10px] text-kin-red">{error}</span>}
                 {preview?.blocked && (
                   <span className="text-[10px] text-kin-red block">
@@ -305,7 +369,7 @@ export function DispatchSelector({
                   <div key={p.phase} className="flex items-center gap-2 text-[10px]">
                     <span className="font-mono font-semibold text-kin-secondary w-14">{p.phase}</span>
                     <span className={`${p.status === "resolved" ? "text-kin-green" : p.status === "blocked" ? "text-kin-red" : "text-kin-muted"}`}>
-                      {p.status === "resolved" ? `${p.agent} · ${p.provider} · ${p.model}` : p.status}
+                      {p.status === "resolved" ? `${p.agent} · ${p.provider} · ${p.model}` : formatPreviewStatus(p.status, tr)}
                     </span>
                   </div>
                 ))}
