@@ -96,43 +96,53 @@ private final class CameraQRViewController: UIViewController {
         sessionQueue.async { [weak self, captureSession] in
             guard let self else { return }
 
-            guard let captureDevice = AVCaptureDevice.default(for: .video),
-                  let input = try? AVCaptureDeviceInput(device: captureDevice)
-            else {
-                DispatchQueue.main.async { self.showUnauthorizedAlert() }
-                return
-            }
+            if captureSession.inputs.isEmpty && captureSession.outputs.isEmpty {
+                guard let captureDevice = AVCaptureDevice.default(for: .video),
+                      let input = try? AVCaptureDeviceInput(device: captureDevice)
+                else {
+                    DispatchQueue.main.async { self.showUnauthorizedAlert() }
+                    return
+                }
 
-            captureSession.beginConfiguration()
-            if captureSession.canAddInput(input) {
-                captureSession.addInput(input)
-            } else {
-                captureSession.commitConfiguration()
-                DispatchQueue.main.async { self.showUnauthorizedAlert() }
-                return
-            }
+                captureSession.beginConfiguration()
+                if captureSession.canAddInput(input) {
+                    captureSession.addInput(input)
+                } else {
+                    captureSession.commitConfiguration()
+                    DispatchQueue.main.async { self.showUnauthorizedAlert() }
+                    return
+                }
 
-            let output = AVCaptureMetadataOutput()
-            guard captureSession.canAddOutput(output) else {
+                let output = AVCaptureMetadataOutput()
+                guard captureSession.canAddOutput(output) else {
+                    captureSession.commitConfiguration()
+                    DispatchQueue.main.async { self.showUnauthorizedAlert() }
+                    return
+                }
+                captureSession.addOutput(output)
+                guard output.availableMetadataObjectTypes.contains(.qr) else {
+                    captureSession.commitConfiguration()
+                    DispatchQueue.main.async { self.showUnauthorizedAlert() }
+                    return
+                }
+                output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+                output.metadataObjectTypes = [.qr]
                 captureSession.commitConfiguration()
-                DispatchQueue.main.async { self.showUnauthorizedAlert() }
-                return
             }
-            captureSession.addOutput(output)
-            output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-            output.metadataObjectTypes = [.qr]
-            captureSession.commitConfiguration()
 
             DispatchQueue.main.async { [weak self] in
                 self?.addPreviewLayer()
             }
-            captureSession.startRunning()
+            if !captureSession.isRunning {
+                captureSession.startRunning()
+            }
         }
     }
 
     private func stopSession() {
         let captureSession = captureSession
         sessionQueue.async { [captureSession] in
+            guard captureSession.isRunning else { return }
             captureSession.stopRunning()
         }
     }
@@ -140,6 +150,7 @@ private final class CameraQRViewController: UIViewController {
     private func addPreviewLayer() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.previewLayer == nil else { return }
             let layer = AVCaptureVideoPreviewLayer(session: self.captureSession)
             layer.videoGravity = .resizeAspectFill
             layer.frame = self.view.layer.bounds
@@ -190,7 +201,9 @@ extension CameraQRViewController: @preconcurrency AVCaptureMetadataOutputObjects
 
         hasScanned = true
         stopSession()
-        onScan?(stringValue)
+        DispatchQueue.main.async { [weak self] in
+            self?.onScan?(stringValue)
+        }
     }
 }
 #endif
