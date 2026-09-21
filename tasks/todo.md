@@ -87,14 +87,14 @@
 **Description:** Extract provider and local-agent setup flows from `SettingsPage.tsx`, preserving explicit user actions and avoiding passive secret or third-party reads.
 
 **Acceptance criteria:**
-- [ ] Provider create/edit/list flows remain functional and i18n-backed.
-- [ ] Local agent detection/import states remain explicit and reversible.
-- [ ] No model fetch, secret read, or external API call occurs on passive Settings open.
+- [x] Provider create/edit/list flows remain functional and i18n-backed.
+- [x] Local agent detection/import states remain explicit and reversible.
+- [x] No model fetch, secret read, or external API call occurs on passive Settings open.
 
 **Verification:**
-- [ ] Tests pass: `cd ui && npm test`
-- [ ] Build succeeds: `cd ui && npm run build`
-- [ ] Manual/browser check: provider edit and local agent import entry points render and behave as before.
+- [x] Tests pass: `cd ui && npm test`
+- [x] Build succeeds: `cd ui && npm run build`
+- [ ] Manual/browser check: provider edit and local agent import entry points render and behave as before. Requires authenticated local browser URL.
 
 **Dependencies:** Task 3
 
