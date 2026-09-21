@@ -163,14 +163,14 @@
 **Description:** Calm the New Chat first screen and task detail flow using the accepted dense desktop direction, with controls grouped by workflow instead of one overloaded control row.
 
 **Acceptance criteria:**
-- [ ] Start-work path has one obvious primary entry point.
-- [ ] Host agent, model, dispatch, routine, cwd, branch, and project summary controls remain available without overflowing at 390 px.
+- [x] Start-work path has one obvious primary entry point.
+- [ ] Host agent, model, dispatch, routine, cwd, branch, and project summary controls remain available without overflowing at 390 px. New Chat controls are grouped by Run, Route, and Workspace; authenticated narrow-width visual pass still needed.
 - [ ] Task status cards use consistent running, approval, completed, and failed semantics.
 
 **Verification:**
-- [ ] Tests pass: `cd ui && npm test`
-- [ ] Build succeeds: `cd ui && npm run build`
-- [ ] Manual/browser check: New Chat and Task Detail at 390 and 1440 px.
+- [x] Tests pass: `cd ui && npm test`
+- [x] Build succeeds: `cd ui && npm run build`
+- [ ] Manual/browser check: New Chat and Task Detail at 390 and 1440 px. Unauthenticated harness passed, but authenticated New Chat/Task Detail screenshots are still required.
 
 **Dependencies:** Task 2
 
