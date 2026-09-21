@@ -24,6 +24,9 @@ function redactSensitive(value) {
   return String(value).replace(
     /([?&])(token|room|key)=([^&#\s]+)/gi,
     (_match, prefix, key) => `${prefix}${key}=<redacted>`,
+  ).replace(
+    /(%3[fF]|%26)(token|room|key)%3[dD].*?(?=(?:%26|[&#\s])|$)/g,
+    (_match, prefix, key) => `${prefix}${key}%3D%3Credacted%3E`,
   );
 }
 
