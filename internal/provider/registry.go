@@ -559,12 +559,8 @@ func DeleteEntry(ctx context.Context, st *store.Store, id string) (Registry, err
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, err
 	}
-	if isSecretReference(oldKey) {
-		if secrets := secretStore(); secrets != nil {
-			if err := secrets.Delete(strings.TrimPrefix(oldKey, "secret://")); err != nil {
-				return Registry{}, fmt.Errorf("delete provider secret: %w", err)
-			}
-		}
+	if err := DeleteEntrySecret(id, oldKey); err != nil {
+		return Registry{}, fmt.Errorf("delete provider secret: %w", err)
 	}
 	return reg, nil
 }
@@ -593,14 +589,25 @@ func ClearEntryAPIKey(ctx context.Context, st *store.Store, id string) (Registry
 	if err := SaveRegistry(ctx, st, reg); err != nil {
 		return Registry{}, err
 	}
-	if isSecretReference(oldKey) {
-		if secrets := secretStore(); secrets != nil {
-			if err := secrets.Delete(strings.TrimPrefix(oldKey, "secret://")); err != nil {
-				return Registry{}, fmt.Errorf("delete provider secret: %w", err)
-			}
-		}
+	if err := DeleteEntrySecret(id, oldKey); err != nil {
+		return Registry{}, fmt.Errorf("delete provider secret: %w", err)
 	}
 	return reg, nil
+}
+
+// DeleteEntrySecret removes the stored secret for a provider entry.
+// oldKey may be a stored secret:// reference, a hydrated plaintext key, or empty
+// for legacy callers that only know the canonical provider id.
+func DeleteEntrySecret(id, oldKey string) error {
+	secrets := secretStore()
+	if secrets == nil {
+		return nil
+	}
+	ref := secretReference(id)
+	if isSecretReference(oldKey) {
+		ref = strings.TrimPrefix(oldKey, "secret://")
+	}
+	return secrets.Delete(ref)
 }
 
 func newProviderID() string {

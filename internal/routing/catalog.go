@@ -117,7 +117,9 @@ func (c *Catalog) UpsertProvider(
 	if err != nil {
 		return provider.Registry{}, err
 	}
+	var oldKey string
 	if previous, ok := reg.ByID(entry.ID); ok {
+		oldKey = previous.APIKey
 		entry.SupportsAgents = append([]string(nil), previous.SupportsAgents...)
 		entry.Models = append([]provider.ModelSpec(nil), previous.Models...)
 		entry.Enabled = previous.Enabled
@@ -145,6 +147,11 @@ func (c *Catalog) UpsertProvider(
 	}
 	if err := provider.SaveRegistry(ctx, c.store, reg); err != nil {
 		return provider.Registry{}, err
+	}
+	if clearAPIKey {
+		if err := provider.DeleteEntrySecret(entry.ID, oldKey); err != nil {
+			return provider.Registry{}, fmt.Errorf("delete provider secret: %w", err)
+		}
 	}
 	return reg, nil
 }
@@ -219,8 +226,12 @@ func (c *Catalog) SaveSettingsWithLegacyProvider(
 	}
 	cfg := provider.Config{Kind: "openai-compatible"}
 	active, hasActive := reg.Active()
+	clearSecretID := ""
+	clearSecretKey := ""
 	if hasActive {
 		cfg = active.Config()
+		clearSecretID = active.ID
+		clearSecretKey = active.APIKey
 	} else {
 		cfg, err = loadLegacyProviderConfig(ctx, c.store)
 		if err != nil {
@@ -330,6 +341,11 @@ func (c *Catalog) SaveSettingsWithLegacyProvider(
 	}
 	if err := c.store.SetSettings(ctx, next); err != nil {
 		return fmt.Errorf("save settings: %w", err)
+	}
+	if clearAPIKey && clearSecretID != "" {
+		if err := provider.DeleteEntrySecret(clearSecretID, clearSecretKey); err != nil {
+			return fmt.Errorf("delete provider secret: %w", err)
+		}
 	}
 	return nil
 }

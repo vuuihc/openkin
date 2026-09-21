@@ -31,11 +31,19 @@ const (
 )
 
 type principalContextKey struct{}
+type tokenContextKey struct{}
 
 // PrincipalFromContext returns the authenticated principal, if any.
 func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalContextKey{}).(Principal)
 	return p, ok
+}
+
+// TokenFromContext returns the credential used for an authenticated request.
+// Handlers that need credential-aware follow-up checks can read it from context.
+func TokenFromContext(ctx context.Context) (string, bool) {
+	token, ok := ctx.Value(tokenContextKey{}).(string)
+	return token, ok && token != ""
 }
 
 // DeviceLookup authenticates a native-client token and returns its principal.
@@ -170,12 +178,14 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		want, err := a.loadToken()
 		if err == nil && want != "" && secureEqual(got, want) {
 			ctx := context.WithValue(r.Context(), principalContextKey{}, Principal{Kind: PrincipalMaster, DeviceID: "master", Label: "daemon master token"})
+			ctx = context.WithValue(ctx, tokenContextKey{}, got)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 		if a.device != nil {
 			if principal, ok := a.device(r.Context(), got); ok {
 				ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+				ctx = context.WithValue(ctx, tokenContextKey{}, got)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -183,7 +193,6 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		{
 			a.fail.record(ip)
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 			return
