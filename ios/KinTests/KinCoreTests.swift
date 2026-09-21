@@ -226,6 +226,91 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(UserDefaults.loadServerProfiles().first?.id, recent.id)
     }
 
+    func testServerProfilePresentationFallsBackToHost() throws {
+        let profile = ServerProfile(
+            id: UUID(),
+            displayName: "  ",
+            baseURL: try XCTUnwrap(URL(string: "https://desktop.example.test:7777")),
+            relayKey: nil,
+            relayRoom: nil,
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertEqual(profile.activeDesktopName, "desktop.example.test")
+        XCTAssertEqual(profile.displayHost, "desktop.example.test")
+        XCTAssertEqual(profile.transport, .httpsTunnel)
+    }
+
+    func testServerProfilePresentationClassifiesRelayBeforeScheme() throws {
+        let profile = ServerProfile(
+            id: UUID(),
+            displayName: "Work Mac",
+            baseURL: try XCTUnwrap(URL(string: "http://192.168.1.20:7777")),
+            relayKey: "relay-key",
+            relayRoom: "room",
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertEqual(profile.activeDesktopName, "Work Mac")
+        XCTAssertEqual(profile.transport, .relay)
+    }
+
+    @MainActor
+    func testActivatingProfileClearsRemoteSnapshotImmediately() throws {
+        let defaults = UserDefaults.standard
+        let originalProfiles = defaults.data(forKey: "kin_server_profiles")
+        defer {
+            if let originalProfiles {
+                defaults.set(originalProfiles, forKey: "kin_server_profiles")
+            } else {
+                defaults.removeObject(forKey: "kin_server_profiles")
+            }
+        }
+        defaults.removeObject(forKey: "kin_server_profiles")
+
+        let session = AppSession()
+        let target = ServerProfile(
+            id: UUID(),
+            displayName: "Target Mac",
+            baseURL: try XCTUnwrap(URL(string: "https://target.example.test")),
+            relayKey: nil,
+            relayRoom: nil,
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 1)
+        )
+        session.installRemoteSnapshotForTesting(
+            tasks: [makeTask(status: .running)],
+            approvals: [
+                Approval(
+                    id: "approval-1",
+                    taskId: "task-1",
+                    status: .pending,
+                    createdAt: 1
+                )
+            ],
+            questions: [
+                UserQuestion(
+                    id: "question-1",
+                    taskId: "task-1",
+                    question: "Continue?",
+                    type: .freeText,
+                    options: nil,
+                    otherText: nil,
+                    answeredAt: nil
+                )
+            ]
+        )
+
+        session.activate(profile: target)
+
+        XCTAssertEqual(session.activeProfileID, target.id)
+        XCTAssertTrue(session.tasks.isEmpty)
+        XCTAssertTrue(session.approvals.isEmpty)
+        XCTAssertTrue(session.questions.isEmpty)
+    }
+
     // MARK: - QuestionType
 
     func testQuestionTypeDecodes() throws {
