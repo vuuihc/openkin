@@ -47,6 +47,10 @@ import {
   setDraftPermissionMode,
   type PermissionMode,
 } from "../lib/permissionMode";
+import {
+  newChatControlGroups,
+  type NewChatControlId,
+} from "../lib/newChatWorkbench";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -316,6 +320,97 @@ export default function NewChatPage() {
     project != null ||
     projectLookupState === "loading" ||
     projectLookupState === "error";
+  const controlGroups = newChatControlGroups({ asRoutine });
+
+  function renderControl(control: NewChatControlId) {
+    switch (control) {
+      case "permission":
+        return (
+          <PermissionModePicker
+            key={control}
+            value={permissionMode}
+            disabled={sending}
+            compact
+            onChange={(m) => {
+              setPermissionMode(m);
+              setDraftPermissionMode(m);
+            }}
+          />
+        );
+      case "routine":
+        return (
+          <button
+            key={control}
+            type="button"
+            disabled={sending}
+            onClick={() => setAsRoutine((v) => !v)}
+            aria-pressed={asRoutine}
+            aria-label={tr("routines.asRoutine")}
+            title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
+            className={[
+              "inline-flex items-center justify-center rounded-full border w-[26px] h-[26px] flex-none transition-colors disabled:opacity-50",
+              asRoutine
+                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-blue"
+                : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
+            ].join(" ")}
+          >
+            <IconRoutines size={13} />
+          </button>
+        );
+      case "hostModel":
+        return (
+          <AgentModelPicker
+            key={`${control}:${mainAgentId}`}
+            className="max-w-full flex-wrap"
+            agents={available}
+            agentValue={mainAgentId}
+            onAgentChange={(id: string) => {
+              setSelectedHost(id);
+              setSelectedModel("");
+            }}
+            modelValue={selectedModel}
+            models={modelsForAgent(available, mainAgentId)}
+            disabled={sending}
+            onModelChange={setSelectedModel}
+          />
+        );
+      case "dispatch":
+        return (
+          <DispatchSelector
+            key={control}
+            value={dispatch}
+            onChange={setDispatch}
+            disabled={sending}
+            prompt={previewPrompt}
+            routine={asRoutine}
+            onPreviewBlocked={setDispatchPreviewBlocked}
+          />
+        );
+      case "cwd":
+        return (
+          <CwdPicker
+            key={control}
+            className="w-full sm:w-auto sm:max-w-[18rem]"
+            cwd={cwd}
+            locked={false}
+            compact
+            onChange={(v) => {
+              setCwd(v);
+              setDraftCwd(v);
+            }}
+          />
+        );
+      case "branch":
+        return (
+          <BranchPicker
+            key={control}
+            cwd={cwd}
+            compact
+            className="max-w-full sm:flex-none"
+          />
+        );
+    }
+  }
 
   return (
     <div className="flex-1 flex flex-col min-h-0 kin-surface-chat">
@@ -425,80 +520,20 @@ export default function NewChatPage() {
             }}
             onSubmit={onSubmit}
           />
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 px-0.5 min-w-0 sm:overflow-x-auto kin-scroll">
-            <PermissionModePicker
-              value={permissionMode}
-              disabled={sending}
-              compact
-              onChange={(m) => {
-                setPermissionMode(m);
-                setDraftPermissionMode(m);
-              }}
-            />
-            {!asRoutine && (
-              <>
-                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                  ·
-                </span>
-                <AgentModelPicker
-                  key={mainAgentId}
-                  agents={available}
-                  agentValue={mainAgentId}
-                  onAgentChange={(id: string) => {
-                    setSelectedHost(id);
-                    setSelectedModel("");
-                  }}
-                  modelValue={selectedModel}
-                  models={modelsForAgent(available, mainAgentId)}
-                  disabled={sending}
-                  onModelChange={setSelectedModel}
-                />
-                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                  ·
-                </span>
-                <DispatchSelector
-                  value={dispatch}
-                  onChange={setDispatch}
-                  disabled={sending}
-                  prompt={previewPrompt}
-                  routine={asRoutine}
-                  onPreviewBlocked={setDispatchPreviewBlocked}
-                />
-              </>
-            )}
-            <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-              ·
-            </span>
-            <button
-              type="button"
-              disabled={sending}
-              onClick={() => setAsRoutine((v) => !v)}
-              aria-pressed={asRoutine}
-              aria-label={tr("routines.asRoutine")}
-              title={`${tr("routines.asRoutine")} — ${tr("routines.asRoutineHint")}`}
-              className={[
-                "inline-flex items-center justify-center rounded-full border w-[26px] h-[26px] flex-none transition-colors disabled:opacity-50",
-                asRoutine
-                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-blue"
-                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
-              ].join(" ")}
-            >
-              <IconRoutines size={13} />
-            </button>
-            <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-              ·
-            </span>
-            <CwdPicker
-              className="min-w-0 max-w-[calc(100vw-3rem)] sm:max-w-[min(40%,18rem)]"
-              cwd={cwd}
-              locked={false}
-              compact
-              onChange={(v) => {
-                setCwd(v);
-                setDraftCwd(v);
-              }}
-            />
-            <BranchPicker cwd={cwd} compact className="flex-none" />
+          <div className="grid gap-1.5 px-0.5">
+            {controlGroups.map((group) => (
+              <div
+                key={group.id}
+                className="flex min-w-0 flex-col gap-1 rounded-[8px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
+              >
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-kin-muted sm:w-[5.25rem] sm:flex-none">
+                  {tr(group.labelKey)}
+                </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  {group.controls.map(renderControl)}
+                </div>
+              </div>
+            ))}
           </div>
           {asRoutine && (
             <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
