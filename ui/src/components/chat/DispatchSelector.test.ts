@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultDispatchSelection,
+  getDispatchSummary,
   isDispatchReady,
   type DispatchSelection,
 } from "./DispatchSelector";
@@ -60,5 +61,43 @@ describe("isDispatchReady", () => {
   it("manual mode: previewBlocked overrides a fully filled selection", () => {
     const sel: DispatchSelection = { mode: "manual", agent: "claude-code", provider: "prov-a", model: "m1" };
     expect(isDispatchReady(sel, true)).toBe(false);
+  });
+});
+
+describe("getDispatchSummary", () => {
+  const tr = (path: string) => {
+    const messages: Record<string, string> = {
+      "dispatch.label": "分发",
+      "dispatch.auto": "自动",
+      "dispatch.manual": "手动",
+      "settings.routing.objectiveBalanced": "均衡",
+    };
+    return messages[path] ?? path;
+  };
+
+  const options = {
+    teams: [{ id: "core", name: "Core", enabled: true }],
+    agents: [{ id: "claude-code", name: "Claude Code", supported_kinds: ["anthropic"] }],
+    providers: [{ id: "anthropic", name: "Anthropic", kind: "anthropic", enabled: true, supports_agents: ["claude-code"], models: [] }],
+  };
+
+  it("uses localized label when dispatch mode is unset", () => {
+    expect(getDispatchSummary({}, options, tr)).toBe("分发");
+  });
+
+  it("uses localized auto label in auto mode summary", () => {
+    expect(getDispatchSummary({ mode: "auto", team: "core", objective: "balanced" }, options, tr)).toBe(
+      "自动 · Core · 均衡",
+    );
+  });
+
+  it("uses localized manual label in manual mode summary", () => {
+    expect(
+      getDispatchSummary(
+        { mode: "manual", agent: "claude-code", provider: "anthropic", model: "sonnet" },
+        options,
+        tr,
+      ),
+    ).toBe("手动 · Claude Code · Anthropic · sonnet");
   });
 });
