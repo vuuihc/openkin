@@ -4,8 +4,10 @@ import {
   isTerminal,
   type Task,
 } from "../../api/client";
+import { useT } from "../../i18n/react";
 import { IconTerminal } from "../icons";
 import { displayUserPrompt } from "../../lib/attachments";
+import { taskCardStatusView } from "../../lib/taskCardStatus";
 
 type Props = {
   task: Task;
@@ -25,9 +27,10 @@ export default function RunningTaskCard({
   onClick,
   activity,
 }: Props) {
+  const tr = useT();
   const terminal = isTerminal(task.status);
-  const waiting = task.status === "waiting_approval";
-  const live = !terminal && !degraded;
+  const statusView = taskCardStatusView(task.status, degraded && !terminal);
+  const live = statusView.tone === "running" && !terminal;
 
   return (
     <button
@@ -35,11 +38,7 @@ export default function RunningTaskCard({
       onClick={onClick}
       className={[
         "w-full text-left rounded-[12px] overflow-hidden transition-shadow",
-        selected
-          ? "border border-kin-blue/50 bg-gradient-to-b from-[rgba(10,132,255,.1)] to-[rgba(10,132,255,.02)] shadow-card-blue"
-          : live
-            ? "border border-kin-blue/40 bg-gradient-to-b from-[rgba(10,132,255,.07)] to-[rgba(10,132,255,.02)]"
-            : "border border-[var(--kin-hairline-strong)] bg-kin-elevated",
+        selected ? statusView.selectedClass : statusView.containerClass,
         onClick ? "cursor-pointer" : "cursor-default",
       ].join(" ")}
     >
@@ -48,13 +47,8 @@ export default function RunningTaskCard({
           <span
             className={[
               "w-2 h-2 rounded-full flex-none",
-              degraded
-                ? "bg-kin-muted"
-                : waiting
-                  ? "bg-kin-orange"
-                  : live
-                    ? "bg-kin-blue animate-breathe"
-                    : "bg-kin-green",
+              statusView.dotClass,
+              statusView.animated ? "animate-breathe" : "",
             ].join(" ")}
           />
           <span className="text-[14px] font-semibold text-kin-text truncate">
@@ -64,7 +58,7 @@ export default function RunningTaskCard({
             {task.agent}
           </span>
           <span className="ml-auto text-[12px] text-kin-tertiary tabular-nums flex-none whitespace-nowrap">
-            {degraded ? "last seen" : task.status === "queued" ? "queued" : waiting ? "waiting" : "running"}
+            {tr(statusView.labelKey)}
             {" · "}
             {formatElapsed(task, now)}
             {" · "}
@@ -78,7 +72,7 @@ export default function RunningTaskCard({
           </div>
         )}
       </div>
-      {live && !waiting && <div className="kin-dash" />}
+      {live && <div className="kin-dash" />}
     </button>
   );
 }

@@ -59,11 +59,11 @@ export default function ApprovalCard({
         <div className="flex items-center gap-2">
           <IconAlert size={15} className="text-kin-orange flex-none" />
           <span className="text-[13.5px] font-semibold text-[#ffb340]">
-            Permission needed
+            {tr("approval.cardTitle")}
           </span>
           {focused && (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5">
-              focused
+              {tr("approval.focused")}
             </span>
           )}
           <span className="ml-auto text-[11px] text-kin-tertiary truncate max-w-[45%]" title={attr}>
@@ -125,9 +125,9 @@ export default function ApprovalCard({
             onClick={onApprove}
             className="kin-btn-approve flex-1 disabled:opacity-60"
           >
-            {busy === "approved" ? "Approving…" : (
+            {busy === "approved" ? tr("approval.approving") : (
               <>
-                Approve <span className="opacity-60 font-semibold">A</span>
+                {tr("chat.approve")} <span className="opacity-60 font-semibold">A</span>
               </>
             )}
           </button>
@@ -137,9 +137,9 @@ export default function ApprovalCard({
             onClick={onDeny}
             className="kin-btn-deny flex-1 disabled:opacity-60"
           >
-            {busy === "denied" ? "Denying…" : (
+            {busy === "denied" ? tr("approval.denying") : (
               <>
-                Deny <span className="opacity-50">D</span>
+                {tr("chat.deny")} <span className="opacity-50">D</span>
               </>
             )}
           </button>

@@ -164,8 +164,8 @@
 
 **Acceptance criteria:**
 - [x] Start-work path has one obvious primary entry point.
-- [ ] Host agent, model, dispatch, routine, cwd, branch, and project summary controls remain available without overflowing at 390 px. New Chat controls are grouped by Run, Route, and Workspace; authenticated narrow-width visual pass still needed.
-- [ ] Task status cards use consistent running, approval, completed, and failed semantics.
+- [x] Host agent, model, dispatch, routine, cwd, branch, and project summary controls remain available without overflowing at 390 px.
+- [x] Task status cards use consistent running, approval, completed, and failed semantics.
 
 **Verification:**
 - [x] Tests pass: `cd ui && npm test`
