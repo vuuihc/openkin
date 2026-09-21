@@ -33,6 +33,7 @@ final class AppSession {
     /// Activates one profile and loads only its Keychain credential.
     func activate(profile: ServerProfile) {
         reconciler?.stopWebSocket()
+        clearRemoteSnapshot()
         var profile = profile
         profile.lastAccessed = Date()
         UserDefaults.upsertServerProfile(profile)
@@ -87,6 +88,12 @@ final class AppSession {
         }
     }
 
+    private func clearRemoteSnapshot() {
+        tasks = []
+        approvals = []
+        questions = []
+    }
+
     func refreshProfiles() {
         profiles = UserDefaults.loadServerProfiles()
         if activeProfileID == nil {
@@ -102,9 +109,7 @@ final class AppSession {
             reconciler?.stopWebSocket()
             apiClient = nil
             reconciler = nil
-            tasks = []
-            approvals = []
-            questions = []
+            clearRemoteSnapshot()
             activeProfileID = profiles.first?.id
             connectionState = .unconfigured
         }
@@ -123,6 +128,14 @@ final class AppSession {
         questions = reconciler.pendingQuestions
         connectionState = reconciler.connectionState
     }
+
+    #if DEBUG
+    func installRemoteSnapshotForTesting(tasks: [KinTask], approvals: [Approval], questions: [UserQuestion]) {
+        self.tasks = tasks
+        self.approvals = approvals
+        self.questions = questions
+    }
+    #endif
 
     func approve(id: String) async throws {
         try await reconciler?.approve(id: id)

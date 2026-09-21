@@ -10,8 +10,8 @@ struct ContentView: View {
             ControlView()
                 .tabItem {
                     Label(
-                        String(localized: "Control", comment: "Tab bar label for the control view"),
-                        systemImage: "terminal"
+                        String(localized: String.LocalizationValue(AppModel.Tab.control.localizationKey)),
+                        systemImage: "sparkle.magnifyingglass"
                     )
                 }
                 .tag(AppModel.Tab.control)
@@ -19,7 +19,7 @@ struct ContentView: View {
             TaskListView()
                 .tabItem {
                     Label(
-                        String(localized: "Tasks", comment: "Tab bar label for the tasks list"),
+                        String(localized: String.LocalizationValue(AppModel.Tab.tasks.localizationKey)),
                         systemImage: "list.bullet"
                     )
                 }
@@ -27,20 +27,26 @@ struct ContentView: View {
 
             ProjectsView()
                 .tabItem {
-                    Label("Projects", systemImage: "folder")
+                    Label(
+                        String(localized: String.LocalizationValue(AppModel.Tab.projects.localizationKey)),
+                        systemImage: "folder"
+                    )
                 }
                 .tag(AppModel.Tab.projects)
 
             ArtifactsView()
                 .tabItem {
-                    Label("Artifacts", systemImage: "doc.text")
+                    Label(
+                        String(localized: String.LocalizationValue(AppModel.Tab.artifacts.localizationKey)),
+                        systemImage: "doc.text"
+                    )
                 }
                 .tag(AppModel.Tab.artifacts)
 
             SettingsView()
                 .tabItem {
                     Label(
-                        String(localized: "Settings", comment: "Tab bar label for settings"),
+                        String(localized: String.LocalizationValue(AppModel.Tab.settings.localizationKey)),
                         systemImage: "gear"
                     )
                 }

@@ -8,6 +8,23 @@ func kinJoinedPath(_ basePath: String, _ endpoint: String) -> String {
     return "/" + base + "/" + suffix
 }
 
+enum ServerProfileTransport: Equatable {
+    case lanHTTP
+    case httpsTunnel
+    case relay
+
+    var localizationKey: String {
+        switch self {
+        case .lanHTTP:
+            return "desktop.transport.lan_http"
+        case .httpsTunnel:
+            return "desktop.transport.https_tunnel"
+        case .relay:
+            return "desktop.transport.relay"
+        }
+    }
+}
+
 /// Connection profile for a Kin desktop daemon.
 /// Metadata is stored in UserDefaults; the auth token is stored separately in Keychain.
 struct ServerProfile: Codable, Hashable, Identifiable {
@@ -81,6 +98,22 @@ struct ServerProfile: Codable, Hashable, Identifiable {
 
     var canManageDaemon: Bool {
         credentialScope == .master
+    }
+
+    var displayHost: String {
+        URLComponents(url: baseURL, resolvingAgainstBaseURL: false)?.host ?? origin
+    }
+
+    var activeDesktopName: String {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? displayHost : trimmed
+    }
+
+    var transport: ServerProfileTransport {
+        if relayKey?.isEmpty == false || relayRoom?.isEmpty == false {
+            return .relay
+        }
+        return isLAN ? .lanHTTP : .httpsTunnel
     }
 }
 

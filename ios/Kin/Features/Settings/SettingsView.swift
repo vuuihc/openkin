@@ -72,8 +72,8 @@ struct SettingsView: View {
                         .truncationMode(.middle)
                 }
 
-                LabeledContent("Transport") {
-                    Text(profile.isLAN ? "LAN (HTTP)" : "HTTPS Tunnel")
+                LabeledContent(String(localized: "settings.transport")) {
+                    Text(String(localized: String.LocalizationValue(profile.transport.localizationKey)))
                 }
             }
 
@@ -121,37 +121,57 @@ struct SettingsView: View {
     // MARK: - Devices Section
 
     private var devicesSection: some View {
-        Section("Devices") {
+        Section {
             if settingsModel.savedProfiles.isEmpty {
-                Text("No devices saved")
+                Text(String(localized: "settings.devices.empty"))
                     .foregroundStyle(.secondary)
             }
             ForEach(settingsModel.savedProfiles) { savedProfile in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(savedProfile.displayName)
-                            .fontWeight(.medium)
-                        Text(savedProfile.origin)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                    if settingsModel.isActive(savedProfile) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .imageScale(.small)
-                    }
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
+                Button {
+                    guard !settingsModel.isActive(savedProfile) else { return }
                     appSession.activate(profile: savedProfile)
                     settingsModel.activeProfileId = savedProfile.id
+                    serverVersion = nil
                     workers = []
                     workerLoadGeneration += 1
-                    Task { await loadWorkers() }
+                    Task {
+                        await loadVersion()
+                        await loadWorkers()
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "desktopcomputer")
+                            .foregroundStyle(settingsModel.isActive(savedProfile) ? .green : .secondary)
+                            .frame(width: 28)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(savedProfile.activeDesktopName)
+                                .fontWeight(.medium)
+                            Text(savedProfile.origin)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(String(localized: String.LocalizationValue(savedProfile.transport.localizationKey)))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Spacer()
+
+                        if settingsModel.isActive(savedProfile) {
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .imageScale(.small)
+                                Text(String(localized: "desktop.active"))
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
             }
             .onDelete { indexSet in
                 for i in indexSet {
@@ -164,15 +184,19 @@ struct SettingsView: View {
             Button {
                 showConnection = true
             } label: {
-                Label("Add Device", systemImage: "plus.circle")
+                Label(String(localized: "settings.devices.add"), systemImage: "plus.circle")
             }
+        } header: {
+            Text(String(localized: "settings.devices"))
+        } footer: {
+            Text(String(localized: "settings.devices.footer"))
         }
     }
 
     // MARK: - Daemon Section
 
     private var daemonSection: some View {
-        Section("Daemon") {
+        Section(String(localized: "settings.daemon")) {
             LabeledContent(String(localized: "settings.version")) {
                 Text(serverVersion ?? "—")
             }
@@ -199,21 +223,21 @@ struct SettingsView: View {
     }
 
     private var consoleSection: some View {
-        Section("Console") {
+        Section(String(localized: "settings.console")) {
             NavigationLink {
                 RoutinesView()
             } label: {
-                Label("Routines", systemImage: "clock.arrow.circlepath")
+                Label(String(localized: "settings.routines"), systemImage: "clock.arrow.circlepath")
             }
             NavigationLink {
                 AgentUsageView()
             } label: {
-                Label("Agents & Usage", systemImage: "chart.bar")
+                Label(String(localized: "settings.agents_usage"), systemImage: "chart.bar")
             }
             NavigationLink {
                 ProviderSettingsView()
             } label: {
-                Label("Providers", systemImage: "server.rack")
+                Label(String(localized: "settings.providers"), systemImage: "server.rack")
             }
         }
     }
@@ -221,13 +245,13 @@ struct SettingsView: View {
     // MARK: - About Section
 
     private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("App Version") {
+        Section(String(localized: "settings.about")) {
+            LabeledContent(String(localized: "settings.app_version")) {
                 Text(appVersion)
             }
 
             if let url = URL(string: "https://github.com/openkin/kin") {
-                Link("GitHub", destination: url)
+                Link(String(localized: "settings.github"), destination: url)
             }
         }
     }
