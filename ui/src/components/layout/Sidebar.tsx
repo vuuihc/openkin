@@ -39,7 +39,11 @@ import {
 } from "../../lib/sessionViewed";
 import { displayUserPrompt } from "../../lib/attachments";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
-import { displayAgentSessionTitle } from "../../lib/agentSessionTitle";
+import {
+  agentSessionAvailability,
+  displayAgentSessionTitle,
+  type AgentSessionAvailability,
+} from "../../lib/agentSessionTitle";
 import {
   IconArchive,
   IconFile,
@@ -960,7 +964,15 @@ function ExternalSessionRow({
   onOpen?: (session: AgentSession) => void;
   onCloseMobile: () => void;
 }) {
+  const tr = useT();
   const avatar = agentAvatarMeta(session.agent_id);
+  const availability = agentSessionAvailability(session);
+  const availabilityLabel =
+    availability === "linked"
+      ? tr("agentSession.connected")
+      : availability === "resumable"
+        ? tr("agentSession.available")
+        : tr("agentSession.readOnly");
   return (
     <button
       type="button"
@@ -968,9 +980,20 @@ function ExternalSessionRow({
         onOpen?.(session);
         onCloseMobile();
       }}
-      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-left text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text min-h-[34px]"
-      title={`${label}: ${sessionTitle}`}
+      className={[
+        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-[7px] border text-left text-[12.5px] min-h-[36px] transition-colors",
+        externalSessionRowClass(availability),
+      ].join(" ")}
+      aria-label={`${label}, ${availabilityLabel}, ${sessionTitle}`}
+      title={`${label}: ${availabilityLabel}: ${sessionTitle}`}
     >
+      <span
+        className={[
+          "h-7 w-1 flex-none rounded-full",
+          externalSessionRailClass(availability),
+        ].join(" ")}
+        aria-hidden="true"
+      />
       <span
         className={[
           "inline-flex h-5 w-5 items-center justify-center rounded-[6px] text-[9px] font-semibold",
@@ -989,13 +1012,38 @@ function ExternalSessionRow({
         aria-hidden="true"
       />
       <span className="truncate flex-1 min-w-0">{sessionTitle}</span>
-      {!session.linked && (
-        <span className="text-[9px] text-kin-muted border border-kin-border rounded px-1">
-          {label}
-        </span>
-      )}
+      <span
+        className={[
+          "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+          externalSessionBadgeClass(availability),
+        ].join(" ")}
+      >
+        {availabilityLabel}
+      </span>
     </button>
   );
+}
+
+function externalSessionRowClass(availability: AgentSessionAvailability): string {
+  if (availability === "linked") {
+    return "border-kin-blue/25 bg-kin-blue-soft/20 text-kin-text hover:bg-kin-blue-soft/30";
+  }
+  if (availability === "resumable") {
+    return "border-kin-green/25 bg-kin-green/10 text-kin-text hover:bg-kin-green/15";
+  }
+  return "border-kin-border border-dashed bg-[var(--kin-fill)]/50 text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text";
+}
+
+function externalSessionRailClass(availability: AgentSessionAvailability): string {
+  if (availability === "linked") return "bg-kin-blue";
+  if (availability === "resumable") return "bg-kin-green";
+  return "bg-kin-muted";
+}
+
+function externalSessionBadgeClass(availability: AgentSessionAvailability): string {
+  if (availability === "linked") return "border-kin-blue/30 text-kin-blue";
+  if (availability === "resumable") return "border-kin-green/30 text-kin-green";
+  return "border-kin-border text-kin-muted";
 }
 
 function AgentGroupedTree({

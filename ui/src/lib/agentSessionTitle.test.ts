@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentSessionAvailability,
+  canContinueAgentSession,
   displayAgentSessionTitle,
   isOpaqueAgentSessionTitle,
 } from "./agentSessionTitle";
@@ -27,5 +29,48 @@ describe("agent session titles", () => {
         "Untitled session",
       ),
     ).toBe("Claude Code · openkin · 6d8f4e35…d6f4");
+  });
+});
+
+describe("agent session availability", () => {
+  it("marks unlinked sessions with cwd and attach support as resumable", () => {
+    expect(
+      canContinueAgentSession({
+        linked: false,
+        cwd: "/repo",
+        capabilities: ["session_attach"],
+      }),
+    ).toBe(true);
+    expect(
+      agentSessionAvailability({
+        linked: false,
+        cwd: "/repo",
+        capabilities: ["session_attach"],
+      }),
+    ).toBe("resumable");
+  });
+
+  it("keeps linked and missing-cwd sessions visually distinct from resumable sessions", () => {
+    expect(
+      agentSessionAvailability({
+        linked: true,
+        cwd: "/repo",
+        capabilities: ["session_attach"],
+      }),
+    ).toBe("linked");
+    expect(
+      agentSessionAvailability({
+        linked: false,
+        cwd: "",
+        capabilities: ["session_attach"],
+      }),
+    ).toBe("read_only");
+    expect(
+      agentSessionAvailability({
+        linked: false,
+        cwd: "/repo",
+        capabilities: [],
+      }),
+    ).toBe("read_only");
   });
 });
