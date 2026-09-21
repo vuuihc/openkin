@@ -23,7 +23,6 @@ import {
   updateSettings,
   type AgentInfo,
   type AgentProvider,
-  type AgentSessionImportResult,
   type CloudflareAccount,
   type CloudflareZone,
   type ModelSpec,
@@ -31,6 +30,12 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import {
+  isAutoImportSnapshot,
+  LocalAgentSettingsSection,
+  type AutoImportSnapshot,
+} from "../components/settings/LocalAgentSettingsSection";
+import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { relayPrimaryAction } from "../components/settings/RelayGuidance";
 import { RoutingDefaultsSection, RoutingProfilesSection } from "../components/settings/RoutingSettings";
 import {
@@ -50,34 +55,6 @@ import {
 } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
-import { Link } from "react-router-dom";
-import {
-  agentCatalogState,
-  runnableAgents,
-  sortAgentCatalog,
-} from "../lib/agentCatalog";
-
-type AutoImportSnapshot = AgentSessionImportResult & { synced_at: number };
-
-function isAutoImportSnapshot(value: unknown): value is AutoImportSnapshot {
-  if (!value || typeof value !== "object") return false;
-  const snapshot = value as Partial<AutoImportSnapshot>;
-  return (
-    typeof snapshot.synced_at === "number" &&
-    Number.isFinite(snapshot.synced_at) &&
-    typeof snapshot.imported === "number" &&
-    Number.isFinite(snapshot.imported) &&
-    !!snapshot.providers &&
-    typeof snapshot.providers === "object"
-  );
-}
-
-function formatSyncTime(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -888,576 +865,62 @@ export default function SettingsPage() {
         </p>
       ) : null}
 
-      {/* Cognition providers — powers agent "kin" */}
-      <SettingsTabPanel id="providers" active={activeTab === "providers"}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1 min-w-0">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-              {tr("settings.provider.heading")}
-            </h2>
-            <p className="text-[12px] text-kin-secondary leading-relaxed">
-              {tr("settings.provider.descA")}
-              <code className="text-[11px] px-1 rounded bg-[var(--kin-fill)]">kin</code>
-              {tr("settings.provider.descB")}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={provBusy}
-            onClick={openNewProvider}
-            className="kin-btn-secondary w-full shrink-0 disabled:opacity-50 sm:w-auto"
-          >
-            {tr("settings.provider.add")}
-          </button>
-        </div>
+      <ProviderSettingsSection
+        active={activeTab === "providers"}
+        providers={providers}
+        activeProviderId={activeProviderId}
+        providerBusy={provBusy}
+        editingId={editingId}
+        providerName={provName}
+        providerBaseUrl={provBase}
+        providerApiKey={provKey}
+        providerModel={provModel}
+        providerStream={provStream}
+        revealApiKey={reveal}
+        providerModelOptions={provModelOptions}
+        providerModelLoading={provModelLoading}
+        providerModelError={provModelError}
+        showRouting={showRouting}
+        providerSupportsAgents={provSupportsAgents}
+        providerModels={provModels}
+        agentDefault={agentDefault}
+        agentList={agentList}
+        settingsBusy={busy}
+        onAddProvider={openNewProvider}
+        onActivateProvider={(id) => void onActivateProvider(id)}
+        onEditProvider={openEditProvider}
+        onDeleteProvider={(id) => void onDeleteProvider(id)}
+        onProviderNameChange={setProvName}
+        onProviderBaseUrlChange={setProvBase}
+        onProviderApiKeyChange={setProvKey}
+        onProviderApiKeyDirty={setProvKeyDirty}
+        onProviderModelChange={setProvModel}
+        onProviderStreamChange={setProvStream}
+        onToggleApiKeyReveal={() => setReveal((value) => !value)}
+        onFetchProviderModels={() => void fetchProviderModels()}
+        onToggleRouting={() => setShowRouting((value) => !value)}
+        onProviderSupportsAgentsChange={setProvSupportsAgents}
+        onProviderModelsChange={setProvModels}
+        onCloseProviderForm={closeProviderForm}
+        onSaveProvider={() => void saveProvider()}
+        onAgentDefaultChange={setAgentDefault}
+        onSaveSettings={() => void save()}
+      />
 
-        {providers.length === 0 ? (
-          <p className="text-[13px] text-kin-muted">{tr("settings.provider.empty")}</p>
-        ) : (
-          <ul className="space-y-2">
-            {providers.map((p) => {
-              const isActive = p.id === activeProviderId || p.active;
-              return (
-                <li
-                  key={p.id}
-                  className={[
-                    "rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center gap-3",
-                    isActive
-                      ? "border-kin-blue bg-kin-blue-soft/40"
-                      : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40",
-                  ].join(" ")}
-                >
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[13px] font-medium truncate">
-                        {p.name || p.model || p.id}
-                      </span>
-                      {isActive ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-kin-blue">
-                          {tr("settings.provider.activeBadge")}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="text-[11px] text-kin-muted font-mono truncate">
-                      {p.model}
-                      {p.base_url ? ` · ${p.base_url}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 shrink-0">
-                    {!isActive ? (
-                      <button
-                        type="button"
-                        disabled={provBusy}
-                        onClick={() => void onActivateProvider(p.id)}
-                        className="kin-btn-secondary text-[12px] min-h-[36px] disabled:opacity-50"
-                      >
-                        {tr("settings.provider.use")}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      disabled={provBusy}
-                      onClick={() => openEditProvider(p)}
-                      className="kin-btn-secondary text-[12px] min-h-[36px] disabled:opacity-50"
-                    >
-                      {tr("settings.provider.edit")}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={provBusy}
-                      onClick={() => void onDeleteProvider(p.id)}
-                      className="kin-btn-secondary text-[12px] min-h-[36px] text-kin-red disabled:opacity-50"
-                    >
-                      {tr("settings.provider.delete")}
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        {editingId !== null ? (
-          <div className="rounded-lg border border-[var(--kin-hairline)] p-3 space-y-3 bg-kin-elevated">
-            <h3 className="text-[12px] font-semibold text-kin-secondary">
-              {editingId
-                ? tr("settings.provider.editHeading")
-                : tr("settings.provider.addHeading")}
-            </h3>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.provider.name")}
-              </span>
-              <input
-                type="text"
-                value={provName}
-                onChange={(e) => setProvName(e.target.value)}
-                placeholder={tr("settings.provider.namePlaceholder")}
-                className="kin-input min-h-[44px]"
-              />
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.provider.baseUrl")}
-              </span>
-              <input
-                type="url"
-                value={provBase}
-                onChange={(e) => setProvBase(e.target.value)}
-                placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
-                className="kin-input min-h-[44px] font-mono text-xs"
-                autoComplete="off"
-              />
-              <span className="text-[11px] text-kin-muted">
-                {tr("settings.provider.baseUrlHintA")}
-                <code className="text-[10px]">/v1</code>
-                {tr("settings.provider.baseUrlHintB")}
-              </span>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.provider.apiKey")}
-              </span>
-              <div className="flex gap-2">
-                <input
-                  type={reveal ? "text" : "password"}
-                  value={provKey}
-                  onChange={(e) => {
-                    setProvKey(e.target.value);
-                    setProvKeyDirty(true);
-                  }}
-                  className="kin-input min-h-[44px] font-mono text-xs flex-1"
-                  autoComplete="off"
-                />
-                <button
-                  type="button"
-                  className="kin-btn-secondary shrink-0"
-                  onClick={() => setReveal((v) => !v)}
-                >
-                  {reveal ? tr("settings.hide") : tr("settings.reveal")}
-                </button>
-              </div>
-              <span className="text-[11px] text-kin-muted">
-                {tr("settings.provider.apiKeyHint")}
-              </span>
-            </label>
-            <label className="block space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-kin-secondary">
-                  {tr("settings.provider.model")}
-                </span>
-                <button
-                  type="button"
-                  disabled={provModelLoading}
-                  onClick={() => void fetchProviderModels()}
-                  className="text-[11px] text-kin-blue hover:underline disabled:opacity-50 shrink-0"
-                >
-                  {provModelLoading
-                    ? tr("settings.provider.modelsFetching")
-                    : tr("settings.provider.modelsFetch")}
-                </button>
-              </div>
-              <input
-                type="text"
-                list="provider-model-options"
-                value={provModel}
-                onChange={(e) => setProvModel(e.target.value)}
-                placeholder="gpt-4.1-mini · grok-3 · llama3.2"
-                className="kin-input min-h-[44px] font-mono text-xs"
-              />
-              <datalist id="provider-model-options">
-                {provModelOptions.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-              {provModelError ? (
-                <span className="block text-[11px] text-kin-red">{provModelError}</span>
-              ) : null}
-              {provModelOptions.length > 0 ? (
-                <select
-                  value=""
-                  onChange={(e) => {
-                    if (e.target.value) setProvModel(e.target.value);
-                  }}
-                  className="kin-input min-h-[40px] text-xs mt-1"
-                >
-                  <option value="">
-                    {tr("settings.provider.modelsPick").replace(
-                      "{count}",
-                      String(provModelOptions.length),
-                    )}
-                  </option>
-                  {provModelOptions.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-            </label>
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={provStream}
-                onChange={(e) => setProvStream(e.target.checked)}
-                className="mt-1"
-              />
-              <span className="space-y-0.5">
-                <span className="block text-xs font-medium text-kin-secondary">
-                  {tr("settings.provider.stream")}
-                </span>
-                <span className="block text-[11px] text-kin-muted">
-                  {tr("settings.provider.streamHint")}
-                </span>
-              </span>
-            </label>
-            {/* Routing section (collapsible) */}
-            <div className="border-t border-[var(--kin-hairline)] pt-2">
-              <button
-                type="button"
-                onClick={() => setShowRouting((v) => !v)}
-                className="flex items-center gap-1 text-xs font-medium text-kin-secondary hover:text-kin-blue"
-              >
-                <span className={`transition-transform ${showRouting ? "rotate-90" : ""}`}>▸</span>
-                {tr("settings.routing.heading")}
-              </button>
-              {showRouting && (
-                <div className="mt-2 space-y-3">
-                  <label className="block space-y-1">
-                    <span className="text-xs font-medium text-kin-secondary">
-                      {tr("settings.routing.supportsAgents")}
-                    </span>
-                    <input
-                      type="text"
-                      value={provSupportsAgents}
-                      onChange={(e) => setProvSupportsAgents(e.target.value)}
-                      className="kin-input min-h-[40px] font-mono text-xs"
-                      placeholder="claude-code, kin, codex"
-                    />
-                    <span className="text-[10px] text-kin-muted">
-                      Comma-separated agent IDs that can use this provider for auto routing
-                    </span>
-                  </label>
-                  {/* Model list for routing */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-kin-secondary">
-                        {tr("settings.routing.models")}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setProvModels([...provModels, { id: "", tier: "balanced", cost_label: "unknown" }])
-                        }
-                        className="text-[11px] text-kin-blue hover:underline"
-                      >
-                        {tr("settings.routing.addModel")}
-                      </button>
-                    </div>
-                    {provModels.map((m, i) => (
-                      <div key={i} className="rounded border border-[var(--kin-hairline)] p-2 space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-kin-muted">Model {i + 1}</span>
-                          <button
-                            type="button"
-                            onClick={() => setProvModels(provModels.filter((_, j) => j !== i))}
-                            className="text-[10px] text-kin-red hover:underline"
-                          >
-                            remove
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          value={m.id}
-                          onChange={(e) => {
-                            const next = [...provModels];
-                            next[i] = { ...next[i], id: e.target.value };
-                            setProvModels(next);
-                          }}
-                          className="kin-input min-h-[32px] text-xs font-mono"
-                          placeholder="claude-sonnet-4-20250514"
-                        />
-                        <div className="flex gap-2">
-                          <select
-                            value={m.tier}
-                            onChange={(e) => {
-                              const next = [...provModels];
-                              next[i] = { ...next[i], tier: e.target.value };
-                              setProvModels(next);
-                            }}
-                            className="kin-input min-h-[32px] text-xs flex-1"
-                          >
-                            <option value="smart">smart</option>
-                            <option value="balanced">balanced</option>
-                            <option value="fast">fast</option>
-                            <option value="free">free</option>
-                          </select>
-                          <select
-                            value={m.cost_label}
-                            onChange={(e) => {
-                              const next = [...provModels];
-                              next[i] = { ...next[i], cost_label: e.target.value };
-                              setProvModels(next);
-                            }}
-                            className="kin-input min-h-[32px] text-xs flex-1"
-                          >
-                            <option value="paid">paid</option>
-                            <option value="company">company</option>
-                            <option value="free">free</option>
-                            <option value="unknown">unknown</option>
-                          </select>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={provBusy}
-                onClick={() => void saveProvider()}
-                className="kin-btn-primary disabled:opacity-50"
-              >
-                {provBusy ? tr("settings.saving") : tr("settings.provider.saveEntry")}
-              </button>
-              <button
-                type="button"
-                disabled={provBusy}
-                onClick={closeProviderForm}
-                className="kin-btn-secondary disabled:opacity-50"
-              >
-                {tr("settings.provider.cancel")}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.provider.defaultAgent")}
-          </span>
-          <select
-            value={agentDefault}
-            onChange={(e) => setAgentDefault(e.target.value)}
-            className="kin-input min-h-[44px]"
-          >
-            <option value="">{tr("settings.provider.autoOption")}</option>
-            {sortAgentCatalog(runnableAgents(agentList)).map((a) => {
-              const state = agentCatalogState(a);
-              let suffix = "";
-              if (a.default) {
-                suffix = tr("settings.provider.currentDefault").replace(/^\s*—\s*/, "");
-              } else if (state === "generic") {
-                suffix = tr("agentCatalog.generic");
-              }
-              return (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.id})
-                  {suffix ? ` — ${suffix}` : ""}
-                </option>
-              );
-            })}
-          </select>
-          <span className="text-[11px] text-kin-muted">
-            {tr("settings.provider.defaultAgentHint")}
-          </span>
-          {agentList.some((a) => !a.available) ? (
-            <Link to="/agents" className="text-[11px] text-kin-blue hover:underline pt-1">
-              {tr("agents.manageLink")}
-            </Link>
-          ) : null}
-        </label>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void save()}
-          className="kin-btn-primary disabled:opacity-50"
-        >
-          {busy ? tr("settings.saving") : tr("settings.provider.save")}
-        </button>
-      </section>
-      </SettingsTabPanel>
-
-      {/* Local Agent sessions */}
-      <SettingsTabPanel id="agents" active={activeTab === "agents"}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <div>
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-                {tr("settings.localAgents.heading")}
-              </h2>
-              <p className="mt-1 text-xs text-kin-muted leading-relaxed">
-                {tr("settings.localAgents.desc")}
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={refreshingAgentCatalog}
-              onClick={() => void refreshAgentCatalog()}
-              className="kin-btn-secondary text-[11px] min-h-[32px] disabled:opacity-50"
-            >
-              {refreshingAgentCatalog
-                ? tr("settings.localAgents.refreshing")
-                : tr("settings.localAgents.refresh")}
-            </button>
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <div className="text-xs font-medium text-kin-secondary">
-            {tr("settings.localAgents.providersHeading")}
-          </div>
-          <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
-            {agentProviders.map((agent) => {
-              const capabilities = new Map(
-                (agent.capabilities ?? []).map((capability) => [capability.capability, capability]),
-              );
-              const statusText =
-                agent.state === "available"
-                  ? tr("settings.localAgents.available")
-                  : agent.state === "unsupported"
-                    ? tr("settings.localAgents.unsupported")
-                    : agent.state === "not_detected"
-                      ? tr("settings.localAgents.notDetected")
-                      : agent.state === "degraded"
-                        ? tr("settings.localAgents.degraded")
-                        : agent.state === "permission_required"
-                          ? tr("settings.localAgents.permissionRequired")
-                          : tr("settings.localAgents.unavailable");
-              const canImport = capabilities.get("session_list")?.state === "available";
-              const capabilityBadge = (id: string, label: string) => {
-                const capability = capabilities.get(id);
-                if (!capability) return null;
-                const supported = capability.state === "available";
-                return (
-                  <span
-                    title={capability.evidence}
-                    className={[
-                      "px-1.5 py-0.5 rounded border text-[10px]",
-                      supported
-                        ? "border-kin-border text-kin-muted"
-                        : "border-kin-orange/40 text-kin-orange",
-                    ].join(" ")}
-                  >
-                    {supported
-                      ? label
-                      : `${label} · ${tr("settings.localAgents.capabilityUnsupported")}`}
-                  </span>
-                );
-              };
-              return (
-                <div key={agent.id} className="px-3 py-2.5 flex items-center gap-3">
-                  <span
-                    className={[
-                      "w-2 h-2 rounded-full flex-none",
-                      agent.state === "available"
-                        ? "bg-kin-blue"
-                        : agent.state === "unsupported"
-                          ? "bg-kin-orange"
-                          : "bg-kin-muted",
-                    ].join(" ")}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[12.5px] text-kin-text truncate">
-                      {agent.name || agent.id}
-                    </div>
-                    <div className="text-[10.5px] text-kin-muted truncate">
-                      {agent.id}
-                      {" · "}
-                      {statusText}
-                      {agent.reason ? ` · ${agent.reason}` : ""}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap justify-end gap-1">
-                    {capabilityBadge("session_list", tr("settings.localAgents.listCapability"))}
-                    {capabilityBadge("session_history_read", tr("settings.localAgents.historyCapability"))}
-                    {capabilityBadge("session_attach", tr("settings.localAgents.attachCapability"))}
-                    {capabilityBadge("resume", tr("settings.localAgents.resumeCapability"))}
-                    {capabilities.size === 0 && (
-                      <span className="text-[10.5px] text-kin-muted">
-                        {tr("settings.localAgents.noCapabilities")}
-                      </span>
-                    )}
-                    {canImport && (
-                      <button
-                        type="button"
-                        disabled={importingSessions}
-                        onClick={() => void importProviderSessions(agent.id)}
-                        className="kin-btn-secondary px-2 py-1 text-[10px] min-h-[26px] disabled:opacity-50"
-                      >
-                        {tr("settings.localAgents.importProvider")}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            {agentProviders.length === 0 && (
-              <div className="px-3 py-3 text-[11px] text-kin-muted">
-                {tr("settings.localAgents.noProviders")}
-              </div>
-            )}
-          </div>
-        </div>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.localAgents.autoImport")}
-          </span>
-          <select
-            value={autoImportMode}
-            onChange={(e) =>
-              setAutoImportMode(e.target.value as "prompt" | "enabled" | "disabled")
-            }
-            className="kin-input min-h-[44px]"
-          >
-            <option value="prompt">{tr("settings.localAgents.modePrompt")}</option>
-            <option value="enabled">{tr("settings.localAgents.modeEnabled")}</option>
-            <option value="disabled">{tr("settings.localAgents.modeDisabled")}</option>
-          </select>
-          <span className="text-[11px] text-kin-muted">
-            {tr("settings.localAgents.policy")}
-          </span>
-          <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2 text-[11px] text-kin-muted" role="status">
-            <span className="font-medium text-kin-secondary">
-              {autoImportMode === "enabled"
-                ? tr("settings.localAgents.autoSyncEnabled")
-                : tr("settings.localAgents.autoSyncDisabled")}
-            </span>
-            {" · "}
-            {lastAutoImport
-              ? tr("settings.localAgents.lastSync", {
-                  value: formatSyncTime(lastAutoImport.synced_at),
-                  imported: lastAutoImport.imported,
-                  errors: Object.keys(lastAutoImport.errors ?? {}).length,
-                })
-              : tr("settings.localAgents.neverSynced")}
-          </div>
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={importingSessions}
-            onClick={() => void importSessions()}
-            className="kin-btn-secondary disabled:opacity-50"
-          >
-            {importingSessions
-              ? tr("settings.localAgents.importing")
-              : tr("settings.localAgents.import")}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="kin-btn-primary disabled:opacity-50"
-          >
-            {busy ? tr("settings.saving") : tr("settings.localAgents.save")}
-          </button>
-        </div>
-      </section>
-      </SettingsTabPanel>
+      <LocalAgentSettingsSection
+        active={activeTab === "agents"}
+        agentProviders={agentProviders}
+        refreshingAgentCatalog={refreshingAgentCatalog}
+        importingSessions={importingSessions}
+        autoImportMode={autoImportMode}
+        lastAutoImport={lastAutoImport}
+        settingsBusy={busy}
+        onRefreshAgentCatalog={() => void refreshAgentCatalog()}
+        onImportSessions={() => void importSessions()}
+        onImportProviderSessions={(agentId) => void importProviderSessions(agentId)}
+        onAutoImportModeChange={setAutoImportMode}
+        onSaveSettings={() => void save()}
+      />
 
       {/* Appearance (design 3c / 3e) */}
       <SettingsTabPanel id="general" active={activeTab === "general"}>
