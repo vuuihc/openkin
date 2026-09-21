@@ -32,14 +32,14 @@
 **Description:** Add focused Settings primitives for sections, rows, tabs, status pills, callouts, and actions without changing current settings behavior.
 
 **Acceptance criteria:**
-- [ ] New primitives support accessible headings, descriptions, actions, loading, empty, and error states.
-- [ ] At least one low-risk Settings section uses the primitives as a migration example.
-- [ ] No provider, Relay, routing, notification, or advanced settings behavior changes.
+- [x] New primitives support accessible headings, descriptions, actions, loading, empty, and error states.
+- [x] At least one low-risk Settings section uses the primitives as a migration example.
+- [x] No provider, Relay, routing, notification, or advanced settings behavior changes.
 
 **Verification:**
-- [ ] Tests pass: `cd ui && npm test`
-- [ ] Build succeeds: `cd ui && npm run build`
-- [ ] Manual/browser check: migrated Settings section works at 390, 768, 1024, and 1440 px.
+- [x] Tests pass: `cd ui && npm test`
+- [x] Build succeeds: `cd ui && npm run build`
+- [ ] Manual/browser check: migrated Settings section works at 390, 768, 1024, and 1440 px. Unauthenticated harness run passed; authenticated visual pass still needs `KIN_UX_BASE_URL` with a local token.
 
 **Dependencies:** Task 1
 
@@ -53,8 +53,8 @@
 
 ## Checkpoint: Foundation
 
-- [ ] `cd ui && npm test` passes.
-- [ ] `cd ui && npm run build` passes.
+- [x] `cd ui && npm test` passes.
+- [x] `cd ui && npm run build` passes.
 - [ ] Changed routes have no obvious overlap, clipping, blank panels, or text overflow.
 - [ ] Human review before broad Settings extraction.
 
@@ -63,14 +63,14 @@
 **Description:** Convert Settings from one long scroll into top tabs that preserve all existing controls while separating Providers, Local Agents, Routing, Remote, Notifications, and Advanced.
 
 **Acceptance criteria:**
-- [ ] Each category is reachable via keyboard-operable tabs.
-- [ ] Existing setting values, save actions, and error states still work.
-- [ ] Mobile and narrow desktop use a non-clipping horizontal or wrapped tab layout.
+- [x] Each category is reachable via keyboard-operable tabs.
+- [x] Existing setting values, save actions, and error states still work.
+- [x] Mobile and narrow desktop use a non-clipping horizontal or wrapped tab layout.
 
 **Verification:**
-- [ ] Tests pass: `cd ui && npm test`
-- [ ] Build succeeds: `cd ui && npm run build`
-- [ ] Manual/browser check: navigate all tabs at 390 and 1440 px.
+- [x] Tests pass: `cd ui && npm test`
+- [x] Build succeeds: `cd ui && npm run build`
+- [ ] Manual/browser check: navigate all tabs at 390 and 1440 px. Requires authenticated local browser URL.
 
 **Dependencies:** Task 2
 
@@ -112,14 +112,14 @@
 **Description:** Replace the dense Relay settings block with a prerequisite-aware flow that exposes one primary next action and only recommends custom domains after a failed `workers.dev` probe or user preference.
 
 **Acceptance criteria:**
-- [ ] Each Relay prerequisite state has exactly one primary action.
-- [ ] Repeat deploy/update behavior remains idempotent.
-- [ ] The UI never implies Kin-hosted cloud or end-to-end encryption for BYO Relay.
+- [x] Each Relay prerequisite state has exactly one primary action.
+- [x] Repeat deploy/update behavior remains idempotent.
+- [x] The UI never implies Kin-hosted cloud or end-to-end encryption for BYO Relay.
 
 **Verification:**
-- [ ] Tests pass: `cd ui && npm test`
-- [ ] Backend checks pass if touched: `go test ./internal/remote/...`
-- [ ] Build succeeds: `cd ui && npm run build`
+- [x] Tests pass: `cd ui && npm test`
+- [x] Backend checks pass if touched: not applicable; backend was not touched.
+- [x] Build succeeds: `cd ui && npm run build`
 - [ ] Manual/browser check: disconnected, connected, deployed, and bind-domain states render clearly.
 
 **Dependencies:** Task 3
@@ -189,14 +189,14 @@
 **Description:** Commit a lightweight repeatable harness for key route screenshots and console checks so later UX slices can be verified consistently.
 
 **Acceptance criteria:**
-- [ ] Harness covers Settings and New Chat at 390, 768, 1024, and 1440 px.
-- [ ] Secrets, room keys, tokens, and account identifiers are never committed in screenshots or logs.
-- [ ] Documentation explains when to run the harness and how to inspect failures.
+- [x] Harness covers Settings and New Chat at 390, 768, 1024, and 1440 px.
+- [x] Secrets, room keys, tokens, and account identifiers are never committed in screenshots or logs.
+- [x] Documentation explains when to run the harness and how to inspect failures.
 
 **Verification:**
-- [ ] Harness command runs locally against `127.0.0.1:7777`.
-- [ ] `cd ui && npm run build` passes.
-- [ ] Generated screenshots/logs are ignored unless explicitly approved as fixtures.
+- [x] Harness command runs locally against `127.0.0.1:7777`.
+- [x] `cd ui && npm run build` passes.
+- [x] Generated screenshots/logs are ignored unless explicitly approved as fixtures.
 
 **Dependencies:** Task 1
 

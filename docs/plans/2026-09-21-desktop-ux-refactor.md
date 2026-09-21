@@ -351,15 +351,17 @@ For each implementation slice:
 - Verify console has no app errors or warnings after the changed route loads.
 - Manually verify keyboard tab order for menus, Settings tabs, composer controls, approvals, and dialogs.
 
-Current runtime screenshot command used for this audit:
+Committed browser verification harness:
 
 ```bash
-Chrome --headless --user-data-dir=/tmp/kin-ux-audit-chrome \
-  --window-size=1440,900 --screenshot=/tmp/kin-ux-audit-shots/settings.png \
-  http://127.0.0.1:7777/settings?token=<redacted>
+KIN_UX_BASE_URL='http://127.0.0.1:7777?token=<redacted>' \
+  ./scripts/ux-browser-check.mjs
 ```
 
-Replace this with a committed script or Playwright-style harness during `verification-harness`.
+The script captures Settings and New Chat at 390, 768, 1024, and 1440 px,
+records console warning/error events, and writes ignored local output under
+`.tmp/ux-browser-check/`. Do not commit generated screenshots or reports unless
+they have been explicitly reviewed and redacted.
 
 ## Boundaries
 
