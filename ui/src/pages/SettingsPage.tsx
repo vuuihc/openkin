@@ -31,7 +31,16 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { relayPrimaryAction } from "../components/settings/RelayGuidance";
 import { RoutingDefaultsSection, RoutingProfilesSection } from "../components/settings/RoutingSettings";
+import {
+  SettingsLayout,
+  SettingsSection,
+  SettingsTabPanel,
+  settingsTabFromSearch,
+  type SettingsTabId,
+  type SettingsTabItem,
+} from "../components/settings/SettingsPrimitives";
 import { useSlowHint } from "../hooks/useSlowHint";
 import {
   applyTheme,
@@ -148,6 +157,11 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => getThemeMode());
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(() =>
+    typeof window === "undefined" ? "general" : settingsTabFromSearch(window.location.search),
+  );
+  const [workerDevUnreachable, setWorkerDevUnreachable] = useState(false);
+  const [customDomainTouched, setCustomDomainTouched] = useState(false);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint(!settings && !error);
@@ -695,6 +709,7 @@ export default function SettingsPage() {
       });
       setCloudflareHostname(s["cloudflare.relay_custom_domain"] || nextHostname);
       setCloudflareZoneID(s["cloudflare.relay_zone_id"] || zoneID);
+      setWorkerDevUnreachable(false);
       pushToast(tr("settings.relay.cloudflareDomainBound"), "info");
       adoptRelaySettings(s);
     } catch (e) {
@@ -716,12 +731,14 @@ export default function SettingsPage() {
       applyRelaySettings(s);
       const workerURL = s["cloudflare.relay_worker_url"] || s["relay.url"];
       if (workerURL && !(await probePublicURL(workerURL))) {
+        setWorkerDevUnreachable(true);
         pushToast(tr("settings.relay.workerDevUnreachable"), "error");
         const zones = cloudflareZones.length ? cloudflareZones : await refreshCloudflareZones(cloudflareAccountID);
         if (zones.length === 1) {
           await bindRelayCustomDomain(zones[0].id, defaultRelayHostname(zones[0].name));
         }
       } else {
+        setWorkerDevUnreachable(false);
         adoptRelaySettings(s);
       }
     } catch (e) {
@@ -810,18 +827,69 @@ export default function SettingsPage() {
       : cloudflareZones;
   const cloudflareNeedsAccountRefresh =
     !!settings["cloudflare.authenticated"] && !cloudflareAccountID.trim() && accountOptions.length === 0;
+  const relayPrimary = relayPrimaryAction({
+    cloudflareAuthenticated: !!settings["cloudflare.authenticated"],
+    needsAccountRefresh: cloudflareNeedsAccountRefresh,
+    hasAccount: !!cloudflareAccountID.trim(),
+    hasWorker: hasCloudflareWorker,
+    hasZone: !!cloudflareZoneID.trim(),
+    hasCustomDomain: hasCloudflareCustomDomain,
+    customDomainRecommended: workerDevUnreachable || customDomainTouched,
+  });
+  const settingsTabs: SettingsTabItem[] = [
+    {
+      id: "general",
+      label: tr("settings.tabs.general"),
+      description: tr("settings.tabs.generalDesc"),
+    },
+    {
+      id: "agents",
+      label: tr("settings.tabs.agents"),
+      description: tr("settings.tabs.agentsDesc"),
+    },
+    {
+      id: "providers",
+      label: tr("settings.tabs.providers"),
+      description: tr("settings.tabs.providersDesc"),
+    },
+    {
+      id: "routing",
+      label: tr("settings.tabs.routing"),
+      description: tr("settings.tabs.routingDesc"),
+    },
+    {
+      id: "remote",
+      label: tr("settings.tabs.remote"),
+      description: tr("settings.tabs.remoteDesc"),
+    },
+    {
+      id: "notifications",
+      label: tr("settings.tabs.notifications"),
+      description: tr("settings.tabs.notificationsDesc"),
+    },
+    {
+      id: "advanced",
+      label: tr("settings.tabs.advanced"),
+      description: tr("settings.tabs.advancedDesc"),
+    },
+  ];
 
   return (
-    <div className="flex-1 overflow-y-auto kin-scroll">
-      <div className="max-w-[720px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-      <div>
-        <h1 className="text-[22px] font-semibold tracking-tight">{tr("settings.title")}</h1>
-        <p className="mt-1 text-sm text-kin-secondary">
-          {tr("settings.subtitle")}
+    <SettingsLayout
+      title={tr("settings.title")}
+      subtitle={tr("settings.subtitle")}
+      tabs={settingsTabs}
+      activeTab={activeTab}
+      onTabChange={setActiveTab}
+    >
+      {error ? (
+        <p className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-xs text-kin-red" role="alert">
+          {error}
         </p>
-      </div>
+      ) : null}
 
       {/* Cognition providers — powers agent "kin" */}
+      <SettingsTabPanel id="providers" active={activeTab === "providers"}>
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1 min-w-0">
@@ -1211,8 +1279,10 @@ export default function SettingsPage() {
           {busy ? tr("settings.saving") : tr("settings.provider.save")}
         </button>
       </section>
+      </SettingsTabPanel>
 
       {/* Local Agent sessions */}
+      <SettingsTabPanel id="agents" active={activeTab === "agents"}>
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div>
           <div className="flex items-start gap-3">
@@ -1387,12 +1457,11 @@ export default function SettingsPage() {
           </button>
         </div>
       </section>
+      </SettingsTabPanel>
 
       {/* Appearance (design 3c / 3e) */}
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-3">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-          {tr("settings.appearance.heading")}
-        </h2>
+      <SettingsTabPanel id="general" active={activeTab === "general"}>
+      <SettingsSection title={tr("settings.appearance.heading")}>
         <div className="flex flex-wrap gap-2">
           {(["system", "light", "dark"] as const).map((value) => (
             <button
@@ -1414,9 +1483,11 @@ export default function SettingsPage() {
             </button>
           ))}
         </div>
-      </section>
+      </SettingsSection>
+      </SettingsTabPanel>
 
       {/* Remote Relay */}
+      <SettingsTabPanel id="remote" active={activeTab === "remote"}>
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
@@ -1433,7 +1504,7 @@ export default function SettingsPage() {
               relayState === "connected"
                 ? "bg-kin-green/15 text-kin-green"
                 : relayState === "connecting"
-                  ? "bg-kin-yellow/15 text-kin-yellow"
+                  ? "bg-kin-warning/15 text-kin-warning"
                 : relayState === "disabled"
                     ? "bg-[var(--kin-fill)] text-kin-muted"
                     : "bg-kin-red/15 text-kin-red",
@@ -1460,7 +1531,10 @@ export default function SettingsPage() {
               type="button"
               disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
               onClick={() => void connectCloudflare()}
-              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+              className={[
+                relayPrimary === "connect-cloudflare" ? "kin-btn-primary" : "kin-btn-secondary",
+                "min-h-[40px] disabled:opacity-50",
+              ].join(" ")}
             >
               {settings["cloudflare.authenticated"]
                 ? tr("settings.relay.reconnectCloudflare")
@@ -1484,6 +1558,7 @@ export default function SettingsPage() {
                   setCloudflareAccountID(next);
                   setCloudflareZoneID("");
                   setCloudflareHostname("");
+                  setCustomDomainTouched(false);
                   void refreshCloudflareZones(next);
                 }}
                 disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
@@ -1551,7 +1626,10 @@ export default function SettingsPage() {
                 <input
                   type="text"
                   value={cloudflareHostname}
-                  onChange={(e) => setCloudflareHostname(e.target.value)}
+                  onChange={(e) => {
+                    setCloudflareHostname(e.target.value);
+                    setCustomDomainTouched(true);
+                  }}
                   disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
                   placeholder={tr("settings.relay.customDomainPlaceholder")}
                   className="kin-input min-h-[44px] font-mono text-xs"
@@ -1566,7 +1644,7 @@ export default function SettingsPage() {
               disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain || !settings["cloudflare.authenticated"]}
               onClick={() => void refreshCloudflareAccounts()}
               className={[
-                cloudflareNeedsAccountRefresh ? "kin-btn-primary" : "kin-btn-secondary",
+                relayPrimary === "refresh-accounts" ? "kin-btn-primary" : "kin-btn-secondary",
                 "min-h-[40px] disabled:opacity-50",
               ].join(" ")}
             >
@@ -1583,7 +1661,7 @@ export default function SettingsPage() {
               }
               onClick={() => void deployRelayWorker()}
               className={[
-                hasCloudflareWorker ? "kin-btn-secondary" : "kin-btn-primary",
+                relayPrimary === "deploy-worker" ? "kin-btn-primary" : "kin-btn-secondary",
                 "min-h-[40px] disabled:opacity-50",
               ].join(" ")}
             >
@@ -1606,7 +1684,7 @@ export default function SettingsPage() {
                 }
                 onClick={() => void bindRelayCustomDomain()}
                 className={[
-                  hasCloudflareCustomDomain ? "kin-btn-secondary" : "kin-btn-primary",
+                  relayPrimary === "bind-domain" ? "kin-btn-primary" : "kin-btn-secondary",
                   "min-h-[40px] disabled:opacity-50",
                 ].join(" ")}
               >
@@ -1770,8 +1848,10 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+      </SettingsTabPanel>
 
       {/* Notifications */}
+      <SettingsTabPanel id="notifications" active={activeTab === "notifications"}>
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
           {tr("settings.notify.heading")}
@@ -1861,8 +1941,10 @@ export default function SettingsPage() {
           {error && <span className="text-xs text-kin-red">{error}</span>}
         </div>
       </section>
+      </SettingsTabPanel>
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}
+      <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
@@ -1946,8 +2028,38 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* Agent usage limits */}
+      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          {tr("settings.agentLimits.heading")}
+        </h2>
+        <p className="text-xs text-kin-muted">
+          {tr("settings.agentLimits.desc")}
+          <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
+        </p>
+        <textarea
+          value={agentLimitsText}
+          onChange={(e) => setAgentLimitsText(e.target.value)}
+          rows={6}
+          spellCheck={false}
+          className="kin-input font-mono text-xs resize-y min-h-[100px]"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="kin-btn-primary disabled:opacity-50"
+          >
+            {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
+          </button>
+          {error && <span className="text-xs text-kin-red">{error}</span>}
+        </div>
+      </section>
+      </SettingsTabPanel>
 
       {/* Rate-limit policy */}
+      <SettingsTabPanel id="routing" active={activeTab === "routing"}>
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
           {tr("settings.limitPolicy.heading")}
@@ -2000,36 +2112,7 @@ export default function SettingsPage() {
 
       {/* Auto Model Routing — team profiles */}
       <RoutingProfilesSection />
-
-      {/* Agent usage limits */}
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-          {tr("settings.agentLimits.heading")}
-        </h2>
-        <p className="text-xs text-kin-muted">
-          {tr("settings.agentLimits.desc")}
-          <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
-        </p>
-        <textarea
-          value={agentLimitsText}
-          onChange={(e) => setAgentLimitsText(e.target.value)}
-          rows={6}
-          spellCheck={false}
-          className="kin-input font-mono text-xs resize-y min-h-[100px]"
-        />
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="kin-btn-primary disabled:opacity-50"
-          >
-            {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
-          </button>
-          {error && <span className="text-xs text-kin-red">{error}</span>}
-        </div>
-      </section>
-      </div>
-    </div>
+      </SettingsTabPanel>
+    </SettingsLayout>
   );
 }
