@@ -20,6 +20,13 @@ const routes = [
 ];
 const widths = [390, 768, 1024, 1440];
 
+function redactSensitive(value) {
+  return String(value).replace(
+    /([?&])(token|room|key)=([^&#\s]+)/gi,
+    (_match, prefix, key) => `${prefix}${key}=<redacted>`,
+  );
+}
+
 function pageURL(path) {
   const url = new URL(baseURL);
   url.pathname = path;
@@ -36,7 +43,11 @@ function requestJSON(url, options = {}) {
       });
       res.on("end", () => {
         if ((res.statusCode ?? 0) >= 400) {
-          reject(new Error(`${url} returned ${res.statusCode}: ${body}`));
+          reject(
+            new Error(
+              `${redactSensitive(url)} returned ${res.statusCode}: ${redactSensitive(body)}`,
+            ),
+          );
           return;
         }
         try {
@@ -169,7 +180,11 @@ class DevToolsSocket {
         this.consoleIssues.push({
           source: "console",
           level: type,
-          text: (message.params.args ?? []).map((arg) => arg.description ?? arg.value ?? "").join(" "),
+          text: redactSensitive(
+            (message.params.args ?? [])
+              .map((arg) => arg.description ?? arg.value ?? "")
+              .join(" "),
+          ),
         });
       }
     }
@@ -179,7 +194,7 @@ class DevToolsSocket {
         this.consoleIssues.push({
           source: entry.source || "log",
           level: entry.level,
-          text: entry.text || "",
+          text: redactSensitive(entry.text || ""),
         });
       }
     }
@@ -297,7 +312,7 @@ async function main() {
       }
     }
     const report = {
-      baseURL: pageURL("/").replace(/([?&])(token|room|key)=[^&]+/gi, "$1$2=<redacted>"),
+      baseURL: redactSensitive(pageURL("/")),
       generatedAt: new Date().toISOString(),
       results,
     };
