@@ -140,13 +140,13 @@
 
 **Acceptance criteria:**
 - [x] External/unlinked/read-only sessions are visually distinct without relying on tiny secondary text alone.
-- [ ] Project/session grouping remains keyboard-operable and does not lose archive/pin/sort behavior.
-- [ ] Top-level navigation prepares for future split of daily Agents from usage/operations surfaces.
+- [x] Project/session grouping remains keyboard-operable and does not lose archive/pin/sort behavior.
+- [x] Top-level navigation prepares for future split of daily Agents from usage/operations surfaces.
 
 **Verification:**
 - [x] Tests pass: `cd ui && npm test`
 - [x] Build succeeds: `cd ui && npm run build`
-- [ ] Manual/browser check: sidebar states render at 390, 768, and 1440 px.
+- [ ] Manual/browser check: sidebar states render at 390, 768, and 1440 px. Unauthenticated harness passed for Settings/New Chat, but authenticated sidebar state screenshots still need a local browser URL with token.
 
 **Dependencies:** Task 2
 

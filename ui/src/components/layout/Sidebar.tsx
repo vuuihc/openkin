@@ -31,6 +31,10 @@ import {
   type ProjectSortMode,
 } from "../../lib/projectSidebar";
 import {
+  sidebarNavSections,
+  type SidebarNavItemId,
+} from "../../lib/sidebarNavigation";
+import {
   getViewedSessionIds,
   isSessionViewed,
   markSessionViewed,
@@ -322,80 +326,85 @@ export default function Sidebar({
           K
         </div>
         <span className="text-[14px] font-semibold tracking-tight">{tr("app.name")}</span>
-        <div
-          role="group"
-          aria-label={tr("nav.groupSessions")}
-          className="ml-auto flex items-center rounded-md border border-kin-border overflow-hidden"
-        >
-          {(["project", "agent"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={groupMode === mode}
-              title={tr(`nav.groupBy${mode === "project" ? "Project" : "Agent"}`)}
-              onClick={() => {
-                setGroupMode(mode);
-                try {
-                  localStorage.setItem("kin_session_group_mode", mode);
-                } catch {
-                  // ignore unavailable local storage
-                }
-              }}
-              className={[
-                "px-1.5 h-6 text-[10px] transition-colors",
-                groupMode === mode
-                  ? "bg-kin-blue-soft text-kin-blue"
-                  : "text-kin-muted hover:bg-[var(--kin-fill-strong)]",
-              ].join(" ")}
-            >
-              {mode === "project" ? tr("nav.groupProjectShort") : tr("nav.groupAgentShort")}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto relative" ref={sortMenuRef}>
-          <button
-            type="button"
-            title={tr("nav.sortProjects")}
-            aria-label={tr("nav.sortProjects")}
-            aria-expanded={sortMenuOpen}
-            aria-haspopup="menu"
-            onClick={() => setSortMenuOpen((o) => !o)}
-            className="w-7 h-7 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+        <div className="ml-auto flex items-center gap-1">
+          <div
+            role="group"
+            aria-label={tr("nav.groupSessions")}
+            className="flex items-center rounded-md border border-kin-border overflow-hidden"
           >
-            <IconSort size={15} />
-          </button>
-          {sortMenuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
+            {(["project", "agent"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={groupMode === mode}
+                title={tr(`nav.groupBy${mode === "project" ? "Project" : "Agent"}`)}
+                onClick={() => {
+                  setGroupMode(mode);
+                  try {
+                    localStorage.setItem("kin_session_group_mode", mode);
+                  } catch {
+                    // ignore unavailable local storage
+                  }
+                }}
+                className={[
+                  "px-1.5 h-6 text-[10px] transition-colors",
+                  groupMode === mode
+                    ? "bg-kin-blue-soft text-kin-blue"
+                    : "text-kin-muted hover:bg-[var(--kin-fill-strong)]",
+                ].join(" ")}
+              >
+                {mode === "project" ? tr("nav.groupProjectShort") : tr("nav.groupAgentShort")}
+              </button>
+            ))}
+          </div>
+          <div className="relative" ref={sortMenuRef}>
+            <button
+              type="button"
+              title={tr("nav.sortProjects")}
+              aria-label={tr("nav.sortProjects")}
+              aria-expanded={sortMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setSortMenuOpen((o) => !o)}
+              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
             >
-              {(
-                [
-                  ["active", "nav.sortByActive"],
-                  ["created", "nav.sortByCreated"],
-                ] as const
-              ).map(([mode, key]) => {
-                const active = sortMode === mode;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={active}
-                    onClick={() => pickSort(mode)}
-                    className={[
-                      "w-full text-left px-3 py-1.5 text-[12.5px] transition-colors",
-                      active
-                        ? "text-kin-text bg-[var(--kin-fill-strong)]"
-                        : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
-                    ].join(" ")}
-                  >
-                    {tr(key)}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+              <IconSort size={15} />
+            </button>
+            {sortMenuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setSortMenuOpen(false);
+                }}
+              >
+                {(
+                  [
+                    ["active", "nav.sortByActive"],
+                    ["created", "nav.sortByCreated"],
+                  ] as const
+                ).map(([mode, key]) => {
+                  const active = sortMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={active}
+                      onClick={() => pickSort(mode)}
+                      className={[
+                        "w-full text-left px-3 py-1.5 text-[12.5px] transition-colors",
+                        active
+                          ? "text-kin-text bg-[var(--kin-fill-strong)]"
+                          : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
+                      ].join(" ")}
+                    >
+                      {tr(key)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -673,55 +682,37 @@ export default function Sidebar({
         </div>
       </nav>
 
-      <div className="border-t border-kin-border px-2 py-2 space-y-0.5">        <NavLink
-          to="/artifacts"
-          onClick={onCloseMobile}
-          className={({ isActive }) =>
-            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
-          }
-        >
-          <IconArtifacts size={15} />
-          {tr("nav.artifacts")}
-        </NavLink>                <NavLink
-          to="/routines"
-          onClick={onCloseMobile}
-          className={({ isActive }) =>
-            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
-          }
-        >
-          <IconRoutines size={15} />
-          <span className="flex-1">{tr("nav.routines")}</span>
-          {routineUnreadCount > 0 && (
-            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-[10px] font-semibold text-white flex items-center justify-center tabular-nums">
-              {routineUnreadCount > 99 ? "99+" : routineUnreadCount}
-            </span>
-          )}
-        </NavLink>
-<NavLink
-          to="/agents"
-          onClick={onCloseMobile}
-          className={({ isActive }) =>
-            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
-          }
-        >
-          <IconAgents size={15} />
-          <span className="flex-1">{tr("nav.agents")}</span>
-          {weekCost != null && weekCost > 0 && (
-            <span className="text-[11px] text-kin-muted tabular-nums">
-              {formatCost(weekCost)}
-            </span>
-          )}
-        </NavLink>
-        <NavLink
-          to="/settings"
-          onClick={onCloseMobile}
-          className={({ isActive }) =>
-            [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
-          }
-        >
-          <IconSettings size={15} />
-          {tr("nav.settings")}
-        </NavLink>
+      <div className="border-t border-kin-border px-2 py-2 space-y-2">
+        {sidebarNavSections().map((section) => (
+          <div key={section.id} className="space-y-0.5">
+            <div className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-kin-muted">
+              {tr(section.labelKey)}
+            </div>
+            {section.items.map((item) => (
+              <NavLink
+                key={item.id}
+                to={item.path}
+                onClick={onCloseMobile}
+                className={({ isActive }) =>
+                  [footLink, isActive ? "bg-[var(--kin-fill-strong)] text-kin-text" : ""].join(" ")
+                }
+              >
+                {sidebarNavIcon(item.id)}
+                <span className="flex-1">{tr(item.labelKey)}</span>
+                {item.id === "routines" && routineUnreadCount > 0 && (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-[10px] font-semibold text-white flex items-center justify-center tabular-nums">
+                    {routineUnreadCount > 99 ? "99+" : routineUnreadCount}
+                  </span>
+                )}
+                {item.id === "agents" && weekCost != null && weekCost > 0 && (
+                  <span className="text-[11px] text-kin-muted tabular-nums">
+                    {formatCost(weekCost)}
+                  </span>
+                )}
+              </NavLink>
+            ))}
+          </div>
+        ))}
       </div>
     </aside>
   );
@@ -745,6 +736,19 @@ export default function Sidebar({
       )}
     </>
   );
+}
+
+function sidebarNavIcon(id: SidebarNavItemId): ReactNode {
+  switch (id) {
+    case "artifacts":
+      return <IconArtifacts size={15} />;
+    case "routines":
+      return <IconRoutines size={15} />;
+    case "agents":
+      return <IconAgents size={15} />;
+    case "settings":
+      return <IconSettings size={15} />;
+  }
 }
 
 function ProjectBlock({
@@ -836,7 +840,7 @@ function ProjectBlock({
             e.stopPropagation();
             void openCover();
           }}
-          className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 transition-opacity"
+          className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100 transition-opacity"
         >
           <IconFile size={12} />
         </button>
@@ -853,7 +857,7 @@ function ProjectBlock({
               "flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center transition-opacity",
               g.pinned
                 ? "text-kin-blue opacity-100"
-                : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100",
+                : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
             ].join(" ")}
           >
             <IconPin size={12} strokeWidth={g.pinned ? 2.2 : 1.7} />
@@ -871,7 +875,7 @@ function ProjectBlock({
             "flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-opacity",
             mode === "archived"
               ? "opacity-100"
-              : "opacity-0 group-hover/proj:opacity-100",
+              : "opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
           ].join(" ")}
         >
           <IconArchive size={12} />
