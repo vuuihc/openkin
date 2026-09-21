@@ -1,6 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "../api/client";
-import { groupByProject, taskActivityAt } from "./projectSidebar";
+import {
+  archiveProject,
+  getArchivedProjects,
+  getPinnedProjects,
+  getProjectSortMode,
+  groupByProject,
+  setProjectSortMode,
+  taskActivityAt,
+  toggleProjectPinned,
+  unarchiveProject,
+} from "./projectSidebar";
+
+const store = new Map<string, string>();
+
+vi.stubGlobal("localStorage", {
+  getItem: (key: string) => store.get(key) ?? null,
+  setItem: (key: string, value: string) => {
+    store.set(key, value);
+  },
+  removeItem: (key: string) => {
+    store.delete(key);
+  },
+  clear: () => {
+    store.clear();
+  },
+});
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "cwd" | "created_at">): Task {
   return {
@@ -14,6 +39,10 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "cwd" | "created_at">):
     ...partial,
   };
 }
+
+beforeEach(() => {
+  store.clear();
+});
 
 describe("taskActivityAt", () => {
   it("uses the latest of created/started/finished", () => {
@@ -220,5 +249,35 @@ describe("groupByProject", () => {
     });
     expect(groups[0].hasActiveTask).toBe(true);
     expect(groups[1].hasActiveTask).toBe(false);
+  });
+});
+
+describe("project sidebar persisted preferences", () => {
+  it("persists the selected project sort mode", () => {
+    expect(getProjectSortMode()).toBe("active");
+
+    setProjectSortMode("created");
+
+    expect(getProjectSortMode()).toBe("created");
+  });
+
+  it("clears a project pin when archiving the project", () => {
+    expect(toggleProjectPinned("/alpha")).toBe(true);
+
+    archiveProject("/alpha");
+
+    expect(getArchivedProjects()).toEqual(["/alpha"]);
+    expect(getPinnedProjects()).toEqual([]);
+  });
+
+  it("restores archived projects to the main grouped list without losing tasks", () => {
+    const archivedTask = task({ id: "archived", cwd: "/alpha", created_at: 100 });
+    archiveProject("/alpha");
+
+    expect(groupByProject([archivedTask])).toEqual([]);
+
+    unarchiveProject("/alpha");
+
+    expect(groupByProject([archivedTask]).map((group) => group.cwd)).toEqual(["/alpha"]);
   });
 });
