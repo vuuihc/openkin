@@ -2,12 +2,16 @@ package routing
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/secret"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -198,6 +202,83 @@ func TestCatalogDoesNotClassifyPersistedRoutingCorruptionAsClientError(t *testin
 	if errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("storage/configuration corruption misclassified as client input: %v", err)
 	}
+}
+
+func TestCatalogClearProviderAPIKeyDeletesStoredSecret(t *testing.T) {
+	st := openCatalogTestStore(t)
+	ctx := context.Background()
+	secrets, err := secret.NewFileStore(filepath.Join(t.TempDir(), "secrets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.SetSecretStore(secrets)
+	t.Cleanup(func() { provider.SetSecretStore(nil) })
+
+	catalog := NewCatalog(st, func(string) bool { return true })
+	entry := provider.Entry{
+		ID:      "openai",
+		Name:    "OpenAI",
+		Kind:    "openai-compatible",
+		BaseURL: "https://example.test/v1",
+		Model:   "m",
+		APIKey:  "sk-secret",
+	}
+	if _, err := catalog.UpsertProvider(ctx, entry, true, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := secrets.Get(providerSecretReference(entry.ID)); err != nil || got != "sk-secret" {
+		t.Fatalf("secret before clear = %q err=%v", got, err)
+	}
+
+	entry.APIKey = ""
+	if _, err := catalog.UpsertProvider(ctx, entry, true, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := secrets.Get(providerSecretReference(entry.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("secret after clear err=%v, want not exist", err)
+	}
+}
+
+func TestCatalogLegacySettingsClearAPIKeyDeletesStoredSecret(t *testing.T) {
+	st := openCatalogTestStore(t)
+	ctx := context.Background()
+	secrets, err := secret.NewFileStore(filepath.Join(t.TempDir(), "secrets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.SetSecretStore(secrets)
+	t.Cleanup(func() { provider.SetSecretStore(nil) })
+
+	catalog := NewCatalog(st, func(string) bool { return true })
+	values := map[string]string{
+		provider.KeyKind:    "openai-compatible",
+		provider.KeyBaseURL: "https://example.test/v1",
+		provider.KeyModel:   "m",
+		provider.KeyAPIKey:  "sk-legacy",
+	}
+	if err := catalog.SaveSettingsWithLegacyProvider(ctx, values, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := secrets.Get(providerSecretReference("default")); err != nil || got != "sk-legacy" {
+		t.Fatalf("secret before clear = %q err=%v", got, err)
+	}
+
+	clearValues := map[string]string{
+		provider.KeyKind:    "openai-compatible",
+		provider.KeyBaseURL: "https://example.test/v1",
+		provider.KeyModel:   "m",
+	}
+	if err := catalog.SaveSettingsWithLegacyProvider(ctx, clearValues, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := secrets.Get(providerSecretReference("default")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("secret after clear err=%v, want not exist", err)
+	}
+}
+
+func providerSecretReference(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return "secret-provider-" + hex.EncodeToString(sum[:16])
 }
 
 func TestCatalogSetActiveProvider(t *testing.T) {
