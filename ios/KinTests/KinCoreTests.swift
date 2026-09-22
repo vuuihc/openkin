@@ -169,6 +169,182 @@ final class KinCoreTests: XCTestCase {
         XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: nil))
     }
 
+    @MainActor
+    func testNewTaskViewModelRequiresCurrentProfileForSubmit() {
+        let initialProfileID = UUID()
+        let nextProfileID = UUID()
+        let client = APIClient(baseURL: URL(string: "http://127.0.0.1:7777")!, token: "token")
+        let model = NewTaskViewModel()
+        model.configure(apiClient: client, profileID: initialProfileID)
+        model.prompt = "Ship the iOS task composer"
+
+        XCTAssertTrue(model.canSubmit(activeProfileID: initialProfileID))
+        XCTAssertFalse(model.canSubmit(activeProfileID: nextProfileID))
+        XCTAssertFalse(model.canSubmit(activeProfileID: nil))
+    }
+
+    @MainActor
+    func testNewTaskViewModelRequiresClientForSubmit() {
+        let profileID = UUID()
+        let model = NewTaskViewModel()
+        model.configure(apiClient: nil, profileID: profileID)
+        model.prompt = "Ship the iOS task composer"
+
+        XCTAssertFalse(model.canSubmit(activeProfileID: profileID))
+    }
+
+    @MainActor
+    func testNewTaskViewModelClearsRemoteOptionsOnProfileSwitch() {
+        let firstProfileID = UUID()
+        let secondProfileID = UUID()
+        let model = NewTaskViewModel()
+        model.configure(apiClient: nil, profileID: firstProfileID)
+        model.agents = [
+            Agent(
+                id: "claude-code",
+                name: "Claude Code",
+                kind: "cli",
+                available: true,
+                isDefault: true,
+                capabilities: ["run"],
+                model: "opus",
+                models: ["opus"]
+            )
+        ]
+        model.recentCwds = ["/Users/me/project"]
+        model.selectedAgent = model.agents.first
+        model.selectedModel = "opus"
+        model.selectedCWD = "/Users/me/project"
+        model.customCWD = "/Users/me/manual"
+        model.prompt = "Keep my draft"
+
+        model.configure(apiClient: nil, profileID: secondProfileID)
+
+        XCTAssertTrue(model.agents.isEmpty)
+        XCTAssertTrue(model.recentCwds.isEmpty)
+        XCTAssertNil(model.selectedAgent)
+        XCTAssertNil(model.selectedModel)
+        XCTAssertNil(model.selectedCWD)
+        XCTAssertEqual(model.customCWD, "/Users/me/manual")
+        XCTAssertEqual(model.prompt, "Keep my draft")
+    }
+
+    @MainActor
+    func testNewTaskViewModelDropsSubmittedTaskIfProfileChangesDuringRequest() async {
+        let firstProfileID = UUID()
+        let secondProfileID = UUID()
+        let model = NewTaskViewModel()
+        model.configure(
+            loadConfiguration: nil,
+            createTask: { draft in
+                try await Task.sleep(nanoseconds: 50_000_000)
+                return KinTask(
+                    id: "created",
+                    status: .queued,
+                    agent: draft.agent,
+                    model: draft.model,
+                    cwd: draft.cwd,
+                    prompt: draft.prompt,
+                    permissionMode: draft.permissionMode,
+                    workspaceMode: draft.workspaceMode,
+                    approvalIds: nil,
+                    questionIds: nil,
+                    createdAt: 1,
+                    startedAt: nil,
+                    finishedAt: nil,
+                    elapsedSeconds: nil,
+                    costUSD: nil,
+                    sessionRef: nil,
+                    error: nil
+                )
+            },
+            profileID: firstProfileID
+        )
+        model.agents = [
+            Agent(
+                id: "kin",
+                name: "Kin",
+                kind: "builtin",
+                available: true,
+                isDefault: true,
+                capabilities: ["run"],
+                model: nil,
+                models: nil
+            )
+        ]
+        model.selectedAgent = model.agents.first
+        model.selectedCWD = "/tmp"
+        model.prompt = "Run checks"
+
+        let submission = Task { @MainActor in
+            await model.submit(activeProfileID: firstProfileID)
+        }
+        while !model.isSubmitting {
+            await Task.yield()
+        }
+
+        model.configure(apiClient: nil, profileID: secondProfileID)
+        let result = await submission.value
+
+        XCTAssertNil(result)
+        XCTAssertNil(model.createdTask)
+    }
+
+    @MainActor
+    func testNewTaskViewModelBuildsTrimmedDraft() {
+        let model = NewTaskViewModel()
+        model.agents = [
+            Agent(
+                id: "claude-code",
+                name: "Claude Code",
+                kind: "cli",
+                available: true,
+                isDefault: true,
+                capabilities: ["run"],
+                model: "opus",
+                models: ["opus", "sonnet"]
+            )
+        ]
+        model.selectedAgent = model.agents.first
+        model.selectedModel = "sonnet"
+        model.selectedCWD = nil
+        model.customCWD = "  /Users/me/project  "
+        model.prompt = "  Refactor New Task  "
+        model.permissionMode = "accept_edits"
+
+        let draft = model.taskDraft()
+
+        XCTAssertEqual(draft.prompt, "Refactor New Task")
+        XCTAssertEqual(draft.agent, "claude-code")
+        XCTAssertEqual(draft.model, "sonnet")
+        XCTAssertEqual(draft.cwd, "/Users/me/project")
+        XCTAssertEqual(draft.permissionMode, "accept_edits")
+        XCTAssertNil(draft.workspaceMode)
+    }
+
+    @MainActor
+    func testNewTaskViewModelOmitsModelWhenAgentDoesNotAdvertiseChoices() {
+        let model = NewTaskViewModel()
+        model.agents = [
+            Agent(
+                id: "kin",
+                name: "Kin",
+                kind: "builtin",
+                available: true,
+                isDefault: true,
+                capabilities: ["run"],
+                model: "default",
+                models: nil
+            )
+        ]
+        model.selectedAgent = model.agents.first
+        model.selectedModel = "should-not-submit"
+        model.selectedCWD = "/tmp"
+        model.prompt = "Run checks"
+
+        XCTAssertNil(model.taskDraft().model)
+    }
+
     func testTaskLimitWaitDecodes() throws {
         let data = Data("""
         {
