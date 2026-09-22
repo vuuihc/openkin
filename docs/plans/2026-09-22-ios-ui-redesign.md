@@ -489,6 +489,35 @@ xcodegen generate
 - Verified with:
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
 
+### 2026-09-22 Slice 2: Task Workbench Scope
+
+- Reworked Work task history rows and task detail into active Desktop-scoped
+  surfaces with clearer task summaries, stale profile protection, and richer
+  terminal actions.
+- Kept task polling and fork/delete/retry/guidance behavior scoped to the active
+  daemon client.
+- Added task presentation tests for search, status semantics, elapsed/cost
+  formatting, and stale profile detection.
+- Verified with:
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
+
+### 2026-09-22 Slice 3: New Task Composer
+
+- Replaced the form-heavy New Task sheet with a prompt-first composer, active
+  Desktop target card, compact configuration chips, and bottom primary action.
+- Removed stored-credential fallback from `NewTaskViewModel`; the composer now
+  uses only the `AppSession`-scoped API client and disables submit if the active
+  Desktop changes while the sheet is open.
+- Preserved agent/model/cwd/permission behavior, including the destructive
+  unrestricted confirmation, and surfaced workspace mode as a read-only default
+  chip.
+- Added regression tests for profile-scoped submit eligibility, client
+  requirement, profile-switch option clearing, in-flight submit invalidation,
+  and trimmed task draft payloads.
+- Verified with:
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
+
 ## Open Questions
 
 1. Should `Routines` stay inside Settings/Operations, or become a top-level tab
