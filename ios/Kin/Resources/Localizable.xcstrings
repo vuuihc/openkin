@@ -35,6 +35,40 @@
         }
       }
     },
+    "common.unknown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未知"
+          }
+        }
+      }
+    },
+    "action.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        }
+      }
+    },
     "connection.connect" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1690,13 +1724,523 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Artifacts"
+            "value" : "Library"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "产物"
+            "value" : "资料库"
+          }
+        }
+      }
+    },
+    "artifacts.archive" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive artifact"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "归档产物"
+          }
+        }
+      }
+    },
+    "artifacts.archived" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archived"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已归档"
+          }
+        }
+      }
+    },
+    "artifacts.count_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld saved"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个已保存"
+          }
+        }
+      }
+    },
+    "artifacts.detail.content" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Content"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "内容"
+          }
+        }
+      }
+    },
+    "artifacts.detail.empty.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This saved output has no readable body."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个保存的产物没有可阅读正文。"
+          }
+        }
+      }
+    },
+    "artifacts.detail.empty.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empty artifact"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空产物"
+          }
+        }
+      }
+    },
+    "artifacts.detail.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading artifact..."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载产物..."
+          }
+        }
+      }
+    },
+    "artifacts.empty.message_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved outputs from %@ will appear here."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来自 %@ 的已保存产物会显示在这里。"
+          }
+        }
+      }
+    },
+    "artifacts.empty.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No saved outputs"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无保存的产物"
+          }
+        }
+      }
+    },
+    "artifacts.empty.unconfigured" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair a Desktop to read saved outputs here."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对一个 Desktop 后，可在这里阅读保存的产物。"
+          }
+        }
+      }
+    },
+    "artifacts.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library unavailable"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资料库不可用"
+          }
+        }
+      }
+    },
+    "artifacts.library" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资料库"
+          }
+        }
+      }
+    },
+    "artifacts.kind.diff" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diff"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "差异"
+          }
+        }
+      }
+    },
+    "artifacts.kind.html" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTML"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTML"
+          }
+        }
+      }
+    },
+    "artifacts.kind.log" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Log"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日志"
+          }
+        }
+      }
+    },
+    "artifacts.kind.markdown" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Markdown"
+          }
+        }
+      }
+    },
+    "artifacts.kind.text" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文本"
+          }
+        }
+      }
+    },
+    "artifacts.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading library..."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载资料库..."
+          }
+        }
+      }
+    },
+    "artifacts.refresh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh library"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刷新资料库"
+          }
+        }
+      }
+    },
+    "artifacts.scope.message_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved outputs are read from %@ only."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅阅读来自 %@ 的保存产物。"
+          }
+        }
+      }
+    },
+    "artifacts.scope.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Source"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "资料库来源"
+          }
+        }
+      }
+    },
+    "artifacts.scope.unconfigured" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pairing data is saved on this iPhone."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对资料保存在这台 iPhone 上。"
+          }
+        }
+      }
+    },
+    "artifacts.section.saved_outputs" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved Outputs"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存产物"
+          }
+        }
+      }
+    },
+    "artifacts.status.archived" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archived"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已归档"
+          }
+        }
+      }
+    },
+    "artifacts.status.saved" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已保存"
+          }
+        }
+      }
+    },
+    "artifacts.stale.message_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This artifact was opened from another Desktop. %@ is active now, so archive is disabled."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个产物来自另一个 Desktop。当前已切换到 %@，因此归档已停用。"
+          }
+        }
+      }
+    },
+    "artifacts.stale.read_only" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This artifact is read-only because the active Desktop changed."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前 Desktop 已变化，此产物只能读取。"
+          }
+        }
+      }
+    },
+    "artifacts.stale.return" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Return to Library"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回资料库"
+          }
+        }
+      }
+    },
+    "artifacts.stale.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop Changed"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop 已变化"
+          }
+        }
+      }
+    },
+    "artifacts.untitled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untitled Artifact"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未命名产物"
           }
         }
       }
@@ -2377,6 +2921,873 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "项目"
+          }
+        }
+      }
+    },
+    "projects.continue_focus" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue Focus"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "继续当前重点"
+          }
+        }
+      }
+    },
+    "projects.count_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld project(s)"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个项目"
+          }
+        }
+      }
+    },
+    "projects.detail.pulse" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pulse"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "动态"
+          }
+        }
+      }
+    },
+    "projects.empty.message_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects from %@ will appear here."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来自 %@ 的项目会显示在这里。"
+          }
+        }
+      }
+    },
+    "projects.empty.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No projects"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无项目"
+          }
+        }
+      }
+    },
+    "projects.empty.unconfigured" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair a Desktop to see remote projects here."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对一个 Desktop 后，可在这里查看远端项目。"
+          }
+        }
+      }
+    },
+    "projects.error.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects unavailable"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目不可用"
+          }
+        }
+      }
+    },
+    "projects.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading projects..."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载项目..."
+          }
+        }
+      }
+    },
+    "projects.metric.commits" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Commits"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提交"
+          }
+        }
+      }
+    },
+    "projects.metric.running" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行中"
+          }
+        }
+      }
+    },
+    "projects.metric.sessions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessions"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话"
+          }
+        }
+      }
+    },
+    "projects.metric.waiting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待中"
+          }
+        }
+      }
+    },
+    "projects.mode.explore" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Explore"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "探索"
+          }
+        }
+      }
+    },
+    "projects.mode.learn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Learn"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "学习"
+          }
+        }
+      }
+    },
+    "projects.mode.maintain" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maintain"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "维护"
+          }
+        }
+      }
+    },
+    "projects.mode.ship" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ship"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "交付"
+          }
+        }
+      }
+    },
+    "projects.new.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New project"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建项目"
+          }
+        }
+      }
+    },
+    "projects.new.create_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create on %@"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 %@ 上创建"
+          }
+        }
+      }
+    },
+    "projects.new.mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模式"
+          }
+        }
+      }
+    },
+    "projects.new.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称"
+          }
+        }
+      }
+    },
+    "projects.new.root" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repository path"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仓库路径"
+          }
+        }
+      }
+    },
+    "projects.new.section.details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "详情"
+          }
+        }
+      }
+    },
+    "projects.new.stale" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The active Desktop changed. Close this sheet and create the project from the current Desktop."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前 Desktop 已变化。请关闭此面板，并从当前 Desktop 重新创建项目。"
+          }
+        }
+      }
+    },
+    "projects.new.target_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This project will be created on %@."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此项目将在 %@ 上创建。"
+          }
+        }
+      }
+    },
+    "projects.new.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Project"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建项目"
+          }
+        }
+      }
+    },
+    "projects.one_pager" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One-Pager"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目简报"
+          }
+        }
+      }
+    },
+    "projects.one_pager.edit" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit One-Pager"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑项目简报"
+          }
+        }
+      }
+    },
+    "projects.one_pager.empty.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create or sync a One-Pager on Desktop to read it here."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Desktop 创建或同步项目简报后，可在这里阅读。"
+          }
+        }
+      }
+    },
+    "projects.one_pager.empty.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No One-Pager yet"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无项目简报"
+          }
+        }
+      }
+    },
+    "projects.one_pager.focus" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前重点"
+          }
+        }
+      }
+    },
+    "projects.one_pager.loading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading One-Pager..."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载项目简报..."
+          }
+        }
+      }
+    },
+    "projects.one_pager.next" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下一步"
+          }
+        }
+      }
+    },
+    "projects.one_pager.north_star" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "North Star"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "北极星目标"
+          }
+        }
+      }
+    },
+    "projects.one_pager.save_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save to %@"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存到 %@"
+          }
+        }
+      }
+    },
+    "projects.progress.empty" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No project progress yet."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无项目进展。"
+          }
+        }
+      }
+    },
+    "projects.read_only" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-only pairing. Use a master token to edit."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前为只读配对。使用 master token 才能编辑。"
+          }
+        }
+      }
+    },
+    "projects.refresh" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh projects"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "刷新项目"
+          }
+        }
+      }
+    },
+    "projects.row.running_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld running"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 运行中"
+          }
+        }
+      }
+    },
+    "projects.row.sessions_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sessions"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个会话"
+          }
+        }
+      }
+    },
+    "projects.row.waiting_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld waiting"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 等待中"
+          }
+        }
+      }
+    },
+    "projects.scope.message_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projects and One-Pagers are scoped to %@."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目和项目简报仅来自 %@。"
+          }
+        }
+      }
+    },
+    "projects.scope.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Project Source"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "项目来源"
+          }
+        }
+      }
+    },
+    "projects.scope.unconfigured" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pairing data is saved on this iPhone."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对资料保存在这台 iPhone 上。"
+          }
+        }
+      }
+    },
+    "projects.section.active" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active Projects"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活跃项目"
+          }
+        }
+      }
+    },
+    "projects.status.active" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "活跃"
+          }
+        }
+      }
+    },
+    "projects.status.archived" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archived"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已归档"
+          }
+        }
+      }
+    },
+    "projects.stale.message_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This project was opened from another Desktop. %@ is active now, so editing is disabled."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这个项目来自另一个 Desktop。当前已切换到 %@，因此编辑已停用。"
+          }
+        }
+      }
+    },
+    "projects.stale.read_only" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This project is read-only because the active Desktop changed."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前 Desktop 已变化，此项目只能读取。"
+          }
+        }
+      }
+    },
+    "projects.stale.return" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Return to Projects"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "返回项目"
+          }
+        }
+      }
+    },
+    "projects.stale.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop Changed"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop 已变化"
+          }
+        }
+      }
+    },
+    "projects.untitled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untitled Project"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未命名项目"
           }
         }
       }

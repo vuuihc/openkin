@@ -518,6 +518,21 @@ xcodegen generate
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
 
+### 2026-09-22 Slice 4: Projects and Library Readability
+
+- Reworked Projects and Library into read-first mobile lists with active Desktop
+  scope headers, scan-friendly metadata, and clearer empty/error/loading states.
+- Added project pulse counts to project rows and detail, prioritized One-Pager
+  summary reading, and grouped recent project tasks under Continue Focus.
+- Added stale active-Desktop protection for project detail edits, new project
+  creation, artifact reads, and artifact archive actions.
+- Added `ProjectPresentation` and `ArtifactPresentation` helpers with unit
+  coverage for display labels, counts, One-Pager focus extraction, and artifact
+  metadata formatting.
+- Verified with:
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
+
 ## Open Questions
 
 1. Should `Routines` stay inside Settings/Operations, or become a top-level tab
