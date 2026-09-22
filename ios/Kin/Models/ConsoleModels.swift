@@ -101,6 +101,132 @@ struct ProjectPulse: Codable, Hashable {
     }
 }
 
+enum ProjectPresentation {
+    struct Summary: Equatable {
+        let title: String?
+        let modeLabel: String
+        let statusLabel: String
+        let progress: String?
+        let root: String?
+        let lastActiveDate: Date
+        let sessionWindow: Int
+        let runningCount: Int
+        let waitingCount: Int
+        let commitWindow: Int
+        let hasLiveWork: Bool
+    }
+
+    struct OnePagerFocus: Equatable {
+        let northStar: String?
+        let focus: String?
+        let next: [String]
+        let displayMarkdown: String?
+        let isEmpty: Bool
+    }
+
+    static func summary(for project: Project) -> Summary {
+        summary(for: project, pulse: nil as ProjectPulse?)
+    }
+
+    static func summary(for project: Project, pulse: ProjectPulse?) -> Summary {
+        Summary(
+            title: clean(project.name),
+            modeLabel: displayLabel(project.mode),
+            statusLabel: displayLabel(project.status),
+            progress: clean(project.softProgress),
+            root: clean(project.roots?.first),
+            lastActiveDate: millisecondsDate(project.lastActiveAt),
+            sessionWindow: pulse?.sessionWindow ?? 0,
+            runningCount: pulse?.sessionsRunning ?? 0,
+            waitingCount: pulse?.sessionsWaiting ?? 0,
+            commitWindow: pulse?.commitWindow ?? 0,
+            hasLiveWork: (pulse?.sessionsRunning ?? 0) > 0 || (pulse?.sessionsWaiting ?? 0) > 0
+        )
+    }
+
+    static func onePagerFocus(for onePager: OnePager?) -> OnePagerFocus {
+        let northStar = clean(onePager?.onePagerSummary?.northStar)
+        let focus = clean(onePager?.onePagerSummary?.focus)
+        let next = onePager?.onePagerSummary?.next?.compactMap(clean) ?? []
+        let summaryMarkedEmpty = onePager?.onePagerSummary?.empty == true
+        let markdown = clean(onePager?.markdown)
+        let displayMarkdown = summaryMarkedEmpty || isDefaultTemplateMarkdown(markdown) ? nil : markdown
+        let markdownIsEmpty = displayMarkdown == nil
+
+        return OnePagerFocus(
+            northStar: northStar,
+            focus: focus,
+            next: next,
+            displayMarkdown: displayMarkdown,
+            isEmpty: summaryMarkedEmpty || (markdownIsEmpty && northStar == nil && focus == nil && next.isEmpty)
+        )
+    }
+
+    static func displayLabel(_ rawValue: String) -> String {
+        let normalized = rawValue
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return "Unknown" }
+        return normalized
+            .split(separator: " ")
+            .map { word in word.prefix(1).uppercased() + word.dropFirst().lowercased() }
+            .joined(separator: " ")
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func millisecondsDate(_ milliseconds: Int64) -> Date {
+        Date(timeIntervalSince1970: Double(milliseconds) / 1000)
+    }
+
+    private static func isDefaultTemplateMarkdown(_ markdown: String?) -> Bool {
+        guard let markdown else { return false }
+        let lower = markdown.lowercased()
+        return lower.contains("## north star")
+            && lower.contains("## current focus")
+            && lower.contains("<!-- kin:auto:start -->")
+            && (
+                lower.contains("你为什么做这个项目")
+                    || lower.contains("当下唯一主线")
+                    || lower.contains("why you are building")
+                    || lower.contains("single main thread")
+            )
+    }
+}
+
+enum ArtifactPresentation {
+    struct Summary: Equatable {
+        let title: String?
+        let kindLabel: String
+        let statusLabel: String
+        let sizeText: String
+        let sourceTitle: String?
+        let updatedDate: Date
+        let isArchived: Bool
+    }
+
+    static func summary(for artifact: Artifact) -> Summary {
+        Summary(
+            title: clean(artifact.title),
+            kindLabel: ProjectPresentation.displayLabel(artifact.kind),
+            statusLabel: ProjectPresentation.displayLabel(artifact.status),
+            sizeText: ByteCountFormatter.string(fromByteCount: artifact.size, countStyle: .file),
+            sourceTitle: clean(artifact.sourceTaskTitle),
+            updatedDate: Date(timeIntervalSince1970: Double(artifact.updatedAt) / 1000),
+            isArchived: artifact.status == "archived"
+        )
+    }
+
+    private static func clean(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct Routine: Identifiable, Codable, Hashable {
     let id: String
     var projectId: String?

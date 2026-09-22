@@ -169,6 +169,124 @@ final class KinCoreTests: XCTestCase {
         XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: nil))
     }
 
+    func testProjectPresentationBuildsScanSummary() {
+        let project = Project(
+            id: "p1",
+            name: "Kin",
+            mode: "ship",
+            status: "active",
+            softProgress: "  Build readable one-pager cards  ",
+            createdAt: 1,
+            updatedAt: 2,
+            lastActiveAt: 1_767_225_600_000,
+            roots: ["/Users/me/openkin"],
+            onePagerPath: nil
+        )
+        let pulse = ProjectPulse(
+            projectId: "p1",
+            generatedAt: 1,
+            windowDays: 7,
+            sessionTotal: 9,
+            sessionWindow: 4,
+            sessionsRunning: 2,
+            sessionsWaiting: 1,
+            lastSessionAt: nil,
+            gitAvailable: true,
+            gitRoot: "/Users/me/openkin",
+            commitWindow: 3,
+            autoMarkdown: ""
+        )
+
+        let summary = ProjectPresentation.summary(for: project, pulse: pulse)
+
+        XCTAssertEqual(summary.title, "Kin")
+        XCTAssertEqual(summary.modeLabel, "Ship")
+        XCTAssertEqual(summary.statusLabel, "Active")
+        XCTAssertEqual(summary.progress, "Build readable one-pager cards")
+        XCTAssertEqual(summary.root, "/Users/me/openkin")
+        XCTAssertEqual(summary.sessionWindow, 4)
+        XCTAssertEqual(summary.runningCount, 2)
+        XCTAssertEqual(summary.waitingCount, 1)
+        XCTAssertTrue(summary.hasLiveWork)
+    }
+
+    func testProjectPresentationExtractsOnePagerFocus() {
+        let pager = OnePager(
+            projectId: "p1",
+            markdown: "# Kin\n\nShip reliable remote control.",
+            updatedAt: 1,
+            onePagerSummary: OnePagerSummary(
+                name: "Kin",
+                mode: nil,
+                northStar: "Ship reliable remote control",
+                focus: "Projects and Library",
+                next: ["Verify build", "Run review"],
+                empty: false
+            )
+        )
+
+        let focus = ProjectPresentation.onePagerFocus(for: pager)
+
+        XCTAssertEqual(focus.northStar, "Ship reliable remote control")
+        XCTAssertEqual(focus.focus, "Projects and Library")
+        XCTAssertEqual(focus.next, ["Verify build", "Run review"])
+        XCTAssertEqual(focus.displayMarkdown, "# Kin\n\nShip reliable remote control.")
+        XCTAssertFalse(focus.isEmpty)
+    }
+
+    func testProjectPresentationSuppressesEmptyTemplateMarkdown() {
+        let pager = OnePager(
+            projectId: "p1",
+            markdown: """
+            # Kin
+
+            ## 项目描述
+            这是什么、给谁用、边界在哪（3～8 行即可）。
+
+            ## North Star
+            你为什么做这个项目（用户主权；刷新不会改这里）。
+
+            ## Current Focus
+            当下唯一主线（越短越好）。
+
+            <!-- kin:auto:start -->
+            ## Pulse（自动）
+            _点击「刷新封面」写入会话/提交活跃与建议下一步。_
+            <!-- kin:auto:end -->
+            """,
+            updatedAt: 1,
+            onePagerSummary: nil
+        )
+
+        let focus = ProjectPresentation.onePagerFocus(for: pager)
+
+        XCTAssertNil(focus.displayMarkdown)
+        XCTAssertTrue(focus.isEmpty)
+    }
+
+    func testArtifactPresentationBuildsReadableSummary() {
+        let artifact = Artifact(
+            id: "a1",
+            title: "  ",
+            kind: "markdown_note",
+            size: 1_536,
+            status: "saved",
+            sourceTaskId: "t1",
+            sourceTaskTitle: "Refactor UI",
+            createdAt: 1,
+            updatedAt: 1_767_225_600_000
+        )
+
+        let summary = ArtifactPresentation.summary(for: artifact)
+
+        XCTAssertNil(summary.title)
+        XCTAssertEqual(summary.kindLabel, "Markdown Note")
+        XCTAssertEqual(summary.statusLabel, "Saved")
+        XCTAssertEqual(summary.sizeText, "2 KB")
+        XCTAssertEqual(summary.sourceTitle, "Refactor UI")
+        XCTAssertFalse(summary.isArchived)
+    }
+
     @MainActor
     func testNewTaskViewModelRequiresCurrentProfileForSubmit() {
         let initialProfileID = UUID()
