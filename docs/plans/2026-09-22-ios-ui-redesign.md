@@ -533,6 +533,25 @@ xcodegen generate
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
 
+### 2026-09-22 Slice 5: Settings and Operations Split
+
+- Reorganized Settings into grouped destinations for Connection, Remote,
+  Agents & Usage, Providers, Routines, and About.
+- Kept Settings root passive and local-only; daemon version, workers, agents,
+  usage, and provider registry now load only after entering their destination.
+- Made active Desktop scope visible in remote operation destinations and guarded
+  provider/routine mutations by both active profile and management credentials.
+- Post-review, tightened stale-profile guards for provider/routine actions,
+  added an explicit Providers unavailable state, and disabled read-only routine
+  swipe deletion affordances.
+- Localized touched Settings, Operations, Provider, and Routine text in English
+  and Chinese.
+- Added `SettingsPresentation` and `OperationsPresentation` helper tests for
+  credential-scope display and provider write gating.
+- Verified with:
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
+
 ## Open Questions
 
 1. Should `Routines` stay inside Settings/Operations, or become a top-level tab

@@ -4,34 +4,39 @@ struct RoutinesView: View {
     @Environment(AppSession.self) private var appSession
     @State private var routines: [Routine] = []
     @State private var isLoading = false
+    @State private var loadedProfileID: UUID?
     @State private var error: String?
     @State private var showingNewRoutine = false
+    @State private var newRoutineProfileID: UUID?
 
     var body: some View {
         List {
+            OperationsScopeSection(profile: appSession.activeProfile, connectionState: appSession.connectionState)
+
             if let error {
                 Text(error).foregroundStyle(.red)
             }
 
             if routines.isEmpty && !isLoading && error == nil {
                 ContentUnavailableView(
-                    "No routines",
+                    String(localized: "routines.empty.title"),
                     systemImage: "clock.arrow.circlepath",
-                    description: Text("Create recurring agent work from your phone.")
+                    description: Text(String(localized: "routines.empty.message"))
                 )
             }
 
             ForEach(routines) { routine in
                 RoutineRow(
                     routine: routine,
-                    canManage: appSession.canManageDaemon,
+                    canManage: canMutateLoadedProfile,
                     onToggle: { enabled in await toggle(routine, enabled: enabled) },
                     onRun: { await run(routine) },
                     onDelete: { await delete(routine) }
                 )
+                .deleteDisabled(!canMutateLoadedProfile)
             }
             .onDelete { offsets in
-                guard appSession.canManageDaemon else { return }
+                guard canMutateLoadedProfile else { return }
                 let selected = offsets.map { routines[$0] }
                 Task {
                     for routine in selected {
@@ -40,40 +45,68 @@ struct RoutinesView: View {
                 }
             }
         }
-        .navigationTitle("Routines")
+        .navigationTitle(String(localized: "settings.routines"))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                if appSession.canManageDaemon {
+                if canMutateLoadedProfile {
                     Button {
+                        newRoutineProfileID = appSession.activeProfileID
                         showingNewRoutine = true
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("New routine")
+                    .accessibilityLabel(String(localized: "routines.new"))
                 }
             }
         }
         .refreshable { await load() }
-        .task { await load() }
-        .sheet(isPresented: $showingNewRoutine) {
-            RoutineEditorView { await load() }
+        .task(id: appSession.activeProfileID) { await load() }
+        .sheet(isPresented: $showingNewRoutine, onDismiss: { newRoutineProfileID = nil }) {
+            RoutineEditorView(boundProfileID: newRoutineProfileID) { await load() }
         }
     }
 
+    private var canMutateLoadedProfile: Bool {
+        OperationsPresentation.canMutateLoadedProfile(
+            loadedProfileID: loadedProfileID,
+            activeProfileID: appSession.activeProfileID,
+            canManageDaemon: appSession.canManageDaemon
+        )
+    }
+
     private func load() async {
-        guard let client = appSession.apiClient else { return }
+        guard let requestedProfileID = appSession.activeProfileID, let client = appSession.apiClient else {
+            routines = []
+            loadedProfileID = appSession.activeProfileID
+            isLoading = false
+            error = nil
+            return
+        }
+        if loadedProfileID != requestedProfileID {
+            routines = []
+        }
         isLoading = true
-        defer { isLoading = false }
         do {
-            routines = try await client.routines()
+            let loaded = try await client.routines()
+            guard appSession.activeProfileID == requestedProfileID else { return }
+            routines = loaded
+            loadedProfileID = requestedProfileID
+            isLoading = false
             error = nil
         } catch {
+            guard appSession.activeProfileID == requestedProfileID else { return }
+            routines = []
+            loadedProfileID = requestedProfileID
+            isLoading = false
             self.error = error.localizedDescription
         }
     }
 
     private func toggle(_ routine: Routine, enabled: Bool) async {
-        guard let client = appSession.apiClient else { return }
+        guard let requestedProfileID = appSession.activeProfileID,
+              loadedProfileID == requestedProfileID,
+              let client = appSession.apiClient,
+              appSession.canManageDaemon else { return }
         do {
             let updated = try await client.updateRoutine(
                 id: routine.id,
@@ -83,29 +116,43 @@ struct RoutinesView: View {
                     enabled: enabled
                 )
             )
+            guard appSession.activeProfileID == requestedProfileID else { return }
             if let index = routines.firstIndex(where: { $0.id == updated.id }) {
                 routines[index] = updated
             }
         } catch {
+            guard appSession.activeProfileID == requestedProfileID else { return }
             self.error = error.localizedDescription
         }
     }
 
     private func run(_ routine: Routine) async {
-        guard let client = appSession.apiClient else { return }
+        guard let requestedProfileID = appSession.activeProfileID,
+              loadedProfileID == requestedProfileID,
+              let client = appSession.apiClient,
+              appSession.canManageDaemon else { return }
         do {
             _ = try await client.runRoutineNow(id: routine.id)
+            guard appSession.activeProfileID == requestedProfileID else { return }
+            error = nil
         } catch {
+            guard appSession.activeProfileID == requestedProfileID else { return }
             self.error = error.localizedDescription
         }
     }
 
     private func delete(_ routine: Routine) async {
-        guard let client = appSession.apiClient else { return }
+        guard let requestedProfileID = appSession.activeProfileID,
+              loadedProfileID == requestedProfileID,
+              let client = appSession.apiClient,
+              appSession.canManageDaemon else { return }
         do {
             try await client.deleteRoutine(id: routine.id)
+            guard appSession.activeProfileID == requestedProfileID else { return }
             routines.removeAll { $0.id == routine.id }
+            error = nil
         } catch {
+            guard appSession.activeProfileID == requestedProfileID else { return }
             self.error = error.localizedDescription
         }
     }
@@ -145,27 +192,45 @@ private struct RoutineRow: View {
             .foregroundStyle(.tertiary)
             if canManage {
                 HStack {
-                    Button("Run now") { Task { await onRun() } }
+                    Button(String(localized: "routines.run_now")) { Task { await onRun() } }
                         .buttonStyle(.bordered)
                     Spacer()
-                    Button("Delete", role: .destructive) { Task { await onDelete() } }
+                    Button(String(localized: "action.delete"), role: .destructive) { Task { await onDelete() } }
                         .buttonStyle(.borderless)
                 }
+            } else {
+                Text(String(localized: "routines.read_only.message"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 5)
     }
 
     private func intervalText(_ seconds: Int) -> String {
-        if seconds >= 86_400 { return "Every \(seconds / 86_400)d" }
-        if seconds >= 3_600 { return "Every \(seconds / 3_600)h" }
-        return "Every \(max(1, seconds / 60))m"
+        if seconds >= 86_400 {
+            return String(
+                format: String(localized: "routines.interval.days_format"),
+                seconds / 86_400
+            )
+        }
+        if seconds >= 3_600 {
+            return String(
+                format: String(localized: "routines.interval.hours_format"),
+                seconds / 3_600
+            )
+        }
+        return String(
+            format: String(localized: "routines.interval.minutes_format"),
+            max(1, seconds / 60)
+        )
     }
 }
 
 private struct RoutineEditorView: View {
     @Environment(AppSession.self) private var appSession
     @Environment(\.dismiss) private var dismiss
+    let boundProfileID: UUID?
     let onSaved: () async -> Void
 
     @State private var title = ""
@@ -179,11 +244,20 @@ private struct RoutineEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Title", text: $title)
-                TextField("Working directory", text: $cwd)
-                TextField("Agent", text: $agent)
-                Stepper("Every \(intervalMinutes) minutes", value: $intervalMinutes, in: 5...10_080, step: 5)
-                Section("Prompt") {
+                OperationsScopeSection(profile: appSession.activeProfile, connectionState: appSession.connectionState)
+                TextField(String(localized: "routines.title"), text: $title)
+                TextField(String(localized: "routines.cwd"), text: $cwd)
+                TextField(String(localized: "routines.agent"), text: $agent)
+                Stepper(
+                    String(
+                        format: String(localized: "routines.every_minutes_format"),
+                        intervalMinutes
+                    ),
+                    value: $intervalMinutes,
+                    in: 5...10_080,
+                    step: 5
+                )
+                Section(String(localized: "routines.prompt")) {
                     TextEditor(text: $prompt).frame(minHeight: 140)
                 }
                 if let error {
@@ -194,36 +268,68 @@ private struct RoutineEditorView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isSaving { ProgressView() } else { Text("Create Routine") }
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text(String(localized: "routines.create"))
+                        }
                         Spacer()
                     }
                 }
-                .disabled(isSaving || title.isEmpty || prompt.isEmpty || cwd.isEmpty)
+                .disabled(
+                    isSaving
+                        || !canEditCurrentProfile
+                        || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
-            .navigationTitle("New Routine")
+            .navigationTitle(String(localized: "routines.new"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(String(localized: "action.cancel")) { dismiss() }
+                }
+            }
+            .onChange(of: appSession.activeProfileID) { _, activeProfileID in
+                if boundProfileID != activeProfileID {
+                    dismiss()
                 }
             }
         }
     }
 
+    private var canEditCurrentProfile: Bool {
+        OperationsPresentation.canMutateLoadedProfile(
+            loadedProfileID: boundProfileID,
+            activeProfileID: appSession.activeProfileID,
+            canManageDaemon: appSession.canManageDaemon
+        )
+    }
+
     private func save() async {
-        guard let client = appSession.apiClient else { return }
+        guard let requestedProfileID = appSession.activeProfileID,
+              boundProfileID == requestedProfileID,
+              let client = appSession.apiClient,
+              appSession.canManageDaemon else { return }
         isSaving = true
         defer { isSaving = false }
         do {
             _ = try await client.createRoutine(
                 body: RoutineWriteBody(
-                    title: title, projectId: nil, cwd: cwd, agent: agent,
-                    permissionMode: "default", prompt: prompt,
+                    title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    projectId: nil,
+                    cwd: cwd.trimmingCharacters(in: .whitespacesAndNewlines),
+                    agent: agent.trimmingCharacters(in: .whitespacesAndNewlines),
+                    permissionMode: "default",
+                    prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                     intervalSecs: intervalMinutes * 60, enabled: true
                 )
             )
+            guard appSession.activeProfileID == requestedProfileID else { return }
             await onSaved()
             dismiss()
         } catch {
+            guard appSession.activeProfileID == requestedProfileID else { return }
             self.error = error.localizedDescription
         }
     }

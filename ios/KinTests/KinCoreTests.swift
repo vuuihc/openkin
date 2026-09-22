@@ -287,6 +287,135 @@ final class KinCoreTests: XCTestCase {
         XCTAssertFalse(summary.isArchived)
     }
 
+    func testSettingsPresentationSummarizesProfileCredentialScope() throws {
+        let activeID = UUID()
+        let profile = ServerProfile(
+            id: activeID,
+            displayName: "Work Mac",
+            baseURL: try XCTUnwrap(URL(string: "https://desktop.example.test:7777")),
+            relayKey: nil,
+            relayRoom: nil,
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 2),
+            credentialScope: .device
+        )
+
+        let summary = SettingsPresentation.profileSummary(for: profile, activeProfileID: activeID)
+
+        XCTAssertEqual(summary.title, "Work Mac")
+        XCTAssertEqual(summary.origin, "https://desktop.example.test:7777")
+        XCTAssertEqual(summary.transportKey, "desktop.transport.https_tunnel")
+        XCTAssertEqual(summary.credentialKey, "settings.profile.credential.device")
+        XCTAssertEqual(summary.managementAccessKey, "settings.management.read_only")
+        XCTAssertTrue(summary.isActive)
+        XCTAssertFalse(summary.canManageDaemon)
+    }
+
+    func testSettingsPresentationMarksMasterCredentialAsManageable() throws {
+        let profile = ServerProfile(
+            id: UUID(),
+            displayName: "Admin Mac",
+            baseURL: try XCTUnwrap(URL(string: "http://192.168.1.20:7777")),
+            relayKey: nil,
+            relayRoom: nil,
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 2),
+            credentialScope: .master
+        )
+
+        let summary = SettingsPresentation.profileSummary(for: profile, activeProfileID: nil)
+
+        XCTAssertEqual(summary.transportKey, "desktop.transport.lan_http")
+        XCTAssertEqual(summary.credentialKey, "settings.profile.credential.master")
+        XCTAssertEqual(summary.managementAccessKey, "settings.management.full")
+        XCTAssertFalse(summary.isActive)
+        XCTAssertTrue(summary.canManageDaemon)
+    }
+
+    func testOperationsPresentationGatesProviderWrites() {
+        let loadedProfileID = UUID()
+
+        XCTAssertFalse(OperationsPresentation.canSaveProvider(
+            loadedProfileID: loadedProfileID,
+            activeProfileID: loadedProfileID,
+            canManageDaemon: false,
+            isSaving: false,
+            selectedID: "provider-1",
+            name: "Local",
+            baseURL: "http://localhost:11434",
+            model: "llama"
+        ))
+
+        XCTAssertFalse(OperationsPresentation.canSaveProvider(
+            loadedProfileID: loadedProfileID,
+            activeProfileID: loadedProfileID,
+            canManageDaemon: true,
+            isSaving: false,
+            selectedID: nil,
+            name: "Local",
+            baseURL: "http://localhost:11434",
+            model: "llama"
+        ))
+
+        XCTAssertFalse(OperationsPresentation.canSaveProvider(
+            loadedProfileID: loadedProfileID,
+            activeProfileID: UUID(),
+            canManageDaemon: true,
+            isSaving: false,
+            selectedID: "provider-1",
+            name: "Local",
+            baseURL: "http://localhost:11434",
+            model: "llama"
+        ))
+
+        XCTAssertTrue(OperationsPresentation.canSaveProvider(
+            loadedProfileID: loadedProfileID,
+            activeProfileID: loadedProfileID,
+            canManageDaemon: true,
+            isSaving: false,
+            selectedID: "provider-1",
+            name: " Local ",
+            baseURL: " http://localhost:11434 ",
+            model: " llama "
+        ))
+    }
+
+    func testOperationsPresentationRequiresCurrentLoadedProfileForMutations() {
+        let profileID = UUID()
+
+        XCTAssertTrue(OperationsPresentation.canMutateLoadedProfile(
+            loadedProfileID: profileID,
+            activeProfileID: profileID,
+            canManageDaemon: true
+        ))
+        XCTAssertFalse(OperationsPresentation.canMutateLoadedProfile(
+            loadedProfileID: profileID,
+            activeProfileID: UUID(),
+            canManageDaemon: true
+        ))
+        XCTAssertFalse(OperationsPresentation.canMutateLoadedProfile(
+            loadedProfileID: nil,
+            activeProfileID: profileID,
+            canManageDaemon: true
+        ))
+        XCTAssertFalse(OperationsPresentation.canMutateLoadedProfile(
+            loadedProfileID: profileID,
+            activeProfileID: profileID,
+            canManageDaemon: false
+        ))
+    }
+
+    func testOperationsPresentationFormatsStatuses() {
+        XCTAssertEqual(OperationsPresentation.displayLabel("signed_in"), "Signed In")
+        XCTAssertEqual(OperationsPresentation.displayLabel("rate-limited"), "Rate Limited")
+        XCTAssertEqual(OperationsPresentation.displayLabel("  "), "Unknown")
+        XCTAssertEqual(OperationsPresentation.agentAuthStatusLabel("signed_in"), "Signed In")
+        XCTAssertEqual(OperationsPresentation.agentAuthStatusLabel("not_signed_in"), "Not Signed In")
+        XCTAssertEqual(OperationsPresentation.usageStatusLabel("over"), "Over Limit")
+        XCTAssertEqual(OperationsPresentation.providerKindLabel("openai-compatible"), "OpenAI Compatible")
+        XCTAssertEqual(OperationsPresentation.workerStateLabel("online"), "Online")
+    }
+
     @MainActor
     func testNewTaskViewModelRequiresCurrentProfileForSubmit() {
         let initialProfileID = UUID()
