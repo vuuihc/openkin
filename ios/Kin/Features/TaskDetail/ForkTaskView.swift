@@ -2,8 +2,8 @@ import SwiftUI
 
 struct ForkTaskView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(AppSession.self) private var appSession
     let taskId: String
+    let apiClient: APIClient
     let onCreated: (KinTask) -> Void
 
     @State private var prompt = ""
@@ -14,7 +14,7 @@ struct ForkTaskView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("New task direction") {
+                Section(String(localized: "task.fork.direction")) {
                     TextEditor(text: $prompt)
                         .frame(minHeight: 150)
                 }
@@ -26,29 +26,32 @@ struct ForkTaskView: View {
                 } label: {
                     HStack {
                         Spacer()
-                        if isSubmitting { ProgressView() } else { Text("Fork Task") }
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text(String(localized: "task.action.fork_task"))
+                        }
                         Spacer()
                     }
                 }
                 .disabled(isSubmitting)
             }
-            .navigationTitle("Fork Task")
+            .navigationTitle(String(localized: "task.action.fork_task"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(String(localized: "task.cancel")) { dismiss() }
                 }
             }
         }
     }
 
     private func submit() async {
-        guard let client = appSession.apiClient else { return }
         isSubmitting = true
         defer { isSubmitting = false }
         let task = await viewModel.fork(
             taskId: taskId,
             prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prompt,
-            with: client
+            with: apiClient
         )
         if let task {
             onCreated(task)

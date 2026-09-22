@@ -47,14 +47,6 @@ final class TaskListViewModel {
     /// - Parameter query: The user's search string.
     /// - Returns: Filtered tasks; if `query` is empty, returns all tasks.
     func filteredTasks(query: String) -> [KinTask] {
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return tasks
-        }
-        let lowercased = query.lowercased()
-        return tasks.filter { task in
-            task.prompt.lowercased().contains(lowercased)
-                || task.cwd.lowercased().contains(lowercased)
-                || task.agent.lowercased().contains(lowercased)
-        }
+        TaskPresentation.filter(tasks, query: query)
     }
 }
