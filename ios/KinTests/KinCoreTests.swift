@@ -96,6 +96,79 @@ final class KinCoreTests: XCTestCase {
         XCTAssertTrue(cancelled.isTerminal)
     }
 
+    func testTaskPresentationBuildsSummaryForWorkbench() {
+        let task = KinTask(
+            id: "t1",
+            status: .running,
+            agent: "claude-code",
+            model: "opus",
+            cwd: "/Users/me/project",
+            prompt: "Refactor the task detail view",
+            permissionMode: "default",
+            workspaceMode: nil,
+            approvalIds: nil,
+            questionIds: nil,
+            createdAt: 1_767_225_600_000,
+            startedAt: nil,
+            finishedAt: nil,
+            elapsedSeconds: 125,
+            costUSD: 0.023,
+            sessionRef: nil,
+            error: nil
+        )
+
+        let summary = TaskPresentation.summary(for: task)
+
+        XCTAssertEqual(summary.title, "Refactor the task detail view")
+        XCTAssertEqual(summary.location, "/Users/me/project")
+        XCTAssertEqual(summary.agentAndModel, "claude-code / opus")
+        XCTAssertEqual(summary.elapsed, "2m 5s")
+        XCTAssertEqual(summary.cost, "$0.02")
+        XCTAssertFalse(summary.needsUserAction)
+    }
+
+    func testTaskPresentationMarksWaitingTasksAsNeedsAction() {
+        XCTAssertTrue(TaskPresentation.summary(for: makeTask(status: .waitingApproval)).needsUserAction)
+        XCTAssertTrue(TaskPresentation.summary(for: makeTask(status: .waitingInput)).needsUserAction)
+        XCTAssertFalse(TaskPresentation.summary(for: makeTask(status: .running)).needsUserAction)
+    }
+
+    func testTaskPresentationFilterMatchesModelAndStatus() {
+        let modelTask = KinTask(
+            id: "model",
+            status: .running,
+            agent: "claude-code",
+            model: "opus",
+            cwd: "/tmp",
+            prompt: "ship",
+            permissionMode: nil,
+            workspaceMode: nil,
+            approvalIds: nil,
+            questionIds: nil,
+            createdAt: 1,
+            startedAt: nil,
+            finishedAt: nil,
+            elapsedSeconds: nil,
+            costUSD: nil,
+            sessionRef: nil,
+            error: nil
+        )
+        let waitingTask = makeTask(status: .waitingApproval)
+
+        XCTAssertEqual(TaskPresentation.filter([modelTask, waitingTask], query: "opus"), [modelTask])
+        XCTAssertEqual(TaskPresentation.filter([modelTask, waitingTask], query: "waiting_approval"), [waitingTask])
+    }
+
+    func testTaskPresentationDetectsStaleProfileContext() {
+        let bound = UUID()
+        let active = UUID()
+
+        XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: bound))
+        XCTAssertFalse(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: active))
+        XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: nil, activeProfileID: active))
+        XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: nil))
+    }
+
     func testTaskLimitWaitDecodes() throws {
         let data = Data("""
         {

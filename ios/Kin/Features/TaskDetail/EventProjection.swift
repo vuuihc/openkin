@@ -93,7 +93,7 @@ enum EventProjection {
                 timestamp: date,
                 icon: "checkmark.shield.fill",
                 iconColor: .green,
-                primaryText: "Approval Request",
+                primaryText: String(localized: "event.approval_request"),
                 secondaryText: summary,
                 isUserMessage: false,
                 level: nil,
@@ -108,7 +108,7 @@ enum EventProjection {
                 timestamp: date,
                 icon: "questionmark.bubble.fill",
                 iconColor: .teal,
-                primaryText: "Question",
+                primaryText: String(localized: "event.question"),
                 secondaryText: summary,
                 isUserMessage: false,
                 level: nil,
@@ -123,7 +123,11 @@ enum EventProjection {
                 timestamp: date,
                 icon: "arrow.triangle.swap",
                 iconColor: .gray,
-                primaryText: "Status: \(from) → \(to)",
+                primaryText: String(
+                    format: String(localized: "event.status_change_format"),
+                    from,
+                    to
+                ),
                 secondaryText: nil,
                 isUserMessage: false,
                 level: nil,
@@ -138,7 +142,7 @@ enum EventProjection {
                 timestamp: date,
                 icon: "questionmark",
                 iconColor: .secondary,
-                primaryText: "Unknown event",
+                primaryText: String(localized: "event.unknown"),
                 secondaryText: nil,
                 isUserMessage: false,
                 level: nil,
@@ -153,7 +157,7 @@ enum EventProjection {
                 timestamp: date,
                 icon: "questionmark",
                 iconColor: .secondary,
-                primaryText: "Empty event",
+                primaryText: String(localized: "event.empty"),
                 secondaryText: nil,
                 isUserMessage: false,
                 level: nil,
@@ -173,28 +177,12 @@ enum EventProjection {
 
     /// Format `elapsedSeconds` as a human-readable duration string.
     static func formatElapsed(_ seconds: Double?) -> String {
-        guard let seconds, seconds >= 0 else { return "—" }
-
-        if seconds < 60 {
-            return "\(Int(seconds))s"
-        }
-        let minutes = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        if minutes < 60 {
-            return "\(minutes)m \(secs)s"
-        }
-        let hours = minutes / 60
-        let mins = minutes % 60
-        return "\(hours)h \(mins)m"
+        TaskPresentation.formatElapsed(seconds)
     }
 
     /// Format `costCents` (in hundredths of a cent) as a display string.
     static func formatCost(_ cents: Double?) -> String {
         guard let cents else { return "—" }
-        let dollars = cents / 100.0
-        if dollars < 0.01 {
-            return "< $0.01"
-        }
-        return String(format: "$%.2f", dollars)
+        return TaskPresentation.formatCostUSD(cents / 100.0)
     }
 }

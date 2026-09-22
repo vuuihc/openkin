@@ -60,3 +60,76 @@ struct KinTask: Identifiable, Codable, Hashable {
         }
     }
 }
+
+/// Display-oriented task projection shared by task list and detail surfaces.
+enum TaskPresentation {
+    struct Summary: Equatable {
+        let title: String
+        let location: String
+        let agentAndModel: String
+        let elapsed: String
+        let cost: String
+        let needsUserAction: Bool
+    }
+
+    static func summary(for task: KinTask) -> Summary {
+        Summary(
+            title: task.prompt,
+            location: task.cwd,
+            agentAndModel: agentAndModel(for: task),
+            elapsed: formatElapsed(task.elapsedSeconds),
+            cost: formatCostUSD(task.costUSD),
+            needsUserAction: task.status == .waitingApproval || task.status == .waitingInput
+        )
+    }
+
+    static func filter(_ tasks: [KinTask], query: String) -> [KinTask] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return tasks }
+
+        let needle = trimmed.lowercased()
+        return tasks.filter { task in
+            let summary = summary(for: task)
+            return summary.title.lowercased().contains(needle)
+                || summary.location.lowercased().contains(needle)
+                || summary.agentAndModel.lowercased().contains(needle)
+                || task.status.rawValue.lowercased().contains(needle)
+        }
+    }
+
+    static func isCurrentProfileContext(boundProfileID: UUID?, activeProfileID: UUID?) -> Bool {
+        guard let boundProfileID, let activeProfileID else { return true }
+        return boundProfileID == activeProfileID
+    }
+
+    static func agentAndModel(for task: KinTask) -> String {
+        let model = task.model?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let model, !model.isEmpty else { return task.agent }
+        return "\(task.agent) / \(model)"
+    }
+
+    static func formatElapsed(_ seconds: Double?) -> String {
+        guard let seconds, seconds >= 0 else { return "—" }
+
+        if seconds < 60 {
+            return "\(Int(seconds))s"
+        }
+
+        let minutes = Int(seconds) / 60
+        let secs = Int(seconds) % 60
+        if minutes < 60 {
+            return "\(minutes)m \(secs)s"
+        }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return "\(hours)h \(mins)m"
+    }
+
+    static func formatCostUSD(_ dollars: Double?) -> String {
+        guard let dollars else { return "—" }
+        if dollars < 0.01 {
+            return "< $0.01"
+        }
+        return String(format: "$%.2f", dollars)
+    }
+}
