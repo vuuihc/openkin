@@ -9,7 +9,7 @@
     <key>CFBundleIdentifier</key>
     <string>dev.openkin.ios</string>
     <key>CFBundleVersion</key>
-    <integer>1</integer>
+    <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
     <key>NSCameraUsageDescription</key>

@@ -841,4 +841,15 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(providers.activeId, "provider-1")
         XCTAssertEqual(providers.providers.first?.baseURL, "http://localhost")
     }
+
+    // MARK: - Bundle metadata
+
+    /// CFNetwork builds the default User-Agent from `CFBundleVersion` and hands the
+    /// value straight to `CFURLCreateStringByAddingPercentEscapes`, which sends
+    /// `-length`. A non-string value (e.g. `<integer>1</integer>`) aborts the process
+    /// on the first HTTP request with `-[__NSCFNumber length]: unrecognized selector`.
+    func testBundleVersionIsString() throws {
+        let value = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion"))
+        XCTAssertTrue(value is String, "CFBundleVersion must be a string, got \(type(of: value))")
+    }
 }
