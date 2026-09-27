@@ -50,7 +50,6 @@ enum Endpoint {
     case routineRunRead(taskId: String)
     case agentsManagement(refresh: Bool)
     case usageLimits
-    case usageWindows
     case settings
     case workers
     case registerWorker
@@ -70,7 +69,7 @@ enum Endpoint {
              .artifact, .artifactContent, .projects, .project, .onePager,
              .projectPulse, .projectTasks, .projectArtifacts, .routines,
              .routine, .routineUnreadCount, .agentsManagement, .usageLimits,
-             .usageWindows, .settings, .providers, .workers:
+             .settings, .providers, .workers:
             return "GET"
         case .createTask, .createProject, .cancelTask, .promptTask, .retryTask,
              .limitContinue, .forkTask, .approve, .deny, .answerQuestion,
@@ -186,8 +185,6 @@ enum Endpoint {
             return "/api/agents/management"
         case .usageLimits:
             return "/api/usage/limits"
-        case .usageWindows:
-            return "/api/usage/windows"
         case .settings:
             return "/api/settings"
         case .workers:

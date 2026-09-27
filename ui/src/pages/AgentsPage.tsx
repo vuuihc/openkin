@@ -6,7 +6,6 @@ import {
   getToken,
   getUsageLimits,
   getUsageSummary,
-  getUsageWindows,
   listAgentManagement,
   listAgents,
   smokeAgents,
@@ -15,7 +14,6 @@ import {
   type AgentLimitStatus,
   type AgentManagement,
   type UsageRow,
-  type UsageWindowProvider,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -39,13 +37,6 @@ import {
   type CacheStatus,
 } from "../lib/usage";
 
-/** Maps an agent id to the subscription-window provider that bills it. */
-const PROVIDER_BY_AGENT: Record<string, string> = {
-  "claude-code": "claude",
-  codex: "codex",
-  grok: "grok",
-};
-
 /**
  * Agents management console with folded-in usage overview.
  */
@@ -55,7 +46,6 @@ export default function AgentsPage() {
   const [days, setDays] = useState(7);
   const [rows, setRows] = useState<UsageRow[] | null>(null);
   const [limitStatuses, setLimitStatuses] = useState<AgentLimitStatus[]>([]);
-  const [windows, setWindows] = useState<UsageWindowProvider[]>([]);
   const [agents, setAgents] = useState<AgentInfo[] | null>(null);
   const [mgmt, setMgmt] = useState<AgentManagement[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -69,16 +59,14 @@ export default function AgentsPage() {
     if (!getToken()) return;
     setError(null);
     try {
-      const [data, limits, win, agentList, management] = await Promise.all([
+      const [data, limits, agentList, management] = await Promise.all([
         getUsageSummary(days),
         getUsageLimits().catch(() => [] as AgentLimitStatus[]),
-        getUsageWindows().catch(() => [] as UsageWindowProvider[]),
         listAgents(),
         listAgentManagement(refresh).catch(() => [] as AgentManagement[]),
       ]);
       setRows(data);
       setLimitStatuses(limits);
-      setWindows(win);
       setAgents(agentList);
       setMgmt(management);
     } catch (e) {
@@ -189,20 +177,6 @@ export default function AgentsPage() {
     }
     return m;
   }, [limitStatuses]);
-
-  // Subscription windows are keyed by provider; map them onto their agent id
-  // so each agent row can show its own 5h/weekly quota inline.
-  const windowsByAgent = useMemo(() => {
-    const byProvider = new Map<string, UsageWindowProvider>();
-    for (const p of windows) byProvider.set(p.provider, p);
-    const m = new Map<string, UsageWindowProvider>();
-    for (const [agentId, provider] of Object.entries(PROVIDER_BY_AGENT)) {
-      const p = byProvider.get(provider);
-      if (p) m.set(agentId, p);
-    }
-    return m;
-  }, [windows]);
-
 
   async function onRecheck() {
     setRechecking(true);
@@ -581,9 +555,6 @@ export default function AgentsPage() {
                   <th className="px-3 py-2.5 font-semibold text-left whitespace-nowrap text-kin-muted">
                     {tr("usage.limitSpend")}
                   </th>
-                  <th className="px-3 py-2.5 font-semibold text-left whitespace-nowrap text-kin-muted">
-                    {tr("usage.windowsTitle")}
-                  </th>
                   <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap text-kin-muted">
                     {tr("agents.actions")}
                   </th>
@@ -594,7 +565,6 @@ export default function AgentsPage() {
                 const state = agentCatalogState(a);
                 const m = mgmtById.get(a.id);
                 const usage = usageByAgent.get(a.id);
-                const agentWindow = windowsByAgent.get(a.id);
                 const limitStatus = limitsByAgent.get(a.id);
                 const spendProgress =
                   limitStatus?.limit_spend_usd != null
@@ -733,51 +703,6 @@ export default function AgentsPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-3 py-3 min-w-[160px]">
-                      {agentWindow?.error ? (
-                        <div className="text-[11px] text-kin-muted">{agentWindow.error}</div>
-                      ) : agentWindow && agentWindow.windows.length > 0 ? (
-                        <div className="flex flex-col gap-1 text-[11px] text-kin-secondary">
-                          {agentWindow.plan ? (
-                            <span className="text-[10px] uppercase tracking-wide text-kin-muted">
-                              {agentWindow.plan}
-                            </span>
-                          ) : null}
-                          {agentWindow.windows.map((w) => {
-                            const winPct = Math.min(100, Math.max(0, w.used_percent));
-                            const barClass =
-                              w.status === "over"
-                                ? "bg-[var(--kin-red,#ff453a)]"
-                                : w.status === "warn"
-                                  ? "bg-[var(--kin-yellow,#ffd60a)]"
-                                  : "bg-kin-blue/70";
-                            return (
-                              <span key={w.kind} className="flex items-center gap-1.5">
-                                <span className="w-8 shrink-0 text-kin-muted">
-                                  {w.kind === "5h"
-                                    ? tr("usage.window5h")
-                                    : tr("usage.windowWeekly")}
-                                </span>
-                                <span className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
-                                  <span
-                                    className={`block h-full rounded-full ${barClass}`}
-                                    style={{ width: `${winPct}%` }}
-                                  />
-                                </span>
-                                <span className="tabular-nums">{Math.round(w.used_percent)}%</span>
-                                {w.reset_at > 0 ? (
-                                  <span className="text-[10px] text-kin-muted">
-                                    · {formatResetIn(w.reset_at)}
-                                  </span>
-                                ) : null}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-kin-muted">—</span>
-                      )}
-                    </td>
                     <td className="px-3 py-3 whitespace-nowrap text-right">
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {a.available && !a.default ? (
@@ -861,16 +786,4 @@ function aggregateCacheStatus(statuses: Set<string>): CacheStatus {
   if (statuses.size === 0) return "unknown";
   if (statuses.size > 1) return "mixed";
   return cacheState(statuses.values().next().value, null);
-}
-
-/** formatResetIn renders a unix-seconds reset time as a coarse countdown. */
-function formatResetIn(resetAtSeconds: number): string {
-  const secs = resetAtSeconds - Math.floor(Date.now() / 1000);
-  if (secs <= 0) return "0m";
-  const d = Math.floor(secs / 86400);
-  const h = Math.floor((secs % 86400) / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
 }

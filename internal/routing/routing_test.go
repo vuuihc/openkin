@@ -919,58 +919,6 @@ func TestResolverNextAuthConfigFailureSkipsProvider(t *testing.T) {
 	}
 }
 
-func TestResolverNextWindowExhausted(t *testing.T) {
-	store := &stubStore{
-		providers: []ProviderProfile{
-			{
-				ID: "claude-sub", Name: "Claude Sub", Kind: ProviderKindSubscription,
-				SupportsAgents: []string{"claude-code"}, Enabled: true,
-				Models: []ModelSpec{{ID: "claude-sonnet-4", Tier: "balanced", CostLabel: "paid"}},
-			},
-			{
-				ID: "anthropic-byok", Name: "Anthropic BYOK", Kind: ProviderKindAnthropicCompatible,
-				SupportsAgents: []string{"claude-code"}, Enabled: true,
-				Models: []ModelSpec{{ID: "claude-sonnet-4", Tier: "balanced", CostLabel: "paid"}},
-			},
-		},
-		teams: []TeamProfile{
-			{
-				ID: "claude-first", Name: "Claude First", Enabled: true,
-				Phases: map[RoutePhase]PhasePolicy{
-					PhaseExecute: {
-						Agent: "claude-code", Tier: "balanced",
-						ProviderPriority: []string{"claude-sub", "anthropic-byok"},
-						Fallback:         []string{"next_provider_same_tier"},
-					},
-				},
-			},
-		},
-		defaults: DefaultRoutingDefaults(),
-	}
-
-	// Window checker marks claude-sub as exhausted.
-	checker := &stubWindowChecker{exhausted: map[string]bool{"claude-sub": true}}
-	resolver := NewDefaultResolver(store, WithUsageWindowChecker(checker))
-
-	// First Resolve should skip claude-sub and pick anthropic-byok.
-	req := ResolveRequest{Team: "claude-first", Phase: PhaseExecute, Agent: "claude-code"}
-	first, err := resolver.Resolve(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-	if first.Provider != "anthropic-byok" {
-		t.Errorf("expected first provider anthropic-byok (skipping exhausted claude-sub), got %q", first.Provider)
-	}
-}
-
-type stubWindowChecker struct {
-	exhausted map[string]bool
-}
-
-func (s *stubWindowChecker) IsExhausted(ctx context.Context, providerID, agentID, kind string) bool {
-	return s.exhausted[providerID]
-}
-
 func TestResolverNextPreservesTeamPhaseObjective(t *testing.T) {
 	store := &stubStore{
 		providers: []ProviderProfile{

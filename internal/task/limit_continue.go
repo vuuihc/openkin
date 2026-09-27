@@ -27,7 +27,7 @@ type LimitContinueRequest struct {
 	ResetAt int64 `json:"reset_at,omitempty"`
 }
 
-// providerForAgent maps agent ids to usage-window provider ids.
+// providerForAgent maps agent ids to the provider id recorded on limit hits.
 func providerForAgent(agent string) string {
 	switch strings.TrimSpace(agent) {
 	case "claude-code", "claude":
@@ -595,46 +595,36 @@ func (e *Engine) runLimitWait(ctx context.Context, taskID string, delay time.Dur
 	}
 
 	if wait.ResetAt == 0 {
-		retry, next, probeErr := e.probeUnknownLimitWait(ctx, wait)
-		if !retry {
-			if e.limitWaitExpired(wait) {
-				_ = e.store.SetTaskLimitWaitStateClaimed(
-					ctx,
-					taskID,
-					wait.ClaimedAt,
-					"blocked",
-					firstNonEmptyStr(probeErr, "provider reset remains unknown"),
-					0,
-				)
-				info, hitSeq, hasHit := e.latestOpenLimitHit(ctx, taskID)
-				if hasHit {
-					e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "blocked", "")
-				}
-				return
+		// Nothing probes subscription windows, so an unknown reset can only back
+		// off until the wait expires.
+		probeErr := "provider reset is unavailable"
+		if e.limitWaitExpired(wait) {
+			_ = e.store.SetTaskLimitWaitStateClaimed(
+				ctx,
+				taskID,
+				wait.ClaimedAt,
+				"blocked",
+				probeErr,
+				0,
+			)
+			info, hitSeq, hasHit := e.latestOpenLimitHit(ctx, taskID)
+			if hasHit {
+				e.patchLimitHitStatus(ctx, taskID, hitSeq, info, "blocked", "")
 			}
-			wait.Attempts++
-			wait.LastProbeAt = time.Now().UnixMilli()
-			wait.LastError = probeErr
-			wait.NextProbeAt = next
-			wait.State = "waiting"
-			wait.UpdatedAt = time.Now().UnixMilli()
-			if err := e.store.UpdateTaskLimitWait(ctx, wait); err != nil {
-				return
-			}
-			e.armLimitWaitTimer(taskID, next)
 			return
 		}
-		if next > 0 {
-			wait.ResetAt = next / 1000
-			wait.NextProbeAt = next
-			wait.State = "waiting"
-			wait.UpdatedAt = time.Now().UnixMilli()
-			if err := e.store.UpdateTaskLimitWait(ctx, wait); err != nil {
-				return
-			}
-			e.armLimitWaitTimer(taskID, next)
+		next := time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli()
+		wait.Attempts++
+		wait.LastProbeAt = time.Now().UnixMilli()
+		wait.LastError = probeErr
+		wait.NextProbeAt = next
+		wait.State = "waiting"
+		wait.UpdatedAt = time.Now().UnixMilli()
+		if err := e.store.UpdateTaskLimitWait(ctx, wait); err != nil {
 			return
 		}
+		e.armLimitWaitTimer(taskID, next)
+		return
 	}
 
 	info, hitSeq, hasHit := e.latestOpenLimitHit(ctx, taskID)
@@ -702,34 +692,6 @@ func (e *Engine) limitWaitMaxElapsed(ctx context.Context) time.Duration {
 
 func (e *Engine) limitWaitExpired(wait store.TaskLimitWait) bool {
 	return wait.FirstWaitAt > 0 && time.Since(time.UnixMilli(wait.FirstWaitAt)) >= e.limitWaitMaxElapsed(context.Background())
-}
-
-// probeUnknownLimitWait returns retry=true when the provider window is known
-// to be available. A positive next value means a reset was discovered.
-func (e *Engine) probeUnknownLimitWait(ctx context.Context, wait store.TaskLimitWait) (retry bool, next int64, lastError string) {
-	if e.usageWindows == nil || strings.TrimSpace(wait.Provider) == "" {
-		return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), "provider reset is unavailable"
-	}
-	pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	for _, p := range e.usageWindows.Statuses(pctx) {
-		if p.Provider != wait.Provider {
-			continue
-		}
-		if p.Error != "" {
-			return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), p.Error
-		}
-		for _, w := range p.Windows {
-			if w.Status == "over" {
-				if w.ResetAt > 0 {
-					return false, time.Unix(w.ResetAt, 0).Add(2 * time.Second).UnixMilli(), ""
-				}
-				return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), "provider still reports an exhausted window"
-			}
-		}
-		return true, 0, ""
-	}
-	return false, time.Now().Add(limitWaitBackoff(wait.Attempts + 1)).UnixMilli(), "provider window status unavailable"
 }
 
 func firstNonEmptyStr(vals ...string) string {

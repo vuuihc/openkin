@@ -33,7 +33,6 @@ import (
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 	"github.com/vuuihc/openkin/internal/terminal"
-	"github.com/vuuihc/openkin/internal/usagewindows"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
 
@@ -101,10 +100,6 @@ type Server struct {
 	// since Handler() serves concurrent requests.
 	mgmtCache   *detect.ManagementCache
 	mgmtCacheMu sync.Mutex
-
-	// UsageWindows probes provider subscription rate-limit windows (5h/weekly).
-	// May be nil (feature disabled); the handler then returns an empty list.
-	UsageWindows *usagewindows.Service
 
 	// ProviderResolve returns the active cognition provider for short LLM jobs
 	// (chat titles, model routing, …). May be nil.
@@ -297,7 +292,6 @@ func (s *Server) Handler() http.Handler {
 		r.With(masterOnly).Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/usage/limits", s.handleUsageLimits)
-		r.Get("/api/usage/windows", s.handleUsageWindows)
 		r.Get("/api/routing/options", s.handleGetRoutingOptions)
 		r.Get("/api/routing/preview", s.handleGetRoutingPreview)
 		r.Get("/api/routing/defaults", s.handleGetRoutingDefaults)
@@ -1624,17 +1618,6 @@ func (s *Server) handleUsageLimits(w http.ResponseWriter, r *http.Request) {
 		statuses = []store.AgentLimitStatus{}
 	}
 	writeJSON(w, http.StatusOK, statuses)
-}
-
-// handleUsageWindows returns the per-provider subscription rate-limit windows
-// (5h + weekly). It is best-effort and display-only; when the feature is
-// disabled it returns an empty list.
-func (s *Server) handleUsageWindows(w http.ResponseWriter, r *http.Request) {
-	if s.UsageWindows == nil {
-		writeJSON(w, http.StatusOK, []usagewindows.Provider{})
-		return
-	}
-	writeJSON(w, http.StatusOK, s.UsageWindows.Statuses(r.Context()))
 }
 
 func (s *Server) handleTaskUsage(w http.ResponseWriter, r *http.Request) {
