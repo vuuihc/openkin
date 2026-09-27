@@ -21,6 +21,14 @@ import {
   type WSMessage,
 } from "./daemon-api";
 
+// Logging must never be fatal. stdout/stderr are pipes that can break — the shell
+// that launched the app exits, or `npm run dev` runs under a pipe that closes. A
+// failed write emits 'error' on the stream, and with no listener that surfaces as
+// an uncaught exception (write EIO) that aborts the main process.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", () => {});
+}
+
 // Branding before ready: unpackaged `electron .` otherwise shows "Electron"
 // in the menu bar / About / some process lists. productName only applies when packaged.
 const APP_NAME = "Kin";
