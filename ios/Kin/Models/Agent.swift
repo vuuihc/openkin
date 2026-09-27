@@ -36,9 +36,17 @@ struct AgentModelOption: Codable, Hashable {
         case id, label, tier
     }
 
-    /// Picker text: the catalog label when the daemon supplies one, else the id.
+    /// Picker text: the daemon's label when it supplies one, else the last path
+    /// segment of the id — the fallback the console uses too, since configured
+    /// provider models carry no label and their ids may be "vendor/model".
     var displayLabel: String {
         let label = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return label.isEmpty ? id : label
+        if !label.isEmpty {
+            return label
+        }
+        let id = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let slash = id.lastIndex(of: "/") else { return id }
+        let segment = String(id[id.index(after: slash)...])
+        return segment.isEmpty ? id : segment
     }
 }

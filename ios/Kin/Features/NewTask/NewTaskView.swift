@@ -434,7 +434,10 @@ struct NewTaskView: View {
     }
 
     private var selectedModelLabel: String {
-        viewModel.selectedModel ?? String(localized: "task.new.config.model.default")
+        guard let selectedModel = viewModel.selectedModel else {
+            return String(localized: "task.new.config.model.default")
+        }
+        return viewModel.modelLabel(for: selectedModel)
     }
 
     private var selectedCWDLabel: String {
