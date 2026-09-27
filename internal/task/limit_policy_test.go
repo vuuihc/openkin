@@ -2,14 +2,12 @@ package task
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/store"
-	"github.com/vuuihc/openkin/internal/usagewindows"
 )
 
 func TestNormalizeLimitPolicy(t *testing.T) {
@@ -67,53 +65,6 @@ func TestSwitchPolicyHandoff(t *testing.T) {
 		if got.Agent != "codex" {
 			t.Fatalf("agent=%s status=%s", got.Agent, final.Status)
 		}
-	}
-}
-
-type stubWindows struct {
-	providers []usagewindows.Provider
-}
-
-func (s stubWindows) Statuses(ctx context.Context) []usagewindows.Provider {
-	return s.providers
-}
-
-func TestPreflightBlocksOverWindow(t *testing.T) {
-	ad := &multiRunAdapter{}
-	e := limitTestEngine(t, map[string]adapter.Adapter{"claude-code": ad})
-	setLimitPolicy(t, e, LimitPolicyAsk)
-	e.SetUsageWindows(stubWindows{providers: []usagewindows.Provider{{
-		Provider: "claude",
-		Windows: []usagewindows.Window{{
-			Kind: "5h", UsedPercent: 100, Status: "over", ResetAt: time.Now().Add(time.Hour).Unix(),
-		}},
-	}}})
-	ctx := context.Background()
-	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	final := waitStatus(t, e, task.ID, StatusFailed, 3*time.Second)
-	if final.Status != StatusFailed {
-		t.Fatalf("status=%s", final.Status)
-	}
-	if ad.calls != 0 {
-		t.Fatalf("adapter should not start when preflight blocks, calls=%d", ad.calls)
-	}
-	evs, _ := e.Events(ctx, task.ID, 0)
-	var hit bool
-	for _, ev := range evs {
-		if ev.Type == "limit_hit" {
-			hit = true
-			var m map[string]any
-			_ = json.Unmarshal(ev.Payload, &m)
-			if m["source"] != "usage_window" {
-				t.Fatalf("source=%v", m["source"])
-			}
-		}
-	}
-	if !hit {
-		t.Fatal("expected limit_hit from preflight")
 	}
 }
 

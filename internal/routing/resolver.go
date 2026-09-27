@@ -20,28 +20,15 @@ type Store interface {
 	GetRoutingDefaults(ctx context.Context) (RoutingDefaults, error)
 }
 
-// UsageWindowChecker checks subscription usage windows for a provider/agent.
-type UsageWindowChecker interface {
-	// IsExhausted reports whether the given provider's subscription window for
-	// the agent is exhausted. This is a best-effort check; false means the
-	// window is either not exhausted or the check failed.
-	IsExhausted(ctx context.Context, providerID, agentID, kind string) bool
-}
-
 // DefaultResolver implements the Resolver interface using the configured
 // provider profiles, team profiles, and routing defaults.
 type DefaultResolver struct {
-	store         Store
-	windowChecker UsageWindowChecker
+	store Store
 }
 
 // NewDefaultResolver creates a new DefaultResolver.
-func NewDefaultResolver(store Store, opts ...ResolverOption) *DefaultResolver {
-	r := &DefaultResolver{store: store}
-	for _, opt := range opts {
-		opt(r)
-	}
-	return r
+func NewDefaultResolver(store Store) *DefaultResolver {
+	return &DefaultResolver{store: store}
 }
 
 // Defaults returns the validated routing defaults from the configured catalog.
@@ -50,16 +37,6 @@ func (r *DefaultResolver) Defaults(ctx context.Context) (RoutingDefaults, error)
 		return RoutingDefaults{}, fmt.Errorf("routing store not configured")
 	}
 	return r.store.GetRoutingDefaults(ctx)
-}
-
-// ResolverOption configures a DefaultResolver.
-type ResolverOption func(*DefaultResolver)
-
-// WithUsageWindowChecker sets the usage window checker for the resolver.
-func WithUsageWindowChecker(checker UsageWindowChecker) ResolverOption {
-	return func(r *DefaultResolver) {
-		r.windowChecker = checker
-	}
 }
 
 // Resolve performs the first selection for a phase.
@@ -138,14 +115,8 @@ func (r *DefaultResolver) Resolve(ctx context.Context, req ResolveRequest) (Deci
 		return candidates[i].Priority < candidates[j].Priority
 	})
 
-	// Filter out exhausted windows.
-	available := r.filterExhausted(ctx, candidates, pp.Agent)
-	if len(available) == 0 {
-		available = candidates
-	}
-
-	selected := available[0]
-	skipped := makeSkippedList(allCandidates, selected, available, floor)
+	selected := candidates[0]
+	skipped := makeSkippedList(allCandidates, selected, candidates, floor)
 
 	return Decision{
 		Agent:        pp.Agent,
@@ -310,11 +281,9 @@ func (r *DefaultResolver) Next(ctx context.Context, previous Decision, failure F
 			}
 			return tierOrder(pool[i].Tier) < tierOrder(pool[j].Tier)
 		})
-		// Filter exhausted windows.
-		available := r.filterExhausted(ctx, pool, previous.Agent)
-		if len(available) > 0 {
-			selected := available[0]
-			skipped := makeSkippedList(baseCandidates, selected, available, previous.QualityFloor)
+		if len(pool) > 0 {
+			selected := pool[0]
+			skipped := makeSkippedList(baseCandidates, selected, pool, previous.QualityFloor)
 
 			reason := fmt.Sprintf("fallback from %s/%s (step: %s): %s", failure.Provider, failure.Model, step, failure.Message)
 			if failure.Class != "" {
@@ -358,21 +327,6 @@ func (r *DefaultResolver) LookupProvider(ctx context.Context, providerID string)
 		}
 	}
 	return ProviderProfile{}, fmt.Errorf("provider profile %q not found", providerID)
-}
-
-// filterExhausted removes candidates whose subscription windows are exhausted.
-func (r *DefaultResolver) filterExhausted(ctx context.Context, candidates []candidate, agentID string) []candidate {
-	if r.windowChecker == nil {
-		return candidates
-	}
-	var out []candidate
-	for _, c := range candidates {
-		if r.windowChecker.IsExhausted(ctx, c.ProviderID, agentID, c.Kind) {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
 }
 
 // ---------------------------------------------------------------------------

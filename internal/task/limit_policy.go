@@ -9,7 +9,6 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/store"
-	"github.com/vuuihc/openkin/internal/usagewindows"
 )
 
 // Settings keys for rate-limit continue policy.
@@ -44,11 +43,6 @@ const (
 	LimitPolicySwitch = "switch"
 )
 
-// UsageWindowProber is optional; when set, startOne can preflight subscription windows.
-type UsageWindowProber interface {
-	Statuses(ctx context.Context) []usagewindows.Provider
-}
-
 // NormalizeLimitPolicy maps free-form config to wait|ask|switch.
 // sticky is accepted as an alias of wait.
 func NormalizeLimitPolicy(raw string) string {
@@ -74,11 +68,6 @@ func (e *Engine) LimitPolicy(ctx context.Context) string {
 		return LimitPolicyWait
 	}
 	return NormalizeLimitPolicy(raw)
-}
-
-// SetUsageWindows wires the optional subscription-window prober (serve setup).
-func (e *Engine) SetUsageWindows(p UsageWindowProber) {
-	e.usageWindows = p
 }
 
 // applyLimitPolicy reacts to a newly opened limit_hit according to settings.
@@ -178,55 +167,6 @@ func (e *Engine) pickFallbackAgent(ctx context.Context, current string) string {
 		}
 	}
 	return ""
-}
-
-// preflightUsageLimit reports whether the agent's subscription window is already over.
-// Best-effort: missing prober / probe errors → not blocked.
-func (e *Engine) preflightUsageLimit(ctx context.Context, agentID string) (adapter.RateLimitInfo, bool) {
-	if e.usageWindows == nil {
-		return adapter.RateLimitInfo{}, false
-	}
-	providerID := providerForAgent(agentID)
-	if providerID == "" || providerID == "kin" {
-		// Kin uses OpenAI-compatible providers without these CLI windows.
-		return adapter.RateLimitInfo{}, false
-	}
-	// Bound probe time so a hung network cannot stall the queue forever.
-	pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	statuses := e.usageWindows.Statuses(pctx)
-	for _, p := range statuses {
-		if p.Provider != providerID {
-			continue
-		}
-		if p.Error != "" {
-			return adapter.RateLimitInfo{}, false
-		}
-		var worst *usagewindows.Window
-		for i := range p.Windows {
-			w := &p.Windows[i]
-			if w.Status != "over" {
-				continue
-			}
-			if worst == nil || w.ResetAt > worst.ResetAt {
-				worst = w
-			}
-		}
-		if worst == nil {
-			return adapter.RateLimitInfo{}, false
-		}
-		msg := providerID + " " + worst.Kind + " usage window is exhausted"
-		return adapter.RateLimitInfo{
-			Kind:     adapter.RateLimitKind,
-			Provider: providerID,
-			Agent:    agentID,
-			Message:  msg,
-			ResetAt:  worst.ResetAt,
-			Window:   worst.Kind,
-			Source:   "usage_window",
-		}, true
-	}
-	return adapter.RateLimitInfo{}, false
 }
 
 // emitOpenLimitHit writes a limit_hit with status=open (or waiting when auto).
@@ -367,7 +307,7 @@ func (e *Engine) handleNewLimitHit(ctx context.Context, taskID, agent string, in
 	}
 	// Only auto-apply policy once the task is (or will immediately be) failed.
 	// For live mid-run errors we wait until finish; scanAndEmitLimitHit / finish path
-	// call this again. For preflight and failStart, status is already failed.
+	// call this again. For failStart, status is already failed.
 	if t, err := e.store.GetTask(ctx, taskID); err == nil {
 		if t.Status == StatusFailed || t.Status == StatusSucceeded || t.Status == StatusCanceled {
 			e.applyLimitPolicy(ctx, taskID, agent, info)

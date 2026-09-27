@@ -129,7 +129,6 @@ type EngineConfig struct {
 	DefaultPreference     DefaultPreference
 	Notifier              Notifier
 	TitleResolver         TitleResolver
-	UsageWindows          UsageWindowProber
 	RoutingResolver       RoutingResolver
 	ProviderEntryResolver ProviderEntryResolver
 	Skills                SkillResolver
@@ -186,8 +185,6 @@ type Engine struct {
 	limitNotifyCancel map[string]context.CancelFunc
 	quotaNotifyMu     sync.Mutex
 	quotaNotified     map[string]int64
-	// usageWindows optionally probes Claude/Codex subscription windows for preflight.
-	usageWindows UsageWindowProber
 
 	// defaultPreference optional; returns configured preferred agent id only.
 	// Readiness/fallback is owned by the registry.
@@ -223,7 +220,6 @@ func NewConfiguredEngine(cfg EngineConfig) (*Engine, error) {
 	engine.defaultPreference = cfg.DefaultPreference
 	engine.notify = cfg.Notifier
 	engine.titleFn = cfg.TitleResolver
-	engine.usageWindows = cfg.UsageWindows
 	engine.routingResolver = cfg.RoutingResolver
 	engine.providerEntryResolver = cfg.ProviderEntryResolver
 	engine.skillResolver = cfg.Skills
@@ -2037,32 +2033,6 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		if cfg, err := e.resolveProviderCfg(ctx, sel.Provider); err == nil && cfg.BaseURL != "" {
 			spec.ProviderCfg = &cfg
 		}
-	}
-
-	// Preflight: if subscription window is already exhausted, fail with limit_hit
-	// instead of starting a doomed CLI process.
-	if info, blocked := e.preflightUsageLimit(ctx, t.Agent); blocked {
-		payload, _ := json.Marshal(map[string]any{
-			"kind":     adapter.RateLimitKind,
-			"message":  info.Message,
-			"provider": info.Provider,
-			"agent":    t.Agent,
-			"reset_at": info.ResetAt,
-			"window":   info.Window,
-			"source":   "usage_window",
-		})
-		if w := e.eventWriter(); w != nil {
-			if ev, err := w.AppendEvent(ctx, id, "error", payload); err == nil {
-				e.bus.PublishEvent(ev)
-			}
-		}
-		_, _ = e.finishRun(ctx, id, turnExecutionID, StatusFailed, nil, nil)
-		e.handleNewLimitHit(ctx, id, t.Agent, info)
-		e.mu.Lock()
-		e.active--
-		e.mu.Unlock()
-		e.pump()
-		return
 	}
 
 	if !e.isActiveRun(id, turnExecutionID) {
