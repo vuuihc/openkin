@@ -366,6 +366,10 @@ func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
 		b.sendResponse(ctx, responseData{ID: d.ID, Status: 502, Error: "local response exceeds limit"})
 		return
 	}
+	// This allowlist omits Content-Encoding, so whatever it forwards must be
+	// identity-encoded. That holds because the transport decompresses whatever it
+	// negotiated for the request built by newLocalRequest; a local handler that
+	// set Content-Encoding itself would reach the client corrupted.
 	headers := map[string]string{}
 	for _, name := range []string{"Content-Type", "Cache-Control", "ETag", "Last-Modified"} {
 		if value := resp.Header.Get(name); value != "" {
