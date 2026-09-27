@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"io"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 func TestNewBridge(t *testing.T) {
@@ -108,6 +112,70 @@ func TestRelayedRequestReadsDecompressedBody(t *testing.T) {
 	}
 	if string(body) != `{"ok":true}` {
 		t.Fatalf("relayed body = %q, want plain JSON", body)
+	}
+	if got := resp.Header.Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding = %q, want it consumed by the transport", got)
+	}
+}
+
+// Mirrors the daemon's real response stack (internal/api/api.go wires
+// middleware.Compress(5)) instead of a hand-rolled gzip handler, and pins the
+// property the relay depends on: bodies as small as the pairing reply are
+// compressed too, so no JSON endpoint is exempt from the Accept-Encoding rule.
+func TestRelayedRequestDecompressesRealAPIMiddleware(t *testing.T) {
+	const payload = `{"device_id":"d","token":"t","label":"Kin"}`
+
+	r := chi.NewRouter()
+	r.Use(middleware.Compress(5))
+	r.Get("/api/pairing/exchange", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	})
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// Control: a request that does send Accept-Encoding really is compressed, so
+	// the assertions below cannot pass vacuously.
+	direct, err := http.NewRequest(http.MethodGet, srv.URL+"/api/pairing/exchange", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct.Header.Set("Accept-Encoding", "gzip")
+	directResp, err := srv.Client().Do(direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directResp.Body.Close()
+	directBody, err := io.ReadAll(directResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := directResp.Header.Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("control: Content-Encoding = %q, want gzip", got)
+	}
+	if !bytes.HasPrefix(directBody, []byte{0x1f, 0x8b}) {
+		t.Fatalf("control: middleware did not compress %d bytes: %q", len(payload), directBody)
+	}
+
+	req, err := newLocalRequest(context.Background(), srv.URL, requestData{
+		Method:  http.MethodGet,
+		Path:    "/api/pairing/exchange",
+		Headers: map[string]string{"accept-encoding": "gzip, deflate, br"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != payload {
+		t.Fatalf("relayed body = %q, want %q", body, payload)
 	}
 	if got := resp.Header.Get("Content-Encoding"); got != "" {
 		t.Fatalf("Content-Encoding = %q, want it consumed by the transport", got)
