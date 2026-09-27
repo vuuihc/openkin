@@ -16,11 +16,29 @@ struct Agent: Identifiable, Codable, Hashable {
     let capabilities: [String]?
     /// The model string from an available agent; nil for unavailable agents.
     let model: String?
-    let models: [String]?
+    /// Selectable models the agent advertises; nil when it advertises none.
+    let models: [AgentModelOption]?
 
     enum CodingKeys: String, CodingKey {
         case id, name, kind, available
         case isDefault = "default"
         case capabilities, model, models
+    }
+}
+
+/// One selectable model from GET /api/agents.
+struct AgentModelOption: Codable, Hashable {
+    let id: String
+    let label: String?
+    let tier: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, tier
+    }
+
+    /// Picker text: the catalog label when the daemon supplies one, else the id.
+    var displayLabel: String {
+        let label = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return label.isEmpty ? id : label
     }
 }

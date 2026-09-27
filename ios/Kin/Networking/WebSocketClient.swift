@@ -44,9 +44,7 @@ actor WebSocketClient: NSObject {
         self.relayKey = relayKey
         self.relayRoom = relayRoom
         self.session = session
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        self.decoder = decoder
+        self.decoder = APIClient.makeResponseDecoder()
         super.init()
     }
 

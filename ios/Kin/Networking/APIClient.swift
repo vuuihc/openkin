@@ -13,15 +13,19 @@ actor APIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: URL, token: String, relayKey: String? = nil, relayRoom: String? = nil, session: URLSession = .shared) {
-        self.baseURL = baseURL
-        self.token = token
-        self.relayKey = relayKey
-        self.relayRoom = relayRoom
-        self.session = session
-
+    /// Decoder for daemon responses.
+    ///
+    /// Shared with `WebSocketClient` and the tests so all three agree on the
+    /// wire contract instead of each configuring a decoder of their own.
+    static func makeResponseDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Deliberately no keyDecodingStrategy. The response models declare
+        // explicit snake_case CodingKeys ("created_at", "task_id", ...), and
+        // .convertFromSnakeCase rewrites an incoming key before the lookup, so a
+        // key whose stringValue is "created_at" can never match — every required
+        // multi-word field would fail with keyNotFound and every optional one
+        // would silently decode as nil. Request bodies are still encoded with
+        // .convertToSnakeCase below; that direction has no such conflict.
         // ISO8601 with optional fractional seconds
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
@@ -40,7 +44,16 @@ actor APIClient {
                 debugDescription: "Invalid ISO8601 date: \(dateString)"
             )
         }
-        self.decoder = decoder
+        return decoder
+    }
+
+    init(baseURL: URL, token: String, relayKey: String? = nil, relayRoom: String? = nil, session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.token = token
+        self.relayKey = relayKey
+        self.relayRoom = relayRoom
+        self.session = session
+        self.decoder = Self.makeResponseDecoder()
 
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
