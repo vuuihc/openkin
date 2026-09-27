@@ -157,6 +157,7 @@ echo "==> [1/4] build UI (ui → web/dist)"
 echo "==> [2/4] go build → $BIN"
 go build -o "$BIN" ./cmd/kin
 chmod +x "$BIN"
+./scripts/dev-sign.sh "$BIN"
 
 echo "==> [3/4] stop old daemon + desktop"
 # Desktop attaches to any healthy daemon on :7777 without replacing it —

@@ -8,6 +8,7 @@ ui:
 
 go-build:
 	go build -o kin ./cmd/kin
+	./scripts/dev-sign.sh kin
 
 # Cross-compile release binaries.
 release: ui

@@ -71,3 +71,6 @@ coverage/
 .kin-dev/
 nohup.out
 ios/.build/
+
+# Per-machine dev code-signing identity (see scripts/dev-sign.sh)
+.kin-codesign-identity
