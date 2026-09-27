@@ -1,7 +1,11 @@
 package relay
 
 import (
+	"compress/gzip"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -62,5 +66,79 @@ func TestMalformedRelayURLRejected(t *testing.T) {
 	defer cancel()
 	if err := b.Run(ctx); err == nil {
 		t.Fatal("Run accepted malformed relay URL")
+	}
+}
+
+// The relay hands response bodies to the client as-is, so a compressed body that
+// is not labelled as compressed arrives as unparseable bytes. A real client
+// (URLSession, browsers) sends Accept-Encoding, which is only safe if the local
+// read is decompressed first.
+func TestRelayedRequestReadsDecompressedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			_, _ = w.Write([]byte(`{"ok":true}`))
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		_, _ = gz.Write([]byte(`{"ok":true}`))
+		if err := gz.Close(); err != nil {
+			t.Errorf("gzip close: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	req, err := newLocalRequest(context.Background(), srv.URL, requestData{
+		Method:  http.MethodGet,
+		Path:    "/api/pairing/exchange",
+		Headers: map[string]string{"Accept-Encoding": "gzip, deflate, br"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Fatalf("relayed body = %q, want plain JSON", body)
+	}
+	if got := resp.Header.Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding = %q, want it consumed by the transport", got)
+	}
+}
+
+func TestNewLocalRequestKeepsAuthAndDropsHopHeaders(t *testing.T) {
+	// Header names arrive lowercased: the relay worker iterates Fetch Headers.
+	req, err := newLocalRequest(context.Background(), "http://127.0.0.1:7777", requestData{
+		Method: http.MethodPost,
+		Path:   "/api/tasks",
+		Headers: map[string]string{
+			"authorization":   "Bearer device-token",
+			"content-type":    "application/json",
+			"accept-encoding": "gzip",
+			"connection":      "keep-alive",
+			"content-length":  "2",
+		},
+	}, []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer device-token" {
+		t.Fatalf("Authorization = %q", got)
+	}
+	if got := req.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	for _, name := range []string{"Accept-Encoding", "Connection", "Content-Length"} {
+		if got := req.Header.Get(name); got != "" {
+			t.Fatalf("%s = %q, want it dropped", name, got)
+		}
 	}
 }
