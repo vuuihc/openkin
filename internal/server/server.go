@@ -95,6 +95,20 @@ func Serve(version string) error {
 	return ServeWith(version, flags)
 }
 
+// usageWindowProbers returns the subscription rate-limit probers. Setting
+// KIN_DISABLE_USAGE_WINDOWS=1 returns none, so every consumer sees "no windows":
+// the Usage view renders empty, start-time preflight never auto-waits, routing
+// stops skipping exhausted providers, and an in-flight limit wait can only back
+// off rather than learn a reset time. The Claude prober reuses the Claude Code
+// CLI's own credentials — on macOS it reads and refreshes that CLI's
+// login-Keychain item — so this opts out of that access entirely.
+func usageWindowProbers() []usagewindows.Prober {
+	if v := os.Getenv("KIN_DISABLE_USAGE_WINDOWS"); v == "1" || strings.EqualFold(v, "true") {
+		return nil
+	}
+	return []usagewindows.Prober{&usagewindows.ClaudeProber{}, &usagewindows.CodexProber{}}
+}
+
 // ServeWith starts the daemon with explicit flags (tests / main).
 func ServeWith(version string, flags ServeFlags) error {
 	home, err := os.UserHomeDir()
@@ -219,7 +233,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		return cli, cfg, err
 	}
 	// Share the same window prober with the engine for start-time preflight + auto-wait.
-	usageWin := usagewindows.New(60*time.Second, &usagewindows.ClaudeProber{}, &usagewindows.CodexProber{})
+	usageWin := usagewindows.New(60*time.Second, usageWindowProbers()...)
 	resolver := routing.NewDefaultResolver(routingCatalog, routing.WithUsageWindowChecker(usageWin))
 	skillManager := skills.NewManager(skills.Config{
 		BundledDir: filepath.Join(stateDir, "bundled-skills"),
