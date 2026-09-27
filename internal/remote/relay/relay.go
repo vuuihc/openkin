@@ -26,6 +26,18 @@ const (
 	protocolVersion = 2
 	maxBodyBytes    = 20 << 20
 	maxFrameBytes   = 32 << 20
+
+	// keepaliveInterval bounds how long the daemon leaves the relay socket
+	// silent. Cloudflare closes an idle WebSocket after roughly half a minute;
+	// every such close detaches all clients and takes the relay's HTTP proxy
+	// offline until the daemon dials in again, which clients show as an endless
+	// reconnect banner.
+	keepaliveInterval = 20 * time.Second
+	// healthyGeneration is how long a generation must stay up to count as
+	// established rather than a failed dial.
+	healthyGeneration = 30 * time.Second
+	minReconnectDelay = 250 * time.Millisecond
+	maxReconnectDelay = 15 * time.Second
 )
 
 type credentials struct {
@@ -41,6 +53,10 @@ type Bridge struct {
 	streams                             map[string]*websocket.Conn
 	httpClient                          *http.Client
 	lastError                           string
+	// keepaliveEvery and healthyAfter tune Run for tests; production uses the
+	// package defaults set by newBridge.
+	keepaliveEvery time.Duration
+	healthyAfter   time.Duration
 }
 
 type envelope struct {
@@ -127,8 +143,10 @@ func NewPersistentBridge(relayURL, stateDir, localBase string) (*Bridge, error) 
 func newBridge(relayURL, room, key, localBase string) *Bridge {
 	return &Bridge{
 		relayURL: relayURL, room: room, relayKey: key, localBase: strings.TrimRight(localBase, "/"),
-		streams:    make(map[string]*websocket.Conn),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		streams:        make(map[string]*websocket.Conn),
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		keepaliveEvery: keepaliveInterval,
+		healthyAfter:   healthyGeneration,
 	}
 }
 
@@ -179,23 +197,31 @@ func (b *Bridge) Run(ctx context.Context) error {
 	if err := validateRelayURL(b.relayURL); err != nil {
 		return err
 	}
-	delay := 250 * time.Millisecond
+	delay := minReconnectDelay
 	for {
+		started := time.Now()
 		err := b.runGeneration(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		b.closeStreams()
+		// A generation that stayed up is not a failed dial: drop back to the base
+		// delay instead of escalating toward the cap, so one relay-side close
+		// (an idle timeout, a worker deploy) does not leave clients waiting
+		// seconds for the daemon to come back.
+		if time.Since(started) >= b.healthyAfter {
+			delay = minReconnectDelay
+		}
 		wait := delay + time.Duration(time.Now().UnixNano()%int64(delay/2+1)) - delay/4
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(wait):
 		}
-		if delay < 15*time.Second {
+		if delay < maxReconnectDelay {
 			delay *= 2
-			if delay > 15*time.Second {
-				delay = 15 * time.Second
+			if delay > maxReconnectDelay {
+				delay = maxReconnectDelay
 			}
 		}
 		if err != nil {
@@ -228,6 +254,9 @@ func (b *Bridge) runGeneration(ctx context.Context) error {
 	b.mu.Lock()
 	b.lastError = ""
 	b.mu.Unlock()
+	keepaliveCtx, stopKeepalive := context.WithCancel(ctx)
+	defer stopKeepalive()
+	go b.keepalive(keepaliveCtx, c)
 	for {
 		typ, msg, err := c.Read(ctx)
 		if err != nil {
@@ -263,6 +292,34 @@ func (b *Bridge) runGeneration(ctx context.Context) error {
 			}
 		case "ping":
 			_ = b.send(ctx, "pong", map[string]string{"room": b.room})
+		}
+	}
+}
+
+// keepalive keeps the daemon↔relay socket from going idle.
+//
+// Cloudflare closes an idle WebSocket after about half a minute. When that
+// happens the relay detaches every client and answers proxied HTTP with 503
+// "daemon offline" until the next generation, so an otherwise healthy daemon
+// looks permanently offline to clients between reconnects. One frame per
+// keepaliveInterval is enough to keep the socket alive; the relay ignores the
+// kind, so it forwards nothing to the local daemon and expects no reply.
+//
+// A failed write means the relay is already gone: closing without a handshake
+// unblocks the read loop in runGeneration so the generation ends now rather
+// than after the read reports the same failure.
+func (b *Bridge) keepalive(ctx context.Context, c *websocket.Conn) {
+	ticker := time.NewTicker(b.keepaliveEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := b.send(ctx, "ping", map[string]string{"room": b.room}); err != nil {
+				_ = c.CloseNow()
+				return
+			}
 		}
 	}
 }
