@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,17 +12,165 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"nhooyr.io/websocket"
 )
 
 func TestNewBridge(t *testing.T) {
 	b := NewBridge("wss://relay.example.com", "room", "http://127.0.0.1:7777")
 	if b.room != "room" || b.localBase != "http://127.0.0.1:7777" || b.relayKey == "" {
 		t.Fatalf("unexpected bridge: %+v", b)
+	}
+	if b.keepaliveEvery != keepaliveInterval || b.healthyAfter != healthyGeneration {
+		t.Fatalf("bridge defaults = %v/%v", b.keepaliveEvery, b.healthyAfter)
+	}
+}
+
+// fakeRelay stands in for the Relay worker as Cloudflare fronts it: a socket
+// that stays silent longer than idle is dropped, exactly as the edge drops an
+// idle daemon leg (which detaches every client). hold closes the socket after a
+// fixed time regardless of traffic, and accepted records when each generation
+// began so the reconnect cadence can be measured.
+type fakeRelay struct {
+	idle time.Duration
+	hold time.Duration
+
+	mu       sync.Mutex
+	kinds    []string
+	accepted []time.Time
+	srv      *httptest.Server
+}
+
+func newFakeRelay(t *testing.T, idle, hold time.Duration) *fakeRelay {
+	t.Helper()
+	f := &fakeRelay{idle: idle, hold: hold}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close(websocket.StatusNormalClosure, "done")
+		f.mu.Lock()
+		f.accepted = append(f.accepted, time.Now())
+		f.mu.Unlock()
+
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		if f.hold > 0 {
+			go func() {
+				time.Sleep(f.hold)
+				cancel()
+				_ = c.CloseNow()
+			}()
+		}
+		for {
+			readCtx, cancelRead := context.WithTimeout(ctx, f.idle)
+			_, msg, err := c.Read(readCtx)
+			cancelRead()
+			if err != nil {
+				return
+			}
+			var frame envelope
+			if json.Unmarshal(msg, &frame) != nil {
+				continue
+			}
+			f.mu.Lock()
+			f.kinds = append(f.kinds, frame.Kind)
+			f.mu.Unlock()
+		}
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeRelay) snapshot() (kinds []string, accepted []time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.kinds...), append([]time.Time(nil), f.accepted...)
+}
+
+func (f *fakeRelay) count(kind string) int {
+	kinds, _ := f.snapshot()
+	n := 0
+	for _, k := range kinds {
+		if k == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// A daemon that lets the relay socket go idle loses every connected client to a
+// "daemon offline" close and cannot be reached over HTTP until it reconnects, so
+// the app shows a reconnect banner for a daemon that never went down. The
+// bridge must keep the leg warm on its own.
+func TestBridgeKeepsIdleRelayConnectionAlive(t *testing.T) {
+	const idle = 250 * time.Millisecond
+	f := newFakeRelay(t, idle, 0)
+
+	b := NewBridge(f.srv.URL, "room-1", "http://127.0.0.1:7777")
+	b.keepaliveEvery = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = b.Run(ctx) }()
+
+	time.Sleep(5 * idle)
+
+	kinds, accepted := f.snapshot()
+	if len(accepted) != 1 {
+		t.Fatalf("generations = %d, want 1: the relay socket went idle and was closed", len(accepted))
+	}
+	if kinds[0] != "hello" {
+		t.Fatalf("first frame = %q, want hello", kinds[0])
+	}
+	if pings := f.count("ping"); pings < 4 {
+		t.Fatalf("keepalive frames = %d, want at least 4 in %v", pings, 5*idle)
+	}
+	if !b.Connected() {
+		t.Fatal("bridge reports disconnected while the generation is alive")
+	}
+}
+
+// Backoff exists for a relay that refuses connections, not for one that
+// accepted a healthy generation and then closed it. Without a reset, each
+// relay-side close doubles the wait toward the 15s cap and every client stays
+// offline for that long.
+func TestBridgeResetsBackoffAfterHealthyGeneration(t *testing.T) {
+	const (
+		hold   = 120 * time.Millisecond
+		cycles = 4
+	)
+	f := newFakeRelay(t, time.Second, hold)
+
+	b := NewBridge(f.srv.URL, "room-1", "http://127.0.0.1:7777")
+	b.keepaliveEvery = 20 * time.Millisecond
+	b.healthyAfter = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = b.Run(ctx) }()
+
+	deadline := time.Now().Add(time.Duration(cycles) * (hold + minReconnectDelay + 250*time.Millisecond))
+	for {
+		if _, accepted := f.snapshot(); len(accepted) > cycles {
+			break
+		}
+		if time.Now().After(deadline) {
+			_, accepted := f.snapshot()
+			t.Fatalf("generations = %d, want more than %d", len(accepted), cycles)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	_, accepted := f.snapshot()
+	for i := 1; i < len(accepted); i++ {
+		if gap := accepted[i].Sub(accepted[i-1]); gap > 900*time.Millisecond {
+			t.Fatalf("reconnect gap %d = %v after a %v generation; backoff did not reset", i, gap, hold)
+		}
 	}
 }
 
