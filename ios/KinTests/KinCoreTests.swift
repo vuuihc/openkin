@@ -918,6 +918,32 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(rows.map(\.primaryText), ["one", "two", "three"])
     }
 
+    /// A message's column follows the speaker, not the role: the adapter stamps
+    /// tool echoes with role "user" while naming the agent that produced them,
+    /// and the console shows those in the agent column too.
+    func testTranscriptProjectionColumnsAgentEchoesBySpeaker() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(
+                seq: 1, type: "message",
+                payload: messagePayload("why is the sky blue", role: "user", speaker: "user")
+            ),
+            makeEvent(
+                seq: 2, type: "message",
+                payload: messagePayload("Read(src/main.go)", role: "user", speaker: "claude-code")
+            ),
+            makeEvent(
+                seq: 3, type: "message",
+                payload: messagePayload("Rayleigh scattering.", speaker: "claude-code")
+            ),
+        ])
+        XCTAssertEqual(rows.map(\.primaryText), [
+            "why is the sky blue",
+            "Read(src/main.go)",
+            "Rayleigh scattering.",
+        ])
+        XCTAssertEqual(rows.map(\.isUserMessage), [true, false, false])
+    }
+
     /// Events with nothing to say must not reach the timeline, and must not break
     /// a stream either: a tool result the adapter echoes back as an empty message
     /// arrives in the middle of one.
