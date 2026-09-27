@@ -97,6 +97,13 @@ final class NewTaskViewModel {
         selectedAgent?.models
     }
 
+    /// Display text for a model id, preferring the agent's advertised label.
+    /// Ids the agent does not advertise (its own default, for instance) render
+    /// as the raw id, exactly as they are submitted.
+    func modelLabel(for modelId: String) -> String {
+        selectedAgentModels?.first { $0.id == modelId }?.displayLabel ?? modelId
+    }
+
     /// Effective working directory: the picked recent CWD, or the custom path.
     var effectiveCWD: String {
         let path = selectedCWD ?? customCWD

@@ -594,6 +594,11 @@ final class KinCoreTests: XCTestCase {
 
         XCTAssertEqual(model.selectedAgentModels?.map(\.displayLabel), ["Opus", "sonnet"])
         XCTAssertEqual(model.selectedAgentModels?.map(\.id), ["opus", "sonnet"])
+
+        // The chip resolves the id back to the advertised label.
+        XCTAssertEqual(model.modelLabel(for: "opus"), "Opus")
+        // An id the agent does not advertise (its own default) renders as-is.
+        XCTAssertEqual(model.modelLabel(for: "default"), "default")
     }
 
     @MainActor
@@ -660,7 +665,8 @@ final class KinCoreTests: XCTestCase {
           "available":true,"default":false,"capabilities":["run"],
           "model":"opus","model_list_source":"recommended","model_list_status":"available",
           "models":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"},
-                    {"id":"haiku","label":"Haiku","tier":"fast"}]},
+                    {"id":"haiku","label":"Haiku","tier":"fast"},
+                    {"id":"deepseek-v4-flash-0731","tier":"fast"}]},
          {"id":"kin","name":"Kin","kind":"builtin","installed":true,"available":true,
           "default":true,"capabilities":["run"],"model":"default",
           "model_list_source":"configured","model_list_status":"default_only"}]
@@ -670,22 +676,35 @@ final class KinCoreTests: XCTestCase {
         let claude = agents[0]
         XCTAssertEqual(claude.id, "claude-code")
         XCTAssertEqual(claude.model, "opus")
-        XCTAssertEqual(claude.models?.count, 3)
+        XCTAssertEqual(claude.models?.count, 4)
         XCTAssertEqual(claude.models?.first?.id, "opus")
         XCTAssertEqual(claude.models?.first?.displayLabel, "Opus")
         XCTAssertNil(claude.models?.first?.tier)
-        XCTAssertEqual(claude.models?.last?.displayLabel, "Haiku")
-        XCTAssertEqual(claude.models?.last?.tier, "fast")
+        XCTAssertEqual(claude.models?[2].displayLabel, "Haiku")
+        XCTAssertEqual(claude.models?[2].tier, "fast")
+
+        // Configured provider models carry no label and may be "vendor/model".
+        XCTAssertEqual(claude.models?[3].displayLabel, "deepseek-v4-flash-0731")
+        XCTAssertEqual(claude.models?[3].tier, "fast")
 
         // An agent that advertises no choices omits `models` entirely.
         XCTAssertNil(agents[1].models)
         XCTAssertEqual(agents[1].isDefault, true)
     }
 
-    func testAgentModelOptionFallsBackToIdWhenLabelMissing() {
+    func testAgentModelOptionPrefersLabelThenLastPathSegment() {
         let option = AgentModelOption(id: "sonnet", label: nil, tier: nil)
         XCTAssertEqual(option.displayLabel, "sonnet")
         XCTAssertEqual(AgentModelOption(id: "sonnet", label: "  ", tier: nil).displayLabel, "sonnet")
+        XCTAssertEqual(
+            AgentModelOption(id: "anthropic/claude-sonnet-5", label: nil, tier: nil).displayLabel,
+            "claude-sonnet-5"
+        )
+        // A trailing slash leaves no segment, so the id stands in for the label.
+        XCTAssertEqual(
+            AgentModelOption(id: "deepseek/v4/   ", label: nil, tier: nil).displayLabel,
+            "deepseek/v4/"
+        )
     }
 
     func testKinTaskDecodesDaemonPayload() throws {
