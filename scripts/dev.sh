@@ -124,6 +124,7 @@ PIDS+=($!)
 build_backend() {
   echo "==> go build → $BIN"
   go build -o "$BIN" ./cmd/kin
+  ./scripts/dev-sign.sh "$BIN"
 }
 
 start_backend() {
