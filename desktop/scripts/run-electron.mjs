@@ -225,6 +225,11 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.ELECTRON_FORCE_IS_PACKAGED;
 // Mark explicit dev launch (sidecar path, assets) even if isPackaged mis-detects.
 env.KIN_DESKTOP_DEV = "1";
+// The usage-window probe reads and refreshes Claude Code's own credentials. In
+// dev there is no reason for Kin to touch another tool's Keychain item, and
+// disabling it also keeps dev tasks from being auto-waited or skipped on
+// subscription quota. KIN_DISABLE_USAGE_WINDOWS=0 re-enables the probe.
+env.KIN_DISABLE_USAGE_WINDOWS ??= "1";
 
 const child = spawn(electronBin, ["."], {
   cwd: root,

@@ -198,3 +198,15 @@ func TestServiceDoesNotCacheErrors(t *testing.T) {
 		t.Fatalf("expected cache hit after success, got %d calls", fp.calls)
 	}
 }
+
+// A Service with no probers is what KIN_DISABLE_USAGE_WINDOWS=1 produces. Every
+// consumer must then see "no windows" rather than an error.
+func TestServiceWithoutProbers(t *testing.T) {
+	svc := New(60 * time.Second)
+	if got := svc.Statuses(context.Background()); len(got) != 0 {
+		t.Fatalf("want no providers, got %+v", got)
+	}
+	if svc.IsExhausted(context.Background(), "anthropic", "claude-code", "subscription") {
+		t.Fatal("IsExhausted must be false when no probers are configured")
+	}
+}
