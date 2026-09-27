@@ -33,7 +33,7 @@ struct EventRow: View {
     @ViewBuilder
     private var contentView: some View {
         switch event.content {
-        case let .message(role, text):
+        case let .message(role, text, _, _):
             messageView(role: role, text: text)
 
         case let .reasoning(text):

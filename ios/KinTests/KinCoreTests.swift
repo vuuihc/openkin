@@ -837,7 +837,186 @@ final class KinCoreTests: XCTestCase {
         """)
         guard case .event(let event) = message else { return XCTFail("Expected event") }
         XCTAssertEqual(event.taskId, "t1")
-        XCTAssertEqual(event.content, .message(role: "assistant", text: "hello"))
+        XCTAssertEqual(
+            event.content,
+            .message(role: "assistant", text: "hello", speaker: "assistant", partial: false)
+        )
+    }
+
+    // MARK: - Task transcript projection
+
+    func testTaskEventDecodesStreamingMessageFields() throws {
+        let message = try decode(ServerMessage.self, """
+        {"kind":"event","data":{"task_id":"t1","event_epoch":0,"seq":3,"ts":1767225600000,"type":"message",
+         "payload":{"role":"assistant","speaker":"kin","partial":true,"phase":"","visibility":{"task":"1"},
+                    "content":[{"type":"text","text":"I am "}]}}}
+        """)
+        guard case .event(let event) = message else { return XCTFail("Expected event") }
+        XCTAssertEqual(
+            event.content,
+            .message(role: "assistant", text: "I am ", speaker: "kin", partial: true)
+        )
+    }
+
+    /// The daemon stores a turn as partial chunks and then the complete message,
+    /// with `usage` and `raw_output` in between. Rendered one row per event that
+    /// is the reported bug: every chunk its own bubble, the whole answer on top of
+    /// them, and placeholder rows for the accounting events.
+    func testTranscriptProjectionCoalescesStreamedChunks() {
+        let events = [
+            makeEvent(seq: 1, type: "message", payload: messagePayload(
+                "What model are you?", role: "user", speaker: "user"
+            )),
+            makeEvent(seq: 2, type: "task_started", payload: ["model": "grok-4.7"]),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("I am ", partial: true)),
+            makeEvent(seq: 4, type: "message", payload: messagePayload("Kin, a local ", partial: true)),
+            makeEvent(seq: 5, type: "message", payload: messagePayload("coding agent.", partial: true)),
+            makeEvent(seq: 6, type: "usage", payload: ["prompt_tokens": 1493]),
+            makeEvent(seq: 7, type: "raw_output", payload: ["line": "no price entry"]),
+            makeEvent(seq: 8, type: "message", payload: messagePayload(
+                "I am Kin, a local coding agent.", phase: "summary"
+            )),
+            makeEvent(seq: 9, type: "result", payload: ["is_error": false]),
+        ]
+
+        let rows = EventProjection.rows(from: events)
+
+        XCTAssertEqual(rows.map(\.primaryText), ["What model are you?", "I am Kin, a local coding agent."])
+        XCTAssertEqual(rows.map(\.isUserMessage), [true, false])
+        // The answer is the seq-8 message, not a row per chunk: seq 2, 6, 7 and 9
+        // leave nothing behind and seq 3-5 collapse into the message that closed
+        // them.
+        XCTAssertEqual(rows.map(\.seq), [1, 8])
+        XCTAssertEqual(rows.map(\.id), ["1-message", "8-message"])
+    }
+
+    func testTranscriptProjectionReplacesPreviewWithFinalMessage() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("Hel", partial: true)),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("Hello there")),
+        ])
+        XCTAssertEqual(rows.map(\.primaryText), ["Hello there"])
+    }
+
+    /// A run with no final message yet is the live answer: it shows what has
+    /// arrived, folded into one row.
+    func testTranscriptProjectionShowsUnfinishedStream() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("Hel", partial: true)),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("lo", partial: true)),
+        ])
+        XCTAssertEqual(rows.map(\.primaryText), ["Hello"])
+        XCTAssertEqual(rows.map(\.id), ["1-message"])
+    }
+
+    func testTranscriptProjectionSeparatesSpeakers() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("one", speaker: "kin", partial: true)),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("two", speaker: "codex", partial: true)),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("three", speaker: "kin", partial: true)),
+        ])
+        XCTAssertEqual(rows.map(\.primaryText), ["one", "two", "three"])
+    }
+
+    /// Events with nothing to say must not reach the timeline, and must not break
+    /// a stream either: a tool result the adapter echoes back as an empty message
+    /// arrives in the middle of one.
+    func testTranscriptProjectionDropsEmptyMessagesAndPlumbing() {
+        let events = [
+            makeEvent(seq: 1, type: "message", payload: [
+                "role": "user", "speaker": "claude-code", "partial": false,
+                "content": [["type": "tool_result", "content": "file contents"]],
+            ]),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("Hel", partial: true)),
+            makeEvent(seq: 3, type: "approval_decided", payload: ["approval_id": "a1"]),
+            makeEvent(seq: 4, type: "message", payload: messagePayload("lo", partial: true)),
+        ]
+        let rows = EventProjection.rows(from: events)
+        XCTAssertEqual(rows.map(\.primaryText), ["Hello"])
+    }
+
+    func testTranscriptProjectionDropsBlankStreams() {
+        XCTAssertTrue(EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload(" ", partial: true)),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("", partial: true)),
+        ]).isEmpty)
+
+        // A blank chunk in the middle does not split the run it belongs to.
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("Hel", partial: true)),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("", partial: true)),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("lo", partial: true)),
+        ])
+        XCTAssertEqual(rows.map(\.primaryText), ["Hello"])
+    }
+
+    /// A turn that streams, does tool work, streams again, and then closes with one
+    /// complete message. The chunks before the tools were previews of that same
+    /// message, so a row for them would repeat the answer.
+    func testTranscriptProjectionTakesBackPreviewsAcrossToolWork() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("Let me look.", partial: true)),
+            makeEvent(seq: 2, type: "tool_use", payload: ["name": "glob", "tool_use_id": "t1"]),
+            makeEvent(seq: 3, type: "tool_result", payload: ["tool_use_id": "t1", "ok": true]),
+            makeEvent(seq: 4, type: "message", payload: messagePayload("Found it.", partial: true)),
+            makeEvent(seq: 5, type: "message", payload: messagePayload(
+                "I looked and here is the answer.", phase: "summary"
+            )),
+        ])
+        // Tool events still render as placeholders; only the message rows are
+        // under test, and there is exactly one.
+        let texts = rows.filter { $0.id.hasSuffix("-message") }.map(\.primaryText)
+        XCTAssertEqual(texts, ["I looked and here is the answer."])
+    }
+
+    /// A preview stands on its own once a new user turn starts: nothing later can
+    /// claim to supersede it.
+    func testTranscriptProjectionKeepsPreviewsFromEarlierTurns() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("Streamed but never finished.", partial: true)),
+            makeEvent(seq: 2, type: "message", payload: messagePayload("Next question", role: "user", speaker: "user")),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("The answer.")),
+        ])
+        let texts = rows.filter { $0.id.hasSuffix("-message") }.map(\.primaryText)
+        XCTAssertEqual(texts, ["Streamed but never finished.", "Next question", "The answer."])
+    }
+
+    func testTranscriptProjectionKeepsVisibleRowsInOrder() {
+        let events = [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("hi")),
+            makeEvent(seq: 2, type: "error", payload: ["message": "boom"]),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("after")),
+        ]
+        let rows = EventProjection.rows(from: events)
+        XCTAssertEqual(rows.map(\.seq), [1, 2, 3])
+        XCTAssertEqual(rows.map(\.id), ["1-message", "2-error", "3-message"])
+    }
+
+    private func makeEvent(seq: Int, type: String, payload: [String: Any]) -> TaskEvent {
+        TaskEvent(
+            taskId: "t1",
+            eventEpoch: 0,
+            seq: seq,
+            ts: 1_767_225_600_000 + seq,
+            eventType: type,
+            payloadData: try? JSONSerialization.data(withJSONObject: payload)
+        )
+    }
+
+    private func messagePayload(
+        _ text: String,
+        role: String = "assistant",
+        speaker: String = "kin",
+        partial: Bool = false,
+        phase: String = ""
+    ) -> [String: Any] {
+        [
+            "role": role,
+            "speaker": speaker,
+            "partial": partial,
+            "phase": phase,
+            "content": [["type": "text", "text": text]],
+        ]
     }
 
     func testServerMessageDecodesUnknownType() throws {
