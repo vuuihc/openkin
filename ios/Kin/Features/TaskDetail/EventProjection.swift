@@ -25,8 +25,14 @@ enum EventProjection {
         let date = Date(timeIntervalSince1970: Double(event.ts) / 1000.0)
 
         switch event.content {
-        case .message(let role, let text, _, _):
-            return messageRow(seq: seq, date: date, role: role, text: text, content: event.content)
+        case .message(_, let text, let speaker, _):
+            return messageRow(
+                seq: seq,
+                date: date,
+                speaker: speaker,
+                text: text,
+                content: event.content
+            )
 
         case .reasoning(let text):
             return DisplayRow(
@@ -198,7 +204,7 @@ enum EventProjection {
             let row = messageRow(
                 seq: pending.seq,
                 date: Date(timeIntervalSince1970: Double(pending.ts) / 1000.0),
-                role: pending.role,
+                speaker: pending.speaker,
                 text: pending.text
             )
             rows.append(row)
@@ -272,14 +278,18 @@ enum EventProjection {
 
     /// Row for a message. A run of chunks that is still streaming renders under
     /// the seq that opened it; the message that completes the run replaces it.
+    ///
+    /// The speaker decides the column, not the role: a tool-result echo or a
+    /// skill preamble carries `role: "user"` while naming the agent that
+    /// produced it, and the console gives those to the agent column too.
     private static func messageRow(
         seq: Int,
         date: Date,
-        role: String,
+        speaker: String,
         text: String,
         content: TaskEventContent? = nil
     ) -> DisplayRow {
-        let isUser = role == "user"
+        let isUser = speaker == "user"
         return DisplayRow(
             id: "\(seq)-message",
             seq: seq,

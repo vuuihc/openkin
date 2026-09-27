@@ -170,9 +170,10 @@ private struct JSONValue: Encodable {
 
 /// The typed payload of a task event, derived from the event type + payload.
 enum TaskEventContent: Hashable {
-    /// `role` decides the transcript column; `speaker` is the agent that produced
-    /// it, and chunks stream in with `partial` set until the complete message
-    /// replaces them.
+    /// `role` is the wire's own role; `speaker` is the agent that produced the
+    /// message and decides which column the timeline shows it in, since a tool
+    /// echo carries role "user" while naming the agent. Chunks stream in with
+    /// `partial` set until the complete message replaces them.
     case message(role: String, text: String, speaker: String, partial: Bool)
     case reasoning(text: String)
     case toolCall(name: String, summary: String, input: String?, output: String?)
