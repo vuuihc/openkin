@@ -306,6 +306,40 @@ func (b *Bridge) ConnectURLWithKey() string {
 	return b.ConnectURL() + "&key=" + url.QueryEscape(b.relayKey)
 }
 
+// newLocalRequest mirrors a relayed client request onto the local daemon.
+//
+// The client's Accept-Encoding is deliberately not copied. The daemon gzips API
+// responses, and a request that carries Accept-Encoding makes Go's transport
+// skip the transparent decompression it would otherwise do, so resp.Body below
+// would hold gzip bytes. Those are relayed onward while the response header
+// allowlist drops Content-Encoding, leaving the client with gzip labelled as
+// JSON. Letting the transport negotiate encoding keeps the relayed body plain.
+func newLocalRequest(ctx context.Context, localBase string, d requestData, body []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, d.Method, localBase+d.Path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range d.Headers {
+		if isHopHeader(k) {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+	return req, nil
+}
+
+// isHopHeader reports headers that describe the client/relay connection and
+// must not be replayed onto the local daemon request. Accept-Encoding is on the
+// list for the reason given on newLocalRequest.
+func isHopHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "host", "connection", "upgrade", "content-length", "accept-encoding":
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
 	if d.ID == "" || d.Method == "" || !strings.HasPrefix(d.Path, "/") || len(d.BodyB64) > maxBodyBytes*2 {
 		b.sendResponse(ctx, responseData{ID: d.ID, Status: 413, Error: "invalid or oversized request"})
@@ -316,16 +350,10 @@ func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
 		b.sendResponse(ctx, responseData{ID: d.ID, Status: 413, Error: "invalid or oversized request"})
 		return
 	}
-	req, err := http.NewRequestWithContext(ctx, d.Method, b.localBase+d.Path, bytes.NewReader(body))
+	req, err := newLocalRequest(ctx, b.localBase, d, body)
 	if err != nil {
 		b.sendResponse(ctx, responseData{ID: d.ID, Status: 502, Error: "invalid local request"})
 		return
-	}
-	for k, v := range d.Headers {
-		if !strings.EqualFold(k, "host") && !strings.EqualFold(k, "connection") &&
-			!strings.EqualFold(k, "upgrade") && !strings.EqualFold(k, "content-length") {
-			req.Header.Set(k, v)
-		}
 	}
 	resp, err := b.httpClient.Do(req)
 	if err != nil {
