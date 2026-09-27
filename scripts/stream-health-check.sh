@@ -83,11 +83,11 @@ fi
 # Migration 009 allows NULL on historical rows created before attribution.
 # Any approval that has a partial set (some fields set, some not) is rejected
 # by the store; here we only flag total missing on recent-ish rows that look
-# post-M3 (created after 2026-07-22 UTC ≈ 1753142400000 ms). If the column
+# post-M3 (created after 2026-07-22 UTC = 1784678400000 ms). If the column
 # does not exist yet, skip gracefully.
 has_exec_col="$(sqlite3 "$DB" "SELECT 1 FROM pragma_table_info('approvals') WHERE name='execution_id' LIMIT 1;" || true)"
 if [[ "$has_exec_col" == "1" ]]; then
-  cutoff_ms=1753142400000
+  cutoff_ms=1784678400000
   missing_rows="$(sqlite3 "$DB" "
   SELECT id || ' task=' || task_id || ' created=' || created_at
   FROM approvals
