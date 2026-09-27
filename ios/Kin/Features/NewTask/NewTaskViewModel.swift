@@ -93,7 +93,7 @@ final class NewTaskViewModel {
     }
 
     /// The list of models the selected agent advertises, if any.
-    var selectedAgentModels: [String]? {
+    var selectedAgentModels: [AgentModelOption]? {
         selectedAgent?.models
     }
 

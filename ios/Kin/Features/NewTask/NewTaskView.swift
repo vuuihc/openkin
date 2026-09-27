@@ -203,8 +203,8 @@ struct NewTaskView: View {
                     ) {
                         Picker(String(localized: "task.new.config.model"), selection: $viewModel.selectedModel) {
                             Text(String(localized: "task.new.config.model.default")).tag(nil as String?)
-                            ForEach(models, id: \.self) { model in
-                                Text(model).tag(model as String?)
+                            ForEach(models, id: \.id) { model in
+                                Text(model.displayLabel).tag(model.id as String?)
                             }
                         }
                     }

@@ -455,7 +455,7 @@ final class KinCoreTests: XCTestCase {
                 isDefault: true,
                 capabilities: ["run"],
                 model: "opus",
-                models: ["opus"]
+                models: [AgentModelOption(id: "opus", label: "Opus", tier: nil)]
             )
         ]
         model.recentCwds = ["/Users/me/project"]
@@ -549,7 +549,10 @@ final class KinCoreTests: XCTestCase {
                 isDefault: true,
                 capabilities: ["run"],
                 model: "opus",
-                models: ["opus", "sonnet"]
+                models: [
+                    AgentModelOption(id: "opus", label: "Opus", tier: nil),
+                    AgentModelOption(id: "sonnet", label: nil, tier: nil)
+                ]
             )
         ]
         model.selectedAgent = model.agents.first
@@ -567,6 +570,30 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(draft.cwd, "/Users/me/project")
         XCTAssertEqual(draft.permissionMode, "accept_edits")
         XCTAssertNil(draft.workspaceMode)
+    }
+
+    @MainActor
+    func testNewTaskViewModelExposesAgentModelLabels() {
+        let model = NewTaskViewModel()
+        model.agents = [
+            Agent(
+                id: "claude-code",
+                name: "Claude Code",
+                kind: "cli",
+                available: true,
+                isDefault: false,
+                capabilities: ["run"],
+                model: "opus",
+                models: [
+                    AgentModelOption(id: "opus", label: "Opus", tier: nil),
+                    AgentModelOption(id: "sonnet", label: nil, tier: nil)
+                ]
+            )
+        ]
+        model.selectAgent(model.agents.first)
+
+        XCTAssertEqual(model.selectedAgentModels?.map(\.displayLabel), ["Opus", "sonnet"])
+        XCTAssertEqual(model.selectedAgentModels?.map(\.id), ["opus", "sonnet"])
     }
 
     @MainActor
@@ -607,12 +634,141 @@ final class KinCoreTests: XCTestCase {
           "updated_at": 1767225550000
         }
         """.utf8)
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let wait = try decoder.decode(TaskLimitWait.self, from: data)
+        let wait = try APIClient.makeResponseDecoder().decode(TaskLimitWait.self, from: data)
         XCTAssertEqual(wait.taskId, "t1")
         XCTAssertEqual(wait.state, "waiting")
         XCTAssertEqual(wait.attempts, 3)
+        XCTAssertEqual(wait.nextProbeAt, 1767225600000)
+    }
+
+    // MARK: - Daemon response decoding
+    //
+    // These decode real daemon payloads with the exact decoder the app uses
+    // (`APIClient.makeResponseDecoder()`), so they pin the wire contract rather
+    // than a decoder configured in the test. Decoding any of these with a
+    // mismatched key strategy is what the iOS client used to fail on after a
+    // successful pairing, reporting `DecodingError.keyNotFound` to the user as
+    // "The data couldn't be read because it is missing."
+
+    private func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
+        try APIClient.makeResponseDecoder().decode(type, from: Data(json.utf8))
+    }
+
+    func testAgentDecodesDaemonPayload() throws {
+        let agents = try decode([Agent].self, """
+        [{"id":"claude-code","name":"Claude Code","kind":"cli","installed":true,
+          "available":true,"default":false,"capabilities":["run"],
+          "model":"opus","model_list_source":"recommended","model_list_status":"available",
+          "models":[{"id":"opus","label":"Opus"},{"id":"sonnet","label":"Sonnet"},
+                    {"id":"haiku","label":"Haiku","tier":"fast"}]},
+         {"id":"kin","name":"Kin","kind":"builtin","installed":true,"available":true,
+          "default":true,"capabilities":["run"],"model":"default",
+          "model_list_source":"configured","model_list_status":"default_only"}]
+        """)
+        XCTAssertEqual(agents.count, 2)
+
+        let claude = agents[0]
+        XCTAssertEqual(claude.id, "claude-code")
+        XCTAssertEqual(claude.model, "opus")
+        XCTAssertEqual(claude.models?.count, 3)
+        XCTAssertEqual(claude.models?.first?.id, "opus")
+        XCTAssertEqual(claude.models?.first?.displayLabel, "Opus")
+        XCTAssertNil(claude.models?.first?.tier)
+        XCTAssertEqual(claude.models?.last?.displayLabel, "Haiku")
+        XCTAssertEqual(claude.models?.last?.tier, "fast")
+
+        // An agent that advertises no choices omits `models` entirely.
+        XCTAssertNil(agents[1].models)
+        XCTAssertEqual(agents[1].isDefault, true)
+    }
+
+    func testAgentModelOptionFallsBackToIdWhenLabelMissing() {
+        let option = AgentModelOption(id: "sonnet", label: nil, tier: nil)
+        XCTAssertEqual(option.displayLabel, "sonnet")
+        XCTAssertEqual(AgentModelOption(id: "sonnet", label: "  ", tier: nil).displayLabel, "sonnet")
+    }
+
+    func testKinTaskDecodesDaemonPayload() throws {
+        let task = try decode(KinTask.self, """
+        {"id":"01M0SGDCVMMEE5NFH23BWVTFGH","status":"running","agent":"claude-code",
+         "cwd":"/Users/dev/repo","prompt":"do the thing","permission_mode":"acceptEdits",
+         "workspace_mode":"worktree","created_at":1767225600000,"started_at":1767225601000,
+         "elapsed_seconds":12.5,"cost_usd":0.25,"session_ref":"sess-1"}
+        """)
+        XCTAssertEqual(task.id, "01M0SGDCVMMEE5NFH23BWVTFGH")
+        XCTAssertEqual(task.status, .running)
+        XCTAssertEqual(task.createdAt, 1767225600000)
+        XCTAssertEqual(task.startedAt, 1767225601000)
+        XCTAssertEqual(task.costUSD, 0.25)
+        XCTAssertEqual(task.permissionMode, "acceptEdits")
+        XCTAssertEqual(task.workspaceMode, "worktree")
+        XCTAssertEqual(task.sessionRef, "sess-1")
+    }
+
+    func testApprovalDecodesDaemonPayload() throws {
+        let approval = try decode(Approval.self, """
+        {"id":"ap1","task_id":"t1","kind":"tool_use",
+         "payload":{"tool_name":"Bash","input":{"command":"ls","description":"list files"}},
+         "decision":"pending","created_at":1767225600000}
+        """)
+        XCTAssertEqual(approval.taskId, "t1")
+        XCTAssertEqual(approval.status, .pending)
+        XCTAssertEqual(approval.createdAt, 1767225600000)
+        XCTAssertEqual(approval.toolName, "Bash")
+        XCTAssertEqual(approval.command, "ls")
+        XCTAssertEqual(approval.inputDetail, "list files")
+    }
+
+    func testTaskEventDecodesDaemonPayload() throws {
+        let event = try decode(TaskEvent.self, """
+        {"task_id":"t1","event_epoch":0,"seq":1,"ts":1767225600000,"type":"message",
+         "payload":{"role":"user","content":"hi"}}
+        """)
+        XCTAssertEqual(event.taskId, "t1")
+        XCTAssertEqual(event.eventEpoch, 0)
+        XCTAssertEqual(event.seq, 1)
+        XCTAssertEqual(event.ts, 1767225600000)
+        XCTAssertEqual(event.eventType, "message")
+    }
+
+    func testWorkerRecordDecodesDaemonPayload() throws {
+        let worker = try decode(WorkerRecord.self, """
+        {"version":1,"worker_id":"w1","label":"mac","owner_device_id":"d1",
+         "capabilities":[{"name":"shell","version":"1","features":["bash"]}],
+         "max_concurrent":2,
+         "lease":{"lease_id":"l1","worker_id":"w1","issued_at":10,"expires_at":20},
+         "state":"active","last_seen_at":30}
+        """)
+        XCTAssertEqual(worker.workerId, "w1")
+        XCTAssertEqual(worker.ownerDeviceId, "d1")
+        XCTAssertEqual(worker.maxConcurrent, 2)
+        XCTAssertEqual(worker.lastSeenAt, 30)
+        XCTAssertEqual(worker.capabilities.count, 1)
+        XCTAssertEqual(worker.lease.leaseId, "l1")
+        XCTAssertEqual(worker.lease.expiresAt, 20)
+    }
+
+    func testWorkspaceDecodesDaemonPayload() throws {
+        let workspaces = try decode([Workspace].self, """
+        [{"id":"g1","task_id":"t1","generation":2,"state":"integrated",
+          "source_root":"/Users/dev/repo","scope":".","created_at":1767225600000,
+          "updated_at":1767225601000,"integrated_at":1767225602000}]
+        """)
+        XCTAssertEqual(workspaces.count, 1)
+        XCTAssertEqual(workspaces[0].id, "g1")
+        XCTAssertEqual(workspaces[0].taskId, "t1")
+        XCTAssertEqual(workspaces[0].generation, 2)
+        XCTAssertEqual(workspaces[0].createdAt, 1767225600000)
+    }
+
+    func testServerMessageDecodesTaskUpdateWithAppDecoder() throws {
+        let message = try decode(ServerMessage.self, """
+        {"kind":"task_update","data":{"id":"t1","status":"running","agent":"kin",
+         "cwd":"/tmp","prompt":"hello","created_at":1767225600000}}
+        """)
+        guard case .taskUpdate(let task) = message else { return XCTFail("Expected taskUpdate") }
+        XCTAssertEqual(task.id, "t1")
+        XCTAssertEqual(task.createdAt, 1767225600000)
     }
 
     private func makeTask(status: TaskStatus) -> KinTask {
@@ -640,40 +796,35 @@ final class KinCoreTests: XCTestCase {
     // MARK: - ServerMessage
 
     func testServerMessageDecodesTaskUpdate() throws {
-        let decoder = JSONDecoder()
-        let data = Data("""
+        let message = try decode(ServerMessage.self, """
         {"kind": "task_update", "data": {"id": "t1", "status": "running", "agent": "kin", "cwd": "/tmp", "prompt": "hello", "created_at": 1767225600000}}
-        """.utf8)
-        let message = try decoder.decode(ServerMessage.self, from: data)
+        """)
         guard case .taskUpdate(let task) = message else { return XCTFail("Expected taskUpdate") }
         XCTAssertEqual(task.id, "t1")
         XCTAssertEqual(task.status, .running)
     }
 
     func testServerMessageDecodesTaskDeleted() throws {
-        let data = Data("""
+        let message = try decode(ServerMessage.self, """
         {"kind": "task_deleted", "data": {"id": "t1"}}
-        """.utf8)
-        let message = try JSONDecoder().decode(ServerMessage.self, from: data)
+        """)
         guard case .taskDeleted(let id) = message else { return XCTFail("Expected taskDeleted") }
         XCTAssertEqual(id, "t1")
     }
 
     func testServerMessageDecodesCanonicalEventPayload() throws {
-        let data = Data("""
+        let message = try decode(ServerMessage.self, """
         {"kind":"event","data":{"task_id":"t1","event_epoch":0,"seq":1,"ts":1767225600000,"type":"message","payload":{"role":"assistant","content":"hello"}}}
-        """.utf8)
-        let message = try JSONDecoder().decode(ServerMessage.self, from: data)
+        """)
         guard case .event(let event) = message else { return XCTFail("Expected event") }
         XCTAssertEqual(event.taskId, "t1")
         XCTAssertEqual(event.content, .message(role: "assistant", text: "hello"))
     }
 
     func testServerMessageDecodesUnknownType() throws {
-        let data = Data("""
+        let message = try decode(ServerMessage.self, """
         {"kind": "future_event", "data": {"some": "data"}}
-        """.utf8)
-        let message = try JSONDecoder().decode(ServerMessage.self, from: data)
+        """)
         guard case .unknown(let type, _) = message else { return XCTFail("Expected unknown") }
         XCTAssertEqual(type, "future_event")
     }

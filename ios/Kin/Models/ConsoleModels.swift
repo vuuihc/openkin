@@ -308,6 +308,21 @@ struct TaskLimitWait: Codable, Hashable {
     let lastError: String?
     let claimedAt: Int64?
     let updatedAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case eventEpoch = "event_epoch"
+        case userSeq = "user_seq"
+        case agent, provider, window
+        case resetAt = "reset_at"
+        case state, attempts
+        case nextProbeAt = "next_probe_at"
+        case firstWaitAt = "first_wait_at"
+        case lastProbeAt = "last_probe_at"
+        case lastError = "last_error"
+        case claimedAt = "claimed_at"
+        case updatedAt = "updated_at"
+    }
 }
 
 struct ProviderEntry: Identifiable, Codable, Hashable {
@@ -358,6 +373,13 @@ struct WorkerLease: Codable, Hashable {
     let workerId: String
     let issuedAt: Int64
     let expiresAt: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case leaseId = "lease_id"
+        case workerId = "worker_id"
+        case issuedAt = "issued_at"
+        case expiresAt = "expires_at"
+    }
 }
 
 struct WorkerRecord: Identifiable, Codable, Hashable {
@@ -372,6 +394,18 @@ struct WorkerRecord: Identifiable, Codable, Hashable {
     let state: String
     let lastSeenAt: Int64
     let revokedAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case workerId = "worker_id"
+        case label
+        case ownerDeviceId = "owner_device_id"
+        case capabilities
+        case maxConcurrent = "max_concurrent"
+        case lease, state
+        case lastSeenAt = "last_seen_at"
+        case revokedAt = "revoked_at"
+    }
 }
 
 struct WorkspaceTreeResponse: Codable, Hashable {
