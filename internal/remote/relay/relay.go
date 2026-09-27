@@ -254,6 +254,9 @@ func (b *Bridge) runGeneration(ctx context.Context) error {
 	b.mu.Lock()
 	b.lastError = ""
 	b.mu.Unlock()
+	// The keepalive gets its own context rather than the parent one: it has to
+	// stop before this generation returns, or a tick already in flight would
+	// write its ping onto the next generation's connection.
 	keepaliveCtx, stopKeepalive := context.WithCancel(ctx)
 	defer stopKeepalive()
 	go b.keepalive(keepaliveCtx, c)
