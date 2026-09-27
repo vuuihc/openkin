@@ -13,7 +13,20 @@ actor WebSocketClient: NSObject {
     private var generation: UInt64 = 0
     private var isReconnecting = false
     private var reconnectWork: Task<Void, Never>?
+    private var keepaliveWork: Task<Void, Never>?
     private let decoder: JSONDecoder
+
+    /// How often a connected socket sends a frame.
+    ///
+    /// The relay's edge closes a WebSocket that carries no traffic after about a
+    /// minute, and it forwards nothing of its own: a client left open on a task
+    /// with no running work was dropped and the app showed "reconnecting" while
+    /// the daemon was healthy.
+    private static let keepaliveInterval: Duration = .seconds(20)
+    /// Sent verbatim. The daemon's WebSocket read loop discards whatever a client
+    /// sends, and over the relay the worker forwards this to the daemon as a
+    /// stream frame for an unknown stream, which it also drops.
+    private static let keepaliveFrame = #"{"v":2,"kind":"ping"}"#
 
     /// Called when a decoded server message is received, along with the generation
     /// at which it was received. Callers should compare against their stored generation
@@ -98,8 +111,34 @@ actor WebSocketClient: NSObject {
         guard generation == self.generation, task?.state == .running else { return }
         if error == nil {
             reportState(.connected)
+            startKeepalive(generation: generation)
         } else {
             handleDisconnect()
+        }
+    }
+
+    /// Keep the connection from going idle while it is only being listened to.
+    /// A send failure means the socket is already gone, so it also turns a dead
+    /// connection into an immediate reconnect rather than a wait for the next
+    /// receive error.
+    private func startKeepalive(generation: UInt64) {
+        keepaliveWork?.cancel()
+        keepaliveWork = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.keepaliveInterval)
+                guard !Task.isCancelled, let self else { return }
+                guard await self.generation == generation else { return }
+                let task = await self.task
+                guard let task, task.state == .running else { return }
+                do {
+                    try await task.send(.string(Self.keepaliveFrame))
+                } catch {
+                    // A stale generation has already scheduled its own reconnect.
+                    guard await self.generation == generation else { return }
+                    await self.handleDisconnect()
+                    return
+                }
+            }
         }
     }
 
@@ -216,6 +255,8 @@ actor WebSocketClient: NSObject {
     private func cancelReconnect() {
         reconnectWork?.cancel()
         reconnectWork = nil
+        keepaliveWork?.cancel()
+        keepaliveWork = nil
     }
 
     private func reportState(_ state: WebSocketState) {
