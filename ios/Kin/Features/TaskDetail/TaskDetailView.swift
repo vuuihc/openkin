@@ -259,23 +259,24 @@ struct TaskDetailView: View {
     // MARK: - Timeline
 
     private var timeline: some View {
-        ScrollViewReader { proxy in
+        let rows = EventProjection.rows(from: viewModel.events)
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(viewModel.events) { event in
-                        let display = EventProjection.project(event)
-                        eventRow(display)
-                            .id(display.id)
+                    ForEach(rows) { row in
+                        eventRow(row)
+                            .id(row.id)
                     }
                 }
                 .padding(.vertical, 8)
             }
             .onChange(of: viewModel.events.count) { _, _ in
-                // Auto-scroll to the latest event
-                if let last = viewModel.events.last {
-                    let display = EventProjection.project(last)
+                // Auto-scroll to the latest row. Project again rather than reusing
+                // the rows above: the event that just arrived may have been folded
+                // into the open stream, leaving the row list unchanged.
+                if let last = EventProjection.rows(from: viewModel.events).last {
                     withAnimation {
-                        proxy.scrollTo(display.id, anchor: .bottom)
+                        proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
             }

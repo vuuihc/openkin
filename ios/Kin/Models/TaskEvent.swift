@@ -84,6 +84,7 @@ struct TaskEvent: Identifiable, Codable, Hashable {
     private func decodeMessage(from data: Data) -> TaskEventContent? {
         guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         let role = dict["role"] as? String ?? dict["speaker"] as? String ?? ""
+        let speaker = dict["speaker"] as? String ?? role
         // Content may be a string or an array of content blocks
         let text: String
         if let direct = dict["content"] as? String {
@@ -93,7 +94,12 @@ struct TaskEvent: Identifiable, Codable, Hashable {
         } else {
             text = ""
         }
-        return .message(role: role, text: text)
+        return .message(
+            role: role,
+            text: text,
+            speaker: speaker,
+            partial: dict["partial"] as? Bool ?? false
+        )
     }
 
     private func decodeReasoning(from data: Data) -> TaskEventContent? {
@@ -164,7 +170,10 @@ private struct JSONValue: Encodable {
 
 /// The typed payload of a task event, derived from the event type + payload.
 enum TaskEventContent: Hashable {
-    case message(role: String, text: String)
+    /// `role` decides the transcript column; `speaker` is the agent that produced
+    /// it, and chunks stream in with `partial` set until the complete message
+    /// replaces them.
+    case message(role: String, text: String, speaker: String, partial: Bool)
     case reasoning(text: String)
     case toolCall(name: String, summary: String, input: String?, output: String?)
     case error(message: String)
