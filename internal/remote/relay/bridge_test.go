@@ -125,6 +125,9 @@ func TestBridgeKeepsIdleRelayConnectionAlive(t *testing.T) {
 	if len(accepted) != 1 {
 		t.Fatalf("generations = %d, want 1: the relay socket went idle and was closed", len(accepted))
 	}
+	if len(kinds) == 0 {
+		t.Fatal("no frames recorded: the fake relay never saw the hello")
+	}
 	if kinds[0] != "hello" {
 		t.Fatalf("first frame = %q, want hello", kinds[0])
 	}
