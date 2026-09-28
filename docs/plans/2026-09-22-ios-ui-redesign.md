@@ -552,12 +552,102 @@ xcodegen generate
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,name=Kin iPhone 16 Pro' test`
   `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`
 
+### 2026-09-27 Slice 6: Chats — a task is a conversation
+
+- Renamed the Work tab and its list to Chats. A task is one conversation that
+  the daemon can be sent more messages into, so the list now reads as
+  conversations: the opening prompt's first line as the name, agent/model and
+  folder underneath, elapsed and cost on the right, and a status pill only
+  while a conversation is still going or ended badly.
+- Reworked task detail into a chat. Agent turns are bubbles on the leading edge
+  with the speaker named, the user's on the trailing edge, and tool work,
+  errors, and approvals stay compact transcript rows instead of becoming turns.
+  A one-line status strip replaced the metadata header.
+- Moved the rest of the task — status, agent/model, folder, elapsed, cost,
+  active Desktop scope, quota retry, changed files, fork, retry, continue after
+  a limit, cancel, delete — behind the Chat Info sheet, and left the composer
+  always present. One `POST /api/tasks/{id}/prompt` call covers both guiding a
+  running task (the daemon interrupts it) and following up on a finished one.
+- Made `TaskPresentation.summary.title` the first non-empty line of the prompt
+  for list rows and navigation titles; search still matches the whole prompt.
+- Fixed the follow-up payload: `POST /api/tasks/{id}/prompt` was sending
+  `{"message": ...}` while the daemon decodes `task.FollowUpRequest` and wants
+  `{"prompt": ...}`, so every message sent from the phone failed with 400
+  "prompt is required". Added a request-shape regression test that records what
+  `APIClient` puts on the wire.
+- Added transcript-projection coverage for notice-vs-turn styling and for the
+  first-line title, and localized the touched strings in English and Chinese.
+- Verified with:
+  `xcodebuild -project ios/Kin.xcodeproj -scheme Kin -destination 'platform=iOS Simulator,id=8E326D20-DE2D-44DA-BA9D-5471F8D0B89A' test`
+
+### 2026-09-27 Slice 7: Chats by project, approvals inside the conversation
+
+The organisation was not matching use. Approvals and questions held a whole tab
+("Today") and the top of its list, but agents run in auto/unrestricted modes, so
+they are rare — and Today was the only place one could be acted on, making an
+approval found inside a conversation a dead end. The Chats list was flat, which
+does not read like the project-grouped session lists of the Claude and Codex
+apps.
+
+- Tabs are now Chats (first and default), Projects, Library, Settings. The Today
+  tab, `ControlView`, and `ControlViewModel` are deleted, along with the
+  `AppModel` state only they read (`connectionState`, `navigationPath`,
+  `pendingActionCount`).
+- Chats opens with a one-row desktop header: desktop name, a switcher when more
+  than one desktop is saved, connection state, transport, session count. A
+  profile with no credential gets a "Pair a Desktop" button and an empty state
+  that offers it — Chats is the first screen a new install sees, so the pairing
+  entry point the Today tab used to provide had to move here.
+- Sessions are grouped by project with `TaskPresentation.chatGroups(tasks:projects:)`,
+  which mirrors the daemon's own filing rule (`ListTasksForProject`): a session
+  with a `project_id` belongs to that project, one without belongs to the project
+  whose root is its folder. Sessions no project claims stay together by folder,
+  and sessions with no folder collect in an unfiled group. `KinTask` now decodes
+  `project_id`, and the list fetches `GET /api/projects?status=all` for the roots.
+  Project groups open to their sessions; a group with something waiting on you
+  opens by default.
+- Approvals and questions are actioned from inside their conversation, pinned
+  above the composer where the reader already is (capped in height and scrollable
+  when several are pending). The session row and the Chats tab carry a marker and
+  a badge so they stay findable without a destination of their own.
+- Fixed a count that had been wrong all along: `GET /api/approvals` and
+  `GET /api/user-questions` list rows of *every* decision unless asked to filter,
+  and the app asked for nothing — so decided approvals were badged as pending and
+  offered as decisions again. Both requests now send `status=pending`, with a
+  regression test on the query the client puts on the wire.
+- The Chats header replaced `WorkScopeHeader`, `SettingsView` lost the second row
+  that led to the same connection screen as the first, and the connection banner's
+  tap now switches to the Settings tab instead of appending to an unbound path.
+- Retired the strings the deleted screens owned (`control.*` except
+  `control.no_desktop`, `tasks.section.*`, `tasks.filtered_count_format`,
+  `tasks.scope.message_format`, `settings.local*`), added the new ones in English
+  and Chinese, and covered grouping, ordering, project-id decoding, and the
+  pending-only requests with tests.
+- Verified with the simulator command above (78 tests) and with Simulator
+  screenshots of the tab bar, the unpaired first-run state, the grouped list
+  against the local daemon's real sessions, and the pinned approval card.
+- An adversarial review of the whole uncommitted restructure — this slice plus
+  the conversation rework before it — turned up three regressions, all fixed
+  here. Deleting from the Chat Info sheet left the conversation on the stack
+  polling a task that no longer existed (the dismissal now waits for the sheet to
+  close). Sessions were named differently on the phone than in the web console,
+  because the app derived its own name from the prompt instead of using the
+  daemon's `task.title`. And attachment prompts showed the absolute upload paths
+  the composer writes for the agent: the console's scrubbing is now ported as
+  `TaskPresentation.stripAttachmentBlock` / `displayUserPrompt` and applied to
+  titles, user turns, and the info sheet. The same pass closed a dead end the
+  conversation screen had always had: deleting a session from another client left
+  the phone polling a task that was gone, so the screen now closes with it. Suite:
+  81 tests.
+
 ## Open Questions
 
 1. Should `Routines` stay inside Settings/Operations, or become a top-level tab
    for the first redesign release?
-2. Should iOS include a Desktop-style "Inbox" tab, or is "Today" with a Needs
-   You section enough?
+2. ~~Should iOS include a Desktop-style "Inbox" tab, or is "Today" with a Needs
+   You section enough?~~ **Answered (Slice 7):** neither. Approvals and questions
+   are actioned inside the conversation they belong to, with a marker on the
+   session row and a count on the Chats tab. They get no surface of their own.
 3. Should provider editing remain in iOS, or should iOS show provider status
    only unless paired with the master credential?
 4. Should we prototype 2-3 Today/Task Detail visual directions before writing

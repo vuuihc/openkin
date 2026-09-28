@@ -1,22 +1,28 @@
 import SwiftUI
 
-/// Searchable task history list grouped by "Active" and "Completed".
+/// The conversation list: every task is one chat, filed under the project it
+/// belongs to. A project row opens to its sessions; a session opens the
+/// conversation.
 struct TaskListView: View {
     @Environment(AppSession.self) private var appSession
     @State private var viewModel = TaskListViewModel()
     @State private var searchQuery = ""
+    @State private var expansionOverrides: [String: Bool] = [:]
+    @State private var showConnection = false
 
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.isLoading && !viewModel.hasLoadedOnce {
+                if appSession.apiClient == nil {
+                    unpairedView
+                } else if viewModel.isLoading && !viewModel.hasLoadedOnce {
                     loadingView
                 } else if let error = viewModel.error, !viewModel.hasLoadedOnce {
                     errorView(error)
-                } else if filteredTasks.isEmpty && viewModel.hasLoadedOnce {
+                } else if sessions.isEmpty && viewModel.hasLoadedOnce {
                     emptyView
                 } else {
-                    taskList
+                    chatList
                 }
             }
             .background(Color(.systemGroupedBackground))
@@ -37,7 +43,17 @@ struct TaskListView: View {
             }
         }
         .task(id: appSession.activeProfileID) {
-            await loadClientAndRefresh()
+            await refresh()
+        }
+        .sheet(isPresented: $showConnection) {
+            // The Chats tab is where the app opens, so it is also where an app
+            // with no desktop yet has to be able to pair one.
+            ConnectionView { _, profile in
+                showConnection = false
+                appSession.refreshProfiles()
+                appSession.activate(profile: profile)
+                Task { await refresh() }
+            }
         }
     }
 
@@ -85,35 +101,61 @@ struct TaskListView: View {
         .background(Color(.systemGroupedBackground))
     }
 
-    private var taskList: some View {
-        let display = filteredTasks
-        let active = display.filter { !$0.isTerminal }
-        let completed = display.filter { $0.isTerminal }
+    /// No daemon credential, so there is nothing to list and no point looking for
+    /// chats. Chats is the tab the app opens on, which makes this the first thing
+    /// a new install shows: it has to offer the pairing, not just report the
+    /// absence of one.
+    private var unpairedView: some View {
+        ContentUnavailableView {
+            Label(String(localized: "state.empty_tasks"), systemImage: "desktopcomputer")
+        } description: {
+            Text(String(localized: "tasks.empty.unconfigured"))
+        } actions: {
+            Button(String(localized: "chats.pair_desktop")) {
+                showConnection = true
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
 
-        return List {
+    private var chatList: some View {
+        List {
             Section {
-                WorkScopeHeader(
+                ChatsScopeHeader(
                     profile: appSession.activeProfile,
+                    profiles: appSession.profiles,
                     connectionState: appSession.connectionState,
-                    visibleCount: display.count,
-                    totalCount: appSession.tasks.count
+                    sessionCount: appSession.tasks.count,
+                    onSelectProfile: activate,
+                    onPair: { showConnection = true }
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(Color.clear)
             }
 
-            if !active.isEmpty {
-                Section(String(localized: "tasks.section.active")) {
-                    ForEach(active) { task in
-                        taskRow(task)
+            if isSearching {
+                // A query is about finding one conversation, and a group holding
+                // one of forty matches reads worse than the flat list it came from.
+                Section {
+                    ForEach(sessions) { session in
+                        sessionRow(session)
                     }
                 }
-            }
-
-            if !completed.isEmpty {
-                Section(String(localized: "tasks.section.completed")) {
-                    ForEach(completed) { task in
-                        taskRow(task)
+            } else {
+                ForEach(groups) { group in
+                    Section {
+                        DisclosureGroup(isExpanded: expansionBinding(for: group)) {
+                            ForEach(group.sessions) { session in
+                                sessionRow(session)
+                            }
+                        } label: {
+                            ProjectGroupRow(
+                                group: group,
+                                isExpanded: isExpanded(group),
+                                pendingAction: pendingAction(in: group)
+                            )
+                        }
                     }
                 }
             }
@@ -121,18 +163,85 @@ struct TaskListView: View {
         .listStyle(.insetGrouped)
     }
 
-    // MARK: - Row
+    // MARK: - Rows
 
-    private func taskRow(_ task: KinTask) -> some View {
+    private func sessionRow(_ task: KinTask) -> some View {
         NavigationLink(value: AppRoute.taskDetail(id: task.id)) {
-            WorkTaskRow(task: task)
+            ChatRow(task: task, pendingAction: pendingAction(for: task.id))
         }
+    }
+
+    // MARK: - Grouping
+
+    private var groups: [ChatGroup] {
+        TaskPresentation.chatGroups(tasks: appSession.tasks, projects: viewModel.projects)
+    }
+
+    private func isExpanded(_ group: ChatGroup) -> Bool {
+        if let chosen = expansionOverrides[group.id] { return chosen }
+        // A collapsed group hides its sessions, and an approval waiting in there
+        // is a run that is going nowhere until someone looks. Open those.
+        return pendingAction(in: group) != nil
+    }
+
+    private func expansionBinding(for group: ChatGroup) -> Binding<Bool> {
+        Binding(
+            get: { isExpanded(group) },
+            set: { expansionOverrides[group.id] = $0 }
+        )
+    }
+
+    // MARK: - Pending work
+
+    /// A conversation waiting on you, as the list marks it. Approvals and
+    /// questions have no destination of their own any more, so this marker and
+    /// the tab badge are how they stay findable.
+    enum PendingAction: Equatable {
+        case approval
+        case question
+
+        var icon: String {
+            switch self {
+            case .approval: return "hand.raised.fill"
+            case .question: return "questionmark.bubble.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .approval: return .orange
+            case .question: return .blue
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .approval: return String(localized: "chats.row.pending_approval")
+            case .question: return String(localized: "chats.row.pending_question")
+            }
+        }
+    }
+
+    private func pendingAction(for taskId: String) -> PendingAction? {
+        if appSession.approvals.contains(where: { $0.taskId == taskId }) { return .approval }
+        if appSession.questions.contains(where: { $0.taskId == taskId }) { return .question }
+        return nil
+    }
+
+    private func pendingAction(in group: ChatGroup) -> PendingAction? {
+        let pending = group.sessions.compactMap { pendingAction(for: $0.id) }
+        if pending.contains(.approval) { return .approval }
+        return pending.first
     }
 
     // MARK: - Helpers
 
-    private var filteredTasks: [KinTask] {
+    private var sessions: [KinTask] {
         TaskPresentation.filter(appSession.tasks, query: searchQuery)
+    }
+
+    private var isSearching: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var emptyMessage: String {
@@ -145,9 +254,9 @@ struct TaskListView: View {
         )
     }
 
-    @MainActor
-    private func loadClientAndRefresh() async {
-        await refresh()
+    private func activate(profile: ServerProfile) {
+        appSession.activate(profile: profile)
+        Task { await refresh() }
     }
 
     @MainActor
@@ -163,17 +272,19 @@ struct TaskListView: View {
             TaskDetailView(taskId: id)
         case .newTask:
             NewTaskView()
-        default:
-            EmptyView()
         }
     }
 }
 
-private struct WorkScopeHeader: View {
+/// One row of context above the list: which desktop these conversations are on,
+/// how that connection is doing, and how many there are.
+private struct ChatsScopeHeader: View {
     let profile: ServerProfile?
+    let profiles: [ServerProfile]
     let connectionState: ConnectionState
-    let visibleCount: Int
-    let totalCount: Int
+    let sessionCount: Int
+    let onSelectProfile: (ServerProfile) -> Void
+    let onPair: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -193,23 +304,54 @@ private struct WorkScopeHeader: View {
                     Text(profile?.activeDesktopName ?? String(localized: "control.no_desktop"))
                         .font(.headline)
                         .lineLimit(1)
-                    Text(scopeMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+
+                    if connectionState == .unconfigured {
+                        Button(String(localized: "chats.pair_desktop")) {
+                            onPair()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .padding(.top, 2)
+                    }
                 }
+
                 Spacer(minLength: 8)
+
+                DesktopSwitcherButton(
+                    profile: profile,
+                    profiles: profiles,
+                    onSelect: onSelectProfile
+                )
             }
 
             HStack(spacing: 8) {
                 Label(statusText, systemImage: statusIcon)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(statusColor)
-                Spacer()
-                Text(countText)
+
+                if let profile {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Label(
+                        String(localized: String.LocalizationValue(profile.transport.localizationKey)),
+                        systemImage: transportIcon(for: profile.transport)
+                    )
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                }
+
+                Spacer()
+
+                Text(
+                    String(
+                        format: String(localized: "tasks.count_format"),
+                        sessionCount
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
             }
         }
         .padding(14)
@@ -218,17 +360,6 @@ private struct WorkScopeHeader: View {
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(.separator).opacity(0.2), lineWidth: 0.5)
-        )
-        .accessibilityElement(children: .combine)
-    }
-
-    private var scopeMessage: String {
-        guard let profile else {
-            return String(localized: "tasks.scope.unconfigured")
-        }
-        return String(
-            format: String(localized: "tasks.scope.message_format"),
-            profile.activeDesktopName
         )
     }
 
@@ -281,76 +412,172 @@ private struct WorkScopeHeader: View {
         }
     }
 
-    private var countText: String {
-        if visibleCount == totalCount {
-            return String(
-                format: String(localized: "tasks.count_format"),
-                totalCount
-            )
+    private func transportIcon(for transport: ServerProfileTransport) -> String {
+        switch transport {
+        case .lanHTTP:
+            return "network"
+        case .httpsTunnel:
+            return "lock"
+        case .relay:
+            return "point.3.connected.trianglepath.dotted"
         }
-        return String(
-            format: String(localized: "tasks.filtered_count_format"),
-            visibleCount,
-            totalCount
-        )
     }
 }
 
-private struct WorkTaskRow: View {
+/// Switches which desktop the app talks to. Only worth offering when there is
+/// more than one to switch between.
+private struct DesktopSwitcherButton: View {
+    let profile: ServerProfile?
+    let profiles: [ServerProfile]
+    let onSelect: (ServerProfile) -> Void
+
+    var body: some View {
+        if profiles.count > 1 {
+            Menu {
+                ForEach(profiles) { candidate in
+                    Button {
+                        onSelect(candidate)
+                    } label: {
+                        Label(
+                            candidate.activeDesktopName,
+                            systemImage: candidate.id == profile?.id ? "checkmark.circle.fill" : "desktopcomputer"
+                        )
+                    }
+                }
+            } label: {
+                Label(String(localized: "desktop.switch"), systemImage: "chevron.up.chevron.down")
+                    .labelStyle(.iconOnly)
+                    .font(.headline)
+                    .frame(width: 36, height: 36)
+                    .background(Color(.tertiarySystemGroupedBackground))
+                    .clipShape(Circle())
+            }
+            .accessibilityLabel(String(localized: "desktop.switch"))
+        }
+    }
+}
+
+/// A project in the list: what it is, how much of it is running, and whether any
+/// of it is waiting on you.
+private struct ProjectGroupRow: View {
+    let group: ChatGroup
+    let isExpanded: Bool
+    let pendingAction: TaskListView.PendingAction?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Text(
+                        String(
+                            format: String(localized: "tasks.count_format"),
+                            group.sessions.count
+                        )
+                    )
+                    if group.runningCount > 0 {
+                        Text("·")
+                        Label("\(group.runningCount)", systemImage: "play.circle")
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(.blue)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            }
+
+            Spacer(minLength: 8)
+
+            if let pendingAction {
+                Image(systemName: pendingAction.icon)
+                    .font(.caption)
+                    .foregroundStyle(pendingAction.color)
+                    .accessibilityLabel(pendingAction.label)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var title: String {
+        group.isUnfiled ? String(localized: "chats.section.no_project") : group.title
+    }
+}
+
+/// One conversation in the list: what it is about, who it runs with and where,
+/// and how long it took. The status pill is reserved for conversations that are
+/// still going or ended badly — a finished chat needs no badge saying it is
+/// finished.
+private struct ChatRow: View {
     let task: KinTask
+    let pendingAction: TaskListView.PendingAction?
 
     private var summary: TaskPresentation.Summary {
         TaskPresentation.summary(for: task)
     }
 
+    private var showsStatusBadge: Bool {
+        !task.isTerminal || task.status == .failed
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                StatusBadge(status: task.status)
-                if summary.needsUserAction {
-                    Image(systemName: "hand.tap.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .accessibilityLabel(String(localized: "tasks.needs_action"))
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(summary.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+
+                if showsStatusBadge {
+                    StatusBadge(status: task.status)
                 }
-                Spacer(minLength: 8)
+
+                HStack(spacing: 6) {
+                    Label(summary.agentAndModel, systemImage: "person.crop.circle")
+                        .lineLimit(1)
+                    Text("·")
+                    Label(summary.location, systemImage: "folder")
+                        .lineLimit(1)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                if let pendingAction {
+                    Image(systemName: pendingAction.icon)
+                        .font(.caption)
+                        .foregroundStyle(pendingAction.color)
+                        .accessibilityLabel(pendingAction.label)
+                }
                 Text(summary.elapsed)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
-            }
-
-            Text(summary.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-
-            Label(summary.location, systemImage: "folder")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            HStack(spacing: 8) {
-                Label(summary.agentAndModel, systemImage: "person.crop.circle")
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Label(summary.cost, systemImage: "dollarsign")
+                Text(summary.cost)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
                     .monospacedDigit()
             }
-            .font(.caption)
-            .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
     }
 }
 
 // MARK: - Previews
 
-#Preview("Populated") {
+#Preview("Chats") {
     TaskListView()
+        .environment(AppSession())
 }
 
 #Preview("Empty") {
     TaskListView()
+        .environment(AppSession())
 }

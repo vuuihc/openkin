@@ -188,23 +188,6 @@
         }
       }
     },
-    "control.tab" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今日"
-          }
-        }
-      }
-    },
     "permission.accept_edits" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -908,13 +891,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No tasks yet"
+            "value" : "No chats yet"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无任务"
+            "value" : "暂无对话"
           }
         }
       }
@@ -1027,13 +1010,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New Task"
+            "value" : "New Chat"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新任务"
+            "value" : "新建对话"
           }
         }
       }
@@ -1282,13 +1265,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Task"
+            "value" : "Chat"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务"
+            "value" : "对话"
           }
         }
       }
@@ -1299,13 +1282,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Events for this task have not arrived yet."
+            "value" : "Messages for this chat have not arrived yet."
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "这个任务的事件还未到达。"
+            "value" : "这个对话的消息还未到达。"
           }
         }
       }
@@ -1316,13 +1299,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No events"
+            "value" : "No messages"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无事件"
+            "value" : "还没有消息"
           }
         }
       }
@@ -1367,13 +1350,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Loading task..."
+            "value" : "Loading chat..."
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在加载任务..."
+            "value" : "正在加载对话..."
           }
         }
       }
@@ -1588,13 +1571,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld task(s)"
+            "value" : "%lld chat(s)"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld 个任务"
+            "value" : "%lld 个对话"
           }
         }
       }
@@ -1605,13 +1588,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tasks created on %@ will appear here."
+            "value" : "Chats you start on %@ will appear here."
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "在 %@ 创建的任务会显示在这里。"
+            "value" : "在 %@ 上开始的对话会显示在这里。"
           }
         }
       }
@@ -1622,13 +1605,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pair a Desktop to see remote task history."
+            "value" : "Pair a Desktop to see its chats."
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "配对一个 Desktop 后，可查看远端任务历史。"
+            "value" : "配对一个 Desktop 后，可查看它的对话。"
           }
         }
       }
@@ -1650,36 +1633,19 @@
         }
       }
     },
-    "tasks.filtered_count_format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld of %lld"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld / %lld"
-          }
-        }
-      }
-    },
     "tasks.loading" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Loading tasks..."
+            "value" : "Loading chats..."
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在加载任务..."
+            "value" : "正在加载对话..."
           }
         }
       }
@@ -1697,23 +1663,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "需要操作"
-          }
-        }
-      }
-    },
-    "tasks.scope.message_format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This list shows tasks from %@ only."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此列表仅显示 %@ 的任务。"
           }
         }
       }
@@ -1758,47 +1707,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Search tasks"
+            "value" : "Search chats"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "搜索任务"
-          }
-        }
-      }
-    },
-    "tasks.section.active" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Active"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "运行中"
-          }
-        }
-      }
-    },
-    "tasks.section.completed" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Completed"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已完成"
+            "value" : "搜索对话"
           }
         }
       }
@@ -1809,13 +1724,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tasks"
+            "value" : "Chats"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务"
+            "value" : "对话"
           }
         }
       }
@@ -1826,13 +1741,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Work"
+            "value" : "Chats"
           }
         },
         "zh" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "工作"
+            "value" : "对话"
           }
         }
       }
@@ -2500,142 +2415,6 @@
         }
       }
     },
-    "control.active_desktop" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Active Desktop"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前 Desktop"
-          }
-        }
-      }
-    },
-    "control.connecting" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connecting to Kin daemon..."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在连接 Kin daemon..."
-          }
-        }
-      }
-    },
-    "control.empty.message_format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ has no pending actions or running work."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 当前没有待处理操作或运行中的工作。"
-          }
-        }
-      }
-    },
-    "control.empty.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All Clear"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前无待办"
-          }
-        }
-      }
-    },
-    "control.empty.unconfigured" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pair a Desktop to see remote work here."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配对一个 Desktop 后，可在这里查看远端工作。"
-          }
-        }
-      }
-    },
-    "control.incompatible.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The daemon version is not compatible with this app. Please update Kin."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "daemon 版本与此 App 不兼容，请更新 Kin。"
-          }
-        }
-      }
-    },
-    "control.needs_you" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Needs You"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "需要你处理"
-          }
-        }
-      }
-    },
-    "control.needs_you.subtitle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Approvals and questions from the active Desktop."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "来自当前 Desktop 的审批和问题。"
-          }
-        }
-      }
-    },
     "control.no_desktop" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2649,193 +2428,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无 Desktop"
-          }
-        }
-      }
-    },
-    "control.offline.title" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cannot Reach Daemon"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法连接 daemon"
-          }
-        }
-      }
-    },
-    "control.reconnect.next_attempt_format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Next attempt in %llds"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 秒后重试"
-          }
-        }
-      }
-    },
-    "control.running_work" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Running Work"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "运行中的工作"
-          }
-        }
-      }
-    },
-    "control.running_work.subtitle" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Live tasks on the active Desktop only."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅显示当前 Desktop 上的实时任务。"
-          }
-        }
-      }
-    },
-    "control.scope.message_format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remote state and actions are scoped to %@."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "远端状态和操作仅作用于 %@。"
-          }
-        }
-      }
-    },
-    "control.scope.unconfigured" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pairing data is saved on this iPhone."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "配对资料保存在这台 iPhone 上。"
-          }
-        }
-      }
-    },
-    "control.summary.active" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Active"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "运行中"
-          }
-        }
-      }
-    },
-    "control.summary.approvals" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Approvals"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "审批"
-          }
-        }
-      }
-    },
-    "control.summary.questions" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Questions"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "问题"
-          }
-        }
-      }
-    },
-    "control.today" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今日"
-          }
-        }
-      }
-    },
-    "control.unauthorized.message" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your session has expired or the token is invalid."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "会话已过期，或 token 无效。"
           }
         }
       }
@@ -4234,40 +3826,6 @@
         }
       }
     },
-    "settings.local" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "On This iPhone"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "在这台 iPhone 上"
-          }
-        }
-      }
-    },
-    "settings.local.footer" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removing a profile deletes only this iPhone's saved connection and Keychain credential."
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移除 profile 只会删除这台 iPhone 上保存的连接与 Keychain 凭证。"
-          }
-        }
-      }
-    },
     "settings.remote" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4451,23 +4009,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@"
-          }
-        }
-      }
-    },
-    "settings.devices.count_format" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%d saved Desktop profiles"
-          }
-        },
-        "zh" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已保存 %d 个 Desktop profile"
           }
         }
       }
@@ -5658,6 +5199,176 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已撤销"
+          }
+        }
+      }
+    },
+    "chat.assistant" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Assistant"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "助手"
+          }
+        }
+      }
+    },
+    "chat.composer.interrupt_hint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sending interrupts the current run and restarts it with your message."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送会打断当前运行，并用你的消息重新开始。"
+          }
+        }
+      }
+    },
+    "chat.composer.placeholder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message this chat..."
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "给这个对话发消息..."
+          }
+        }
+      }
+    },
+    "chat.info.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chat Info"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对话信息"
+          }
+        }
+      }
+    },
+    "chat.pending.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting on you"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待你处理"
+          }
+        }
+      }
+    },
+    "chat.send" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送"
+          }
+        }
+      }
+    },
+    "chats.pair_desktop" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair a Desktop"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "配对一个 Desktop"
+          }
+        }
+      }
+    },
+    "chats.row.pending_approval" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for your approval"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待你批准"
+          }
+        }
+      }
+    },
+    "chats.row.pending_question" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for your answer"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待你回答"
+          }
+        }
+      }
+    },
+    "chats.section.no_project" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No project"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未归属项目"
           }
         }
       }

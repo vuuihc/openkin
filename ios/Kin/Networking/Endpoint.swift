@@ -18,10 +18,10 @@ enum Endpoint {
     case retryTask(id: String)
     case limitContinue(id: String)
     case forkTask(id: String)
-    case approvals
+    case approvals(status: String?)
     case approve(id: String)
     case deny(id: String)
-    case userQuestions
+    case userQuestions(status: String?)
     case answerQuestion(id: String)
     case workspaces(taskId: String)
     case workspaceDiff(taskId: String, workspaceId: String)
@@ -235,6 +235,10 @@ enum Endpoint {
         case .workspaceTree(_, _, let path):
             return path.map { [URLQueryItem(name: "path", value: $0)] }
         case .artifacts(let status):
+            return status.map { [URLQueryItem(name: "status", value: $0)] }
+        case .approvals(let status):
+            return status.map { [URLQueryItem(name: "status", value: $0)] }
+        case .userQuestions(let status):
             return status.map { [URLQueryItem(name: "status", value: $0)] }
         case .projects(let status):
             return status.map { [URLQueryItem(name: "status", value: $0)] }

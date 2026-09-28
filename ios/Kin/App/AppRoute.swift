@@ -4,6 +4,4 @@ import Foundation
 enum AppRoute: Hashable {
     case taskDetail(id: String)
     case newTask
-    case settings
-    case connection
 }

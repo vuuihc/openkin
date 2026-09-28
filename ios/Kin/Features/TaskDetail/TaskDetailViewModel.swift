@@ -86,13 +86,16 @@ final class TaskDetailViewModel {
         }
     }
 
-    /// Send guidance (a follow-up message) to an active task.
+    /// Send a message into a task's conversation. On a running task the daemon
+    /// interrupts the current run and re-queues it with this message; on a
+    /// finished one it continues the task from where it stopped. Same endpoint
+    /// either way, which is what makes a task a conversation.
     /// - Parameters:
     ///   - taskId: The task ID.
-    ///   - message: The guidance text.
+    ///   - message: The message text.
     ///   - apiClient: The API client.
     @MainActor
-    func sendGuidance(taskId: String, message: String, with apiClient: APIClient) async -> Bool {
+    func sendMessage(taskId: String, message: String, with apiClient: APIClient) async -> Bool {
         guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }

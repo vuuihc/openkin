@@ -135,6 +135,12 @@ final class AppSession {
         self.approvals = approvals
         self.questions = questions
     }
+
+    /// The session owns its connection state, so a view that only cares about how
+    /// one state renders has to ask for it.
+    func installConnectionStateForTesting(_ state: ConnectionState) {
+        connectionState = state
+    }
     #endif
 
     func approve(id: String) async throws {
