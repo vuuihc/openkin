@@ -1,8 +1,19 @@
 import Foundation
 import SwiftUI
 
-/// Projection helpers for rendering task events in the timeline UI.
+/// Projection helpers for rendering task events as a transcript.
 enum EventProjection {
+    /// How a row is drawn in the conversation.
+    enum RowStyle: Equatable {
+        /// The person speaking: a bubble on the trailing edge.
+        case user
+        /// An agent speaking: a bubble on the leading edge.
+        case agent
+        /// Everything else — tool work, errors, approvals, plumbing: a compact
+        /// row that reads as part of the transcript without being a turn.
+        case notice
+    }
+
     /// Display-ready row model for a single task event.
     struct DisplayRow: Identifiable {
         let id: String
@@ -12,14 +23,16 @@ enum EventProjection {
         let iconColor: Color
         let primaryText: String
         let secondaryText: String?
-        let isUserMessage: Bool
+        let style: RowStyle
+        /// The agent that produced an `agent` row, for labelling whose turn it is.
+        let speaker: String?
         let level: String?
         let isCollapsible: Bool
         let rawContent: TaskEventContent?
     }
 
     /// Convert a `TaskEvent` into a `DisplayRow` with all fields populated
-    /// for rendering in the timeline.
+    /// for rendering in the transcript.
     static func project(_ event: TaskEvent) -> DisplayRow {
         let seq = event.seq
         let date = Date(timeIntervalSince1970: Double(event.ts) / 1000.0)
@@ -43,7 +56,8 @@ enum EventProjection {
                 iconColor: .orange,
                 primaryText: text,
                 secondaryText: nil,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: true,
                 rawContent: event.content
@@ -58,7 +72,8 @@ enum EventProjection {
                 iconColor: .blue,
                 primaryText: name,
                 secondaryText: summary,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: true,
                 rawContent: event.content
@@ -73,7 +88,8 @@ enum EventProjection {
                 iconColor: .red,
                 primaryText: message,
                 secondaryText: nil,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: false,
                 rawContent: event.content
@@ -88,7 +104,8 @@ enum EventProjection {
                 iconColor: .green,
                 primaryText: String(localized: "event.approval_request"),
                 secondaryText: summary,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: false,
                 rawContent: event.content
@@ -103,7 +120,8 @@ enum EventProjection {
                 iconColor: .teal,
                 primaryText: String(localized: "event.question"),
                 secondaryText: summary,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: false,
                 rawContent: event.content
@@ -122,7 +140,8 @@ enum EventProjection {
                     to
                 ),
                 secondaryText: nil,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: false,
                 rawContent: event.content
@@ -137,7 +156,8 @@ enum EventProjection {
                 iconColor: .secondary,
                 primaryText: String(localized: "event.unknown"),
                 secondaryText: nil,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: false,
                 rawContent: event.content
@@ -152,7 +172,8 @@ enum EventProjection {
                 iconColor: .secondary,
                 primaryText: String(localized: "event.empty"),
                 secondaryText: nil,
-                isUserMessage: false,
+                style: .notice,
+                speaker: nil,
                 level: nil,
                 isCollapsible: false,
                 rawContent: nil
@@ -177,7 +198,7 @@ enum EventProjection {
         "meta",
     ]
 
-    /// Project a whole event list into the rows the timeline shows.
+    /// Project a whole event list into the rows the transcript shows.
     ///
     /// The daemon stores a turn's live output as a run of `partial` message
     /// events followed by one non-partial message holding the complete text, so a
@@ -243,7 +264,7 @@ enum EventProjection {
                 } else {
                     // The console also takes back previews across tool work, but
                     // stops at notices such as approvals, which it shows in a
-                    // progress card that keeps the earlier text. The timeline has
+                    // progress card that keeps the earlier text. The transcript has
                     // no such card, so here a notice does not end the run: text
                     // streamed before it belongs to the same answer.
                     let superseded = Set(
@@ -296,16 +317,20 @@ enum EventProjection {
             timestamp: date,
             icon: isUser ? "person.fill" : "brain",
             iconColor: isUser ? .accentColor : .purple,
-            primaryText: text,
+            // An attachment block carries absolute local paths for the agent; the
+            // reader gets the file names instead. The console's transcript does
+            // the same to the user's own turns.
+            primaryText: isUser ? TaskPresentation.displayUserPrompt(text) : text,
             secondaryText: nil,
-            isUserMessage: isUser,
+            style: isUser ? .user : .agent,
+            speaker: speaker,
             level: nil,
             isCollapsible: false,
             rawContent: content
         )
     }
 
-    /// Format a `Date` as a short time string for the timeline.
+    /// Format a `Date` as a short time string for the transcript.
     static func formatTimestamp(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .none

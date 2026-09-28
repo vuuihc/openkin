@@ -142,7 +142,7 @@ actor APIClient {
     }
 
     func promptTask(id: String, message: String) async throws {
-        let body = PromptBody(message: message)
+        let body = PromptBody(prompt: message)
         try await performEmpty(.promptTask(id: id), body: body)
     }
 
@@ -166,8 +166,12 @@ actor APIClient {
         )
     }
 
-    func approvals() async throws -> [Approval] {
-        try await perform(.approvals, timeout: 30)
+    /// Only requests still awaiting a decision by default: the daemon lists
+    /// approvals of every decision unless told otherwise, and everything this
+    /// app does with them — counting, badging, offering a decision — is about the
+    /// ones still open.
+    func approvals(status: String? = "pending") async throws -> [Approval] {
+        try await perform(.approvals(status: status), timeout: 30)
     }
 
     func approve(id: String) async throws {
@@ -180,8 +184,9 @@ actor APIClient {
         try await performEmpty(.deny(id: id), body: body)
     }
 
-    func userQuestions() async throws -> [UserQuestion] {
-        try await perform(.userQuestions, timeout: 30)
+    /// Unanswered questions only, for the same reason as `approvals(status:)`.
+    func userQuestions(status: String? = "pending") async throws -> [UserQuestion] {
+        try await perform(.userQuestions(status: status), timeout: 30)
     }
 
     func answerQuestion(id: String, selected: [String]?, otherText: String?) async throws {
@@ -451,7 +456,7 @@ actor APIClient {
             case 409:
                 throw APIError.conflict
             case 400..<500:
-                throw APIError.clientError(statusCode)
+                throw APIError.clientError(statusCode, message)
             case 500..<600:
                 throw APIError.serverError(statusCode)
             default:
@@ -483,7 +488,10 @@ private struct CreateTaskBody: Encodable {
 }
 
 private struct PromptBody: Encodable {
-    let message: String
+    /// The daemon decodes this as `task.FollowUpRequest.Prompt` and rejects the
+    /// request with 400 "prompt is required" when it arrives empty — so the field
+    /// name is the contract, not a label.
+    let prompt: String
 }
 
 private struct ForkBody: Encodable {

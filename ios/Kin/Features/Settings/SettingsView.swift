@@ -2,7 +2,6 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppSession.self) private var appSession
-    @State private var settingsModel = SettingsViewModel()
 
     private var profile: ServerProfile? {
         appSession.activeProfile
@@ -12,23 +11,17 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 activeDesktopSection
-                localPhoneSection
                 remoteOperationsSection
                 aboutLinkSection
             }
             .navigationTitle(String(localized: "settings.title"))
             .navigationBarTitleDisplayMode(.inline)
-            .task {
-                settingsModel.load()
-                settingsModel.activeProfileId = appSession.activeProfileID
-            }
-            .onChange(of: appSession.activeProfileID) { _, activeID in
-                settingsModel.load()
-                settingsModel.activeProfileId = activeID
-            }
         }
     }
 
+    /// One row to the connection screen, which lists every desktop and pairs new
+    /// ones. A second row to the same screen under a "local phone" heading was
+    /// just a second door into one room.
     private var activeDesktopSection: some View {
         Section {
             NavigationLink {
@@ -46,26 +39,6 @@ struct SettingsView: View {
             Text(String(localized: "settings.connection"))
         } footer: {
             Text(String(localized: "settings.connection.footer"))
-        }
-    }
-
-    private var localPhoneSection: some View {
-        Section {
-            NavigationLink {
-                ConnectionSettingsView()
-            } label: {
-                SettingsDestinationRow(
-                    icon: "iphone",
-                    title: String(localized: "settings.devices"),
-                    subtitle: localProfilesSubtitle,
-                    status: nil,
-                    statusColor: .secondary
-                )
-            }
-        } header: {
-            Text(String(localized: "settings.local"))
-        } footer: {
-            Text(String(localized: "settings.local.footer"))
         }
     }
 
@@ -148,14 +121,6 @@ struct SettingsView: View {
         return String(
             format: String(localized: "settings.connection.subtitle_format"),
             profile.origin
-        )
-    }
-
-    private var localProfilesSubtitle: String {
-        let count = settingsModel.savedProfiles.count
-        return String(
-            format: String(localized: "settings.devices.count_format"),
-            count
         )
     }
 

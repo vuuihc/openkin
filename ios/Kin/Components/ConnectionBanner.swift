@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A thin banner that shows the current connection state.
-/// Tapping navigates to connection settings when applicable.
+/// Tapping opens the Settings tab, where the connection can be fixed.
 struct ConnectionBanner: View {
     @Environment(AppModel.self) private var appModel
     @Environment(AppSession.self) private var appSession
@@ -12,7 +12,7 @@ struct ConnectionBanner: View {
         Group {
             if let info {
                 Button {
-                    appModel.navigationPath.append(.connection)
+                    appModel.selectedTab = .settings
                 } label: {
                     HStack(spacing: 6) {
                         if info.showSpinner {
@@ -86,34 +86,18 @@ struct ConnectionBanner: View {
     }
 }
 
-#Preview("Connected — hidden") {
-    let model = AppModel()
-    model.connectionState = .connected
-    return ConnectionBanner()
-        .environment(model)
-        .environment(AppSession())
-}
-
 #Preview("Reconnecting") {
-    let model = AppModel()
-    model.connectionState = .reconnecting(delay: 2)
+    let session = AppSession()
+    session.installConnectionStateForTesting(.reconnecting(delay: 2))
     return ConnectionBanner()
-        .environment(model)
-        .environment(AppSession())
-}
-
-#Preview("Unauthorized") {
-    let model = AppModel()
-    model.connectionState = .unauthorized
-    return ConnectionBanner()
-        .environment(model)
-        .environment(AppSession())
+        .environment(AppModel())
+        .environment(session)
 }
 
 #Preview("Offline") {
-    let model = AppModel()
-    model.connectionState = .offline("Connection lost")
+    let session = AppSession()
+    session.installConnectionStateForTesting(.offline("Connection lost"))
     return ConnectionBanner()
-        .environment(model)
-        .environment(AppSession())
+        .environment(AppModel())
+        .environment(session)
 }

@@ -5,6 +5,12 @@ import Observation
 @Observable
 final class TaskListViewModel {
     var tasks: [KinTask] = []
+    /// Projects are loaded only to bucket sessions: a session carries its folder
+    /// and, when the daemon filed it, a project id, but the directory that maps a
+    /// folder to a project lives on the project. `status: "all"` so a session in a
+    /// paused or archived project still groups under it instead of falling out of
+    /// the list's grouping.
+    var projects: [Project] = []
     var isLoading = false
     var error: String?
 
@@ -33,8 +39,15 @@ final class TaskListViewModel {
         error = nil
 
         do {
-            let fetched = try await apiClient.tasks()
-            tasks = fetched.sorted { $0.createdAt > $1.createdAt }
+            async let fetchedTasks = apiClient.tasks()
+            async let fetchedProjects = apiClient.projects(status: "all")
+            let loadedTasks = try await fetchedTasks
+            // Sessions are the screen's content and the project list only decides
+            // how they are bucketed, so a project fetch that fails degrades the
+            // grouping instead of emptying the screen.
+            let loadedProjects = (try? await fetchedProjects) ?? []
+            tasks = loadedTasks.sorted { $0.createdAt > $1.createdAt }
+            projects = loadedProjects
             hasLoadedOnce = true
         } catch {
             self.error = error.localizedDescription

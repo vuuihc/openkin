@@ -103,7 +103,9 @@ final class KinCoreTests: XCTestCase {
             agent: "claude-code",
             model: "opus",
             cwd: "/Users/me/project",
+            projectId: nil,
             prompt: "Refactor the task detail view",
+            title: nil,
             permissionMode: "default",
             workspaceMode: nil,
             approvalIds: nil,
@@ -140,7 +142,9 @@ final class KinCoreTests: XCTestCase {
             agent: "claude-code",
             model: "opus",
             cwd: "/tmp",
+            projectId: nil,
             prompt: "ship",
+            title: nil,
             permissionMode: nil,
             workspaceMode: nil,
             approvalIds: nil,
@@ -167,6 +171,139 @@ final class KinCoreTests: XCTestCase {
         XCTAssertFalse(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: active))
         XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: nil, activeProfileID: active))
         XCTAssertTrue(TaskPresentation.isCurrentProfileContext(boundProfileID: bound, activeProfileID: nil))
+    }
+
+    // MARK: - Chat grouping
+
+    func testChatGroupsFilesSessionsUnderTheirAssignedProject() {
+        let project = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let filed = makeTask(id: "filed", status: .succeeded, cwd: "/somewhere/else", projectId: "p1")
+
+        let groups = TaskPresentation.chatGroups(tasks: [filed], projects: [project])
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].kind, .project(id: "p1"))
+        XCTAssertEqual(groups[0].title, "OpenKin")
+        XCTAssertEqual(groups[0].sessions.map(\.id), ["filed"])
+    }
+
+    func testChatGroupsFallsBackToTheProjectRootWhenNoProjectIsAssigned() {
+        let project = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let inRoot = makeTask(id: "in-root", status: .succeeded, cwd: "/Users/me/openkin")
+
+        let groups = TaskPresentation.chatGroups(tasks: [inRoot], projects: [project])
+
+        XCTAssertEqual(groups.map(\.id), ["project:p1"])
+        XCTAssertEqual(groups[0].sessions.map(\.id), ["in-root"])
+    }
+
+    func testChatGroupsMatchesRootsDespiteTrailingSeparator() {
+        let project = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin/"])
+        let inRoot = makeTask(id: "in-root", status: .succeeded, cwd: "/Users/me/openkin")
+
+        XCTAssertEqual(TaskPresentation.chatGroups(tasks: [inRoot], projects: [project]).map(\.id), ["project:p1"])
+    }
+
+    /// A session the daemon filed under one project must not be re-filed under
+    /// another project that happens to have an overlapping root.
+    func testChatGroupsKeepsAnAssignedSessionOutOfAnotherProjectsRoot() {
+        let first = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let second = makeProject(id: "p2", name: "Kin", roots: ["/Users/me/openkin"])
+        let filed = makeTask(id: "filed", status: .succeeded, cwd: "/Users/me/openkin", projectId: "p2")
+
+        let groups = TaskPresentation.chatGroups(tasks: [filed], projects: [first, second])
+
+        XCTAssertEqual(groups.map(\.id), ["project:p2"])
+    }
+
+    func testChatGroupsBucketsUnclaimedSessionsByFolderAndUnfiledOnesLast() {
+        let project = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let loose = makeTask(id: "loose", status: .succeeded, cwd: "/Users/me/scratch/", createdAt: 3)
+        let homeless = makeTask(id: "homeless", status: .succeeded, cwd: "", createdAt: 2)
+        let filed = makeTask(id: "filed", status: .succeeded, cwd: "/Users/me/openkin", createdAt: 1)
+
+        let groups = TaskPresentation.chatGroups(tasks: [loose, homeless, filed], projects: [project])
+
+        XCTAssertEqual(groups.map(\.id), ["cwd:/Users/me/scratch", "unfiled", "project:p1"])
+        XCTAssertEqual(groups[0].title, "scratch")
+        XCTAssertTrue(groups[1].isUnfiled)
+        XCTAssertEqual(groups[1].title, "")
+    }
+
+    func testChatGroupsOrdersSessionsByMostRecentActivity() {
+        let project = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let oldest = makeTask(id: "oldest", status: .succeeded, cwd: "/Users/me/openkin", createdAt: 1_000)
+        let resumed = makeTask(
+            id: "resumed",
+            status: .running,
+            cwd: "/Users/me/openkin",
+            createdAt: 500,
+            startedAt: 9_000
+        )
+        let finished = makeTask(
+            id: "finished",
+            status: .succeeded,
+            cwd: "/Users/me/openkin",
+            createdAt: 700,
+            finishedAt: 5_000
+        )
+
+        let groups = TaskPresentation.chatGroups(tasks: [oldest, resumed, finished], projects: [project])
+
+        XCTAssertEqual(groups[0].sessions.map(\.id), ["resumed", "finished", "oldest"])
+        XCTAssertEqual(groups[0].runningCount, 1)
+    }
+
+    func testChatGroupsSkipsProjectsWithNoSessionsAndLeavesClaimsToTheirs() {
+        let used = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let unused = makeProject(id: "p2", name: "Empty", roots: ["/Users/me/empty"])
+        let filed = makeTask(id: "filed", status: .succeeded, cwd: "/Users/me/openkin")
+
+        let groups = TaskPresentation.chatGroups(tasks: [filed], projects: [used, unused])
+
+        XCTAssertEqual(groups.map(\.id), ["project:p1"])
+    }
+
+    func testChatGroupsSortsGroupsByTheirNewestSession() {
+        let project = makeProject(id: "p1", name: "OpenKin", roots: ["/Users/me/openkin"])
+        let quietProject = makeTask(id: "old", status: .succeeded, cwd: "/Users/me/openkin", createdAt: 10)
+        let loudFolder = makeTask(id: "new", status: .succeeded, cwd: "/Users/me/scratch", createdAt: 99)
+
+        let groups = TaskPresentation.chatGroups(tasks: [quietProject, loudFolder], projects: [project])
+
+        XCTAssertEqual(groups.map(\.id), ["cwd:/Users/me/scratch", "project:p1"])
+    }
+
+    func testKinTaskDecodesProjectIdWhenPresentAndAbsent() throws {
+        let filed = try decode(KinTask.self, """
+        {"id":"t1","status":"running","agent":"kin","cwd":"/tmp","project_id":"p1",
+         "prompt":"hello","title":"Greeting","created_at":1767225600000}
+        """)
+        XCTAssertEqual(filed.projectId, "p1")
+        XCTAssertEqual(filed.title, "Greeting")
+
+        let unfiled = try decode(KinTask.self, """
+        {"id":"t2","status":"running","agent":"kin","cwd":"/tmp",
+         "prompt":"hello","created_at":1767225600000}
+        """)
+        XCTAssertNil(unfiled.projectId)
+        // Rows from before the daemon named sessions carry no title at all.
+        XCTAssertNil(unfiled.title)
+    }
+
+    private func makeProject(id: String, name: String, roots: [String]?) -> Project {
+        Project(
+            id: id,
+            name: name,
+            mode: "ship",
+            status: "active",
+            softProgress: nil,
+            createdAt: 1,
+            updatedAt: 1,
+            lastActiveAt: 1,
+            roots: roots,
+            onePagerPath: nil
+        )
     }
 
     func testProjectPresentationBuildsScanSummary() {
@@ -491,7 +628,9 @@ final class KinCoreTests: XCTestCase {
                     agent: draft.agent,
                     model: draft.model,
                     cwd: draft.cwd,
+                    projectId: nil,
                     prompt: draft.prompt,
+                    title: nil,
                     permissionMode: draft.permissionMode,
                     workspaceMode: draft.workspaceMode,
                     approvalIds: nil,
@@ -790,21 +929,33 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(task.createdAt, 1767225600000)
     }
 
-    private func makeTask(status: TaskStatus) -> KinTask {
+    private func makeTask(
+        id: String = "t1",
+        status: TaskStatus,
+        prompt: String = "test",
+        title: String? = nil,
+        cwd: String = "/tmp",
+        projectId: String? = nil,
+        createdAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000),
+        startedAt: Int64? = nil,
+        finishedAt: Int64? = nil
+    ) -> KinTask {
         KinTask(
-            id: "t1",
+            id: id,
             status: status,
             agent: "kin",
             model: nil,
-            cwd: "/tmp",
-            prompt: "test",
+            cwd: cwd,
+            projectId: projectId,
+            prompt: prompt,
+            title: title,
             permissionMode: nil,
             workspaceMode: nil,
             approvalIds: nil,
             questionIds: nil,
-            createdAt: Int64(Date().timeIntervalSince1970 * 1000),
-            startedAt: nil,
-            finishedAt: nil,
+            createdAt: createdAt,
+            startedAt: startedAt,
+            finishedAt: finishedAt,
             elapsedSeconds: nil,
             costUSD: nil,
             sessionRef: nil,
@@ -882,7 +1033,7 @@ final class KinCoreTests: XCTestCase {
         let rows = EventProjection.rows(from: events)
 
         XCTAssertEqual(rows.map(\.primaryText), ["What model are you?", "I am Kin, a local coding agent."])
-        XCTAssertEqual(rows.map(\.isUserMessage), [true, false])
+        XCTAssertEqual(rows.map(\.style), [.user, .agent])
         // The answer is the seq-8 message, not a row per chunk: seq 2, 6, 7 and 9
         // leave nothing behind and seq 3-5 collapse into the message that closed
         // them.
@@ -941,10 +1092,10 @@ final class KinCoreTests: XCTestCase {
             "Read(src/main.go)",
             "Rayleigh scattering.",
         ])
-        XCTAssertEqual(rows.map(\.isUserMessage), [true, false, false])
+        XCTAssertEqual(rows.map(\.style), [.user, .agent, .agent])
     }
 
-    /// Events with nothing to say must not reach the timeline, and must not break
+    /// Events with nothing to say must not reach the transcript, and must not break
     /// a stream either: a tool result the adapter echoes back as an empty message
     /// arrives in the middle of one.
     func testTranscriptProjectionDropsEmptyMessagesAndPlumbing() {
@@ -1016,6 +1167,170 @@ final class KinCoreTests: XCTestCase {
         let rows = EventProjection.rows(from: events)
         XCTAssertEqual(rows.map(\.seq), [1, 2, 3])
         XCTAssertEqual(rows.map(\.id), ["1-message", "2-error", "3-message"])
+    }
+
+    /// Only turns are bubbles; tool work, errors and approvals stay compact rows
+    /// inside the transcript.
+    func testTranscriptProjectionStylesNoticesSeparatelyFromTurns() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("hi", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "tool_use", payload: ["name": "glob", "tool_use_id": "t1"]),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("Looking.")),
+            makeEvent(seq: 4, type: "error", payload: ["message": "boom"]),
+        ])
+        XCTAssertEqual(rows.map(\.style), [.user, .notice, .agent, .notice])
+    }
+
+    /// A list row and a navigation title show the name the daemon gave the
+    /// session, so a conversation is called the same thing on the phone as in the
+    /// web console.
+    func testTaskPresentationPrefersTheDaemonTitle() {
+        let named = makeTask(
+            status: .running,
+            prompt: "Fix the flaky login test.\nIt fails one run in ten.",
+            title: "Auth test flakiness"
+        )
+        XCTAssertEqual(TaskPresentation.summary(for: named).title, "Auth test flakiness")
+        // What a row shows has to be searchable even when the daemon generated it
+        // and the words appear nowhere in the prompt.
+        XCTAssertEqual(TaskPresentation.filter([named], query: "flakiness"), [named])
+
+        // A name the daemon left blank is not a name.
+        let blank = makeTask(status: .running, prompt: "Fix the relay timeouts.", title: "   ")
+        XCTAssertEqual(TaskPresentation.summary(for: blank).title, "Fix the relay timeouts.")
+    }
+
+    /// Rows written before the daemon started naming sessions fall back to the
+    /// line that opened the chat; a search still reaches text further down.
+    func testTaskPresentationTitlesFallBackToTheFirstPromptLine() {
+        XCTAssertEqual(
+            TaskPresentation.firstLine(of: "\n\n  Fix the relay timeouts.\nAnd the log noise."),
+            "Fix the relay timeouts."
+        )
+        XCTAssertEqual(TaskPresentation.firstLine(of: "   \n \n"), "")
+
+        let task = makeTask(
+            status: .running,
+            prompt: "Fix the relay timeouts.\nAlso the log noise."
+        )
+        XCTAssertEqual(TaskPresentation.summary(for: task).title, "Fix the relay timeouts.")
+        XCTAssertEqual(TaskPresentation.filter([task], query: "log noise").count, 1)
+    }
+
+    /// The composer writes absolute upload paths into the prompt for the agent.
+    /// Showing them would put the user's filesystem into a chat bubble and into
+    /// the info sheet, so the paths give way to the names they point at — which is
+    /// what the web console does with the same block.
+    func testDisplayUserPromptStripsAttachmentPaths() {
+        let prompt = """
+        What is in this shot?
+
+        Attached image:
+        - shot.png: /Users/me/.kin/uploads/abc.png
+        """
+
+        XCTAssertEqual(
+            TaskPresentation.displayUserPrompt(prompt),
+            "What is in this shot?\n\nAttached image: shot.png"
+        )
+        XCTAssertFalse(TaskPresentation.displayUserPrompt(prompt).contains("/Users/me"))
+
+        // A prompt that is nothing but an attachment still says what it carried.
+        XCTAssertEqual(
+            TaskPresentation.displayUserPrompt("Attached files:\n- a.txt: /tmp/a.txt\n"),
+            "Attached files: a.txt"
+        )
+        XCTAssertEqual(
+            TaskPresentation.stripAttachmentBlock("Attached files:\n- a.txt: /tmp/a.txt\n"),
+            ""
+        )
+
+        // Text without an attachment block is left exactly as it was written.
+        XCTAssertEqual(TaskPresentation.displayUserPrompt("just a question"), "just a question")
+    }
+
+    /// An attachment-only prompt names its chat after the file, not after the
+    /// "Attached files:" header.
+    func testTaskTitleIgnoresAttachmentPathBlocks() {
+        let task = makeTask(
+            status: .running,
+            prompt: "Attached image:\n- shot.png: /Users/me/.kin/uploads/abc.png\n"
+        )
+        XCTAssertEqual(TaskPresentation.summary(for: task).title, "Attached image: shot.png")
+    }
+
+    // MARK: - APIClient request shape
+
+    /// Sending a message into a task is the one call the daemon is picky about:
+    /// `POST /api/tasks/{id}/prompt` decodes `task.FollowUpRequest`, whose field
+    /// is `prompt`. A body keyed `message` decodes to an empty prompt and the
+    /// daemon answers 400 "prompt is required" — which is what the app used to
+    /// send, so guidance from the phone failed every time.
+    func testPromptTaskSendsThePromptFieldName() async throws {
+        RecordingURLProtocol.requests = []
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "http://127.0.0.1:7777")!,
+            token: "test-token",
+            session: URLSession(configuration: configuration)
+        )
+
+        try await client.promptTask(id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", message: "also fix the logs")
+
+        let request = try XCTUnwrap(RecordingURLProtocol.requests.first)
+        XCTAssertEqual(request.method, "POST")
+        XCTAssertEqual(request.url.path, "/api/tasks/01ARZ3NDEKTSV4RRFFQ69G5FAV/prompt")
+        let body = try XCTUnwrap(request.body, "the request carried no body")
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: body) as? [String: Any],
+            "body was not a JSON object: \(String(decoding: body, as: UTF8.self))"
+        )
+        XCTAssertEqual(json.count, 1, "unexpected extra fields: \(json.keys.sorted())")
+        XCTAssertEqual(json["prompt"] as? String, "also fix the logs")
+    }
+
+    /// The daemon lists approvals of *every* decision unless it is asked to
+    /// filter, so a client that asks for nothing counts decided approvals as
+    /// pending — badging chats, and offering decisions that were already made.
+    func testPendingCollectionsAskTheDaemonToFilter() async throws {
+        RecordingURLProtocol.requests = []
+        RecordingURLProtocol.responseBody = Data("[]".utf8)
+        defer { RecordingURLProtocol.responseBody = Data("{}".utf8) }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        let client = APIClient(
+            baseURL: URL(string: "http://127.0.0.1:7777")!,
+            token: "test-token",
+            session: URLSession(configuration: configuration)
+        )
+
+        _ = try await client.approvals()
+        _ = try await client.userQuestions()
+
+        XCTAssertEqual(RecordingURLProtocol.requests.map(\.url.path), ["/api/approvals", "/api/user-questions"])
+        for request in RecordingURLProtocol.requests {
+            let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems
+            XCTAssertEqual(
+                items?.first { $0.name == "status" }?.value,
+                "pending",
+                "\(request.url.path) did not ask for pending rows only"
+            )
+        }
+    }
+
+    /// A rejected request shows what the daemon said, not just the status code —
+    /// "prompt is required (400)" is a bug report; "Request error (400)" is not.
+    func testClientErrorCarriesTheDaemonMessage() {
+        XCTAssertEqual(
+            APIError.clientError(400, "prompt is required").errorDescription,
+            "prompt is required (400)"
+        )
+        XCTAssertEqual(
+            APIError.clientError(400, nil).errorDescription,
+            "Request error (400)"
+        )
     }
 
     private func makeEvent(seq: Int, type: String, payload: [String: Any]) -> TaskEvent {
@@ -1226,5 +1541,63 @@ final class KinCoreTests: XCTestCase {
     func testBundleVersionIsString() throws {
         let value = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion"))
         XCTAssertTrue(value is String, "CFBundleVersion must be a string, got \(type(of: value))")
+    }
+}
+
+/// Records what an `APIClient` actually puts on the wire and answers 200, so a
+/// request-body contract can be asserted without a daemon.
+final class RecordingURLProtocol: URLProtocol {
+    struct Request {
+        let url: URL
+        let method: String
+        let body: Data?
+    }
+
+    static var requests: [Request] = []
+    /// What every recorded request answers with. Defaults to an empty object,
+    /// which is enough for the calls whose response the test ignores.
+    static var responseBody = Data("{}".utf8)
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let url = request.url ?? URL(string: "about:blank")!
+        // URLSession moves the body into `httpBodyStream` before the protocol
+        // sees it, and reading it consumes it, so capture what is there.
+        var body = request.httpBody
+        if body == nil, let stream = request.httpBodyStream {
+            body = Self.drain(stream)
+        }
+        Self.requests.append(
+            Request(url: url, method: request.httpMethod ?? "", body: body)
+        )
+
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    private static func drain(_ stream: InputStream) -> Data {
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: buffer.count)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
     }
 }

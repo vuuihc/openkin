@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Task detail screen with a live-updating event timeline and input controls.
+/// Conversation screen: the task's transcript as a chat, with a composer that
+/// keeps the same task going, and its details one tap away.
 struct TaskDetailView: View {
     @Environment(AppSession.self) private var appSession
     @Environment(\.dismiss) private var dismiss
@@ -8,7 +9,9 @@ struct TaskDetailView: View {
     var apiClient: APIClient?
 
     @State private var viewModel = TaskDetailViewModel()
-    @State private var guidanceText = ""
+    @State private var composerText = ""
+    @State private var showInfo = false
+    @State private var deletedConversation = false
     @State private var showWorkspaceChanges = false
     @State private var showForkTask = false
     @State private var showDeleteConfirmation = false
@@ -38,9 +41,8 @@ struct TaskDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             if let task = viewModel.task {
-                header(task)
+                statusStrip(task)
             }
 
             if !isCurrentProfileContext {
@@ -49,7 +51,7 @@ struct TaskDetailView: View {
                 }
             }
 
-            // Timeline
+            // Transcript
             if viewModel.isLoading && viewModel.events.isEmpty {
                 Spacer()
                 loadingIndicator
@@ -60,19 +62,22 @@ struct TaskDetailView: View {
                 Spacer()
             } else if viewModel.events.isEmpty && viewModel.task != nil {
                 Spacer()
-                emptyTimeline
+                emptyTranscript
                 Spacer()
             } else {
-                timeline
+                transcript
             }
 
-            // Bottom bar
+            // Approvals and questions block the run they belong to. They sit
+            // against the composer rather than at their seq inside the transcript
+            // — the run can be hundreds of rows back, and the composer is where
+            // the reader already is.
+            attention
+
+            // Composer. Both cases continue this same task: a running one is
+            // guided (and interrupted), a finished one is followed up on.
             if let task = viewModel.task {
-                if task.isTerminal {
-                    terminalActions(task)
-                } else {
-                    inputBar(task)
-                }
+                composer(task)
             }
 
             // Error banner
@@ -80,30 +85,19 @@ struct TaskDetailView: View {
                 errorBanner(error)
             }
         }
-        .navigationTitle(String(localized: "task.detail.title"))
+        .navigationTitle(chatTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let task = viewModel.task, task.isTerminal {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            showForkTask = true
-                        } label: {
-                            Label(String(localized: "task.action.fork_task"), systemImage: "arrow.triangle.branch")
-                        }
-                        if appSession.canManageDaemon {
-                            Button(role: .destructive) {
-                                showDeleteConfirmation = true
-                            } label: {
-                                Label(String(localized: "task.action.delete_task"), systemImage: "trash")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .disabled(!canUseRemoteActions)
-                    .accessibilityLabel(String(localized: "task.actions"))
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showInfo = true
+                } label: {
+                    Image(systemName: "info.circle")
                 }
+                // Readable even when the profile went stale: the sheet says what
+                // this conversation was and which desktop it belongs to. Its
+                // actions are the part that needs a live connection.
+                .accessibilityLabel(String(localized: "chat.info.title"))
             }
         }
         .task(id: appSession.activeProfileID) {
@@ -116,118 +110,247 @@ struct TaskDetailView: View {
             guard let client = scopedClient else { return }
             await pollLoop(client: client)
         }
-        .onChange(of: appSession.tasks) { _, tasks in
+        .onChange(of: appSession.tasks) { previous, tasks in
             if let updated = tasks.first(where: { $0.id == taskId }) {
                 viewModel.task = updated
+            } else if previous.contains(where: { $0.id == taskId }), !tasks.isEmpty {
+                // Another client deleted this conversation. Its events are gone
+                // with it, so staying would mean polling a 404 forever. The
+                // non-empty guard is what keeps a profile switch — which empties
+                // the snapshot before refilling it — from closing the screen.
+                dismiss()
             }
         }
         .onChange(of: appSession.activeProfileID) { _, _ in
-            guidanceText = ""
+            composerText = ""
+            showInfo = false
+            deletedConversation = false
             showWorkspaceChanges = false
             showForkTask = false
             showDeleteConfirmation = false
         }
-        .sheet(isPresented: $showWorkspaceChanges) {
-            WorkspaceChangesView(taskId: taskId, apiClient: scopedClient)
-        }
-        .sheet(isPresented: $showForkTask) {
-            if let client = scopedClient {
-                ForkTaskView(taskId: taskId, apiClient: client) { _ in
-                    Task { await appSession.reconcileForeground() }
-                }
-            }
-        }
-        .confirmationDialog(
-            String(localized: "task.delete.confirmation_title"),
-            isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(String(localized: "task.action.delete"), role: .destructive) {
-                Task {
-                    guard let client = scopedClient else { return }
-                    if await viewModel.delete(taskId: taskId, with: client) {
-                        dismiss()
-                    }
-                }
+        .sheet(isPresented: $showInfo, onDismiss: {
+            // Deleting is the one info-sheet action that has to close the
+            // conversation as well, or the screen would sit there polling a task
+            // that no longer exists. The dismissal waits for the sheet to finish
+            // closing: SwiftUI drops a pop that happens underneath a presented
+            // sheet.
+            if deletedConversation { dismiss() }
+        }) {
+            if let task = viewModel.task {
+                chatInfo(task)
             }
         }
     }
 
     // MARK: - Header
 
+    /// The conversation's name: the task's prompt, as a chat list would show it.
+    private var chatTitle: String {
+        guard let task = viewModel.task else {
+            return String(localized: "task.detail.title")
+        }
+        let title = TaskPresentation.summary(for: task).title
+        return title.isEmpty ? String(localized: "task.detail.title") : title
+    }
+
+    /// One line of context above the transcript — what this conversation is doing
+    /// right now. The rest of what used to sit here belongs to the info sheet:
+    /// a chat keeps its metadata behind an (i), not above the messages.
     @ViewBuilder
-    private func header(_ task: KinTask) -> some View {
+    private func statusStrip(_ task: KinTask) -> some View {
         let summary = TaskPresentation.summary(for: task)
 
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 8) {
             HStack(spacing: 8) {
                 StatusBadge(status: task.status)
 
                 Text(summary.agentAndModel)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-
-                Spacer()
-            }
-
-            Text(summary.title)
-                .font(.headline)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 4) {
-                Image(systemName: "folder")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(summary.location)
                     .lineLimit(1)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
 
-            HStack(spacing: 16) {
-                Label(summary.elapsed,
-                      systemImage: "clock")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 8)
 
-                Label(summary.cost,
-                      systemImage: "dollarsign")
+                if summary.needsUserAction {
+                    Label(String(localized: "tasks.needs_action"), systemImage: "hand.tap.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+
+                Text(summary.elapsed)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-
-                Spacer()
+                    .monospacedDigit()
             }
 
             Divider()
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .background(.background)
+    }
 
-            Label(scopeText, systemImage: "desktopcomputer")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(isCurrentProfileContext ? Color.secondary : Color.orange)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+    // MARK: - Info sheet
 
-            if let wait = viewModel.limitWait,
-               wait.state == "waiting" || wait.state == "probing"
-            {
-                let retryText = String(localized: "task.automatic_retry")
-                let attemptsText = String.localizedStringWithFormat(
-                    String(
-                        localized: "task.attempts_format",
-                        defaultValue: "%lld attempt(s)",
-                        comment: "Task detail: quota retry count"
-                    ),
-                    wait.attempts
-                )
-                Label(
-                    "\(retryText) · \(attemptsText)",
-                    systemImage: "arrow.clockwise.circle"
-                )
-                .font(.caption)
-                .foregroundStyle(.orange)
+    /// What the conversation is, where it runs, what it costs, and the actions on
+    /// it — the part of a task that is not the transcript.
+    @ViewBuilder
+    private func chatInfo(_ task: KinTask) -> some View {
+        let summary = TaskPresentation.summary(for: task)
+
+        NavigationStack {
+            List {
+                Section {
+                    // The whole opening prompt: the chat title carries only its
+                    // first line. Attachment blocks keep their file names but lose
+                    // the local paths, which are for the agent and not the reader.
+                    Text(TaskPresentation.displayUserPrompt(task.prompt))
+                        .font(.subheadline.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    LabeledContent(String(localized: "settings.status")) {
+                        StatusBadge(status: task.status)
+                    }
+
+                    LabeledContent {
+                        Text(summary.agentAndModel)
+                    } label: {
+                        Text(String(localized: "task.new.config.agent"))
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "folder")
+                        Text(summary.location).lineLimit(1)
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                    HStack(spacing: 16) {
+                        Label(summary.elapsed, systemImage: "clock")
+                        Label(summary.cost, systemImage: "dollarsign")
+                        Spacer()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
+                    Label(scopeText, systemImage: "desktopcomputer")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(isCurrentProfileContext ? Color.secondary : Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let wait = viewModel.limitWait,
+                       wait.state == "waiting" || wait.state == "probing"
+                    {
+                        let retryText = String(localized: "task.automatic_retry")
+                        let attemptsText = String.localizedStringWithFormat(
+                            String(
+                                localized: "task.attempts_format",
+                                defaultValue: "%lld attempt(s)",
+                                comment: "Task detail: quota retry count"
+                            ),
+                            wait.attempts
+                        )
+                        Label(
+                            "\(retryText) · \(attemptsText)",
+                            systemImage: "arrow.clockwise.circle"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    }
+                }
+
+                Section {
+                    Button {
+                        showWorkspaceChanges = true
+                    } label: {
+                        Label(String(localized: "task.action.changes"), systemImage: "doc.text")
+                    }
+
+                    Button {
+                        showForkTask = true
+                    } label: {
+                        Label(String(localized: "task.action.fork"), systemImage: "arrow.triangle.branch")
+                    }
+
+                    Button {
+                        Task {
+                            guard let client = scopedClient else { return }
+                            _ = await viewModel.retry(taskId: taskId, with: client)
+                        }
+                    } label: {
+                        Label(String(localized: "state.retry"), systemImage: "arrow.clockwise")
+                    }
+
+                    if task.status == .failed {
+                        Button {
+                            Task {
+                                guard let client = scopedClient else { return }
+                                await viewModel.continueAfterLimit(taskId: taskId, with: client)
+                            }
+                        } label: {
+                            Label(String(localized: "task.action.continue"), systemImage: "play.fill")
+                        }
+                        .tint(.orange)
+                    }
+
+                    if task.isTerminal {
+                        if appSession.canManageDaemon {
+                            Button(role: .destructive) {
+                                showDeleteConfirmation = true
+                            } label: {
+                                Label(String(localized: "task.action.delete_task"), systemImage: "trash")
+                            }
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            Task {
+                                guard let client = scopedClient else { return }
+                                await viewModel.cancel(taskId: taskId, with: client)
+                            }
+                        } label: {
+                            Label(String(localized: "task.cancel"), systemImage: "stop.circle")
+                        }
+                    }
+                }
+                .disabled(!canUseRemoteActions)
+            }
+            .navigationTitle(String(localized: "chat.info.title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "action.cancel")) {
+                        showInfo = false
+                    }
+                }
+            }
+            .sheet(isPresented: $showWorkspaceChanges) {
+                WorkspaceChangesView(taskId: taskId, apiClient: scopedClient)
+            }
+            .sheet(isPresented: $showForkTask) {
+                if let client = scopedClient {
+                    ForkTaskView(taskId: taskId, apiClient: client) { _ in
+                        Task { await appSession.reconcileForeground() }
+                    }
+                }
+            }
+            .confirmationDialog(
+                String(localized: "task.delete.confirmation_title"),
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button(String(localized: "task.action.delete"), role: .destructive) {
+                    Task {
+                        guard let client = scopedClient else { return }
+                        if await viewModel.delete(taskId: taskId, with: client) {
+                            deletedConversation = true
+                            showInfo = false
+                        }
+                    }
+                }
             }
         }
-        .padding()
-        .background(.background)
     }
 
     private var scopeText: String {
@@ -256,15 +379,15 @@ struct TaskDetailView: View {
         return profile.activeDesktopName
     }
 
-    // MARK: - Timeline
+    // MARK: - Transcript
 
-    private var timeline: some View {
+    private var transcript: some View {
         let rows = EventProjection.rows(from: viewModel.events)
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { row in
-                        eventRow(row)
+                        transcriptRow(row)
                             .id(row.id)
                     }
                 }
@@ -284,7 +407,70 @@ struct TaskDetailView: View {
     }
 
     @ViewBuilder
-    private func eventRow(_ row: EventProjection.DisplayRow) -> some View {
+    private func transcriptRow(_ row: EventProjection.DisplayRow) -> some View {
+        switch row.style {
+        case .user:
+            bubble(row, fromUser: true)
+        case .agent:
+            bubble(row, fromUser: false)
+        case .notice:
+            noticeRow(row)
+        }
+    }
+
+    /// A turn in the conversation: yours on the trailing edge, an agent's on the
+    /// leading edge with the speaker named above it.
+    private func bubble(_ row: EventProjection.DisplayRow, fromUser: Bool) -> some View {
+        HStack(spacing: 0) {
+            if fromUser { Spacer(minLength: 48) }
+
+            VStack(alignment: fromUser ? .trailing : .leading, spacing: 3) {
+                if !fromUser {
+                    Text(speakerName(row.speaker))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 6)
+                }
+
+                Text(row.primaryText)
+                    .textSelection(.enabled)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        fromUser ? Color.accentColor.opacity(0.16) : Color(.secondarySystemBackground),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
+
+                Text(EventProjection.formatTimestamp(row.timestamp))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
+            }
+
+            if !fromUser { Spacer(minLength: 48) }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        // Speaker, text and time are one turn to a reader, so they read as one
+        // stop rather than three.
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The name above an agent's bubble. Rows the daemon stamps only with a role
+    /// arrive as "assistant"; the rest name the worker that produced the turn.
+    private func speakerName(_ speaker: String?) -> String {
+        guard let speaker, !speaker.isEmpty, speaker != "assistant" else {
+            return String(localized: "chat.assistant")
+        }
+        return speaker
+    }
+
+    /// Tool work, errors, approvals and the like: part of the transcript without
+    /// being a turn, so they keep the compact row they always had.
+    @ViewBuilder
+    private func noticeRow(_ row: EventProjection.DisplayRow) -> some View {
         if row.isCollapsible {
             CollapsibleEventRow(row: row)
         } else {
@@ -301,8 +487,8 @@ struct TaskDetailView: View {
                         // Primary text
                         Text(row.primaryText)
                             .textSelection(.enabled)
-                            .font(row.isUserMessage ? .body : .subheadline)
-                            .foregroundStyle(row.isUserMessage ? .primary : .primary)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
 
                         // Secondary text
                         if let secondary = row.secondaryText {
@@ -339,7 +525,6 @@ struct TaskDetailView: View {
                 Divider()
                     .padding(.leading, 42)
             }
-            .background(row.isUserMessage ? Color(.systemGray6).opacity(0.5) : Color.clear)
         }
     }
 
@@ -448,119 +633,130 @@ struct TaskDetailView: View {
         }
     }
 
-    // MARK: - Input bar
+    // MARK: - Composer
 
-    private func inputBar(_ task: KinTask) -> some View {
-        VStack(spacing: 0) {
-            Divider()
+    /// The conversation's pending approvals and questions, actioned from inside
+    /// the chat. It is a projection of the app's live collections, so a decision
+    /// made here — or on another device — clears the card without any local
+    /// bookkeeping. A stale profile shows nothing: the actions would go to the
+    /// wrong daemon.
+    @ViewBuilder
+    private var attention: some View {
+        let approvals = appSession.approvals.filter { $0.taskId == taskId }
+        let questions = appSession.questions.filter { $0.taskId == taskId }
 
-            HStack(spacing: 8) {
-                TextField(String(localized: "task.guidance.placeholder"), text: $guidanceText)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(viewModel.isSending || !canUseRemoteActions)
+        if isCurrentProfileContext && !(approvals.isEmpty && questions.isEmpty) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(String(localized: "chat.pending.title"), systemImage: "hand.tap.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
 
-                Button {
-                    let message = guidanceText
-                    guidanceText = ""
-                    Task {
-                        guard let client = scopedClient else { return }
-                        let success = await viewModel.sendGuidance(
-                            taskId: taskId,
-                            message: message,
-                            with: client
-                        )
-                        if success {
-                            // Poll for new events after sending
-                            await viewModel.pollEvents(taskId: taskId, with: client)
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(approvals) { approval in
+                            ApprovalCard(approval: approval) { id, approved in
+                                if approved {
+                                    try await appSession.approve(id: id)
+                                } else {
+                                    try await appSession.deny(id: id)
+                                }
+                            }
+                        }
+
+                        ForEach(questions) { question in
+                            QuestionCard(question: question) { id, selected, text in
+                                try await appSession.answerQuestion(id: id, selected: selected, otherText: text)
+                            }
                         }
                     }
-                } label: {
-                    if viewModel.isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                    }
                 }
-                .disabled(
-                    guidanceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || viewModel.isSending
-                    || !canUseRemoteActions
-                )
-
-                Button(String(localized: "task.cancel")) {
-                    Task {
-                        guard let client = scopedClient else { return }
-                        await viewModel.cancel(taskId: taskId, with: client)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .controlSize(.small)
-                .disabled(!canUseRemoteActions)
+                // Several at once must not push the conversation off the screen,
+                // and the ones below the fold have to look reachable.
+                .frame(maxHeight: 300)
+                .scrollIndicators(.visible)
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.orange.opacity(0.08))
+        }
+    }
+
+    /// The message box. Sending into a running task guides it — the daemon
+    /// interrupts the current run and re-queues it with this message — and
+    /// sending into a finished one continues it. Both go to the same endpoint and
+    /// extend the same conversation, which is why there is no separate "new task"
+    /// button beside a finished one.
+    private func composer(_ task: KinTask) -> some View {
+        let canSend = canUseRemoteActions
+            && !viewModel.isSending
+            && !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        return VStack(spacing: 0) {
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField(
+                        task.isTerminal
+                            ? String(localized: "chat.composer.placeholder")
+                            : String(localized: "task.guidance.placeholder"),
+                        text: $composerText,
+                        axis: .vertical
+                    )
+                    .lineLimit(1...6)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        Color(.secondarySystemBackground),
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    )
+                    .disabled(viewModel.isSending || !canUseRemoteActions)
+
+                    Button {
+                        send()
+                    } label: {
+                        if viewModel.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title2)
+                        }
+                    }
+                    .disabled(!canSend)
+                    .accessibilityLabel(String(localized: "chat.send"))
+                }
+
+                if !task.isTerminal {
+                    Text(String(localized: "chat.composer.interrupt_hint"))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 12)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
         .background(.regularMaterial)
     }
 
-    // MARK: - Terminal actions
-
-    private func terminalActions(_ task: KinTask) -> some View {
-        VStack(spacing: 0) {
-            Divider()
-
-            HStack(spacing: 16) {
-                Spacer()
-
-                if task.status == .failed {
-                    Button {
-                        Task {
-                            guard let client = scopedClient else { return }
-                            await viewModel.continueAfterLimit(taskId: taskId, with: client)
-                        }
-                    } label: {
-                        Label(String(localized: "task.action.continue"), systemImage: "play.fill")
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
-                    .disabled(!canUseRemoteActions)
-                }
-
-                Button {
-                    Task {
-                        guard let client = scopedClient else { return }
-                        _ = await viewModel.retry(taskId: taskId, with: client)
-                    }
-                } label: {
-                    Label(String(localized: "state.retry"), systemImage: "arrow.clockwise")
-                }
-                .buttonStyle(.bordered)
-                .tint(.blue)
-                .disabled(!canUseRemoteActions)
-
-                Button {
-                    showForkTask = true
-                } label: {
-                    Label(String(localized: "task.action.fork"), systemImage: "arrow.triangle.branch")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canUseRemoteActions)
-
-                Button {
-                    showWorkspaceChanges = true
-                } label: {
-                    Label(String(localized: "task.action.changes"), systemImage: "doc.text")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!canUseRemoteActions)
-
-                Spacer()
+    private func send() {
+        let message = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        composerText = ""
+        Task {
+            guard let client = scopedClient else { return }
+            let sent = await viewModel.sendMessage(taskId: taskId, message: message, with: client)
+            if sent {
+                await viewModel.pollEvents(taskId: taskId, with: client)
+            } else if composerText.isEmpty {
+                // Sending failed (the banner above says why). Give the text back
+                // rather than losing what was typed — unless something new has
+                // been typed in the meantime.
+                composerText = message
             }
-            .padding()
         }
-        .background(.regularMaterial)
     }
 
     // MARK: - Auxiliary views
@@ -594,7 +790,7 @@ struct TaskDetailView: View {
         )
     }
 
-    private var emptyTimeline: some View {
+    private var emptyTranscript: some View {
         ContentUnavailableView(
             label: {
                 Label(String(localized: "task.events.empty.title"), systemImage: "text.alignleft")
