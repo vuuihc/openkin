@@ -413,6 +413,8 @@ struct TaskDetailView: View {
             bubble(row, fromUser: true)
         case .agent:
             bubble(row, fromUser: false)
+        case .process:
+            ProcessRow(row: row)
         case .notice:
             noticeRow(row)
         }
@@ -432,7 +434,7 @@ struct TaskDetailView: View {
                         .padding(.leading, 6)
                 }
 
-                Text(row.primaryText)
+                Text(renderedMarkdown(row.primaryText))
                     .textSelection(.enabled)
                     .font(.body)
                     .foregroundStyle(.primary)
@@ -456,6 +458,10 @@ struct TaskDetailView: View {
         // Speaker, text and time are one turn to a reader, so they read as one
         // stop rather than three.
         .accessibilityElement(children: .combine)
+    }
+
+    private func renderedMarkdown(_ markdown: String) -> AttributedString {
+        (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
     }
 
     /// The name above an agent's bubble. Rows the daemon stamps only with a role
@@ -630,6 +636,142 @@ struct TaskDetailView: View {
             default:
                 EmptyView()
             }
+        }
+    }
+
+    private struct ProcessRow: View {
+        let row: EventProjection.DisplayRow
+        @State private var isExpanded = false
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isExpanded.toggle()
+                    }
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: row.icon)
+                            .foregroundStyle(row.iconColor)
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 22, height: 22)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                Text(row.primaryText)
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+
+                                Spacer(minLength: 4)
+
+                                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+
+                            if let secondary = row.secondaryText {
+                                Text(secondary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(isExpanded ? nil : 1)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(processBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color(.separator).opacity(0.22), lineWidth: 0.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(row.primaryText)
+                .accessibilityValue(isExpanded ? String(localized: "event.process.expanded", defaultValue: "Expanded") : String(localized: "event.process.collapsed", defaultValue: "Collapsed"))
+
+                if isExpanded {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(row.processSteps.enumerated()), id: \.element.id) { index, step in
+                            ProcessStepRow(index: index + 1, step: step)
+                        }
+                    }
+                    .padding(.top, 4)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+        }
+
+        private var processBackground: Color {
+            if row.processSteps.contains(where: { $0.status == .running }) {
+                return Color.blue.opacity(0.08)
+            }
+            if row.processSteps.contains(where: { $0.status == .error }) {
+                return Color.red.opacity(0.08)
+            }
+            return Color(.secondarySystemBackground)
+        }
+    }
+
+    private struct ProcessStepRow: View {
+        let index: Int
+        let step: EventProjection.ProcessStep
+
+        var body: some View {
+            HStack(alignment: .top, spacing: 8) {
+                Text("\(index)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 18, alignment: .trailing)
+
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                    .padding(.top, 6)
+
+                Text(step.label)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 44, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(renderedMarkdown(step.detail))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    if let expanded = step.expandedDetail,
+                       !expanded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       expanded != step.detail
+                    {
+                        Text(expanded)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                            .lineLimit(8)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 6)
+        }
+
+        private var statusColor: Color {
+            switch step.status {
+            case .running: return .blue
+            case .done: return .green
+            case .error: return .red
+            }
+        }
+
+        private func renderedMarkdown(_ markdown: String) -> AttributedString {
+            (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown)
         }
     }
 

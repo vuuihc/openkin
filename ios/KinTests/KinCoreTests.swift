@@ -1247,8 +1247,8 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(rows.map(\.id), ["1-message", "2-error", "3-message"])
     }
 
-    /// Only turns are bubbles; tool work, errors and approvals stay compact rows
-    /// inside the transcript.
+    /// Only turns are bubbles; tool work collapses into a process card while
+    /// errors and approvals stay compact rows inside the transcript.
     func testTranscriptProjectionStylesNoticesSeparatelyFromTurns() {
         let rows = EventProjection.rows(from: [
             makeEvent(seq: 1, type: "message", payload: messagePayload("hi", role: "user", speaker: "user")),
@@ -1256,7 +1256,172 @@ final class KinCoreTests: XCTestCase {
             makeEvent(seq: 3, type: "message", payload: messagePayload("Looking.")),
             makeEvent(seq: 4, type: "error", payload: ["message": "boom"]),
         ])
-        XCTAssertEqual(rows.map(\.style), [.user, .notice, .agent, .notice])
+        XCTAssertEqual(rows.map(\.style), [.user, .process, .agent, .notice])
+    }
+
+    /// iOS should follow the desktop conversation model: background reasoning,
+    /// tools, and progress notes collapse into one process card, while the
+    /// explicit summary remains the visible assistant answer.
+    func testTranscriptProjectionCollapsesProcessAndKeepsSummaryVisible() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("fix chats", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "message", payload: messagePayload(
+                "I'll inspect the transcript renderer.",
+                speaker: "kin",
+                phase: "plan"
+            )),
+            makeEvent(seq: 3, type: "tool_use", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "read_file",
+                "input": ["path": "ios/Kin/Features/TaskDetail/TaskDetailView.swift"],
+                "visibility": ["user": true, "task": true],
+            ]),
+            makeEvent(seq: 4, type: "tool_result", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "read_file",
+                "summary": "Read TaskDetailView.swift",
+                "output": "ok",
+                "ok": true,
+                "visibility": ["user": true, "task": true],
+            ]),
+            makeEvent(seq: 5, type: "message", payload: messagePayload(
+                "Implemented markdown rendering and process folding.",
+                speaker: "kin",
+                phase: "summary"
+            )),
+            makeEvent(seq: 6, type: "result", payload: ["is_error": false]),
+        ])
+
+        XCTAssertEqual(rows.map(\.style), [.user, .process, .agent])
+        XCTAssertEqual(rows.map(\.seq), [1, 2, 5])
+        XCTAssertEqual(rows[2].primaryText, "Implemented markdown rendering and process folding.")
+        XCTAssertEqual(rows[1].processSteps.map(\.label), ["Note", "Read"])
+        XCTAssertEqual(rows[1].processSteps.last?.detail, "Read TaskDetailView.swift")
+    }
+
+    /// A task-only summary is internal progress, not the assistant answer the
+    /// user came back to read.
+    func testTranscriptProjectionFoldsTaskOnlySummaryMessages() {
+        var taskOnlySummary = messagePayload(
+            "Internal worker summary",
+            speaker: "kin",
+            phase: "summary"
+        )
+        taskOnlySummary["visibility"] = ["user": false, "task": true]
+
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("fix chats", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "message", payload: taskOnlySummary),
+            makeEvent(seq: 3, type: "message", payload: messagePayload("Visible final answer", phase: "summary")),
+        ])
+
+        XCTAssertEqual(rows.map(\.style), [.user, .process, .agent])
+        XCTAssertEqual(rows[1].processSteps.map(\.detail), ["Internal worker summary"])
+        XCTAssertEqual(rows[2].primaryText, "Visible final answer")
+    }
+
+    /// A failed tool result should make the folded process row read as failed,
+    /// even when the daemon reports that only through the canonical `ok` field.
+    func testTranscriptProjectionMarksFailedToolResults() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("run tests", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "tool_use", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "bash",
+                "summary": "Run unit tests",
+            ]),
+            makeEvent(seq: 3, type: "tool_result", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "bash",
+                "summary": "Tests failed",
+                "ok": false,
+            ]),
+            makeEvent(seq: 4, type: "message", payload: messagePayload("The test failure is reproduced.", phase: "summary")),
+        ])
+
+        XCTAssertEqual(rows.map(\.style), [.user, .process, .agent])
+        XCTAssertEqual(rows[1].processSteps.last?.status, .error)
+        XCTAssertTrue(rows[1].primaryText.hasPrefix("Failed"))
+    }
+
+    /// A terminal result settles an unfinished process row so the transcript does
+    /// not show a stale spinner after the run has completed.
+    func testTranscriptProjectionSettlesRunningProcessStepsOnResult() {
+        let success = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("run tests", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "tool_use", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "bash",
+                "summary": "Run unit tests",
+            ]),
+            makeEvent(seq: 3, type: "result", payload: ["is_error": false]),
+        ])
+
+        XCTAssertEqual(success.map(\.style), [.user, .process])
+        XCTAssertEqual(success[1].processSteps.last?.status, .done)
+        XCTAssertTrue(success[1].primaryText.hasPrefix("Done"))
+
+        let failure = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("run tests", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "tool_use", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "bash",
+                "summary": "Run unit tests",
+            ]),
+            makeEvent(seq: 3, type: "result", payload: ["is_error": true]),
+        ])
+
+        XCTAssertEqual(failure.map(\.style), [.user, .process])
+        XCTAssertEqual(failure[1].processSteps.last?.status, .error)
+        XCTAssertTrue(failure[1].primaryText.hasPrefix("Failed"))
+    }
+
+    /// Repeated progress deltas from the same message block should be one step,
+    /// not duplicate SwiftUI identities inside the process card.
+    func testTranscriptProjectionCoalescesProgressNoteDeltas() {
+        var firstDelta = messagePayload("Work", speaker: "kin", partial: true, phase: "progress")
+        firstDelta["message_id"] = "progress-1"
+        firstDelta["index"] = 0
+
+        var secondDelta = messagePayload("ing", speaker: "kin", partial: true, phase: "progress")
+        secondDelta["message_id"] = "progress-1"
+        secondDelta["index"] = 0
+
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("status?", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "message", payload: firstDelta),
+            makeEvent(seq: 3, type: "message", payload: secondDelta),
+            makeEvent(seq: 4, type: "result", payload: ["is_error": false]),
+        ])
+
+        XCTAssertEqual(rows.map(\.style), [.user, .process])
+        XCTAssertEqual(rows[1].processSteps.count, 1)
+        XCTAssertEqual(rows[1].processSteps.first?.detail, "Working")
+        XCTAssertEqual(rows[1].processSteps.first?.status, .done)
+    }
+
+    /// Future protocol events are not user content. The transcript should be
+    /// tolerant and quiet instead of showing "Unknown event" in the chat.
+    func testTranscriptProjectionSuppressesUnknownTechnicalEvents() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("hi", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "future_event", payload: ["value": 1]),
+            makeEvent(seq: 3, type: "workspace_ready", payload: [
+                "workspace_id": "01ABCDEFGH123456789",
+                "generation": 2,
+            ]),
+            makeEvent(seq: 4, type: "message", payload: messagePayload("done", phase: "summary")),
+        ])
+
+        XCTAssertEqual(rows.map(\.style), [.user, .notice, .agent])
+        XCTAssertFalse(rows.contains { $0.primaryText == "Unknown event" })
+        XCTAssertEqual(rows[1].primaryText, "Workspace ready #2 (01ABCDEF)")
     }
 
     /// A list row and a navigation title show the name the daemon gave the
