@@ -138,6 +138,10 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	// Persist control URL setting when provided.
 	ctx := context.Background()
+	identity, err := ensureDesktopIdentity(ctx, st)
+	if err != nil {
+		return err
+	}
 	if flags.TSControlURL != "" {
 		_ = st.SetSetting(ctx, "tailscale.control_url", flags.TSControlURL)
 	} else if v, err := st.GetSetting(ctx, "tailscale.control_url"); err == nil && v != "" && flags.Tailscale {
@@ -165,6 +169,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		daemonURL,
 		st,
 		tokenFn,
+		identity,
 	)
 	defer relayRuntime.Stop()
 	fallbackBaseURL := daemonURL
@@ -370,6 +375,8 @@ func ServeWith(version string, flags ServeFlags) error {
 		Workspace:    wsMgr,
 		Terminals:    terminals,
 		Version:      version,
+		DesktopID:    identity.ID,
+		DesktopName:  identity.Name,
 		Static:       static,
 		UploadsDir:   filepath.Join(stateDir, "uploads"),
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
@@ -580,7 +587,7 @@ func ServeWith(version string, flags ServeFlags) error {
 
 			a.qr = a.url + "/?token=" + auth.Token()
 		}
-		a.qr, err = issuePairingURL(ctx, st, a.qr, tr.Name())
+		a.qr, err = issuePairingURL(ctx, st, a.qr, tr.Name(), identity)
 		if err != nil {
 			return err
 		}

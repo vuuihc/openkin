@@ -24,6 +24,7 @@ type relayRuntime struct {
 	localURL string
 	store    *store.Store
 	token    func() string
+	identity desktopIdentity
 
 	cancel  context.CancelFunc
 	bridge  *relay.Bridge
@@ -37,6 +38,7 @@ func newRelayRuntime(
 	localURL string,
 	st *store.Store,
 	token func() string,
+	identity desktopIdentity,
 ) *relayRuntime {
 	return &relayRuntime{
 		parent:   parent,
@@ -44,6 +46,7 @@ func newRelayRuntime(
 		localURL: localURL,
 		store:    st,
 		token:    token,
+		identity: identity,
 	}
 }
 
@@ -82,7 +85,7 @@ func (r *relayRuntime) Configure(ctx context.Context, rawURL string) (api.RelayS
 	if r.token != nil {
 		token = r.token()
 	}
-	pairing, err := issuePairingURL(ctx, r.store, bridge.ConnectURLWithKey()+"&token="+token, "relay")
+	pairing, err := issuePairingURL(ctx, r.store, bridge.ConnectURLWithKey()+"&token="+token, "relay", r.identity)
 	if err != nil {
 		return api.RelayStatus{}, err
 	}
@@ -119,7 +122,7 @@ func (r *relayRuntime) RefreshPairing(ctx context.Context) (api.RelayStatus, err
 	if r.token != nil {
 		token = r.token()
 	}
-	pairing, err := issuePairingURL(ctx, r.store, bridge.ConnectURLWithKey()+"&token="+token, "relay")
+	pairing, err := issuePairingURL(ctx, r.store, bridge.ConnectURLWithKey()+"&token="+token, "relay", r.identity)
 	if err != nil {
 		return api.RelayStatus{}, err
 	}

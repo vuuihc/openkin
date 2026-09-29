@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +73,8 @@ type Server struct {
 	Connectors           *connectors.Manager
 	Terminals            *terminal.Manager
 	Version              string
+	DesktopID            string
+	DesktopName          string
 	agentSessionAttachMu sync.Mutex
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
@@ -420,7 +423,57 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": s.Version})
+	out := map[string]string{"version": s.Version}
+	if !s.versionRequestCanSeeIdentity(r) {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	if strings.TrimSpace(s.DesktopID) != "" {
+		out["desktop_id"] = strings.TrimSpace(s.DesktopID)
+	}
+	if strings.TrimSpace(s.DesktopName) != "" {
+		out["desktop_name"] = strings.TrimSpace(s.DesktopName)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) versionRequestCanSeeIdentity(r *http.Request) bool {
+	if s.Auth == nil {
+		return false
+	}
+	got := bearerOrQueryToken(r)
+	if got == "" {
+		return false
+	}
+	if want := s.Auth.Token(); want != "" && secureTokenEqual(got, want) {
+		return true
+	}
+	if s.Store == nil {
+		return false
+	}
+	_, err := s.Store.AuthenticateDevice(r.Context(), remote.HashToken(got), time.Now().UnixMilli())
+	return err == nil
+}
+
+func bearerOrQueryToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); h != "" {
+		const prefix = "Bearer "
+		if strings.HasPrefix(h, prefix) {
+			return strings.TrimSpace(h[len(prefix):])
+		}
+		if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
+			return strings.TrimSpace(h[len(prefix):])
+		}
+	}
+	return r.URL.Query().Get("token")
+}
+
+func secureTokenEqual(a, b string) bool {
+	if len(a) != len(b) {
+		subtle.ConstantTimeCompare([]byte(a), []byte(a))
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {

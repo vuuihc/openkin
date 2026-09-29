@@ -192,28 +192,36 @@ struct ConnectionView: View {
     private func validateAndConnect(payload: PairingPayload, exchangeSecret: Bool) async throws {
         do {
             let token: String
+            let exchangeResult: PairingExchangeResult?
             if exchangeSecret {
-                token = try await exchangePairingSecret(
+                let exchanged = try await exchangePairingSecret(
                     baseURL: payload.baseURL, secret: payload.token,
                     relayKey: payload.relayKey, relayRoom: payload.relayRoom
                 )
+                exchangeResult = exchanged
+                token = exchanged.token
             } else {
+                exchangeResult = nil
                 token = payload.token
             }
-            let (_, _) = try await ServerProfileValidator.validate(
+            let validation = try await ServerProfileValidator.validate(
                 baseURL: payload.baseURL,
                 token: token, relayKey: payload.relayKey, relayRoom: payload.relayRoom
             )
+            let desktopID = validation.desktopID ?? exchangeResult?.desktopID ?? payload.desktopID
+            let desktopName = validation.desktopName ?? exchangeResult?.desktopName ?? payload.desktopName
 
             let profile = ServerProfile(
                 id: UUID(),
-                displayName: payload.baseURL.host ?? "Kin Daemon",
+                displayName: desktopName ?? payload.baseURL.host ?? "Kin Daemon",
                 baseURL: payload.baseURL,
                 relayKey: payload.relayKey,
                 relayRoom: payload.relayRoom,
                 dateAdded: Date(),
                 lastAccessed: Date(),
-                credentialScope: exchangeSecret ? .device : .master
+                credentialScope: exchangeSecret ? .device : .master,
+                desktopID: desktopID,
+                desktopName: desktopName
             )
             // Persist the credential first so a Keychain failure cannot create
             // a profile that looks saved but cannot reconnect after restart.
@@ -246,7 +254,7 @@ struct ConnectionView: View {
 
     private func exchangePairingSecret(
         baseURL: URL, secret: String, relayKey: String?, relayRoom: String?
-    ) async throws -> String {
+    ) async throws -> PairingExchangeResult {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         if var value = components {
             value.path = kinJoinedPath(value.path, "/api/pairing/exchange")
@@ -275,7 +283,24 @@ struct ConnectionView: View {
         guard let token = object?["token"] as? String, !token.isEmpty else {
             throw ServerProfileError.incompatible
         }
-        return token
+        return PairingExchangeResult(
+            token: token,
+            desktopID: (object?["desktop_id"] as? String)?.nilIfBlank,
+            desktopName: (object?["desktop_name"] as? String)?.nilIfBlank
+        )
+    }
+}
+
+private struct PairingExchangeResult {
+    let token: String
+    let desktopID: String?
+    let desktopName: String?
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

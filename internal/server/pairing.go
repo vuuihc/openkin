@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
-func issuePairingURL(ctx context.Context, st *store.Store, rawURL, label string) (string, error) {
+func issuePairingURL(ctx context.Context, st *store.Store, rawURL, label string, identity desktopIdentity) (string, error) {
 	secret, err := remote.NewSecret()
 	if err != nil {
 		return "", err
@@ -32,6 +33,12 @@ func issuePairingURL(ctx context.Context, st *store.Store, rawURL, label string)
 	query := u.Query()
 	query.Set("token", secret)
 	query.Set("pairing", "1")
+	if trimmed := strings.TrimSpace(identity.ID); trimmed != "" {
+		query.Set("desktop_id", trimmed)
+	}
+	if trimmed := strings.TrimSpace(identity.Name); trimmed != "" {
+		query.Set("desktop_name", trimmed)
+	}
 	u.RawQuery = query.Encode()
 	return u.String(), nil
 }

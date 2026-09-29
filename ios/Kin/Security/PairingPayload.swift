@@ -7,6 +7,8 @@ struct PairingPayload: Equatable, CustomStringConvertible {
     let token: String
     let relayKey: String?
     let relayRoom: String?
+    let desktopID: String?
+    let desktopName: String?
     let isPairingSecret: Bool
 
     /// Description that deliberately omits the token to avoid leaking secrets.
@@ -77,12 +79,16 @@ struct PairingPayload: Equatable, CustomStringConvertible {
 
         let relayKey = components.queryItems?.first(where: { $0.name == "key" })?.value
         let relayRoom = components.queryItems?.first(where: { $0.name == "room" })?.value
+        let desktopID = components.queryItems?.first(where: { $0.name == "desktop_id" })?.value
+        let desktopName = components.queryItems?.first(where: { $0.name == "desktop_name" })?.value
         let isPairingSecret = components.queryItems?.first(where: { $0.name == "pairing" })?.value == "1"
         return PairingPayload(
             baseURL: baseURL,
             token: token,
             relayKey: relayKey,
             relayRoom: relayRoom,
+            desktopID: desktopID?.nilIfBlank,
+            desktopName: desktopName?.nilIfBlank,
             isPairingSecret: isPairingSecret
         )
     }
@@ -107,6 +113,13 @@ struct PairingPayload: Equatable, CustomStringConvertible {
         case 192 where second == 168: return true   // private class C
         default:            return false
         }
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

@@ -30,9 +30,11 @@ type pairingExchangeRequest struct {
 }
 
 type pairingExchangeResponse struct {
-	DeviceID string `json:"device_id"`
-	Token    string `json:"token"`
-	Label    string `json:"label,omitempty"`
+	DeviceID    string `json:"device_id"`
+	Token       string `json:"token"`
+	Label       string `json:"label,omitempty"`
+	DesktopID   string `json:"desktop_id,omitempty"`
+	DesktopName string `json:"desktop_name,omitempty"`
 }
 
 type deviceResponse struct {
@@ -96,9 +98,11 @@ func (s *Server) handlePairingExchange(w http.ResponseWriter, r *http.Request) {
 				// Recovery is only an idempotency window for a lost response;
 				// the original five-minute pairing lifetime remains the bound.
 				writeJSON(w, http.StatusOK, pairingExchangeResponse{
-					DeviceID: credential.ID,
-					Token:    token,
-					Label:    credential.Label,
+					DeviceID:    credential.ID,
+					Token:       token,
+					Label:       credential.Label,
+					DesktopID:   strings.TrimSpace(s.DesktopID),
+					DesktopName: strings.TrimSpace(s.DesktopName),
 				})
 				return
 			}
@@ -133,9 +137,11 @@ func (s *Server) handlePairingExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, pairingExchangeResponse{
-		DeviceID: "ios-" + deviceID[:16],
-		Token:    token,
-		Label:    label,
+		DeviceID:    "ios-" + deviceID[:16],
+		Token:       token,
+		Label:       label,
+		DesktopID:   strings.TrimSpace(s.DesktopID),
+		DesktopName: strings.TrimSpace(s.DesktopName),
 	})
 }
 

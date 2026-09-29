@@ -38,6 +38,8 @@ struct ServerProfile: Codable, Hashable, Identifiable {
     var baseURL: URL        // normalized origin (scheme + host + port)
     var relayKey: String?
     var relayRoom: String?
+    var desktopID: String?
+    var desktopName: String?
     let dateAdded: Date
     var lastAccessed: Date
     var credentialScope: CredentialScope
@@ -50,20 +52,24 @@ struct ServerProfile: Codable, Hashable, Identifiable {
         relayRoom: String?,
         dateAdded: Date,
         lastAccessed: Date,
-        credentialScope: CredentialScope = .device
+        credentialScope: CredentialScope = .device,
+        desktopID: String? = nil,
+        desktopName: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.baseURL = baseURL
         self.relayKey = relayKey
         self.relayRoom = relayRoom
+        self.desktopID = desktopID?.nilIfBlank
+        self.desktopName = desktopName?.nilIfBlank
         self.dateAdded = dateAdded
         self.lastAccessed = lastAccessed
         self.credentialScope = credentialScope
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, displayName, baseURL, relayKey, relayRoom, dateAdded, lastAccessed, credentialScope
+        case id, displayName, baseURL, relayKey, relayRoom, desktopID, desktopName, dateAdded, lastAccessed, credentialScope
     }
 
     init(from decoder: Decoder) throws {
@@ -73,6 +79,8 @@ struct ServerProfile: Codable, Hashable, Identifiable {
         baseURL = try container.decode(URL.self, forKey: .baseURL)
         relayKey = try container.decodeIfPresent(String.self, forKey: .relayKey)
         relayRoom = try container.decodeIfPresent(String.self, forKey: .relayRoom)
+        desktopID = try container.decodeIfPresent(String.self, forKey: .desktopID)?.nilIfBlank
+        desktopName = try container.decodeIfPresent(String.self, forKey: .desktopName)?.nilIfBlank
         dateAdded = try container.decode(Date.self, forKey: .dateAdded)
         lastAccessed = try container.decode(Date.self, forKey: .lastAccessed)
         credentialScope = try container.decodeIfPresent(CredentialScope.self, forKey: .credentialScope) ?? .device
@@ -105,8 +113,19 @@ struct ServerProfile: Codable, Hashable, Identifiable {
     }
 
     var activeDesktopName: String {
-        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? displayHost : trimmed
+        let base = desktopName?.nilIfBlank ?? displayName.nilIfBlank ?? displayHost
+        guard let suffix = shortDesktopID else {
+            return base
+        }
+        return "\(base) · \(suffix)"
+    }
+
+    var shortDesktopID: String? {
+        guard var value = desktopID?.nilIfBlank else { return nil }
+        if value.hasPrefix("desktop_") {
+            value.removeFirst("desktop_".count)
+        }
+        return value.isEmpty ? nil : String(value.prefix(4))
     }
 
     var transport: ServerProfileTransport {
@@ -119,17 +138,24 @@ struct ServerProfile: Codable, Hashable, Identifiable {
 
 // MARK: - Validation
 
+struct ServerProfileValidationResult: Equatable {
+    let health: Bool
+    let version: String?
+    let desktopID: String?
+    let desktopName: String?
+}
+
 /// Validates a connection against a Kin daemon.
 struct ServerProfileValidator {
     /// Validates the given base URL and auth token by hitting the daemon health and version endpoints.
     /// - Parameters:
     ///   - baseURL: The daemon's base URL (e.g. http://192.168.1.42:7777).
     ///   - token:  The bearer token to present.
-    /// - Returns: A tuple with a health flag and an optional version string.
+    /// - Returns: A result with a health flag, optional version, and optional desktop identity.
     /// - Throws: `ServerProfileError` if the daemon is unreachable, incompatible, or the token is rejected.
     static func validate(
         baseURL: URL, token: String, relayKey: String? = nil, relayRoom: String? = nil
-    ) async throws -> (health: Bool, version: String?) {
+    ) async throws -> ServerProfileValidationResult {
         guard var healthComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw ServerProfileError.invalidURL
         }
@@ -209,7 +235,7 @@ struct ServerProfileValidator {
         versionComponents.fragment = nil
 
         guard let versionURL = versionComponents.url else {
-            return (health, nil)
+            return ServerProfileValidationResult(health: health, version: nil, desktopID: nil, desktopName: nil)
         }
 
         var versionRequest = URLRequest(url: versionURL)
@@ -217,19 +243,53 @@ struct ServerProfileValidator {
         versionRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         versionRequest.timeoutInterval = 10
 
-        let versionString: String?
+        let versionMetadata: VersionMetadata?
         do {
             let (versionData, versionResponse) = try await URLSession.shared.data(for: versionRequest)
             if let vHttp = versionResponse as? HTTPURLResponse, vHttp.statusCode == 200 {
-                versionString = String(data: versionData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                versionMetadata = VersionMetadata.decode(from: versionData)
             } else {
-                versionString = nil
+                versionMetadata = nil
             }
         } catch {
-            versionString = nil
+            versionMetadata = nil
         }
 
-        return (health, versionString)
+        return ServerProfileValidationResult(
+            health: health,
+            version: versionMetadata?.version,
+            desktopID: versionMetadata?.desktopID,
+            desktopName: versionMetadata?.desktopName
+        )
+    }
+}
+
+private struct VersionMetadata: Decodable {
+    let version: String?
+    let desktopID: String?
+    let desktopName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case desktopID = "desktop_id"
+        case desktopName = "desktop_name"
+    }
+
+    static func decode(from data: Data) -> VersionMetadata? {
+        if let decoded = try? JSONDecoder().decode(VersionMetadata.self, from: data) {
+            return decoded.normalized
+        }
+        let raw = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard raw?.isEmpty == false else { return nil }
+        return VersionMetadata(version: raw, desktopID: nil, desktopName: nil)
+    }
+
+    private var normalized: VersionMetadata {
+        VersionMetadata(
+            version: version?.nilIfBlank,
+            desktopID: desktopID?.nilIfBlank,
+            desktopName: desktopName?.nilIfBlank
+        )
     }
 }
 
@@ -237,6 +297,13 @@ private func relayQueryItems(key: String?, room: String?) -> [URLQueryItem]? {
     let items = (room.map { [URLQueryItem(name: "room", value: $0)] } ?? []) +
         (key.map { [URLQueryItem(name: "key", value: $0)] } ?? [])
     return items.isEmpty ? nil : items
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 // MARK: - Errors

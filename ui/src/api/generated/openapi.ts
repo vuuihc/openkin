@@ -893,6 +893,8 @@ export interface components {
             device_id: string;
             token: string;
             label?: string;
+            desktop_id?: string;
+            desktop_name?: string;
         };
         AgentProviderCapability: {
             capability: string;
@@ -1488,6 +1490,10 @@ export interface operations {
                 content: {
                     "application/json": {
                         version: string;
+                        /** @description Stable daemon identity, returned only to authenticated clients. */
+                        desktop_id?: string;
+                        /** @description Human-readable desktop name, returned only to authenticated clients. */
+                        desktop_name?: string;
                     };
                 };
             };

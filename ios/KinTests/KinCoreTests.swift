@@ -26,6 +26,14 @@ final class KinCoreTests: XCTestCase {
         XCTAssertTrue(payload.isPairingSecret)
     }
 
+    func testPairingParsesDesktopIdentity() throws {
+        let payload = try PairingPayload.parse(
+            "https://relay.example.com/?room=room-1&key=relay-key&token=pairing&pairing=1&desktop_id=desktop_1234abcd&desktop_name=Work%20Mac"
+        )
+        XCTAssertEqual(payload.desktopID, "desktop_1234abcd")
+        XCTAssertEqual(payload.desktopName, "Work Mac")
+    }
+
     func testPairingRejectsPublicHTTP() {
         XCTAssertThrowsError(try PairingPayload.parse("http://example.com/?token=unsafe")) { error in
             guard let pairingError = error as? PairingError else {
@@ -1467,6 +1475,41 @@ final class KinCoreTests: XCTestCase {
 
         XCTAssertEqual(profile.activeDesktopName, "Work Mac")
         XCTAssertEqual(profile.transport, .relay)
+    }
+
+    func testServerProfilePresentationUsesDesktopIdentitySuffix() throws {
+        let profile = ServerProfile(
+            id: UUID(),
+            displayName: "relay.example.com",
+            baseURL: try XCTUnwrap(URL(string: "https://relay.example.com")),
+            relayKey: "relay-key",
+            relayRoom: "room",
+            dateAdded: Date(timeIntervalSince1970: 1),
+            lastAccessed: Date(timeIntervalSince1970: 1),
+            desktopID: "desktop_1234abcd5678",
+            desktopName: "Work Mac"
+        )
+
+        XCTAssertEqual(profile.activeDesktopName, "Work Mac · 1234")
+    }
+
+    func testServerProfileDecodesLegacyProfileWithoutDesktopIdentity() throws {
+        let data = """
+        {
+          "id": "00000000-0000-0000-0000-000000000001",
+          "displayName": "Legacy Mac",
+          "baseURL": "https://relay.example.test",
+          "dateAdded": 1,
+          "lastAccessed": 2,
+          "credentialScope": "device"
+        }
+        """.data(using: .utf8)!
+
+        let profile = try JSONDecoder().decode(ServerProfile.self, from: data)
+
+        XCTAssertNil(profile.desktopID)
+        XCTAssertNil(profile.desktopName)
+        XCTAssertEqual(profile.activeDesktopName, "Legacy Mac")
     }
 
     @MainActor

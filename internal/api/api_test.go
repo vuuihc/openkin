@@ -131,6 +131,44 @@ func TestHealthAndTasks(t *testing.T) {
 	}
 }
 
+func TestVersionIncludesDesktopIdentityWhenConfigured(t *testing.T) {
+	s, token := newTestServer(t)
+	s.DesktopID = "desktop_1234abcd"
+	s.DesktopName = "Work Mac"
+	h := s.Handler()
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/version", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("version status %d", rr.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("version json: %v body %s", err, rr.Body.String())
+	}
+	if got["version"] != "test" {
+		t.Fatalf("version = %q", got["version"])
+	}
+	if got["desktop_id"] != "" || got["desktop_name"] != "" {
+		t.Fatalf("anonymous version leaked desktop identity: %#v", got)
+	}
+
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("authorized version status %d", rr.Code)
+	}
+	got = map[string]string{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("version json: %v body %s", err, rr.Body.String())
+	}
+	if got["desktop_id"] != "desktop_1234abcd" || got["desktop_name"] != "Work Mac" {
+		t.Fatalf("desktop identity missing: %#v", got)
+	}
+}
+
 func TestApprovalsAPI(t *testing.T) {
 	s, token := newTestServer(t)
 	// Use a holding adapter so we can request approval while running.
