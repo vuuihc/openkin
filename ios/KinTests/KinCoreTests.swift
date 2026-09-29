@@ -171,6 +171,36 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(TaskPresentation.filter([modelTask, waitingTask], query: "waiting_approval"), [waitingTask])
     }
 
+    func testTaskPresentationFilterOrdersMatchesByMostRecentActivity() {
+        let oldest = makeTask(id: "oldest", status: .succeeded, prompt: "sync chat", createdAt: 1_000)
+        let resumed = makeTask(
+            id: "resumed",
+            status: .running,
+            prompt: "sync chat",
+            createdAt: 500,
+            startedAt: 9_000
+        )
+        let finished = makeTask(
+            id: "finished",
+            status: .succeeded,
+            prompt: "sync chat",
+            createdAt: 700,
+            finishedAt: 5_000
+        )
+
+        XCTAssertEqual(
+            TaskPresentation.filter([oldest, resumed, finished], query: "sync").map(\.id),
+            ["resumed", "finished", "oldest"]
+        )
+    }
+
+    func testTaskPresentationRecencyTieBreaksLikeDaemon() {
+        let lowerID = makeTask(id: "task-1", status: .succeeded, prompt: "sync chat", createdAt: 1_000)
+        let higherID = makeTask(id: "task-2", status: .succeeded, prompt: "sync chat", createdAt: 1_000)
+
+        XCTAssertEqual(TaskPresentation.byRecency([lowerID, higherID]).map(\.id), ["task-2", "task-1"])
+    }
+
     func testTaskPresentationDetectsStaleProfileContext() {
         let bound = UUID()
         let active = UUID()
@@ -937,6 +967,46 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(task.createdAt, 1767225600000)
     }
 
+    @MainActor
+    func testReconcilerOrdersSnapshotTasksByMostRecentActivity() async throws {
+        RecordingURLProtocol.requests = []
+        RecordingURLProtocol.responseBodiesByPath = [
+            "/api/tasks": Data("""
+            [
+              {"id":"oldest","status":"succeeded","agent":"kin","cwd":"/tmp","prompt":"sync chat","created_at":1000},
+              {"id":"resumed","status":"succeeded","agent":"kin","cwd":"/tmp","prompt":"sync chat","created_at":500,"started_at":9000},
+              {"id":"finished","status":"succeeded","agent":"kin","cwd":"/tmp","prompt":"sync chat","created_at":700,"finished_at":5000}
+            ]
+            """.utf8),
+            "/api/approvals": Data("[]".utf8),
+            "/api/user-questions": Data("[]".utf8),
+        ]
+        defer { RecordingURLProtocol.responseBodiesByPath = [:] }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = APIClient(
+            baseURL: URL(string: "http://127.0.0.1:7777")!,
+            token: "test-token",
+            session: session
+        )
+        let socket = WebSocketClient(
+            baseURL: URL(string: "http://127.0.0.1:7777")!,
+            token: "test-token",
+            session: session
+        )
+        let reconciler = Reconciler(apiClient: client, wsClient: socket)
+
+        await reconciler.reconcile()
+
+        XCTAssertEqual(reconciler.tasks.map(\.id), ["resumed", "finished", "oldest"])
+        let tasksRequest = try XCTUnwrap(RecordingURLProtocol.requests.first { $0.url.path == "/api/tasks" })
+        let queryItems = URLComponents(url: tasksRequest.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(queryItems.first { $0.name == "limit" }?.value, "200")
+        XCTAssertEqual(queryItems.first { $0.name == "order" }?.value, "activity")
+    }
+
     private func makeTask(
         id: String = "t1",
         status: TaskStatus,
@@ -1626,6 +1696,9 @@ final class RecordingURLProtocol: URLProtocol {
     /// What every recorded request answers with. Defaults to an empty object,
     /// which is enough for the calls whose response the test ignores.
     static var responseBody = Data("{}".utf8)
+    /// Per-path overrides for tests that exercise concurrent API calls with
+    /// different response shapes.
+    static var responseBodiesByPath: [String: Data] = [:]
 
     override class func canInit(with request: URLRequest) -> Bool { true }
 
@@ -1650,7 +1723,7 @@ final class RecordingURLProtocol: URLProtocol {
             headerFields: ["Content-Type": "application/json"]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocol(self, didLoad: Self.responseBodiesByPath[url.path] ?? Self.responseBody)
         client?.urlProtocolDidFinishLoading(self)
     }
 

@@ -2225,6 +2225,8 @@ export interface operations {
                 limit?: number;
                 before?: string;
                 q?: string;
+                /** @description Sort by most recent task activity when set to activity. */
+                order?: "activity";
             };
             header?: never;
             path?: never;

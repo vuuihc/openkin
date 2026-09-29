@@ -13,6 +13,12 @@ final class AppSession {
     private(set) var tasks: [KinTask] = []
     private(set) var approvals: [Approval] = []
     private(set) var questions: [UserQuestion] = []
+    private(set) var isSyncing = false
+    private(set) var lastSyncedAt: Date?
+
+    @ObservationIgnored private var foregroundSyncTask: Task<Void, Never>?
+    @ObservationIgnored private var syncDepth = 0
+    private static let foregroundSyncInterval: UInt64 = 25_000_000_000
 
     init() {
         profiles = UserDefaults.loadServerProfiles()
@@ -20,6 +26,10 @@ final class AppSession {
         if let profile = profiles.first {
             activate(profile: profile)
         }
+    }
+
+    deinit {
+        foregroundSyncTask?.cancel()
     }
 
     var activeProfile: ServerProfile? {
@@ -81,9 +91,8 @@ final class AppSession {
         activeProfileID = profile.id
         connectionState = .connecting
         Task {
-            await nextReconciler.reconcile()
+            await reconcile(nextReconciler)
             guard self.reconciler === nextReconciler else { return }
-            syncState(from: nextReconciler)
             nextReconciler.startWebSocket()
         }
     }
@@ -92,6 +101,7 @@ final class AppSession {
         tasks = []
         approvals = []
         questions = []
+        lastSyncedAt = nil
     }
 
     func refreshProfiles() {
@@ -116,14 +126,53 @@ final class AppSession {
     }
 
     func reconcileForeground() async {
-        await reconciler?.reconcile()
-        if let reconciler, self.reconciler === reconciler {
-            syncState(from: reconciler)
+        guard let reconciler else { return }
+        await reconcile(reconciler)
+    }
+
+    func startForegroundSync() {
+        guard foregroundSyncTask == nil else { return }
+        foregroundSyncTask = Task { [weak self] in
+            await self?.reconcileForeground()
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: Self.foregroundSyncInterval)
+                } catch {
+                    break
+                }
+                await self?.reconcileForeground()
+            }
         }
     }
 
+    func stopForegroundSync() {
+        foregroundSyncTask?.cancel()
+        foregroundSyncTask = nil
+    }
+
+    private func reconcile(_ target: Reconciler) async {
+        beginSync()
+        defer { endSync() }
+        await target.reconcile()
+        guard self.reconciler === target else { return }
+        syncState(from: target)
+        if target.connectionState == .connected {
+            lastSyncedAt = Date()
+        }
+    }
+
+    private func beginSync() {
+        syncDepth += 1
+        isSyncing = true
+    }
+
+    private func endSync() {
+        syncDepth = max(0, syncDepth - 1)
+        isSyncing = syncDepth > 0
+    }
+
     private func syncState(from reconciler: Reconciler) {
-        tasks = reconciler.tasks
+        tasks = TaskPresentation.byRecency(reconciler.tasks)
         approvals = reconciler.pendingApprovals
         questions = reconciler.pendingQuestions
         connectionState = reconciler.connectionState
@@ -131,7 +180,7 @@ final class AppSession {
 
     #if DEBUG
     func installRemoteSnapshotForTesting(tasks: [KinTask], approvals: [Approval], questions: [UserQuestion]) {
-        self.tasks = tasks
+        self.tasks = TaskPresentation.byRecency(tasks)
         self.approvals = approvals
         self.questions = questions
     }
