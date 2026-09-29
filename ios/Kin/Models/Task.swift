@@ -150,10 +150,10 @@ enum TaskPresentation {
 
     static func filter(_ tasks: [KinTask], query: String) -> [KinTask] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return tasks }
+        guard !trimmed.isEmpty else { return byRecency(tasks) }
 
         let needle = trimmed.lowercased()
-        return tasks.filter { task in
+        let matches = tasks.filter { task in
             let summary = summary(for: task)
             // Both the whole prompt and the daemon's name are searched: the line a
             // query matched may not be the one the row shows, and the name the row
@@ -164,6 +164,7 @@ enum TaskPresentation {
                 || summary.agentAndModel.lowercased().contains(needle)
                 || task.status.rawValue.lowercased().contains(needle)
         }
+        return byRecency(matches)
     }
 
     static func isCurrentProfileContext(boundProfileID: UUID?, activeProfileID: UUID?) -> Bool {
@@ -219,8 +220,8 @@ enum TaskPresentation {
         }
 
         return groups.sorted { first, second in
-            let lhs = first.sessions.first.map(lastActivity) ?? 0
-            let rhs = second.sessions.first.map(lastActivity) ?? 0
+            let lhs = first.sessions.first.map(lastActivity(for:)) ?? 0
+            let rhs = second.sessions.first.map(lastActivity(for:)) ?? 0
             if lhs != rhs { return lhs > rhs }
             return first.id < second.id
         }
@@ -247,12 +248,21 @@ enum TaskPresentation {
     /// When a session last did anything. `finishedAt` alone is not it: a session
     /// that was followed up after finishing is running again with a newer
     /// `startedAt`.
-    private static func lastActivity(_ task: KinTask) -> Int64 {
+    static func lastActivity(for task: KinTask) -> Int64 {
         max(task.finishedAt ?? 0, max(task.startedAt ?? 0, task.createdAt))
     }
 
-    private static func byRecency(_ tasks: [KinTask]) -> [KinTask] {
-        tasks.sorted { lastActivity($0) > lastActivity($1) }
+    static func lastActivityDate(for task: KinTask) -> Date {
+        Date(timeIntervalSince1970: Double(lastActivity(for: task)) / 1000)
+    }
+
+    static func byRecency(_ tasks: [KinTask]) -> [KinTask] {
+        tasks.sorted { first, second in
+            let lhs = lastActivity(for: first)
+            let rhs = lastActivity(for: second)
+            if lhs != rhs { return lhs > rhs }
+            return first.id > second.id
+        }
     }
 
     static func agentAndModel(for task: KinTask) -> String {

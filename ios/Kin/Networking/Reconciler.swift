@@ -44,7 +44,7 @@ final class Reconciler {
         defer { reconciliationInFlight = false }
         connectionState = .connecting
         do {
-            async let tasksResult = apiClient.tasks()
+            async let tasksResult = apiClient.tasks(limit: 200, order: "activity")
             async let approvalsResult = apiClient.approvals()
             async let questionsResult = apiClient.userQuestions()
 
@@ -54,7 +54,7 @@ final class Reconciler {
                 questionsResult
             )
 
-            tasks = fetchedTasks.sorted { $0.createdAt > $1.createdAt }
+            tasks = TaskPresentation.byRecency(fetchedTasks)
             pendingApprovals = fetchedApprovals.sorted { $0.createdAt > $1.createdAt }
             pendingQuestions = fetchedQuestions // server order preserved
             connectionState = .connected
@@ -159,8 +159,7 @@ final class Reconciler {
                     sessionRef: updated.sessionRef,
                     error: updated.error
                 )
-                tasks[index] = updated
-                notifyDataChange()
+                updateOrAppendTask(updated)
             }
         } catch {
             applyError(error)
@@ -205,9 +204,7 @@ final class Reconciler {
                 permissionMode: permissionMode,
                 workspaceMode: workspaceMode
             )
-            tasks.insert(task, at: 0)
-            tasks.sort { $0.createdAt > $1.createdAt }
-            notifyDataChange()
+            updateOrAppendTask(task)
             return task
         } catch {
             applyError(error)
@@ -277,7 +274,7 @@ final class Reconciler {
     private func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .taskUpdate(let task):
-            updateOrAppendTask(task)
+            updateOrAppendTask(task, notify: false)
         case .taskDeleted(let id):
             tasks.removeAll { $0.id == id }
             taskEvents[id] = nil
@@ -302,14 +299,16 @@ final class Reconciler {
 
     // MARK: - Helpers
 
-    private func updateOrAppendTask(_ task: KinTask) {
+    private func updateOrAppendTask(_ task: KinTask, notify: Bool = true) {
         if let index = tasks.firstIndex(where: { $0.id == task.id }) {
             tasks[index] = task
         } else {
             tasks.append(task)
         }
-        tasks.sort { $0.createdAt > $1.createdAt }
-        notifyDataChange()
+        tasks = TaskPresentation.byRecency(tasks)
+        if notify {
+            notifyDataChange()
+        }
     }
 
     /// Merge events into the task's event list, de-duplicating by epoch and seq.

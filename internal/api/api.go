@@ -479,9 +479,10 @@ func secureTokenEqual(a, b string) bool {
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	opts := store.ListTasksOpts{
-		Status: q.Get("status"),
-		Before: q.Get("before"),
-		Query:  q.Get("q"),
+		Status:          q.Get("status"),
+		Before:          q.Get("before"),
+		Query:           q.Get("q"),
+		OrderByActivity: q.Get("order") == "activity",
 	}
 	if lim := q.Get("limit"); lim != "" {
 		n, err := strconv.Atoi(lim)

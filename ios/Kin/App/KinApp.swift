@@ -11,9 +11,17 @@ struct KinApp: App {
             ContentView()
                 .environment(appModel)
                 .environment(appSession)
+            .task {
+                if scenePhase == .active {
+                    appSession.startForegroundSync()
+                }
+            }
             .onChange(of: scenePhase) { _, phase in
-                guard phase == .active else { return }
-                Task { await appSession.reconcileForeground() }
+                if phase == .active {
+                    appSession.startForegroundSync()
+                } else {
+                    appSession.stopForegroundSync()
+                }
             }
         }
     }

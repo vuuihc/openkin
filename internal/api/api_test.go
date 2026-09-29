@@ -131,6 +131,57 @@ func TestHealthAndTasks(t *testing.T) {
 	}
 }
 
+func TestListTasksAPIOrdersByActivityWhenRequested(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+
+	for i := 0; i < 60; i++ {
+		if err := s.Store.InsertTask(ctx, store.Task{
+			ID:        fmt.Sprintf("z-api-task-%02d", i),
+			Title:     "Newer created task",
+			Agent:     "kin",
+			Cwd:       "/tmp",
+			Prompt:    "created recently",
+			Status:    "succeeded",
+			CreatedAt: int64(1_000 + i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	startedAt := int64(9_000)
+	if err := s.Store.InsertTask(ctx, store.Task{
+		ID:        "a-api-old-resumed",
+		Title:     "Old resumed task",
+		Agent:     "kin",
+		Cwd:       "/tmp",
+		Prompt:    "resumed recently",
+		Status:    "running",
+		CreatedAt: 1,
+		StartedAt: &startedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks?limit=10&order=activity", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("tasks status: %d body %s", rr.Code, rr.Body.String())
+	}
+	var got []store.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 10 {
+		t.Fatalf("len=%d want 10", len(got))
+	}
+	if got[0].ID != "a-api-old-resumed" {
+		t.Fatalf("activity order first id=%q want old resumed task", got[0].ID)
+	}
+}
+
 func TestVersionIncludesDesktopIdentityWhenConfigured(t *testing.T) {
 	s, token := newTestServer(t)
 	s.DesktopID = "desktop_1234abcd"

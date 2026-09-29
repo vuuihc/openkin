@@ -229,6 +229,9 @@ type ListTasksOpts struct {
 	Limit     int    // 0 = default 50
 	Before    string // ULID cursor: only tasks with id < before
 	ProjectID string // empty = all; filter by project
+	// OrderByActivity sorts by the newest finished_at, started_at, or created_at
+	// value first. The default preserves id-desc order for existing paged callers.
+	OrderByActivity bool
 	// Query is a case-insensitive substring match on title, prompt, cwd, agent, id.
 	// Empty = no text filter. LIKE metacharacters are escaped.
 	Query string
@@ -361,7 +364,8 @@ func escapeLike(s string) string {
 	return s
 }
 
-// ListTasks returns tasks ordered by id descending (ULID ≈ time).
+// ListTasks returns tasks ordered by id descending (ULID ≈ time), or by recent
+// activity when requested.
 func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, error) {
 	limit := opts.Limit
 	if limit <= 0 {
@@ -409,7 +413,11 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 		)`)
 		args = append(args, pat, pat, pat, pat, pat)
 	}
-	b.WriteString(` ORDER BY id DESC LIMIT ?`)
+	if opts.OrderByActivity {
+		b.WriteString(` ORDER BY MAX(COALESCE(finished_at, 0), COALESCE(started_at, 0), created_at) DESC, id DESC LIMIT ?`)
+	} else {
+		b.WriteString(` ORDER BY id DESC LIMIT ?`)
+	}
 	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(ctx, b.String(), args...)

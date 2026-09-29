@@ -91,8 +91,8 @@ actor APIClient {
         try await perform(.recentCwds)
     }
 
-    func tasks(limit: Int? = nil, offset: Int? = nil) async throws -> [KinTask] {
-        try await perform(.tasks(limit: limit, offset: offset), timeout: 30)
+    func tasks(limit: Int? = nil, offset: Int? = nil, order: String? = nil) async throws -> [KinTask] {
+        try await perform(.tasks(limit: limit, offset: offset, order: order), timeout: 30)
     }
 
     func task(id: String) async throws -> KinTask {

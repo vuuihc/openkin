@@ -1,10 +1,9 @@
 import Foundation
 import Observation
 
-/// View model for the task history list screen.
+/// View model for the task history list screen metadata.
 @Observable
 final class TaskListViewModel {
-    var tasks: [KinTask] = []
     /// Projects are loaded only to bucket sessions: a session carries its folder
     /// and, when the daemon filed it, a project id, but the directory that maps a
     /// folder to a project lives on the project. `status: "all"` so a session in a
@@ -16,50 +15,34 @@ final class TaskListViewModel {
 
     /// Whether an initial load has been attempted.
     private(set) var hasLoadedOnce = false
+    private var boundProfileID: UUID?
 
     // MARK: - Computed
 
-    /// Tasks that are still in progress (not in a terminal state).
-    var activeTasks: [KinTask] {
-        tasks.filter { !$0.isTerminal }
-    }
-
-    /// Tasks that have reached a terminal state.
-    var completedTasks: [KinTask] {
-        tasks.filter { $0.isTerminal }
-    }
-
-    // MARK: - Public API
-
-    /// Fetch the latest task list from the daemon.
+    /// Fetch the project list used to group chats.
     /// - Parameter apiClient: The API client to use for the request.
     @MainActor
-    func load(with apiClient: APIClient) async {
+    func loadProjects(with apiClient: APIClient, profileID: UUID?, isProfileCurrent: () -> Bool) async {
+        if boundProfileID != profileID {
+            projects = []
+            hasLoadedOnce = false
+            boundProfileID = profileID
+        }
         isLoading = true
         error = nil
 
         do {
-            async let fetchedTasks = apiClient.tasks()
-            async let fetchedProjects = apiClient.projects(status: "all")
-            let loadedTasks = try await fetchedTasks
-            // Sessions are the screen's content and the project list only decides
-            // how they are bucketed, so a project fetch that fails degrades the
-            // grouping instead of emptying the screen.
-            let loadedProjects = (try? await fetchedProjects) ?? []
-            tasks = loadedTasks.sorted { $0.createdAt > $1.createdAt }
+            let loadedProjects = try await apiClient.projects(status: "all")
+            guard isProfileCurrent() else { return }
             projects = loadedProjects
             hasLoadedOnce = true
         } catch {
+            guard isProfileCurrent() else { return }
             self.error = error.localizedDescription
         }
 
-        isLoading = false
-    }
-
-    /// Filter the task list by a search query, matching prompt, cwd, and agent.
-    /// - Parameter query: The user's search string.
-    /// - Returns: Filtered tasks; if `query` is empty, returns all tasks.
-    func filteredTasks(query: String) -> [KinTask] {
-        TaskPresentation.filter(tasks, query: query)
+        if isProfileCurrent() {
+            isLoading = false
+        }
     }
 }

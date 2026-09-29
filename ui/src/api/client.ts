@@ -427,6 +427,7 @@ export function listTasks(params?: {
   status?: string;
   limit?: number;
   before?: string;
+  order?: "activity";
   /** Case-insensitive substring match (title/prompt/cwd/agent/id). */
   q?: string;
 }): Promise<Task[]> {
@@ -435,6 +436,7 @@ export function listTasks(params?: {
   if (params?.limit) q.set("limit", String(params.limit));
   q.set("page", "1");
   if (params?.before) q.set("before", params.before);
+  if (params?.order) q.set("order", params.order);
   if (params?.q?.trim()) q.set("q", params.q.trim());
   const qs = q.toString();
   return apiFetch<Task[]>(`/api/tasks${qs ? `?${qs}` : ""}`);

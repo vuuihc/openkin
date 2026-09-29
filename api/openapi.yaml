@@ -539,6 +539,12 @@ paths:
           name: q
           schema:
             type: string
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [activity]
+          description: Sort by most recent task activity when set to activity.
       responses:
         "200":
           description: Task snapshot

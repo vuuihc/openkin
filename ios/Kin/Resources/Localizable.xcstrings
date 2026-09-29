@@ -1684,6 +1684,40 @@
         }
       }
     },
+    "tasks.scope.synced_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synced %@"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已同步 %@"
+          }
+        }
+      }
+    },
+    "tasks.scope.syncing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在同步"
+          }
+        }
+      }
+    },
     "tasks.scope.unconfigured" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -6,7 +6,7 @@ enum Endpoint {
     case version
     case agents
     case recentCwds
-    case tasks(limit: Int?, offset: Int?)
+    case tasks(limit: Int?, offset: Int?, order: String?)
     case createTask
     case task(id: String)
     case taskEvents(id: String, sinceSeq: Int?)
@@ -218,13 +218,16 @@ enum Endpoint {
 
     var queryItems: [URLQueryItem]? {
         switch self {
-        case .tasks(let limit, let offset):
+        case .tasks(let limit, let offset, let order):
             var items: [URLQueryItem] = []
             if let limit {
                 items.append(URLQueryItem(name: "limit", value: String(limit)))
             }
             if let offset {
                 items.append(URLQueryItem(name: "offset", value: String(offset)))
+            }
+            if let order {
+                items.append(URLQueryItem(name: "order", value: order))
             }
             return items.isEmpty ? nil : items
         case .taskEvents(_, let sinceSeq):

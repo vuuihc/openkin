@@ -15,11 +15,11 @@ struct TaskListView: View {
             Group {
                 if appSession.apiClient == nil {
                     unpairedView
-                } else if viewModel.isLoading && !viewModel.hasLoadedOnce {
+                } else if isInitialLoading {
                     loadingView
-                } else if let error = viewModel.error, !viewModel.hasLoadedOnce {
+                } else if let error = blockingErrorMessage {
                     errorView(error)
-                } else if sessions.isEmpty && viewModel.hasLoadedOnce {
+                } else if sessions.isEmpty && appSession.lastSyncedAt != nil {
                     emptyView
                 } else {
                     chatList
@@ -126,6 +126,8 @@ struct TaskListView: View {
                     profile: appSession.activeProfile,
                     profiles: appSession.profiles,
                     connectionState: appSession.connectionState,
+                    isSyncing: appSession.isSyncing,
+                    lastSyncedAt: appSession.lastSyncedAt,
                     sessionCount: appSession.tasks.count,
                     onSelectProfile: activate,
                     onPair: { showConnection = true }
@@ -244,6 +246,27 @@ struct TaskListView: View {
         !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var isInitialLoading: Bool {
+        appSession.apiClient != nil
+            && appSession.tasks.isEmpty
+            && appSession.lastSyncedAt == nil
+            && blockingErrorMessage == nil
+    }
+
+    private var blockingErrorMessage: String? {
+        guard appSession.lastSyncedAt == nil, appSession.tasks.isEmpty else { return nil }
+        switch appSession.connectionState {
+        case .offline(let message):
+            return message.isEmpty ? String(localized: "connection.state.offline") : message
+        case .unauthorized:
+            return String(localized: "connection.state.unauthorized")
+        case .incompatible:
+            return String(localized: "connection.state.incompatible")
+        case .unconfigured, .connecting, .connected, .reconnecting:
+            return nil
+        }
+    }
+
     private var emptyMessage: String {
         guard let profile = appSession.activeProfile else {
             return String(localized: "tasks.empty.unconfigured")
@@ -261,8 +284,12 @@ struct TaskListView: View {
 
     @MainActor
     private func refresh() async {
+        let profileID = appSession.activeProfileID
         guard let client = appSession.apiClient else { return }
-        await viewModel.load(with: client)
+        await viewModel.loadProjects(with: client, profileID: profileID) {
+            appSession.activeProfileID == profileID
+        }
+        await appSession.reconcileForeground()
     }
 
     @ViewBuilder
@@ -282,6 +309,8 @@ private struct ChatsScopeHeader: View {
     let profile: ServerProfile?
     let profiles: [ServerProfile]
     let connectionState: ConnectionState
+    let isSyncing: Bool
+    let lastSyncedAt: Date?
     let sessionCount: Int
     let onSelectProfile: (ServerProfile) -> Void
     let onPair: () -> Void
@@ -339,6 +368,31 @@ private struct ChatsScopeHeader: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+
+                if isSyncing {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Label(String(localized: "tasks.scope.syncing"), systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else if let lastSyncedAt {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Label(
+                        String(
+                            format: String(localized: "tasks.scope.synced_format"),
+                            lastSyncedAt.formatted(date: .omitted, time: .shortened)
+                        ),
+                        systemImage: "clock"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
 
                 Spacer()
@@ -555,6 +609,10 @@ private struct ChatRow: View {
                         .foregroundStyle(pendingAction.color)
                         .accessibilityLabel(pendingAction.label)
                 }
+                Text(TaskPresentation.lastActivityDate(for: task).formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
                 Text(summary.elapsed)
                     .font(.caption)
                     .foregroundStyle(.tertiary)

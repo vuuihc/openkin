@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -165,7 +166,6 @@ func TestUpdateTaskModel(t *testing.T) {
 	}
 }
 
-
 func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(filepath.Join(dir, "kin.db"))
@@ -245,7 +245,6 @@ func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
 	}
 }
 
-
 func TestListTasksQuery(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(filepath.Join(dir, "kin.db"))
@@ -324,5 +323,53 @@ func TestListTasksQuery(t *testing.T) {
 	}
 	if len(got) != 4 {
 		t.Fatalf("empty query len=%d want 4", len(got))
+	}
+}
+
+func TestListTasksOrderByActivityIncludesOlderResumedTaskInsideLimit(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+
+	for i := 0; i < 60; i++ {
+		if err := s.InsertTask(ctx, Task{
+			ID:        fmt.Sprintf("z-task-%02d", i),
+			Title:     "Newer created task",
+			Agent:     "kin",
+			Cwd:       "/tmp",
+			Prompt:    "created recently",
+			Status:    "succeeded",
+			CreatedAt: int64(1_000 + i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	startedAt := int64(9_000)
+	if err := s.InsertTask(ctx, Task{
+		ID:        "a-old-resumed",
+		Title:     "Old resumed task",
+		Agent:     "kin",
+		Cwd:       "/tmp",
+		Prompt:    "resumed recently",
+		Status:    "running",
+		CreatedAt: 1,
+		StartedAt: &startedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListTasks(ctx, ListTasksOpts{Limit: 10, OrderByActivity: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 10 {
+		t.Fatalf("len=%d want 10", len(got))
+	}
+	if got[0].ID != "a-old-resumed" {
+		t.Fatalf("activity order first id=%q want old resumed task", got[0].ID)
 	}
 }
