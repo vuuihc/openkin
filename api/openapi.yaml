@@ -40,6 +40,12 @@ paths:
                 properties:
                   version:
                     type: string
+                  desktop_id:
+                    type: string
+                    description: Stable daemon identity, returned only to authenticated clients.
+                  desktop_name:
+                    type: string
+                    description: Human-readable desktop name, returned only to authenticated clients.
   /api/pairing/exchange:
     post:
       operationId: exchangePairingSecret
@@ -1145,6 +1151,10 @@ components:
         token:
           type: string
         label:
+          type: string
+        desktop_id:
+          type: string
+        desktop_name:
           type: string
     AgentProviderCapability:
       type: object

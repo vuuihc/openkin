@@ -10,6 +10,8 @@ import (
 
 func TestDevicePairingScopesAndRevocation(t *testing.T) {
 	s, master := newTestServer(t)
+	s.DesktopID = "desktop_1234abcd"
+	s.DesktopName = "Work Mac"
 	h := s.Handler()
 
 	request := func(method, path, token, body string) *httptest.ResponseRecorder {
@@ -47,6 +49,9 @@ func TestDevicePairingScopesAndRevocation(t *testing.T) {
 	if exchanged.Token == "" || exchanged.DeviceID == "" {
 		t.Fatalf("invalid device response: %+v", exchanged)
 	}
+	if exchanged.DesktopID != "desktop_1234abcd" || exchanged.DesktopName != "Work Mac" {
+		t.Fatalf("desktop identity missing from exchange: %+v", exchanged)
+	}
 
 	// One-time pairing secrets cannot be replayed.
 	rec = request(http.MethodPost, "/api/pairing/exchange", "", `{"secret":"`+pairing.Secret+`"}`)
@@ -67,6 +72,21 @@ func TestDevicePairingScopesAndRevocation(t *testing.T) {
 	}
 	if recovered.Token != exchanged.Token || recovered.DeviceID != exchanged.DeviceID {
 		t.Fatalf("recovery returned different credential: %+v", recovered)
+	}
+	if recovered.DesktopID != exchanged.DesktopID || recovered.DesktopName != exchanged.DesktopName {
+		t.Fatalf("recovery returned different desktop identity: %+v", recovered)
+	}
+
+	rec = request(http.MethodGet, "/api/version", exchanged.Token, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("device version read: %d %s", rec.Code, rec.Body.String())
+	}
+	var version map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &version); err != nil {
+		t.Fatal(err)
+	}
+	if version["desktop_id"] != exchanged.DesktopID || version["desktop_name"] != exchanged.DesktopName {
+		t.Fatalf("device version missing desktop identity: %#v", version)
 	}
 
 	rec = request(http.MethodGet, "/api/tasks", exchanged.Token, "")
