@@ -7,6 +7,7 @@ struct TaskListView: View {
     @Environment(AppSession.self) private var appSession
     @State private var viewModel = TaskListViewModel()
     @State private var searchQuery = ""
+    @State private var listMode: ChatListMode = .recent
     @State private var expansionOverrides: [String: Bool] = [:]
     @State private var showConnection = false
 
@@ -120,7 +121,9 @@ struct TaskListView: View {
     }
 
     private var chatList: some View {
-        List {
+        let projectTitles = projectTitlesByTaskID
+
+        return List {
             Section {
                 ChatsScopeHeader(
                     profile: appSession.activeProfile,
@@ -141,22 +144,42 @@ struct TaskListView: View {
                 // one of forty matches reads worse than the flat list it came from.
                 Section {
                     ForEach(sessions) { session in
-                        sessionRow(session)
+                        sessionRow(session, projectTitle: projectTitles[session.id])
                     }
                 }
             } else {
-                ForEach(groups) { group in
-                    Section {
-                        DisclosureGroup(isExpanded: expansionBinding(for: group)) {
-                            ForEach(group.sessions) { session in
-                                sessionRow(session)
+                Section {
+                    Picker(String(localized: "chats.view_mode"), selection: $listMode) {
+                        ForEach(ChatListMode.allCases, id: \.self) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                    .listRowBackground(Color.clear)
+                }
+
+                switch listMode {
+                case .recent:
+                    Section(String(localized: "chats.section.recent")) {
+                        ForEach(sessions) { session in
+                            sessionRow(session, projectTitle: projectTitles[session.id])
+                        }
+                    }
+                case .projects:
+                    ForEach(groups) { group in
+                        Section {
+                            DisclosureGroup(isExpanded: expansionBinding(for: group)) {
+                                ForEach(group.sessions) { session in
+                                    sessionRow(session, projectTitle: group.isUnfiled ? nil : group.title)
+                                }
+                            } label: {
+                                ProjectGroupRow(
+                                    group: group,
+                                    isExpanded: isExpanded(group),
+                                    pendingAction: pendingAction(in: group)
+                                )
                             }
-                        } label: {
-                            ProjectGroupRow(
-                                group: group,
-                                isExpanded: isExpanded(group),
-                                pendingAction: pendingAction(in: group)
-                            )
                         }
                     }
                 }
@@ -167,9 +190,13 @@ struct TaskListView: View {
 
     // MARK: - Rows
 
-    private func sessionRow(_ task: KinTask) -> some View {
+    private func sessionRow(_ task: KinTask, projectTitle: String?) -> some View {
         NavigationLink(value: AppRoute.taskDetail(id: task.id)) {
-            ChatRow(task: task, pendingAction: pendingAction(for: task.id))
+            ChatRow(
+                task: task,
+                projectTitle: projectTitle,
+                pendingAction: pendingAction(for: task.id)
+            )
         }
     }
 
@@ -177,6 +204,16 @@ struct TaskListView: View {
 
     private var groups: [ChatGroup] {
         TaskPresentation.chatGroups(tasks: appSession.tasks, projects: viewModel.projects)
+    }
+
+    private var projectTitlesByTaskID: [String: String] {
+        var titles: [String: String] = [:]
+        for group in groups where !group.isUnfiled {
+            for session in group.sessions {
+                titles[session.id] = group.title
+            }
+        }
+        return titles
     }
 
     private func isExpanded(_ group: ChatGroup) -> Bool {
@@ -299,6 +336,20 @@ struct TaskListView: View {
             TaskDetailView(taskId: id)
         case .newTask:
             NewTaskView()
+        }
+    }
+}
+
+private enum ChatListMode: CaseIterable {
+    case recent
+    case projects
+
+    var title: String {
+        switch self {
+        case .recent:
+            return String(localized: "chats.view.recent")
+        case .projects:
+            return String(localized: "chats.view.projects")
         }
     }
 }
@@ -567,6 +618,7 @@ private struct ProjectGroupRow: View {
 /// finished.
 private struct ChatRow: View {
     let task: KinTask
+    let projectTitle: String?
     let pendingAction: TaskListView.PendingAction?
 
     private var summary: TaskPresentation.Summary {
@@ -578,36 +630,44 @@ private struct ChatRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 5) {
+        HStack(alignment: .top, spacing: 12) {
+            statusGlyph
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 7) {
                 Text(summary.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
 
-                if showsStatusBadge {
-                    StatusBadge(status: task.status)
-                }
-
-                HStack(spacing: 6) {
-                    Label(summary.agentAndModel, systemImage: "person.crop.circle")
-                        .lineLimit(1)
+                HStack(spacing: 8) {
+                    if let projectTitle {
+                        Label(projectTitle, systemImage: "folder")
+                            .lineLimit(1)
+                    } else {
+                        Label(TaskPresentation.lastPathSegment(summary.location), systemImage: "folder")
+                            .lineLimit(1)
+                    }
                     Text("·")
-                    Label(summary.location, systemImage: "folder")
+                    Text(summary.agentAndModel)
                         .lineLimit(1)
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if showsStatusBadge {
+                    StatusBadge(status: task.status)
+                }
             }
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 5) {
                 if let pendingAction {
-                    Image(systemName: pendingAction.icon)
-                        .font(.caption)
+                    Label(pendingAction.label, systemImage: pendingAction.icon)
+                        .labelStyle(.iconOnly)
+                        .font(.subheadline)
                         .foregroundStyle(pendingAction.color)
-                        .accessibilityLabel(pendingAction.label)
                 }
                 Text(TaskPresentation.lastActivityDate(for: task).formatted(date: .abbreviated, time: .shortened))
                     .font(.caption2)
@@ -625,6 +685,45 @@ private struct ChatRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+    }
+
+    private var statusGlyph: some View {
+        Image(systemName: glyphIcon)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(glyphColor)
+            .frame(width: 28, height: 28)
+            .background(glyphColor.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var glyphIcon: String {
+        if pendingAction != nil { return pendingAction?.icon ?? "hand.raised.fill" }
+        switch task.status {
+        case .running, .queued:
+            return "play.fill"
+        case .waitingApproval, .waitingInput:
+            return "hand.tap.fill"
+        case .failed:
+            return "exclamationmark"
+        case .cancelled:
+            return "xmark"
+        default:
+            return "checkmark"
+        }
+    }
+
+    private var glyphColor: Color {
+        if let pendingAction { return pendingAction.color }
+        switch task.status {
+        case .running, .queued:
+            return .blue
+        case .waitingApproval, .waitingInput:
+            return .orange
+        case .failed, .cancelled:
+            return .red
+        default:
+            return .green
+        }
     }
 }
 

@@ -9,9 +9,32 @@ enum EventProjection {
         case user
         /// An agent speaking: a bubble on the leading edge.
         case agent
+        /// Collapsed agent process work: reasoning, tools, and progress notes.
+        case process
         /// Everything else — tool work, errors, approvals, plumbing: a compact
         /// row that reads as part of the transcript without being a turn.
         case notice
+    }
+
+    /// One step inside a collapsed process row.
+    struct ProcessStep: Identifiable, Equatable {
+        enum Kind: Equatable {
+            case note
+            case tool
+        }
+
+        enum Status: Equatable {
+            case running
+            case done
+            case error
+        }
+
+        let id: String
+        let kind: Kind
+        let label: String
+        let detail: String
+        let expandedDetail: String?
+        let status: Status
     }
 
     /// Display-ready row model for a single task event.
@@ -29,6 +52,7 @@ enum EventProjection {
         let level: String?
         let isCollapsible: Bool
         let rawContent: TaskEventContent?
+        var processSteps: [ProcessStep] = []
     }
 
     /// Convert a `TaskEvent` into a `DisplayRow` with all fields populated
@@ -215,6 +239,8 @@ enum EventProjection {
         /// that streams, does tool work, streams again, and ends with one complete
         /// message streams the same answer twice over.
         var previews: [(id: String, speaker: String)] = []
+        var process: (seq: Int, ts: Int, steps: [ProcessStep])?
+        var processStepIndexes: [String: Int] = [:]
 
         func flushStream() {
             guard let pending = stream else { return }
@@ -232,12 +258,111 @@ enum EventProjection {
             previews.append((row.id, pending.speaker))
         }
 
+        func appendProcessStep(_ step: ProcessStep, from event: TaskEvent) {
+            if process == nil {
+                process = (seq: event.seq, ts: event.ts, steps: [])
+                processStepIndexes = [:]
+            }
+
+            guard var current = process else { return }
+            if let index = processStepIndexes[step.id], index < current.steps.count {
+                let existing = current.steps[index]
+                if step.kind == .note, existing.status == .running, step.status == .running {
+                    current.steps[index] = ProcessStep(
+                        id: step.id,
+                        kind: step.kind,
+                        label: step.label,
+                        detail: existing.detail + step.detail,
+                        expandedDetail: (existing.expandedDetail ?? existing.detail) + (step.expandedDetail ?? step.detail),
+                        status: step.status
+                    )
+                } else {
+                    current.steps[index] = step
+                }
+            } else {
+                processStepIndexes[step.id] = current.steps.count
+                current.steps.append(step)
+            }
+            process = current
+        }
+
+        func settledSteps(_ steps: [ProcessStep], as status: ProcessStep.Status) -> [ProcessStep] {
+            steps.map { step in
+                guard step.status == .running else { return step }
+                return ProcessStep(
+                    id: step.id,
+                    kind: step.kind,
+                    label: step.label,
+                    detail: step.detail,
+                    expandedDetail: step.expandedDetail,
+                    status: status
+                )
+            }
+        }
+
+        func makeProcessRow(seq: Int, ts: Int, steps: [ProcessStep]) -> DisplayRow {
+            DisplayRow(
+                id: "\(seq)-process",
+                seq: seq,
+                timestamp: Date(timeIntervalSince1970: Double(ts) / 1000.0),
+                icon: processIcon(for: steps),
+                iconColor: processColor(for: steps),
+                primaryText: processSummary(for: steps),
+                secondaryText: latestProcessDetail(in: steps),
+                style: .process,
+                speaker: nil,
+                level: nil,
+                isCollapsible: true,
+                rawContent: nil,
+                processSteps: steps
+            )
+        }
+
+        func settleProcessSteps(as status: ProcessStep.Status) {
+            guard var current = process else { return }
+            current.steps = settledSteps(current.steps, as: status)
+            process = current
+        }
+
+        func settleProcessRows(as status: ProcessStep.Status) {
+            for index in rows.indices where rows[index].style == .process {
+                let settled = settledSteps(rows[index].processSteps, as: status)
+                guard settled != rows[index].processSteps else { continue }
+                rows[index] = makeProcessRow(seq: rows[index].seq, ts: Int(rows[index].timestamp.timeIntervalSince1970 * 1000), steps: settled)
+            }
+        }
+
+        func flushProcess() {
+            guard let current = process, !current.steps.isEmpty else { return }
+            let steps = current.steps
+            process = nil
+            processStepIndexes = [:]
+
+            rows.append(makeProcessRow(seq: current.seq, ts: current.ts, steps: steps))
+        }
+
         for event in events {
+            if event.eventType == "result" {
+                let status: ProcessStep.Status = payloadBool(event, "is_error") ? .error : .done
+                flushStream()
+                settleProcessSteps(as: status)
+                settleProcessRows(as: status)
+                flushProcess()
+                continue
+            }
             guard !unrenderedEventTypes.contains(event.eventType) else { continue }
+            if let step = processStep(for: event) {
+                flushStream()
+                appendProcessStep(step, from: event)
+                continue
+            }
             switch event.content {
             case let .message(role, text, speaker, partial) where partial:
                 if let openedBy = stream, openedBy.speaker != speaker || openedBy.role != role {
                     flushStream()
+                }
+                if stream == nil {
+                    flushProcess()
                 }
                 let openedBy = stream
                 stream = (
@@ -275,6 +400,7 @@ enum EventProjection {
                         previews.removeAll { superseded.contains($0.id) }
                     }
                 }
+                flushProcess()
                 // Empty messages are echoes of tool output the daemon stamps with
                 // a role but no text; they are not transcript lines.
                 guard !isBlank(text) else { continue }
@@ -282,19 +408,300 @@ enum EventProjection {
 
             default:
                 flushStream()
-                let row = project(event)
+                flushProcess()
+                guard let row = visibleNoticeRow(for: event) else { continue }
                 rows.append(row)
                 // Failures end the run, so nothing later supersedes its previews.
                 if event.eventType == "error" { previews.removeAll() }
             }
         }
         flushStream()
+        flushProcess()
         return rows
     }
 
     /// Whether a message carries nothing to show.
     private static func isBlank(_ text: String) -> Bool {
         text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func visibleNoticeRow(for event: TaskEvent) -> DisplayRow? {
+        if event.eventType.hasPrefix("workspace_") {
+            guard let label = workspaceEventLabel(for: event) else { return nil }
+            let date = Date(timeIntervalSince1970: Double(event.ts) / 1000.0)
+            return DisplayRow(
+                id: "\(event.seq)-workspace",
+                seq: event.seq,
+                timestamp: date,
+                icon: "shippingbox.fill",
+                iconColor: .indigo,
+                primaryText: label,
+                secondaryText: nil,
+                style: .notice,
+                speaker: nil,
+                level: nil,
+                isCollapsible: false,
+                rawContent: event.content
+            )
+        }
+
+        switch event.content {
+        case .error, .approval, .question, .statusChange:
+            return project(event)
+        default:
+            return nil
+        }
+    }
+
+    private static func processStep(for event: TaskEvent) -> ProcessStep? {
+        switch event.content {
+        case .reasoning(let text):
+            return noteStep(id: "note-\(event.seq)", text: text, status: .done)
+        case .toolCall(let name, let summary, _, _):
+            return toolStep(id: "tool-\(event.seq)", name: name, detail: summary, output: nil, status: .done)
+        case .message(_, let text, let speaker, _):
+            guard !isBlank(text), speaker != "user", isProgressMessage(event) else { return nil }
+            let status: ProcessStep.Status = payloadBool(event, "partial") ? .running : .done
+            return noteStep(id: messageKey(for: event), text: text, status: status)
+        default:
+            break
+        }
+
+        switch event.eventType {
+        case "tool_use":
+            let name = payloadString(event, "name")
+                ?? payloadString(event, "tool_name")
+                ?? payloadString(event, "type")
+                ?? "tool"
+            let id = payloadString(event, "tool_use_id")
+                ?? payloadString(event, "id")
+                ?? "seq-\(event.seq)"
+            let detail = payloadString(event, "summary")
+                ?? payloadString(event, "description")
+                ?? name
+            return toolStep(id: id, name: name, detail: detail, output: nil, status: .running)
+        case "tool_result":
+            let id = payloadString(event, "tool_use_id")
+                ?? payloadString(event, "id")
+                ?? "seq-\(event.seq)"
+            let name = payloadString(event, "name")
+                ?? payloadString(event, "tool_name")
+                ?? "tool"
+            let ok = payloadBoolValue(event, "ok")
+                ?? (!payloadBool(event, "is_error") && payloadString(event, "status") != "error")
+            let detail = payloadString(event, "summary")
+                ?? payloadString(event, "description")
+                ?? payloadString(event, "output")
+                ?? name
+            return toolStep(
+                id: id,
+                name: name,
+                detail: detail,
+                output: payloadString(event, "output"),
+                status: ok ? .done : .error
+            )
+        default:
+            return nil
+        }
+    }
+
+    private static func noteStep(id: String, text: String, status: ProcessStep.Status) -> ProcessStep {
+        ProcessStep(
+            id: id,
+            kind: .note,
+            label: String(localized: "event.process.note", defaultValue: "Note"),
+            detail: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            expandedDetail: text,
+            status: status
+        )
+    }
+
+    private static func toolStep(
+        id: String,
+        name: String,
+        detail: String,
+        output: String?,
+        status: ProcessStep.Status
+    ) -> ProcessStep {
+        ProcessStep(
+            id: id,
+            kind: .tool,
+            label: prettyToolName(name),
+            detail: detail.trimmingCharacters(in: .whitespacesAndNewlines),
+            expandedDetail: output,
+            status: status
+        )
+    }
+
+    private static func isProgressMessage(_ event: TaskEvent) -> Bool {
+        if visibilityUser(event) == false { return true }
+        let phase = payloadString(event, "phase")
+        if phase == "summary" { return false }
+        if phase == "plan" || phase == "progress" { return true }
+        if payloadString(event, "role") == "reasoning" { return true }
+        let source = payloadString(event, "source")
+        if source == "delegate" { return true }
+        if source == "orchestrator" {
+            return !isLegacyOrchestratorSummaryWording(payloadText(event))
+        }
+        return false
+    }
+
+    private static func messageKey(for event: TaskEvent) -> String {
+        if let messageID = payloadString(event, "message_id") {
+            let index = payloadString(event, "index") ?? ""
+            return index.isEmpty ? "note-\(messageID)" : "note-\(messageID)-\(index)"
+        }
+        return "note-\(event.seq)"
+    }
+
+    private static func payloadObject(_ event: TaskEvent) -> [String: Any] {
+        guard let data = event.payloadData else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    private static func payloadString(_ event: TaskEvent, _ key: String) -> String? {
+        let value = payloadObject(event)[key]
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        return nil
+    }
+
+    private static func payloadBool(_ event: TaskEvent, _ key: String) -> Bool {
+        payloadBoolValue(event, key) ?? false
+    }
+
+    private static func payloadBoolValue(_ event: TaskEvent, _ key: String) -> Bool? {
+        let value = payloadObject(event)[key]
+        if let bool = value as? Bool { return bool }
+        if let string = value as? String {
+            return string == "true" || string == "1"
+        }
+        if let number = value as? NSNumber {
+            return number.boolValue
+        }
+        return nil
+    }
+
+    private static func payloadText(_ event: TaskEvent) -> String {
+        switch event.content {
+        case .message(_, let text, _, _):
+            return text
+        default:
+            return payloadString(event, "text") ?? payloadString(event, "content") ?? ""
+        }
+    }
+
+    private static func visibilityUser(_ event: TaskEvent) -> Bool? {
+        guard let visibility = payloadObject(event)["visibility"] as? [String: Any],
+              let user = visibility["user"]
+        else { return nil }
+        if let bool = user as? Bool { return bool }
+        if let string = user as? String { return string == "true" || string == "1" }
+        if let number = user as? NSNumber { return number.boolValue }
+        return nil
+    }
+
+    private static func processSummary(for steps: [ProcessStep]) -> String {
+        if steps.contains(where: { $0.status == .running }) {
+            return "\(String(localized: "event.process.running", defaultValue: "Running")) · \(processActivity(for: steps))"
+        }
+        if steps.contains(where: { $0.status == .error }) {
+            return "\(String(localized: "event.process.failed", defaultValue: "Failed")) · \(processActivity(for: steps))"
+        }
+        return "\(String(localized: "event.process.done", defaultValue: "Done")) · \(processActivity(for: steps))"
+    }
+
+    private static func processActivity(for steps: [ProcessStep]) -> String {
+        var counts: [String: Int] = [:]
+        for step in steps where step.kind == .tool {
+            counts[step.label, default: 0] += 1
+        }
+        if !counts.isEmpty {
+            return counts.keys.sorted().map { "\($0) × \(counts[$0] ?? 0)" }.joined(separator: " · ")
+        }
+        return String(
+            format: String(localized: "event.process.notes_format", defaultValue: "%lld note(s)"),
+            steps.count
+        )
+    }
+
+    private static func latestProcessDetail(in steps: [ProcessStep]) -> String? {
+        steps.last(where: { !$0.detail.isEmpty })?.detail
+    }
+
+    private static func processIcon(for steps: [ProcessStep]) -> String {
+        steps.contains(where: { $0.status == .running }) ? "arrow.triangle.2.circlepath" : "checkmark.circle"
+    }
+
+    private static func processColor(for steps: [ProcessStep]) -> Color {
+        if steps.contains(where: { $0.status == .running }) { return .blue }
+        if steps.contains(where: { $0.status == .error }) { return .red }
+        return .green
+    }
+
+    private static func prettyToolName(_ name: String) -> String {
+        switch name {
+        case "bash":
+            return String(localized: "event.process.tool.shell", defaultValue: "Shell")
+        case "read_file":
+            return String(localized: "event.process.tool.read", defaultValue: "Read")
+        case "write_file":
+            return String(localized: "event.process.tool.write", defaultValue: "Write")
+        case "edit_file":
+            return String(localized: "event.process.tool.edit", defaultValue: "Edit")
+        case "list_dir":
+            return String(localized: "event.process.tool.list", defaultValue: "List")
+        case "glob":
+            return String(localized: "event.process.tool.glob", defaultValue: "Glob")
+        default:
+            return name.isEmpty ? String(localized: "event.process.tool.generic", defaultValue: "Tool") : name
+        }
+    }
+
+    private static func workspaceEventLabel(for event: TaskEvent) -> String? {
+        let base: String
+        switch event.eventType {
+        case "workspace_provisioning":
+            base = String(localized: "workspace.generation.eventProvisioning", defaultValue: "Workspace provisioning")
+        case "workspace_ready":
+            base = String(localized: "workspace.generation.eventReady", defaultValue: "Workspace ready")
+        case "workspace_active":
+            base = String(localized: "workspace.generation.eventActive", defaultValue: "Workspace active")
+        case "workspace_finalizing":
+            base = String(localized: "workspace.generation.eventFinalizing", defaultValue: "Finalizing workspace")
+        case "workspace_integrated":
+            base = String(localized: "workspace.generation.eventIntegrated", defaultValue: "Workspace merged")
+        case "workspace_released":
+            base = String(localized: "workspace.generation.eventReleased", defaultValue: "Workspace released")
+        case "workspace_merge_blocked":
+            base = String(localized: "workspace.generation.eventMergeBlocked", defaultValue: "Merge blocked")
+        case "workspace_finalize_blocked":
+            base = String(localized: "workspace.generation.eventFinalizeBlocked", defaultValue: "Finalize blocked")
+        case "workspace_orphaned":
+            base = String(localized: "workspace.generation.eventOrphaned", defaultValue: "Workspace orphaned")
+        case "workspace_legacy_pending":
+            base = String(localized: "workspace.generation.eventLegacyPending", defaultValue: "Legacy workspace")
+        default:
+            return nil
+        }
+
+        let generation = payloadString(event, "generation").map { " #\($0)" } ?? ""
+        let id = payloadString(event, "workspace_id").map { " (\(String($0.prefix(8))))" } ?? ""
+        return "\(base)\(generation)\(id)"
+    }
+
+    private static func isLegacyOrchestratorSummaryWording(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.range(of: #"^完成(（有失败）)?[：:]"#, options: .regularExpression) != nil {
+            return true
+        }
+        return trimmed.range(of: #"^(done|completed)([:：]|\s*\()"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// Row for a message. A run of chunks that is still streaming renders under
