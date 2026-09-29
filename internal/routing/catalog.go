@@ -38,7 +38,7 @@ func NewCatalog(st *store.Store, agentExists func(string) bool) *Catalog {
 
 // ListProviderProfiles returns provider registry entries in routing form.
 func (c *Catalog) ListProviderProfiles(ctx context.Context) ([]ProviderProfile, error) {
-	reg, err := provider.LoadRegistry(ctx, c.store)
+	reg, err := provider.LoadRegistryMetadata(ctx, c.store)
 	if err != nil {
 		return nil, fmt.Errorf("load provider profiles: %w", err)
 	}
