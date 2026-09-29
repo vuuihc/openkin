@@ -1379,6 +1379,32 @@ final class KinCoreTests: XCTestCase {
         XCTAssertFalse(ConnectionState.unconfigured.isConnected)
     }
 
+    func testConnectionBannerSuppressesTransientConnectionStates() {
+        XCTAssertFalse(ConnectionBannerPresentation.shouldRender(.connecting, isDelayedVisible: false))
+        XCTAssertFalse(ConnectionBannerPresentation.shouldRender(.reconnecting(delay: 1), isDelayedVisible: false))
+        XCTAssertFalse(ConnectionBannerPresentation.shouldRender(.reconnecting(delay: 10), isDelayedVisible: true))
+    }
+
+    func testConnectionBannerDelaysOfflineState() {
+        XCTAssertEqual(ConnectionBannerPresentation.displayDelay(for: .offline("Disconnected")), 30)
+        XCTAssertFalse(ConnectionBannerPresentation.shouldRender(.offline("Disconnected"), isDelayedVisible: false))
+        XCTAssertTrue(ConnectionBannerPresentation.shouldRender(.offline("Disconnected"), isDelayedVisible: true))
+    }
+
+    func testConnectionBannerKeepsOfflineDelayAcrossMessageChanges() {
+        XCTAssertEqual(
+            ConnectionBannerPresentation.identity(for: .offline("Disconnected")),
+            ConnectionBannerPresentation.identity(for: .offline("Cannot reach daemon"))
+        )
+    }
+
+    func testConnectionBannerShowsActionableFailuresImmediately() {
+        XCTAssertTrue(ConnectionBannerPresentation.shouldRender(.unauthorized, isDelayedVisible: false))
+        XCTAssertTrue(ConnectionBannerPresentation.shouldRender(.incompatible, isDelayedVisible: false))
+        XCTAssertFalse(ConnectionBannerPresentation.shouldRender(.connected, isDelayedVisible: true))
+        XCTAssertFalse(ConnectionBannerPresentation.shouldRender(.unconfigured, isDelayedVisible: true))
+    }
+
     func testServerProfilesLoadMostRecentlyAccessedFirst() throws {
         let defaults = UserDefaults.standard
         let originalProfiles = defaults.data(forKey: "kin_server_profiles")

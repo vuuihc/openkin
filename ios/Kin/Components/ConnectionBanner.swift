@@ -5,9 +5,11 @@ import SwiftUI
 struct ConnectionBanner: View {
     @Environment(AppModel.self) private var appModel
     @Environment(AppSession.self) private var appSession
+    @State private var showDelayedBanner = false
 
     var body: some View {
-        let info = bannerInfo(for: appSession.connectionState)
+        let state = appSession.connectionState
+        let info = bannerInfo(for: state, isDelayedVisible: showDelayedBanner)
 
         Group {
             if let info {
@@ -38,27 +40,23 @@ struct ConnectionBanner: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: appSession.connectionState)
+        .task(id: ConnectionBannerPresentation.identity(for: state)) {
+            await updateDelayedBanner(for: state)
+        }
     }
 
     /// Returns banner content for the given state, or `nil` when no banner should be shown.
-    private func bannerInfo(for state: ConnectionState) -> (label: String, color: Color, showSpinner: Bool)? {
-        switch state {
-        case .connected, .unconfigured:
+    private func bannerInfo(
+        for state: ConnectionState,
+        isDelayedVisible: Bool
+    ) -> (label: String, color: Color, showSpinner: Bool)? {
+        guard ConnectionBannerPresentation.shouldRender(state, isDelayedVisible: isDelayedVisible) else {
             return nil
+        }
 
-        case .connecting:
-            return (
-                String(localized: "Connecting…", comment: "Connection banner: connecting state"),
-                .orange,
-                true
-            )
-
-        case let .reconnecting(delay):
-            return (
-                String(localized: "Reconnecting…", comment: "Connection banner: reconnecting state"),
-                .orange,
-                true
-            )
+        switch state {
+        case .connected, .unconfigured, .connecting, .reconnecting:
+            return nil
 
         case .unauthorized:
             return (
@@ -82,6 +80,63 @@ struct ConnectionBanner: View {
                 .red,
                 false
             )
+        }
+    }
+
+    @MainActor
+    private func updateDelayedBanner(for state: ConnectionState) async {
+        showDelayedBanner = ConnectionBannerPresentation.shouldShowImmediately(state)
+        guard let delay = ConnectionBannerPresentation.displayDelay(for: state) else { return }
+        let identity = ConnectionBannerPresentation.identity(for: state)
+        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        guard !Task.isCancelled else { return }
+        guard ConnectionBannerPresentation.identity(for: appSession.connectionState) == identity else { return }
+        showDelayedBanner = true
+    }
+}
+
+enum ConnectionBannerPresentation {
+    static let offlineDisplayDelay: TimeInterval = 30
+
+    static func shouldRender(_ state: ConnectionState, isDelayedVisible: Bool) -> Bool {
+        if shouldShowImmediately(state) { return true }
+        return displayDelay(for: state) != nil && isDelayedVisible
+    }
+
+    static func shouldShowImmediately(_ state: ConnectionState) -> Bool {
+        switch state {
+        case .unauthorized, .incompatible:
+            return true
+        case .unconfigured, .connecting, .connected, .reconnecting, .offline:
+            return false
+        }
+    }
+
+    static func displayDelay(for state: ConnectionState) -> TimeInterval? {
+        switch state {
+        case .offline:
+            return offlineDisplayDelay
+        case .unconfigured, .connecting, .connected, .reconnecting, .unauthorized, .incompatible:
+            return nil
+        }
+    }
+
+    static func identity(for state: ConnectionState) -> String {
+        switch state {
+        case .unconfigured:
+            return "unconfigured"
+        case .connecting:
+            return "connecting"
+        case .connected:
+            return "connected"
+        case .reconnecting:
+            return "reconnecting"
+        case .unauthorized:
+            return "unauthorized"
+        case .incompatible:
+            return "incompatible"
+        case .offline:
+            return "offline"
         }
     }
 }
