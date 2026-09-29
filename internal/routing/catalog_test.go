@@ -114,6 +114,46 @@ func TestCatalogModelsForAgentUsesEnabledProviderOverlays(t *testing.T) {
 	}
 }
 
+func TestCatalogListProviderProfilesDoesNotReadSecrets(t *testing.T) {
+	st := openCatalogTestStore(t)
+	ctx := context.Background()
+	secrets := &countingSecretStore{values: make(map[string]string)}
+	provider.SetSecretStore(secrets)
+	t.Cleanup(func() { provider.SetSecretStore(nil) })
+
+	enabled := true
+	if err := provider.SaveRegistry(ctx, st, provider.Registry{
+		ActiveID: "anthropic",
+		Entries: []provider.Entry{{
+			ID: "anthropic", Name: "Anthropic", Kind: string(ProviderKindAnthropicCompatible),
+			BaseURL: "https://api.anthropic.com/v1", Model: "claude-sonnet",
+			APIKey: "sk-secret", Enabled: &enabled, SupportsAgents: []string{"claude-code"},
+			Models: []provider.ModelSpec{{ID: "claude-sonnet", Tier: "balanced"}},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := st.GetSetting(ctx, provider.KeyProviders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, "secret://") || strings.Contains(raw, "sk-secret") {
+		t.Fatalf("provider setup did not externalize API key: %s", raw)
+	}
+	secrets.gets = 0
+
+	profiles, err := NewCatalog(st, nil).ListProviderProfiles(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secrets.gets != 0 {
+		t.Fatalf("ListProviderProfiles read %d secret(s), want 0", secrets.gets)
+	}
+	if len(profiles) != 1 || profiles[0].ID != "anthropic" {
+		t.Fatalf("profiles=%+v", profiles)
+	}
+}
+
 func TestCatalogRejectsProviderChangeThatInvalidatesTeam(t *testing.T) {
 	st := openCatalogTestStore(t)
 	ctx := context.Background()
@@ -279,6 +319,30 @@ func TestCatalogLegacySettingsClearAPIKeyDeletesStoredSecret(t *testing.T) {
 func providerSecretReference(id string) string {
 	sum := sha256.Sum256([]byte(id))
 	return "secret-provider-" + hex.EncodeToString(sum[:16])
+}
+
+type countingSecretStore struct {
+	values map[string]string
+	gets   int
+}
+
+func (s *countingSecretStore) Get(ref string) (string, error) {
+	s.gets++
+	v, ok := s.values[ref]
+	if !ok {
+		return "", os.ErrNotExist
+	}
+	return v, nil
+}
+
+func (s *countingSecretStore) Put(ref, value string) error {
+	s.values[ref] = value
+	return nil
+}
+
+func (s *countingSecretStore) Delete(ref string) error {
+	delete(s.values, ref)
+	return nil
 }
 
 func TestCatalogSetActiveProvider(t *testing.T) {
