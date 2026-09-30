@@ -53,6 +53,7 @@ enum EventProjection {
         let isCollapsible: Bool
         let rawContent: TaskEventContent?
         var processSteps: [ProcessStep] = []
+        var expandedText: String? = nil
     }
 
     /// Convert a `TaskEvent` into a `DisplayRow` with all fields populated
@@ -171,37 +172,8 @@ enum EventProjection {
                 rawContent: event.content
             )
 
-        case .unknown:
-            return DisplayRow(
-                id: "\(seq)-unknown",
-                seq: seq,
-                timestamp: date,
-                icon: "questionmark",
-                iconColor: .secondary,
-                primaryText: String(localized: "event.unknown"),
-                secondaryText: nil,
-                style: .notice,
-                speaker: nil,
-                level: nil,
-                isCollapsible: false,
-                rawContent: event.content
-            )
-
-        case nil:
-            return DisplayRow(
-                id: "\(seq)-nil",
-                seq: seq,
-                timestamp: date,
-                icon: "questionmark",
-                iconColor: .secondary,
-                primaryText: String(localized: "event.empty"),
-                secondaryText: nil,
-                style: .notice,
-                speaker: nil,
-                level: nil,
-                isCollapsible: false,
-                rawContent: nil
-            )
+        case .unknown, nil:
+            return fallbackNoticeRow(for: event)
         }
     }
 
@@ -220,6 +192,44 @@ enum EventProjection {
         "orchestration_fallback",
         "limit_hit",
         "meta",
+        "skill_context",
+        "eval_metadata",
+        "replay_metadata",
+        "connector_call",
+        "user_question_answered",
+    ]
+    private static let maxUnknownPayloadBytes = 64 * 1_024
+    private static let inlineSecretRedactions: [(NSRegularExpression, String)] = [
+        (
+            try! NSRegularExpression(
+                pattern: #"(?i)(authorization\s*:\s*)[^"'\r\n]+"#
+            ),
+            "$1<redacted>"
+        ),
+        (
+            try! NSRegularExpression(
+                pattern: #"(?i)(cookie\s*:\s*)[^"'\r\n]+"#
+            ),
+            "$1<redacted>"
+        ),
+        (
+            try! NSRegularExpression(
+                pattern: #"(?i)(x[-_]?api[-_]?key\s*:\s*)[^\s"'&]+"#
+            ),
+            "$1<redacted>"
+        ),
+        (
+            try! NSRegularExpression(
+                pattern: #"(?i)(--(?:access[-_]?key|api[-_]?key|private[-_]?key|token|secret|password|credential|cookie)(?:=|\s+))(?:"[^"]*"|'[^']*'|[^\s"']+)"#
+            ),
+            "$1<redacted>"
+        ),
+        (
+            try! NSRegularExpression(
+                pattern: #"(?i)((?:"?)(?:x[-_]?api[-_]?key|access[-_]?key|api[-_]?key|private[-_]?key|token|secret|password|credential|authorization|cookie)"?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;&}]+)"#
+            ),
+            "$1<redacted>"
+        ),
     ]
 
     /// Project a whole event list into the rows the transcript shows.
@@ -342,6 +352,11 @@ enum EventProjection {
         }
 
         for event in events {
+            if event.eventType != "message",
+               event.eventType != "result",
+               visibilityUser(event) == false {
+                continue
+            }
             if event.eventType == "result" {
                 let status: ProcessStep.Status = payloadBool(event, "is_error") ? .error : .done
                 flushStream()
@@ -426,8 +441,12 @@ enum EventProjection {
     }
 
     private static func visibleNoticeRow(for event: TaskEvent) -> DisplayRow? {
+        guard visibilityUser(event) != false else { return nil }
+
         if event.eventType.hasPrefix("workspace_") {
-            guard let label = workspaceEventLabel(for: event) else { return nil }
+            guard let label = workspaceEventLabel(for: event) else {
+                return fallbackNoticeRow(for: event)
+            }
             let date = Date(timeIntervalSince1970: Double(event.ts) / 1000.0)
             return DisplayRow(
                 id: "\(event.seq)-workspace",
@@ -445,12 +464,312 @@ enum EventProjection {
             )
         }
 
+        let date = Date(timeIntervalSince1970: Double(event.ts) / 1000.0)
+        switch event.eventType {
+        case "approval_requested":
+            return DisplayRow(
+                id: "\(event.seq)-approval",
+                seq: event.seq,
+                timestamp: date,
+                icon: "hand.raised.fill",
+                iconColor: .orange,
+                primaryText: String(localized: "event.approval_request"),
+                secondaryText: approvalRequestSummary(for: event),
+                style: .notice,
+                speaker: nil,
+                level: nil,
+                isCollapsible: false,
+                rawContent: event.content
+            )
+        case "user_question_requested":
+            return DisplayRow(
+                id: "\(event.seq)-question",
+                seq: event.seq,
+                timestamp: date,
+                icon: "questionmark.bubble.fill",
+                iconColor: .teal,
+                primaryText: String(localized: "event.question"),
+                secondaryText: userQuestionSummary(for: event),
+                style: .notice,
+                speaker: nil,
+                level: nil,
+                isCollapsible: false,
+                rawContent: event.content
+            )
+        case "route_decision":
+            return DisplayRow(
+                id: "\(event.seq)-route",
+                seq: event.seq,
+                timestamp: date,
+                icon: "point.3.connected.trianglepath.dotted",
+                iconColor: .blue,
+                primaryText: String(localized: "event.route_decision", defaultValue: "Routing"),
+                secondaryText: routeDecisionSummary(for: event),
+                style: .notice,
+                speaker: nil,
+                level: nil,
+                isCollapsible: false,
+                rawContent: event.content
+            )
+        case "route_fallback":
+            return DisplayRow(
+                id: "\(event.seq)-fallback",
+                seq: event.seq,
+                timestamp: date,
+                icon: "arrow.triangle.2.circlepath",
+                iconColor: .orange,
+                primaryText: String(localized: "event.route_fallback", defaultValue: "Provider fallback"),
+                secondaryText: routeFallbackSummary(for: event),
+                style: .notice,
+                speaker: nil,
+                level: nil,
+                isCollapsible: false,
+                rawContent: event.content
+            )
+        default:
+            break
+        }
+
         switch event.content {
         case .error, .approval, .question, .statusChange:
             return project(event)
         default:
-            return nil
+            return fallbackNoticeRow(for: event)
         }
+    }
+
+    private static func fallbackNoticeRow(for event: TaskEvent) -> DisplayRow {
+        let payload = unknownPayloadPresentation(event.payloadData)
+        return DisplayRow(
+            id: "\(event.seq)-unknown",
+            seq: event.seq,
+            timestamp: Date(timeIntervalSince1970: Double(event.ts) / 1000.0),
+            icon: "doc.text.magnifyingglass",
+            iconColor: .secondary,
+            primaryText: readableEventType(event.eventType),
+            secondaryText: payload.summary,
+            style: .notice,
+            speaker: nil,
+            level: event.eventType,
+            isCollapsible: payload.details != nil,
+            rawContent: event.content,
+            expandedText: payload.details
+        )
+    }
+
+    private static func approvalRequestSummary(for event: TaskEvent) -> String? {
+        let payload = payloadObject(event)
+        let request = payload["payload"] as? [String: Any] ?? payload
+        return stringValue(request["tool_name"])
+            ?? stringValue(request["name"])
+            ?? stringValue(payload["kind"])
+    }
+
+    private static func userQuestionSummary(for event: TaskEvent) -> String? {
+        let payload = payloadObject(event)
+        let question = payload["payload"] as? [String: Any] ?? payload
+        return stringValue(question["header"])
+            ?? stringValue(question["question"])
+            ?? stringValue(question["summary"])
+    }
+
+    private static func routeDecisionSummary(for event: TaskEvent) -> String? {
+        let payload = payloadObject(event)
+        let destination = routeEndpoint(payload)
+        let phase = stringValue(payload["phase"])
+        let team = stringValue(payload["team"])
+        let core = [phase, destination].compactMap { $0 }.joined(separator: " → ")
+        guard !core.isEmpty else { return readablePayloadSummary(payload) }
+        return team.map { "\(core) · \($0)" } ?? core
+    }
+
+    private static func routeFallbackSummary(for event: TaskEvent) -> String? {
+        let payload = payloadObject(event)
+        let source = (payload["fallback_from"] as? [String: Any]).flatMap(routeEndpoint)
+        let destination = routeEndpoint(payload)
+        let values = [source, destination].compactMap { $0 }
+        guard !values.isEmpty else { return readablePayloadSummary(payload) }
+        return values.joined(separator: " → ")
+    }
+
+    private static func routeEndpoint(_ payload: [String: Any]) -> String? {
+        let provider = stringValue(payload["provider"])
+        let model = stringValue(payload["model"])
+        let values = [provider, model].compactMap { $0 }
+        return values.isEmpty ? nil : values.joined(separator: "/")
+    }
+
+    private static func readablePayloadSummary(_ payload: [String: Any]) -> String? {
+        let keys = ["summary", "message", "description", "question", "reason", "text", "status", "kind", "decision"]
+        for key in keys {
+            if let value = stringValue(payload[key]) {
+                return limited(redactedInlineSecrets(value), to: 240)
+            }
+        }
+        if let nested = payload["payload"] as? [String: Any] {
+            return readablePayloadSummary(nested)
+        }
+        return nil
+    }
+
+    private static func readableEventType(_ eventType: String) -> String {
+        let words = eventType
+            .replacingOccurrences(of: ".", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map(String.init)
+        guard let first = words.first else {
+            return String(localized: "event.unknown")
+        }
+        return ([first.prefix(1).uppercased() + first.dropFirst()] + words.dropFirst()).joined(separator: " ")
+    }
+
+    private static func unknownPayloadPresentation(_ data: Data?) -> (summary: String?, details: String?) {
+        guard let data else { return (nil, nil) }
+        if data.count > maxUnknownPayloadBytes {
+            let size = ByteCountFormatter.string(
+                fromByteCount: Int64(data.count),
+                countStyle: .file
+            )
+            let details = String(
+                format: String(
+                    localized: "event.payload.too_large_format",
+                    defaultValue: "Payload too large to preview (%@)"
+                ),
+                size
+            )
+            return (nil, details)
+        }
+        guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        else { return (nil, nil) }
+        let summary = (value as? [String: Any]).flatMap(readablePayloadSummary)
+        return (summary, sanitizedPayloadDescription(value))
+    }
+
+    private static func sanitizedPayloadDescription(_ value: Any) -> String? {
+        let safe = sanitizedJSONValue(value, depth: 0, allowFreeText: true)
+        guard let encoded = try? JSONSerialization.data(
+                withJSONObject: safe,
+                options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]
+              ),
+              let text = String(data: encoded, encoding: .utf8)
+        else { return nil }
+        return limited(text, to: 4_000)
+    }
+
+    private static func sanitizedJSONValue(
+        _ value: Any,
+        depth: Int,
+        allowFreeText: Bool
+    ) -> Any {
+        guard depth < 5 else { return "…" }
+        if !allowFreeText,
+           value is String || value is [Any] || value is [String: Any] {
+            return "<redacted>"
+        }
+        if let object = value as? [String: Any] {
+            var safe: [String: Any] = [:]
+            for key in object.keys.sorted().prefix(30) {
+                if isSensitivePayloadKey(key) {
+                    safe[key] = "<redacted>"
+                } else if let child = object[key] {
+                    safe[key] = sanitizedJSONValue(
+                        child,
+                        depth: depth + 1,
+                        allowFreeText: isReadablePayloadKey(key)
+                    )
+                }
+            }
+            if object.count > 30 {
+                safe["…"] = String(localized: "event.payload.truncated", defaultValue: "<truncated>")
+            }
+            return safe
+        }
+        if let array = value as? [Any] {
+            guard allowFreeText else { return "<redacted>" }
+            var safe: [Any] = []
+            var redactNext = false
+            for child in array.prefix(20) {
+                if redactNext {
+                    safe.append("<redacted>")
+                    redactNext = false
+                    continue
+                }
+                if let argument = child as? String, isSensitiveArgumentFlag(argument) {
+                    safe.append(argument)
+                    redactNext = true
+                    continue
+                }
+                safe.append(sanitizedJSONValue(child, depth: depth + 1, allowFreeText: true))
+            }
+            if array.count > 20 {
+                safe.append(String(localized: "event.payload.truncated", defaultValue: "<truncated>"))
+            }
+            return safe
+        }
+        if let string = value as? String {
+            guard allowFreeText else { return "<redacted>" }
+            return limited(redactedInlineSecrets(string), to: 500)
+        }
+        if value is NSNull || value is NSNumber {
+            return value
+        }
+        return String(describing: value)
+    }
+
+    private static func isSensitivePayloadKey(_ key: String) -> Bool {
+        let normalized = key
+            .lowercased()
+            .filter(\.isLetter)
+        return ["token", "secret", "password", "credential", "authorization", "cookie", "apikey", "accesskey", "privatekey"]
+            .contains { normalized.contains($0) }
+    }
+
+    private static func isReadablePayloadKey(_ key: String) -> Bool {
+        let normalized = key.lowercased().filter(\.isLetter)
+        return [
+            "summary", "message", "description", "question", "reason", "text",
+            "status", "kind", "decision", "provider", "model", "phase", "team",
+            "workspaceid", "eventseq", "generation", "source", "speaker",
+            "agent", "type", "header", "id", "approvalid", "questionid",
+        ].contains(normalized)
+    }
+
+    private static func isSensitiveArgumentFlag(_ value: String) -> Bool {
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalized.hasPrefix("-"), !normalized.contains("=") else { return false }
+        let name = normalized.drop(while: { $0 == "-" })
+        return ["token", "secret", "password", "credential", "cookie", "api-key", "api_key", "apikey", "access-key", "access_key", "private-key", "private_key"]
+            .contains(String(name))
+    }
+
+    private static func redactedInlineSecrets(_ value: String) -> String {
+        inlineSecretRedactions.reduce(value) { current, replacement in
+            let range = NSRange(current.startIndex..., in: current)
+            return replacement.0.stringByReplacingMatches(
+                in: current,
+                range: range,
+                withTemplate: replacement.1
+            )
+        }
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let number = value as? NSNumber {
+            return number.stringValue
+        }
+        return nil
+    }
+
+    private static func limited(_ value: String, to limit: Int) -> String {
+        guard value.count > limit else { return value }
+        return String(value.prefix(limit)) + "…"
     }
 
     private static func processStep(for event: TaskEvent) -> ProcessStep? {
@@ -687,6 +1006,8 @@ enum EventProjection {
             base = String(localized: "workspace.generation.eventOrphaned", defaultValue: "Workspace orphaned")
         case "workspace_legacy_pending":
             base = String(localized: "workspace.generation.eventLegacyPending", defaultValue: "Legacy workspace")
+        case "workspace_restored":
+            base = String(localized: "workspace.generation.eventRestored", defaultValue: "Workspace restored")
         default:
             return nil
         }

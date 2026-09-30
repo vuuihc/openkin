@@ -587,7 +587,14 @@ struct TaskDetailView: View {
                 if isExpanded {
                     // Show full content when expanded
                     VStack(alignment: .leading, spacing: 4) {
-                        if let content = row.rawContent {
+                        if let expandedText = row.expandedText {
+                            Text(expandedText)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 32)
+                        } else if let content = row.rawContent {
                             expandedContent(content)
                         }
                     }
@@ -599,6 +606,12 @@ struct TaskDetailView: View {
                 Divider()
                     .padding(.leading, 42)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(
+                isExpanded
+                    ? String(localized: "event.process.expanded", defaultValue: "Expanded")
+                    : String(localized: "event.process.collapsed", defaultValue: "Collapsed")
+            )
         }
 
         @ViewBuilder

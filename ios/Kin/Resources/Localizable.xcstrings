@@ -2840,6 +2840,74 @@
         }
       }
     },
+    "event.payload.too_large_format" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Payload too large to preview (%@)"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "载荷过大，无法预览（%@）"
+          }
+        }
+      }
+    },
+    "event.payload.truncated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "<truncated>"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "<已截断>"
+          }
+        }
+      }
+    },
+    "event.route_decision" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Routing"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路由选择"
+          }
+        }
+      }
+    },
+    "event.route_fallback" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Provider fallback"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "路由回退"
+          }
+        }
+      }
+    },
     "event.status_change_format" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3074,6 +3142,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "工作区已释放"
+          }
+        }
+      }
+    },
+    "workspace.generation.eventRestored" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workspace restored"
+          }
+        },
+        "zh" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作区已恢复"
           }
         }
       }
