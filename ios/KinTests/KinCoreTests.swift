@@ -1406,12 +1406,21 @@ final class KinCoreTests: XCTestCase {
         XCTAssertEqual(rows[1].processSteps.first?.status, .done)
     }
 
-    /// Future protocol events are not user content. The transcript should be
-    /// tolerant and quiet instead of showing "Unknown event" in the chat.
-    func testTranscriptProjectionSuppressesUnknownTechnicalEvents() {
+    /// A future protocol event should keep its type and readable payload instead
+    /// of disappearing merely because this iOS build does not know it yet.
+    func testTranscriptProjectionPreservesUnknownEventContent() {
         let rows = EventProjection.rows(from: [
             makeEvent(seq: 1, type: "message", payload: messagePayload("hi", role: "user", speaker: "user")),
-            makeEvent(seq: 2, type: "future_event", payload: ["value": 1]),
+            makeEvent(seq: 2, type: "future_event", payload: [
+                "summary": "A newer Desktop reported useful context",
+                "status": "ready",
+                "token": "do-not-show",
+                "privateKey": "private-key-secret",
+                "accessKey": "access-key-secret",
+                "input": ["text": "nested-input-secret"],
+                "command": "curl -H 'Authorization: Bearer bearer-secret' -H 'Authorization: Basic basic-secret' -H 'Authorization: Digest digest-secret' -H 'x-api-key: header-secret' -H 'Cookie: session=cookie-secret; preference=second-cookie-secret' 'https://example.test?token=query-secret' --api-key cli-secret --cookie cli-cookie-secret --data '{\"token\":\"json-secret\"}'",
+                "argv": ["curl", "--api-key", "array-secret"],
+            ]),
             makeEvent(seq: 3, type: "workspace_ready", payload: [
                 "workspace_id": "01ABCDEFGH123456789",
                 "generation": 2,
@@ -1419,9 +1428,182 @@ final class KinCoreTests: XCTestCase {
             makeEvent(seq: 4, type: "message", payload: messagePayload("done", phase: "summary")),
         ])
 
-        XCTAssertEqual(rows.map(\.style), [.user, .notice, .agent])
-        XCTAssertFalse(rows.contains { $0.primaryText == "Unknown event" })
-        XCTAssertEqual(rows[1].primaryText, "Workspace ready #2 (01ABCDEF)")
+        XCTAssertEqual(rows.map(\.style), [.user, .notice, .notice, .agent])
+        XCTAssertEqual(rows.map(\.seq), [1, 2, 3, 4])
+        XCTAssertEqual(rows[1].primaryText, "Future event")
+        XCTAssertEqual(rows[1].secondaryText, "A newer Desktop reported useful context")
+        XCTAssertTrue(rows[1].isCollapsible)
+        XCTAssertTrue(rows[1].expandedText?.contains("\"token\" : \"<redacted>\"") == true)
+        XCTAssertTrue(rows[1].expandedText?.contains("\"command\" : \"<redacted>\"") == true)
+        XCTAssertTrue(rows[1].expandedText?.contains("\"argv\" : \"<redacted>\"") == true)
+        XCTAssertTrue(rows[1].expandedText?.contains("\"input\" : \"<redacted>\"") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("do-not-show") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("bearer-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("basic-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("digest-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("header-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("cookie-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("second-cookie-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("cli-cookie-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("query-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("cli-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("json-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("array-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("private-key-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("access-key-secret") == true)
+        XCTAssertFalse(rows[1].expandedText?.contains("nested-input-secret") == true)
+        XCTAssertEqual(rows[2].primaryText, "Workspace ready #2 (01ABCDEF)")
+    }
+
+    func testTranscriptProjectionPreservesFutureWorkspaceEvents() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "workspace_archived", payload: [
+                "summary": "Workspace archived by a newer Desktop",
+                "workspace_id": "01ABCDEFGH123456789",
+            ]),
+        ])
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].primaryText, "Workspace archived")
+        XCTAssertEqual(rows[0].secondaryText, "Workspace archived by a newer Desktop")
+        XCTAssertEqual(rows[0].level, "workspace_archived")
+    }
+
+    func testTranscriptProjectionPreservesScalarUnknownPayload() throws {
+        let payload = try JSONSerialization.data(
+            withJSONObject: "plain detail",
+            options: [.fragmentsAllowed]
+        )
+        let rows = EventProjection.rows(from: [
+            TaskEvent(
+                taskId: "t1",
+                eventEpoch: 0,
+                seq: 1,
+                ts: 1_767_225_600_001,
+                eventType: "future_scalar",
+                payloadData: payload
+            ),
+        ])
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].expandedText, "\"plain detail\"")
+    }
+
+    func testTranscriptProjectionBoundsLargeUnknownPayloads() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "future_large", payload: [
+                "content": String(repeating: "x", count: 70_000),
+                "token": "large-secret",
+            ]),
+        ])
+
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertTrue(rows[0].expandedText?.contains("too large to preview") == true)
+        XCTAssertFalse(rows[0].expandedText?.contains("large-secret") == true)
+    }
+
+    /// Canonical protocol events carry user-facing meaning even though they are
+    /// not chat messages. They should be named explicitly, not called unknown.
+    func testTranscriptProjectionNamesCanonicalProtocolEvents() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "approval_requested", payload: [
+                "approval_id": "approval-1",
+                "payload": [
+                    "tool_name": "Bash",
+                    "input": ["command": "make test"],
+                ],
+            ]),
+            makeEvent(seq: 2, type: "user_question_requested", payload: [
+                "question_id": "question-1",
+                "payload": [
+                    "header": "Choose a target",
+                    "question": "Which environment should be used?",
+                ],
+            ]),
+            makeEvent(seq: 3, type: "route_decision", payload: [
+                "phase": "execute",
+                "provider": "provider-a",
+                "model": "smart-1",
+                "team": "default",
+            ]),
+            makeEvent(seq: 4, type: "route_fallback", payload: [
+                "provider": "provider-b",
+                "model": "fast-1",
+                "fallback_from": [
+                    "provider": "provider-a",
+                    "model": "smart-1",
+                ],
+            ]),
+            makeEvent(seq: 5, type: "workspace_restored", payload: [
+                "event_seq": 42,
+            ]),
+        ])
+
+        XCTAssertEqual(rows.map(\.primaryText), [
+            "Approval Request",
+            "Question",
+            "Routing",
+            "Provider fallback",
+            "Workspace restored",
+        ])
+        XCTAssertEqual(rows[0].secondaryText, "Bash")
+        XCTAssertEqual(rows[1].secondaryText, "Choose a target")
+        XCTAssertEqual(rows[2].secondaryText, "execute → provider-a/smart-1 · default")
+        XCTAssertEqual(rows[3].secondaryText, "provider-a/smart-1 → provider-b/fast-1")
+    }
+
+    /// Explicitly classified diagnostics stay out of the conversation; this is
+    /// distinct from silently dropping an event just because it is unfamiliar.
+    func testTranscriptProjectionSuppressesKnownDiagnosticsOnly() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "raw_output", payload: ["line": "adapter stderr"]),
+            makeEvent(seq: 2, type: "skill_context", payload: ["skills": ["review"]]),
+            makeEvent(seq: 3, type: "eval_metadata", payload: ["run_id": "eval-1"]),
+        ])
+
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testTranscriptProjectionHonorsTaskOnlyVisibilityForUnknownEvents() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "future_internal_event", payload: [
+                "summary": "Internal worker context",
+                "visibility": ["user": false, "task": true],
+            ]),
+        ])
+
+        XCTAssertTrue(rows.isEmpty)
+    }
+
+    func testTranscriptProjectionTaskOnlyUnknownDoesNotSplitProcess() {
+        let rows = EventProjection.rows(from: [
+            makeEvent(seq: 1, type: "message", payload: messagePayload("run tests", role: "user", speaker: "user")),
+            makeEvent(seq: 2, type: "tool_use", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "bash",
+                "summary": "Run tests",
+                "visibility": ["user": true, "task": true],
+            ]),
+            makeEvent(seq: 3, type: "future_internal_event", payload: [
+                "summary": "Internal worker context",
+                "visibility": ["user": false, "task": true],
+            ]),
+            makeEvent(seq: 4, type: "tool_result", payload: [
+                "speaker": "kin",
+                "tool_use_id": "call-1",
+                "name": "bash",
+                "summary": "Tests passed",
+                "ok": true,
+                "visibility": ["user": true, "task": true],
+            ]),
+            makeEvent(seq: 5, type: "message", payload: messagePayload("All tests pass.", phase: "summary")),
+        ])
+
+        XCTAssertEqual(rows.map(\.style), [.user, .process, .agent])
+        XCTAssertEqual(rows[1].processSteps.count, 1)
+        XCTAssertEqual(rows[1].processSteps[0].status, .done)
+        XCTAssertEqual(rows[1].processSteps[0].detail, "Tests passed")
     }
 
     /// A list row and a navigation title show the name the daemon gave the
