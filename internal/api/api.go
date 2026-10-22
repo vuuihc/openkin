@@ -691,7 +691,32 @@ func (s *Server) validateTaskCreateRequest(ctx context.Context, req task.CreateR
 	if strings.TrimSpace(req.Agent) == "" && s.Engine != nil {
 		req.Agent = s.Engine.DefaultAgentContext(ctx)
 	}
+	if err := s.validateExecutingDevice(ctx, req.ExecutingDeviceID); err != nil {
+		return err
+	}
 	return ValidateTaskCreateRequest(ctx, req)
+}
+
+// validateExecutingDevice rejects a task aimed at a machine this Hub does not
+// know.
+//
+// It is a create-time check on purpose: a task naming a device that does not
+// exist would otherwise be accepted, queued, and only fail when a turn started,
+// long after whoever typed the id stopped looking.
+func (s *Server) validateExecutingDevice(ctx context.Context, deviceID string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" || s.Store == nil {
+		return nil
+	}
+	// This daemon is a valid answer for "where should this run", and it is not a
+	// paired device of itself.
+	if deviceID == strings.TrimSpace(s.DesktopID) {
+		return nil
+	}
+	if _, err := s.Store.GetDevice(ctx, deviceID); err != nil {
+		return fmt.Errorf("unknown device %q", deviceID)
+	}
+	return nil
 }
 
 // ValidateTaskCreateRequest is shared by REST and public MCP task creation.

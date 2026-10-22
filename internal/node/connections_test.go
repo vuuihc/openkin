@@ -65,14 +65,14 @@ func TestConnectionsSendToOfflineDevice(t *testing.T) {
 
 	sender := &fakeSender{id: "device-1"}
 	conns.Attach(sender)
-	frame, err := worker.NewFrame("cancel", map[string]string{"reason": "stop"})
+	frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "t1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := conns.Send(context.Background(), "device-1", frame); err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.frames) != 1 || sender.frames[0].Kind != "cancel" {
+	if len(sender.frames) != 1 || sender.frames[0].Kind != "turn.cancel" {
 		t.Fatalf("frames = %v", sender.frames)
 	}
 }

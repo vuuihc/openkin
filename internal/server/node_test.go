@@ -3,12 +3,15 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -151,7 +154,17 @@ func TestResolveNodeToken(t *testing.T) {
 }
 
 func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
-	hello := buildNodeHello("9.9.9", NodeFlags{Label: "  ", Roots: []string{" /code/a ", "", "/code/b"}})
+	// The registry is the node's own answer to "what can I run", so a machine
+	// only offers what it would actually start a turn with.
+	reg := agent.MustRegistry(agent.Entry{
+		ID: "claude-code", Name: "Claude Code", Priority: 20,
+		Caps:   []agent.Capability{agent.CapabilityRun},
+		Runner: stubRunner{},
+		Status: func(context.Context) agent.Status {
+			return agent.Status{Installed: true, Available: true}
+		},
+	})
+	hello := buildNodeHello("9.9.9", []string{"/code/a", "/code/b"}, reg)
 	if hello.Label == "" {
 		t.Fatal("a node with no label did not fall back to the hostname")
 	}
@@ -167,22 +180,53 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 	if hello.MaxConcurrent <= 0 {
 		t.Fatalf("max_concurrent = %d", hello.MaxConcurrent)
 	}
-	// Agent discovery runs here, and every catalogued agent is reported whether
-	// or not it can run: a Hub choosing a machine needs the reasons too.
-	if len(hello.Agents) == 0 {
-		t.Fatal("hello reports no agents at all")
-	}
-	for _, agent := range hello.Agents {
-		if agent.ID == "" {
-			t.Fatalf("agent with no id: %+v", agent)
-		}
-		if !agent.Available && agent.Reason == "" {
-			t.Fatalf("agent %s is unavailable with no reason", agent.ID)
-		}
+	if len(hello.Agents) != 1 || hello.Agents[0].ID != "claude-code" || !hello.Agents[0].Available {
+		t.Fatalf("agents = %+v", hello.Agents)
 	}
 	if err := hello.Validate(); err != nil {
 		t.Fatalf("the hello this machine builds does not validate: %v", err)
 	}
+}
+
+// TestNodeRootsComeFromThisMachinesProjects pins where the boundary is drawn: a
+// machine works in the directories it already has projects for, plus whatever
+// the operator adds, and nothing else.
+func TestNodeRootsComeFromThisMachinesProjects(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(remote.StateDirEnv, dir)
+	st, err := store.Open(filepath.Join(dir, "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	home := t.TempDir()
+	if err := st.InsertProject(ctx, store.Project{ID: "p1", Name: "one", Mode: store.ProjectModeShip, OnePagerRel: "onepager.md", CreatedAt: 1}, []string{home}); err != nil {
+		t.Fatal(err)
+	}
+
+	roots := nodeRoots(ctx, st, []string{home, "/extra"})
+	if len(roots) != 2 {
+		t.Fatalf("roots = %v, want the project root and the extra one, deduplicated", roots)
+	}
+	for _, root := range roots {
+		if !filepath.IsAbs(root) {
+			t.Fatalf("root %q is not absolute", root)
+		}
+	}
+	// No store and no extras is no roots: an empty declaration must not read as
+	// "anywhere".
+	if got := nodeRoots(ctx, nil, nil); len(got) != 0 {
+		t.Fatalf("roots with nothing declared = %v", got)
+	}
+}
+
+// stubRunner satisfies agent.Entry without running anything.
+type stubRunner struct{}
+
+func (stubRunner) Start(context.Context, adapter.TaskSpec) (adapter.RunHandle, error) {
+	return nil, errors.New("stub runner")
 }
 
 // tokenFromCommand pulls the --token value out of the printed command line.

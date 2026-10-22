@@ -318,10 +318,10 @@ func TestNodeChannelRoutesFrames(t *testing.T) {
 	if ack.Kind != "hello_ack" {
 		t.Fatalf("handshake reply = %q", ack.Kind)
 	}
-	// The kinds here are placeholders: the turn protocol lands in M2.2. What is
-	// under test is that a real frame on a real socket reaches the router, and
-	// that the Hub can push one back down the same channel.
-	up, err := worker.NewFrame("cancel", map[string]any{"turn_id": "t1"})
+	// What is under test is that a real frame on a real socket reaches the
+	// router, and that the Hub can push one back down the same channel; what
+	// the router then does with a turn is internal/node's business.
+	up, err := worker.NewFrame("turn.finish", worker.TurnFinish{TurnID: "t1", Status: worker.TurnOK})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,15 +330,15 @@ func TestNodeChannelRoutesFrames(t *testing.T) {
 	}
 	select {
 	case got := <-routed:
-		if got.Kind != "cancel" {
+		if got.Kind != "turn.finish" {
 			t.Fatalf("routed frame = %q", got.Kind)
 		}
-		payload, err := node.Decode[map[string]string](got)
+		payload, err := node.Decode[worker.TurnFinish](got)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if payload["turn_id"] != "t1" {
-			t.Fatalf("routed payload = %v", payload)
+		if payload.TurnID != "t1" || payload.Status != worker.TurnOK {
+			t.Fatalf("routed payload = %+v", payload)
 		}
 	case <-ctx.Done():
 		t.Fatal("the Hub never routed the frame the Node sent")
@@ -348,7 +348,7 @@ func TestNodeChannelRoutesFrames(t *testing.T) {
 	if !conns.Connected(deviceID) {
 		t.Fatal("the handshake did not attach the connection")
 	}
-	down, err := worker.NewFrame("lease", map[string]any{"turn_id": "t1"})
+	down, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "t1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestNodeChannelRoutesFrames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if read.Kind != "lease" {
+	if read.Kind != "turn.cancel" {
 		t.Fatalf("frame pushed down = %q", read.Kind)
 	}
 }

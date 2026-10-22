@@ -22,6 +22,10 @@ const Path = "/api/node"
 // dispatch should not cost the Node every other turn it is running.
 type FrameHandler func(ctx context.Context, frame worker.Frame) error
 
+// WriteFunc writes one frame to the Hub. A Node has exactly one peer, so
+// unlike the Hub's SendFunc it takes no device.
+type WriteFunc func(ctx context.Context, frame worker.Frame) error
+
 // ClientConfig describes one Node's connection to its Hub.
 type ClientConfig struct {
 	// HubURL is the Hub's origin, e.g. https://kin.example.com or
@@ -35,6 +39,10 @@ type ClientConfig struct {
 	// OnFrame receives every frame that is not part of the handshake or the
 	// heartbeat.
 	OnFrame FrameHandler
+	// OnReady receives this connection's write path once the handshake
+	// completes, and nil when the connection ends. Turns running on this machine
+	// use it to talk back; without it they can only be started and never heard.
+	OnReady func(send WriteFunc)
 	// Warn receives connection lifecycle problems. Nil means stay quiet.
 	Warn func(format string, args ...any)
 	// DialTimeout bounds one connection attempt. Defaults to 15s.
@@ -61,6 +69,15 @@ func RunOnce(ctx context.Context, cfg ClientConfig) error {
 	// Cancelling the read context stops the heartbeat when this returns.
 	readCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if cfg.OnReady != nil {
+		cfg.OnReady(func(ctx context.Context, frame worker.Frame) error {
+			return WriteFrame(ctx, conn, frame)
+		})
+		// Turns still running when this connection goes away have nobody to
+		// report to; they must hear that before they keep trying.
+		defer cfg.OnReady(nil)
+	}
 
 	heartbeatErr := make(chan error, 1)
 	go func() {

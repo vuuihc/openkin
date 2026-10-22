@@ -171,6 +171,29 @@ func (s *Store) listProjectRoots(ctx context.Context, projectID string) ([]strin
 	return out, rows.Err()
 }
 
+// ProjectRoots returns every directory registered on this machine, across all
+// projects.
+//
+// This is the machine's own answer to "where do I work": the directories its
+// user has set up here, which is exactly the set a Hub may ask it to run
+// something in. A machine with no projects accepts no dispatched work.
+func (s *Store) ProjectRoots(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT path FROM project_roots ORDER BY path`)
+	if err != nil {
+		return nil, fmt.Errorf("list project roots: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		out = append(out, path)
+	}
+	return out, rows.Err()
+}
+
 // ListProjectsOpts filters for ListProjects.
 type ListProjectsOpts struct {
 	Status string // empty = all; typically "active"

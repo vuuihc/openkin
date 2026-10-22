@@ -66,6 +66,10 @@ type CreateRequest struct {
 	UserPrompt string `json:"-"`
 	// Dispatch is the optional dispatch selection for auto model routing.
 	Dispatch json.RawMessage `json:"dispatch,omitempty"`
+	// ExecutingDeviceID names the machine that runs this task's turns. Empty
+	// means the daemon handling the request; anything else is dispatched over
+	// the node control channel (ADR 0022).
+	ExecutingDeviceID string `json:"executing_device_id,omitempty"`
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -172,6 +176,13 @@ type Engine struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	entropy     ioReader
+
+	// selfDeviceID is the machine this daemon runs on. A task naming a
+	// different one executes there, over the node control channel.
+	selfDeviceID string
+	// remoteRunner builds the adapter for a task that runs on another machine.
+	// Nil means every task runs here, which is what a standalone daemon wants.
+	remoteRunner RemoteRunner
 
 	// Approval long-poll waiters (approval id → channels).
 	approvalWaiters     map[string][]chan store.Approval
@@ -1044,6 +1055,95 @@ func (e *Engine) runnerFor(id string) (adapter.Adapter, bool) {
 	return reg.Runner, true
 }
 
+// RemoteRunner builds the adapter for a turn that runs on another machine.
+//
+// It is a function rather than a fixed adapter because which machine runs a
+// turn is a per-task decision, and the caller is the only thing that knows how
+// to reach devices at all — the engine has no business holding a transport.
+type RemoteRunner func(task store.Task, executionID string) (adapter.Adapter, error)
+
+// SetRemoteRunner installs the runner for tasks that execute on another device,
+// and tells the engine which device it is itself.
+func (e *Engine) SetRemoteRunner(selfDeviceID string, fn RemoteRunner) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.selfDeviceID = strings.TrimSpace(selfDeviceID)
+	e.remoteRunner = fn
+}
+
+// remoteFor reports the adapter for a task that runs somewhere else, and
+// whether it runs somewhere else at all.
+//
+// A task with no executing device runs here: that is every task created before
+// a Hub could dispatch, and every task on a standalone daemon.
+func (e *Engine) remoteFor(t store.Task, executionID string) (adapter.Adapter, bool, error) {
+	e.mu.Lock()
+	self, runner := e.selfDeviceID, e.remoteRunner
+	e.mu.Unlock()
+
+	device := strings.TrimSpace(t.ExecutingDeviceID)
+	if device == "" || device == self {
+		return nil, false, nil
+	}
+	if runner == nil {
+		return nil, true, fmt.Errorf("task runs on device %s, but this daemon cannot dispatch to another machine", device)
+	}
+	ad, err := runner(t, executionID)
+	if err != nil {
+		return nil, true, fmt.Errorf("device %s: %w", device, err)
+	}
+	return ad, true, nil
+}
+
+// checkAgentFor rejects a task whose agent the machine that will run it does not
+// have.
+//
+// The machine matters: a Hub on a NAS has no agents installed at all, and every
+// task it accepts is for a machine that does. Asking this machine's registry
+// would refuse exactly the tasks a Hub exists to dispatch.
+//
+// A device that has never said hello has no inventory to judge against, so the
+// task is accepted and the dispatch speaks instead. A device that has one is
+// judged on it: an agent it reported missing, or reported present but
+// unavailable, is a mistake worth catching while whoever made it is still
+// looking at the screen.
+func (e *Engine) checkAgentFor(ctx context.Context, deviceID, agentID string) error {
+	e.mu.Lock()
+	self, hasRunner := e.selfDeviceID, e.remoteRunner != nil
+	e.mu.Unlock()
+
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" || deviceID == self || !hasRunner {
+		if _, err := e.agents.GetRunnable(ctx, agentID); err != nil {
+			return fmt.Errorf("unknown or unavailable agent %q (available: %v): %w", agentID, e.AgentIDs(), err)
+		}
+		return nil
+	}
+
+	reported, err := e.store.ListDeviceAgents(ctx, deviceID)
+	if err != nil || len(reported) == 0 {
+		return nil
+	}
+	for _, candidate := range reported {
+		if candidate.AgentID != agentID {
+			continue
+		}
+		if candidate.Available {
+			return nil
+		}
+		reason := strings.TrimSpace(candidate.Reason)
+		if reason == "" {
+			reason = "not available"
+		}
+		return fmt.Errorf("agent %q is not available on device %s: %s", agentID, deviceID, reason)
+	}
+	ids := make([]string, 0, len(reported))
+	for _, candidate := range reported {
+		ids = append(ids, candidate.AgentID)
+	}
+	return fmt.Errorf("agent %q is not installed on device %s (available there: %v)", agentID, deviceID, ids)
+}
+
 // resetAgentSession clears plugin-private session state for id.
 func (e *Engine) resetAgentSession(ctx context.Context, id, taskID string) {
 	if err := e.resetAgentSessionStrict(ctx, id, taskID); err != nil {
@@ -1099,8 +1199,8 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 			return store.Task{}, fmt.Errorf("no agents available: install claude, codex, or grok CLI, or configure Kin provider")
 		}
 	}
-	if _, err := e.agents.GetRunnable(ctx, req.Agent); err != nil {
-		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q (available: %v): %w", req.Agent, e.AgentIDs(), err)
+	if err := e.checkAgentFor(ctx, req.ExecutingDeviceID, req.Agent); err != nil {
+		return store.Task{}, err
 	}
 
 	var err error
@@ -1161,6 +1261,10 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		ProjectID:      projectID,
 		RoutineID:      strings.TrimSpace(req.RoutineID),
 		Dispatch:       req.Dispatch,
+		// A device named here is the one that runs every turn of this task, for
+		// as long as it lives: a conversation cannot move between machines
+		// halfway through without losing the agent's own state.
+		ExecutingDeviceID: strings.TrimSpace(req.ExecutingDeviceID),
 	}
 	if sessionRef := strings.TrimSpace(req.SessionRef); sessionRef != "" {
 		t.SessionRef = &sessionRef
@@ -1936,63 +2040,82 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		return
 	}
 
-	// Multi-@ keeps the selected session host; mentioned agents run as workers.
-	if plan, ok := e.shouldOrchestrate(t); ok {
-		// Natural-language model steering ("用 Codex 的 GPT-5.6 执行" /
-		// "计划用聪明模型，执行用便宜模型") fills any worker without an explicit
-		// @agent[model]. Gated + best-effort: no provider call unless a step
-		// actually lacks a model and the turn mentions models/cost.
-		if planNeedsModel(plan) {
-			if d, ok := e.resolveModelDirective(ctx, t); ok {
-				d.ApplyTo(&plan, BuiltinCatalog())
-			}
-		}
-		e.runOrchestrated(id, t, plan, runMeta)
+	// A turn that belongs to another machine goes straight to that machine.
+	// Plan and route resolution decide *which agent* runs a turn, and a device
+	// runs with the agents it has; deciding here would pick an agent the target
+	// may not have installed.
+	remoteAdapter, remote, err := e.remoteFor(t, turnExecutionID)
+	if err != nil {
+		_, _ = e.failRunningStart(ctx, id, turnExecutionID, err.Error())
 		return
 	}
 
-	// Auto routing: when routing is enabled with a valid auto dispatch,
-	// resolve each phase through the routing resolver and build a
-	// DelegatePlan that uses the team's phase agents.
-	autoRoute, routeErr := e.shouldAutoRoute(ctx, t)
-	if routeErr != nil {
-		_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("auto routing configuration failed: %v", routeErr))
-		return
-	}
-	if autoRoute {
-		if e.routingResolver == nil {
-			// No resolver configured: fall back to single-agent path.
-		} else {
-			plan, decisions, err := e.resolveAutoRoute(ctx, t)
-			if err != nil {
-				_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("auto routing failed: %v", err))
-				return
-			}
-			if len(plan.Steps) > 0 {
-				for _, d := range decisions {
-					e.emitRouteDecisionForRun(ctx, t.ID, turnExecutionID, d)
+	// Everything below is about choosing an agent on this machine.
+	if !remote {
+		// Multi-@ keeps the selected session host; mentioned agents run as workers.
+		if plan, ok := e.shouldOrchestrate(t); ok {
+			// Natural-language model steering ("用 Codex 的 GPT-5.6 执行" /
+			// "计划用聪明模型，执行用便宜模型") fills any worker without an explicit
+			// @agent[model]. Gated + best-effort: no provider call unless a step
+			// actually lacks a model and the turn mentions models/cost.
+			if planNeedsModel(plan) {
+				if d, ok := e.resolveModelDirective(ctx, t); ok {
+					d.ApplyTo(&plan, BuiltinCatalog())
 				}
-				e.runOrchestrated(id, t, plan, runMeta)
-				return
 			}
-		}
-	}
-
-	// Bare single-agent turn with NL "smart plan / cheap exec": expand into a
-	// same-agent two-step plan (plan worker then exec worker) so models switch
-	// without requiring explicit @mentions.
-	if d, ok := e.resolveModelDirective(ctx, t); ok && d.WantsRoleSplit() {
-		if split, ok := d.BuildRoleSplitPlan(t.Agent, UserTurnPrompt(t.Prompt), BuiltinCatalog()); ok {
-			split.SessionContext = ExtractPriorContext(t.Prompt)
-			e.runOrchestrated(id, t, split, runMeta)
+			e.runOrchestrated(id, t, plan, runMeta)
 			return
 		}
+
+		// Auto routing: when routing is enabled with a valid auto dispatch,
+		// resolve each phase through the routing resolver and build a
+		// DelegatePlan that uses the team's phase agents.
+		autoRoute, routeErr := e.shouldAutoRoute(ctx, t)
+		if routeErr != nil {
+			_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("auto routing configuration failed: %v", routeErr))
+			return
+		}
+		if autoRoute {
+			if e.routingResolver == nil {
+				// No resolver configured: fall back to single-agent path.
+			} else {
+				plan, decisions, err := e.resolveAutoRoute(ctx, t)
+				if err != nil {
+					_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("auto routing failed: %v", err))
+					return
+				}
+				if len(plan.Steps) > 0 {
+					for _, d := range decisions {
+						e.emitRouteDecisionForRun(ctx, t.ID, turnExecutionID, d)
+					}
+					e.runOrchestrated(id, t, plan, runMeta)
+					return
+				}
+			}
+		}
+
+		// Bare single-agent turn with NL "smart plan / cheap exec": expand into a
+		// same-agent two-step plan (plan worker then exec worker) so models switch
+		// without requiring explicit @mentions.
+		if d, ok := e.resolveModelDirective(ctx, t); ok && d.WantsRoleSplit() {
+			if split, ok := d.BuildRoleSplitPlan(t.Agent, UserTurnPrompt(t.Prompt), BuiltinCatalog()); ok {
+				split.SessionContext = ExtractPriorContext(t.Prompt)
+				e.runOrchestrated(id, t, split, runMeta)
+				return
+			}
+		}
 	}
 
-	ad, ok := e.runnerFor(t.Agent)
-	if !ok {
-		_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("unknown agent %q", t.Agent))
-		return
+	var ad adapter.Adapter
+	if remote {
+		ad = remoteAdapter
+	} else {
+		var ok bool
+		ad, ok = e.runnerFor(t.Agent)
+		if !ok {
+			_, _ = e.failRunningStart(ctx, id, turnExecutionID, fmt.Sprintf("unknown agent %q", t.Agent))
+			return
+		}
 	}
 
 	model := ""
@@ -2029,7 +2152,10 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		Execution:      execRef,
 		RunMeta:        runMeta,
 	}
-	if sel := parseDispatch(t.Dispatch); sel.Provider != "" {
+	// Provider credentials stop at this machine (ADR 0022 D7): a remote Node
+	// runs with its own, so resolving one here would read a secret only to drop
+	// it before the frame is built.
+	if sel := parseDispatch(t.Dispatch); sel.Provider != "" && !remote {
 		if cfg, err := e.resolveProviderCfg(ctx, sel.Provider); err == nil && cfg.BaseURL != "" {
 			spec.ProviderCfg = &cfg
 		}

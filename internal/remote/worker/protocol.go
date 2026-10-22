@@ -81,9 +81,13 @@ type Frame struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// Frame kinds. The first line is the handshake and presence; the second is
+// turn traffic (see turn.go). `assignment`, `event` and the old `cancel` are
+// gone: nothing ever sent them.
 var allowedFrameKinds = map[string]bool{
-	"hello": true, "hello_ack": true, "lease": true, "heartbeat": true,
-	"cancel": true, "ack": true, "error": true,
+	"hello": true, "hello_ack": true, "heartbeat": true, "lease": true,
+	"ack": true, "error": true,
+	"turn.dispatch": true, "turn.event": true, "turn.finish": true, "turn.cancel": true,
 }
 
 func (h Hello) Validate() error {

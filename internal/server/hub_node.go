@@ -65,9 +65,11 @@ func RunHubNodeToken(label, domain string) error {
 	fmt.Printf("  Device %s (%s) is ready to run a node.\n\n", id, label)
 	fmt.Println("  On that machine, run:")
 	fmt.Println()
-	fmt.Printf("      kin node --hub %s --token %s\n\n", hubOrigin(domain), token)
+	fmt.Printf("      kin serve --hub %s --token %s\n\n", hubOrigin(domain), token)
 	fmt.Println("  The token is shown once and stored hashed. Revoke it from the")
-	fmt.Println("  console's device list, or with `kin devices revoke <id>`.")
+	fmt.Println("  console's device list when that machine should stop working for this Hub.")
+	fmt.Println("  The name above is a placeholder: the machine reports its own when it")
+	fmt.Println("  first connects.")
 	fmt.Println()
 	return nil
 }

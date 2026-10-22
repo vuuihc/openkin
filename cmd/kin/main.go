@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -43,16 +42,6 @@ func main() {
 	case "token":
 		if err := runToken(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "kin token: %v\n", err)
-			os.Exit(1)
-		}
-	case "node":
-		flags, err := parseNodeFlags(os.Args[2:])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "kin node: %v\n", err)
-			os.Exit(2)
-		}
-		if err := server.RunNode(version, flags); err != nil {
-			fmt.Fprintf(os.Stderr, "kin node: %v\n", err)
 			os.Exit(1)
 		}
 	case "approve-mcp":
@@ -143,28 +132,6 @@ func runHub(args []string) error {
 	}
 }
 
-// parseNodeFlags reads `kin node` options.
-func parseNodeFlags(args []string) (server.NodeFlags, error) {
-	var flags server.NodeFlags
-	fs := flag.NewFlagSet("node", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.StringVar(&flags.HubURL, "hub", "", "the Hub to connect to, e.g. https://kin.example.com")
-	fs.StringVar(&flags.Token, "token", "", "device token from `kin hub node-token`")
-	fs.StringVar(&flags.Label, "label", "", "name for this machine in the Hub's device list")
-	roots := fs.String("root", "", "a directory this machine will work in (repeatable)")
-	if err := fs.Parse(args); err != nil {
-		return flags, err
-	}
-	if trimmed := strings.TrimSpace(*roots); trimmed != "" {
-		for _, root := range strings.Split(trimmed, ",") {
-			if root = strings.TrimSpace(root); root != "" {
-				flags.Roots = append(flags.Roots, root)
-			}
-		}
-	}
-	return flags, nil
-}
-
 func runToken(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: kin token rotate")
@@ -240,7 +207,6 @@ func usage(code int) {
 
 Usage:
   kin serve [flags]   start the daemon
-  kin node [flags]    run turns for a Hub, using this machine's agents
   kin supervise       run the daemon with bounded crash recovery
   kin token rotate    regenerate ~/.kin/token
   kin notify test     send a test notification via configured Bark/ntfy
@@ -262,12 +228,9 @@ Serve flags:
   --funnel              public HTTPS via Funnel (requires --tailscale)
   --relay URL            connect through a user-owned WebSocket relay
   --ts-control-url URL  Headscale/custom control server for tsnet
-
-Node flags:
-  --hub URL             the Hub to connect to (required)
-  --token TOKEN         device token; defaults to ~/.kin/node-token
-  --label NAME          what to call this machine in the device list
-  --root PATH           a directory this machine will work in (repeatable)
+  --hub URL             run turns for this Hub as well (makes this a Node)
+  --token TOKEN         device token for --hub; defaults to ~/.kin/node-token
+  --root PATH           an extra directory to run dispatched work in (repeatable)
 
 Environment:
   KIN_STATE_DIR         state directory (default ~/.kin)

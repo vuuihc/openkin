@@ -2,81 +2,39 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 
-	"github.com/vuuihc/openkin/internal/adapter/detect"
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
-// NodeFlags are CLI options for `kin node`.
-type NodeFlags struct {
-	// HubURL is the Hub to connect to, e.g. https://kin.example.com.
-	HubURL string
-	// Token is the device credential. Empty means read it from the state dir.
-	Token string
-	// Label names this machine in the Hub's device list.
-	Label string
-	// Roots are the directories this machine is willing to work in. They are
-	// reported to the Hub so a client can pick a machine that has the checkout;
-	// no file is ever read for this.
-	Roots []string
-}
+// The Node role. A machine that works for a Hub is still a daemon: it keeps its
+// own store, its own agents and its own logins, and it also runs the turns that
+// Hub dispatches here. That is why this is a flag on `kin serve` and not a
+// separate command — a second process would mean two things spawning agents
+// against one ~/.kin.
+//
+// What crosses the wire is what to run, never what to run it with: provider
+// keys and agent logins stay on the machine that owns them (ADR 0022 D7).
 
-// NodeTokenFile is where `kin node` looks for its device credential when the
-// token is not passed on the command line.
+// NodeTokenFile is where a Node looks for its device credential when the token
+// is not passed on the command line.
 func NodeTokenFile(stateDir string) string {
 	return filepath.Join(stateDir, "node-token")
 }
 
-// RunNode connects this machine to a Hub and keeps it connected.
-//
-// A Node is deliberately not a daemon: it serves no HTTP, owns no database, and
-// makes no decisions about tasks. It reports what it can run, waits to be given
-// work, and runs it with the agents installed here — which is also why nothing
-// about this machine's credentials (provider keys, agent logins) is ever part
-// of what it reports.
-func RunNode(version string, flags NodeFlags) error {
-	stateDir, err := remote.StateDir()
-	if err != nil {
-		return err
-	}
-	hubURL := strings.TrimSpace(flags.HubURL)
-	if hubURL == "" {
-		return fmt.Errorf("--hub is required (the Hub to connect to, e.g. https://kin.example.com)")
-	}
-	token, err := resolveNodeToken(stateDir, flags.Token)
-	if err != nil {
-		return err
-	}
-
-	hello := buildNodeHello(version, flags)
-	if err := hello.Validate(); err != nil {
-		return err
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	fmt.Fprintf(os.Stderr, "kin: node %s → %s (%d agents, %s/%s)\n",
-		hello.Label, hubURL, len(hello.Agents), hello.Platform, hello.Arch)
-	return node.Run(ctx, node.ClientConfig{
-		HubURL: hubURL,
-		Token:  token,
-		Hello:  hello,
-		Warn: func(format string, args ...any) {
-			fmt.Fprintf(os.Stderr, "kin: warning: "+format+"\n", args...)
-		},
-	})
-}
-
+// resolveNodeToken finds the device credential: the flag, then the environment,
+// then the state dir. The file is what makes a Node restartable without keeping
+// a credential in a shell history or a unit file.
 func resolveNodeToken(stateDir, flagToken string) (string, error) {
 	if token := strings.TrimSpace(flagToken); token != "" {
 		return token, nil
@@ -97,20 +55,13 @@ func resolveNodeToken(stateDir, flagToken string) (string, error) {
 	return token, nil
 }
 
-// buildNodeHello is what this machine tells the Hub about itself. Agent
-// discovery runs here, on the machine that has the agents, because that is the
-// only place the answer exists.
-func buildNodeHello(version string, flags NodeFlags) worker.Hello {
-	label := strings.TrimSpace(flags.Label)
-	if label == "" {
-		label, _ = os.Hostname()
-	}
-	roots := make([]string, 0, len(flags.Roots))
-	for _, root := range flags.Roots {
-		if trimmed := strings.TrimSpace(root); trimmed != "" {
-			roots = append(roots, trimmed)
-		}
-	}
+// buildNodeHello is what this machine tells the Hub about itself.
+//
+// The agents come from the registry, not from a probe: the Hub is choosing
+// where to send work, and the honest answer is the same list this daemon would
+// run a turn with.
+func buildNodeHello(version string, roots []string, reg *agent.Registry) worker.Hello {
+	label, _ := os.Hostname()
 	return worker.Hello{
 		Version:        worker.ProtocolVersion,
 		WorkerID:       nodeIdentity(),
@@ -118,30 +69,72 @@ func buildNodeHello(version string, flags NodeFlags) worker.Hello {
 		Platform:       runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		KinVersion:     version,
-		Agents:         detectNodeAgents(),
+		Agents:         nodeAgents(reg),
 		WorkspaceRoots: roots,
 		MaxConcurrent:  nodeMaxConcurrent(),
 	}
 }
 
-// detectNodeAgents reports every catalogued agent and whether it can run here.
+// nodeAgents reports every registered agent and whether it can run here.
+//
 // Unavailable agents are reported too, with the reason: a client choosing where
-// to run something needs to know that this machine was considered and why it
-// said no, not just that it is missing.
-func detectNodeAgents() []worker.Agent {
-	infos := detect.Scan("")
-	agents := make([]worker.Agent, 0, len(infos))
+// to run something needs to know this machine was considered and why it said
+// no, not just that the agent is missing.
+//
+// Model lists are left out until a Hub has to choose a model for a machine it
+// cannot see; a dispatch names the model, and the device runs it or says why it
+// cannot.
+func nodeAgents(reg *agent.Registry) []worker.Agent {
+	if reg == nil {
+		return nil
+	}
+	infos := reg.List(context.Background(), "")
+	out := make([]worker.Agent, 0, len(infos))
 	for _, info := range infos {
-		agents = append(agents, worker.Agent{
+		out = append(out, worker.Agent{
 			ID:        info.ID,
 			Installed: info.Installed,
 			Available: info.Available,
-			Version:   "",
 			Reason:    info.Reason,
-			IsDefault: info.Default,
 		})
 	}
-	return agents
+	return out
+}
+
+// nodeRoots is the set of directories this machine will run dispatched work in.
+//
+// It is the machine's own projects plus anything the operator adds by hand. The
+// Hub cannot widen it: a dispatch naming a path outside these is refused here,
+// by the machine that owns the filesystem.
+func nodeRoots(ctx context.Context, st *store.Store, extra []string) []string {
+	seen := make(map[string]bool)
+	roots := make([]string, 0, len(extra)+4)
+	add := func(path string) {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			return
+		}
+		abs, err := filepath.Abs(trimmed)
+		if err != nil {
+			abs = filepath.Clean(trimmed)
+		}
+		if seen[abs] {
+			return
+		}
+		seen[abs] = true
+		roots = append(roots, abs)
+	}
+	if st != nil {
+		if projectRoots, err := st.ProjectRoots(ctx); err == nil {
+			for _, root := range projectRoots {
+				add(root)
+			}
+		}
+	}
+	for _, root := range extra {
+		add(root)
+	}
+	return roots
 }
 
 // nodeIdentity is the id this Node presents. The Hub keys the device on the
@@ -154,6 +147,68 @@ func nodeIdentity() string {
 	return host
 }
 
+// agentRunners answers "can this machine run that agent" from the daemon's own
+// registry, which is the same registry a local turn would use.
+type agentRunners struct{ reg *agent.Registry }
+
+func (a agentRunners) Runnable(ctx context.Context, agentID string) (adapter.Adapter, error) {
+	if a.reg == nil {
+		return nil, errors.New("this daemon has no agent registry")
+	}
+	registration, err := a.reg.GetRunnable(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if registration.Runner == nil {
+		return nil, fmt.Errorf("agent %s cannot run here", agentID)
+	}
+	return registration.Runner, nil
+}
+
+// nodeMaxConcurrent is how many turns this machine will run for its Hub at
+// once. It is deliberately not the daemon's own limit: work arriving from
+// elsewhere must not crowd out what this machine is doing for itself.
 func nodeMaxConcurrent() int {
 	return 4
+}
+
+// runNode keeps this daemon connected to its Hub as a Node.
+//
+// It returns when ctx ends. Losing the Hub is not fatal: the daemon keeps
+// serving this machine's own console while it retries.
+func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor) error {
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	token, err := resolveNodeToken(stateDir, flags.NodeToken)
+	if err != nil {
+		return err
+	}
+
+	roots := nodeRoots(ctx, st, flags.NodeRoots)
+	executor.Roots = roots
+	hello := buildNodeHello(version, roots, reg)
+	if err := hello.Validate(); err != nil {
+		return fmt.Errorf("cannot describe this machine to the hub: %w", err)
+	}
+
+	warn := func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, "kin: node: "+format+"\n", args...)
+	}
+	fmt.Fprintf(os.Stderr, "kin: node %s → %s (%d agents, %d roots)\n",
+		hello.Label, flags.HubURL, len(hello.Agents), len(roots))
+	if len(roots) == 0 {
+		fmt.Fprintln(os.Stderr, "kin: node: no project roots on this machine, so dispatched work will be refused; "+
+			"add a project in the console or pass --root")
+	}
+
+	return node.Run(ctx, node.ClientConfig{
+		HubURL:  flags.HubURL,
+		Token:   token,
+		Hello:   hello,
+		OnFrame: executor.Handle,
+		OnReady: executor.SetSender,
+		Warn:    warn,
+	})
 }

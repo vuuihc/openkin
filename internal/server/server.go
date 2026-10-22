@@ -48,8 +48,8 @@ import (
 
 const defaultPort = 7777
 
-// Roles a Kin process can take. `node` arrives with M2 (multi-device
-// execution); it is not accepted yet rather than accepted-and-ignored.
+// Roles a Kin process can take. A machine that works for someone else's Hub is
+// still a standalone daemon locally; --hub is what makes it a Node.
 const (
 	RoleStandalone = "standalone"
 	RoleHub        = "hub"
@@ -62,11 +62,20 @@ type ServeFlags struct {
 	Tailscale    bool
 	Funnel       bool
 	TSControlURL string
-	RelayURL     string   // WebSocket relay URL (e.g. wss://kin-relay.example.com)
-	Role         string   // standalone (default) or hub
-	Domain       string   // public hostname; required for --role hub
-	ACMEEmail    string   // Let's Encrypt contact address; optional
-	Args         []string // remaining args after command name
+	RelayURL     string // WebSocket relay URL (e.g. wss://kin-relay.example.com)
+	Role         string // standalone (default) or hub
+	Domain       string // public hostname; required for --role hub
+	ACMEEmail    string // Let's Encrypt contact address; optional
+	// HubURL makes this daemon a Node: it keeps serving this machine and also
+	// runs turns the named Hub dispatches here.
+	HubURL string
+	// NodeToken is the device credential `kin hub node-token` printed. It is
+	// only used when HubURL is set, and falls back to ~/.kin/node-token.
+	NodeToken string
+	// NodeRoots are extra directories this machine will run dispatched work in,
+	// on top of the projects it already has.
+	NodeRoots []string
+	Args      []string // remaining args after command name
 }
 
 // ParseServeFlags parses flags from args (typically os.Args[2:]).
@@ -83,10 +92,18 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	fs.StringVar(&f.Role, "role", RoleStandalone, "process role: standalone or hub")
 	fs.StringVar(&f.Domain, "domain", "", "public hostname for --role hub (e.g. kin.example.com)")
 	fs.StringVar(&f.ACMEEmail, "acme-email", "", "Let's Encrypt contact address for --role hub")
+	fs.StringVar(&f.HubURL, "hub", "", "run turns for this Hub (makes this machine a Node)")
+	fs.StringVar(&f.NodeToken, "token", "", "device token for --hub; defaults to ~/.kin/node-token")
+	roots := fs.String("root", "", "an extra directory to run dispatched work in (repeatable, comma-separated)")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
 	f.Args = fs.Args()
+	for _, root := range strings.Split(*roots, ",") {
+		if root = strings.TrimSpace(root); root != "" {
+			f.NodeRoots = append(f.NodeRoots, root)
+		}
+	}
 
 	f.Role = strings.ToLower(strings.TrimSpace(f.Role))
 	if f.Role == "" {
@@ -95,7 +112,7 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	switch f.Role {
 	case RoleStandalone, RoleHub:
 	default:
-		return f, fmt.Errorf("unknown --role %q (want %s or %s; a node role arrives with multi-device execution)",
+		return f, fmt.Errorf("unknown --role %q (want %s or %s; a machine that works for a Hub keeps --role standalone and adds --hub)",
 			f.Role, RoleStandalone, RoleHub)
 	}
 	if f.Role == RoleHub && strings.TrimSpace(f.Domain) == "" {
@@ -109,6 +126,12 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	}
 	if err := remotetsnet.ValidateFlags(f.Funnel, f.TSControlURL); err != nil {
 		return f, err
+	}
+	// A Hub is the machine everything else reports to; it does not itself report
+	// to another one, and two Hubs pointing at each other is a configuration
+	// nobody means to write.
+	if f.Role == RoleHub && strings.TrimSpace(f.HubURL) != "" {
+		return f, fmt.Errorf("--hub cannot be combined with --role hub: a Hub does not work for another Hub")
 	}
 	if f.Port <= 0 {
 		f.Port = defaultPort
@@ -244,7 +267,15 @@ func ServeWith(version string, flags ServeFlags) error {
 	// connection table is process-local by nature — only the process holding the
 	// socket knows a device is connected — while the device row it writes to is
 	// durable, so a Hub restart costs presence, not knowledge.
-	nodeConns := node.NewConnections(nil)
+	nodeTurns := node.NewTurns()
+	// A device dropping ends whatever it was running, and says so in each
+	// transcript: the alternative is a turn that waits forever on a socket that
+	// no longer exists.
+	nodeConns := node.NewConnections(func(deviceID string) {
+		for _, turnID := range nodeTurns.Abandon(deviceID) {
+			fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its device\n", turnID)
+		}
+	})
 	// Session titles: truncate immediately, then replace via cognition provider when configured.
 	titleResolver := func(c context.Context) (provider.Client, provider.Config, error) {
 		cfg, err := provider.LoadConfig(c, st)
@@ -354,6 +385,13 @@ func ServeWith(version string, flags ServeFlags) error {
 	if strings.TrimSpace(suitesDir) == "" {
 		suitesDir = filepath.Join(stateDir, "eval", "suites")
 	}
+	// Remote execution is an adapter, so a turn that runs on another machine
+	// takes the same path through the engine as one that runs here: same event
+	// storage, same cursor, same console (ADR 0022 D8).
+	eng.SetRemoteRunner(identity.ID, func(t store.Task, executionID string) (adapter.Adapter, error) {
+		return &node.Adapter{Conns: nodeConns, Turns: nodeTurns, DeviceID: t.ExecutingDeviceID}, nil
+	})
+
 	evalRunner := &eval.Runner{
 		Store:        st,
 		Engine:       eng,
@@ -444,6 +482,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,
 		Nodes:        nodeConns,
+		NodeFrames:   nodeTurns.RouteFrame,
 		Browser:      browser,
 		Eval:         evalRunner,
 		A2A:          &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},
@@ -741,6 +780,28 @@ func ServeWith(version string, flags ServeFlags) error {
 				fmt.Fprintf(os.Stderr, "warning: qr: %v\n", err)
 			}
 		}
+	}
+
+	// A daemon that works for a Hub keeps working for it for as long as it runs.
+	// Losing the Hub is not fatal: this machine's own console keeps serving
+	// while the connection is retried.
+	nodeCtx, stopNode := context.WithCancel(context.Background())
+	defer stopNode()
+	if strings.TrimSpace(flags.HubURL) != "" {
+		executor := &node.Executor{
+			Runners: agentRunners{reg: reg},
+			Warn: func(format string, args ...any) {
+				fmt.Fprintf(os.Stderr, "kin: warning: "+format+"\n", args...)
+			},
+		}
+		defer executor.Stop()
+		go func() {
+			err := runNode(nodeCtx, version, flags, st, reg, executor)
+			// A canceled context is this daemon shutting down, not a failure.
+			if err != nil && nodeCtx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "kin: node: %v\n", err)
+			}
+		}()
 	}
 
 	// Serve all listeners. TLSConfig must be set before any Serve call, so it
