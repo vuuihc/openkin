@@ -23,12 +23,20 @@ type Principal struct {
 	Kind     string
 	DeviceID string
 	Label    string
+	// UserID is set for browser sessions authenticated by a login cookie. It is
+	// the account key, never an email address.
+	UserID string
 }
 
 const (
 	PrincipalMaster = "master"
 	PrincipalDevice = "device"
+	PrincipalUser   = "user"
 )
+
+// SessionCookieName is the browser login cookie. The desktop shell and native
+// clients keep using bearer credentials; only the web console uses this.
+const SessionCookieName = "kin_session"
 
 type principalContextKey struct{}
 type tokenContextKey struct{}
@@ -49,6 +57,10 @@ func TokenFromContext(ctx context.Context) (string, bool) {
 // DeviceLookup authenticates a native-client token and returns its principal.
 // The callback keeps the remote auth package independent from persistence.
 type DeviceLookup func(context.Context, string) (Principal, bool)
+
+// SessionLookup authenticates a browser login cookie and returns its principal.
+// Like DeviceLookup it keeps this package free of persistence dependencies.
+type SessionLookup func(context.Context, string) (Principal, bool)
 
 // TokenFile returns the path of the daemon auth token.
 func TokenFile(stateDir string) string {
@@ -117,8 +129,9 @@ type Auth struct {
 	// tokenPath, when non-empty, is read on each request.
 	tokenPath string
 
-	fail   *failLimiter
-	device DeviceLookup
+	fail    *failLimiter
+	device  DeviceLookup
+	session SessionLookup
 }
 
 // NewAuth returns middleware-capable auth for a fixed token (tests).
@@ -141,6 +154,12 @@ func NewFileAuth(tokenPath string) *Auth {
 // daemon master token. It is intentionally optional for compatibility tests.
 func (a *Auth) SetDeviceLookup(lookup DeviceLookup) {
 	a.device = lookup
+}
+
+// SetSessionLookup enables browser-cookie authentication. It is only wired up
+// when the daemon runs in a role that has accounts.
+func (a *Auth) SetSessionLookup(lookup SessionLookup) {
+	a.session = lookup
 }
 
 func (a *Auth) loadToken() (string, error) {
@@ -190,6 +209,19 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 				return
 			}
 		}
+		// Cookie sessions are checked last: a request that carries an explicit
+		// bearer credential is making a deliberate claim, and a stale cookie
+		// from the browser must not shadow it.
+		if a.session != nil {
+			if cookie, err := r.Cookie(SessionCookieName); err == nil && cookie.Value != "" {
+				if principal, ok := a.session(r.Context(), cookie.Value); ok {
+					ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+					ctx = context.WithValue(ctx, tokenContextKey{}, cookie.Value)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+		}
 		{
 			a.fail.record(ip)
 			w.Header().Set("Content-Type", "application/json")
@@ -198,6 +230,18 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 	})
+}
+
+// AllowAttempt reports whether ip is still under the auth failure limit.
+// Interactive endpoints (login, claim) use it so password guessing trips the
+// same per-IP window as token guessing.
+func (a *Auth) AllowAttempt(r *http.Request) bool {
+	return !a.fail.blocked(clientIP(r))
+}
+
+// NoteFailure records one failed attempt against the request's peer IP.
+func (a *Auth) NoteFailure(r *http.Request) {
+	a.fail.record(clientIP(r))
 }
 
 func extractToken(r *http.Request) string {

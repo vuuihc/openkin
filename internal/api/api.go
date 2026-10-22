@@ -22,6 +22,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
@@ -76,6 +77,12 @@ type Server struct {
 	DesktopID            string
 	DesktopName          string
 	agentSessionAttachMu sync.Mutex
+	// Accounts is the Hub account system. Nil on a standalone daemon, which
+	// keeps the token-only behavior it has always had.
+	Accounts *auth.Service
+	// OIDC is the optional federated identity provider. Nil when only local
+	// passwords are enabled.
+	OIDC *auth.OIDCProvider
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
 	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
@@ -187,6 +194,19 @@ func (s *Server) Handler() http.Handler {
 			}, true
 		})
 	}
+	if s.Auth != nil && s.Accounts != nil {
+		s.Auth.SetSessionLookup(func(ctx context.Context, token string) (remote.Principal, bool) {
+			user, err := s.Accounts.Authenticate(ctx, token)
+			if err != nil {
+				return remote.Principal{}, false
+			}
+			return remote.Principal{
+				Kind:   remote.PrincipalUser,
+				UserID: user.ID,
+				Label:  user.DisplayName,
+			}, true
+		})
+	}
 	r.Use(middleware.RequestID)
 	// Capture true peer before RealIP so /internal/* can enforce loopback safely.
 	r.Use(func(next http.Handler) http.Handler {
@@ -205,6 +225,15 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/version", s.handleVersion)
 	r.Get("/api/cloudflare/oauth/callback", s.handleCloudflareOAuthCallback)
 	r.Post("/api/pairing/exchange", s.handlePairingExchange)
+	// Account endpoints are unauthenticated by necessity: they are how a client
+	// obtains a session in the first place. Each applies its own attempt limit.
+	r.Get("/api/auth/status", s.handleAuthStatus)
+	r.Post("/api/auth/bootstrap", s.handleAuthBootstrap)
+	r.Post("/api/auth/login", s.handleAuthLogin)
+	r.Post("/api/auth/logout", s.handleAuthLogout)
+	r.Get("/api/auth/me", s.handleAuthMe)
+	r.Get("/api/auth/oidc/start", s.handleOIDCStart)
+	r.Get("/api/auth/oidc/callback", s.handleOIDCCallback)
 	if s.A2A != nil && s.A2A.Enabled {
 		a2aHandler := s.A2A.Handler()
 		r.Get("/.well-known/agent-card.json", func(w http.ResponseWriter, req *http.Request) {
