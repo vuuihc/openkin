@@ -95,6 +95,401 @@ describe("transcriptProjection", () => {
     ).toHaveLength(1);
   });
 
+  it("renders an adapter notice as a status line, in the order it arrived", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "assistant",
+          speaker: "acp",
+          text: "working",
+          partial: true,
+        }),
+        ev(2, "notice", {
+          severity: "warning",
+          title: "session loaded without replay",
+          message: "the agent did not replay the conversation it loaded",
+        }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "acp",
+          text: "finished",
+          partial: false,
+        }),
+      ],
+      "acp",
+    );
+
+    expect(items).toMatchObject([
+      // Split like an approval does: the text before the notice is a message of
+      // its own, still open because the turn is (the turn's result settles it).
+      { kind: "message", text: "working", partial: true },
+      {
+        kind: "meta",
+        label:
+          "! session loaded without replay: the agent did not replay the conversation it loaded",
+      },
+      { kind: "message", text: "finished" },
+    ]);
+  });
+
+  it("shows the agent's plan as one coalesced line inside the process box", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [
+            { content: "read the config", status: "completed", priority: "high" },
+            { content: "fix the parser", status: "in_progress" },
+            { content: "run the tests", status: "pending" },
+          ],
+        }),
+        // The normal shape: a tool runs, then the plan is revised. The revision
+        // rewrites the line rather than adding a second one (two notes keyed the
+        // same would also collide in React).
+        ev(2, "tool_use", {
+          speaker: "acp",
+          tool_use_id: "call-1",
+          name: "read_file",
+          input: { path: "/tmp/x" },
+        }),
+        ev(3, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [
+            { content: "read the config", status: "completed" },
+            { content: "fix the parser", status: "completed" },
+            { content: "run the tests", status: "in_progress" },
+          ],
+        }),
+      ],
+      "acp",
+    );
+
+    const progress = items.filter((item) => item.kind === "progress");
+    expect(progress).toHaveLength(1);
+    const notes = progress[0].steps.filter((step) => step.kind === "note");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({
+      key: "plan-1",
+      text: "✓ read the config · ✓ fix the parser · ▸ run the tests",
+      status: "running",
+    });
+    // The tool step it was revised around is still there, in order.
+    expect(progress[0].steps.map((step) => step.kind)).toEqual(["note", "tool"]);
+  });
+
+  it("says so when the agent withdraws its plan", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "step one", status: "pending" }],
+        }),
+        ev(2, "plan", { speaker: "acp", replaces: true, entries: [] }),
+      ],
+      "acp",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        // The literal, not t(...): t() falls back to the key path, so an
+        // assertion through it passes even when the key is gone.
+        steps: [{ kind: "note", text: "计划已被 agent 撤回" }],
+      },
+    ]);
+  });
+
+  it("marks a notice the agent reported as an error or a warning", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "notice", { speaker: "acp", severity: "info", message: "context used: 1 of 10" }),
+        ev(2, "notice", { speaker: "acp", severity: "error", title: "disk", message: "the disk is full" }),
+        ev(3, "notice", { speaker: "acp", severity: "warning", message: "slow" }),
+      ],
+      "acp",
+    );
+
+    expect(items).toMatchObject([
+      { kind: "meta", label: "context used: 1 of 10" },
+      { kind: "meta", label: "⚠ disk: the disk is full" },
+      { kind: "meta", label: "! slow" },
+    ]);
+  });
+
+  it("keeps the plan line when streamed progress text is interleaved with it", () => {
+    // A prompt echo is streamed as partial progress text, and a plan update can
+    // land in the middle of it. Both are notes in the same box, so a plan line
+    // that merges with the stream (or the stream with it) is destroyed: the text
+    // becomes a sentence and the plan key is gone.
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "user",
+          speaker: "acp",
+          content: [{ type: "text", text: "fix the " }],
+          partial: true,
+          phase: "progress",
+        }),
+        ev(2, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "read the config", status: "pending" }],
+        }),
+        ev(3, "message", {
+          role: "user",
+          speaker: "acp",
+          content: [{ type: "text", text: "parser" }],
+          partial: true,
+          phase: "progress",
+        }),
+      ],
+      "acp",
+    );
+
+    const notes = items.flatMap((item) =>
+      item.kind === "progress" ? item.steps.filter((step) => step.kind === "note") : [],
+    );
+    // Three lines, in the order they arrived: the echo, the plan, and the rest of
+    // the echo. The stream is settled before the plan is written, so the second
+    // chunk opens a line of its own rather than being appended to a line the plan
+    // has taken the place of.
+    expect(notes.map((note) => (note.kind === "note" ? note.key : ""))).toEqual([
+      "note-s-1",
+      "plan-2",
+      "note-s-3",
+    ]);
+    expect(notes[0]).toMatchObject({ text: "fix the " });
+    expect(notes[1]).toMatchObject({ text: "· read the config" });
+    expect(notes[2]).toMatchObject({ text: "parser" });
+  });
+
+  it("rewrites the plan line a message has since pushed out of the box", () => {
+    // An answer closes the process box, so a later plan update has no box of its
+    // own to write into. The line it updates is the one already on screen: a
+    // second plan line would describe the same plan twice.
+    const items = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "first", status: "in_progress" }],
+        }),
+        ev(2, "message", {
+          role: "assistant",
+          speaker: "acp",
+          content: [{ type: "text", text: "one moment" }],
+          partial: false,
+        }),
+        ev(3, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [
+            { content: "first", status: "completed" },
+            { content: "second", status: "in_progress" },
+          ],
+        }),
+        ev(4, "plan", { speaker: "acp", replaces: true, entries: [] }),
+      ],
+      "acp",
+    );
+
+    const notes = items.flatMap((item) =>
+      item.kind === "progress" ? item.steps.filter((step) => step.kind === "note") : [],
+    );
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({
+      key: "plan-1",
+      text: "计划已被 agent 撤回", // zh is the default locale in tests
+      status: "done",
+    });
+  });
+
+  it("gives a new round its own plan line", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "old plan", status: "pending" }],
+        }),
+        ev(2, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "now do something else" }],
+        }),
+        ev(3, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "new plan", status: "pending" }],
+        }),
+      ],
+      "acp",
+    );
+
+    const plans = items.flatMap((item) =>
+      item.kind === "progress"
+        ? item.steps.filter(
+            (step): step is Extract<typeof step, { kind: "note" }> =>
+              step.kind === "note" && step.key.startsWith("plan-"),
+          )
+        : [],
+    );
+    expect(plans.map((plan) => plan.text)).toEqual(["· old plan", "· new plan"]);
+  });
+
+  it("starts a new round for prompts that do not reach the transcript as words", () => {
+    // A prompt starts a round whatever it looks like once it is in the event
+    // stream. Two shapes leave the message case early: a text that reads as a
+    // legacy tool dump (diverted to a tool step), and a partial message (a live
+    // preview). Neither is a reason for the next plan to rewrite the previous
+    // round's line in place.
+    const roundOf = (prompt: Record<string, unknown>) =>
+      buildChatItems(
+        [
+          ev(1, "plan", {
+            speaker: "acp",
+            replaces: true,
+            entries: [{ content: "old plan", status: "pending" }],
+          }),
+          ev(2, "message", { role: "user", speaker: "user", ...prompt }),
+          ev(3, "plan", {
+            speaker: "acp",
+            replaces: true,
+            entries: [{ content: "new plan", status: "pending" }],
+          }),
+        ],
+        "acp",
+      )
+        .flatMap((item) =>
+          item.kind === "progress"
+            ? item.steps.filter(
+                (step): step is Extract<typeof step, { kind: "note" }> =>
+                  step.kind === "note" && step.key.startsWith("plan-"),
+              )
+            : [],
+        )
+        .map((plan) => plan.text);
+
+    expect(roundOf({ text: "**bash**\n```text\nls\n```" })).toEqual([
+      "· old plan",
+      "· new plan",
+    ]);
+    expect(
+      roundOf({ content: [{ type: "text", text: "keep going" }], partial: true }),
+    ).toEqual(["· old plan", "· new plan"]);
+    // The guard the round boundary keeps: a user event with no words in it
+    // renders nothing and starts nothing.
+    expect(roundOf({ content: [{ type: "text", text: "   " }] })).toEqual([
+      "· new plan",
+    ]);
+  });
+
+  it("keeps the agent's reasoning out of the answer", () => {
+    // What an adapter sends for a thought: role "reasoning", phase "progress".
+    // This is the console half of that contract — a reasoning message belongs in
+    // the process box, and a turn that ends on one must not show the agent's
+    // private reasoning as its reply.
+    const items = buildChatItems(
+      [
+        ev(1, "message", {
+          role: "reasoning",
+          speaker: "acp",
+          content: [{ type: "text", text: "weighing the options" }],
+          partial: true,
+          phase: "progress",
+        }),
+        ev(2, "tool_use", {
+          speaker: "acp",
+          tool_use_id: "call-1",
+          name: "read_file",
+          input: { path: "/tmp/x" },
+        }),
+      ],
+      "acp",
+    );
+
+    expect(items).toMatchObject([
+      {
+        kind: "progress",
+        steps: [
+          { kind: "note", text: "weighing the options" },
+          { kind: "tool", name: "read_file" },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a delegated worker's plan off the host's line", () => {
+    // A host and the worker it delegated to are two agents with two plans. The
+    // worker's events carry its own speaker, so a rewritten-in-place plan line
+    // that ignored the speaker would replace the host's plan with the worker's.
+    const items = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "host plan", status: "in_progress" }],
+        }),
+        ev(2, "plan", {
+          speaker: "worker-1",
+          visibility: { user: false, task: true },
+          replaces: true,
+          entries: [{ content: "worker plan", status: "in_progress" }],
+        }),
+        ev(3, "plan", { speaker: "worker-1", replaces: true, entries: [] }),
+      ],
+      "acp",
+    );
+
+    const plans = items.flatMap((item) =>
+      item.kind === "progress"
+        ? item.steps.filter((step) => step.kind === "note" && step.key.startsWith("plan-"))
+        : [],
+    );
+    expect(plans.map((plan) => (plan.kind === "note" ? plan.text : ""))).toEqual([
+      "▸ host plan",
+      "计划已被 agent 撤回",
+    ]);
+    // The withdrawal was the worker's, so it is the worker's line that says so.
+    expect(plans[1]).toMatchObject({ speaker: "worker-1" });
+    expect(plans[0]).toMatchObject({ speaker: "acp" });
+  });
+
+  it("does not let a user event with no words start a new round", () => {
+    // An empty user message renders nothing (it breaks before pushing an item),
+    // so treating it as a round boundary would split one plan in two.
+    const items = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "one plan", status: "in_progress" }],
+        }),
+        ev(2, "message", {
+          role: "user",
+          speaker: "user",
+          content: [{ type: "text", text: "   " }],
+        }),
+        ev(3, "plan", {
+          speaker: "acp",
+          replaces: true,
+          entries: [{ content: "one plan", status: "completed" }],
+        }),
+      ],
+      "acp",
+    );
+
+    const plans = items.flatMap((item) =>
+      item.kind === "progress"
+        ? item.steps.filter((step) => step.kind === "note" && step.key.startsWith("plan-"))
+        : [],
+    );
+    expect(plans.map((plan) => (plan.kind === "note" ? plan.text : ""))).toEqual(["✓ one plan"]);
+  });
+
   it("finalizes a trailing partial when the task is terminal", () => {
     const items = buildChatItems(
       [

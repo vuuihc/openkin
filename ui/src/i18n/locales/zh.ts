@@ -271,6 +271,7 @@ const zh = {
       output: "输出",
       note: "过程",
       notes: "{count} 条过程记录",
+      planCleared: "计划已被 agent 撤回",
       summaryRunning: "执行中 · {activity}",
       summaryDone: "完成 · {activity}",
       summaryFailed: "失败 · {activity}",

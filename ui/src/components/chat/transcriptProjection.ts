@@ -187,6 +187,41 @@ export function buildChatItems(
     return prog;
   };
 
+  // The plan is one line per speaker per round, rewritten in place wherever it
+  // sits — in the current box, or in one an answer has since closed. Holding the
+  // step itself rather than searching for it is what makes that work: an agent
+  // that plans, runs a tool, answers, then revises the plan would otherwise get a
+  // second plan line in the next box (and two lines in one card once the boxes
+  // merge). One line each, not one line total: a host and a worker it delegated
+  // to are two agents with two plans, and neither should overwrite the other. A
+  // new round starts new plans: the previous round's lines are history.
+  const planNotes = new Map<string, NoteStep>();
+  const upsertPlanNote = (
+    speaker: string,
+    model: string | undefined,
+    text: string,
+    seq: number,
+  ) => {
+    const existing = planNotes.get(speaker);
+    if (existing) {
+      existing.speaker = speaker;
+      existing.model = model;
+      existing.text = text;
+      existing.status = "running";
+      return;
+    }
+    const note: NoteStep = {
+      kind: "note",
+      key: `${PLAN_NOTE_PREFIX}${seq}`,
+      speaker,
+      model,
+      text,
+      status: "running",
+    };
+    ensureProgress(hostSpeaker).steps.push(note);
+    planNotes.set(speaker, note);
+  };
+
   const pushNote = (
     speaker: string,
     model: string | undefined,
@@ -195,30 +230,37 @@ export function buildChatItems(
     status: NoteStep["status"],
   ) => {
     const prog = ensureProgress(hostSpeaker);
-    // Coalesce consecutive partial updates onto the same note.
     const last = prog.steps[prog.steps.length - 1];
-    if (
-      last &&
-      last.kind === "note" &&
-      last.key === key &&
-      last.speaker === speaker &&
-      last.model === model
-    ) {
-      last.text = text;
-      last.status = status;
-      return;
-    }
-    if (
-      last &&
-      last.kind === "note" &&
-      last.speaker === speaker &&
-      last.model === model &&
-      last.status === "running" &&
-      status === "running"
-    ) {
-      last.text = text;
-      last.key = key;
-      return;
+    // Coalesce consecutive partial updates onto the same note — never across a
+    // plan line, in either direction. The plan is the agent's whole plan, and a
+    // streamed chunk merged with it would replace it with a sentence and take its
+    // key with it.
+    const lastIsPlan =
+      !!last && last.kind === "note" && last.key.startsWith(PLAN_NOTE_PREFIX);
+    if (!key.startsWith(PLAN_NOTE_PREFIX) && !lastIsPlan) {
+      if (
+        last &&
+        last.kind === "note" &&
+        last.key === key &&
+        last.speaker === speaker &&
+        last.model === model
+      ) {
+        last.text = text;
+        last.status = status;
+        return;
+      }
+      if (
+        last &&
+        last.kind === "note" &&
+        last.speaker === speaker &&
+        last.model === model &&
+        last.status === "running" &&
+        status === "running"
+      ) {
+        last.text = text;
+        last.key = key;
+        return;
+      }
     }
     prog.steps.push({
       kind: "note",
@@ -319,6 +361,16 @@ export function buildChatItems(
         // Never show local upload paths in the chat timeline.
         if (sp === "user" && text) {
           text = displayUserPrompt(text);
+        }
+        // A prompt starts a round, and a round has plans of its own: the lines
+        // the previous round carried are part of what happened, not something a
+        // new plan updates in place. Only a message with words in it starts one
+        // — an empty user event renders nothing, so letting it clear the plans
+        // would split the plan it never began. It sits above the legacy-dump
+        // divert below because a round starts when the prompt arrives, whatever
+        // the prompt happens to look like.
+        if (sp === "user" && text.trim()) {
+          planNotes.clear();
         }
         const messageID =
           typeof p.message_id === "string" ? p.message_id : "";
@@ -515,6 +567,62 @@ export function buildChatItems(
           ...(p.input !== undefined ? { input: p.input } : {}),
           output: typeof p.output === "string" ? p.output : undefined,
         });
+        break;
+      }
+      case "notice": {
+        // A status line from whatever is driving the turn: an adapter saying it
+        // could not reload the agent's context, that the chosen permission mode
+        // does not apply, or how full the context window is. It is not part of
+        // the answer, so it closes the streamed text before it — the reader sees
+        // it in the order it happened.
+        const title = typeof p.title === "string" ? p.title.trim() : "";
+        const message = typeof p.message === "string" ? p.message.trim() : "";
+        const severity = typeof p.severity === "string" ? p.severity : "";
+        const label = [title, message].filter(Boolean).join(": ");
+        if (!label) break;
+        flushStream();
+        streamNoteKey = null;
+        progressRef.current = null;
+        items.push({
+          kind: "meta",
+          key: `notice-${ev.seq}`,
+          label: `${noticeSeverityMark(severity)}${label}`,
+        });
+        break;
+      }
+      case "plan": {
+        // The agent's own plan, replaced whole on every update. It belongs to the
+        // process box, not to the answer, and successive updates rewrite one line:
+        // a plan is revised as it is worked through, and a stack of drafts is not a
+        // transcript. The markers carry each entry's status; the words are the
+        // agent's own.
+        //
+        // The stream is settled first, like every other step-producing case: a plan
+        // written in the middle of an open note would be swallowed by the next chunk
+        // of it (the note coalescer rewrites whatever running note is last).
+        flushStream();
+        streamNoteKey = null;
+        const entries = Array.isArray(p.entries) ? p.entries : [];
+        const parts: string[] = [];
+        for (const entry of entries) {
+          if (!entry || typeof entry !== "object") continue;
+          const row = entry as Record<string, unknown>;
+          const content = typeof row.content === "string" ? row.content.trim() : "";
+          if (!content) continue;
+          const status = typeof row.status === "string" ? row.status : "";
+          parts.push(`${planMarker(status)} ${content}`);
+        }
+        if (!parts.length) {
+          // An empty plan is a plan: the agent withdrew it. Leaving the last one
+          // on screen would describe work that is no longer planned.
+          const note = planNotes.get(speaker);
+          if (note) {
+            note.text = t("chat.progress.planCleared");
+            note.status = "done";
+          }
+          break;
+        }
+        upsertPlanNote(speaker, model, parts.join(" · "), ev.seq);
         break;
       }
       case "error": {
@@ -876,6 +984,37 @@ export function summarizeProgressStatus(
     failedTools,
     totalTools: tools.length,
   };
+}
+
+/** One glyph per ACP plan entry status; unknown statuses read as "not started". */
+function planMarker(status: string): string {
+  switch (status) {
+    case "completed":
+      return "✓";
+    case "in_progress":
+      return "▸";
+    default:
+      return "·";
+  }
+}
+
+/**
+ * Note keys for an agent's plan start with this. The seq suffix keeps two
+ * process boxes merged into one card from colliding on a key; the prefix is how
+ * a later plan update finds the line to rewrite.
+ */
+const PLAN_NOTE_PREFIX = "plan-";
+
+/** A notice's own severity is worth one glyph: "the disk is full" is not a status line. */
+function noticeSeverityMark(severity: string): string {
+  switch (severity) {
+    case "error":
+      return "⚠ ";
+    case "warning":
+      return "! ";
+    default:
+      return "";
+  }
 }
 
 /** Old kinagent dumped tools as markdown messages: **bash**\n```...``` */
