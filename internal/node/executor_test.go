@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -362,6 +363,84 @@ func TestExecutorCancelStopsTheTurn(t *testing.T) {
 	}
 }
 
+// gatedRunners is a machine whose agent lookup takes as long as the test says:
+// the window between taking a dispatch off the read loop and having an agent to
+// run it in.
+type gatedRunners struct {
+	gate  chan struct{}
+	agent *fakeAgent
+}
+
+func (r gatedRunners) Runnable(ctx context.Context, _ string) (adapter.Adapter, error) {
+	select {
+	case <-r.gate:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return r.agent, nil
+}
+
+// TestACancelThatArrivesWithTheDispatchStopsTheAgent is the convergence rule at
+// its narrowest: the Hub sends a cancel right behind a dispatch when a task is
+// stopped as it starts, both frames land in one read, and the turn is already
+// registered when the second one is handled. A turn that registered itself
+// inside its own goroutine would lose the cancel in the microseconds before that
+// goroutine runs, and a silent agent would work on for a Hub that has stopped
+// listening.
+func TestACancelThatArrivesWithTheDispatchStopsTheAgent(t *testing.T) {
+	work := t.TempDir()
+	agent := &fakeAgent{block: true}
+	gate := make(chan struct{})
+	exec := &Executor{
+		Runners: gatedRunners{gate: gate, agent: agent},
+		Roots:   []string{work},
+	}
+	// A working connection, so the only thing that can warn below is the cancel
+	// itself: started-frame failures have their own tests.
+	exec.SetSender((&recorder{}).send)
+	var mu sync.Mutex
+	var warned []string
+	exec.Warn = func(format string, args ...any) {
+		mu.Lock()
+		warned = append(warned, fmt.Sprintf(format, args...))
+		mu.Unlock()
+	}
+
+	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
+		t.Fatal(err)
+	}
+	cancelFrame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{
+		TurnID: "turn-1", Reason: "stopped as it started",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancelFrame); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	dropped := append([]string(nil), warned...)
+	mu.Unlock()
+	if len(dropped) != 0 {
+		t.Fatalf("the cancel was dropped as one for a turn this machine never had: %v", dropped)
+	}
+	// The agent comes up now, the way it would a moment after the read loop
+	// moved on to the next frame.
+	close(gate)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if running := exec.Running(); len(running) == 0 {
+			// The turn ended by itself: its context was already cancelled when the
+			// agent started, which is the only thing that stops an agent that has
+			// printed nothing yet.
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("a turn cancelled as it started is still running: %v", exec.Running())
+}
+
 // TestExecutorIgnoresADuplicateDispatch pins what a second dispatch for a turn
 // that is already running does: nothing. Answering with a finish of its own
 // would end the live turn — the Hub settles a turn by id — and the run that is
@@ -376,8 +455,16 @@ func TestExecutorIgnoresADuplicateTurn(t *testing.T) {
 	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
 		t.Fatal(err)
 	}
+	// The agent being up is the signal, not the registry: a dispatch is
+	// registered on the read loop now, before its own goroutine has run.
 	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && len(exec.Running()) == 0 {
+	for time.Now().Before(deadline) {
+		agent.mu.Lock()
+		started := agent.starts
+		agent.mu.Unlock()
+		if started == 1 {
+			break
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {

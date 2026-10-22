@@ -99,18 +99,9 @@ func TestAdapterCancelReachesTheDevice(t *testing.T) {
 	if err := handle.Cancel(); err != nil {
 		t.Fatal(err)
 	}
-	frames := sender.sent()
-	if len(frames) != 2 || frames[1].Kind != "turn.cancel" {
-		t.Fatalf("frames = %+v", frames)
-	}
-	cancel, err := Decode[worker.TurnCancel](frames[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cancel.TurnID != "turn-1" {
-		t.Fatalf("cancel = %+v", cancel)
-	}
-	// The turn is over on this side too, so the engine's slot comes back.
+	// The turn is over on this side as soon as Cancel returns, so the engine's
+	// slot comes back without waiting for the machine: the frame is on its way,
+	// not necessarily gone.
 	select {
 	case _, open := <-handle.Events():
 		if open {
@@ -118,6 +109,13 @@ func TestAdapterCancelReachesTheDevice(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancel did not close the event channel")
+	}
+	cancel, err := Decode[worker.TurnCancel](waitForKind(t, sender, "turn.cancel"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancel.TurnID != "turn-1" {
+		t.Fatalf("cancel = %+v", cancel)
 	}
 }
 

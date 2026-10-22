@@ -40,9 +40,17 @@ type Turns struct {
 	// Zero means the defaults above; tests set them short.
 	StartTimeout time.Duration
 	PushGrace    time.Duration
+	// Warn receives problems that have nowhere else to go. Nil means quiet.
+	Warn func(format string, args ...any)
 
 	mu   sync.Mutex
 	byID map[string]*turn
+}
+
+func (t *Turns) warn(format string, args ...any) {
+	if t.Warn != nil {
+		t.Warn(format, args...)
+	}
 }
 
 // ErrTurnUnknown means a frame arrived for a turn this Hub is not running:
@@ -52,6 +60,10 @@ var ErrTurnUnknown = errors.New("unknown turn")
 type turn struct {
 	id       string
 	deviceID string
+	// taskID is the task this turn is running. It is what a permission question
+	// from this turn is about, so the device never has to name a task — and never
+	// gets to (see Approvals.ask).
+	taskID string
 	// deviceLabel is what to call that device in a message a person reads. It
 	// falls back to the id, which is all a device that never said its name has.
 	deviceLabel string
@@ -126,15 +138,19 @@ func (t *Turns) pushGrace() time.Duration {
 }
 
 // Open registers a turn on the connection that is dispatching it, and returns
-// the handle the engine will read. deviceLabel is the display name used in
-// anything the transcript says about the machine; it may be empty.
+// the handle the engine will read. taskID is the task the turn runs and
+// deviceLabel is the display name used in anything the transcript says about the
+// machine; the label may be empty, the task may not.
 //
 // The same turn id twice is an error rather than a replacement: two runs
 // sharing one id would interleave their events into one transcript, and one of
 // them is a bug.
-func (t *Turns) Open(turnID string, sender Sender, deviceLabel string) (*Handle, error) {
+func (t *Turns) Open(turnID, taskID string, sender Sender, deviceLabel string) (*Handle, error) {
 	if strings.TrimSpace(turnID) == "" || sender == nil {
 		return nil, errors.New("turn id and connection are required")
+	}
+	if strings.TrimSpace(taskID) == "" {
+		return nil, errors.New("turn has no task")
 	}
 	if strings.TrimSpace(sender.DeviceID()) == "" {
 		return nil, errors.New("turn has no device")
@@ -142,6 +158,7 @@ func (t *Turns) Open(turnID string, sender Sender, deviceLabel string) (*Handle,
 	item := &turn{
 		id:          turnID,
 		deviceID:    sender.DeviceID(),
+		taskID:      taskID,
 		deviceLabel: deviceLabel,
 		sender:      sender,
 		events:      make(chan adapter.Event, 64),
@@ -189,7 +206,11 @@ func (t *Turns) Started(sender Sender, started worker.TurnStarted) error {
 		return err
 	}
 	t.mu.Lock()
-	if item.answered {
+	// A turn that is already over — given up on by the deadline, or closed while
+	// the ack was in flight — answers the device the same way: the caller sends a
+	// cancel, so an agent that has not produced anything yet still hears that
+	// nobody is waiting for it.
+	if item.answered || item.closed {
 		t.mu.Unlock()
 		return fmt.Errorf("%w: %s was given up on before the device answered", ErrTurnUnknown, started.TurnID)
 	}
@@ -385,11 +406,16 @@ func (t *Turns) push(item *turn, event adapter.Event) bool {
 		t.mu.Unlock()
 	}
 
+	// Tell the machine to stop. It is its own goroutine because that write can
+	// wait for the connection's write turn, and close below waits for the
+	// goroutine that is counted as a sender: a slow socket must not hold up the
+	// end of the turn, which is what the frame reader is waiting on.
 	go func() {
-		// Tell the machine to stop before waiting for room: the reader is not
-		// coming back, so the agent is working for a transcript nobody will
-		// write, and the reason below is all that is left to send it.
-		_ = t.cancelDevice(item, "the hub fell behind this turn's events")
+		if err := t.cancelDevice(item, "the hub fell behind this turn's events"); err != nil {
+			t.warn("turn %s: tell the device to stop: %v", item.id, err)
+		}
+	}()
+	go func() {
 		select {
 		case item.events <- errorEvent("the hub fell behind this turn's events"):
 		case <-item.ended:
@@ -477,9 +503,21 @@ func (h *Handle) Events() <-chan adapter.Event { return h.turn.events }
 // closes would leave the run loop blocked forever — holding one of the engine's
 // concurrency slots for a turn nobody is running any more. Anything the device
 // says afterwards arrives for a turn the Hub has finished with and is dropped.
+//
+// The turn is closed before the request goes out, and the request goes out on
+// its own goroutine: the write waits for the connection's write turn, and the
+// caller here is the engine asking for its slot back. A request that could not
+// be delivered is warned about rather than returned — the work it was meant to
+// stop is already stopped on this side, and the connection ending is what stops
+// it on the other.
 func (h *Handle) Cancel() error {
-	defer h.turns.close(h.turn)
-	return h.turns.cancelDevice(h.turn, "canceled on the hub")
+	h.turns.close(h.turn)
+	go func() {
+		if err := h.turns.cancelDevice(h.turn, "canceled on the hub"); err != nil {
+			h.turns.warn("turn %s: tell the device to stop: %v", h.turn.id, err)
+		}
+	}()
+	return nil
 }
 
 // decodeEvent unwraps one adapter event from a turn.event payload.

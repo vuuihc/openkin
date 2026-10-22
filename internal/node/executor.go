@@ -51,6 +51,9 @@ type Executor struct {
 
 type execution struct {
 	turnID string
+	// ctx is the turn's own lifetime, created when the dispatch was taken off
+	// the read loop.
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
@@ -87,14 +90,38 @@ func (e *Executor) dispatch(ctx context.Context, frame worker.Frame) error {
 	if err := dispatch.Validate(); err != nil {
 		return err
 	}
+	// The turn is registered here, on the read loop, before its own goroutine
+	// exists. The Hub sends a cancel right behind a dispatch when a task is
+	// stopped as it starts, and both frames arrive in one read: a turn that
+	// registered itself inside the goroutine below could be cancelled in the
+	// microseconds before that goroutine first runs, and the cancel would be
+	// dropped as one for a turn this machine never had — leaving a silent agent
+	// working on a turn the Hub has already given up on.
+	turnCtx, cancel := context.WithCancel(ctx)
+	entry := &execution{turnID: dispatch.TurnID, ctx: turnCtx, cancel: cancel}
+	if err := e.track(entry); err != nil {
+		// Already running. The turn that is already going will report its own
+		// finish; answering here with a finish of our own would end it out from
+		// under the run that is still working.
+		cancel()
+		e.warn("ignoring a second dispatch for turn %s: %v", dispatch.TurnID, err)
+		return nil
+	}
 	// The turn runs in the background: this is called from the connection's read
 	// loop, and a turn outlives it by design. A dispatch that blocked here would
 	// stop the machine from hearing anything else, including its own cancel.
-	go e.run(ctx, dispatch)
+	go e.run(ctx, entry, dispatch)
 	return nil
 }
 
-func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
+func (e *Executor) run(parent context.Context, entry *execution, dispatch worker.Dispatch) {
+	// The turn's own context, created when the dispatch was registered: a cancel
+	// that arrived in the meantime has already fired it, and the checks below
+	// still run so the Hub hears a finish either way.
+	ctx := entry.ctx
+	defer entry.cancel()
+	defer e.untrack(dispatch.TurnID)
+
 	// Say so before anything else: the Hub is holding a turn open on the
 	// strength of this frame, and a refusal below arrives as a finish, which is a
 	// better answer than the silence the Hub would otherwise have to time out.
@@ -120,20 +147,6 @@ func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
 				dispatch.Agent, mode))
 		return
 	}
-
-	// The turn's lifetime is its own: it must outlive the frame that started it
-	// and end when it is canceled or the connection goes away.
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-	entry := &execution{turnID: dispatch.TurnID, cancel: cancel}
-	if err := e.track(entry); err != nil {
-		// Already running. The turn that is already going will report its own
-		// finish; answering here with a finish of our own would end it out from
-		// under the run that is still working.
-		e.warn("ignoring a second dispatch for turn %s: %v", dispatch.TurnID, err)
-		return
-	}
-	defer e.untrack(dispatch.TurnID)
 
 	// No ProviderCfg, no API keys: this machine runs with its own agent logins,
 	// and nothing about them crossed the wire to get here (ADR 0022 D7).
@@ -302,6 +315,18 @@ func (e *Executor) Running() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// Has reports whether this machine is running that turn for its Hub.
+//
+// It is what tells a permission question asked here apart from one this machine
+// owns: an agent running a turn the Hub dispatched is asking about work somebody
+// else is watching, and the answer has to travel (see ApprovalRelay).
+func (e *Executor) Has(turnID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, ok := e.running[turnID]
+	return ok
 }
 
 // allowedCwd reports whether a dispatched working directory is one this machine

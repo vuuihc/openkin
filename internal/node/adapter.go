@@ -56,7 +56,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	if err != nil {
 		return nil, err
 	}
-	handle, err := a.Turns.Open(turnID, sender, a.DeviceLabel)
+	handle, err := a.Turns.Open(turnID, spec.ID, sender, a.DeviceLabel)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		// The socket went away between the check and the write. Fail the start
 		// rather than leave a turn nobody can feed.
 		a.Turns.close(handle.turn)
-		return nil, fmt.Errorf("dispatch turn to %s: %w", a.DeviceID, err)
+		return nil, fmt.Errorf("dispatch turn to %s: %w", handle.turn.name(), err)
 	}
 	return handle, nil
 }
