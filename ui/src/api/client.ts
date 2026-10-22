@@ -1992,6 +1992,7 @@ export function streamEvents(opts: EventStreamOptions): () => void {
     if (token) headers.set("Authorization", `Bearer ${token}`);
 
     let sawBytes = false;
+    let accepted = false;
     let idle: ReturnType<typeof setTimeout> | null = null;
     const armWatchdog = (ms: number) => {
       if (idle) clearTimeout(idle);
@@ -2014,6 +2015,9 @@ export function streamEvents(opts: EventStreamOptions): () => void {
       }
       if (!res.ok || !res.body) throw new Error(`stream failed: ${res.status}`);
 
+      // The Hub took the request. From here on, silence means something
+      // different than it does for a request that never arrived.
+      accepted = true;
       armWatchdog(STREAM_FIRST_BYTE_TIMEOUT);
       attempt = 0;
       const reader = res.body.getReader();
@@ -2052,11 +2056,12 @@ export function streamEvents(opts: EventStreamOptions): () => void {
     }
     if (stopped) return;
     setStatus("disconnected");
-    if (!sawBytes) {
+    if (!sawBytes && accepted) {
+      // The Hub accepted the stream and then said nothing: something between
+      // the two is buffering responses (a CDN in front of the Hub), and no
+      // number of retries will fix that. Fall back to long-polling.
       barrenAttempts += 1;
       if (barrenAttempts >= STREAM_MAX_BARREN_ATTEMPTS) {
-        // This network will not carry a stream. Stop trying and let the caller
-        // long-poll instead of burning connections every few seconds.
         stopped = true;
         opts.onUnavailable?.();
         return;
