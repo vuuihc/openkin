@@ -500,6 +500,34 @@ func LoadConfig(ctx context.Context, st *store.Store) (Config, error) {
 	return loadLegacyConfig(ctx, st, true)
 }
 
+// LoadConfigMetadata reads the active provider without touching its secret.
+//
+// Use it wherever the answer is "is a provider configured, and what should be
+// displayed" — a status probe, a list, a badge. The API key is not part of that
+// answer, and on macOS reading it is not a passive operation: it is a Keychain
+// lookup that can stop on a dialog, so a daemon that reads it while starting up
+// cannot start without someone sitting at the machine.
+//
+// The returned Config has no APIKey at all — not the plaintext key, and not the
+// secret:// reference either. A reference in that field is a live credential to
+// anyone who passes the Config to NewClient, which would send
+// "Bearer secret://…" to a remote provider; metadata callers do not need it, so
+// they cannot get it by accident. Runtime paths use LoadConfig.
+func LoadConfigMetadata(ctx context.Context, st *store.Store) (Config, error) {
+	reg, err := LoadRegistryMetadata(ctx, st)
+	if err != nil {
+		return Config{}, err
+	}
+	var cfg Config
+	if active, ok := reg.Active(); ok {
+		cfg = active.Config()
+	} else if cfg, err = loadLegacyConfig(ctx, st, false); err != nil {
+		return Config{}, err
+	}
+	cfg.APIKey = ""
+	return cfg, nil
+}
+
 // SetActive switches the active provider id and mirrors legacy keys.
 func SetActive(ctx context.Context, st *store.Store, id string) (Registry, error) {
 	reg, err := LoadRegistry(ctx, st)

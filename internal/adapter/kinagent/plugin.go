@@ -91,7 +91,9 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 			if st == nil {
 				return agent.Status{Installed: true, Available: false, Reason: "no store"}
 			}
-			cfg, err := provider.LoadConfig(c, st)
+			// Metadata only: a status probe runs while the daemon starts, and
+			// whether a provider is configured does not depend on its key.
+			cfg, err := provider.LoadConfigMetadata(c, st)
 			if err != nil {
 				return agent.Status{Installed: true, Available: false, Reason: err.Error()}
 			}
