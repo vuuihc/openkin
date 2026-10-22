@@ -1223,7 +1223,10 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	var err error
 	originalPrompt := req.Prompt
 	var skillContext skills.Context
-	if e.skillResolver != nil {
+	// Skills are discovered from the filesystem under the cwd. For a task that
+	// runs elsewhere that path exists on the other machine, so a local
+	// SKILL.md found at the same address is not this task's context.
+	if e.skillResolver != nil && !e.isRemoteDevice(req.ExecutingDeviceID) {
 		skillContext, err = e.skillResolver.Context(ctx, req.Cwd, req.Agent)
 		if err != nil {
 			return store.Task{}, fmt.Errorf("load Skills: %w", err)
@@ -1260,7 +1263,12 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 
 	now := e.nowMilli()
 	projectID := strings.TrimSpace(req.ProjectID)
-	if projectID == "" {
+	if projectID == "" && !e.isRemoteDevice(req.ExecutingDeviceID) {
+		// Only a task that runs here can be matched to this machine's projects by
+		// cwd. A remote task's path belongs to the other machine, and the same
+		// repository is usually checked out at the same address on both — which
+		// is exactly how the wrong One-Pager gets injected, and the wrong
+		// project marked active.
 		if resolved, err := e.store.ResolveProjectIDForCwd(ctx, req.Cwd); err == nil && resolved != "" {
 			projectID = resolved
 		}

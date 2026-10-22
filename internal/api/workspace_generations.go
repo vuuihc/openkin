@@ -470,16 +470,36 @@ func (s *Server) handleGetWorkspaceDiff(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// sourceTask resolves the task whose source tree a request wants to browse.
+//
+// A task that runs on another machine has no source tree here. Its cwd names a
+// directory on that machine, and this one may well hold a different checkout of
+// the same repository at the same address — so serving it would show Hub files
+// as if they were the remote task's. Same answer as the workspace browser in
+// workspace.go: this is not a request this machine can answer.
+func (s *Server) sourceTask(w http.ResponseWriter, r *http.Request) (store.Task, bool) {
+	t, err := s.Engine.Get(r.Context(), chi.URLParam(r, "id"))
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return store.Task{}, false
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return store.Task{}, false
+	}
+	if s.Engine.RunsElsewhere(t) {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("%v (device %s)", errWorkspaceElsewhere, t.ExecutingDeviceID),
+		})
+		return store.Task{}, false
+	}
+	return t, true
+}
+
 // handleListSourceTree lists entries in the source repository tree.
 func (s *Server) handleListSourceTree(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	t, err := s.Engine.Get(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	t, ok := s.sourceTask(w, r)
+	if !ok {
 		return
 	}
 
@@ -520,14 +540,8 @@ func (s *Server) handleListSourceTree(w http.ResponseWriter, r *http.Request) {
 
 // handleReadSourceFile reads a file from the source repository.
 func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	t, err := s.Engine.Get(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	t, ok := s.sourceTask(w, r)
+	if !ok {
 		return
 	}
 

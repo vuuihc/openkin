@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/skills"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -263,5 +264,66 @@ func TestRemoteTurnRoundTripsThroughJSON(t *testing.T) {
 	}
 	if decoded.ExecutingDeviceID != "studio" {
 		t.Fatalf("decoded = %+v", decoded)
+	}
+}
+
+// recordingSkills counts the reads a skill resolver would do from this
+// machine's filesystem.
+type recordingSkills struct{ calls int }
+
+func (r *recordingSkills) Context(context.Context, string, string) (skills.Context, error) {
+	r.calls++
+	return skills.Context{Instructions: "this machine's skills"}, nil
+}
+
+// A remote task's cwd names a directory on the other machine. Reading this
+// machine's projects and SKILL.md files at the same address attaches the wrong
+// context — the Hub's One-Pager, the Hub's skills — to work that never touches
+// the Hub's checkout. The same repository is usually cloned at the same path on
+// both machines, which is what makes the mistake invisible.
+func TestRemoteTaskTakesNoContextFromThisMachinesDirectories(t *testing.T) {
+	local := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, local)
+	e.SetRemoteRunner("this-machine", func(store.Task, string) (adapter.Adapter, error) {
+		return &remoteAgent{events: successEvents()}, nil
+	})
+
+	work := t.TempDir()
+	if err := st.InsertProject(context.Background(), store.Project{
+		ID: "proj-1", Name: "OpenKin", Mode: store.ProjectModeShip, OnePagerRel: "PRINCIPLE.md",
+	}, []string{work}); err != nil {
+		t.Fatal(err)
+	}
+	resolver := &recordingSkills{}
+	e.SetSkillResolver(resolver)
+
+	elsewhere, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: work, Prompt: "run over there", ExecutingDeviceID: "studio",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, elsewhere.ID, StatusSucceeded, 5*time.Second)
+	if elsewhere.ProjectID != "" {
+		t.Fatalf("a remote task adopted this machine's project %q", elsewhere.ProjectID)
+	}
+	if resolver.calls != 0 {
+		t.Fatalf("skills were read from this machine for a remote task (%d times)", resolver.calls)
+	}
+
+	// The same cwd, run here, still resolves both: the guard is about which
+	// machine owns the path, not about the path.
+	here, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: work, Prompt: "run here",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, here.ID, StatusSucceeded, 5*time.Second)
+	if here.ProjectID != "proj-1" {
+		t.Fatalf("a local task lost its project: %q", here.ProjectID)
+	}
+	if resolver.calls == 0 {
+		t.Fatal("a local task was given no skills")
 	}
 }

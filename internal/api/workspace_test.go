@@ -495,6 +495,52 @@ func TestWriteTaskWorkspaceFile(t *testing.T) {
 	})
 }
 
+// The source browser reads this machine's filesystem. A task that runs on
+// another machine has no source tree here: its cwd names a directory over
+// there, and this machine usually holds a different checkout at the same
+// address. Showing the local one as if it were the remote task's files is the
+// mistake the workspace browser already refuses to make.
+func TestSourceBrowserRefusesATaskFromAnotherMachine(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	insert := func(id, device string) {
+		t.Helper()
+		if err := s.Store.InsertTask(context.Background(), store.Task{
+			ID: id, Title: "Source", Agent: "claude-code", Cwd: t.TempDir(),
+			Prompt: "inspect", Status: "succeeded", CreatedAt: 1,
+			ExecutingDeviceID: device,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert("task-from-elsewhere", "studio")
+	insert("task-from-here", "")
+
+	for _, path := range []string{"/source/tree", "/source/file?path=go.mod"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/tasks/task-from-elsewhere"+path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("%s for a remote task: %d %s", path, rr.Code, rr.Body.String())
+		}
+		if !strings.Contains(rr.Body.String(), "another machine") {
+			t.Fatalf("%s error = %s", path, rr.Body.String())
+		}
+	}
+
+	// The same route still serves this machine's own task: it stops at the
+	// workspace manager this test server does not have, not at the device check.
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/task-from-here/source/tree", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("local source tree: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
 func insertWorkspaceTask(t *testing.T, st *store.Store, cwd string) string {
 	t.Helper()
 	const id = "task-workspace"

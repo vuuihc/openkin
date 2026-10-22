@@ -1544,6 +1544,11 @@ func (s *Store) FailOrphaned(ctx context.Context) ([]string, error) {
 }
 
 // RecentCwds returns distinct cwd values from recent tasks (most recent first).
+//
+// Only tasks that ran here count. A task executed by another device stores a
+// path in that device's filesystem, and this machine usually holds a different
+// checkout of the same repository at the same address; offering it as a
+// suggestion is how a new task silently starts work in the wrong one.
 func (s *Store) RecentCwds(ctx context.Context, limit int) ([]string, error) {
 	if limit <= 0 {
 		limit = 10
@@ -1552,6 +1557,7 @@ func (s *Store) RecentCwds(ctx context.Context, limit int) ([]string, error) {
 		SELECT cwd FROM (
 			SELECT cwd, MAX(created_at) AS last_used
 			FROM tasks
+			WHERE executing_device_id IS NULL OR executing_device_id = ''
 			GROUP BY cwd
 			ORDER BY last_used DESC
 			LIMIT ?
