@@ -133,14 +133,14 @@ func TestDecodeCapabilitiesIgnoresJunk(t *testing.T) {
 		t.Fatalf("junk input decoded to %v", got)
 	}
 	encoded, err := EncodeCapabilities(worker.Hello{
-		WorkspaceRoots: []string{"/code/a"},
+		WorkspaceRoots: []worker.WorkspaceRoot{{Path: "/code/a"}},
 		MaxConcurrent:  3,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := DecodeCapabilities(encoded)
-	if len(got.WorkspaceRoots) != 1 || got.WorkspaceRoots[0] != "/code/a" || got.MaxConcurrent != 3 {
+	if len(got.WorkspaceRoots) != 1 || got.WorkspaceRoots[0].Path != "/code/a" || got.MaxConcurrent != 3 {
 		t.Fatalf("round trip = %+v", got)
 	}
 }

@@ -134,6 +134,44 @@ func (s *Store) RecordDeviceHello(ctx context.Context, deviceID string, device D
 	return nil
 }
 
+// RegisterLocalDevice records the machine this daemon runs on.
+//
+// The Hub is a machine as well as a coordinator: tasks whose executing device is
+// the Hub itself run here, and their workspaces need rows just like a paired
+// machine's do (workspace_anchor_roots keys on devices.id). It is not a paired
+// device — it has no credential, so it never appears in the device list the
+// console builds from credentials — and role stays whatever it already is, so a
+// machine that is both Hub and Node keeps saying "node" to the Hub it serves.
+func (s *Store) RegisterLocalDevice(ctx context.Context, device Device, now int64) error {
+	deviceID := strings.TrimSpace(device.ID)
+	if deviceID == "" {
+		return errors.New("device id is required")
+	}
+	if device.Role == "" {
+		device.Role = "hub"
+	}
+	if now <= 0 {
+		now = time.Now().UnixMilli()
+	}
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO devices (id, label, platform, arch, role, kin_version, capabilities,
+		                     reachability, last_seen_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			label        = excluded.label,
+			platform     = excluded.platform,
+			arch         = excluded.arch,
+			kin_version  = excluded.kin_version,
+			reachability = excluded.reachability,
+			last_seen_at = excluded.last_seen_at`,
+		deviceID, device.Label, device.Platform, device.Arch, device.Role,
+		device.KinVersion, device.Capabilities, ReachabilityOnline, now, now,
+	); err != nil {
+		return fmt.Errorf("register local device: %w", err)
+	}
+	return nil
+}
+
 // TouchDevice records that a device is alive without rewriting its inventory.
 func (s *Store) TouchDevice(ctx context.Context, deviceID string, now int64) error {
 	if now <= 0 {

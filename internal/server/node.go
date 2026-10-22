@@ -15,6 +15,7 @@ import (
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // The Node role. A machine that works for a Hub is still a daemon: it keeps its
@@ -60,7 +61,7 @@ func resolveNodeToken(stateDir, flagToken string) (string, error) {
 // The agents come from the registry, not from a probe: the Hub is choosing
 // where to send work, and the honest answer is the same list this daemon would
 // run a turn with.
-func buildNodeHello(version string, roots []string, reg *agent.Registry) worker.Hello {
+func buildNodeHello(ctx context.Context, version string, roots []string, reg *agent.Registry) worker.Hello {
 	label, _ := os.Hostname()
 	return worker.Hello{
 		Version:        worker.ProtocolVersion,
@@ -70,9 +71,57 @@ func buildNodeHello(version string, roots []string, reg *agent.Registry) worker.
 		Arch:           runtime.GOARCH,
 		KinVersion:     version,
 		Agents:         nodeAgents(reg),
-		WorkspaceRoots: roots,
+		WorkspaceRoots: nodeWorkspaceRoots(ctx, roots),
 		MaxConcurrent:  nodeMaxConcurrent(),
 	}
+}
+
+// nodeWorkspaceRoots describes this machine's roots as workspaces rather than
+// as paths.
+//
+// A path is an address here; what the Hub needs is the identity of the work, so
+// it can tell whether another machine has the same repository and where. Only
+// this machine can answer that, which is why the derivation happens here and
+// the answer travels: the Hub never sees this filesystem.
+func nodeWorkspaceRoots(ctx context.Context, roots []string) []worker.WorkspaceRoot {
+	resolver := workspace.NewAnchorResolver()
+	out := make([]worker.WorkspaceRoot, 0, len(roots))
+	seen := make(map[string]bool, len(roots))
+	add := func(root worker.WorkspaceRoot) {
+		key := root.Path + "\x00" + root.RemoteURL + "\x00" + root.RelativePath
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, root)
+	}
+	for _, root := range roots {
+		anchor, checkout, err := resolver.DeriveAnchor(ctx, root)
+		if err != nil {
+			// A root that is not there yet is still a place this machine intends
+			// to work: report it as itself, and the dispatch check will refuse it
+			// until it exists.
+			add(worker.WorkspaceRoot{Path: absoluteNodePath(root)})
+			continue
+		}
+		if !anchor.Portable() {
+			add(worker.WorkspaceRoot{Path: absoluteNodePath(root)})
+			continue
+		}
+		add(worker.WorkspaceRoot{
+			Path:         checkout,
+			RemoteURL:    anchor.RemoteURL,
+			RelativePath: anchor.RelativePath,
+		})
+	}
+	return out
+}
+
+func absoluteNodePath(path string) string {
+	if abs, err := filepath.Abs(strings.TrimSpace(path)); err == nil {
+		return abs
+	}
+	return filepath.Clean(strings.TrimSpace(path))
 }
 
 // nodeAgents reports every registered agent and whether it can run here.
@@ -188,7 +237,7 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 
 	roots := nodeRoots(ctx, st, flags.NodeRoots)
 	executor.Roots = roots
-	hello := buildNodeHello(version, roots, reg)
+	hello := buildNodeHello(ctx, version, roots, reg)
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("cannot describe this machine to the hub: %w", err)
 	}

@@ -39,7 +39,7 @@ func testHello() worker.Hello {
 			{ID: "claude-code", Installed: true, Available: true, IsDefault: true},
 			{ID: "codex", Installed: true, Available: false, Reason: "not signed in"},
 		},
-		WorkspaceRoots: []string{"/code/kin"},
+		WorkspaceRoots: []worker.WorkspaceRoot{{Path: "/code/kin"}},
 		MaxConcurrent:  4,
 	}
 }
@@ -100,7 +100,7 @@ func TestNodeChannelRecordsDeviceAndAgents(t *testing.T) {
 		t.Fatalf("role = %q, want node", device.Role)
 	}
 	caps := node.DecodeCapabilities(device.Capabilities)
-	if len(caps.WorkspaceRoots) != 1 || caps.WorkspaceRoots[0] != "/code/kin" || caps.MaxConcurrent != 4 {
+	if len(caps.WorkspaceRoots) != 1 || caps.WorkspaceRoots[0].Path != "/code/kin" || caps.MaxConcurrent != 4 {
 		t.Fatalf("capabilities = %+v", caps)
 	}
 

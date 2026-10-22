@@ -108,6 +108,11 @@ type Task struct {
 	// could hand work to another machine (ADR 0022).
 	ExecutingDeviceID string `json:"executing_device_id,omitempty"`
 
+	// WorkspaceAnchorID is the portable identity of this task's workspace: which
+	// repository, and where inside it. Empty means the cwd is only an address on
+	// one machine, which is what every task was before anchors existed.
+	WorkspaceAnchorID string `json:"workspace_anchor_id,omitempty"`
+
 	// HubSeq is the task's position in the global sync cursor. A client stores
 	// the highest value it has seen and asks for everything after it. Null only
 	// for rows written before the cursor existed.
@@ -286,6 +291,7 @@ func scanTask(scanner interface {
 	var routineTLDR sql.NullString
 	var dispatch sql.NullString
 	var executingDevice sql.NullString
+	var anchorID sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
 		&model, &sessionRef, &permissionMode, &t.Status,
@@ -295,7 +301,7 @@ func scanTask(scanner interface {
 		&workspaceScope, &baseOID, &branch, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 		&t.WorkspacePolicy, &t.CurrentWorkspaceID, &t.EventEpoch,
-		&dispatch, &executingDevice, &t.HubSeq,
+		&dispatch, &executingDevice, &anchorID, &t.HubSeq,
 	); err != nil {
 		return Task{}, err
 	}
@@ -335,6 +341,9 @@ func scanTask(scanner interface {
 	if executingDevice.Valid {
 		t.ExecutingDeviceID = executingDevice.String
 	}
+	if anchorID.Valid {
+		t.WorkspaceAnchorID = anchorID.String
+	}
 	if routineID.Valid {
 		t.RoutineID = routineID.String
 	}
@@ -368,7 +377,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, hub_seq`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -711,6 +720,10 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if t.RoutineID != "" {
 		routineID = t.RoutineID
 	}
+	var anchorID any
+	if t.WorkspaceAnchorID != "" {
+		anchorID = t.WorkspaceAnchorID
+	}
 	var executingDevice any
 	if t.ExecutingDeviceID != "" {
 		executingDevice = t.ExecutingDeviceID
@@ -744,8 +757,8 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			workspace_scope, workspace_base_oid, workspace_branch, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
 				workspace_policy, current_workspace_id, event_epoch, dispatch,
-			executing_device_id, hub_seq
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			executing_device_id, workspace_anchor_id, hub_seq
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -754,7 +767,7 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
 		t.WorkspacePolicy, t.CurrentWorkspaceID, t.EventEpoch,
-		dispatchJSON(t.Dispatch), executingDevice, hubSeq,
+		dispatchJSON(t.Dispatch), executingDevice, anchorID, hubSeq,
 	); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}

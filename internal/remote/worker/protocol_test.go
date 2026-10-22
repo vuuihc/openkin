@@ -15,8 +15,10 @@ func validHello() Hello {
 			ID: "claude-code", Installed: true, Available: true,
 			Version: "2.1.0", Models: []string{"sonnet"},
 		}},
-		WorkspaceRoots: []string{"/Users/me/code"},
-		MaxConcurrent:  2,
+		WorkspaceRoots: []WorkspaceRoot{{
+			Path: "/Users/me/code/openkin", RemoteURL: "github.com/vuuihc/openkin", RelativePath: "internal",
+		}},
+		MaxConcurrent: 2,
 	}
 }
 
@@ -61,6 +63,71 @@ func TestHelloAckRejectsImpossibleHeartbeat(t *testing.T) {
 	ack := HelloAck{Version: ProtocolVersion, HeartbeatSeconds: 0}
 	if err := ack.Validate(); err == nil {
 		t.Fatal("zero heartbeat interval was accepted")
+	}
+}
+
+// A root's path is what the console shows, so it has to be the directory a user
+// would recognize on the machine that reported it — including on a machine
+// whose separator is not this one's.
+func TestWorkspaceRootPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		root WorkspaceRoot
+		want string
+	}{
+		{"checkout", WorkspaceRoot{Path: "/code/openkin"}, "/code/openkin"},
+		{"checkout with trailing slash", WorkspaceRoot{Path: "/code/openkin/"}, "/code/openkin"},
+		{"inside the checkout", WorkspaceRoot{Path: "/code/openkin", RelativePath: "internal/task"}, "/code/openkin/internal/task"},
+		{"repository root", WorkspaceRoot{Path: "/code/openkin", RelativePath: "."}, "/code/openkin"},
+		{"windows checkout", WorkspaceRoot{Path: `C:\code\openkin`}, `C:\code\openkin`},
+		{"windows checkout, inner path", WorkspaceRoot{Path: `C:\code\openkin`, RelativePath: "internal/task"}, `C:\code\openkin\internal\task`},
+		{"unc share", WorkspaceRoot{Path: `\\nas\code\openkin`, RelativePath: "internal"}, `\\nas\code\openkin\internal`},
+	} {
+		if got := tc.root.RootPath(); got != tc.want {
+			t.Fatalf("%s: RootPath() = %q want %q", tc.name, got, tc.want)
+		}
+		if err := tc.root.Validate(); err != nil {
+			t.Fatalf("%s: a root that was reported is not valid: %v", tc.name, err)
+		}
+	}
+}
+
+// Roots come from another machine, so they are checked at the boundary: an
+// absolute path, a relative path that stays inside the checkout, and a remote
+// that is already canonical and credential-free (ADR 0022 D7).
+func TestWorkspaceRootValidation(t *testing.T) {
+	ok := WorkspaceRoot{Path: "/code/openkin", RemoteURL: "github.com/vuuihc/openkin", RelativePath: "internal"}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("valid root rejected: %v", err)
+	}
+	for name, root := range map[string]WorkspaceRoot{
+		"no path":            {Path: "  "},
+		"relative path":      {Path: "code/openkin"},
+		"escaping relative":  {Path: "/code/openkin", RelativePath: "../../etc"},
+		"absolute relative":  {Path: "/code/openkin", RelativePath: "/etc"},
+		"nested escape":      {Path: "/code/openkin", RelativePath: "sub/../../etc"},
+		"remote with a user": {Path: "/code/openkin", RemoteURL: "ssh://git@github.com/vuuihc/openkin"},
+		"remote with a token": {Path: "/code/openkin",
+			RemoteURL: "x-access-token:ghp_secret@github.com/vuuihc/openkin"},
+		"remote with a scheme": {Path: "/code/openkin", RemoteURL: "https://github.com/vuuihc/openkin"},
+		"scp remote":           {Path: "/code/openkin", RemoteURL: "git@github.com:vuuihc/openkin.git"},
+	} {
+		if err := root.Validate(); err == nil {
+			t.Fatalf("%s: accepted %+v", name, root)
+		}
+	}
+	// A machine that is not this one: the Hub may run on Linux while the Node is
+	// a Windows box, so absoluteness cannot be filepath.IsAbs.
+	if err := (WorkspaceRoot{Path: `C:\code`}).Validate(); err != nil {
+		t.Fatalf("windows path rejected: %v", err)
+	}
+	if err := (Hello{
+		Version: ProtocolVersion, WorkerID: "device-1",
+		Agents:         []Agent{{ID: "claude-code"}},
+		WorkspaceRoots: []WorkspaceRoot{{Path: "/code", RelativePath: "../.."}},
+		MaxConcurrent:  1,
+	}).Validate(); err == nil {
+		t.Fatal("a hello carrying an escaping root was accepted")
 	}
 }
 

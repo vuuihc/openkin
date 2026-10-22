@@ -183,6 +183,10 @@ type Engine struct {
 	// remoteRunner builds the adapter for a task that runs on another machine.
 	// Nil means every task runs here, which is what a standalone daemon wants.
 	remoteRunner RemoteRunner
+	// anchors derives a workspace's portable identity from a path on this
+	// machine. Only the machine that owns the filesystem can do that, which is
+	// why the engine does it here and the Node does it there.
+	anchors workspace.AnchorResolver
 
 	// Approval long-poll waiters (approval id → channels).
 	approvalWaiters     map[string][]chan store.Approval
@@ -311,6 +315,7 @@ func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		limitWaitCancel:     make(map[string]context.CancelFunc),
 		limitNotifyCancel:   make(map[string]context.CancelFunc),
 		quotaNotified:       make(map[string]int64),
+		anchors:             workspace.NewAnchorResolver(),
 	}
 }
 
@@ -1290,6 +1295,10 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		// as long as it lives: a conversation cannot move between machines
 		// halfway through without losing the agent's own state.
 		ExecutingDeviceID: strings.TrimSpace(req.ExecutingDeviceID),
+		// The cwd is an address on the machine that will run this; the anchor is
+		// the same workspace said portably, so a turn dispatched to another
+		// machine can be handed *that* machine's address instead of this one's.
+		WorkspaceAnchorID: e.workspaceAnchorFor(ctx, req.Cwd, req.ExecutingDeviceID, now),
 	}
 	if sessionRef := strings.TrimSpace(req.SessionRef); sessionRef != "" {
 		t.SessionRef = &sessionRef
@@ -2192,6 +2201,17 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		ID:    turnExecutionID,
 	}
 	cwd := t.EffectiveCwd()
+	if remote {
+		// The path in the row is an address on *this* daemon's machine, or on
+		// whichever machine created the task. The device that will run the turn
+		// gets its own address for the same workspace, or a refusal.
+		resolved, err := e.dispatchCwd(ctx, t)
+		if err != nil {
+			_, _ = e.failRunningStart(ctx, id, turnExecutionID, err.Error())
+			return
+		}
+		cwd = resolved
+	}
 
 	spec := adapter.TaskSpec{
 		ID:    t.ID,

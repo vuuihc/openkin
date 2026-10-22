@@ -167,7 +167,7 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 			return agent.Status{Installed: true, Available: true}
 		},
 	})
-	hello := buildNodeHello("9.9.9", []string{"/code/a", "/code/b"}, reg)
+	hello := buildNodeHello(context.Background(), "9.9.9", []string{"/code/a", "/code/b"}, reg)
 	if hello.Label == "" {
 		t.Fatal("a node with no label did not fall back to the hostname")
 	}
@@ -177,7 +177,7 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 	if hello.Platform == "" || hello.Arch == "" {
 		t.Fatalf("hello does not say what this machine is: %+v", hello)
 	}
-	if len(hello.WorkspaceRoots) != 2 || hello.WorkspaceRoots[0] != "/code/a" {
+	if len(hello.WorkspaceRoots) != 2 || hello.WorkspaceRoots[0].Path != "/code/a" {
 		t.Fatalf("roots = %v", hello.WorkspaceRoots)
 	}
 	if hello.MaxConcurrent <= 0 {

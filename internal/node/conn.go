@@ -97,8 +97,8 @@ func Decode[T any](frame worker.Frame) (T, error) {
 // It is stored as JSON in devices.capabilities. Nothing here is secret — it is
 // the same short list of paths the machine would show a user who asked.
 type Capabilities struct {
-	WorkspaceRoots []string `json:"workspace_roots,omitempty"`
-	MaxConcurrent  int      `json:"max_concurrent,omitempty"`
+	WorkspaceRoots []worker.WorkspaceRoot `json:"workspace_roots,omitempty"`
+	MaxConcurrent  int                    `json:"max_concurrent,omitempty"`
 }
 
 // EncodeCapabilities renders the non-agent half of a hello for storage.

@@ -18,6 +18,8 @@ const (
 	ProtocolVersion = 1
 	MaxAgents       = 32
 	MaxRoots        = 32
+	MaxRootPath     = 4096
+	MaxRemoteURL    = 2048
 	MaxModels       = 64
 	MaxFrameBytes   = 1 << 20
 )
@@ -42,15 +44,56 @@ type Agent struct {
 // WorkerID is the device id: one daemon runs one Node per machine, and the
 // Hub binds the frame to the device credential that carried it.
 type Hello struct {
-	Version        int      `json:"version"`
-	WorkerID       string   `json:"worker_id"`
-	Label          string   `json:"label,omitempty"`
-	Platform       string   `json:"platform,omitempty"`
-	Arch           string   `json:"arch,omitempty"`
-	KinVersion     string   `json:"kin_version,omitempty"`
-	Agents         []Agent  `json:"agents"`
-	WorkspaceRoots []string `json:"workspace_roots,omitempty"`
-	MaxConcurrent  int      `json:"max_concurrent"`
+	Version        int             `json:"version"`
+	WorkerID       string          `json:"worker_id"`
+	Label          string          `json:"label,omitempty"`
+	Platform       string          `json:"platform,omitempty"`
+	Arch           string          `json:"arch,omitempty"`
+	KinVersion     string          `json:"kin_version,omitempty"`
+	Agents         []Agent         `json:"agents"`
+	WorkspaceRoots []WorkspaceRoot `json:"workspace_roots,omitempty"`
+	MaxConcurrent  int             `json:"max_concurrent"`
+}
+
+// WorkspaceRoot is one directory a Node agreed to work in, and the repository
+// identity of the checkout it sits in when it has one.
+//
+// Path is the checkout root when the directory is inside a repository, and
+// RelativePath then says where inside that checkout the declared root is. When
+// RemoteURL is empty the directory is only itself: it resolves on this machine
+// and nowhere else.
+//
+// The identity travels; the path does not. That is the whole point of sending
+// these upward: the Hub stores which repository each machine has and where,
+// so it can hand a turn the address of the workspace *on the machine that will
+// run it* rather than the address someone typed while looking at another one
+// (ADR 0022 D3, D6). RemoteURL is canonical and credential-free — see
+// workspace.CanonicalRemote.
+type WorkspaceRoot struct {
+	Path         string `json:"path"`
+	RemoteURL    string `json:"remote_url,omitempty"`
+	RelativePath string `json:"relative_path,omitempty"`
+}
+
+// RootPath is the directory this root names on the machine that reported it:
+// the checkout, plus the path inside it when the machine works in a
+// subdirectory of the repository.
+//
+// It is what a console shows and what a user recognizes. The Hub stores the
+// checkout and the relative path separately, because that is what lets it put
+// the workspace back together on a machine with a different layout.
+func (r WorkspaceRoot) RootPath() string {
+	absPath := strings.TrimRight(strings.TrimSpace(r.Path), "/\\")
+	relative := strings.Trim(strings.TrimSpace(r.RelativePath), "/\\")
+	if relative == "" || relative == "." {
+		return absPath
+	}
+	sep := "/"
+	if strings.Contains(absPath, `\`) && !strings.Contains(absPath, "/") {
+		sep = `\`
+		relative = strings.ReplaceAll(relative, "/", `\`)
+	}
+	return absPath + sep + relative
 }
 
 // HelloAck is the Hub's answer: the protocol version it agreed to and how often
@@ -103,6 +146,11 @@ func (h Hello) Validate() error {
 	if len(h.WorkspaceRoots) > MaxRoots {
 		return fmt.Errorf("workspace_roots exceeds %d entries", MaxRoots)
 	}
+	for i, root := range h.WorkspaceRoots {
+		if err := root.Validate(); err != nil {
+			return fmt.Errorf("workspace_roots[%d]: %w", i, err)
+		}
+	}
 	if h.MaxConcurrent < 1 || h.MaxConcurrent > 256 {
 		return errors.New("max_concurrent must be between 1 and 256")
 	}
@@ -124,6 +172,58 @@ func (h Hello) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (r WorkspaceRoot) Validate() error {
+	path := strings.TrimSpace(r.Path)
+	if path == "" {
+		return errors.New("path is required")
+	}
+	if len(path) > MaxRootPath {
+		return fmt.Errorf("path exceeds %d bytes", MaxRootPath)
+	}
+	if !isAbsNodePath(path) {
+		return fmt.Errorf("path %q is not absolute", path)
+	}
+	if len(r.RelativePath) > MaxRootPath {
+		return fmt.Errorf("relative_path exceeds %d bytes", MaxRootPath)
+	}
+	if rel := strings.TrimSpace(r.RelativePath); rel != "" {
+		if isAbsNodePath(rel) || rel == ".." || strings.HasPrefix(rel, "../") ||
+			strings.Contains(rel, "/../") || strings.Contains(rel, `\..`) {
+			return fmt.Errorf("relative_path %q escapes the checkout", rel)
+		}
+	}
+	if len(r.RemoteURL) > MaxRemoteURL {
+		return fmt.Errorf("remote_url exceeds %d bytes", MaxRemoteURL)
+	}
+	if remote := strings.TrimSpace(r.RemoteURL); remote != "" {
+		// The Hub stores this and every other device reads it, so it has to be
+		// canonical already: a URL that still carries a credential must never
+		// reach the database (ADR 0022 D7).
+		if strings.ContainsAny(remote, "@\\ \t\n") || strings.Contains(remote, "://") {
+			return fmt.Errorf("remote_url %q is not canonical", remote)
+		}
+	}
+	return nil
+}
+
+// isAbsNodePath reports whether a path is absolute on the machine that sent it.
+//
+// The Hub is not necessarily the same operating system as the Node — a Linux
+// Hub dispatches to a macOS laptop — so this cannot be filepath.IsAbs, which
+// answers for the machine doing the asking.
+func isAbsNodePath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/"):
+		return true
+	case strings.HasPrefix(path, `\\`):
+		return true
+	case len(path) >= 3 && path[1] == ':' && (path[2] == '/' || path[2] == '\\'):
+		return true
+	default:
+		return false
+	}
 }
 
 func (h Heartbeat) Validate() error {

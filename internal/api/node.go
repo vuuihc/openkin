@@ -183,13 +183,29 @@ func (s *Server) recordNodeHello(ctx context.Context, deviceID string, hello wor
 	if err != nil {
 		return err
 	}
-	return s.Store.RecordDeviceHello(ctx, deviceID, store.Device{
+	if err := s.Store.RecordDeviceHello(ctx, deviceID, store.Device{
 		Label:        hello.Label,
 		Platform:     hello.Platform,
 		Arch:         hello.Arch,
 		KinVersion:   hello.KinVersion,
 		Capabilities: capabilities,
-	}, agents, now)
+	}, agents, now); err != nil {
+		return err
+	}
+	// The roots become anchors here, at the only moment the Hub learns where
+	// this machine keeps its checkouts. They are what lets a turn be handed an
+	// address that means something on the machine that will run it, and what
+	// lets "this device cannot resolve that workspace" be an answer instead of a
+	// guess (ADR 0022 D3).
+	roots := make([]store.ReportedRoot, 0, len(hello.WorkspaceRoots))
+	for _, root := range hello.WorkspaceRoots {
+		roots = append(roots, store.ReportedRoot{
+			Path:         root.Path,
+			RemoteURL:    root.RemoteURL,
+			RelativePath: root.RelativePath,
+		})
+	}
+	return s.Store.RecordDeviceWorkspaceRoots(ctx, deviceID, roots, now)
 }
 
 // serveNode routes frames until the connection ends.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -183,6 +184,22 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// workspaceRootPaths renders reported roots as the directories the machine
+// works in — a checkout plus the path inside it reads as one path, which is what
+// the console shows and what the operator recognizes.
+func workspaceRootPaths(roots []worker.WorkspaceRoot) []string {
+	if len(roots) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if path := root.RootPath(); path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
 func (s *Server) deviceResponse(ctx context.Context, device store.Device) deviceResponse {
 	response := deviceResponse{
 		ID:           device.ID,
@@ -196,7 +213,7 @@ func (s *Server) deviceResponse(ctx context.Context, device store.Device) device
 		CreatedAt:    device.CreatedAt,
 		RevokedAt:    device.RevokedAt,
 		Agents:       []deviceAgentResult{},
-		Roots:        node.DecodeCapabilities(device.Capabilities).WorkspaceRoots,
+		Roots:        workspaceRootPaths(node.DecodeCapabilities(device.Capabilities).WorkspaceRoots),
 	}
 	if s.Nodes != nil && s.Nodes.Connected(device.ID) {
 		// A live socket outranks the last thing written to the row: the device

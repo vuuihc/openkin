@@ -68,7 +68,10 @@ func remoteHub(t *testing.T) (*Server, string, *node.Connections, *node.Turns) {
 // the directories it is willing to work in.
 func nodeHello(roots ...string) worker.Hello {
 	hello := testHello()
-	hello.WorkspaceRoots = roots
+	hello.WorkspaceRoots = make([]worker.WorkspaceRoot, 0, len(roots))
+	for _, root := range roots {
+		hello.WorkspaceRoots = append(hello.WorkspaceRoots, worker.WorkspaceRoot{Path: root})
+	}
 	return hello
 }
 

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -209,6 +210,19 @@ func ServeWith(version string, flags ServeFlags) error {
 	ctx := context.Background()
 	identity, err := ensureDesktopIdentity(ctx, st)
 	if err != nil {
+		return err
+	}
+	// The Hub is a machine too. It needs a device row for the same reason a
+	// paired one does: a workspace anchor's per-device path keys on devices.id,
+	// and a task the Hub runs itself has a workspace like any other.
+	if err := st.RegisterLocalDevice(ctx, store.Device{
+		ID:         identity.ID,
+		Label:      identity.Name,
+		Platform:   runtime.GOOS,
+		Arch:       runtime.GOARCH,
+		Role:       "hub",
+		KinVersion: version,
+	}, time.Now().UnixMilli()); err != nil {
 		return err
 	}
 	if flags.TSControlURL != "" {
