@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -292,4 +295,70 @@ func tokenFromCommand(t *testing.T, out string) string {
 	}
 	t.Fatalf("no --token in the printed command:\n%s", out)
 	return ""
+}
+
+// bypassingRunner stands for an agent with no approval channel: accept_edits is
+// the same bypass yolo is.
+type bypassingRunner struct{}
+
+func (bypassingRunner) Start(context.Context, adapter.TaskSpec) (adapter.RunHandle, error) {
+	return nil, errors.New("the ceiling should have stopped this before the agent started")
+}
+
+func (bypassingRunner) AutoApprovesAll(mode string) bool {
+	switch adapter.NormalizePermissionMode(mode) {
+	case adapter.PermissionAcceptEdits, adapter.PermissionYOLO:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestNodeCeilingSurvivesTheRegistryWrapping is the end of the permission
+// ceiling, through the wiring production actually has: a real registry, the
+// daemon's own runner lookup, and the executor. Every runner a registry hands
+// out is wrapped, and a wrapper that cannot answer the ceiling's question turns
+// "no opinion" into "safe mode" — so the question is asked here, where a
+// wrapper that swallowed it would fail the test rather than the operator.
+func TestNodeCeilingSurvivesTheRegistryWrapping(t *testing.T) {
+	reg := agent.MustRegistry(agent.Entry{
+		ID: "opencode", Name: "OpenCode", Priority: 10, Runner: bypassingRunner{},
+		Status: func(context.Context) agent.Status {
+			return agent.Status{Installed: true, Available: true}
+		},
+	})
+	work := t.TempDir()
+	exec := &node.Executor{Runners: agentRunners{reg: reg}, Roots: []string{work}}
+
+	finishes := make(chan worker.TurnFinish, 4)
+	exec.SetSender(func(_ context.Context, frame worker.Frame) error {
+		if frame.Kind != "turn.finish" {
+			return nil
+		}
+		finish, err := node.Decode[worker.TurnFinish](frame)
+		if err == nil {
+			finishes <- finish
+		}
+		return nil
+	})
+
+	frame, err := worker.NewFrame("turn.dispatch", worker.Dispatch{
+		TurnID: "turn-1", TaskID: "task-1", Agent: "opencode", Cwd: work,
+		Prompt: "run this", PermissionMode: adapter.PermissionAcceptEdits,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), frame); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case finish := <-finishes:
+		if finish.Status != worker.TurnError || !strings.Contains(finish.Error, "--allow-yolo") {
+			t.Fatalf("a bypassing agent in accept_edits was accepted: %+v", finish)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the dispatched turn was neither refused nor run")
+	}
 }
