@@ -29,7 +29,12 @@ import (
 // remoteHub is a Hub that can dispatch and cannot execute: it has no agents of
 // its own. That is what makes the dispatch path the only way these tests can
 // pass — a turn that quietly ran here would fail with "unknown agent".
-func remoteHub(t *testing.T) (*Server, string, *node.Connections, *node.Turns) {
+//
+// onEnded is for a test that also has to watch the Hub's own end-of-connection
+// cleanup. It runs before the turns are abandoned, which is the order server.go
+// wires: settling a question pushes its task out of waiting_approval and back
+// into running, so failing the turn afterwards has the last word.
+func remoteHub(t *testing.T, onEnded ...func(*node.Turns, node.Sender)) (*Server, string, *node.Connections, *node.Turns) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
 	if err != nil {
@@ -49,7 +54,12 @@ func remoteHub(t *testing.T) (*Server, string, *node.Connections, *node.Turns) {
 	eng.SetWorkspaceRuntime(workspace.NewManager(t.TempDir()))
 
 	turns := node.NewTurns()
-	conns := node.NewConnections(func(sender node.Sender) { turns.Abandon(sender) })
+	conns := node.NewConnections(func(sender node.Sender) {
+		for _, hook := range onEnded {
+			hook(turns, sender)
+		}
+		turns.Abandon(sender)
+	})
 	eng.SetRemoteRunner("hub-machine", func(stored store.Task, executionID string) (adapter.Adapter, error) {
 		return &node.Adapter{Conns: conns, Turns: turns, DeviceID: stored.ExecutingDeviceID}, nil
 	})

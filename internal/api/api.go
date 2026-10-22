@@ -149,6 +149,13 @@ type Server struct {
 	// the answer to "whose frame is this" is the connection. Nil means nothing
 	// consumes them yet, and the Hub answers with an error frame.
 	NodeFrames func(ctx context.Context, sender node.Sender, frame worker.Frame) error
+	// ApprovalRelay, when set, is where a permission question goes when it is
+	// about a turn this daemon is running for a Hub. This machine is still the
+	// one the agent asked — the question arrives on this daemon's loopback
+	// approval API — but the person who has to answer it is looking at the Hub,
+	// so the question travels (see node.ApprovalRelay). Nil means every approval
+	// this daemon is asked about is its own.
+	ApprovalRelay ApprovalRelay
 	// Browser is the optional Playwright bridge for task-attached actions.
 	Browser *browserworker.Runner
 	// Eval is the optional file-backed replay/evaluation service.
@@ -1085,10 +1092,46 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, a)
 }
 
+// ApprovalRelay hands a permission question to the Hub this daemon works for.
+//
+// It is an interface so api does not depend on how the question travels, and so
+// a daemon that is nobody's Node leaves it nil and answers everything itself.
+type ApprovalRelay interface {
+	// Owns reports whether that execution is a turn this machine runs for a Hub.
+	Owns(executionID string) bool
+	// Ask sends the question and returns the Hub's approval id.
+	Ask(ctx context.Context, req task.CreateApprovalRequest) (string, error)
+	// Waiting reports whether that approval id is one this machine forwarded.
+	Waiting(approvalID string) bool
+	// Decision blocks until the Hub has decided it.
+	Decision(ctx context.Context, approvalID string) (string, error)
+}
+
 func (s *Server) handleInternalCreateApproval(w http.ResponseWriter, r *http.Request) {
 	var req task.CreateApprovalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if s.ApprovalRelay != nil && s.ApprovalRelay.Owns(req.ExecutionID) {
+		// The agent is running a turn this machine took from its Hub. The row
+		// belongs in the Hub's inbox: that is the one a person is watching, and
+		// the one the decision has to come back from.
+		id, err := s.ApprovalRelay.Ask(r.Context(), req)
+		if err != nil {
+			// Nothing was recorded anywhere, so the agent must hear that rather
+			// than wait for an answer nobody will give.
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		// Only the id is read by the agent's client, and it is the Hub's row: the
+		// wait below finds it by that id.
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"id":       id,
+			"task_id":  req.TaskID,
+			"kind":     req.Kind,
+			"decision": store.DecisionPending,
+		})
 		return
 	}
 	a, err := s.Engine.RequestApproval(r.Context(), req)
@@ -1109,6 +1152,18 @@ func (s *Server) handleInternalCreateApproval(w http.ResponseWriter, r *http.Req
 
 func (s *Server) handleInternalWaitApproval(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	if s.ApprovalRelay != nil && s.ApprovalRelay.Waiting(id) {
+		// One this machine forwarded. The wait is the Hub's to end: it answers
+		// when a person decides, or when the connection does. The agent's client
+		// long-polls, so a wait that outlives its own request is asked again.
+		decision, err := s.ApprovalRelay.Decision(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "decision": decision})
+		return
+	}
 	timeout := 30 * time.Second
 	if v := r.URL.Query().Get("timeout"); v != "" {
 		sec, err := strconv.Atoi(v)

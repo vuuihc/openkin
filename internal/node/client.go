@@ -102,7 +102,7 @@ func RunOnce(ctx context.Context, cfg ClientConfig) error {
 			return fmt.Errorf("read from hub: %w", err)
 		}
 		switch frame.Kind {
-		case "ack", "lease", "hello_ack":
+		case "hello_ack":
 			// Presence bookkeeping the Node has no part in.
 			continue
 		case "error":

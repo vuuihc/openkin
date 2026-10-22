@@ -225,7 +225,7 @@ func nodeMaxConcurrent() int {
 //
 // It returns when ctx ends. Losing the Hub is not fatal: the daemon keeps
 // serving this machine's own console while it retries.
-func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor) error {
+func runNode(ctx context.Context, version string, flags ServeFlags, st *store.Store, reg *agent.Registry, executor *node.Executor, approvals *node.ApprovalRelay) error {
 	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
@@ -256,11 +256,28 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 	}
 
 	return node.Run(ctx, node.ClientConfig{
-		HubURL:  flags.HubURL,
-		Token:   token,
-		Hello:   hello,
-		OnFrame: executor.Handle,
-		OnReady: executor.SetSender,
-		Warn:    warn,
+		HubURL: flags.HubURL,
+		Token:  token,
+		Hello:  hello,
+		// Two kinds of frame come down this channel and they belong to different
+		// halves of this machine: a question the Hub is answering for an agent
+		// here, and everything else, which is work.
+		OnFrame: func(ctx context.Context, frame worker.Frame) error {
+			switch frame.Kind {
+			case "approval.status", "approval.decision":
+				return approvals.Handle(ctx, frame)
+			default:
+				return executor.Handle(ctx, frame)
+			}
+		},
+		// The write path, and the moment it is taken away. Both halves need it:
+		// the executor to report a turn, the relay to ask a question. Clearing it
+		// is what tells a blocked agent its question died with the connection
+		// rather than waiting on a socket that is gone.
+		OnReady: func(send node.WriteFunc) {
+			executor.SetSender(send)
+			approvals.SetSender(send)
+		},
+		Warn: warn,
 	})
 }

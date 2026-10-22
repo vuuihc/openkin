@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 func validHello() Hello {
@@ -56,6 +58,86 @@ func TestFrameRoundTripAndBounds(t *testing.T) {
 	}
 	if _, err := NewFrame("unknown", nil); err == nil {
 		t.Fatal("unknown frame kind was accepted")
+	}
+}
+
+// frameSamples is one buildable payload per frame kind: the register of
+// everything this protocol can actually put on the wire.
+//
+// A kind missing from here is a kind nobody can prove is sendable. That is not
+// hypothetical: `turn.started` was constructed but never registered in
+// allowedFrameKinds, so NewFrame refused it, the sender could only warn, and
+// every remote turn would have died on the Hub's start deadline — with a green
+// test suite, because no test built the frame the executor sends.
+var frameSamples = map[string]any{
+	"hello":         validHello(),
+	"hello_ack":     HelloAck{Version: ProtocolVersion, HeartbeatSeconds: 15, HubTime: 1},
+	"heartbeat":     Heartbeat{LeaseID: "lease-1", WorkerID: "device-1", At: 1},
+	"error":         map[string]string{"error": "boom"},
+	"turn.dispatch": validDispatch(),
+	"turn.event": TurnEvent{
+		TurnID: "turn-1", Seq: 2, Event: json.RawMessage(`{"type":"result"}`),
+	},
+	"turn.started": TurnStarted{TurnID: "turn-1"},
+	"turn.finish":  TurnFinish{TurnID: "turn-1", Status: TurnError, Error: "boom"},
+	"turn.cancel":  TurnCancel{TurnID: "turn-1", Reason: "user stopped it"},
+	"approval.request": ApprovalRequest{
+		RequestID: "req-1", TurnID: "turn-1", Kind: "tool_use",
+		Payload: json.RawMessage(`{"tool":"Bash"}`), Agent: "claude-code",
+	},
+	"approval.status":   ApprovalStatus{RequestID: "req-1", ApprovalID: "apr-1"},
+	"approval.decision": ApprovalDecision{RequestID: "req-1", Decision: ApprovalApproved},
+}
+
+// TestEveryFrameKindRoundTrips holds the registry of kinds and the samples
+// together, in both directions: every kind can be built and survives the
+// envelope, and every kind this package accepts has a sample proving it.
+func TestEveryFrameKindRoundTrips(t *testing.T) {
+	for kind, payload := range frameSamples {
+		frame, err := NewFrame(kind, payload)
+		if err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if err := frame.Validate(); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(frame.Data, &decoded); err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if len(decoded) == 0 {
+			t.Fatalf("%s encoded to nothing", kind)
+		}
+	}
+	for kind := range allowedFrameKinds {
+		if _, ok := frameSamples[kind]; !ok {
+			t.Errorf("frame kind %q is registered but nothing proves it can be built; "+
+				"add a sample to frameSamples or delete the kind", kind)
+		}
+	}
+
+	// The kinds that nothing ever sent are gone, so a stale Node cannot look
+	// like it is speaking the protocol.
+	for _, kind := range []string{"assignment", "event", "cancel", "task_event", "lease", "ack"} {
+		if _, err := NewFrame(kind, map[string]string{}); err == nil {
+			t.Errorf("frame kind %q is still accepted", kind)
+		}
+	}
+}
+
+// TestApprovalDecisionsMatchTheStore keeps the wire vocabulary and the recorded
+// one the same three words. The Hub sends what the store decided, and the device
+// only understands these; a drift would fail closed for every approval at once,
+// which is the kind of outage a constant is supposed to prevent.
+func TestApprovalDecisionsMatchTheStore(t *testing.T) {
+	for _, tc := range []struct{ wire, stored string }{
+		{ApprovalApproved, store.DecisionApproved},
+		{ApprovalDenied, store.DecisionDenied},
+		{ApprovalExpired, store.DecisionExpired},
+	} {
+		if tc.wire != tc.stored {
+			t.Errorf("the wire says %q where the store says %q", tc.wire, tc.stored)
+		}
 	}
 }
 

@@ -156,6 +156,13 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	return f, nil
 }
 
+// warnToStderr is where the remote path reports what it cannot hand back to a
+// caller: a cancel that never reached a device, a question whose asker went
+// away, a turn nobody started in time.
+func warnToStderr(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "kin: warning: "+format+"\n", args...)
+}
+
 // Serve starts the HTTP daemon on the configured transports (spec §7).
 func Serve(version string) error {
 	flags, err := ParseServeFlags(os.Args[2:])
@@ -303,15 +310,32 @@ func ServeWith(version string, flags ServeFlags) error {
 	// connection table is process-local by nature — only the process holding the
 	// socket knows a device is connected — while the device row it writes to is
 	// durable, so a Hub restart costs presence, not knowledge.
-	nodeTurns := node.NewTurns()
+	//
+	// It is built here, empty, and filled in below once the engine exists: a
+	// connection ending has to settle both what it was running and what it was
+	// asking, and both of those live in the engine.
+	var nodeTurns *node.Turns
+	var nodeApprovals *node.Approvals
 	// A connection ending — dropped, or replaced by a newer one — ends whatever
 	// it was running, and says so in each transcript: the alternative is a turn
 	// that waits forever on a socket that no longer exists. It is scoped to that
 	// connection: a machine that reconnects while a turn is being dispatched must
 	// not have the new turn killed by the old socket's ending.
+	//
+	// The approvals go first, and the order matters: settling one can push its
+	// task out of waiting_approval and back into running, and failing the turn
+	// afterwards overwrites that with failed. The other order leaves a task that
+	// says running with no run loop behind it.
 	nodeConns := node.NewConnections(func(ended node.Sender) {
-		for _, turnID := range nodeTurns.Abandon(ended) {
-			fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its connection\n", turnID)
+		if nodeApprovals != nil {
+			for _, approvalID := range nodeApprovals.Abandon(ended) {
+				fmt.Fprintf(os.Stderr, "kin: warning: approval %s settled when its device disconnected\n", approvalID)
+			}
+		}
+		if nodeTurns != nil {
+			for _, turnID := range nodeTurns.Abandon(ended) {
+				fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its connection\n", turnID)
+			}
 		}
 	})
 	// Session titles: truncate immediately, then replace via cognition provider when configured.
@@ -426,6 +450,17 @@ func ServeWith(version string, flags ServeFlags) error {
 	// Remote execution is an adapter, so a turn that runs on another machine
 	// takes the same path through the engine as one that runs here: same event
 	// storage, same cursor, same console (ADR 0022 D8).
+	nodeTurns = node.NewTurns()
+	nodeTurns.Warn = warnToStderr
+	// A permission question asked on a machine this Hub dispatched to is the
+	// Hub's to put in front of a person: the device is blocked, the console is
+	// where somebody is looking, and one inbox for both is the whole point of
+	// having a Hub (ADR 0022 D1).
+	nodeApprovals = &node.Approvals{
+		Turns:  nodeTurns,
+		Engine: eng,
+		Warn:   warnToStderr,
+	}
 	eng.SetRemoteRunner(identity.ID, func(t store.Task, executionID string) (adapter.Adapter, error) {
 		return &node.Adapter{
 			Conns: nodeConns, Turns: nodeTurns,
@@ -535,7 +570,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,
 		Nodes:        nodeConns,
-		NodeFrames:   nodeTurns.RouteFrame,
+		NodeFrames:   routeNodeFrame(nodeTurns, nodeApprovals),
 		Browser:      browser,
 		Eval:         evalRunner,
 		A2A:          &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},
@@ -844,13 +879,20 @@ func ServeWith(version string, flags ServeFlags) error {
 		executor := &node.Executor{
 			Runners:   agentRunners{reg: reg},
 			AllowYOLO: flags.AllowYOLO,
-			Warn: func(format string, args ...any) {
-				fmt.Fprintf(os.Stderr, "kin: warning: "+format+"\n", args...)
-			},
+			Warn:      warnToStderr,
 		}
 		defer executor.Stop()
+		// A permission question about a turn this machine took from its Hub goes
+		// back over the same channel the turn arrived on. The agent still asks
+		// this daemon — it is the daemon the agent can reach — and the answer
+		// comes from wherever the person is looking (ADR 0022 D1).
+		approvalRelay := &node.ApprovalRelay{
+			Executor: executor,
+			Warn:     warnToStderr,
+		}
+		srvAPI.ApprovalRelay = approvalRelay
 		go func() {
-			err := runNode(nodeCtx, version, flags, st, reg, executor)
+			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay)
 			// A canceled context is this daemon shutting down, not a failure.
 			if err != nil && nodeCtx.Err() == nil {
 				fmt.Fprintf(os.Stderr, "kin: node: %v\n", err)
@@ -1009,6 +1051,21 @@ func isActiveTaskStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// routeNodeFrame sends a frame from a device to whichever half of the Hub asked
+// for it: the turns it is running, or the questions it is blocked on.
+//
+// Everything else is an error, so an unhandled frame is visible rather than
+// silently dropped. The api server turns that into a `turn.cancel` when it is
+// about a turn this Hub is not running.
+func routeNodeFrame(turns *node.Turns, approvals *node.Approvals) func(context.Context, node.Sender, worker.Frame) error {
+	return func(ctx context.Context, sender node.Sender, frame worker.Frame) error {
+		if frame.Kind == "approval.request" {
+			return approvals.Route(ctx, sender, frame)
+		}
+		return turns.RouteFrame(ctx, sender, frame)
 	}
 }
 
