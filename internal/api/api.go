@@ -380,6 +380,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/evals/compare", s.handleCompareEvalRuns)
 		r.With(operatorOnly).Post("/api/evals/routines", s.handleCreateEvalRoutine)
 		r.Get("/api/ws", s.handleWS)
+		r.Get("/api/events", s.handleEventStream)
+		r.Get("/api/sessions/wait", s.handleSessionsWait)
 		if s.A2A != nil && s.A2A.Enabled {
 			r.Mount("/a2a", s.A2A.Handler())
 		}
