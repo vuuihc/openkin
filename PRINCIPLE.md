@@ -219,6 +219,7 @@ In an era of exploding model and agent surface area, what ships fastest is usual
 
 1. **Nail the main path first:** worth opening daily on one machine—accurate memory, real work, legible history.
 2. **Do not prepay distant architecture:** implement multi-device and orchestration stories when friction is real.
+   *Condition met 2026-10-22:* friction is real — users already switch between daemons and lose conversation continuity on every switch. ADR 0022 is the response. The rule itself stands; for this one item it now reads "implement", not "defer".
 3. **External executors are Tools, not a second Kin:** third-party coding agents or harnesses may be invoked; they are not a second identity or runtime.
 4. **Do not center the product on networking infrastructure** Kin does not need to own; prefer user-chosen or existing connectivity when remote access is needed later.
 5. **One fewer concept the user must learn is a win:** complexity may live inside; default UX stays short-path.
@@ -237,14 +238,32 @@ If (1) is “yes” and (2) is “prepay”—default **do not add**.
 
 Fine as long-term vision; **not default v1 surface** unless real use demands it:
 
-- Multi-device orchestration as a product center
-- Full sync stacks before single-machine excellence
+- ~~Multi-device orchestration as a product center~~ — **withdrawn 2026-10-22 by [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md)**
+- ~~Full sync stacks before single-machine excellence~~ — **withdrawn 2026-10-22 by ADR 0022.** The item's own ordering condition was "before single-machine excellence"; that work came first, so the objection no longer applies rather than being overruled
 - Desktop control / computer-use as a default capability
 - User-facing multi-agent casts
 - Plugin marketplaces and routing platforms
 - Official cloud as the only path for identity, memory, or execution
 
 Until a capability is needed repeatedly in daily use, prefer the simpler path: the same Kin on the machine that already has the tools.
+
+#### What the 2026-10-22 withdrawals do and do not change
+
+Two list items were withdrawn because their stated condition was met, not because
+scope discipline stopped mattering. Everything else in §5.11 remains in force, and
+the multi-device design was in fact built *with* it:
+
+- The three questions above were run and passed — the design adds no new session
+  entity (Task remains the session), standalone mode stays the default, and a user
+  who changes nothing learns no new concept.
+- §5.1 (the user owns Kin, not OpenKin) and §9 (privacy floor) are load-bearing for
+  the new design, not casualties of it: they are why the Hub is self-hosted with no
+  vendor in the path, and why secrets never leave a device.
+- Item 3 below ("external executors are Tools, not a second Kin") is what keeps ACP
+  an adapter family rather than a second runtime.
+
+Treat this as **narrow, cited withdrawal**, not a general relaxation. A future
+proposal that needs §5.11 relaxed again must cite its own ADR.
 
 #### Small, not empty
 

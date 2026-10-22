@@ -2,9 +2,11 @@
 
 ## Status
 
-Proposed. Amends the multi-device non-goals recorded in
+Accepted 2026-10-22. Amends the multi-device non-goals recorded in
 `docs/plans/2026-09-05-ios-desktop-remote-control.md` §2, `SYSTEM_DESIGN.md` §2,
-and the "later or never" list in `PRINCIPLE.md` §5.11.
+and the "later or never" list in `PRINCIPLE.md` §5.11. Those documents carry
+matching withdrawal notes rather than being rewritten, so the original reasoning
+stays readable.
 
 ## Context
 

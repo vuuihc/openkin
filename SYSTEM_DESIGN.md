@@ -68,7 +68,8 @@ Checklist: [docs/TODO.md](./docs/TODO.md). Decision: [docs/adr/0003-artifacts-an
 - Kin-built code agent — **never**; adapters supervise, they do not reimplement
 - Native mobile apps — fast follow on the same API; web console first (store review must not gate MVP iteration)
 - Kin-operated relay / content cloud — relay only if traction demands it and it stays optional; **artifact sync is not a Kin cloud**
-- Full sync product, multi-user, long-lived routines, automatic model routing
+- ~~Full sync product~~ — **withdrawn 2026-10-22 by [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md)**, which adds a Hub/Node split for multi-device sessions
+- Multi-user, long-lived routines, automatic model routing — **still later or never.** A Hub is single-owner: it accepts one issuer, the first login claims ownership, and self-registration then closes
 
 **Note on PRINCIPLE §12.** This design re-ordered the MVP: console before conversation/memory. Conversation already happens inside the agents Kin supervises; the unmet need—validated by both vendors shipping remote control—is cross-agent supervision without a vendor in the middle. PRINCIPLE §12/§13 were updated (2026-07).
 **2026-07-17:** Insert **Artifacts** between console MVP and Remember (v2), still under §5.11: shelf + reader before memory governance.

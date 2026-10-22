@@ -49,6 +49,30 @@ This is remote **agent control**, not generic remote desktop control.
 - iPad-specific multi-column optimization in the first slice.
 - App Store/TestFlight delivery for the first local experience build.
 
+> **Amendment 2026-10-22 ([ADR 0022](../../docs/adr/0022-hub-node-multi-device-sessions.md)).**
+> This boundary was written for the *iOS client* and remains correct for it. What
+> changed is scope, not intent: multi-device sessions are now a product goal, so
+> "one daemon, the phone is a projection" is generalized to "one authoritative
+> **Hub**, the phone is a projection."
+>
+> Note carefully which non-goals the new work **keeps**, because they are the ones
+> that make the new design safe:
+>
+> - *"Peer-to-peer or multi-master database synchronization"* — **kept.** Kin's
+>   design is single-writer: only the Hub allocates `events.seq`. Nothing here
+>   becomes multi-master.
+> - *"A Kin account, Kin-operated relay, or mandatory cloud"* — **kept and
+>   strengthened.** OpenKin still operates no account service or relay. OIDC, where
+>   used, is an identity provider the operator chooses and runs against their own
+>   Hub; standalone mode never contacts one.
+> - *"Offline task creation, offline approvals, or queued offline writes"* —
+>   **kept**, and now also applies to Nodes: a Node that cannot reach the Hub does
+>   not write.
+> - *"Remote PTY. `/api/terminal/*` remains loopback-only"* — **kept.**
+>
+> Only the assumption that the authoritative daemon is necessarily *the desktop*
+> is withdrawn.
+
 ## 3. Locked architecture decisions
 
 ### 3.1 One authoritative daemon
@@ -72,6 +96,14 @@ read-only snapshots for fast launch, but server responses always win.
 This deliberately avoids building the full Sync Layer described in
 `PRINCIPLE.zh.md` section 6.6. The first client is a remote projection of one
 daemon, not a second writable Kin replica.
+
+**Amended 2026-10-22 (ADR 0022).** The decision that survives is *one
+authoritative writer*; what is withdrawn is the assumption that the writer is the
+desktop. In a multi-device deployment the authoritative daemon is the **Hub**,
+which may be any machine the user chooses, and it may delegate *execution* to
+Nodes while remaining the only process that allocates `events.seq`. The iOS app
+still holds no writable replica and still reconciles from HTTP on every
+reconnect.
 
 ### 3.2 WebSocket is not the source of truth
 
