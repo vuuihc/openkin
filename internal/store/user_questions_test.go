@@ -69,14 +69,14 @@ func TestUserQuestionListFiltersAndJoin(t *testing.T) {
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQ000000000000000000002", TaskID: "01UQTASK0000000000000002",
 		Payload: json.RawMessage(`{"question":"A?","options":[{"label":"1"},{"label":"2"}]}`),
-		Status: UQStatusPending, CreatedAt: now,
+		Status:  UQStatusPending, CreatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQ000000000000000000003", TaskID: "01UQTASK0000000000000002",
 		Payload: json.RawMessage(`{"question":"B?","options":[{"label":"1"},{"label":"2"}]}`),
-		Status: UQStatusAnswered, CreatedAt: now + 1,
+		Status:  UQStatusAnswered, CreatedAt: now + 1,
 		Response: json.RawMessage(`{"selected":["1"],"other_text":""}`),
 	}); err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ func TestUserQuestionAnswerOnlyPending(t *testing.T) {
 	id := "01UQ000000000000000000004"
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: id, TaskID: "01UQTASK0000000000000003",
-		Payload: json.RawMessage(`{"question":"Pick","options":[{"label":"JWT"},{"label":"Session"}]}`),
+		Payload:   json.RawMessage(`{"question":"Pick","options":[{"label":"JWT"},{"label":"Session"}]}`),
 		CreatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
@@ -151,21 +151,21 @@ func TestUserQuestionListPendingForTaskAndOlderThan(t *testing.T) {
 	seedUQTask(t, s, "01UQTASK0000000000000005")
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQOLD00000000000000001", TaskID: "01UQTASK0000000000000004",
-		Payload: json.RawMessage(`{"question":"old","options":[{"label":"a"},{"label":"b"}]}`),
+		Payload:   json.RawMessage(`{"question":"old","options":[{"label":"a"},{"label":"b"}]}`),
 		CreatedAt: 1000,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQNEW00000000000000001", TaskID: "01UQTASK0000000000000004",
-		Payload: json.RawMessage(`{"question":"new","options":[{"label":"a"},{"label":"b"}]}`),
+		Payload:   json.RawMessage(`{"question":"new","options":[{"label":"a"},{"label":"b"}]}`),
 		CreatedAt: 5000,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQOTHER000000000000001", TaskID: "01UQTASK0000000000000005",
-		Payload: json.RawMessage(`{"question":"other","options":[{"label":"a"},{"label":"b"}]}`),
+		Payload:   json.RawMessage(`{"question":"other","options":[{"label":"a"},{"label":"b"}]}`),
 		CreatedAt: 500,
 	}); err != nil {
 		t.Fatal(err)
@@ -204,8 +204,8 @@ func TestUserQuestionExecutionRoundTrip(t *testing.T) {
 	model := "claude-sonnet"
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQEXECROW0000000000001", TaskID: "01UQTASK0000000000000006",
-		Payload: json.RawMessage(`{"question":"x","options":[{"label":"a"},{"label":"b"}]}`),
-		CreatedAt: now,
+		Payload:     json.RawMessage(`{"question":"x","options":[{"label":"a"},{"label":"b"}]}`),
+		CreatedAt:   now,
 		ExecutionID: &execID, ExecutionAgent: &agent, ExecutionStep: &step, ExecutionModel: &model,
 	}); err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestUserQuestionHistoricalNullExecution(t *testing.T) {
 	now := time.Now().UnixMilli()
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: "01UQHIST0000000000000001", TaskID: "01UQTASK0000000000000007",
-		Payload: json.RawMessage(`{"question":"x","options":[{"label":"a"},{"label":"b"}]}`),
+		Payload:   json.RawMessage(`{"question":"x","options":[{"label":"a"},{"label":"b"}]}`),
 		CreatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
@@ -264,7 +264,7 @@ func TestUserQuestionExpire(t *testing.T) {
 	id := "01UQEXP00000000000000001"
 	if err := s.InsertUserQuestion(ctx, UserQuestion{
 		ID: id, TaskID: "01UQTASK0000000000000008",
-		Payload: json.RawMessage(`{"question":"x","options":[{"label":"a"},{"label":"b"}]}`),
+		Payload:   json.RawMessage(`{"question":"x","options":[{"label":"a"},{"label":"b"}]}`),
 		CreatedAt: now,
 	}); err != nil {
 		t.Fatal(err)

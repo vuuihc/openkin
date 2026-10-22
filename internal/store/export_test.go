@@ -12,10 +12,10 @@ func TestExportDirectoryExcludesCredentialsAndSecrets(t *testing.T) {
 	s := openDeviceTestStore(t)
 	ctx := context.Background()
 	if err := s.SetSettings(ctx, map[string]string{
-		"ui.theme": "dark",
+		"ui.theme":         "dark",
 		"provider.api_key": "sk-secret",
-		"daemon.token": "master-secret",
-		"providers": `{"entries":[{"api_key":"sk-nested"}]}`,
+		"daemon.token":     "master-secret",
+		"providers":        `{"entries":[{"api_key":"sk-nested"}]}`,
 	}); err != nil {
 		t.Fatal(err)
 	}
