@@ -245,34 +245,71 @@ func TestAQuestionFromADeviceBecomesAnApprovalOnItsTurnsTask(t *testing.T) {
 // names a turn, and the turn is the only thing that says which task the question
 // is about. A device asking about somebody else's work gets nothing, and no row
 // is created for it.
+//
+// "Gets nothing" is not silence, though. Every way of not finding the turn is
+// answered on the request id, because the device is blocked until it hears about
+// that id — except the one case where the Hub has something better to say: a turn
+// it is not running at all is answered by telling the machine to stop running it
+// (see api.cancelUnknownTurn), and that answer belongs to the routing layer.
 func TestADeviceCannotAskAboutWorkItWasNotGiven(t *testing.T) {
-	turns := NewTurns()
-	inbox := newFakeInbox()
-	approvals := &Approvals{Turns: turns, Engine: inbox, Poll: time.Millisecond}
-	mine := openTurn(t, turns, "turn-1", "task-1", "device-1")
-	theirs := openTurn(t, turns, "turn-2", "task-2", "device-2")
+	t.Run("a turn nobody is running is left to the routing layer", func(t *testing.T) {
+		turns := NewTurns()
+		inbox := newFakeInbox()
+		approvals := &Approvals{Turns: turns, Engine: inbox, Poll: time.Millisecond}
+		mine := openTurn(t, turns, "turn-1", "task-1", "device-1")
 
-	for _, tc := range []struct {
-		name    string
-		conn    *testConn
-		turnID  string
-		wantErr string
-	}{
-		{name: "another device's turn", conn: mine, turnID: "turn-2", wantErr: "belongs to another connection"},
-		{name: "a turn nobody is running", conn: mine, turnID: "turn-ghost", wantErr: "unknown turn"},
-		{name: "the other device asking about my turn", conn: theirs, turnID: "turn-1", wantErr: "belongs to another connection"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := approvals.Route(context.Background(), tc.conn, approvalRequestFrame(t, "req-x", tc.turnID)); err == nil {
-				t.Fatal("the request was accepted")
-			} else if !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("err = %v, want it to mention %q", err, tc.wantErr)
-			}
-			if got := len(inbox.questions()); got != 0 {
-				t.Fatalf("the hub asked %d questions about work it did not hand out", got)
-			}
-		})
-	}
+		err := approvals.Route(context.Background(), mine, approvalRequestFrame(t, "req-1", "turn-ghost"))
+		if !errors.Is(err, ErrTurnUnknown) {
+			t.Fatalf("err = %v, want the unknown turn", err)
+		}
+		if frames := framesOfKind(mine.sent(), "approval.status"); len(frames) != 0 {
+			t.Fatalf("the approvals layer answered a frame the hub answers itself: %+v", frames)
+		}
+		if got := len(inbox.questions()); got != 0 {
+			t.Fatalf("the hub asked %d questions about work it did not hand out", got)
+		}
+	})
+
+	t.Run("another device's turn is refused on the request id", func(t *testing.T) {
+		turns := NewTurns()
+		inbox := newFakeInbox()
+		approvals := &Approvals{Turns: turns, Engine: inbox, Poll: time.Millisecond}
+		mine := openTurn(t, turns, "turn-1", "task-1", "device-1")
+		theirs := openTurn(t, turns, "turn-2", "task-2", "device-2")
+
+		for _, tc := range []struct {
+			name   string
+			conn   *testConn
+			turnID string
+		}{
+			{name: "another device's turn", conn: mine, turnID: "turn-2"},
+			{name: "the other device asking about my turn", conn: theirs, turnID: "turn-1"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				if err := approvals.Route(context.Background(), tc.conn, approvalRequestFrame(t, "req-x", tc.turnID)); err != nil {
+					// Nothing else is going to answer this device: the turn exists, so
+					// there is no "stop running it" to send.
+					t.Fatalf("the device was left waiting: %v", err)
+				}
+				status, err := Decode[worker.ApprovalStatus](waitForKind(t, tc.conn, "approval.status"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if status.RequestID != "req-x" || status.Error == "" || status.ApprovalID != "" {
+					t.Fatalf("status = %+v, want a refusal it can match to its request", status)
+				}
+				if !strings.Contains(status.Error, "belongs to another connection") {
+					t.Fatalf("the refusal lost its reason: %q", status.Error)
+				}
+			})
+		}
+		if got := len(inbox.questions()); got != 0 {
+			t.Fatalf("the hub asked %d questions about work it did not hand out", got)
+		}
+		if pending := approvals.Pending(); len(pending) != 0 {
+			t.Fatalf("a refused question was left pending: %v", pending)
+		}
+	})
 }
 
 // TestAQuestionTheHubWillNotAskIsAnsweredWithAReason keeps a refusal from
@@ -443,6 +480,44 @@ func TestAWaitThatFailsIsRetriedUntilTheQuestionIsAnswered(t *testing.T) {
 	}
 	if decision.RequestID != "req-1" || decision.Decision != store.DecisionApproved {
 		t.Fatalf("decision = %+v, want the answer that was given while the wait was failing", decision)
+	}
+}
+
+// TestARetryThatKeepsFailingIsNotRetoldEverySecond: the loop above pauses a
+// second between attempts, so a store that stays broken for an hour would print
+// the same sentence thousands of times per open question. The first failure is
+// news; the ones after it are not.
+func TestARetryThatKeepsFailingIsNotRetoldEverySecond(t *testing.T) {
+	turns := NewTurns()
+	inbox := newFakeInbox()
+	var mu sync.Mutex
+	var warnings []string
+	approvals := &Approvals{
+		Turns:  turns,
+		Engine: inbox,
+		Poll:   time.Millisecond,
+		Warn: func(format string, _ ...any) {
+			mu.Lock()
+			defer mu.Unlock()
+			warnings = append(warnings, format)
+		},
+	}
+	conn := openTurn(t, turns, "turn-1", "task-1", "device-1")
+	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err != nil {
+		t.Fatal(err)
+	}
+	waitForKind(t, conn, "approval.status")
+	inbox.setWaitErr(errors.New("the approval store is unavailable"))
+
+	// Long enough for the loop to have failed at least twice, if it were still
+	// saying so each time.
+	for deadline := time.Now().Add(approvalRetryDelay + 300*time.Millisecond); time.Now().Before(deadline); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(warnings) != 1 {
+		t.Fatalf("the same failure was reported %d times: %v", len(warnings), warnings)
 	}
 }
 

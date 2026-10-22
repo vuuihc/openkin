@@ -139,9 +139,17 @@ func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.Appro
 	// The failure is returned rather than refused here: a Hub that is not running
 	// this turn answers by telling the machine to stop running it (see
 	// api.cancelUnknownTurn), which is more than this question's refusal.
+	//
+	// Every other way of not finding the turn — no turns at all, no connection, a
+	// turn this device does not own — has no such follow-up waiting for it, and a
+	// device blocked on an answer it will never get is the one outcome this whole
+	// path exists to prevent. Those are refused here, in the device's own terms.
 	item, err := a.turn(sender, request.TurnID)
 	if err != nil {
-		return err
+		if errors.Is(err, ErrTurnUnknown) {
+			return err
+		}
+		return a.refuseIfAskable(ctx, sender, request.RequestID, err)
 	}
 
 	// The request id is claimed before the row is created, not after: a device
@@ -234,6 +242,18 @@ func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.Appro
 // and a person can still answer it.
 func (a *Approvals) await(ctx context.Context, entry *pendingApproval) {
 	defer a.forget(entry)
+	// One line per distinct failure. A store that stays broken fails this loop
+	// once a second for as long as the question is open, and the same sentence a
+	// thousand times says no more than the first one did.
+	var warned string
+	warnOnce := func(format string, args ...any) {
+		message := fmt.Sprintf(format, args...)
+		if message == warned {
+			return
+		}
+		warned = message
+		a.warn("%s", message)
+	}
 	for {
 		if ctx.Err() != nil {
 			// The connection ended. Abandon settles the row.
@@ -244,7 +264,6 @@ func (a *Approvals) await(ctx context.Context, entry *pendingApproval) {
 			if ctx.Err() != nil {
 				return
 			}
-			a.warn("approval %s: waiting for a decision: %v", entry.approval, err)
 			// A failed wait is not an answer. The engine can hand back a conflict
 			// for a decision that landed in the same instant as an expiry, and a
 			// store can blink; reading the row back is what tells "nobody has
@@ -253,13 +272,15 @@ func (a *Approvals) await(ctx context.Context, entry *pendingApproval) {
 			read, readErr := a.Engine.GetApproval(ctx, entry.approval)
 			switch {
 			case readErr == nil:
+				warnOnce("approval %s: waiting for a decision: %v", entry.approval, err)
 				approval = read
 			case errors.Is(readErr, store.ErrNotFound):
 				a.refuse(ctx, entry.sender, entry.requestID,
 					errors.New("the question this request opened is no longer on the hub"))
 				return
 			default:
-				a.warn("approval %s: reading it back: %v", entry.approval, readErr)
+				warnOnce("approval %s: the wait failed (%v) and reading it back failed too: %v",
+					entry.approval, err, readErr)
 				if !sleepCtx(ctx, approvalRetryDelay) {
 					return
 				}
@@ -323,6 +344,11 @@ func (a *Approvals) turn(sender Sender, turnID string) (*turn, error) {
 
 // status tells a device whether its request became a question.
 func (a *Approvals) status(ctx context.Context, sender Sender, status worker.ApprovalStatus) error {
+	if sender == nil {
+		// Nothing to send on. Refusals are best effort by design, and the caller
+		// that produced this one is the "no connection" case itself.
+		return errors.New("no connection")
+	}
 	frame, err := worker.NewFrame("approval.status", status)
 	if err != nil {
 		return err
