@@ -57,6 +57,8 @@ func TestEventAppendsShareOneMonotonicCursor(t *testing.T) {
 	s := openDeviceTestStore(t)
 	insertCursorTestTask(t, s, "task-a")
 	insertCursorTestTask(t, s, "task-b")
+	// Creating a task is itself a change, so the appends below start after it.
+	base := *taskHubSeq(t, s, "task-b")
 
 	for i, taskID := range []string{"task-a", "task-b", "task-a", "task-b", "task-b"} {
 		if _, err := s.AppendEvent(ctx, taskID, "agent_message", json.RawMessage(`{"text":"hi"}`)); err != nil {
@@ -77,8 +79,9 @@ func TestEventAppendsShareOneMonotonicCursor(t *testing.T) {
 	if a == nil || b == nil {
 		t.Fatalf("hub_seq not set: task-a=%v task-b=%v", a, b)
 	}
-	if *a != 3 || *b != 5 {
-		t.Errorf("hub_seq = %d/%d, want 3/5 (a's last write was the third append, b's the fifth)", *a, *b)
+	if *a != base+3 || *b != base+5 {
+		t.Errorf("hub_seq = %d/%d, want %d/%d (a's last write was the third append, b's the fifth)",
+			*a, *b, base+3, base+5)
 	}
 	if *a >= *b {
 		t.Errorf("cursor did not advance across tasks: a=%d b=%d", *a, *b)
@@ -157,6 +160,7 @@ func TestConcurrentAppendsAllocateDistinctCursors(t *testing.T) {
 	for i := 0; i < writers; i++ {
 		insertCursorTestTask(t, s, fmt.Sprintf("task-%d", i))
 	}
+	base := *taskHubSeq(t, s, fmt.Sprintf("task-%d", writers-1))
 
 	var wg sync.WaitGroup
 	errs := make([]error, writers)
@@ -185,7 +189,7 @@ func TestConcurrentAppendsAllocateDistinctCursors(t *testing.T) {
 	}
 	// Numbering starts at 1 and does not skip, so the cursor a client holds is
 	// also a count of changes it has seen.
-	for want := int64(1); want <= writers; want++ {
+	for want := base + 1; want <= base+writers; want++ {
 		if _, ok := seen[want]; !ok {
 			t.Errorf("cursor %d was never allocated", want)
 		}

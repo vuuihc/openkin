@@ -343,12 +343,41 @@ func (s *Store) AttachTasksByCwd(ctx context.Context, projectID, cwd string) err
 	if abs, err := filepath.Abs(cwd); err == nil {
 		cwd = abs
 	}
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks SET project_id = ?
-		WHERE project_id IS NULL AND cwd = ?
-	`, projectID, cwd)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("attach tasks by cwd: %w", err)
+		return fmt.Errorf("begin attach tasks by cwd: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id FROM tasks WHERE project_id IS NULL AND cwd = ?
+	`, cwd)
+	if err != nil {
+		return fmt.Errorf("select tasks by cwd: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan task by cwd: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate tasks by cwd: %w", err)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET project_id = ? WHERE id = ?`, projectID, id); err != nil {
+			return fmt.Errorf("attach task by cwd: %w", err)
+		}
+		if err := touchTaskHubSeq(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit attach tasks by cwd: %w", err)
 	}
 	return nil
 }

@@ -6,7 +6,31 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 34
+const schemaVersion = 35
+
+// migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
+//
+// A cursor-driven client cannot notice a row that no longer exists, and the
+// cursor itself cannot survive the row being removed: hub_seq is MAX+1, so
+// deleting the highest-numbered task would hand its number out again and
+// silently hide whatever came next. The tombstone is both the notification and
+// the floor under the maximum. Rows are tiny and are never pruned; a client that
+// has been away for a year still learns what it missed.
+const migrationTaskTombstones = `
+CREATE TABLE IF NOT EXISTS task_tombstones (
+  task_id    TEXT PRIMARY KEY,
+  hub_seq    INTEGER NOT NULL,
+  deleted_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_tombstones_hub_seq ON task_tombstones(hub_seq);
+
+-- Tasks that predate the cursor get one, in the order they were created, so a
+-- client starting from zero sees a complete history instead of silently
+-- missing every row that was already there.
+UPDATE tasks
+SET hub_seq = (SELECT COUNT(*) FROM tasks older WHERE older.rowid <= tasks.rowid)
+WHERE hub_seq IS NULL;
+`
 
 // migrationDeviceRegistry adds the durable device registry, per-device agent
 // capabilities, workspace anchors, and the columns that make a task's owner and
@@ -528,7 +552,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -2010,6 +2034,25 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 034: %w", err)
 		}
 		v = 34
+	}
+
+	if v == 34 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 035: %w", err)
+		}
+		if _, err := tx.Exec(migrationTaskTombstones); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 035 task tombstones: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 35`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 035: %w", err)
+		}
+		v = 35
 	}
 
 	return nil

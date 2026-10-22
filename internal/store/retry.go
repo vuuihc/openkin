@@ -125,6 +125,9 @@ func (s *Store) BeginRetryRestore(ctx context.Context, in RetryRestoreIntent) er
 	if n, _ := res.RowsAffected(); n != 1 {
 		return ErrConflict
 	}
+	if err := touchTaskHubSeq(ctx, tx, in.TaskID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO retry_restore_intents (
 			task_id, restore_files, from_seq, expected_event_epoch, previous_status, prompt, user_payload,
@@ -245,6 +248,9 @@ func (s *Store) AbortRetryRestore(ctx context.Context, taskID string) error {
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return ErrConflict
+	}
+	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM retry_restore_intents WHERE task_id = ?`, taskID); err != nil {
@@ -375,6 +381,12 @@ func applyRetryMutationTx(
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return RetryMutationResult{}, ErrConflict
+	}
+	// One touch covers the whole mutation: the workspace rebinding and the user
+	// event that follow are part of the same change to the same row, and the
+	// task read at the end has to carry the cursor this write produced.
+	if err := touchTaskHubSeq(ctx, tx, m.TaskID); err != nil {
+		return RetryMutationResult{}, err
 	}
 
 	var workspaceEvent *Event

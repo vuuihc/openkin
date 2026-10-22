@@ -102,6 +102,11 @@ type Task struct {
 
 	// Optional dispatch selection for auto model routing.
 	Dispatch json.RawMessage `json:"dispatch,omitempty"`
+
+	// HubSeq is the task's position in the global sync cursor. A client stores
+	// the highest value it has seen and asks for everything after it. Null only
+	// for rows written before the cursor existed.
+	HubSeq *int64 `json:"hub_seq,omitempty"`
 }
 
 // EffectiveCwd returns the path adapters and workspace file APIs should use.
@@ -284,7 +289,7 @@ func scanTask(scanner interface {
 		&workspaceScope, &baseOID, &branch, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 		&t.WorkspacePolicy, &t.CurrentWorkspaceID, &t.EventEpoch,
-		&dispatch,
+		&dispatch, &t.HubSeq,
 	); err != nil {
 		return Task{}, err
 	}
@@ -354,7 +359,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, hub_seq`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -440,6 +445,136 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 	return out, nil
 }
 
+// TaskChangePage is one page of the global change feed: what a client asks for
+// when it reconnects and wants everything it missed.
+type TaskChangePage struct {
+	// Tasks are the tasks whose rows changed after the cursor, oldest change
+	// first. Deleted holds the ids of tasks that no longer exist.
+	Tasks   []Task   `json:"sessions"`
+	Deleted []string `json:"deleted"`
+	// NextCursor is the cursor to send back next time. With no changes it is the
+	// cursor that came in, so a client that polls an idle Hub never moves.
+	NextCursor int64 `json:"next_cursor"`
+	// HasMore reports that the page was cut short and the client should ask again.
+	HasMore bool `json:"has_more"`
+}
+
+// ListTaskChangesSince returns every task change after the cursor, tasks and
+// deletions merged into one chronological order so the cursor can never step
+// over a change in either stream.
+//
+// Deletions are part of the feed because a client cannot notice an absent row.
+// Tasks and tombstones are numbered by the same sequence, so ordering them
+// together is what makes a single integer cursor sufficient.
+func (s *Store) ListTaskChangesSince(ctx context.Context, since int64, limit int) (TaskChangePage, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if since < 0 {
+		since = 0
+	}
+	// One extra row tells us whether the page was cut short.
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kind, ref, seq FROM (
+			SELECT 'task' AS kind, id AS ref, COALESCE(hub_seq, 0) AS seq FROM tasks
+			UNION ALL
+			SELECT 'deleted' AS kind, task_id AS ref, hub_seq AS seq FROM task_tombstones
+		)
+		WHERE seq > ?
+		ORDER BY seq ASC
+		LIMIT ?`, since, limit+1)
+	if err != nil {
+		return TaskChangePage{}, fmt.Errorf("list task changes: %w", err)
+	}
+	type change struct {
+		kind string
+		ref  string
+		seq  int64
+	}
+	var changes []change
+	for rows.Next() {
+		var c change
+		if err := rows.Scan(&c.kind, &c.ref, &c.seq); err != nil {
+			rows.Close()
+			return TaskChangePage{}, fmt.Errorf("scan task change: %w", err)
+		}
+		changes = append(changes, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return TaskChangePage{}, fmt.Errorf("iterate task changes: %w", err)
+	}
+	rows.Close()
+
+	page := TaskChangePage{Tasks: []Task{}, Deleted: []string{}, NextCursor: since}
+	if len(changes) > limit {
+		page.HasMore = true
+		changes = changes[:limit]
+	}
+	if len(changes) == 0 {
+		return page, nil
+	}
+	ids := make([]string, 0, len(changes))
+	for _, c := range changes {
+		if c.kind == "task" {
+			ids = append(ids, c.ref)
+		} else {
+			page.Deleted = append(page.Deleted, c.ref)
+		}
+	}
+	if len(ids) > 0 {
+		byID, err := s.tasksByID(ctx, ids)
+		if err != nil {
+			return TaskChangePage{}, err
+		}
+		for _, id := range ids {
+			if t, ok := byID[id]; ok {
+				page.Tasks = append(page.Tasks, t)
+			}
+		}
+	}
+	// The cursor is the last change in the feed, not the last task: a page that
+	// ended on a deletion still moved forward.
+	page.NextCursor = changes[len(changes)-1].seq
+	return page, nil
+}
+
+// tasksByID loads the given tasks, keyed by id, in one query.
+func (s *Store) tasksByID(ctx context.Context, ids []string) (map[string]Task, error) {
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks WHERE id IN (`+placeholders(len(ids))+`)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("load changed tasks: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]Task, len(ids))
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan changed task: %w", err)
+		}
+		out[t.ID] = t
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return "NULL"
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
 // GetTask returns a single task by id.
 func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id)
@@ -499,6 +634,17 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	if n == 0 {
 		return ErrNotFound
 	}
+	// The row is gone, so the deletion itself carries the cursor: a syncing
+	// client sees the tombstone, drops the task, and the number is never reused.
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO task_tombstones (task_id, hub_seq, deleted_at) VALUES (?, ?, ?)`,
+		id, hubSeq, time.Now().UnixMilli()); err != nil {
+		return fmt.Errorf("record task deletion: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit delete task: %w", err)
 	}
@@ -542,7 +688,19 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if t.RoutineUnread {
 		unread = 1
 	}
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin insert task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// A new task is a change like any other: it takes a cursor so a client that
+	// is already synced learns about it without refetching the list.
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO tasks (
 			id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
 			exit_code, tokens_in, tokens_out, cost_usd,
@@ -550,8 +708,8 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
 			workspace_scope, workspace_base_oid, workspace_branch, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
-				workspace_policy, current_workspace_id, event_epoch, dispatch
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				workspace_policy, current_workspace_id, event_epoch, dispatch, hub_seq
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -560,10 +718,12 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
 		t.WorkspacePolicy, t.CurrentWorkspaceID, t.EventEpoch,
-		dispatchJSON(t.Dispatch),
-	)
-	if err != nil {
+		dispatchJSON(t.Dispatch), hubSeq,
+	); err != nil {
 		return fmt.Errorf("insert task: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit insert task: %w", err)
 	}
 	return nil
 }
@@ -708,14 +868,25 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 		return nil
 	}
 	args = append(args, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin update task: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	q := `UPDATE tasks SET ` + strings.Join(sets, ", ") + ` WHERE id = ?`
-	res, err := s.db.ExecContext(ctx, q, args...)
+	res, err := tx.ExecContext(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return ErrNotFound
+	}
+	if err := touchTaskHubSeq(ctx, tx, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit update task: %w", err)
 	}
 	return nil
 }
@@ -782,6 +953,9 @@ func (s *Store) FinishTask(
 		id,
 	); err != nil {
 		return fmt.Errorf("consume retry restore intent: %w", err)
+	}
+	if err := touchTaskHubSeq(ctx, tx, id); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit finish task: %w", err)
@@ -931,28 +1105,51 @@ func nextEventSeq(ctx context.Context, tx *sql.Tx, taskID string) (int, error) {
 	return int(maxSeq.Int64) + 1, nil
 }
 
-// nextHubSeq allocates the next value of the global sync cursor.
+// hub_seq is what a client stores so it can ask "what changed since I was last
+// here" without refetching the world. It is advanced by the writer of the task
+// row, in the same transaction as the change that caused it, so a reader that
+// has seen hub_seq = N can never observe a task whose row changed but whose
+// cursor did not (ADR 0022: only a Hub allocates it, and a standalone daemon is
+// a Hub with an in-process Node).
 //
-// events.seq orders one task's events; hub_seq is a single monotonic number
-// across every task, and it is what a client stores so it can ask "what changed
-// since I was last here" without refetching the world. It is advanced by the
-// writer of the task row, in the same transaction as the change that caused it,
-// so a reader that has seen hub_seq = N can never observe a task whose row
-// changed but whose cursor did not (ADR 0022: only a Hub allocates it, and a
-// standalone daemon is a Hub with an in-process Node).
+// The maximum is taken over tombstones as well as live tasks. A deleted task
+// takes its cursor with it, and without the tombstone the next allocation would
+// reuse a number that had already been handed out, leaving every synced client
+// blind to whatever got stamped with the reused value.
 //
-// MAX+1 across the table needs no counter row and no lock because the store is
-// single-writer by construction: MaxOpenConns(1) serializes every write in the
-// process, which is exactly the guarantee events.seq already relies on.
+// MAX+1 needs no counter row and no lock because the store is single-writer by
+// construction: MaxOpenConns(1) serializes every write in the process, which is
+// exactly the guarantee events.seq already relies on.
 func nextHubSeq(ctx context.Context, tx *sql.Tx) (int64, error) {
 	var maxSeq sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `SELECT MAX(hub_seq) FROM tasks`).Scan(&maxSeq); err != nil {
+	if err := tx.QueryRowContext(ctx, `
+		SELECT MAX(hub_seq) FROM (
+			SELECT hub_seq FROM tasks
+			UNION ALL
+			SELECT hub_seq FROM task_tombstones
+		)`).Scan(&maxSeq); err != nil {
 		return 0, fmt.Errorf("max hub_seq: %w", err)
 	}
 	if !maxSeq.Valid {
 		return 1, nil
 	}
 	return maxSeq.Int64 + 1, nil
+}
+
+// touchTaskHubSeq marks a task row as changed for cursor-driven readers. Call it
+// inside the transaction that made the change, including for changes that
+// append no event: a status flip or a renamed workspace is still something a
+// client has to hear about, and an update that skips this is an update that
+// only reaches clients who happen to refetch.
+func touchTaskHubSeq(ctx context.Context, tx *sql.Tx, taskID string) error {
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET hub_seq = ? WHERE id = ?`, hubSeq, taskID); err != nil {
+		return fmt.Errorf("advance task hub_seq: %w", err)
+	}
+	return nil
 }
 
 func logicalUsageInput(record UsageRecord) int {
@@ -1191,6 +1388,11 @@ func (s *Store) CopyEventsToTask(ctx context.Context, srcID, dstID string, maxSe
 			return 0, fmt.Errorf("insert copied event: %w", err)
 		}
 	}
+	if len(batch) > 0 {
+		if err := touchTaskHubSeq(ctx, tx, dstID); err != nil {
+			return 0, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit copy events: %w", err)
 	}
@@ -1219,6 +1421,9 @@ func (s *Store) StartQueuedTask(ctx context.Context, taskID string, startedAt in
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM retry_restore_intents WHERE task_id = ?`, taskID); err != nil {
 		return Task{}, fmt.Errorf("consume retry restore intent: %w", err)
+	}
+	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
+		return Task{}, err
 	}
 	task, err := scanTask(tx.QueryRowContext(ctx,
 		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, taskID))
@@ -1263,8 +1468,13 @@ func (s *Store) FailOrphaned(ctx context.Context) ([]string, error) {
 		return nil, nil
 	}
 
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin fail orphans: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	for _, id := range ids {
-		if _, err := s.db.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			UPDATE tasks SET status = 'failed', finished_at = ?
 			WHERE id = ? AND status IN ('queued', 'running', 'waiting_approval')
 			  AND NOT EXISTS (
@@ -1274,6 +1484,12 @@ func (s *Store) FailOrphaned(ctx context.Context) ([]string, error) {
 		); err != nil {
 			return nil, fmt.Errorf("fail orphan %s: %w", id, err)
 		}
+		if err := touchTaskHubSeq(ctx, tx, id); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit fail orphans: %w", err)
 	}
 	return ids, nil
 }

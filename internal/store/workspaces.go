@@ -237,6 +237,26 @@ func (s *Store) RepairCurrentWorkspacePointers(ctx context.Context) error {
 		return fmt.Errorf("begin workspace pointer repair: %w", err)
 	}
 	defer tx.Rollback()
+	// Both repairs are set-based, so the rows they touch are found by comparing
+	// the pointer before and after rather than by repeating their predicates.
+	before := map[string]string{}
+	rows, err := tx.QueryContext(ctx, `SELECT id, current_workspace_id FROM tasks`)
+	if err != nil {
+		return fmt.Errorf("snapshot workspace pointers: %w", err)
+	}
+	for rows.Next() {
+		var id, current string
+		if err := rows.Scan(&id, &current); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan workspace pointer: %w", err)
+		}
+		before[id] = current
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate workspace pointers: %w", err)
+	}
+	rows.Close()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE tasks
 		SET current_workspace_id = ''
@@ -272,6 +292,32 @@ func (s *Store) RepairCurrentWorkspacePointers(ctx context.Context) error {
 			  )
 		  )`); err != nil {
 		return fmt.Errorf("restore workspace pointers: %w", err)
+	}
+	rows, err = tx.QueryContext(ctx, `SELECT id, current_workspace_id FROM tasks`)
+	if err != nil {
+		return fmt.Errorf("re-read workspace pointers: %w", err)
+	}
+	type changed struct{ id string }
+	var touched []changed
+	for rows.Next() {
+		var id, current string
+		if err := rows.Scan(&id, &current); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan repaired workspace pointer: %w", err)
+		}
+		if previous, ok := before[id]; ok && previous != current {
+			touched = append(touched, changed{id: id})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate repaired workspace pointers: %w", err)
+	}
+	rows.Close()
+	for _, row := range touched {
+		if err := touchTaskHubSeq(ctx, tx, row.id); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit workspace pointer repair: %w", err)
@@ -371,23 +417,47 @@ func (s *Store) TransitionWorkspace(
 
 // SetCurrentWorkspace sets the current workspace for a task (idempotent).
 func (s *Store) SetCurrentWorkspace(ctx context.Context, taskID, workspaceID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE tasks SET current_workspace_id = ? WHERE id = ?
-	`, workspaceID, taskID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin set current workspace: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE tasks SET current_workspace_id = ? WHERE id = ?
+	`, workspaceID, taskID); err != nil {
 		return fmt.Errorf("set current workspace: %w", err)
+	}
+	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit set current workspace: %w", err)
 	}
 	return nil
 }
 
 // ClearCurrentWorkspace clears the current workspace if it matches workspaceID.
 func (s *Store) ClearCurrentWorkspace(ctx context.Context, taskID, workspaceID string) error {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin clear current workspace: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks SET current_workspace_id = ''
 		WHERE id = ? AND current_workspace_id = ?
 	`, taskID, workspaceID)
 	if err != nil {
 		return fmt.Errorf("clear current workspace: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil
+	}
+	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit clear current workspace: %w", err)
 	}
 	return nil
 }
@@ -425,29 +495,13 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 	}
 	defer tx.Rollback()
 
-	// Get next event sequence
-	var nextSeq int
-	err = tx.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(seq), 0) + 1
-		FROM events WHERE task_id = ?
-	`, taskID).Scan(&nextSeq)
-	if err != nil {
-		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("get next seq: %w", err)
-	}
-	var eventEpoch int64
-	if err := tx.QueryRowContext(ctx, `SELECT event_epoch FROM tasks WHERE id = ?`, taskID).Scan(&eventEpoch); err != nil {
-		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("get task event epoch: %w", err)
-	}
-
 	// Insert event
 	now := NowMilli()
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO events (task_id, seq, ts, type, payload)
-		VALUES (?, ?, ?, ?, ?)
-	`, taskID, nextSeq, now, "message", payload)
+	event, err := appendEventTx(ctx, tx, taskID, "message", payload)
 	if err != nil {
-		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("insert event: %w", err)
+		return Event{}, TaskTurnWorkspace{}, err
 	}
+	nextSeq := event.Seq
 
 	// Insert turn workspace
 	if turn.CreatedAt == 0 {
@@ -471,14 +525,7 @@ func (s *Store) AppendUserEventWithTurnWorkspace(
 		return Event{}, TaskTurnWorkspace{}, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return Event{
-		TaskID:     taskID,
-		EventEpoch: eventEpoch,
-		Seq:        nextSeq,
-		TS:         now,
-		Type:       "message",
-		Payload:    payload,
-	}, turn, nil
+	return event, turn, nil
 }
 
 // GetTurnWorkspace retrieves the workspace binding for a user turn.
@@ -734,6 +781,16 @@ func (s *Store) ApplyWorkspaceTransition(
 }
 
 func appendWorkspaceEvent(ctx context.Context, tx *sql.Tx, taskID, eventType, workspaceID string) (Event, error) {
+	payload, _ := json.Marshal(map[string]string{"workspace_id": workspaceID})
+	return appendEventTx(ctx, tx, taskID, eventType, payload)
+}
+
+// appendEventTx appends one event to a task inside the caller's transaction and
+// advances the task's sync cursor with it, so a client following the cursor
+// sees every change the events endpoint would serve. In-transaction writers use
+// this instead of inserting into events directly; AppendEvent is the same thing
+// wrapped in a transaction of its own.
+func appendEventTx(ctx context.Context, tx *sql.Tx, taskID, eventType string, payload []byte) (Event, error) {
 	var nextSeq int
 	if err := tx.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE task_id = ?
@@ -745,11 +802,13 @@ func appendWorkspaceEvent(ctx context.Context, tx *sql.Tx, taskID, eventType, wo
 		return Event{}, fmt.Errorf("get task event epoch: %w", err)
 	}
 	now := NowMilli()
-	payload, _ := json.Marshal(map[string]string{"workspace_id": workspaceID})
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO events (task_id, seq, ts, type, payload) VALUES (?, ?, ?, ?, ?)
-	`, taskID, nextSeq, now, eventType, payload); err != nil {
+	`, taskID, nextSeq, now, eventType, string(payload)); err != nil {
 		return Event{}, fmt.Errorf("insert event: %w", err)
+	}
+	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
+		return Event{}, err
 	}
 	return Event{
 		TaskID: taskID, EventEpoch: eventEpoch, Seq: nextSeq,

@@ -575,7 +575,12 @@ func (s *Store) CountUnreadRoutineRuns(ctx context.Context) (int, error) {
 
 // MarkRoutineRunRead clears the unread flag on a task.
 func (s *Store) MarkRoutineRunRead(ctx context.Context, taskID string) error {
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin mark routine run read: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks SET routine_unread = 0
 		WHERE id = ? AND routine_id IS NOT NULL`, taskID)
 	if err != nil {
@@ -585,22 +590,57 @@ func (s *Store) MarkRoutineRunRead(ctx context.Context, taskID string) error {
 	if n == 0 {
 		// Either not found or not a routine run — treat missing as not found.
 		var exists int
-		_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE id = ?`, taskID).Scan(&exists)
+		_ = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE id = ?`, taskID).Scan(&exists)
 		if exists == 0 {
 			return ErrNotFound
 		}
+		return nil
+	}
+	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit mark routine run read: %w", err)
 	}
 	return nil
 }
 
 // MarkAllRoutineRunsRead clears unread on all routine runs.
 func (s *Store) MarkAllRoutineRunsRead(ctx context.Context) (int, error) {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE tasks SET routine_unread = 0
-		WHERE routine_id IS NOT NULL AND routine_unread = 1`)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("mark all routine runs read: %w", err)
+		return 0, fmt.Errorf("begin mark all routine runs read: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id FROM tasks WHERE routine_id IS NOT NULL AND routine_unread = 1`)
+	if err != nil {
+		return 0, fmt.Errorf("select unread routine runs: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan unread routine run: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("iterate unread routine runs: %w", err)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET routine_unread = 0 WHERE id = ?`, id); err != nil {
+			return 0, fmt.Errorf("mark routine run read: %w", err)
+		}
+		if err := touchTaskHubSeq(ctx, tx, id); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit mark all routine runs read: %w", err)
+	}
+	return len(ids), nil
 }
