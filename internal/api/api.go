@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -518,43 +517,25 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// versionRequestCanSeeIdentity reports whether the caller may learn which
+// machine this daemon is. Every authenticated kind may: the master token, a
+// paired device token, or a signed-in browser session. The console needs the
+// identity to tell "this machine" from a paired Node, and a Hub console reached
+// over the network carries only the session cookie — no bearer credential at
+// all. Anonymous callers still get the version and nothing else.
 func (s *Server) versionRequestCanSeeIdentity(r *http.Request) bool {
 	if s.Auth == nil {
 		return false
 	}
-	got := bearerOrQueryToken(r)
-	if got == "" {
+	principal, ok := s.Auth.Identify(r)
+	if !ok {
 		return false
 	}
-	if want := s.Auth.Token(); want != "" && secureTokenEqual(got, want) {
+	switch principal.Kind {
+	case remote.PrincipalMaster, remote.PrincipalDevice, remote.PrincipalUser:
 		return true
 	}
-	if s.Store == nil {
-		return false
-	}
-	_, err := s.Store.AuthenticateDevice(r.Context(), remote.HashToken(got), time.Now().UnixMilli())
-	return err == nil
-}
-
-func bearerOrQueryToken(r *http.Request) string {
-	if h := r.Header.Get("Authorization"); h != "" {
-		const prefix = "Bearer "
-		if strings.HasPrefix(h, prefix) {
-			return strings.TrimSpace(h[len(prefix):])
-		}
-		if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
-			return strings.TrimSpace(h[len(prefix):])
-		}
-	}
-	return r.URL.Query().Get("token")
-}
-
-func secureTokenEqual(a, b string) bool {
-	if len(a) != len(b) {
-		subtle.ConstantTimeCompare([]byte(a), []byte(a))
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+	return false
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {

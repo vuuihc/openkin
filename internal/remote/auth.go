@@ -210,34 +210,12 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			http.Error(w, `{"error":"too many auth failures"}`, http.StatusTooManyRequests)
 			return
 		}
-		got := extractToken(r)
-		want, err := a.loadToken()
-		if err == nil && want != "" && secureEqual(got, want) {
-			ctx := context.WithValue(r.Context(), principalContextKey{}, Principal{Kind: PrincipalMaster, DeviceID: "master", Label: "daemon master token"})
-			ctx = context.WithValue(ctx, tokenContextKey{}, got)
+		principal, credential, ok := a.resolve(r)
+		if ok {
+			ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
+			ctx = context.WithValue(ctx, tokenContextKey{}, credential)
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
-		}
-		if a.device != nil {
-			if principal, ok := a.device(r.Context(), got); ok {
-				ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
-				ctx = context.WithValue(ctx, tokenContextKey{}, got)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-		}
-		// Cookie sessions are checked last: a request that carries an explicit
-		// bearer credential is making a deliberate claim, and a stale cookie
-		// from the browser must not shadow it.
-		if a.session != nil {
-			if cookie, err := r.Cookie(SessionCookieName); err == nil && cookie.Value != "" {
-				if principal, ok := a.session(r.Context(), cookie.Value); ok {
-					ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
-					ctx = context.WithValue(ctx, tokenContextKey{}, cookie.Value)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-			}
 		}
 		{
 			a.fail.record(ip)
@@ -247,6 +225,43 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 	})
+}
+
+// Identify resolves the caller's principal from the credentials the middleware
+// accepts, without requiring one. Routes registered outside the middleware —
+// health, version — use it to answer questions whose answer depends on who is
+// asking. It never records a failed attempt: those routes stay reachable
+// anonymously, so a stranger must not be able to spend someone else's budget.
+func (a *Auth) Identify(r *http.Request) (Principal, bool) {
+	principal, _, ok := a.resolve(r)
+	return principal, ok
+}
+
+// resolve maps a request's credentials to a principal. Credential precedence
+// lives here alone so the middleware and Identify can never disagree about who
+// a caller is.
+func (a *Auth) resolve(r *http.Request) (Principal, string, bool) {
+	got := extractToken(r)
+	want, err := a.loadToken()
+	if err == nil && want != "" && secureEqual(got, want) {
+		return Principal{Kind: PrincipalMaster, DeviceID: "master", Label: "daemon master token"}, got, true
+	}
+	if a.device != nil && got != "" {
+		if principal, ok := a.device(r.Context(), got); ok {
+			return principal, got, true
+		}
+	}
+	// Cookie sessions are checked last: a request that carries an explicit
+	// bearer credential is making a deliberate claim, and a stale cookie
+	// from the browser must not shadow it.
+	if a.session != nil {
+		if cookie, err := r.Cookie(SessionCookieName); err == nil && cookie.Value != "" {
+			if principal, ok := a.session(r.Context(), cookie.Value); ok {
+				return principal, cookie.Value, true
+			}
+		}
+	}
+	return Principal{}, "", false
 }
 
 // AllowAttempt reports whether ip is still under the auth failure limit.

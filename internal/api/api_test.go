@@ -220,6 +220,51 @@ func TestVersionIncludesDesktopIdentityWhenConfigured(t *testing.T) {
 	}
 }
 
+// The Hub console in a browser carries a session cookie and no bearer token.
+// It still has to learn which machine it is talking to: without the identity
+// every task that names this daemon's own device reads as a machine that has
+// gone away, and its terminal folder is withheld.
+func TestVersionIncludesDesktopIdentityForABrowserSession(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.DesktopID = "desktop_1234abcd"
+	s.DesktopName = "Work Mac"
+	h := s.Handler()
+	s.Auth.SetSessionLookup(func(_ context.Context, token string) (remote.Principal, bool) {
+		if token != "session-value" {
+			return remote.Principal{}, false
+		}
+		return remote.Principal{Kind: remote.PrincipalUser, UserID: "user-1", Label: "Owner"}, true
+	})
+
+	identity := func(cookie *http.Cookie) map[string]string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("version status %d", rr.Code)
+		}
+		var got map[string]string
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatalf("version json: %v body %s", err, rr.Body.String())
+		}
+		return got
+	}
+
+	got := identity(&http.Cookie{Name: remote.SessionCookieName, Value: "session-value"})
+	if got["desktop_id"] != "desktop_1234abcd" || got["desktop_name"] != "Work Mac" {
+		t.Fatalf("session version lost desktop identity: %#v", got)
+	}
+
+	got = identity(&http.Cookie{Name: remote.SessionCookieName, Value: "guessed"})
+	if got["desktop_id"] != "" || got["desktop_name"] != "" {
+		t.Fatalf("an unknown session leaked desktop identity: %#v", got)
+	}
+}
+
 func TestApprovalsAPI(t *testing.T) {
 	s, token := newTestServer(t)
 	// Use a holding adapter so we can request approval while running.
