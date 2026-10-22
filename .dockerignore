@@ -1,7 +1,9 @@
 # Keep the build context small and free of host artifacts.
 #
-# web/dist is deliberately NOT ignored: the console is embedded from that
-# committed tree, and excluding it would produce an image with no UI at all.
+# web/dist is excluded because it is its own stage's output. A clone does not
+# contain the hashed bundles anyway (see .gitignore), so letting a working
+# tree's stale copy in would only risk serving bundles from a different build
+# than the source in this context.
 
 .git
 .gitignore
@@ -17,10 +19,11 @@
 *.pem
 *.key
 
-# Node and build output. The Go build needs none of it.
+# Node and build output. The console stage copies ui/ on its own.
 node_modules
 **/node_modules
 ui/dist
+web/dist
 desktop/dist
 desktop/dist-electron
 desktop/resources/kin

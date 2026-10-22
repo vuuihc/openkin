@@ -2,10 +2,26 @@
 
 # Kin Hub image.
 #
-# The console is embedded from the committed web/dist tree, so this builds Go
-# only. That matches how the rest of the repo treats the UI embed: `make ui`
-# regenerates it and the result is committed. Run `make ui` before building the
-# image if you changed anything under ui/.
+# Three stages, and the first one is not optional. Vite's output is gitignored:
+# the repository commits web/dist/index.html but none of the hashed bundles it
+# points at, because `make build` and CI regenerate them. So a clone does not
+# contain a working console, and an image built straight from a clone would
+# serve an index.html whose script 404s, which is a blank page and a confusing
+# one. Building the console here is what makes `docker compose up -d --build`
+# work on a fresh machine, which is the entire audience for this file.
+#
+# The image therefore also cannot drift from ui/: it is compiled from the same
+# source in the same build, not from whatever a working tree happened to hold.
+
+FROM node:22-alpine AS ui
+WORKDIR /src/ui
+# Dependencies are cached independently of the source, so editing a component
+# does not re-run npm ci.
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+# Writes to ../web/dist, which is where go:embed expects it.
+RUN npm run build
 
 FROM golang:1.26-alpine AS build
 WORKDIR /src
@@ -16,6 +32,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# The console comes from the ui stage. web/dist is excluded from the build
+# context, so this is the only way it gets in, and nothing stale can survive.
+COPY --from=ui /src/web/dist ./web/dist
 
 ARG VERSION=dev
 # CGO is off so the binary is fully static: it runs on this Alpine base and on
