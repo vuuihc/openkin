@@ -35,3 +35,27 @@ func ValidPermissionMode(mode string) bool {
 		return false
 	}
 }
+
+// autoApprover is implemented by an adapter that can say what a permission mode
+// really does for its agent, rather than what the mode is called.
+type autoApprover interface {
+	AutoApprovesAll(mode string) bool
+}
+
+// AutoApprovesAll reports whether running a with mode leaves nobody able to
+// approve anything: every tool call the agent makes executes unattended.
+//
+// The name of the mode is not enough to decide this, which is the whole reason
+// the question is asked of the adapter. "accept_edits" is a graded mode for an
+// agent that keeps an approval prompt — Claude Code still asks about commands,
+// Codex stays sandboxed — but an agent with no approval channel of its own has
+// nothing to grade: the only mode it accepts is accept_edits, and the flag
+// behind it is the one yolo maps to (grok's --always-approve, the generic CLI
+// table's --yolo / --yes-always / OPENCODE_YOLO). An adapter that knows the
+// difference says so; one that does not is assumed to bypass on yolo alone.
+func AutoApprovesAll(a Adapter, mode string) bool {
+	if reporter, ok := a.(autoApprover); ok {
+		return reporter.AutoApprovesAll(mode)
+	}
+	return NormalizePermissionMode(mode) == PermissionYOLO
+}

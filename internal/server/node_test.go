@@ -222,6 +222,56 @@ func TestNodeRootsComeFromThisMachinesProjects(t *testing.T) {
 	}
 }
 
+func TestParseNodeServeFlags(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		roots []string
+		yolo  bool
+	}{
+		{name: "no node flags", args: []string{"--port", "7777"}},
+		{
+			name:  "a repeated root",
+			args:  []string{"--hub", "https://hub.example.com", "--root", "/a", "--root", "/b"},
+			roots: []string{"/a", "/b"},
+		},
+		{
+			name:  "comma separated roots",
+			args:  []string{"--hub", "https://hub.example.com", "--root", "/a,/b"},
+			roots: []string{"/a", "/b"},
+		},
+		{
+			name:  "root paths are left as typed",
+			args:  []string{"--hub", "https://hub.example.com", "--root", "/a b/c"},
+			roots: []string{"/a b/c"},
+		},
+		{
+			name: "the permission ceiling is opt-in",
+			args: []string{"--hub", "https://hub.example.com", "--allow-yolo"},
+			yolo: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flags, err := ParseServeFlags(tc.args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(flags.NodeRoots, "|") != strings.Join(tc.roots, "|") {
+				t.Fatalf("roots = %v, want %v", flags.NodeRoots, tc.roots)
+			}
+			if flags.AllowYOLO != tc.yolo {
+				t.Fatalf("allow-yolo = %v, want %v", flags.AllowYOLO, tc.yolo)
+			}
+		})
+	}
+
+	// A Hub does not work for another Hub, and two Hubs pointing at each other
+	// is a configuration nobody means to write.
+	if _, err := ParseServeFlags([]string{"--role", "hub", "--domain", "kin.example.com", "--hub", "https://other.example.com"}); err == nil {
+		t.Fatal("--role hub with --hub was accepted")
+	}
+}
+
 // stubRunner satisfies agent.Entry without running anything.
 type stubRunner struct{}
 

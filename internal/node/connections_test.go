@@ -25,9 +25,9 @@ func (f *fakeSender) Send(_ context.Context, frame worker.Frame) error {
 
 func (f *fakeSender) Close(_ websocket.StatusCode, _ string) { f.closed = true }
 
-func TestConnectionsAttachReplacesWithoutCallingItGone(t *testing.T) {
-	gone := []string{}
-	conns := NewConnections(func(id string) { gone = append(gone, id) })
+func TestConnectionsAttachReplacesAndReportsTheOldConnectionEnded(t *testing.T) {
+	ended := []string{}
+	conns := NewConnections(func(id string) { ended = append(ended, id) })
 
 	first := &fakeSender{id: "device-1"}
 	if previous := conns.Attach(first); previous != nil {
@@ -37,23 +37,29 @@ func TestConnectionsAttachReplacesWithoutCallingItGone(t *testing.T) {
 	if previous := conns.Attach(second); previous != first {
 		t.Fatalf("reconnect displaced %v, want the first connection", previous)
 	}
-	// A reconnect is a new socket, not a device leaving: failing that device's
-	// in-flight turns on every blip would be worse than the blip.
-	if len(gone) != 0 {
-		t.Fatalf("reconnect reported the device gone: %v", gone)
+	// The replaced connection is over, and its turns went with it: the Node ties
+	// a turn's lifetime to the socket that dispatched it, so closing this one
+	// stopped the work on that machine. Reporting it here is the only chance to
+	// settle those turns — its own Detach no longer speaks for the device.
+	if len(ended) != 1 || ended[0] != "device-1" {
+		t.Fatalf("ended = %v, want one report for the replaced connection", ended)
 	}
 
-	// The replaced connection must not remove its successor on the way out.
+	// The replaced connection must not remove its successor on the way out, nor
+	// report a second ending.
 	conns.Detach(first)
 	if !conns.Connected("device-1") {
 		t.Fatal("detaching the replaced connection removed the live one")
+	}
+	if len(ended) != 1 {
+		t.Fatalf("the replaced connection reported twice: %v", ended)
 	}
 	conns.Detach(second)
 	if conns.Connected("device-1") {
 		t.Fatal("detaching the live connection left it connected")
 	}
-	if len(gone) != 1 || gone[0] != "device-1" {
-		t.Fatalf("gone = %v, want one report for device-1", gone)
+	if len(ended) != 2 || ended[1] != "device-1" {
+		t.Fatalf("ended = %v, want one report per connection", ended)
 	}
 }
 

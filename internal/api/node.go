@@ -21,6 +21,10 @@ const (
 	nodeHeartbeatSeconds = 15
 )
 
+// nodeRevokeCheck is how often an open control channel re-reads whether its
+// credential is still valid. It is a variable so a test can shorten it.
+var nodeRevokeCheck = 5 * time.Second
+
 // handleNodeConnect is the control channel: one WebSocket per Node, opened by
 // the Node, carrying everything the Hub and that machine need to say to each
 // other.
@@ -85,6 +89,10 @@ func (s *Server) handleNodeConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.Nodes.Detach(sender)
 
+	// Revocation has to reach a socket that is already open, or a machine the
+	// operator has cut off keeps taking work.
+	go s.watchNodeRevocation(ctx, deviceID, conn)
+
 	// Presence is not worth dropping a working connection over: the device is
 	// here either way, and the heartbeat below will try again.
 	_ = s.Store.SetDeviceReachability(ctx, deviceID, store.ReachabilityOnline)
@@ -97,6 +105,34 @@ func (s *Server) handleNodeConnect(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	s.serveNode(ctx, deviceID, conn)
+}
+
+// watchNodeRevocation closes the control channel once the device's credential is
+// no longer valid.
+//
+// The handshake checked it once, and a socket can outlive that: revoking a
+// machine has to end what it can do, not just its next connection attempt. This
+// channel matters more than the console's streams, which do the same check —
+// this is the socket that carries commands.
+func (s *Server) watchNodeRevocation(ctx context.Context, deviceID string, conn *websocket.Conn) {
+	ticker := time.NewTicker(nodeRevokeCheck)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// An unreadable answer is treated as "not valid": the only reason
+			// this query fails is that the Hub cannot speak for the device
+			// registry, and a machine that keeps executing through that is worse
+			// than one that reconnects when the Hub recovers.
+			active, err := s.Store.DeviceActive(ctx, deviceID)
+			if err != nil || !active {
+				_ = conn.Close(websocket.StatusPolicyViolation, "device credential revoked")
+				return
+			}
+		}
+	}
 }
 
 // readNodeHello reads the opening frame. Anything else — a heartbeat, a stray

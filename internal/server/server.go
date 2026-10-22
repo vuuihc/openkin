@@ -48,6 +48,21 @@ import (
 
 const defaultPort = 7777
 
+// stringList collects a flag given more than once, and also splits commas, so
+// `--root a --root b` and `--root a,b` mean the same thing.
+type stringList []string
+
+func (l *stringList) String() string { return strings.Join(*l, ",") }
+
+func (l *stringList) Set(value string) error {
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			*l = append(*l, item)
+		}
+	}
+	return nil
+}
+
 // Roles a Kin process can take. A machine that works for someone else's Hub is
 // still a standalone daemon locally; --hub is what makes it a Node.
 const (
@@ -75,6 +90,9 @@ type ServeFlags struct {
 	// NodeRoots are extra directories this machine will run dispatched work in,
 	// on top of the projects it already has.
 	NodeRoots []string
+	// AllowYOLO lets a dispatched turn run with the agent's permission system
+	// switched off. Off unless the operator of this machine says otherwise.
+	AllowYOLO bool
 	Args      []string // remaining args after command name
 }
 
@@ -94,16 +112,14 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	fs.StringVar(&f.ACMEEmail, "acme-email", "", "Let's Encrypt contact address for --role hub")
 	fs.StringVar(&f.HubURL, "hub", "", "run turns for this Hub (makes this machine a Node)")
 	fs.StringVar(&f.NodeToken, "token", "", "device token for --hub; defaults to ~/.kin/node-token")
-	roots := fs.String("root", "", "an extra directory to run dispatched work in (repeatable, comma-separated)")
+	var roots stringList
+	fs.Var(&roots, "root", "an extra directory to run dispatched work in (repeatable, comma-separated)")
+	fs.BoolVar(&f.AllowYOLO, "allow-yolo", false, "let turns dispatched from --hub run with agent permissions bypassed")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
 	f.Args = fs.Args()
-	for _, root := range strings.Split(*roots, ",") {
-		if root = strings.TrimSpace(root); root != "" {
-			f.NodeRoots = append(f.NodeRoots, root)
-		}
-	}
+	f.NodeRoots = roots
 
 	f.Role = strings.ToLower(strings.TrimSpace(f.Role))
 	if f.Role == "" {
@@ -268,12 +284,12 @@ func ServeWith(version string, flags ServeFlags) error {
 	// socket knows a device is connected — while the device row it writes to is
 	// durable, so a Hub restart costs presence, not knowledge.
 	nodeTurns := node.NewTurns()
-	// A device dropping ends whatever it was running, and says so in each
-	// transcript: the alternative is a turn that waits forever on a socket that
-	// no longer exists.
+	// A connection ending — dropped, or replaced by a newer one — ends whatever
+	// it was running, and says so in each transcript: the alternative is a turn
+	// that waits forever on a socket that no longer exists.
 	nodeConns := node.NewConnections(func(deviceID string) {
 		for _, turnID := range nodeTurns.Abandon(deviceID) {
-			fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its device\n", turnID)
+			fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its connection\n", turnID)
 		}
 	})
 	// Session titles: truncate immediately, then replace via cognition provider when configured.
@@ -407,9 +423,14 @@ func ServeWith(version string, flags ServeFlags) error {
 		Store:            st,
 		Engine:           eng,
 		TotalConcurrency: maxConcurrent,
-		ValidateCreate:   api.ValidateTaskCreateRequest,
-		OnCreateFailed:   st.DeleteMCPTaskOrigin,
-		RunEval:          evalRunner.StartRoutine,
+		ValidateCreate: func(c context.Context, req task.CreateRequest) error {
+			if err := api.ValidateTaskCreateRequest(c, req); err != nil {
+				return err
+			}
+			return api.ValidateExecutingDevice(c, st, identity.ID, req.ExecutingDeviceID)
+		},
+		OnCreateFailed: st.DeleteMCPTaskOrigin,
+		RunEval:        evalRunner.StartRoutine,
 	}
 	routineScheduler.StartLoop(context.Background(), routines.DefaultTickInterval)
 
@@ -436,7 +457,13 @@ func ServeWith(version string, flags ServeFlags) error {
 				if req.Agent == "" {
 					req.Agent = eng.DefaultAgentContext(c)
 				}
-				return api.ValidateTaskCreateRequest(c, *req)
+				if err := api.ValidateTaskCreateRequest(c, *req); err != nil {
+					return err
+				}
+				// The same device check the REST surface makes: an agent asking
+				// for a machine that does not exist, or one that has been
+				// revoked, should be told now rather than when a turn fails.
+				return api.ValidateExecutingDevice(c, st, identity.ID, req.ExecutingDeviceID)
 			},
 			ValidateFollowUp: func(c context.Context, id string, req *task.FollowUpRequest) error {
 				return api.ValidateTaskFollowUpRequest(c, eng, id, req)
@@ -789,7 +816,8 @@ func ServeWith(version string, flags ServeFlags) error {
 	defer stopNode()
 	if strings.TrimSpace(flags.HubURL) != "" {
 		executor := &node.Executor{
-			Runners: agentRunners{reg: reg},
+			Runners:   agentRunners{reg: reg},
+			AllowYOLO: flags.AllowYOLO,
 			Warn: func(format string, args ...any) {
 				fmt.Fprintf(os.Stderr, "kin: warning: "+format+"\n", args...)
 			},

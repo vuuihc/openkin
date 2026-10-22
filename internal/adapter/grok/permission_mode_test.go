@@ -56,3 +56,23 @@ func TestPermissionModeFlags(t *testing.T) {
 		})
 	}
 }
+
+// TestAutoApprovesAllTracksTheFlag: the probe the Node's permission ceiling asks
+// must agree with the flag this adapter actually passes. Grok has no graded edit
+// mode, so accept_edits is the same bypass yolo is — an operator who withheld
+// --allow-yolo is not consenting to either.
+func TestAutoApprovesAllTracksTheFlag(t *testing.T) {
+	ad := &Adapter{}
+	for mode, want := range map[string]bool{
+		adapter.PermissionAcceptEdits: true,
+		"acceptEdits":                 true,
+		adapter.PermissionYOLO:        true,
+		"bypassPermissions":           true,
+		adapter.PermissionDefault:     false,
+		"":                            false,
+	} {
+		if got := ad.AutoApprovesAll(mode); got != want {
+			t.Fatalf("AutoApprovesAll(%q) = %v, want %v", mode, got, want)
+		}
+	}
+}

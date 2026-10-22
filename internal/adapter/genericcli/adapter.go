@@ -142,6 +142,19 @@ func (a *Adapter) applyEnv(cmd *exec.Cmd, perm string) {
 	}
 }
 
+// AutoApprovesAll implements adapter's permission-ceiling probe. These agents
+// have no approval channel at all, so accept_edits is not a milder yolo — it is
+// the same thing under the only name Start accepts, and both mean the agent
+// runs every tool call with nobody asked.
+func (a *Adapter) AutoApprovesAll(mode string) bool {
+	switch adapter.NormalizePermissionMode(mode) {
+	case adapter.PermissionAcceptEdits, adapter.PermissionYOLO:
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *Adapter) startJSON(ctx context.Context, path string, args []string, perm, cwd string) (adapter.RunHandle, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	if cwd != "" {

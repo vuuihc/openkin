@@ -126,23 +126,45 @@ func pathWithinRoot(root, target string) bool {
 	return strings.HasPrefix(target, root+sep)
 }
 
+// errWorkspaceElsewhere is returned for a task whose files are on another
+// machine: the Hub can answer questions about the session, but not about a
+// directory it does not have.
+var errWorkspaceElsewhere = errors.New("this task runs on another machine, so its files are not here")
+
+// writeWorkspaceEnvError maps the two ways a task's workspace can be out of
+// reach onto statuses a client can act on: gone, or not on this machine.
+func writeWorkspaceEnvError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+	case errors.Is(err, errWorkspaceElsewhere):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+}
+
 func (s *Server) workspaceEnvForTask(r *http.Request) (*workspaceEnv, error) {
 	id := chi.URLParam(r, "id")
 	t, err := s.Engine.Get(r.Context(), id)
 	if err != nil {
 		return nil, err
 	}
+	// A task that runs elsewhere keeps its files on that machine. Serving the
+	// path from here would read — and, on a write, overwrite — this machine's
+	// own directory at the same address while the user believes they are
+	// looking at the other one. The two are usually different checkouts of the
+	// same repository, which is exactly why the mistake would go unnoticed.
+	if s.Engine.RunsElsewhere(t) {
+		return nil, fmt.Errorf("%w (device %s)", errWorkspaceElsewhere, t.ExecutingDeviceID)
+	}
 	return newWorkspaceEnv(t.EffectiveCwd())
 }
 
 func (s *Server) handleListTaskWorkspace(w http.ResponseWriter, r *http.Request) {
 	env, err := s.workspaceEnvForTask(r)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeWorkspaceEnvError(w, err)
 		return
 	}
 
@@ -237,12 +259,8 @@ func (s *Server) handleReadTaskWorkspaceFile(w http.ResponseWriter, r *http.Requ
 	}
 
 	env, err := s.workspaceEnvForTask(r)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeWorkspaceEnvError(w, err)
 		return
 	}
 
@@ -305,12 +323,8 @@ func (s *Server) handleWriteTaskWorkspaceFile(w http.ResponseWriter, r *http.Req
 		return
 	}
 	env, err := s.workspaceEnvForTask(r)
-	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeWorkspaceEnvError(w, err)
 		return
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -106,8 +107,13 @@ func TestTurnsEndOnAGap(t *testing.T) {
 	if err := json.Unmarshal(got[1].Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["message"] == "" {
+	// Whoever reads the transcript has to be able to tell what was lost.
+	if !strings.Contains(payload["message"], "2..3") {
 		t.Fatalf("the gap was not explained: %v", payload)
+	}
+	// And the turn is over rather than holding a slot for events that are gone.
+	if running := turns.Running(""); len(running) != 0 {
+		t.Fatalf("running = %v", running)
 	}
 }
 
@@ -139,6 +145,71 @@ func TestTurnsUnknownTurn(t *testing.T) {
 	}
 	if err := turns.Finish("device-1", worker.TurnFinish{TurnID: "gone", Status: worker.TurnOK}); !errors.Is(err, ErrTurnUnknown) {
 		t.Fatalf("Finish = %v, want ErrTurnUnknown", err)
+	}
+}
+
+// TestTurnsEndOnAnUnreadableEvent: an event the Hub cannot read must not be
+// swallowed. The sequence is what makes a transcript trustworthy, and consuming
+// a number for an event nobody received leaves a hole the next event hides.
+func TestTurnsEndOnAnUnreadableEvent(t *testing.T) {
+	turns := NewTurns()
+	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Deliver("device-1", worker.TurnEvent{
+		TurnID: "turn-1", Seq: 1, Event: json.RawMessage(`{"type":`),
+	}); err == nil {
+		t.Fatal("an unreadable event was accepted")
+	}
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "error" {
+		t.Fatalf("events = %+v", got)
+	}
+	if !strings.Contains(string(got[0].Payload), "unreadable") {
+		t.Fatalf("the reason was lost: %s", got[0].Payload)
+	}
+	// The turn is over rather than waiting for the event after a hole.
+	if running := turns.Running(""); len(running) != 0 {
+		t.Fatalf("running = %v", running)
+	}
+}
+
+// TestTurnsSurviveACancelRacingDelivery is the concurrency case production
+// actually has: the engine ends a turn (cancel, or a device dropping) on its own
+// goroutine while the device's frame reader is delivering into it. A close that
+// lands between a sender's check and its send panics, and that panic takes the
+// whole control channel down with every other turn on the machine.
+func TestTurnsSurviveACancelRacingDelivery(t *testing.T) {
+	payload := event(t, "message")
+	for i := 0; i < 100; i++ {
+		turns := NewTurns()
+		handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The engine's run loop, draining until the turn ends.
+		drained := make(chan struct{})
+		go func() {
+			defer close(drained)
+			for range handle.Events() {
+			}
+		}()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			for seq := 1; seq <= 8; seq++ {
+				_ = turns.Deliver("device-1", worker.TurnEvent{TurnID: "turn-1", Seq: seq, Event: payload})
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			_ = handle.Cancel()
+		}()
+		wg.Wait()
+		<-drained
 	}
 }
 

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // remoteHub is a Hub that can dispatch and cannot execute: it has no agents of
@@ -37,6 +41,10 @@ func remoteHub(t *testing.T) (*Server, string, *node.Connections, *node.Turns) {
 	if err := eng.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	// The production wiring, including the part that would stat a cwd and cut a
+	// worktree in it. Leaving this out is what hid the fact that a remote task
+	// was being prepared here at all.
+	eng.SetWorkspaceRuntime(workspace.NewManager(t.TempDir()))
 
 	turns := node.NewTurns()
 	conns := node.NewConnections(func(deviceID string) { turns.Abandon(deviceID) })
@@ -438,6 +446,49 @@ func (a *blockingAgent) Start(ctx context.Context, _ adapter.TaskSpec) (adapter.
 	return &e2eHandle{ch: ch}, nil
 }
 
+// TestRemoteTaskIsNotPreparedOnTheHub pins the boundary the whole feature rests
+// on: a remote task's cwd is another machine's path, so the Hub neither checks
+// that it exists nor rewrites it into a worktree of its own. A Hub that stats
+// the path rejects precisely the tasks it exists to dispatch — the directory it
+// cannot see is the normal case, not an error.
+func TestRemoteTaskIsNotPreparedOnTheHub(t *testing.T) {
+	s, master, conns, _ := remoteHub(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	work := t.TempDir()
+	startExecutor(t, hub.URL, deviceToken, []string{work}, &e2eAgent{})
+	awaitOnline(t, conns, deviceID)
+
+	// A path that exists on the machine that will run the turn, and nowhere
+	// else as far as the Hub is concerned.
+	remoteOnly := filepath.Join(work, "checkout")
+
+	// The Hub has no such directory, and accepts the task anyway.
+	created := createTask(t, s.Handler(), master, map[string]any{
+		"agent": "claude-code", "cwd": remoteOnly, "prompt": "work in my checkout",
+		"executing_device_id": deviceID,
+	})
+	if created.ExecutionCwd != remoteOnly || created.Cwd != remoteOnly {
+		t.Fatalf("the hub rewrote the path: cwd=%q execution_cwd=%q, want %q",
+			created.Cwd, created.ExecutionCwd, remoteOnly)
+	}
+	if created.WorkspaceMode == "worktree" {
+		t.Fatalf("the hub cut a worktree for another machine's directory: %+v", created)
+	}
+	if created.WorkspacePolicy != string(store.WorkspacePolicyShared) {
+		t.Fatalf("workspace policy = %q, want shared", created.WorkspacePolicy)
+	}
+
+	// The turn reaches the machine, which is the one that decides: the
+	// directory is not there, and that is its call to make, with its own reason.
+	awaitTaskStatus(t, s, created.ID, task.StatusFailed)
+	if message := said(t, s, created.ID); !strings.Contains(message, "not a directory this machine works in") {
+		t.Fatalf("the failure did not come from the machine: %q", message)
+	}
+}
+
 // TestCreateRejectsAnUnknownDevice keeps a typo from becoming a task that only
 // fails once a turn starts.
 func TestCreateRejectsAnUnknownDevice(t *testing.T) {
@@ -465,6 +516,150 @@ func TestCreateRejectsAnUnknownDevice(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), "unknown device") {
 		t.Fatalf("the hub does not know itself: %s", rec.Body.String())
+	}
+}
+
+// TestCreateRejectsARevokedDevice: revocation is not only about refusing the
+// next handshake. A task aimed at a machine the Hub has cut off can never run,
+// so it is refused while the user is still looking at the form.
+func TestCreateRejectsARevokedDevice(t *testing.T) {
+	s, master, _, _ := remoteHub(t)
+	_, deviceID := pairDevice(t, s.Handler(), master)
+	if err := s.Store.RevokeDeviceCredential(context.Background(), deviceID, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := postJSON(t, s.Handler(), "/api/tasks", master, map[string]any{
+		"agent": "claude-code", "cwd": t.TempDir(), "prompt": "go nowhere",
+		"executing_device_id": deviceID,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "revoked") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+// TestCreateRefusesWorktreeIsolationOnAnotherMachine: the Hub cannot cut a
+// worktree in a directory it does not have, and running the task in that
+// machine's shared checkout instead would be a silent downgrade — two tasks
+// editing the same files while the user believes they are isolated.
+func TestCreateRefusesWorktreeIsolationOnAnotherMachine(t *testing.T) {
+	s, master, conns, _ := remoteHub(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	work := t.TempDir()
+	startExecutor(t, hub.URL, deviceToken, []string{work}, &e2eAgent{})
+	awaitOnline(t, conns, deviceID)
+
+	rec := postJSON(t, s.Handler(), "/api/tasks", master, map[string]any{
+		"agent": "claude-code", "cwd": work, "prompt": "isolate me over there",
+		"workspace_mode": "worktree", "executing_device_id": deviceID,
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "another machine") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+// TestForkRunsWhereTheSourceRuns: a fork continues the same conversation in the
+// same directory. Carrying only the cwd would leave the branch on the Hub, in a
+// different checkout of the same repository, with a session ref the agent there
+// never issued — the user asked to continue that work, not to copy it here.
+func TestForkRunsWhereTheSourceRuns(t *testing.T) {
+	s, master, conns, _ := remoteHub(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	work := t.TempDir()
+	startExecutor(t, hub.URL, deviceToken, []string{work}, &e2eAgent{})
+	awaitOnline(t, conns, deviceID)
+
+	source := createTask(t, s.Handler(), master, map[string]any{
+		"agent": "claude-code", "cwd": work, "prompt": "work over there",
+		"executing_device_id": deviceID,
+	})
+	awaitTaskStatus(t, s, source.ID, task.StatusFailed) // the fake agent reports nothing
+
+	// No prompt: a fork that is a browsable copy, so nothing is dispatched and
+	// the assertion is about the row rather than about a second turn.
+	rec := postJSON(t, s.Handler(), "/api/tasks/"+source.ID+"/fork", master, map[string]any{})
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("fork: %d %s", rec.Code, rec.Body.String())
+	}
+	var forked store.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &forked); err != nil {
+		t.Fatal(err)
+	}
+	if forked.ExecutingDeviceID != deviceID {
+		t.Fatalf("fork runs on %q, want the source's machine %q", forked.ExecutingDeviceID, deviceID)
+	}
+	if forked.WorkspacePolicy != string(store.WorkspacePolicyShared) {
+		t.Fatalf("fork workspace policy = %q, want shared", forked.WorkspacePolicy)
+	}
+	if forked.WorkspaceMode == "worktree" {
+		t.Fatalf("the hub cut a worktree for a fork of another machine's task: %+v", forked)
+	}
+	if forked.ExecutionCwd != work || forked.Cwd != work {
+		t.Fatalf("fork cwd = %q/%q, want %q", forked.Cwd, forked.ExecutionCwd, work)
+	}
+}
+
+// TestWorkspaceFilesAreNotServedFromTheHub: the console renders a Files panel
+// for every task, and the Hub has no filesystem for one that runs elsewhere.
+// Answering the request from here would read — and on a write, overwrite — this
+// machine's own directory at the same address, which is usually a different
+// checkout of the same repository, so the mistake would go unnoticed.
+func TestWorkspaceFilesAreNotServedFromTheHub(t *testing.T) {
+	s, master, conns, _ := remoteHub(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	// A directory that exists here *and* is the task's cwd: the guard has to
+	// hold even when the path would resolve.
+	work := t.TempDir()
+	startExecutor(t, hub.URL, deviceToken, []string{work}, &e2eAgent{})
+	awaitOnline(t, conns, deviceID)
+
+	created := createTask(t, s.Handler(), master, map[string]any{
+		"agent": "claude-code", "cwd": work, "prompt": "list my files",
+		"executing_device_id": deviceID,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+created.ID+"/workspace/list?path=.", nil)
+	req.Header.Set("Authorization", "Bearer "+master)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), deviceID) {
+		t.Fatalf("the refusal does not say where the files are: %s", rec.Body.String())
+	}
+
+	body, err := json.Marshal(map[string]string{"path": "note.txt", "content": "clobbered"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPut, "/api/tasks/"+created.ID+"/workspace/file", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+master)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("write: %d %s", rec.Code, rec.Body.String())
+	}
+	// Nothing was written here: the whole point is that the Hub's own copy of
+	// that path is not the one the user is looking at.
+	if _, err := os.Stat(filepath.Join(work, "note.txt")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the hub wrote into its own directory: %v", err)
 	}
 }
 

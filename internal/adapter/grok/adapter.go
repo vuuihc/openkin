@@ -131,6 +131,17 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	return h, nil
 }
 
+// AutoApprovesAll implements adapter's permission-ceiling probe: with no graded
+// mode to offer, accept_edits and yolo both run every tool call unattended.
+func (a *Adapter) AutoApprovesAll(mode string) bool {
+	switch adapter.NormalizePermissionMode(mode) {
+	case adapter.PermissionYOLO, adapter.PermissionAcceptEdits:
+		return true
+	default:
+		return false
+	}
+}
+
 type handle struct {
 	cmd *exec.Cmd
 	ch  chan adapter.Event

@@ -1152,6 +1152,11 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 		PermissionMode: src.PermissionMode,
 		Status:         status,
 		CreatedAt:      now,
+		// A fork continues the same conversation in the same directory, so it
+		// runs where the source runs. Carrying only the cwd would leave the
+		// branch on this machine: same path, different files, different agent
+		// session — the user asked to continue that work, not to copy it here.
+		ExecutingDeviceID: src.ExecutingDeviceID,
 	}
 	if status == StatusSucceeded {
 		dst.FinishedAt = &now
@@ -1159,9 +1164,17 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 	// Context from source prefix (before copy); dst seqs are renumbered.
 	priorCtx := e.handoffContextUpTo(ctx, id, maxSeq)
 
+	remote := e.isRemoteDevice(src.ExecutingDeviceID)
+	if remote {
+		// The other machine owns that directory, so there is nothing here to
+		// prepare — the same rule Create follows for a dispatched task.
+		applyWorkspaceMetadata(&dst, sharedWorkspace(src.Cwd))
+		dst.WorkspacePolicy = string(store.WorkspacePolicyShared)
+	}
+
 	preparedFork := false
 	var forkMeta workspace.Metadata
-	if src.WorkspaceMode == string(workspace.ResolvedWorktree) {
+	if !remote && src.WorkspaceMode == string(workspace.ResolvedWorktree) {
 		if e.workspace == nil {
 			return store.Task{}, workspace.ErrCheckpointUnavailable
 		}

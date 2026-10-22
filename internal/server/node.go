@@ -202,6 +202,9 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 		fmt.Fprintln(os.Stderr, "kin: node: no project roots on this machine, so dispatched work will be refused; "+
 			"add a project in the console or pass --root")
 	}
+	for _, root := range executor.UnresolvedRoots() {
+		warn("root %s is not a directory this machine can reach; work in it will be refused", root)
+	}
 
 	return node.Run(ctx, node.ClientConfig{
 		HubURL:  flags.HubURL,

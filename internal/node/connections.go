@@ -31,17 +31,18 @@ var ErrOffline = errors.New("node is not connected")
 // or a yanked cable all look the same from the store's point of view, and only
 // the process holding the socket knows the difference.
 type Connections struct {
-	mu     sync.RWMutex
-	byID   map[string]Sender
-	onGone func(deviceID string)
+	mu      sync.RWMutex
+	byID    map[string]Sender
+	onEnded func(deviceID string)
 }
 
-// NewConnections returns an empty connection table. onGone, when set, is called
-// once when a device's current connection ends, so the caller can settle
-// whatever that device was doing (an in-flight turn has to reach a terminal
-// state).
-func NewConnections(onGone func(deviceID string)) *Connections {
-	return &Connections{byID: make(map[string]Sender), onGone: onGone}
+// NewConnections returns an empty connection table. onEnded, when set, is called
+// once per connection when that connection ends — because it dropped, or because
+// a newer one replaced it — so the caller can settle whatever it was doing. A
+// turn is bound to the connection that started it, so this is the only chance to
+// reach a terminal state.
+func NewConnections(onEnded func(deviceID string)) *Connections {
+	return &Connections{byID: make(map[string]Sender), onEnded: onEnded}
 }
 
 // Attach registers a live connection and returns whatever it displaced.
@@ -50,20 +51,27 @@ func NewConnections(onGone func(deviceID string)) *Connections {
 // the new connection wins and the stale one is returned for the caller to close.
 // Two live connections for one device would make dispatch a coin flip.
 //
-// Displacing a connection does not report the device as gone. The machine is
-// still there and may still be running what it was running; a reconnect is a
-// change of socket, not of state. Only Detach — the current connection actually
-// ending — reports the device gone.
+// The displaced connection counts as ended, so the caller hears about it here
+// rather than when its handler eventually returns: its Detach will not report it
+// (it is no longer the current connection), and anything it was running would
+// otherwise never be settled. Its turns really are dead — the Node derives a
+// turn's lifetime from the connection that dispatched it, so closing the socket
+// stops the work on that machine too.
 func (c *Connections) Attach(sender Sender) (previous Sender) {
 	c.mu.Lock()
 	previous = c.byID[sender.DeviceID()]
 	c.byID[sender.DeviceID()] = sender
 	c.mu.Unlock()
+
+	if previous != nil && c.onEnded != nil {
+		c.onEnded(sender.DeviceID())
+	}
 	return previous
 }
 
 // Detach removes a connection if it is still the current one. A connection that
-// was already replaced must not remove its successor on the way out.
+// was already replaced must not remove its successor on the way out, and must
+// not report itself ended twice.
 func (c *Connections) Detach(sender Sender) {
 	c.mu.Lock()
 	current, ok := c.byID[sender.DeviceID()]
@@ -73,8 +81,8 @@ func (c *Connections) Detach(sender Sender) {
 	}
 	c.mu.Unlock()
 
-	if wasCurrent && c.onGone != nil {
-		c.onGone(sender.DeviceID())
+	if wasCurrent && c.onEnded != nil {
+		c.onEnded(sender.DeviceID())
 	}
 }
 

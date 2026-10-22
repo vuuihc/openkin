@@ -35,6 +35,12 @@ type Executor struct {
 	// filesystem: the Hub is another party and cannot be trusted to bound
 	// itself.
 	Roots []string
+	// AllowYOLO permits a dispatched turn to run with the agent's permission
+	// system switched off. It is off by default and has to be turned on by the
+	// operator of this machine: otherwise anything that can create a task on
+	// the Hub can run arbitrary commands here with nobody asked, which would
+	// make the roots boundary above decorative.
+	AllowYOLO bool
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -94,9 +100,20 @@ func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
 			fmt.Sprintf("%s is not a directory this machine works in", dispatch.Cwd))
 		return
 	}
+	mode := adapter.NormalizePermissionMode(dispatch.PermissionMode)
 	runner, err := e.Runners.Runnable(parent, dispatch.Agent)
 	if err != nil {
 		e.report(parent, dispatch.TurnID, worker.TurnError, err.Error())
+		return
+	}
+	// The permission ceiling is judged on what the agent will actually do, not on
+	// the name of the mode: for an agent with no approval channel of its own,
+	// accept_edits is the same bypass yolo is (adapter.AutoApprovesAll).
+	if adapter.AutoApprovesAll(runner, mode) && !e.AllowYOLO {
+		e.report(parent, dispatch.TurnID, worker.TurnError,
+			fmt.Sprintf("this machine does not run dispatched turns with approvals bypassed "+
+				"(agent %s in mode %s), start it with --allow-yolo to permit that",
+				dispatch.Agent, mode))
 		return
 	}
 
@@ -106,9 +123,10 @@ func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
 	defer cancel()
 	entry := &execution{turnID: dispatch.TurnID, cancel: cancel}
 	if err := e.track(entry); err != nil {
-		// Already running: two turns with one id would interleave into one
-		// transcript.
-		e.report(parent, dispatch.TurnID, worker.TurnError, err.Error())
+		// Already running. The turn that is already going will report its own
+		// finish; answering here with a finish of our own would end it out from
+		// under the run that is still working.
+		e.warn("ignoring a second dispatch for turn %s: %v", dispatch.TurnID, err)
 		return
 	}
 	defer e.untrack(dispatch.TurnID)
@@ -122,7 +140,7 @@ func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
 		Prompt:         dispatch.Prompt,
 		Model:          dispatch.Model,
 		SessionRef:     dispatch.SessionRef,
-		PermissionMode: adapter.NormalizePermissionMode(dispatch.PermissionMode),
+		PermissionMode: mode,
 		Execution:      adapter.ExecutionRef{ID: dispatch.TurnID, Agent: dispatch.Agent, Model: dispatch.Model},
 	})
 	if err != nil {
@@ -130,30 +148,41 @@ func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
 		return
 	}
 
+	// seq counts what the Hub has been told, so it only moves once a frame is on
+	// its way: an event that cannot be encoded is skipped without leaving the
+	// hole that a bare increment would open (the Hub ends a turn that skips a
+	// number, which is exactly the wrong outcome for one bad event).
 	seq := 0
 	for event := range handle.Events() {
-		seq++
+		if seq >= worker.MaxTurnSeq {
+			// The Hub refuses frames past its own bound, so continuing would
+			// leave it waiting for a sequence that can never arrive.
+			e.report(parent, dispatch.TurnID, worker.TurnError,
+				fmt.Sprintf("turn produced more than %d events", worker.MaxTurnSeq))
+			return
+		}
 		payload, err := json.Marshal(event)
 		if err != nil {
-			e.warn("turn %s: encode event %d: %v", dispatch.TurnID, seq, err)
+			e.warn("turn %s: encode event after %d: %v", dispatch.TurnID, seq, err)
 			continue
 		}
 		frame, err := worker.NewFrame("turn.event", worker.TurnEvent{
 			TurnID: dispatch.TurnID,
-			Seq:    seq,
+			Seq:    seq + 1,
 			Event:  payload,
 		})
 		if err != nil {
-			// One oversized event must not take the turn down with it: the Hub
-			// would see a gap and end the turn, which is worse than a note.
-			e.warn("turn %s: event %d does not fit a frame: %v", dispatch.TurnID, seq, err)
-			seq--
+			e.warn("turn %s: event after %d does not fit a frame: %v", dispatch.TurnID, seq, err)
 			continue
 		}
 		if err := e.send(ctx, frame); err != nil {
-			e.warn("turn %s: send event %d: %v", dispatch.TurnID, seq, err)
+			// The connection is gone; the Hub concludes the turn when it
+			// notices. Carrying on would only queue frames for a socket that no
+			// longer exists.
+			e.warn("turn %s: send event %d: %v", dispatch.TurnID, seq+1, err)
 			return
 		}
+		seq++
 	}
 
 	status := worker.TurnOK
@@ -274,20 +303,59 @@ func (e *Executor) allowedCwd(cwd string) bool {
 	if strings.TrimSpace(cwd) == "" {
 		return len(e.Roots) == 1
 	}
-	target, err := filepath.Abs(cwd)
+	// The Hub speaks in paths on this machine, so it has to name one: a relative
+	// path would be resolved against whatever directory the daemon was started
+	// in, which is not a choice the Hub gets to make.
+	if !filepath.IsAbs(cwd) {
+		return false
+	}
+	target, err := resolvePath(cwd)
 	if err != nil {
 		return false
 	}
-	target = filepath.Clean(target)
 	for _, root := range e.Roots {
-		absRoot, err := filepath.Abs(strings.TrimSpace(root))
+		absRoot, err := resolvePath(root)
 		if err != nil {
 			continue
 		}
-		absRoot = filepath.Clean(absRoot)
 		if target == absRoot || strings.HasPrefix(target, absRoot+string(filepath.Separator)) {
 			return true
 		}
 	}
 	return false
+}
+
+// UnresolvedRoots lists declared roots this machine cannot resolve.
+//
+// A root that has been renamed or unmounted is skipped by the containment check,
+// which fails closed — work in it is refused — but silently, and a machine that
+// has quietly stopped accepting the work it was set up for is worth saying out
+// loud at startup.
+func (e *Executor) UnresolvedRoots() []string {
+	var out []string
+	for _, root := range e.Roots {
+		if _, err := resolvePath(root); err != nil {
+			out = append(out, strings.TrimSpace(root))
+		}
+	}
+	return out
+}
+
+// resolvePath is a path with every symlink along it followed.
+//
+// Containment has to be decided on the real path rather than the written one: a
+// symlink inside a declared root that points outside it — a link checked into a
+// repository, say — would otherwise carry a turn out of the root while every
+// prefix check still said yes. The path has to exist to be resolved, which
+// costs nothing: an agent cannot be started in a directory that is not there.
+func resolvePath(path string) (string, error) {
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(real), nil
 }

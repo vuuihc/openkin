@@ -237,6 +237,18 @@ func TestAllowedCwd(t *testing.T) {
 	if err := os.MkdirAll(inside, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A link inside the root pointing out of it, and a link inside the root
+	// pointing at another link that leaves: containment has to be decided on
+	// where a path really lands.
+	elsewhere := t.TempDir()
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+	outsideLink := filepath.Join(elsewhere, "back")
+	if err := os.Symlink(link, outsideLink); err != nil {
+		t.Fatal(err)
+	}
 	exec := &Executor{Roots: []string{root}}
 
 	for _, tc := range []struct {
@@ -251,6 +263,10 @@ func TestAllowedCwd(t *testing.T) {
 		{name: "an unrelated path", cwd: os.TempDir(), want: false},
 		{name: "empty with one root", cwd: "", want: true},
 		{name: "relative escapes", cwd: filepath.Join(root, "..", ".."), want: false},
+		{name: "a bare relative path", cwd: "checkout", want: false},
+		{name: "a path that is not there", cwd: filepath.Join(root, "gone"), want: false},
+		{name: "a symlink out of the root", cwd: link, want: false},
+		{name: "a symlink to a symlink out of the root", cwd: outsideLink, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := exec.allowedCwd(tc.cwd); got != tc.want {
@@ -267,6 +283,10 @@ func TestAllowedCwd(t *testing.T) {
 	// With several roots, an empty cwd is ambiguous, so it is refused.
 	if (&Executor{Roots: []string{"/a", "/b"}}).allowedCwd("") {
 		t.Fatal("an empty cwd was accepted with more than one root")
+	}
+	// A root reached through a link still contains its own real path.
+	if viaLink := (&Executor{Roots: []string{link}}); !viaLink.allowedCwd(elsewhere) {
+		t.Fatal("a root declared through a symlink rejected its own real path")
 	}
 }
 
@@ -326,7 +346,11 @@ func TestExecutorCancelStopsTheTurn(t *testing.T) {
 	}
 }
 
-func TestExecutorRefusesADuplicateTurn(t *testing.T) {
+// TestExecutorIgnoresADuplicateDispatch pins what a second dispatch for a turn
+// that is already running does: nothing. Answering with a finish of its own
+// would end the live turn — the Hub settles a turn by id — and the run that is
+// still working would report into a turn nobody is listening to.
+func TestExecutorIgnoresADuplicateTurn(t *testing.T) {
 	agent := &fakeAgent{block: true}
 	work := t.TempDir()
 	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
@@ -340,20 +364,161 @@ func TestExecutorRefusesADuplicateTurn(t *testing.T) {
 	for time.Now().Before(deadline) && len(exec.Running()) == 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
-	// Two runs sharing one turn id would interleave into one transcript.
 	if err := exec.Handle(context.Background(), dispatchFrame(t, testDispatch(work))); err != nil {
 		t.Fatal(err)
 	}
-	finish := rec.awaitFinish(t, "turn-1")
-	// Whichever run reported first, the machine started the agent exactly once.
+	// Two runs sharing one turn id would interleave into one transcript, so the
+	// machine started the agent exactly once.
 	agent.mu.Lock()
 	starts := agent.starts
 	agent.mu.Unlock()
 	if starts != 1 {
 		t.Fatalf("the agent started %d times for one turn id", starts)
 	}
-	if finish.Status != worker.TurnError && finish.Status != worker.TurnCanceled {
+	// And the first run is still going: the duplicate did not end it.
+	if running := exec.Running(); len(running) != 1 || running[0] != "turn-1" {
+		t.Fatalf("running = %v, want the original turn untouched", running)
+	}
+
+	// The turn it is actually running still reports its own ending.
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Handle(context.Background(), cancel); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec.awaitFinish(t, "turn-1"); finish.Status != worker.TurnCanceled {
 		t.Fatalf("finish = %+v", finish)
+	}
+}
+
+func TestExecutorRefusesYOLOUnlessTheOperatorAllowedIt(t *testing.T) {
+	agent := &fakeAgent{events: []adapter.Event{{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)}}}
+	work := t.TempDir()
+	exec := &Executor{Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}}, Roots: []string{work}}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	dispatch := testDispatch(work)
+	dispatch.PermissionMode = "yolo"
+	if err := exec.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	finish := rec.awaitFinish(t, "turn-1")
+	if finish.Status != worker.TurnError || !strings.Contains(finish.Error, "--allow-yolo") {
+		t.Fatalf("finish = %+v", finish)
+	}
+	// Nothing ran: a Hub that can ask for unchecked execution can ask for
+	// anything, and this machine is the one that has to say no.
+	agent.mu.Lock()
+	starts := agent.starts
+	agent.mu.Unlock()
+	if starts != 0 {
+		t.Fatalf("the agent ran %d times with permissions bypassed", starts)
+	}
+
+	// With the operator's consent it is a request this machine accepts.
+	allowed := &Executor{
+		Runners:   runners{agents: map[string]*fakeAgent{"claude-code": agent}},
+		Roots:     []string{work},
+		AllowYOLO: true,
+	}
+	rec2 := &recorder{}
+	allowed.SetSender(rec2.send)
+	if err := allowed.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec2.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v", finish)
+	}
+	if spec := agent.lastSpec(t); spec.PermissionMode != adapter.PermissionYOLO {
+		t.Fatalf("permission mode = %q", spec.PermissionMode)
+	}
+}
+
+// noApprovalAgent stands for an agent with no approval channel of its own: the
+// mode the Hub is required to use for it is the same bypass yolo is.
+type noApprovalAgent struct{ *fakeAgent }
+
+func (noApprovalAgent) AutoApprovesAll(mode string) bool {
+	switch adapter.NormalizePermissionMode(mode) {
+	case adapter.PermissionAcceptEdits, adapter.PermissionYOLO:
+		return true
+	default:
+		return false
+	}
+}
+
+// mixedRunners maps agent ids to whatever adapter stands for them, so a test can
+// hand the executor an agent whose mode mapping is not the default one.
+type mixedRunners map[string]adapter.Adapter
+
+func (r mixedRunners) Runnable(_ context.Context, agentID string) (adapter.Adapter, error) {
+	found, ok := r[agentID]
+	if !ok {
+		return nil, errors.New("agent " + agentID + " is not installed on this machine")
+	}
+	return found, nil
+}
+
+// TestExecutorJudgesTheCeilingOnWhatTheAgentWillDo: the operator's --allow-yolo
+// is consent to unattended execution, so it has to cover every way of getting
+// there, not just the mode whose name says so. For an agent that has no approval
+// prompt to keep, accept_edits is that same bypass under a milder name.
+func TestExecutorJudgesTheCeilingOnWhatTheAgentWillDo(t *testing.T) {
+	agent := &fakeAgent{events: []adapter.Event{{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)}}}
+	work := t.TempDir()
+	exec := &Executor{Runners: mixedRunners{"opencode": noApprovalAgent{agent}}, Roots: []string{work}}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	dispatch := testDispatch(work)
+	dispatch.Agent = "opencode"
+	dispatch.PermissionMode = adapter.PermissionAcceptEdits
+	if err := exec.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	finish := rec.awaitFinish(t, "turn-1")
+	if finish.Status != worker.TurnError || !strings.Contains(finish.Error, "--allow-yolo") {
+		t.Fatalf("finish = %+v", finish)
+	}
+	agent.mu.Lock()
+	starts := agent.starts
+	agent.mu.Unlock()
+	if starts != 0 {
+		t.Fatalf("the agent ran %d times with approvals bypassed", starts)
+	}
+
+	// The same dispatch on an agent that does keep a prompt is a request this
+	// machine accepts: the ceiling is about what runs, not about the word.
+	prompting := &fakeAgent{events: []adapter.Event{{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)}}}
+	open := &Executor{Runners: mixedRunners{"opencode": prompting}, Roots: []string{work}}
+	rec2 := &recorder{}
+	open.SetSender(rec2.send)
+	if err := open.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec2.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("a graded accept_edits was refused: %+v", finish)
+	}
+
+	// And with the operator's consent the bypass runs, with the mode it asked for.
+	allowed := &Executor{
+		Runners:   mixedRunners{"opencode": noApprovalAgent{agent}},
+		Roots:     []string{work},
+		AllowYOLO: true,
+	}
+	rec3 := &recorder{}
+	allowed.SetSender(rec3.send)
+	if err := allowed.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec3.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v", finish)
+	}
+	if spec := agent.lastSpec(t); spec.PermissionMode != adapter.PermissionAcceptEdits {
+		t.Fatalf("permission mode = %q", spec.PermissionMode)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"nhooyr.io/websocket"
 
 	"github.com/vuuihc/openkin/internal/node"
+	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -149,6 +150,44 @@ func TestNodeChannelMarksDeviceOfflineOnDisconnect(t *testing.T) {
 	}
 	if conns.Connected(deviceID) {
 		t.Fatal("the connection outlived the Node")
+	}
+}
+
+// TestNodeChannelDropsARevokedDevice: the handshake checked the credential once,
+// and a socket outlives that check. Revoking a machine has to end what it can
+// do — this is the channel that carries commands, so a revoked machine that
+// keeps its socket is still a machine that runs work.
+func TestNodeChannelDropsARevokedDevice(t *testing.T) {
+	restore := nodeRevokeCheck
+	nodeRevokeCheck = 25 * time.Millisecond
+	defer func() { nodeRevokeCheck = restore }()
+
+	s, master, conns := nodeTestServer(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	startNode(t, hub.URL, deviceToken)
+	awaitDevice(t, s, deviceID, func(d store.Device) bool {
+		return d.Reachability == store.ReachabilityOnline
+	})
+
+	if err := s.Store.RevokeDeviceCredential(context.Background(), deviceID, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	awaitDevice(t, s, deviceID, func(d store.Device) bool {
+		return d.Reachability == store.ReachabilityOffline
+	})
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && conns.Connected(deviceID) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if conns.Connected(deviceID) {
+		t.Fatal("a revoked device kept its control channel")
+	}
+	// And it cannot get another one: revocation is checked at the handshake too.
+	if _, err := s.Store.AuthenticateDevice(context.Background(), remote.HashToken(deviceToken), time.Now().UnixMilli()); err == nil {
+		t.Fatal("a revoked device token still authenticates")
 	}
 }
 

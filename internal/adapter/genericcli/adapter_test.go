@@ -270,3 +270,22 @@ func containsPair(args []string, k, v string) bool {
 	}
 	return false
 }
+
+// TestAutoApprovesAllTracksTheFlags: this adapter's agents have no approval
+// channel, so accept_edits — the only mode Start accepts besides yolo — passes
+// the same auto-confirm flags. Anything less than a full bypass must not read as
+// one, and anything that is one must.
+func TestAutoApprovesAllTracksTheFlags(t *testing.T) {
+	ad := &Adapter{ID: "opencode", Inv: detect.GenericInvocations()["opencode"]}
+	for mode, want := range map[string]bool{
+		adapter.PermissionAcceptEdits: true,
+		"acceptEdits":                 true,
+		adapter.PermissionYOLO:        true,
+		adapter.PermissionDefault:     false,
+		"":                            false,
+	} {
+		if got := ad.AutoApprovesAll(mode); got != want {
+			t.Fatalf("AutoApprovesAll(%q) = %v, want %v", mode, got, want)
+		}
+	}
+}

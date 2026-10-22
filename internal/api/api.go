@@ -698,23 +698,38 @@ func (s *Server) validateTaskCreateRequest(ctx context.Context, req task.CreateR
 }
 
 // validateExecutingDevice rejects a task aimed at a machine this Hub does not
-// know.
+// know, or one it knows has been revoked.
+func (s *Server) validateExecutingDevice(ctx context.Context, deviceID string) error {
+	return ValidateExecutingDevice(ctx, s.Store, s.DesktopID, deviceID)
+}
+
+// ValidateExecutingDevice checks that a task's target is a machine this Hub can
+// actually hand work to.
 //
 // It is a create-time check on purpose: a task naming a device that does not
-// exist would otherwise be accepted, queued, and only fail when a turn started,
-// long after whoever typed the id stopped looking.
-func (s *Server) validateExecutingDevice(ctx context.Context, deviceID string) error {
+// exist, or one that has been revoked and can never connect again, would
+// otherwise be accepted, queued, and only fail when a turn started — long after
+// whoever typed the id stopped looking. Shared by the REST and MCP surfaces so
+// both answer the same way.
+func ValidateExecutingDevice(ctx context.Context, st *store.Store, selfDeviceID, deviceID string) error {
 	deviceID = strings.TrimSpace(deviceID)
-	if deviceID == "" || s.Store == nil {
+	if deviceID == "" || st == nil {
 		return nil
 	}
 	// This daemon is a valid answer for "where should this run", and it is not a
 	// paired device of itself.
-	if deviceID == strings.TrimSpace(s.DesktopID) {
+	if deviceID == strings.TrimSpace(selfDeviceID) {
 		return nil
 	}
-	if _, err := s.Store.GetDevice(ctx, deviceID); err != nil {
+	device, err := st.GetDevice(ctx, deviceID)
+	if err != nil {
 		return fmt.Errorf("unknown device %q", deviceID)
+	}
+	if device.RevokedAt != nil {
+		// A revoked device cannot connect, so it can never run this: refusing now
+		// is the difference between an error while the user is looking and a task
+		// that fails later for a reason nobody sees.
+		return fmt.Errorf("device %q has been revoked", deviceID)
 	}
 	return nil
 }

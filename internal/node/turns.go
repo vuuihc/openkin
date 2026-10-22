@@ -23,9 +23,8 @@ type SendFunc func(ctx context.Context, deviceID string, frame worker.Frame) err
 // cursor or the bus knows the difference between this and a local agent
 // process — which is the point (ADR 0022 D8).
 type Turns struct {
-	mu    sync.Mutex
-	byID  map[string]*turn
-	onEnd func(turnID string)
+	mu   sync.Mutex
+	byID map[string]*turn
 }
 
 // ErrTurnUnknown means a frame arrived for a turn this Hub is not running:
@@ -49,20 +48,21 @@ type turn struct {
 	// where it thinks it left off, so duplicates are expected and dropped.
 	highest int
 
+	// senders counts the deliveries in flight. A delivery hands its event to the
+	// engine's run loop, which is the reader; ending the turn closes that
+	// channel, and closing it under a sender would panic, so the close waits for
+	// them (see close).
+	senders sync.WaitGroup
+
 	closeOnce sync.Once
 	ended     chan struct{}
+	// closed is guarded by Turns.mu. It is what a delivery checks before it
+	// counts itself, so no sender can start after the close has begun waiting.
+	closed bool
 }
 
 func NewTurns() *Turns {
 	return &Turns{byID: make(map[string]*turn)}
-}
-
-// SetEndHook installs a callback invoked once per turn when it ends, whatever
-// ended it.
-func (t *Turns) SetEndHook(fn func(turnID string)) {
-	t.mu.Lock()
-	t.onEnd = fn
-	t.mu.Unlock()
 }
 
 // Open registers a turn and returns the handle the engine will read.
@@ -96,6 +96,22 @@ func (t *Turns) Open(turnID, deviceID, taskID string, send SendFunc) (*Handle, e
 // Delivery is by turn id, and the frame has to come from the device the turn
 // was dispatched to: a device can only ever speak for its own turns.
 func (t *Turns) Deliver(deviceID string, event worker.TurnEvent) error {
+	// Decode first: a payload that is not an adapter event must not move the
+	// sequence on, or the event it stood for is lost while the next one still
+	// looks contiguous. A hole nobody can see is the one outcome the sequence
+	// number exists to prevent.
+	decoded, err := decodeEvent(event.Event)
+	if err != nil {
+		t.mu.Lock()
+		item, ok := t.byID[event.TurnID]
+		owned := ok && item.deviceID == deviceID
+		t.mu.Unlock()
+		if owned {
+			t.fail(item, fmt.Sprintf("device sent an unreadable turn event: %v", err))
+		}
+		return err
+	}
+
 	t.mu.Lock()
 	item, ok := t.byID[event.TurnID]
 	if !ok {
@@ -123,16 +139,8 @@ func (t *Turns) Deliver(deviceID string, event worker.TurnEvent) error {
 	item.highest = event.Seq
 	t.mu.Unlock()
 
-	decoded, err := decodeEvent(event.Event)
-	if err != nil {
-		return err
-	}
-	select {
-	case item.events <- decoded:
-		return nil
-	case <-item.ended:
-		return nil
-	}
+	t.push(item, decoded)
+	return nil
 }
 
 // Finish records how a device says a turn ended.
@@ -205,26 +213,50 @@ func (t *Turns) fail(item *turn, message string) {
 	if err != nil {
 		payload = []byte(`{"message":"turn failed"}`)
 	}
-	select {
-	case item.events <- adapter.Event{Type: "error", Payload: payload}:
-	case <-item.ended:
-	}
+	t.push(item, adapter.Event{Type: "error", Payload: payload})
 	t.close(item)
+}
+
+// push hands one event to the turn's reader. It reports whether the event was
+// taken; an event that arrives after the turn ended is dropped.
+func (t *Turns) push(item *turn, event adapter.Event) bool {
+	t.mu.Lock()
+	if item.closed {
+		t.mu.Unlock()
+		return false
+	}
+	item.senders.Add(1)
+	t.mu.Unlock()
+
+	defer item.senders.Done()
+	select {
+	case item.events <- event:
+		return true
+	case <-item.ended:
+		return false
+	}
 }
 
 // close ends a turn and closes its event channel, which is what the engine's
 // run loop is waiting for.
+//
+// Closing a channel that another goroutine may be sending on is a panic waiting
+// for a schedule, and it is reachable here: the engine cancels a turn at the
+// same moment a device's frame for it is being routed. So the close is ordered
+// against the senders — the flag stops new ones, the closed ended channel wakes
+// the parked ones, and only then is the channel closed.
 func (t *Turns) close(item *turn) {
 	item.closeOnce.Do(func() {
+		t.mu.Lock()
+		item.closed = true
+		t.mu.Unlock()
 		close(item.ended)
+		item.senders.Wait()
 		close(item.events)
+
 		t.mu.Lock()
 		delete(t.byID, item.id)
-		hook := t.onEnd
 		t.mu.Unlock()
-		if hook != nil {
-			hook(item.id)
-		}
 	})
 }
 

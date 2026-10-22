@@ -1071,20 +1071,37 @@ func (e *Engine) SetRemoteRunner(selfDeviceID string, fn RemoteRunner) {
 	e.remoteRunner = fn
 }
 
+// isRemoteDevice reports whether work aimed at deviceID runs on another
+// machine. The empty device and this machine's own id both mean "here": that is
+// every task created before a Hub could dispatch, and every task on a daemon
+// that has never heard of another machine.
+func (e *Engine) isRemoteDevice(deviceID string) bool {
+	e.mu.Lock()
+	self := e.selfDeviceID
+	e.mu.Unlock()
+	deviceID = strings.TrimSpace(deviceID)
+	return deviceID != "" && deviceID != self
+}
+
+// RunsElsewhere reports whether a task executes on another machine. Callers that
+// would otherwise reach for this machine's filesystem — a file browser, a
+// terminal, a workspace check — have to ask first: the paths in the task belong
+// to the machine that runs it.
+func (e *Engine) RunsElsewhere(t store.Task) bool {
+	return e.isRemoteDevice(t.ExecutingDeviceID)
+}
+
 // remoteFor reports the adapter for a task that runs somewhere else, and
 // whether it runs somewhere else at all.
-//
-// A task with no executing device runs here: that is every task created before
-// a Hub could dispatch, and every task on a standalone daemon.
 func (e *Engine) remoteFor(t store.Task, executionID string) (adapter.Adapter, bool, error) {
+	if !e.isRemoteDevice(t.ExecutingDeviceID) {
+		return nil, false, nil
+	}
 	e.mu.Lock()
-	self, runner := e.selfDeviceID, e.remoteRunner
+	runner := e.remoteRunner
 	e.mu.Unlock()
 
 	device := strings.TrimSpace(t.ExecutingDeviceID)
-	if device == "" || device == self {
-		return nil, false, nil
-	}
 	if runner == nil {
 		return nil, true, fmt.Errorf("task runs on device %s, but this daemon cannot dispatch to another machine", device)
 	}
@@ -1276,14 +1293,36 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		workspaceMode = workspace.ModeAuto
 	}
 
+	// A task that runs on another machine is prepared by that machine. The Hub
+	// cannot stat the path, cannot make a worktree in it, and above all must not
+	// rewrite the cwd to one of its own: the address it hands the Node has to be
+	// the address the user meant. A cwd that exists only on the Node is the
+	// normal case here, not an error — the Hub does not own that filesystem.
+	// (Anchors, which make the address portable between machines, arrive with
+	// M2.3; until then the path travels as typed.)
+	remote := e.isRemoteDevice(req.ExecutingDeviceID)
+	if remote && workspace.RequestedMode(workspaceMode) == workspace.ModeWorktree {
+		// Asking for isolation on a machine the Hub cannot cut worktrees on is
+		// not a request this can honour, and quietly running the task in that
+		// machine's shared checkout instead is how two tasks end up editing the
+		// same files.
+		return store.Task{}, fmt.Errorf(
+			"workspace_mode %q is not available for a task that runs on another machine: "+
+				"its workspace is that machine's own checkout", workspaceMode)
+	}
+
 	// Check if agent supports lazy workspace promotion.
 	lazySupport := e.agents.LazyWorkspaceSupport(ctx, req.Agent)
-	useLazy := workspaceMode == workspace.ModeAuto && lazySupport.Supported && e.workspace != nil
+	useLazy := !remote && workspaceMode == workspace.ModeAuto && lazySupport.Supported && e.workspace != nil
 
 	var meta workspace.Metadata
 	var turnAccess string
 
-	if useLazy {
+	if remote {
+		meta = sharedWorkspace(req.Cwd)
+		t.WorkspacePolicy = string(store.WorkspacePolicyShared)
+		turnAccess = string(adapter.AccessShared)
+	} else if useLazy {
 		// Lazy: resolve source metadata, no worktree, source_read_only turn.
 		src, err := e.workspace.ResolveSource(ctx, req.Cwd)
 		if err != nil {
@@ -1448,6 +1487,13 @@ func (e *Engine) syncNativeSessionBinding(ctx context.Context, taskID, agentID, 
 	}
 	task, err := e.store.GetTask(ctx, taskID)
 	if err != nil {
+		return
+	}
+	// A ref a turn reported from another machine belongs to that machine's
+	// agent, not to this one's. Binding it here would write the other machine's
+	// session into this Hub's catalog under an id this Hub never issued —
+	// overwriting a real local session whenever the two refs collide.
+	if e.isRemoteDevice(task.ExecutingDeviceID) {
 		return
 	}
 	info, err := e.agents.InspectSession(ctx, agentID, externalRef)
@@ -2726,14 +2772,20 @@ func (e *Engine) prepareWorkspace(ctx context.Context, taskID, cwd string, mode 
 		mode = workspace.ModeAuto
 	}
 	if e.workspace == nil {
-		return workspace.Metadata{
-			Mode:  workspace.ResolvedShared,
-			Root:  cwd,
-			Cwd:   cwd,
-			Scope: ".",
-		}, nil
+		return sharedWorkspace(cwd), nil
 	}
 	return e.workspace.Prepare(ctx, taskID, cwd, mode)
+}
+
+// sharedWorkspace is the metadata for a cwd used exactly as given: no
+// worktree, no isolation, no rewriting.
+func sharedWorkspace(cwd string) workspace.Metadata {
+	return workspace.Metadata{
+		Mode:  workspace.ResolvedShared,
+		Root:  cwd,
+		Cwd:   cwd,
+		Scope: ".",
+	}
 }
 
 func workspaceMetadata(t store.Task) workspace.Metadata {
