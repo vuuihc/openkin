@@ -687,6 +687,8 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 
 结论：**"接外部 OIDC"和"用 GitHub 登录"在实现上是两个 adapter，不是一个。** 这不是设计选择，是 GitHub 的事实。（顺带排除一个常见误解：`token.actions.githubusercontent.com` 上那份 OIDC 文档是给 **Actions workflow 换云厂商凭据**用的，它连 `authorization_endpoint` 和 `token_endpoint` 都没有，跟"用户登录"无关。）
 
+**并且不要反过来把登录流程建在那份 discovery 文档上**：它是 2026 年才出现的（文档页首次归档约 2026-05），GitHub 自己标注为 public preview，并明说在某些部署上"**contain incorrect information**"，而且**没有对应的 changelog 公告**。这些文档的用途是让 MCP 客户端发现端点，不是承诺一个稳定的登录 IdP 接口。GitHub 登录走**手写 OAuth 2.0 授权码流程**，不依赖 discovery 驱动。
+
 #### 为什么不让 email 当唯一 id
 
 这不是风格偏好，是**规范明令禁止**。OpenID Connect Core §5.7 原文：
@@ -695,6 +697,8 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 > — <https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability>
 
 §5.1 对 `email` 的措辞同样是 "The RP **MUST NOT** rely upon this value being unique"。**这条约束把完全合规的 OIDC provider 也一起管住了**——它不是说某家实现不好，而是说这个声明本身就不承担唯一性。
+
+> ⚠️ **不要把 §5.7 读过头。** 它说的是 email **不唯一、不稳定**，**没有**说 `email_verified` 不可信——规范在这里是刻意留白的，`email_verified` 只断言"OP 在验证当时采取了积极步骤确认该地址受最终用户控制"，强度交给"信任框架或合同约定"决定。所以正确的推论是"**email 不能当键**"，而不是"OIDC 给的 email 不可信"。GitHub 的特殊问题另有其因（不签发 ID token、不发 `email` 声明、允许未验证 primary、还会伪造占位地址），与 §5.7 是两件事。
 
 落到 GitHub 上，风险是具体的、可利用的：
 
@@ -708,7 +712,26 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 
    还有两个坑必须处理：GitHub 对未验证的 Enterprise Managed User 会返回**伪造的占位邮箱**（形如 `email+shortcode@domain.com`）；用户的 primary email 未验证时，token 交换会直接以 `unverified_user_email` 失败——这要当**一等错误**处理（提示"请先在 GitHub 验证邮箱"），不能混进"登录失败"一笔带过。
 
-3. **即使 provider 给了 `email_verified` 也不能当键**：实测各家支持并不齐——Google、Okta、Auth0 给 `email_verified`，**Microsoft Entra ID 不给**（只有可选的 `xms_edov`，而那是"域名归属已验证"，不是"这个地址归此人所有"）。也就是说"用 email 当键"的方案在换一家 IdP 时会**静默出错**；下面的设计不受这个差异影响。
+3. **即使 provider 给了 `email_verified` 也不能当键。** 而且**连"给了"这件事都不能假设**——实测各家并不一致：
+
+   | Provider | `email_verified` | 证据强度 |
+   |---|---|---|
+   | Google | ✅ | 高（claim 定义 + scope 映射 + 实测 discovery 文档） |
+   | Okta | ✅ | 高（表格行显式标注 boolean） |
+   | Microsoft Entra ID（workforce 租户） | ❌ | 高（ID token claims 参考里没有；替代物是可选 `xms_edov`，而那是"**域名归属**已验证"，不是"这个地址归此人所有"） |
+   | Microsoft Entra External ID | ⚠️ 仅作**入站** claim：联邦到外部 IdP（Google/Apple/Facebook）注册时接收，不为自己的原生账号签发 | 高 |
+   | GitHub | ❌ | 高（`claims_supported` 里连 `email` 都没有） |
+
+   也就是说"用 email 当键"的方案换一家 IdP 就会**静默出错**（登录成功但认错人），而下面的设计对这个差异完全免疫。
+
+   **还有一个真实实现陷阱：同一个 `email_verified`，各家的 JSON 类型不一样。** Google 的 ID token 示例写的是字符串 `"email_verified": "true"`，Okta 的示例写的是布尔 `true`。所以**不要写 `value === true` 这种严格比较**，要按 provider 各自归一化。（Google 实际签发的类型尚未实测，列为待验证项。）
+
+   Google 自己给的警告是所有 provider 里最重的，值得原文记下：
+
+   > **Warning:** Don't use the `email` field as a unique identifier for a user. Always use the `sub` field.
+   > — <https://developers.google.com/identity/openid-connect/openid-connect>
+
+   加上 Okta 的 "The resource provider must not rely on this value being unique."、Microsoft 的 "Never use it for authorization or to save data for a user." —— 到这里是**四份互相独立的一手来源**（OIDC Core §5.7、GitHub 最佳实践、Google、Okta）在说同一件事：email 不是身份键。
 
 所以要的是这三条，而不是 email 当键：
 
@@ -722,8 +745,8 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 
 - **用 GitHub App，不用 OAuth App。** GitHub 官方对 OAuth App 的文档里直接写着 "If possible, consider using a GitHub App instead of an OAuth app"——GitHub App 权限更细、token 更短命。两者都是 OAuth 2.0，代码路径一样。
 - **注意作用域模型不同**：GitHub App **不用 scope**，改用注册时配置的细粒度权限。要读邮箱得申请 **`email_addresses`（read）** 用户权限；OAuth App 的对应物才是 `user:email` scope。照 OAuth App 的写法去配 GitHub App 会拿不到邮箱。
-- **PKCE 用 S256**（GitHub 支持）；但**不要**去验签 ID token——GitHub 不签发。身份靠"拿 access token 调 `GET /user`"确认。
-- 若要展示邮箱，调 `GET /user/emails` 并**只接受 `verified === true`** 的条目，同时挡掉 `email+shortcode@domain.com` 形态的占位串。拿不到已验证邮箱不是错误——**本设计里 email 不是键，缺它不影响登录**。
+- **PKCE 用 S256**（GitHub 的元数据里 `code_challenge_methods_supported` 只有 `["S256"]`，**没有 `plain`**）；但**不要**去验签 ID token——GitHub 不签发。身份靠"拿 access token 调 `GET /user`"确认。GitHub 同时声明 `authorization_response_iss_parameter_supported: true`，可以按 RFC 9207 校验 `iss`。
+- 若要展示邮箱，调 `GET /user/emails` 并**只接受 `verified === true`** 的条目，同时挡掉 `email+shortcode@domain.com` 形态的占位串。**比较前先归一化类型**（见上文 `email_verified` 的字符串/布尔陷阱）。拿不到已验证邮箱不是错误——**本设计里 email 不是键，缺它不影响登录**。
 - ⚠️ 一个待验证项：GitHub OpenAPI 给 `GET /user`、`GET /user/emails` 标了 `x-github.enabledForGitHubApps: false`，但渲染出的 REST 文档又明确把 "GitHub App user access tokens" 列为支持。该标记管的是 *installation* token 而非 *user* token，判断是文档不一致而非真限制——**但实现时必须实测一次**，别照推断写。
 
 ### 8.3 首次接入与后续接入
@@ -965,6 +988,19 @@ kin serve
 2. **Node 离线时能否创建会话**：P0 建议**不能**（会话由 Hub 创建）。离线写会引入真正的冲突合并，与本方案的"单写者"原则冲突。
 3. **Hub 自身是否作为 Node**：standalone 下是。纯 Hub 模式下，Hub 也可注册为设备（复用同一路径，符合 D8）。
 4. **relay 能否承载 Node 通道**：relay 是"每个 room 一个 daemon + ≤8 client"（`relay/relay.js:4`）。Node 通道需要 daemon↔daemon 或复用 client 角色——需要一次小的 relay 协议扩展，或 P0 先只支持直连。
+
+### 待实测项（本轮核实**未能**确认，实现前必须先验证）
+
+这几条是推断或二手，**不要照抄进实现**：
+
+| # | 待验证 | 为何未确认 | 怎么验 |
+|---|---|---|---|
+| V1 | GitHub App 的 user token 能否调 `GET /user`、`GET /user/emails` | OpenAPI 标了 `x-github.enabledForGitHubApps: false`，渲染文档又说支持——**两者矛盾**（R18） | 建一个 GitHub App 实测一次 |
+| V2 | Google 实际签发的 `email_verified` 是字符串还是布尔 | 文档示例是字符串，未跑真实登录 | 跑一次真实 Google 登录，打印原始 ID token |
+| V3 | `GET /user` 返回的 `email` 是否可能是未验证值 | **GitHub 完全没有文档说明** | 不依赖它——本设计只用 `GET /user/emails` 的 `verified` |
+| V4 | `xms_edov` 出现在 ID token 还是 access token | 文档只标 JWT，未区分 | 只在真要接 Entra ID 时才需要 |
+| V5 | Auth0 是否真的签发 `email_verified` | 该页只在正文列举，**同页示例 token 里没有** | 查 `<tenant>.auth0.com/.well-known/openid-configuration` 的 `claims_supported` |
+| V6 | `api.github.com/.well-known/openid-configuration` 的真实状态 | 探测时撞上 GitHub API 限流（403），不是真答案 | 预期 404（GitHub 只文档化了两份元数据），但未证实 |
 
 ---
 

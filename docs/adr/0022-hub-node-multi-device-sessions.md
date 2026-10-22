@@ -149,8 +149,10 @@ the same session set. Three constraints make that safe:
   never reassigns: GitHub's numeric `id`, which GitHub documents as a value that
   "will never change for the user or be used to point to a different user",
   rather than its mutable `login`. Provider support for `email_verified` also
-  varies — Google and Okta supply it, Microsoft Entra ID does not — so any
-  design resting on that claim breaks silently when the provider changes.
+  varies — Google and Okta supply it, Microsoft Entra ID workforce tenants do
+  not, and Entra External ID carries it only as an inbound claim mapped from a
+  federated provider — and where it is supplied its JSON type is not consistent,
+  so any design resting on that claim breaks when the provider changes.
 - **Linking a second credential is an authenticated action**, performed by a
   user who is already signed in. Automatic account merging by matching email is
   not implemented at any point.
