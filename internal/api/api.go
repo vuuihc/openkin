@@ -260,11 +260,11 @@ func (s *Server) Handler() http.Handler {
 				s.MCP.Handler().ServeHTTP(w, req)
 			})
 		}
-		r.With(masterOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
-		r.With(masterOnly).Get("/api/devices", s.handleListDevices)
-		r.With(masterOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
+		r.With(operatorOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
+		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
+		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
 		r.Get("/api/workers", s.handleListWorkers)
-		r.With(masterOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
+		r.With(operatorOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)
 		r.Get("/api/agents", s.handleListAgents)
@@ -272,19 +272,19 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/agent-sessions", s.handleListAgentSessions)
 		r.Get("/api/agent-sessions/page", s.handleListAgentSessionsPage)
 		r.Get("/api/agent-sessions/{id}", s.handleGetAgentSession)
-		r.With(masterOnly).Post("/api/agent-sessions/import", s.handleImportAgentSessions)
-		r.With(masterOnly).Get("/api/agent-sessions/{id}/history", s.handleGetAgentSessionHistory)
-		r.With(masterOnly).Post("/api/agent-sessions/{id}/attach", s.handleAttachAgentSession)
+		r.With(operatorOnly).Post("/api/agent-sessions/import", s.handleImportAgentSessions)
+		r.With(operatorOnly).Get("/api/agent-sessions/{id}/history", s.handleGetAgentSessionHistory)
+		r.With(operatorOnly).Post("/api/agent-sessions/{id}/attach", s.handleAttachAgentSession)
 		r.Get("/api/agents/management", s.handleAgentsManagement)
-		r.With(masterOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
+		r.With(operatorOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
 		r.Get("/api/connectors", s.handleListConnectors)
-		r.With(masterOnly).Post("/api/connectors", s.handleRegisterConnector)
-		r.With(masterOnly).Patch("/api/connectors/{id}", s.handleUpdateConnector)
-		r.With(masterOnly).Delete("/api/connectors/{id}", s.handleDisableConnector)
+		r.With(operatorOnly).Post("/api/connectors", s.handleRegisterConnector)
+		r.With(operatorOnly).Patch("/api/connectors/{id}", s.handleUpdateConnector)
+		r.With(operatorOnly).Delete("/api/connectors/{id}", s.handleDisableConnector)
 		r.Get("/api/connectors/{id}/tools", s.handleListConnectorTools)
-		r.With(masterOnly).Post("/api/connectors/{id}/call", s.handleCallConnector)
-		r.With(masterOnly).Put("/api/connectors/credentials/{ref}", s.handleSetConnectorCredential)
-		r.With(masterOnly).Delete("/api/connectors/credentials/{ref}", s.handleDeleteConnectorCredential)
+		r.With(operatorOnly).Post("/api/connectors/{id}/call", s.handleCallConnector)
+		r.With(operatorOnly).Put("/api/connectors/credentials/{ref}", s.handleSetConnectorCredential)
+		r.With(operatorOnly).Delete("/api/connectors/credentials/{ref}", s.handleDeleteConnectorCredential)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
@@ -297,16 +297,16 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
-		r.With(masterOnly).Put("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
+		r.With(operatorOnly).Put("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
 		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
 		r.Get("/api/tasks/{id}/source/tree", s.handleListSourceTree)
 		r.Get("/api/tasks/{id}/source/file", s.handleReadSourceFile)
 		r.Get("/api/tasks/{id}/workspace/list", s.handleLegacyListWorkspace)
 		r.Get("/api/tasks/{id}/workspace/file", s.handleLegacyReadWorkspaceFile)
-		r.With(masterOnly).Put("/api/tasks/{id}/workspace/file", s.handleLegacyWriteWorkspaceFile)
-		r.With(masterOnly).Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
+		r.With(operatorOnly).Put("/api/tasks/{id}/workspace/file", s.handleLegacyWriteWorkspaceFile)
+		r.With(operatorOnly).Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
 		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
-		r.With(masterOnly).Delete("/api/tasks/{id}", s.handleDeleteTask)
+		r.With(operatorOnly).Delete("/api/tasks/{id}", s.handleDeleteTask)
 		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
 		r.Post("/api/tasks/{id}/limit/continue", s.handleLimitContinue)
@@ -317,67 +317,67 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/git/branches", s.handleGitBranches)
-		r.With(masterOnly).Post("/api/git/checkout", s.handleGitCheckout)
-		r.With(masterOnly).Get("/api/settings", s.handleGetSettings)
-		r.With(masterOnly).Put("/api/settings", s.handlePutSettings)
-		r.With(masterOnly).Post("/api/relay/pairing", s.handleRefreshRelayPairing)
-		r.With(masterOnly).Post("/api/cloudflare/oauth/start", s.handleCloudflareOAuthStart)
-		r.With(masterOnly).Get("/api/cloudflare/accounts", s.handleCloudflareAccounts)
-		r.With(masterOnly).Get("/api/cloudflare/zones", s.handleCloudflareZones)
-		r.With(masterOnly).Post("/api/cloudflare/relay/deploy", s.handleCloudflareRelayDeploy)
-		r.With(masterOnly).Post("/api/cloudflare/relay/domain", s.handleCloudflareRelayDomain)
-		r.With(masterOnly).Get("/api/providers", s.handleListProviders)
-		r.With(masterOnly).Post("/api/providers", s.handleCreateProvider)
-		r.With(masterOnly).Post("/api/providers/models", s.handleListProviderModels)
-		r.With(masterOnly).Put("/api/providers/{id}", s.handleUpdateProvider)
-		r.With(masterOnly).Delete("/api/providers/{id}", s.handleDeleteProvider)
-		r.With(masterOnly).Post("/api/providers/{id}/activate", s.handleActivateProvider)
-		r.With(masterOnly).Post("/api/notify/test", s.handleNotifyTest)
+		r.With(operatorOnly).Post("/api/git/checkout", s.handleGitCheckout)
+		r.With(operatorOnly).Get("/api/settings", s.handleGetSettings)
+		r.With(operatorOnly).Put("/api/settings", s.handlePutSettings)
+		r.With(operatorOnly).Post("/api/relay/pairing", s.handleRefreshRelayPairing)
+		r.With(operatorOnly).Post("/api/cloudflare/oauth/start", s.handleCloudflareOAuthStart)
+		r.With(operatorOnly).Get("/api/cloudflare/accounts", s.handleCloudflareAccounts)
+		r.With(operatorOnly).Get("/api/cloudflare/zones", s.handleCloudflareZones)
+		r.With(operatorOnly).Post("/api/cloudflare/relay/deploy", s.handleCloudflareRelayDeploy)
+		r.With(operatorOnly).Post("/api/cloudflare/relay/domain", s.handleCloudflareRelayDomain)
+		r.With(operatorOnly).Get("/api/providers", s.handleListProviders)
+		r.With(operatorOnly).Post("/api/providers", s.handleCreateProvider)
+		r.With(operatorOnly).Post("/api/providers/models", s.handleListProviderModels)
+		r.With(operatorOnly).Put("/api/providers/{id}", s.handleUpdateProvider)
+		r.With(operatorOnly).Delete("/api/providers/{id}", s.handleDeleteProvider)
+		r.With(operatorOnly).Post("/api/providers/{id}/activate", s.handleActivateProvider)
+		r.With(operatorOnly).Post("/api/notify/test", s.handleNotifyTest)
 		r.Get("/api/usage/summary", s.handleUsageSummary)
 		r.Get("/api/usage/limits", s.handleUsageLimits)
 		r.Get("/api/routing/options", s.handleGetRoutingOptions)
 		r.Get("/api/routing/preview", s.handleGetRoutingPreview)
 		r.Get("/api/routing/defaults", s.handleGetRoutingDefaults)
-		r.With(masterOnly).Put("/api/routing/defaults", s.handlePutRoutingDefaults)
+		r.With(operatorOnly).Put("/api/routing/defaults", s.handlePutRoutingDefaults)
 		r.Get("/api/routing/profiles", s.handleGetRoutingProfiles)
-		r.With(masterOnly).Put("/api/routing/profiles", s.handlePutRoutingProfiles)
+		r.With(operatorOnly).Put("/api/routing/profiles", s.handlePutRoutingProfiles)
 		r.Get("/api/routing/provider-profiles", s.handleGetProviderProfiles)
-		r.With(masterOnly).Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
-		r.With(masterOnly).Post("/api/uploads", s.handleUpload)
+		r.With(operatorOnly).Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
+		r.With(operatorOnly).Post("/api/uploads", s.handleUpload)
 		r.Get("/api/uploads/{name}", s.handleServeUpload)
 		r.Get("/api/artifacts", s.handleListArtifacts)
-		r.With(masterOnly).Post("/api/artifacts", s.handleCreateArtifact)
+		r.With(operatorOnly).Post("/api/artifacts", s.handleCreateArtifact)
 		r.Get("/api/artifacts/{id}", s.handleGetArtifact)
 		r.Get("/api/artifacts/{id}/content", s.handleGetArtifactContent)
-		r.With(masterOnly).Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
+		r.With(operatorOnly).Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
 		r.Get("/api/projects", s.handleListProjects)
-		r.With(masterOnly).Post("/api/projects", s.handleCreateProject)
-		r.With(masterOnly).Post("/api/projects/ensure", s.handleEnsureProject)
+		r.With(operatorOnly).Post("/api/projects", s.handleCreateProject)
+		r.With(operatorOnly).Post("/api/projects/ensure", s.handleEnsureProject)
 		r.Get("/api/projects/by-root", s.handleFindProjectByRoot)
 		r.Get("/api/projects/{id}", s.handleGetProject)
-		r.With(masterOnly).Patch("/api/projects/{id}", s.handlePatchProject)
+		r.With(operatorOnly).Patch("/api/projects/{id}", s.handlePatchProject)
 		r.Get("/api/projects/{id}/one-pager", s.handleGetOnePager)
-		r.With(masterOnly).Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
+		r.With(operatorOnly).Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
 		r.Get("/api/projects/{id}/pulse", s.handleGetProjectPulse)
-		r.With(masterOnly).Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
+		r.With(operatorOnly).Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
 		r.Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
 		r.Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
 		r.Get("/api/routines", s.handleListRoutines)
-		r.With(masterOnly).Post("/api/routines", s.handleCreateRoutine)
+		r.With(operatorOnly).Post("/api/routines", s.handleCreateRoutine)
 		r.Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
 		r.Get("/api/routines/health", s.handleRoutineHealth)
-		r.With(masterOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
+		r.With(operatorOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
 		r.Get("/api/routines/{id}", s.handleGetRoutine)
-		r.With(masterOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
-		r.With(masterOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)
-		r.With(masterOnly).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
+		r.With(operatorOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
+		r.With(operatorOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)
+		r.With(operatorOnly).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
 		r.Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
 		r.Get("/api/evals/suites", s.handleListEvalSuites)
 		r.Get("/api/evals/runs", s.handleListEvalRuns)
 		r.Get("/api/evals/runs/{id}", s.handleGetEvalRun)
 		r.Post("/api/evals/runs", s.handleCreateEvalRun)
 		r.Post("/api/evals/compare", s.handleCompareEvalRuns)
-		r.With(masterOnly).Post("/api/evals/routines", s.handleCreateEvalRoutine)
+		r.With(operatorOnly).Post("/api/evals/routines", s.handleCreateEvalRoutine)
 		r.Get("/api/ws", s.handleWS)
 		if s.A2A != nil && s.A2A.Enabled {
 			r.Mount("/a2a", s.A2A.Handler())
@@ -388,7 +388,7 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(loopbackOnly)
 		r.Use(s.Auth.Middleware)
-		r.Use(masterOnly)
+		r.Use(operatorOnly)
 		r.Post("/internal/approvals", s.handleInternalCreateApproval)
 		r.Get("/internal/approvals/{id}/wait", s.handleInternalWaitApproval)
 		r.Post("/internal/user-questions", s.handleInternalCreateUserQuestion)
@@ -400,7 +400,7 @@ func (s *Server) Handler() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(loopbackOnly)
 		r.Use(s.Auth.Middleware)
-		r.Use(masterOnly)
+		r.Use(operatorOnly)
 		r.Get("/api/terminal/profiles", s.handleTerminalProfiles)
 		r.Get("/api/terminal/sessions", s.handleTerminalSessions)
 		r.Post("/api/terminal/sessions", s.handleCreateTerminalSession)
@@ -431,14 +431,37 @@ func loopbackOnly(next http.Handler) http.Handler {
 	})
 }
 
-func masterOnly(next http.Handler) http.Handler {
+// operatorOnly guards the routes that administer this daemon: its settings,
+// providers, connectors, devices, and files.
+//
+// Two principals qualify. The master token does, because whoever holds the
+// machine holds the daemon. A signed-in account does too, but only because a
+// Hub has exactly one: registration closes after the first claim, so
+// PrincipalUser is the owner and nobody else. If a Hub ever gains a second
+// account, this check has to become a role test rather than a kind test.
+//
+// A paired device token is deliberately excluded at any rate. A phone or a
+// desktop client drives tasks; it does not reconfigure the daemon it talks to.
+// isMasterRequest reports whether the caller presented the daemon's own token
+// rather than an account session or a paired-device token.
+func isMasterRequest(r *http.Request) bool {
+	principal, ok := remote.PrincipalFromContext(r.Context())
+	return ok && principal.Kind == remote.PrincipalMaster
+}
+
+func operatorOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		principal, ok := remote.PrincipalFromContext(r.Context())
-		if !ok || principal.Kind != remote.PrincipalMaster {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "master token required"})
+		if !ok {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
 			return
 		}
-		next.ServeHTTP(w, r)
+		switch principal.Kind {
+		case remote.PrincipalMaster, remote.PrincipalUser:
+			next.ServeHTTP(w, r)
+		default:
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
+		}
 	})
 }
 
@@ -1233,15 +1256,23 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 			tok = t
 		}
 	}
+	// The master token is the daemon's own credential, and an account session
+	// is not it. A Hub owner signing in from a laptop must not be handed a
+	// token that outlives their session, works from anywhere, and would sit in
+	// browser history as part of a connect URL.
+	if !isMasterRequest(r) {
+		tok = ""
+	}
 	base := get("ui.base_url")
 	if base == "" {
 		base = s.BaseURL
 	}
 	// Always rebuild connect URL with the current token so rotate stays correct.
+	// The stored fallback carries a token too, so it is only for the master.
 	connect := ""
 	if base != "" && tok != "" {
 		connect = strings.TrimRight(base, "/") + "/?token=" + tok
-	} else if s.ConnectURL != "" {
+	} else if s.ConnectURL != "" && isMasterRequest(r) {
 		connect = s.ConnectURL
 	}
 	priceTable := get(store.KeyPriceTable)

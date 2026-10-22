@@ -138,7 +138,7 @@ func (s *Server) handleAuthBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.Auth.AllowAttempt(r) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts"})
+		writeJSON(w, http.StatusTooManyRequests, authErrorBody("rate_limited", "too many attempts"))
 		return
 	}
 	var req bootstrapRequest
@@ -148,7 +148,7 @@ func (s *Server) handleAuthBootstrap(w http.ResponseWriter, r *http.Request) {
 	session, err := s.Accounts.ClaimWithPassword(r.Context(), req.Code, req.Email, req.Password, req.DisplayName, sessionMeta(r))
 	if err != nil {
 		s.Auth.NoteFailure(r)
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": authErrorMessage(err)})
+		writeJSON(w, http.StatusBadRequest, authError(err))
 		return
 	}
 	s.setSessionCookie(w, r, session)
@@ -169,7 +169,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.Auth.AllowAttempt(r) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many attempts"})
+		writeJSON(w, http.StatusTooManyRequests, authErrorBody("rate_limited", "too many attempts"))
 		return
 	}
 	var req loginRequest
@@ -179,7 +179,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	session, err := s.Accounts.LoginPassword(r.Context(), req.Email, req.Password, sessionMeta(r))
 	if err != nil {
 		s.Auth.NoteFailure(r)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": authErrorMessage(err)})
+		writeJSON(w, http.StatusUnauthorized, authError(err))
 		return
 	}
 	s.setSessionCookie(w, r, session)
@@ -238,12 +238,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	if providerErr := query.Get("error"); providerErr != "" {
-		s.redirectAuthError(w, r, "", providerErr)
+		s.redirectAuthError(w, r, "", "provider_error", providerErr)
 		return
 	}
 	ident, req, err := s.OIDC.Complete(r.Context(), query.Get("state"), query.Get("code"))
 	if err != nil {
-		s.redirectAuthError(w, r, "", "sign-in could not be completed")
+		s.redirectAuthError(w, r, "", "sign_in_failed", "sign-in could not be completed")
 		return
 	}
 	returnTo := safeReturnTo(req.ReturnTo())
@@ -253,11 +253,11 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		// provider response, so re-check that the session is still valid.
 		user, ok := s.currentUser(r)
 		if !ok || user.ID != req.BindUserID() {
-			s.redirectAuthError(w, r, returnTo, "sign in before linking another login")
+			s.redirectAuthError(w, r, returnTo, "session_expired", "sign in before linking another login")
 			return
 		}
 		if err := s.Accounts.LinkIdentity(r.Context(), user.ID, ident); err != nil {
-			s.redirectAuthError(w, r, returnTo, authErrorMessage(err))
+			s.redirectAuthError(w, r, returnTo, authErrorCode(err), authErrorMessage(err))
 			return
 		}
 		http.Redirect(w, r, withAuthNotice(returnTo, "linked"), http.StatusFound)
@@ -266,16 +266,20 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	session, err := s.Accounts.LoginIdentity(r.Context(), ident, sessionMeta(r))
 	if err != nil {
-		s.redirectAuthError(w, r, returnTo, authErrorMessage(err))
+		s.redirectAuthError(w, r, returnTo, authErrorCode(err), authErrorMessage(err))
 		return
 	}
 	s.setSessionCookie(w, r, session)
 	http.Redirect(w, r, withAuthNotice(returnTo, "signed-in"), http.StatusFound)
 }
 
-func (s *Server) redirectAuthError(w http.ResponseWriter, r *http.Request, returnTo, message string) {
+// redirectAuthError bounces the browser back into the console with the failure
+// attached to the URL. The code is what the console translates; the message is
+// a fallback, and is the only place a provider's own error text can appear.
+func (s *Server) redirectAuthError(w http.ResponseWriter, r *http.Request, returnTo, code, message string) {
 	target := withAuthNotice(safeReturnTo(returnTo), "")
-	http.Redirect(w, r, target+"auth_error="+url.QueryEscape(message), http.StatusFound)
+	http.Redirect(w, r, target+"auth_error="+url.QueryEscape(message)+
+		"&auth_error_code="+url.QueryEscape(code), http.StatusFound)
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, session auth.Session) {
@@ -333,6 +337,34 @@ func authErrorMessage(err error) string {
 	default:
 		return "sign-in failed"
 	}
+}
+
+// authErrorCode is the stable half of an auth error. Clients translate the
+// code; the message above is only a fallback for a client that does not
+// recognize it. Without this the console would have to match on English prose.
+func authErrorCode(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrInvalidCredentials):
+		return "invalid_credentials"
+	case errors.Is(err, auth.ErrBootstrapUnavailable):
+		return "claim_code_invalid"
+	case errors.Is(err, auth.ErrRegistrationClosed):
+		return "registration_closed"
+	case errors.Is(err, auth.ErrWeakPassword):
+		return "weak_password"
+	case errors.Is(err, auth.ErrIdentityTaken):
+		return "identity_taken"
+	default:
+		return "sign_in_failed"
+	}
+}
+
+func authErrorBody(code, message string) map[string]string {
+	return map[string]string{"error": message, "code": code}
+}
+
+func authError(err error) map[string]string {
+	return authErrorBody(authErrorCode(err), authErrorMessage(err))
 }
 
 // safeReturnTo accepts only a local absolute path, so a crafted return_to

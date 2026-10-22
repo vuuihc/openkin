@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/remote"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // newAuthTestServer returns a test server with the account system enabled and
@@ -292,5 +295,118 @@ func TestSafeReturnToRejectsOtherOrigins(t *testing.T) {
 		if got := safeReturnTo(in); got != want {
 			t.Errorf("safeReturnTo(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// claimOwner drives the console's first-run path and leaves c holding the
+// owner's session cookie.
+func claimOwner(t *testing.T, c *authClient, code string) {
+	t.Helper()
+	rec := c.post("/api/auth/bootstrap",
+		`{"code":"`+code+`","email":"owner@example.com","password":"hunter2hunter2","display_name":"Owner"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("claim hub: %d %s", rec.Code, rec.Body.String())
+	}
+	if c.cookie == nil {
+		t.Fatal("claiming the hub did not open a session")
+	}
+}
+
+func TestOwnerSessionReachesOperatorRoutes(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	// Drop the master token: the cookie alone has to carry the request, which
+	// is exactly what a browser on the Hub sends.
+	owner.master = ""
+
+	if rec := owner.get("/api/settings"); rec.Code != http.StatusOK {
+		t.Fatalf("owner reading settings: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := owner.do(http.MethodPut, "/api/settings", `{"notify.bark_url":""}`); rec.Code != http.StatusOK {
+		t.Fatalf("owner writing settings: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeviceTokenCannotReachOperatorRoutes(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+
+	// A paired phone or desktop client drives tasks; it does not reconfigure
+	// the daemon it is paired with.
+	const deviceToken = "0011223344556677889900112233445566778899001122334455667788990011"
+	if err := s.Store.InsertDeviceCredential(t.Context(), store.DeviceCredential{
+		ID:        "device-test",
+		TokenHash: remote.HashToken(deviceToken),
+		Label:     "phone",
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("insert device credential: %v", err)
+	}
+
+	device := &authClient{t: t, h: handler, master: deviceToken}
+	if rec := device.get("/api/settings"); rec.Code != http.StatusForbidden {
+		t.Fatalf("device reading settings: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	// The same credential still reaches the routes a client legitimately uses.
+	if rec := device.get("/api/tasks"); rec.Code != http.StatusOK {
+		t.Fatalf("device listing tasks: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAnonymousCannotReachOperatorRoutes(t *testing.T) {
+	s, _, _ := newAuthTestServer(t)
+	anon := &authClient{t: t, h: s.Handler()}
+	if rec := anon.get("/api/settings"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous settings: %d, want 401", rec.Code)
+	}
+}
+
+func TestMasterTokenStillReachesOperatorRoutes(t *testing.T) {
+	s, master := newTestServer(t)
+	client := &authClient{t: t, h: s.Handler(), master: master}
+	if rec := client.get("/api/settings"); rec.Code != http.StatusOK {
+		t.Fatalf("master reading settings: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOwnerSessionNeverSeesTheMasterToken(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	owner.master = ""
+
+	rec := owner.get("/api/settings")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner reading settings: %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	if tok, _ := body["token"].(string); tok != "" {
+		t.Fatal("an account session was handed the daemon master token")
+	}
+	if connect, _ := body["connect_url"].(string); strings.Contains(connect, "token=") {
+		t.Fatalf("connect_url leaked a master token: %q", connect)
+	}
+
+	// The master token holder still needs both to pair a desktop client. The
+	// test harness does not wire Server.Token, so supply it here.
+	s.Token = master
+	masterClient := &authClient{t: t, h: handler, master: master}
+	rec = masterClient.get("/api/settings")
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode master settings: %v", err)
+	}
+	if tok, _ := body["token"].(string); tok != master {
+		t.Fatalf("master token was withheld from the master itself: %q", tok)
 	}
 }
