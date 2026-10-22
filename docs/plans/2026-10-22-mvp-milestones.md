@@ -217,6 +217,8 @@ React 控制台与设计系统 · Electron 壳 ·
 | Node → Hub 方向 | **Node 主动外连 Hub**（NAS 在家，桌面机可能在外面，只能是这个方向） |
 | Hub ↔ Node 协议 | **复用 Hub 的 HTTP + SSE**，Node 是"会执行的特殊客户端"，不另造协议 |
 | 工作区锚点范围 | M2 只做 `device_path` + 每台设备手动声明仓库路径；`git_remote` 自动匹配延后 |
+| Hub owner 的权限 | **owner 就是运维者**：settings / providers / devices / relay 全都能配。设备 token 仍然被挡在外面。见 ADR 0023 |
+| 浏览器会话能否拿到 master token | **不能**。Hub owner 用的是账户会话，不是 daemon 自己的凭据 |
 
 ---
 
@@ -226,7 +228,12 @@ React 控制台与设计系统 · Electron 壳 ·
 
 | 项 | 状态 |
 |---|---|
+| Dex sidecar 本身 | **从未启动过**。只检查了镜像（`/var/dex` 属主 1001:1001，非 root 用户可写；entrypoint 是 ELF）。OIDC 全流程没有跑通过 |
 | 各 IdP / Dex 的实际内存占用 | **从未测量**。NAS 上的资源预算目前是估的 |
 | Dex 从容器内访问自身公网 issuer | **未验证**。OIDC 要求 issuer 字符串精确匹配，容器内解析公网域名常需 NAT 回环。M0 第二步必须实测，不能推断 |
 | Keycloak / Authentik / Zitadel 能否当普通 OIDC IdP 接 | 未确认。不影响 MVP（用 Dex），但影响"以后想换 IdP"的说法 |
 | 同类自托管产品实际发布哪些登录方式 | **完全未调研**（Immich / Jellyfin / Gitea 等）。不影响实现，只影响"这是不是行业常态"的论断 |
+
+M0 第一步（邮箱密码）这一侧已经实测通过，不算未验证项：镜像能构建、容器内以
+uid 1000 绑得住 80/443、认领码能打印、认领 → 会话 cookie → 登录 → 退出登录
+整条链路在真实浏览器里跑过。
