@@ -121,24 +121,43 @@ The following boundaries are part of the decision, not implementation detail:
     untrusted host is out of scope and will not be mitigated with client-side
     encryption, because that would contradict the Hub's role.
 
-Authentication for a multi-device Hub uses OIDC with an **operator-chosen**
-identity provider. Its purpose is narrow: letting a new device join and
-immediately see the account's sessions without requiring an already-authorised
-device to be at hand, which is what token pairing alone cannot do. OpenKin
-operates no account service and hosts no user data; standalone mode never
-contacts an identity provider. Login mints a device credential, and subsequent
-traffic uses that credential, so a Hub does not depend on the identity provider
-being reachable for devices that are already paired. This keeps the §5.1
-promise "core capability does not require an official account" intact: OIDC is
-how a user signs in to their own server, not how they register with OpenKin.
+Authentication for a multi-device Hub is operator-configured and optional. Its
+purpose is narrow: letting a new device join and immediately see the account's
+sessions without requiring an already-authorised device to be at hand, which is
+what token pairing alone cannot do. OpenKin operates no account service and
+hosts no user data, and standalone mode never authenticates at all. Login mints
+a device credential and subsequent traffic uses that credential, so a Hub does
+not depend on any external provider being reachable for devices that are
+already paired. This keeps the §5.1 promise "core capability does not require an
+official account" intact: signing in happens against the user's own Hub.
 
-A Hub accepts exactly one issuer, and user identity is the `(issuer, subject)`
-pair. Accepting several issuers would silently split one person into separate
-users with disjoint session sets, which reads to the user as data loss;
-automatic account merging by email is not attempted. The first successful login
-claims ownership and self-registration is closed afterwards, so that reaching
-the Hub and holding an account at its identity provider is not by itself
-sufficient to read someone's sessions.
+Accounts and credentials are separate layers. A user is a `users` row with an
+immutable id; credentials are `user_identities` rows keyed by
+`(provider, subject)`. One account can therefore be reached by GitHub, by an
+operator-chosen OIDC provider, or by a local password, and every path lands in
+the same session set. Three constraints make that safe:
+
+- **The account key is the user id, never an email address.** Email is a
+  mutable, claimable attribute, and GitHub permits unverified addresses on an
+  account, so treating a matching email as proof of identity would let anyone
+  who puts someone else's address on their own account sign into that person's
+  sessions. The `subject` for each provider must likewise be an identifier the
+  provider never reassigns: GitHub's numeric `id`, not its `login`.
+- **Linking a second credential is an authenticated action**, performed by a
+  user who is already signed in. Automatic account merging by matching email is
+  not implemented at any point.
+- **Ownership is claimed with a one-time code printed to the Hub's terminal**,
+  not by whichever login arrives first. An exposed Hub would otherwise be
+  claimable by a stranger during the window before its owner first signs in.
+
+GitHub is an OAuth 2.0 provider, not an OpenID Connect provider, so it is a
+separate adapter rather than a configuration of the OIDC one. A local password
+provider makes the Hub an identity provider, and the obligations that creates
+ship with it rather than later: argon2id hashing, and per-address and
+per-account rate limiting and lockout on the login endpoint. Password reset is a
+CLI command on the Hub host rather than an emailed link, because self-service
+reset would require an outbound mail path and would itself rest on the
+assumption that an email address is trustworthy.
 
 The Agent Client Protocol is adopted as an additional adapter family, not a
 replacement. Its `session/request_permission` maps onto the existing approval

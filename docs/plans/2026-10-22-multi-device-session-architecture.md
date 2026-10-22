@@ -39,7 +39,7 @@
 | 诉求 | 机制 |
 |---|---|
 | 同账号多设备会话保存 | Hub 权威存储 + 全局同步游标；客户端离线可读 |
-| 服务端自托管 | `kin serve --role hub`；OIDC 用**用户自选的** IdP；OpenKin 不运营任何服务 |
+| 服务端自托管 | `kin serve --role hub`；登录方式由**用户自选**（GitHub / 自建 OIDC / 邮箱密码）；OpenKin 不运营任何服务 |
 | 每设备不同 agent | Node 本地持有 agent 配置与凭据；Hub 只存非敏感能力元数据 |
 | 会话内通过 ACP 调用不同 agent | 新增 ACP adapter 家族；每个 turn 绑定 `(device, agent, model)`，可逐轮切换 |
 
@@ -162,7 +162,7 @@ M9 已经建了更正确的绑定层 `agent_sessions` + `task_agent_sessions`（
 | `docs/plans/2026-09-05-ios-desktop-remote-control.md:39-50` | 锁定"一个权威 daemon"，非目标含 **"Peer-to-peer or multi-master database synchronization"**、"A Kin account" | 引入 Hub + N Node | **部分修订**：仍然**不是** multi-master——Hub 是唯一写者，Node 不持有可写副本。原决策保留，边界更清晰 |
 | `SYSTEM_DESIGN.md:71` | "Explicitly later — or never: **Full sync product, multi-user**" | 多设备会话同步 | **修订**：见下方 §5.11 三问 |
 | `PRINCIPLE.md` §5.11 | "Do not prepay distant architecture"；默认不做 "Multi-device orchestration as a product center"、"Full sync stacks before single-machine excellence" | 现在做 | **修订**，理由见下 |
-| `docs/plans/2026-09-17-ios-console-parity.md:33-38` | 非目标："Official OpenKin account login"、"Cloud-hosted user data or identity" | 用户选择接 OIDC | **不冲突，但需澄清**：OIDC 用**用户自选的 IdP**，OpenKin 不运营账号服务、不托管数据。见 §8 |
+| `docs/plans/2026-09-17-ios-console-parity.md:33-38` | 非目标："Official OpenKin account login"、"Cloud-hosted user data or identity" | 登录方式由用户自选（GitHub / 自建 OIDC / 邮箱密码） | **不冲突，但需澄清**：OpenKin 不运营账号服务、不托管数据，登录只发生在**你自己的 Hub** 上。见 §8 |
 | `docs/OPEN_DEVELOPMENT.md:59,72` | 避免 "multi-device demos before single-machine excellence" | — | **保留**：本方案不改变单机默认体验（standalone），仍是同一条主路径 |
 | `docs/adr/0003-artifacts-and-reader.md:46` | 否决 "Kin-hosted multi-device sync service" | — | **不冲突**：本方案是**用户自托管**，不是 Kin 托管 |
 
@@ -201,7 +201,7 @@ M9 已经建了更正确的绑定层 `agent_sessions` + `task_agent_sessions`（
 ```text
                          ┌──────────────────────────────────────────┐
                          │            Kin Hub (自托管)               │
-                         │  · 账号 (OIDC, 用户自选 IdP)              │
+                         │  · 账号 (users + user_identities, 见 §8.2)  │
                          │  · 会话 = tasks（权威）                   │
                          │  · events（唯一 seq 分配者）              │
                          │  · approvals / user_questions            │
@@ -243,7 +243,7 @@ M9 已经建了更正确的绑定层 `agent_sessions` + `task_agent_sessions`（
 | **Device** | 一台已配对的机器 = 一个 Node 的身份 | ⚠️ 仅认证面，需落库 |
 | **Agent** | adapter 支持的执行器 | ✅ `internal/agent` |
 | **Workspace anchor** | 可跨设备解析的工作区引用 | ❌ 需新增 |
-| **Account** | Hub 上的用户身份（OIDC） | ❌ 需新增 |
+| **Account** | Hub 上的用户身份（`users` + 多条 `user_identities`） | ❌ 需新增 |
 
 ---
 
@@ -254,18 +254,33 @@ M9 已经建了更正确的绑定层 `agent_sessions` + `task_agent_sessions`（
 ### 5.1 新增表
 
 ```sql
--- 账号。standalone/local 模式下只有一个隐含的 local owner。
+-- 账号。standalone/local 模式下只有一个隐含的 local owner（无 identity 行）。
+-- id 是唯一真正的键；email 只是属性，可改，账号不散。
 CREATE TABLE IF NOT EXISTS users (
-  id            TEXT PRIMARY KEY,          -- ULID
-  oidc_issuer   TEXT,                      -- NULL = 本地隐含所有者
-  oidc_subject  TEXT,                      -- NULL = 本地隐含所有者
-  email         TEXT,
-  display_name  TEXT,
-  created_at    INTEGER NOT NULL,
-  disabled_at   INTEGER
+  id             TEXT PRIMARY KEY,         -- ULID
+  email          TEXT,                     -- 属性，非键；用于展示与 password 登录名
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  email_source   TEXT,                     -- 哪个凭据验证的：github | oidc | password
+  display_name   TEXT,
+  created_at     INTEGER NOT NULL,
+  disabled_at    INTEGER
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc
-  ON users(oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+  ON users(email) WHERE email IS NOT NULL;
+
+-- 登录凭据。一个账号可挂多条 → GitHub 与邮箱密码进同一个账号（§8.2）。
+-- subject 必须取 provider 侧不可变 id：GitHub 用数值 id（不用 login）。
+CREATE TABLE IF NOT EXISTS user_identities (
+  id           TEXT PRIMARY KEY,           -- ULID
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider     TEXT NOT NULL,              -- github | oidc | password
+  subject      TEXT NOT NULL,              -- GitHub 数值 id / OIDC sub / 规范化 email
+  secret_hash  TEXT,                       -- 仅 provider='password'：argon2id
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_key
+  ON user_identities(provider, subject);
 
 -- 设备 = 一个 Node 的身份。跨 Hub 重启持久。
 CREATE TABLE IF NOT EXISTS devices (
@@ -641,44 +656,81 @@ Kin 的 Hub **不是中继，是权威**——它必须持有明文才能分配 
 | 模式 | 命令 | 账号 | 适用 |
 |---|---|---|---|
 | **Standalone（默认）** | `kin serve` | 隐含 local owner，**无需登录** | 今天的单机用户，行为不变 |
-| **Hub** | `kin serve --role hub --oidc-issuer ... --oidc-client-id ...` | OIDC | 多设备中心 |
+| **Hub** | `kin serve --role hub`（首次启动打印配对码；登录方式按需配 GitHub / OIDC / 密码） | 用户自选 | 多设备中心 |
 | **Node** | `kin serve --role node --hub https://...` | 设备凭据 | 执行节点 |
 
-### 8.2 OIDC 的边界（关键澄清）
+### 8.2 身份模型（2026-10-22 修订）
 
-仓库多处把"账号"列为非目标（`SYSTEM_DESIGN.md:71`、`ios-console-parity.md:33-38`）。**本方案不违反这一点**，因为它限定为：
+诉求是"**GitHub 登录 + 邮箱密码登录，进同一个账号**"。原先写的"一个 Hub 只接受一个 issuer、识别键 `(issuer, subject)`、不按 email 合并"要改——但改法不是放宽，而是**把"账号"和"凭据"分成两层**：
 
-- IdP 由**用户自己选**（自建 Keycloak / Authelia / Authentik，或 Google/GitHub）；
-- Hub 由**用户自己部署**，OpenKin 不运营任何账号服务、不托管任何数据；
-- Standalone 模式**完全不经过 OIDC**，`PRINCIPLE` §5.1「核心能力不依赖官方账号」继续成立。
+```
+users            -- 账号。id 是 ULID，永不改变；它才是真正的键
+  id, email, email_verified, email_source, display_name, created_at, disabled_at
 
-也就是说：**OIDC 是"登录你自己服务器"的方式，不是"注册 OpenKin 账号"**。这个区别必须写进 ADR 和文档，否则会被误读成定位漂移。
+user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路径
+  id, user_id, provider, subject, secret_hash, created_at, last_used_at
+  UNIQUE(provider, subject)
+```
 
-### 8.3 新设备如何接入（这是 OIDC 的真正价值）
+| provider | subject 用什么 | 协议 |
+|---|---|---|
+| `github` | GitHub 的**数值 `id`**（不用 `login`——login 可改） | OAuth 2.0（**不是 OIDC**，见下） |
+| `oidc` | IdP 的 `sub` | OpenID Connect |
+| `password` | email 的小写规范化形式 | `secret_hash` = argon2id |
 
-诉求原话是"私有化部署后，新设备配置认证下就能同步全部设备上面的 session"。这件事有**两条路径**，OIDC 是其中更省事的那条：
+**关于 GitHub 的协议：** GitHub 提供的是 OAuth 2.0，**不提供 OIDC**（没有 discovery 文档）。所以"接外部 OIDC"和"用 GitHub 登录"在实现上是**两个 adapter**，不是一个。这不是设计选择，是 GitHub 的事实；如果只写 OIDC 会以为配一个 issuer 就能覆盖 GitHub，落地时会卡住。
+
+#### 为什么不让 email 当唯一 id
+
+这是唯一必须较真的一点。**email 不是标识符，是可变、可被声称的属性。** 拿它当唯一键有两个后果：
+
+1. **账号会丢**：用户在 GitHub 改了邮箱，就找不回自己的 session 池了。
+2. **会被冒名**（要害）：GitHub 允许账号上存在**未验证**邮箱。若逻辑是"email 相同即认为是同一个人"，攻击者只要在自己 GitHub 账号里填上你的邮箱，登录之后就拿到你的全部会话。这是 OAuth 集成里最经典的一类漏洞，GitHub 自家文档专门警告过不要拿 email 当主键。
+
+所以要的是这三条，而不是 email 当键：
+
+- **`users.id`（ULID）是账号键**；`email` 只是属性，额外带 `email_verified` 与 `email_source`（哪个凭据验证的）。属性可改，账号不散。
+- **凭据键是 `(provider, subject)`**，且 `subject` 必须取 provider 侧**不可变**的 id——GitHub 用数值 `id`，不用 `login`。用 login 当 subject 会在用户改名后变成一个新账号。
+- **关联第二条登录方式必须是"已认证动作"**：先登录着，再在设置里"添加密码"/"绑定 GitHub"。**永不按 email 自动合并。** 这是硬约束，不是偏好。
+
+这样你要的体验完全成立——GitHub 和邮箱密码进同一个账号、同一个 session 池——而且**不依赖 email 可信**。原来"一个 Hub 只接受一个 issuer"的约束也随之取消：多 provider 现在是安全的，因为每条凭据单独一行，关联只能靠认证动作。
+
+### 8.3 首次接入与后续接入
+
+#### 首次启动：终端配对码，不是"先到先得"
+
+`kin serve --role hub` 首次启动时在**终端打印一次性配对码**，必须凭该码才能完成 owner 认领。
+
+原设计是"首个登录者成为 owner"。这有一个真实的抢注窗口：**Hub 一旦暴露到公网，任何先到的人都能成为 owner**，而你还没来得及登录。终端码只有能物理/SSH 接触到 Hub 机器的人看得到，直接把这个窗口消掉。这是自托管软件的通行做法（Jellyfin / Grafana 等）。
+
+认领完成后**注册即关闭**：`users` 表非空时不再接受新账号。新增登录方式只能由 owner 在已认证状态下添加（§8.2 的硬约束）。
+
+#### 后续接入有两条路径
+
+诉求原话是"私有化部署后，新设备配置认证下就能同步全部设备上面的 session"：
 
 | 路径 | 怎么用 | 限制 |
 |---|---|---|
-| **A. 配对**（已有机制） | 新设备扫码 → 拿设备凭据 → 立刻看到全部 session | **手上必须有一台已授权的设备**。手机丢了、电脑不在身边就不行 |
-| **B. OIDC 登录**（新增） | 打开 Hub 地址 → 用 IdP 账号登录 → Hub 认出是你 → 发设备凭据 → 看到全部 session | 需要 Hub 能访问 IdP（仅登录时） |
+| **A. 配对**（已有机制） | 新设备扫码 → 拿设备凭据 → 立刻看到全部 session | **手上必须有一台已授权设备**。手机丢了、电脑不在身边就不行 |
+| **B. 登录**（新增） | 打开 Hub 地址 → GitHub / OIDC / 邮箱密码登录 → Hub 认出是你 → 发设备凭据 → 看到全部 session | 需要 Hub 能访问 IdP（**仅 GitHub/OIDC 登录时**；密码登录不需要） |
 
-**OIDC 的增量价值就是 B 相对 A 的那一格：没有任何一台已授权设备在手时，仍能把新设备接进来。** 对个人使用来说，这正是"换台电脑、登录一下，全部会话都在"的体验。
+**登录相对配对的增量就是这一格：没有任何一台已授权设备在手时，仍能把新设备接进来。** 对个人使用就是"换台电脑、登录一下，全部会话都在"。
 
-**识别键是 `(issuer, subject)`**，同一个 subject = 同一个 user = **同一个 session 池**。这就是"同一个账号下多台设备"的实现方式。
+#### 三层安全细节（都必须定死）
 
-#### 三个必须定死的安全细节
+1. **登录只用于换凭据，不参与日常请求。** 登录成功即签发设备凭据（复用 `device_credentials`），之后所有流量用设备凭据：IdP 挂了不影响已登录设备；复用既有吊销机制（`revoked_at` 一置，WS 也会被踢）；Node 的长期连接不需要刷新 token。
+2. **ID 是自建 provider，要按 ID 做对待。** 密码用 argon2id；登录端点必须有**每 IP + 每账号的失败限速与锁定**（否则暴露到公网的 Hub 就是一个可离线爆破的密码库）；密码比对走常数时间。这三点是密码登录的入场费，不做就别开这个 provider。
+3. **密码重置不做自助，走 Hub 本机 CLI**：
 
-1. **一个 Hub 只接受一个 issuer**（配置时写死）。否则同一个人的 Google `sub` 和 GitHub `sub` 会是**两个不同用户 → 两个互相看不见的 session 池**，用户会以为丢数据。账户合并（按 email 归并）不做——那是安全风险，收益也低。
-2. **首个登录者成为 owner，之后默认关闭注册。** 否则任何能访问到 Hub 且在该 IdP 有账号的人都能登进来。落地方式：`users` 表为空时允许首次登录并记为 owner；此后只有已在 `users` 里的 subject 能登录，新增设备要么由已授权设备配对，要么由 owner 在设置里加入 allowlist。
-3. **OIDC 只用于登录，不参与日常请求。** 登录成功即签发设备凭据（复用 `device_credentials`），之后所有流量用设备凭据：
-   - IdP 挂了不影响已登录设备；
-   - 复用既有的吊销机制（`revoked_at` 一置，WS 也会被踢）；
-   - Node 的长期连接不需要刷新 OIDC token。
+   ```bash
+   kin admin reset-password --user <email>
+   ```
+
+   这样**不需要 SMTP、不需要发信通道、不引入任何厂商**——与 §7.7 的"路径中无厂商"一致。代价是忘了密码又 SSH 不上机器时麻烦；但对自托管单用户产品，这比为了重置密码去维护一条邮件发送链路 solid 得多（而且邮件重置本身就依赖"email 可信"，正是 §8.2 否掉的那个假设）。
 
 CLI / Node（无浏览器场景）用 Device Authorization Grant（RFC 8628）。
 
-**standalone 模式完全不走 OIDC**，隐含 local owner，所以 PRINCIPLE §5.1「核心能力不依赖官方账号」继续成立。
+**standalone 模式完全不走登录**，隐含 local owner，所以 PRINCIPLE §5.1「核心能力不依赖官方账号」继续成立。
 
 ### 8.4 安全加固（自托管暴露到公网的必备项）
 
@@ -779,7 +831,7 @@ iOS 今天已是"单 daemon 的瘦投影"（`ios/README.md`），有**零本地�
 | 改动 | 迁移 v33 中与归属/游标有关的部分（`users` 隐含 local owner、`devices`、`tasks.owner_user_id`/`origin_device_id`/`hub_seq`、索引）；`--role hub`；`GET /api/sessions?updated_since=` 全局游标；WS 广播带上 `hub_seq`；客户端改为"一个 Hub + 游标续拉" |
 | 验收 | ① Hub 跑在机器 A，浏览器在 A、iOS 在 B；② A 上新建会话并跑完一个 turn；③ B 上无需刷新即可看到，且 `GET /api/tasks/{id}/events` 的 `seq` 连续无洞；④ B 断网 5 分钟后重连，靠游标补齐且无重复；⑤ **standalone 模式零回归** |
 | 风险 | 低。无分布式执行，无租约，无跨网审批 |
-| 不做 | 远程执行、ACP、OIDC、离线写 |
+| 不做 | 远程执行、ACP、登录流程、离线写 |
 
 ### P0-B：远程执行（写路径）
 
@@ -804,10 +856,10 @@ iOS 今天已是"单 daemon 的瘦投影"（`ios/README.md`），有**零本地�
 
 | 项 | 内容 |
 |---|---|
-| 目标 | OIDC 登录；用户只见自己的会话；每设备 agent 配置可见可改 |
-| 改动 | `users` 表与 OIDC 流程（§8.3）；`owner_user_id` 贯穿查询；`device_agents` + `/api/devices` 系列；控制台设备/agent UI；REST 权限梯度（§8.4） |
-| 验收 | ① 未登录不可访问；② 跨用户数据不可见（含会话、事件、artifact）；③ standalone 仍无需登录；④ 打开设置不读 secret、不探测第三方；⑤ 在设备 B 的 UI 上能看到并修改 B 上的默认 agent |
-| 风险 | 中。权限梯度铺开面广，需逐路由核对 |
+| 目标 | 登录流程（GitHub / OIDC / 邮箱密码，进同一账号）；用户只见自己的会话；每设备 agent 配置可见可改 |
+| 改动 | `users` + `user_identities`（§8.2）；终端配对码认领（§8.3）；provider adapter 按需实现，**先做 `password` 与 `github`**（`oidc` 后补，因为自建 IdP 的用户最少）；`owner_user_id` 贯穿查询；`device_agents` + `/api/devices` 系列；控制台设备/agent UI；REST 权限梯度（§8.4） |
+| 验收 | ① 未登录不可访问；② 未持配对码者无法认领 owner；③ **同一账号用 GitHub 与密码登录看到同一个 session 池**；④ 跨用户数据不可见（含会话、事件、artifact）；⑤ **用他人 email 无法进入他人账号**（R13 的回归测试）；⑥ standalone 仍无需登录；⑦ 打开设置不读 secret、不探测第三方；⑧ 在设备 B 的 UI 上能看到并修改 B 上的默认 agent |
+| 风险 | 中高。权限梯度铺开面广，需逐路由核对；密码 provider 是新增的攻击面（R15），限速与锁定必须与 provider 同批落地，不能延后 |
 
 ### P0-E：dogfood 加固
 
@@ -860,7 +912,11 @@ kin serve
 | R1 | Hub 成为单点故障 | 全部设备不可用会话 | Hub 无状态化不可行（它是写者）；缓解：standalone 模式始终可用、Hub 数据可导出、Hub 可跑在任意一台设备上 |
 | R2 | 跨设备工作区解析失败 | "换设备继续"直接不可用 | P0 只支持两种锚点；解析失败**显式报错**并提示在哪台设备可用 |
 | R3 | 索引重建可能丢约束 | 数据完整性 | 走既有 `_new`+`RENAME` 模式 + 迁移测试（空库/满库） |
-| R4 | 与既有非目标冲突引发定位漂移 | 产品方向 | ADR 0022 显式修订；OIDC 边界写进文档（§8.2） |
+| R4 | 与既有非目标冲突引发定位漂移 | 产品方向 | ADR 0022 显式修订（已 accept）；登录边界写进文档（§8.2、§8.3） |
+| R13 | **拿 email 当身份键导致账号被冒名**（GitHub 允许未验证邮箱） | 账号接管 | 账号键是 `users.id`，凭据键是 `(provider, subject)`；关联只允许已认证动作，**永不按 email 自动合并**（§8.2） |
+| R14 | **Hub 暴露到公网后被抢注 owner** | 账号接管 | 首次认领需终端打印的一次性配对码，不是"先到先得"（§8.3） |
+| R15 | **密码登录把 Hub 变成 ID 系统**：需要限速、锁定、哈希，且重置密码需要发信通道 | 安全/运维 | 用 argon2id + 每 IP/每账号失败限速（不做就不开该 provider）；重置走 Hub 本机 CLI，不引入 SMTP（§8.3） |
+| R16 | **GitHub 不是 OIDC**，只写 OIDC 会以为一个 issuer 覆盖 GitHub | 返工 | GitHub 与 OIDC 实现为两个 adapter；`subject` 一律取不可变 id（§8.2） |
 | R5 | ACP agent 质量参差 | 用户遇到难懂的失败 | conformance 门禁 + `device_agents.reason` 原样透出 |
 | R6 | 权限梯度铺开引入越权或误拒 | 安全/体验 | 逐路由核对表 + 表驱动测试；先只读/任务控制/审批/管理四档 |
 | R7 | 事件上行放大 Hub 写入量 | 性能 | Hub 单写者本就串行；批量追加 + 事务合并；必要时按 turn 批量提交 |
@@ -882,7 +938,7 @@ kin serve
 ## 14. 明确不做
 
 - **不做 multi-master**。Node 不持有可写副本；Hub 是唯一写者。这保留了 `2026-09-05` 计划的原意。
-- **不做 OpenKin 运营的账号/中继/云**。OIDC 是用户自选 IdP，Hub 是用户自部署。
+- **不做 OpenKin 运营的账号/中继/云**。登录方式由用户自选并跑在用户自己的 Hub 上，OpenKin 不运营账号服务、不托管数据。
 - **不做"运营商看不见"的中继模式**。Hub 是会话权威，必须持有明文；Kin 不提供对 Hub 的 E2EE，也不宣称"自部署 = 隐私"。信任边界是：路径中无厂商 + 秘密不出设备（D7）+ Hub 部署在你信任的机器上。
 - **不新增会话实体**。Task 就是 session。
 - **不复制 provider transcript 进 Kin**。Kin 的 `events` 是权威，provider JSONL 不再是会话保存的依赖。
