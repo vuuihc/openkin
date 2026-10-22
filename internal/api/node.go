@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -104,7 +105,7 @@ func (s *Server) handleNodeConnect(w http.ResponseWriter, r *http.Request) {
 		_ = s.Store.SetDeviceReachability(context.WithoutCancel(ctx), deviceID, store.ReachabilityOffline)
 	}()
 
-	s.serveNode(ctx, deviceID, conn)
+	s.serveNode(ctx, sender, conn)
 }
 
 // watchNodeRevocation closes the control channel once the device's credential is
@@ -209,7 +210,8 @@ func (s *Server) recordNodeHello(ctx context.Context, deviceID string, hello wor
 }
 
 // serveNode routes frames until the connection ends.
-func (s *Server) serveNode(ctx context.Context, deviceID string, ws *websocket.Conn) {
+func (s *Server) serveNode(ctx context.Context, sender node.Sender, ws *websocket.Conn) {
+	deviceID := sender.DeviceID()
 	for {
 		frame, err := node.ReadFrame(ctx, ws)
 		if err != nil {
@@ -222,20 +224,61 @@ func (s *Server) serveNode(ctx context.Context, deviceID string, ws *websocket.C
 			}
 			_ = s.Store.TouchDevice(ctx, deviceID, time.Now().UnixMilli())
 		default:
-			// Until turns are dispatched nothing consumes these. Saying so is
-			// better than dropping them silently: a Node that sends a frame the
-			// Hub does not understand should hear about it.
-			_ = s.routeNodeFrame(ctx, deviceID, frame)
+			// Saying so is better than dropping a frame silently: a Node that
+			// sends something the Hub does not understand should hear about it.
+			_ = s.routeNodeFrame(ctx, sender, frame)
 		}
 	}
 }
 
 // routeNodeFrame hands a frame to whoever asked for it.
-func (s *Server) routeNodeFrame(ctx context.Context, deviceID string, frame worker.Frame) error {
-	if s.NodeFrames != nil {
-		return s.NodeFrames(ctx, deviceID, frame)
+func (s *Server) routeNodeFrame(ctx context.Context, sender node.Sender, frame worker.Frame) error {
+	if s.NodeFrames == nil {
+		return fmt.Errorf("unhandled frame kind %q", frame.Kind)
 	}
-	return fmt.Errorf("unhandled frame kind %q", frame.Kind)
+	err := s.NodeFrames(ctx, sender, frame)
+	if errors.Is(err, node.ErrTurnUnknown) {
+		// The device is working on a turn this Hub is not running: it was
+		// dispatched before a restart, or its connection was replaced. Dropping
+		// the frame would leave the agent running on that machine with nobody
+		// collecting the result, so the Hub says the one thing that stops it.
+		s.cancelUnknownTurn(ctx, sender, frame)
+	}
+	return err
+}
+
+// cancelUnknownTurn tells a device to stop a turn the Hub has no record of.
+//
+// The turn id comes from the frame, which is the only place it exists on this
+// side: the whole point is that there is no turn object to look it up in.
+func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, frame worker.Frame) {
+	turnID := ""
+	switch frame.Kind {
+	case "turn.event":
+		event, err := node.Decode[worker.TurnEvent](frame)
+		if err != nil {
+			return
+		}
+		turnID = event.TurnID
+	case "turn.finish":
+		finish, err := node.Decode[worker.TurnFinish](frame)
+		if err != nil {
+			return
+		}
+		turnID = finish.TurnID
+	default:
+		return
+	}
+	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{
+		TurnID: turnID,
+		Reason: "the hub is no longer running this turn",
+	})
+	if err != nil {
+		return
+	}
+	writeCtx, cancelCtx := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancelCtx()
+	_ = sender.Send(writeCtx, cancel)
 }
 
 // refuseNode tells the Node why it is being turned away before closing. A Node

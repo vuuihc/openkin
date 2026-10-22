@@ -130,7 +130,8 @@ type Frame struct {
 var allowedFrameKinds = map[string]bool{
 	"hello": true, "hello_ack": true, "heartbeat": true, "lease": true,
 	"ack": true, "error": true,
-	"turn.dispatch": true, "turn.event": true, "turn.finish": true, "turn.cancel": true,
+	"turn.dispatch": true, "turn.event": true, "turn.started": true,
+	"turn.finish": true, "turn.cancel": true,
 }
 
 func (h Hello) Validate() error {

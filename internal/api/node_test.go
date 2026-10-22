@@ -353,8 +353,8 @@ func TestNodeChannelIgnoresClaimedWorkerID(t *testing.T) {
 func TestNodeChannelRoutesFrames(t *testing.T) {
 	s, master, conns := nodeTestServer(t)
 	routed := make(chan worker.Frame, 4)
-	s.NodeFrames = func(_ context.Context, deviceID string, frame worker.Frame) error {
-		if deviceID == "" {
+	s.NodeFrames = func(_ context.Context, sender node.Sender, frame worker.Frame) error {
+		if sender == nil || sender.DeviceID() == "" {
 			t.Error("frame routed without a device")
 		}
 		routed <- frame

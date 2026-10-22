@@ -5,35 +5,18 @@ import (
 	"errors"
 	"testing"
 
-	"nhooyr.io/websocket"
-
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
-type fakeSender struct {
-	id     string
-	frames []worker.Frame
-	closed bool
-}
-
-func (f *fakeSender) DeviceID() string { return f.id }
-
-func (f *fakeSender) Send(_ context.Context, frame worker.Frame) error {
-	f.frames = append(f.frames, frame)
-	return nil
-}
-
-func (f *fakeSender) Close(_ websocket.StatusCode, _ string) { f.closed = true }
-
 func TestConnectionsAttachReplacesAndReportsTheOldConnectionEnded(t *testing.T) {
-	ended := []string{}
-	conns := NewConnections(func(id string) { ended = append(ended, id) })
+	var ended []Sender
+	conns := NewConnections(func(sender Sender) { ended = append(ended, sender) })
 
-	first := &fakeSender{id: "device-1"}
+	first := newTestConn("device-1")
 	if previous := conns.Attach(first); previous != nil {
 		t.Fatalf("first attach displaced %v", previous)
 	}
-	second := &fakeSender{id: "device-1"}
+	second := newTestConn("device-1")
 	if previous := conns.Attach(second); previous != first {
 		t.Fatalf("reconnect displaced %v, want the first connection", previous)
 	}
@@ -41,7 +24,7 @@ func TestConnectionsAttachReplacesAndReportsTheOldConnectionEnded(t *testing.T) 
 	// a turn's lifetime to the socket that dispatched it, so closing this one
 	// stopped the work on that machine. Reporting it here is the only chance to
 	// settle those turns — its own Detach no longer speaks for the device.
-	if len(ended) != 1 || ended[0] != "device-1" {
+	if len(ended) != 1 || ended[0] != Sender(first) {
 		t.Fatalf("ended = %v, want one report for the replaced connection", ended)
 	}
 
@@ -58,7 +41,7 @@ func TestConnectionsAttachReplacesAndReportsTheOldConnectionEnded(t *testing.T) 
 	if conns.Connected("device-1") {
 		t.Fatal("detaching the live connection left it connected")
 	}
-	if len(ended) != 2 || ended[1] != "device-1" {
+	if len(ended) != 2 || ended[1] != Sender(second) {
 		t.Fatalf("ended = %v, want one report per connection", ended)
 	}
 }
@@ -69,7 +52,7 @@ func TestConnectionsSendToOfflineDevice(t *testing.T) {
 		t.Fatalf("send to an offline device: %v, want ErrOffline", err)
 	}
 
-	sender := &fakeSender{id: "device-1"}
+	sender := newTestConn("device-1")
 	conns.Attach(sender)
 	frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: "t1"})
 	if err != nil {
@@ -78,15 +61,15 @@ func TestConnectionsSendToOfflineDevice(t *testing.T) {
 	if err := conns.Send(context.Background(), "device-1", frame); err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.frames) != 1 || sender.frames[0].Kind != "turn.cancel" {
-		t.Fatalf("frames = %v", sender.frames)
+	if frames := sender.sent(); len(frames) != 1 || frames[0].Kind != "turn.cancel" {
+		t.Fatalf("frames = %v", frames)
 	}
 }
 
 func TestConnectionsOnline(t *testing.T) {
 	conns := NewConnections(nil)
-	conns.Attach(&fakeSender{id: "a"})
-	conns.Attach(&fakeSender{id: "b"})
+	conns.Attach(newTestConn("a"))
+	conns.Attach(newTestConn("b"))
 	online := conns.Online()
 	if len(online) != 2 {
 		t.Fatalf("online = %v", online)

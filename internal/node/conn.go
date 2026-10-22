@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"nhooyr.io/websocket"
 
@@ -14,10 +15,20 @@ import (
 // Sender is the Hub's write end of one live Node connection.
 type Sender interface {
 	DeviceID() string
+	// Generation tells one connection of a device from the next. A machine that
+	// reconnects gets a new one, so work bound to a connection that has ended
+	// can never be confused with work on the connection that replaced it.
+	Generation() uint64
 	Send(ctx context.Context, frame worker.Frame) error
 	// Close ends the connection. Used when a newer connection replaces this one.
 	Close(status websocket.StatusCode, reason string)
 }
+
+// connGenerations numbers connections for the life of the process. Only
+// uniqueness matters, not the value — and it is process-local on purpose: a Hub
+// restart loses every turn anyway, which is the same thing a new generation
+// says.
+var connGenerations atomic.Uint64
 
 // conn is the Hub's handle on one live Node connection.
 //
@@ -26,6 +37,7 @@ type Sender interface {
 // decisions. Reads happen on the handler's goroutine only.
 type conn struct {
 	deviceID string
+	gen      uint64
 	ws       *websocket.Conn
 
 	mu sync.Mutex
@@ -33,10 +45,12 @@ type conn struct {
 
 // NewSender wraps an accepted WebSocket as the Hub's side of one device.
 func NewSender(deviceID string, ws *websocket.Conn) Sender {
-	return &conn{deviceID: deviceID, ws: ws}
+	return &conn{deviceID: deviceID, gen: connGenerations.Add(1), ws: ws}
 }
 
 func (c *conn) DeviceID() string { return c.deviceID }
+
+func (c *conn) Generation() uint64 { return c.gen }
 
 func (c *conn) Send(ctx context.Context, frame worker.Frame) error {
 	c.mu.Lock()

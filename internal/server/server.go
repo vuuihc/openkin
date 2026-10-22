@@ -306,9 +306,11 @@ func ServeWith(version string, flags ServeFlags) error {
 	nodeTurns := node.NewTurns()
 	// A connection ending — dropped, or replaced by a newer one — ends whatever
 	// it was running, and says so in each transcript: the alternative is a turn
-	// that waits forever on a socket that no longer exists.
-	nodeConns := node.NewConnections(func(deviceID string) {
-		for _, turnID := range nodeTurns.Abandon(deviceID) {
+	// that waits forever on a socket that no longer exists. It is scoped to that
+	// connection: a machine that reconnects while a turn is being dispatched must
+	// not have the new turn killed by the old socket's ending.
+	nodeConns := node.NewConnections(func(ended node.Sender) {
+		for _, turnID := range nodeTurns.Abandon(ended) {
 			fmt.Fprintf(os.Stderr, "kin: warning: turn %s lost its connection\n", turnID)
 		}
 	})

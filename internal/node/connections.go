@@ -33,15 +33,16 @@ var ErrOffline = errors.New("node is not connected")
 type Connections struct {
 	mu      sync.RWMutex
 	byID    map[string]Sender
-	onEnded func(deviceID string)
+	onEnded func(sender Sender)
 }
 
 // NewConnections returns an empty connection table. onEnded, when set, is called
 // once per connection when that connection ends — because it dropped, or because
 // a newer one replaced it — so the caller can settle whatever it was doing. A
 // turn is bound to the connection that started it, so this is the only chance to
-// reach a terminal state.
-func NewConnections(onEnded func(deviceID string)) *Connections {
+// reach a terminal state; the connection itself is the argument, because that is
+// what the work is bound to.
+func NewConnections(onEnded func(sender Sender)) *Connections {
 	return &Connections{byID: make(map[string]Sender), onEnded: onEnded}
 }
 
@@ -64,7 +65,7 @@ func (c *Connections) Attach(sender Sender) (previous Sender) {
 	c.mu.Unlock()
 
 	if previous != nil && c.onEnded != nil {
-		c.onEnded(sender.DeviceID())
+		c.onEnded(previous)
 	}
 	return previous
 }
@@ -82,7 +83,7 @@ func (c *Connections) Detach(sender Sender) {
 	c.mu.Unlock()
 
 	if wasCurrent && c.onEnded != nil {
-		c.onEnded(sender.DeviceID())
+		c.onEnded(sender)
 	}
 }
 

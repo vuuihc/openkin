@@ -82,6 +82,15 @@ func TestTurnEventValidation(t *testing.T) {
 	}
 }
 
+func TestTurnStartedValidation(t *testing.T) {
+	if err := (TurnStarted{TurnID: "turn-1"}).Validate(); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	if err := (TurnStarted{}).Validate(); err == nil {
+		t.Fatal("a start ack with no turn was accepted")
+	}
+}
+
 func TestTurnFinishValidation(t *testing.T) {
 	for _, status := range []string{TurnOK, TurnError, TurnCanceled} {
 		if err := (TurnFinish{TurnID: "t", Status: status}).Validate(); err != nil {
@@ -105,6 +114,11 @@ func TestTurnFramesRoundTrip(t *testing.T) {
 	}{
 		{kind: "turn.dispatch", payload: validDispatch()},
 		{kind: "turn.event", payload: TurnEvent{TurnID: "turn-1", Seq: 2, Event: json.RawMessage(`{"type":"result"}`)}},
+		// The ack that tells the Hub the dispatch arrived. A frame kind that is
+		// never registered is a frame that can never be built, and the sender can
+		// only warn: the Node would look connected and the Hub would end the turn
+		// for never starting it.
+		{kind: "turn.started", payload: TurnStarted{TurnID: "turn-1"}},
 		{kind: "turn.finish", payload: TurnFinish{TurnID: "turn-1", Status: TurnError, Error: "boom"}},
 		{kind: "turn.cancel", payload: TurnCancel{TurnID: "turn-1", Reason: "user stopped it"}},
 	} {

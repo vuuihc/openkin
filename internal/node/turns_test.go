@@ -9,9 +9,76 @@ import (
 	"testing"
 	"time"
 
+	"nhooyr.io/websocket"
+
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
+
+// testConn is a Node connection in a test: an identity for the Hub's turn
+// registry, and somewhere for the frames it sends to land.
+type testConn struct {
+	deviceID string
+	gen      uint64
+
+	mu      sync.Mutex
+	frames  []worker.Frame
+	sendErr error
+	closed  bool
+}
+
+func newTestConn(deviceID string) *testConn {
+	return &testConn{deviceID: deviceID, gen: connGenerations.Add(1)}
+}
+
+func (c *testConn) DeviceID() string   { return c.deviceID }
+func (c *testConn) Generation() uint64 { return c.gen }
+
+func (c *testConn) Send(_ context.Context, frame worker.Frame) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sendErr != nil {
+		return c.sendErr
+	}
+	c.frames = append(c.frames, frame)
+	return nil
+}
+
+func (c *testConn) Close(_ websocket.StatusCode, _ string) {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+}
+
+func (c *testConn) wasClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+func (c *testConn) sent() []worker.Frame {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]worker.Frame(nil), c.frames...)
+}
+
+// testConnFor is one connection per device id, so tests read like the Hub's own
+// view: a device is a connection until it is replaced by a newer one.
+var (
+	testConnsMu sync.Mutex
+	testConns   = map[string]*testConn{}
+)
+
+func testConnFor(deviceID string) *testConn {
+	testConnsMu.Lock()
+	defer testConnsMu.Unlock()
+	conn, ok := testConns[deviceID]
+	if !ok {
+		conn = newTestConn(deviceID)
+		testConns[deviceID] = conn
+	}
+	return conn
+}
 
 func event(t *testing.T, kind string) json.RawMessage {
 	t.Helper()
@@ -34,19 +101,19 @@ func drain(t *testing.T, h *Handle) []adapter.Event {
 
 func TestTurnsDeliverInOrder(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for seq, kind := range []string{"task_started", "message", "result"} {
-		if err := turns.Deliver("device-1", worker.TurnEvent{
+		if err := turns.Deliver(testConnFor("device-1"), worker.TurnEvent{
 			TurnID: "turn-1", Seq: seq + 1, Event: event(t, kind),
 		}); err != nil {
 			t.Fatalf("seq %d: %v", seq+1, err)
 		}
 	}
-	if err := turns.Finish("device-1", worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+	if err := turns.Finish(testConnFor("device-1"), worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,18 +130,18 @@ func TestTurnsDeliverInOrder(t *testing.T) {
 
 func TestTurnsDropResentEvents(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, seq := range []int{1, 2, 2, 1, 3} {
-		if err := turns.Deliver("device-1", worker.TurnEvent{
+		if err := turns.Deliver(testConnFor("device-1"), worker.TurnEvent{
 			TurnID: "turn-1", Seq: seq, Event: event(t, "message"),
 		}); err != nil {
 			t.Fatalf("seq %d: %v", seq, err)
 		}
 	}
-	turns.Finish("device-1", worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK})
+	turns.Finish(testConnFor("device-1"), worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK})
 
 	// A reconnect resends from where the Node thinks it left off, so the same
 	// event arrives more than once. A transcript that repeats itself is as wrong
@@ -86,14 +153,14 @@ func TestTurnsDropResentEvents(t *testing.T) {
 
 func TestTurnsEndOnAGap(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.Deliver("device-1", worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+	if err := turns.Deliver(testConnFor("device-1"), worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.Deliver("device-1", worker.TurnEvent{TurnID: "turn-1", Seq: 4, Event: event(t, "message")}); err == nil {
+	if err := turns.Deliver(testConnFor("device-1"), worker.TurnEvent{TurnID: "turn-1", Seq: 4, Event: event(t, "message")}); err == nil {
 		t.Fatal("a gap was accepted")
 	}
 
@@ -119,18 +186,18 @@ func TestTurnsEndOnAGap(t *testing.T) {
 
 func TestTurnsRejectAnotherDevicesTurn(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.Deliver("device-2", worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err == nil {
+	if err := turns.Deliver(testConnFor("device-2"), worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err == nil {
 		t.Fatal("a second device delivered into another device's turn")
 	}
-	if err := turns.Finish("device-2", worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err == nil {
+	if err := turns.Finish(testConnFor("device-2"), worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err == nil {
 		t.Fatal("a second device finished another device's turn")
 	}
 	// The turn is untouched: the impostor's frames changed nothing.
-	if err := turns.Finish("device-1", worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+	if err := turns.Finish(testConnFor("device-1"), worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
 		t.Fatal(err)
 	}
 	if got := drain(t, handle); len(got) != 0 {
@@ -140,10 +207,10 @@ func TestTurnsRejectAnotherDevicesTurn(t *testing.T) {
 
 func TestTurnsUnknownTurn(t *testing.T) {
 	turns := NewTurns()
-	if err := turns.Deliver("device-1", worker.TurnEvent{TurnID: "gone", Seq: 1, Event: event(t, "message")}); !errors.Is(err, ErrTurnUnknown) {
+	if err := turns.Deliver(testConnFor("device-1"), worker.TurnEvent{TurnID: "gone", Seq: 1, Event: event(t, "message")}); !errors.Is(err, ErrTurnUnknown) {
 		t.Fatalf("Deliver = %v, want ErrTurnUnknown", err)
 	}
-	if err := turns.Finish("device-1", worker.TurnFinish{TurnID: "gone", Status: worker.TurnOK}); !errors.Is(err, ErrTurnUnknown) {
+	if err := turns.Finish(testConnFor("device-1"), worker.TurnFinish{TurnID: "gone", Status: worker.TurnOK}); !errors.Is(err, ErrTurnUnknown) {
 		t.Fatalf("Finish = %v, want ErrTurnUnknown", err)
 	}
 }
@@ -153,11 +220,11 @@ func TestTurnsUnknownTurn(t *testing.T) {
 // a number for an event nobody received leaves a hole the next event hides.
 func TestTurnsEndOnAnUnreadableEvent(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.Deliver("device-1", worker.TurnEvent{
+	if err := turns.Deliver(testConnFor("device-1"), worker.TurnEvent{
 		TurnID: "turn-1", Seq: 1, Event: json.RawMessage(`{"type":`),
 	}); err == nil {
 		t.Fatal("an unreadable event was accepted")
@@ -184,7 +251,7 @@ func TestTurnsSurviveACancelRacingDelivery(t *testing.T) {
 	payload := event(t, "message")
 	for i := 0; i < 100; i++ {
 		turns := NewTurns()
-		handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+		handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,7 +268,7 @@ func TestTurnsSurviveACancelRacingDelivery(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for seq := 1; seq <= 8; seq++ {
-				_ = turns.Deliver("device-1", worker.TurnEvent{TurnID: "turn-1", Seq: seq, Event: payload})
+				_ = turns.Deliver(testConnFor("device-1"), worker.TurnEvent{TurnID: "turn-1", Seq: seq, Event: payload})
 			}
 		}()
 		go func() {
@@ -215,26 +282,26 @@ func TestTurnsSurviveACancelRacingDelivery(t *testing.T) {
 
 func TestTurnsRefuseADuplicateID(t *testing.T) {
 	turns := NewTurns()
-	if _, err := turns.Open("turn-1", "device-1", "task-1", nil); err != nil {
+	if _, err := turns.Open("turn-1", testConnFor("device-1"), "task-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := turns.Open("turn-1", "device-2", "task-2", nil); err == nil {
+	if _, err := turns.Open("turn-1", testConnFor("device-2"), "task-2"); err == nil {
 		t.Fatal("two runs were allowed to share a turn id")
 	}
 }
 
 func TestTurnsAbandonADisconnectedDevice(t *testing.T) {
 	turns := NewTurns()
-	mine, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	mine, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := turns.Open("turn-2", "device-2", "task-2", nil)
+	theirs, err := turns.Open("turn-2", testConnFor("device-2"), "task-2")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if abandoned := turns.Abandon("device-1"); len(abandoned) != 1 || abandoned[0] != "turn-1" {
+	if abandoned := turns.Abandon(testConnFor("device-1")); len(abandoned) != 1 || abandoned[0] != "turn-1" {
 		t.Fatalf("abandoned = %v", abandoned)
 	}
 	// A turn whose device walked away has to end, or the engine waits on a
@@ -244,10 +311,10 @@ func TestTurnsAbandonADisconnectedDevice(t *testing.T) {
 		t.Fatalf("events = %+v", got)
 	}
 	// The other device's turn is untouched.
-	if err := turns.Deliver("device-2", worker.TurnEvent{TurnID: "turn-2", Seq: 1, Event: event(t, "message")}); err != nil {
+	if err := turns.Deliver(testConnFor("device-2"), worker.TurnEvent{TurnID: "turn-2", Seq: 1, Event: event(t, "message")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.Finish("device-2", worker.TurnFinish{TurnID: "turn-2", Status: worker.TurnOK}); err != nil {
+	if err := turns.Finish(testConnFor("device-2"), worker.TurnFinish{TurnID: "turn-2", Status: worker.TurnOK}); err != nil {
 		t.Fatal(err)
 	}
 	if got := drain(t, theirs); len(got) != 1 || got[0].Type != "message" {
@@ -257,11 +324,11 @@ func TestTurnsAbandonADisconnectedDevice(t *testing.T) {
 
 func TestTurnsFailedFinishCarriesTheReason(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", nil)
+	handle, err := turns.Open("turn-1", testConnFor("device-1"), "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.Finish("device-1", worker.TurnFinish{
+	if err := turns.Finish(testConnFor("device-1"), worker.TurnFinish{
 		TurnID: "turn-1", Status: worker.TurnError, Error: "claude-code exited 1",
 	}); err != nil {
 		t.Fatal(err)
@@ -277,35 +344,24 @@ func TestTurnsFailedFinishCarriesTheReason(t *testing.T) {
 
 func TestCancelSendsTurnCancel(t *testing.T) {
 	turns := NewTurns()
-	sent := make(chan worker.Frame, 1)
-	send := func(_ context.Context, deviceID string, frame worker.Frame) error {
-		if deviceID != "device-1" {
-			t.Errorf("cancel went to %q", deviceID)
-		}
-		sent <- frame
-		return nil
-	}
-	handle, err := turns.Open("turn-1", "device-1", "task-1", send)
+	conn := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", conn, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := handle.Cancel(); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case frame := <-sent:
-		if frame.Kind != "turn.cancel" {
-			t.Fatalf("frame = %q", frame.Kind)
-		}
-		cancel, err := Decode[worker.TurnCancel](frame)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if cancel.TurnID != "turn-1" {
-			t.Fatalf("cancel = %+v", cancel)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no cancel was sent")
+	frames := conn.sent()
+	if len(frames) != 1 || frames[0].Kind != "turn.cancel" {
+		t.Fatalf("frames = %+v", frames)
+	}
+	cancel, err := Decode[worker.TurnCancel](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancel.TurnID != "turn-1" {
+		t.Fatalf("cancel = %+v", cancel)
 	}
 	// Cancel ends the turn locally too: the engine's slot must not wait on a
 	// machine that may take a while to notice.
@@ -321,9 +377,9 @@ func TestCancelSendsTurnCancel(t *testing.T) {
 
 func TestCancelOnADeadConnectionEndsTheTurn(t *testing.T) {
 	turns := NewTurns()
-	handle, err := turns.Open("turn-1", "device-1", "task-1", func(context.Context, string, worker.Frame) error {
-		return ErrOffline
-	})
+	conn := newTestConn("device-1")
+	conn.sendErr = ErrOffline
+	handle, err := turns.Open("turn-1", conn, "task-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +394,7 @@ func TestCancelOnADeadConnectionEndsTheTurn(t *testing.T) {
 func TestRouteFrameRejectsRubbish(t *testing.T) {
 	turns := NewTurns()
 	ctx := context.Background()
-	if err := turns.RouteFrame(ctx, "device-1", worker.Frame{Kind: "heartbeat"}); err == nil {
+	if err := turns.RouteFrame(ctx, testConnFor("device-1"), worker.Frame{Kind: "heartbeat"}); err == nil {
 		t.Fatal("a heartbeat was routed as turn traffic")
 	}
 	// A turn.event whose payload is not an adapter event is refused rather than
@@ -347,7 +403,210 @@ func TestRouteFrameRejectsRubbish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := turns.RouteFrame(ctx, "device-1", frame); err == nil {
+	if err := turns.RouteFrame(ctx, testConnFor("device-1"), frame); err == nil {
 		t.Fatal("an event with no type was accepted")
+	}
+}
+
+// A turn belongs to the connection that dispatched it, not to the device. A
+// machine that reconnects while work is being handed to it must not have the
+// new turn killed by the old socket's ending, and the old socket's late frames
+// must not be read as the new run's.
+func TestTurnsBindToTheConnectionThatDispatchedThem(t *testing.T) {
+	turns := NewTurns()
+	first := newTestConn("device-1")
+	if _, err := turns.Open("turn-old", first, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The machine reconnects: a new connection, same device.
+	second := newTestConn("device-1")
+	if second.Generation() == first.Generation() {
+		t.Fatal("two connections share a generation")
+	}
+	fresh, err := turns.Open("turn-new", second, "task-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The old connection ending settles its own turn and nothing else.
+	abandoned := turns.Abandon(first)
+	if len(abandoned) != 1 || abandoned[0] != "turn-old" {
+		t.Fatalf("abandoned = %v", abandoned)
+	}
+	if running := turns.Running("device-1"); len(running) != 1 || running[0] != "turn-new" {
+		t.Fatalf("running = %v", running)
+	}
+
+	// Frames from the replaced connection are refused, even for a turn id it
+	// once owned, and even for the turn now running on the new connection.
+	if err := turns.Deliver(first, worker.TurnEvent{TurnID: "turn-new", Seq: 1, Event: event(t, "message")}); err == nil {
+		t.Fatal("a replaced connection was allowed to speak for the new turn")
+	}
+	if err := turns.Finish(first, worker.TurnFinish{TurnID: "turn-new", Status: worker.TurnOK}); err == nil {
+		t.Fatal("a replaced connection was allowed to finish the new turn")
+	}
+	// The new connection can.
+	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-new", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Finish(second, worker.TurnFinish{TurnID: "turn-new", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, fresh); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+}
+
+// A device that is connected but never starts the turn is the one case silence
+// cannot be told from work. The Hub gives it a deadline and then says so in the
+// transcript, instead of holding the task open forever.
+func TestTurnsFailATurnTheDeviceNeverStarted(t *testing.T) {
+	turns := NewTurns()
+	turns.StartTimeout = 40 * time.Millisecond
+	conn := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", conn, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "error" {
+		t.Fatalf("events = %+v", got)
+	}
+	if !strings.Contains(string(got[0].Payload), "did not start") {
+		t.Fatalf("payload = %s", got[0].Payload)
+	}
+	if running := turns.Running(""); len(running) != 0 {
+		t.Fatalf("the turn is still registered: %v", running)
+	}
+}
+
+func TestTurnsStartedStopsTheDeadline(t *testing.T) {
+	turns := NewTurns()
+	turns.StartTimeout = 40 * time.Millisecond
+	conn := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", conn, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(conn, worker.TurnStarted{TurnID: "turn-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Deliver(conn, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	// The deadline must not have fired: a turn that started is a turn the Hub
+	// waits on, however long the agent takes.
+	if err := turns.Finish(conn, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	got := drain(t, handle)
+	if len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+	// A start for a connection that does not own the turn is refused.
+	other := newTestConn("device-1")
+	if _, err := turns.Open("turn-2", conn, "task-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Started(other, worker.TurnStarted{TurnID: "turn-2"}); err == nil {
+		t.Fatal("another connection claimed to have started the turn")
+	}
+	if err := turns.Started(conn, worker.TurnStarted{TurnID: "gone"}); !errors.Is(err, ErrTurnUnknown) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A reader that has stopped must not stop the connection: the device's other
+// turns and its heartbeats are the read loop's business, and one stuck consumer
+// holding that loop would take them all down. The stuck turn ends instead, with
+// a reason in its transcript.
+func TestTurnsDoNotLetOneStuckReaderStallTheConnection(t *testing.T) {
+	turns := NewTurns()
+	// Long enough that the reader below, which starts as soon as the burst is
+	// over, is certain to be handed the reason.
+	turns.PushGrace = 5 * time.Second
+	stuck := newTestConn("device-1")
+	stuckHandle, err := turns.Open("turn-stuck", stuck, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fine := newTestConn("device-2")
+	fineHandle, err := turns.Open("turn-fine", fine, "task-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Nobody reads turn-stuck: fill its buffer and then some.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for seq := 1; seq <= 200; seq++ {
+			_ = turns.Deliver(stuck, worker.TurnEvent{TurnID: "turn-stuck", Seq: seq, Event: event(t, "message")})
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("delivery blocked the read loop on a turn nobody is reading")
+	}
+
+	// The other device's turn is unaffected while that resolves.
+	if err := turns.Deliver(fine, worker.TurnEvent{TurnID: "turn-fine", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Finish(fine, worker.TurnFinish{TurnID: "turn-fine", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, fineHandle); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+
+	// The stalled turn says why it ended, once someone reads it.
+	got := drain(t, stuckHandle)
+	if len(got) != 65 {
+		t.Fatalf("the backlog is %d events, want the 64 that fit plus the reason", len(got))
+	}
+	last := got[len(got)-1]
+	if last.Type != "error" || !strings.Contains(string(last.Payload), "fell behind") {
+		t.Fatalf("last event = %+v", last)
+	}
+}
+
+// A reader that never comes back must not leave the turn open forever. The
+// registry is what says so without reading the channel: a turn is in it only
+// while it is running.
+func TestTurnsEndEvenWhenNobodyReadsTheEvents(t *testing.T) {
+	turns := NewTurns()
+	turns.PushGrace = 30 * time.Millisecond
+	conn := newTestConn("device-1")
+	handle, err := turns.Open("turn-1", conn, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for seq := 1; seq <= 200; seq++ {
+		if err := turns.Deliver(conn, worker.TurnEvent{TurnID: "turn-1", Seq: seq, Event: event(t, "message")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for turns.Running("") != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("a turn with nobody reading it stayed open")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	// And the channel the engine is parked on is closed, so its run loop ends
+	// rather than holding a concurrency slot. The backlog is whatever fit in the
+	// buffer; what matters is that reading it ends.
+	drained := make(chan int, 1)
+	go func() { drained <- len(drain(t, handle)) }()
+	select {
+	case n := <-drained:
+		if n == 0 {
+			t.Fatal("the turn ended without a single event in its transcript")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the turn ended but its event channel stayed open")
 	}
 }

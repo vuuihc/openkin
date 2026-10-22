@@ -46,7 +46,14 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		return nil, err
 	}
 
-	handle, err := a.Turns.Open(turnID, a.DeviceID, spec.ID, a.Conns.Send)
+	// The turn belongs to the connection that dispatches it, and is dispatched on
+	// that same connection: a reconnect in the middle of this must not produce a
+	// turn bound to one socket and sent on another.
+	sender, err := a.Conns.Get(a.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := a.Turns.Open(turnID, sender, spec.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +62,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		a.Turns.close(handle.turn)
 		return nil, err
 	}
-	if err := a.Conns.Send(ctx, a.DeviceID, frame); err != nil {
+	if err := sender.Send(ctx, frame); err != nil {
 		// The socket went away between the check and the write. Fail the start
 		// rather than leave a turn nobody can feed.
 		a.Turns.close(handle.turn)
@@ -70,7 +77,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 //
 // Its signature is the one api.Server.NodeFrames wants, so the composition root
 // wires it in directly.
-func (t *Turns) RouteFrame(_ context.Context, deviceID string, frame worker.Frame) error {
+func (t *Turns) RouteFrame(_ context.Context, sender Sender, frame worker.Frame) error {
 	switch frame.Kind {
 	case "turn.event":
 		event, err := Decode[worker.TurnEvent](frame)
@@ -80,7 +87,16 @@ func (t *Turns) RouteFrame(_ context.Context, deviceID string, frame worker.Fram
 		if err := event.Validate(); err != nil {
 			return err
 		}
-		return t.Deliver(deviceID, event)
+		return t.Deliver(sender, event)
+	case "turn.started":
+		started, err := Decode[worker.TurnStarted](frame)
+		if err != nil {
+			return err
+		}
+		if err := started.Validate(); err != nil {
+			return err
+		}
+		return t.Started(sender, started)
 	case "turn.finish":
 		finish, err := Decode[worker.TurnFinish](frame)
 		if err != nil {
@@ -89,7 +105,7 @@ func (t *Turns) RouteFrame(_ context.Context, deviceID string, frame worker.Fram
 		if err := finish.Validate(); err != nil {
 			return err
 		}
-		return t.Finish(deviceID, finish)
+		return t.Finish(sender, finish)
 	default:
 		return fmt.Errorf("unhandled frame kind %q", frame.Kind)
 	}

@@ -62,6 +62,17 @@ type TurnEvent struct {
 	Event  json.RawMessage `json:"event"`
 }
 
+// TurnStarted is a Node saying it has taken a dispatch and is about to run it.
+//
+// It exists so the Hub can tell "the device is working on this" from "the device
+// is connected but nothing ever happened", which is otherwise indistinguishable
+// from silence — and silence is what a Hub waits on forever. It is sent before
+// the run begins, so a refusal that follows arrives as a TurnFinish rather than
+// as a dispatch that vanished.
+type TurnStarted struct {
+	TurnID string `json:"turn_id"`
+}
+
 // TurnFinish ends a turn. It is the only frame that says how it ended, so a
 // Node that dies without sending one leaves the Hub to conclude the turn
 // itself (M2.4).
@@ -119,6 +130,10 @@ func (e TurnEvent) Validate() error {
 		return errors.New("turn event has no payload")
 	}
 	return nil
+}
+
+func (s TurnStarted) Validate() error {
+	return bounded("turn_id", s.TurnID, MaxTurnID)
 }
 
 func (f TurnFinish) Validate() error {

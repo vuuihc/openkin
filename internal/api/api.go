@@ -144,9 +144,11 @@ type Server struct {
 	// (a test, an embedder) wants.
 	Nodes *node.Connections
 	// NodeFrames routes a frame that arrived on a Node connection and is not
-	// part of the handshake or the heartbeat. Nil means nothing consumes them
-	// yet, and the Hub answers with an error frame.
-	NodeFrames func(ctx context.Context, deviceID string, frame worker.Frame) error
+	// part of the handshake or the heartbeat. The connection is the argument and
+	// not just its device: a turn belongs to the socket that dispatched it, so
+	// the answer to "whose frame is this" is the connection. Nil means nothing
+	// consumes them yet, and the Hub answers with an error frame.
+	NodeFrames func(ctx context.Context, sender node.Sender, frame worker.Frame) error
 	// Browser is the optional Playwright bridge for task-attached actions.
 	Browser *browserworker.Runner
 	// Eval is the optional file-backed replay/evaluation service.

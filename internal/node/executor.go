@@ -95,6 +95,10 @@ func (e *Executor) dispatch(ctx context.Context, frame worker.Frame) error {
 }
 
 func (e *Executor) run(parent context.Context, dispatch worker.Dispatch) {
+	// Say so before anything else: the Hub is holding a turn open on the
+	// strength of this frame, and a refusal below arrives as a finish, which is a
+	// better answer than the silence the Hub would otherwise have to time out.
+	e.started(parent, dispatch.TurnID)
 	if !e.allowedCwd(dispatch.Cwd) {
 		e.report(parent, dispatch.TurnID, worker.TurnError,
 			fmt.Sprintf("%s is not a directory this machine works in", dispatch.Cwd))
@@ -218,6 +222,18 @@ func (e *Executor) Stop() {
 	e.mu.Unlock()
 	for _, entry := range entries {
 		entry.cancel()
+	}
+}
+
+// started tells the Hub this machine has taken the dispatch.
+func (e *Executor) started(ctx context.Context, turnID string) {
+	frame, err := worker.NewFrame("turn.started", worker.TurnStarted{TurnID: turnID})
+	if err != nil {
+		e.warn("turn %s: build started: %v", turnID, err)
+		return
+	}
+	if err := e.send(ctx, frame); err != nil {
+		e.warn("turn %s: send started: %v", turnID, err)
 	}
 }
 

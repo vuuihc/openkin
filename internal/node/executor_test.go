@@ -167,10 +167,26 @@ func TestExecutorRunsTheTurnAndReportsEveryEvent(t *testing.T) {
 		t.Fatalf("finish = %+v", finish)
 	}
 
+	// Taking the work is the first thing the machine says, because it is the
+	// only thing that tells the Hub the dispatch arrived: a node that ran the
+	// turn and stayed quiet looks exactly like a node that never got it, and
+	// the Hub ends a turn nobody started.
+	frames := rec.collected(t)
+	if len(frames) == 0 || frames[0].Kind != "turn.started" {
+		t.Fatalf("the first frame is not the start ack: %+v", frames)
+	}
+	started, err := Decode[worker.TurnStarted](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.TurnID != "turn-1" {
+		t.Fatalf("start ack = %+v", started)
+	}
+
 	// The sequence starts at one and has no holes: the Hub ends a turn that
 	// skips a number, so anything else would fail every real turn.
 	var kinds []string
-	for _, frame := range rec.collected(t) {
+	for _, frame := range frames {
 		if frame.Kind != "turn.event" {
 			continue
 		}

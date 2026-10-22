@@ -4,41 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"sync"
 	"testing"
 	"time"
-
-	"nhooyr.io/websocket"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
-// captureSender records what the Hub actually puts on the wire.
-type captureSender struct {
-	mu     sync.Mutex
-	frames []worker.Frame
-}
-
-func (c *captureSender) DeviceID() string { return "device-1" }
-
-func (c *captureSender) Send(_ context.Context, frame worker.Frame) error {
-	c.mu.Lock()
-	c.frames = append(c.frames, frame)
-	c.mu.Unlock()
-	return nil
-}
-
-func (c *captureSender) Close(_ websocket.StatusCode, _ string) {}
-
 // TestDispatchCarriesNoSecrets is the serialized form of ADR 0022 D7. Checking
 // the struct field is not enough: what matters is the bytes, because a field
 // added to the dispatch later would travel without anybody deciding it should.
 func TestDispatchCarriesNoSecrets(t *testing.T) {
-	sender := &captureSender{}
+	// A connection table the adapter can really send through, recording what it
+	// puts on the wire.
+	sender := newTestConn("device-1")
 	conns := NewConnections(nil)
 	turns := NewTurns()
-	// A connection table the adapter can really send through.
 	conns.Attach(sender)
 	ad := &Adapter{Conns: conns, Turns: turns, DeviceID: "device-1"}
 	handle, err := ad.Start(context.Background(), adapter.TaskSpec{
@@ -54,9 +35,7 @@ func TestDispatchCarriesNoSecrets(t *testing.T) {
 	}
 	defer func() { _ = handle.Cancel() }()
 
-	sender.mu.Lock()
-	frames := append([]worker.Frame(nil), sender.frames...)
-	sender.mu.Unlock()
+	frames := sender.sent()
 	if len(frames) != 1 || frames[0].Kind != "turn.dispatch" {
 		t.Fatalf("frames = %+v", frames)
 	}
@@ -105,7 +84,7 @@ func TestAdapterRefusesToDispatchWithoutAConnection(t *testing.T) {
 // TestAdapterCancelReachesTheDevice keeps the Hub's stop button wired to the
 // machine that is doing the work.
 func TestAdapterCancelReachesTheDevice(t *testing.T) {
-	sender := &captureSender{}
+	sender := newTestConn("device-1")
 	conns := NewConnections(nil)
 	conns.Attach(sender)
 	turns := NewTurns()
@@ -120,12 +99,11 @@ func TestAdapterCancelReachesTheDevice(t *testing.T) {
 	if err := handle.Cancel(); err != nil {
 		t.Fatal(err)
 	}
-	sender.mu.Lock()
-	defer sender.mu.Unlock()
-	if len(sender.frames) != 2 || sender.frames[1].Kind != "turn.cancel" {
-		t.Fatalf("frames = %+v", sender.frames)
+	frames := sender.sent()
+	if len(frames) != 2 || frames[1].Kind != "turn.cancel" {
+		t.Fatalf("frames = %+v", frames)
 	}
-	cancel, err := Decode[worker.TurnCancel](sender.frames[1])
+	cancel, err := Decode[worker.TurnCancel](frames[1])
 	if err != nil {
 		t.Fatal(err)
 	}

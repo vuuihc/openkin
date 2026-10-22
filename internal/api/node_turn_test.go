@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"nhooyr.io/websocket"
+
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -47,7 +49,7 @@ func remoteHub(t *testing.T) (*Server, string, *node.Connections, *node.Turns) {
 	eng.SetWorkspaceRuntime(workspace.NewManager(t.TempDir()))
 
 	turns := node.NewTurns()
-	conns := node.NewConnections(func(deviceID string) { turns.Abandon(deviceID) })
+	conns := node.NewConnections(func(sender node.Sender) { turns.Abandon(sender) })
 	eng.SetRemoteRunner("hub-machine", func(stored store.Task, executionID string) (adapter.Adapter, error) {
 		return &node.Adapter{Conns: conns, Turns: turns, DeviceID: stored.ExecutingDeviceID}, nil
 	})
@@ -698,5 +700,65 @@ func TestCreateJudgesTheAgentOnTheMachineThatWillRunIt(t *testing.T) {
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("an agent the machine reported was refused: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// A device can be running a turn this Hub knows nothing about: the Hub
+// restarted, or the connection was replaced while the dispatch was in flight.
+// Ignoring its events would leave an agent working on a machine nobody is
+// collecting results from, so the Hub says the one thing that stops it.
+func TestAnUnknownTurnIsToldToStop(t *testing.T) {
+	s, master, _, _ := remoteHub(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, _ := pairDevice(t, s.Handler(), master)
+	wsURL := "ws" + hub.URL[len("http"):] + node.Path
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + deviceToken}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close(websocket.StatusNormalClosure, "")
+	hello, err := worker.NewFrame("hello", nodeHello("/code/kin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.WriteFrame(ctx, ws, hello); err != nil {
+		t.Fatal(err)
+	}
+	if ack, err := node.ReadFrame(ctx, ws); err != nil || ack.Kind != "hello_ack" {
+		t.Fatalf("handshake: %q %v", ack.Kind, err)
+	}
+
+	up, err := worker.NewFrame("turn.event", worker.TurnEvent{
+		TurnID: "turn-from-a-previous-hub", Seq: 1,
+		Event: json.RawMessage(`{"type":"message"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.WriteFrame(ctx, ws, up); err != nil {
+		t.Fatal(err)
+	}
+	down, err := node.ReadFrame(ctx, ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if down.Kind != "turn.cancel" {
+		t.Fatalf("the hub answered an unknown turn with %q", down.Kind)
+	}
+	stop, err := node.Decode[worker.TurnCancel](down)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop.TurnID != "turn-from-a-previous-hub" {
+		t.Fatalf("cancel = %+v", stop)
+	}
+	if !strings.Contains(stop.Reason, "no longer running") {
+		t.Fatalf("the machine is not told why: %q", stop.Reason)
 	}
 }
