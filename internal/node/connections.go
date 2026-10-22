@@ -1,0 +1,118 @@
+// Package node is the Hub's half of the Node control channel.
+//
+// A Node is a machine that runs turns with its own agents. It dials out to the
+// Hub and stays connected; the Hub never dials in, so a machine behind NAT
+// needs no port mapping, no VPN, and no public address. Everything the Hub
+// wants to say to a Node — dispatch a turn, cancel one, hand back an approval
+// decision — travels back down the connection the Node opened.
+//
+// This file is only the connection table. What the frames mean is the worker
+// protocol's business (internal/remote/worker), and what happens to a
+// dispatched turn is the engine's.
+package node
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/vuuihc/openkin/internal/remote/worker"
+)
+
+// ErrOffline means the device has no live connection: either it never dialled
+// in, or the connection dropped. Callers must treat it as a normal state, not
+// an error to retry in a loop.
+var ErrOffline = errors.New("node is not connected")
+
+// Connections tracks which devices are connected right now.
+//
+// Liveness lives here and not in the database: a Hub restart, a killed process,
+// or a yanked cable all look the same from the store's point of view, and only
+// the process holding the socket knows the difference.
+type Connections struct {
+	mu     sync.RWMutex
+	byID   map[string]Sender
+	onGone func(deviceID string)
+}
+
+// NewConnections returns an empty connection table. onGone, when set, is called
+// once when a device's current connection ends, so the caller can settle
+// whatever that device was doing (an in-flight turn has to reach a terminal
+// state).
+func NewConnections(onGone func(deviceID string)) *Connections {
+	return &Connections{byID: make(map[string]Sender), onGone: onGone}
+}
+
+// Attach registers a live connection and returns whatever it displaced.
+//
+// A device reconnecting is normal — a laptop that slept, a redeployed Node — so
+// the new connection wins and the stale one is returned for the caller to close.
+// Two live connections for one device would make dispatch a coin flip.
+//
+// Displacing a connection does not report the device as gone. The machine is
+// still there and may still be running what it was running; a reconnect is a
+// change of socket, not of state. Only Detach — the current connection actually
+// ending — reports the device gone.
+func (c *Connections) Attach(sender Sender) (previous Sender) {
+	c.mu.Lock()
+	previous = c.byID[sender.DeviceID()]
+	c.byID[sender.DeviceID()] = sender
+	c.mu.Unlock()
+	return previous
+}
+
+// Detach removes a connection if it is still the current one. A connection that
+// was already replaced must not remove its successor on the way out.
+func (c *Connections) Detach(sender Sender) {
+	c.mu.Lock()
+	current, ok := c.byID[sender.DeviceID()]
+	wasCurrent := ok && current == sender
+	if wasCurrent {
+		delete(c.byID, sender.DeviceID())
+	}
+	c.mu.Unlock()
+
+	if wasCurrent && c.onGone != nil {
+		c.onGone(sender.DeviceID())
+	}
+}
+
+// Get returns the live connection for a device, or ErrOffline.
+func (c *Connections) Get(deviceID string) (Sender, error) {
+	c.mu.RLock()
+	sender, ok := c.byID[deviceID]
+	c.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrOffline, deviceID)
+	}
+	return sender, nil
+}
+
+// Connected reports whether a device has a live connection.
+func (c *Connections) Connected(deviceID string) bool {
+	c.mu.RLock()
+	_, ok := c.byID[deviceID]
+	c.mu.RUnlock()
+	return ok
+}
+
+// Online lists the devices connected right now.
+func (c *Connections) Online() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, 0, len(c.byID))
+	for id := range c.byID {
+		out = append(out, id)
+	}
+	return out
+}
+
+// Send delivers a frame to one device, or reports that it is offline.
+func (c *Connections) Send(ctx context.Context, deviceID string, frame worker.Frame) error {
+	sender, err := c.Get(deviceID)
+	if err != nil {
+		return err
+	}
+	return sender.Send(ctx, frame)
+}

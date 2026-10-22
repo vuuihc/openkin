@@ -28,6 +28,7 @@ import (
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/mcp"
+	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -239,6 +240,11 @@ func ServeWith(version string, flags ServeFlags) error {
 	workerRegistry := worker.NewRegistry(worker.DefaultLeaseTTL, func(record worker.Record) {
 		notifier.NotifyWorkerOffline(context.Background(), record.WorkerID, "", record.Label)
 	})
+	// Nodes are the machines that run turns with their own agents. The
+	// connection table is process-local by nature — only the process holding the
+	// socket knows a device is connected — while the device row it writes to is
+	// durable, so a Hub restart costs presence, not knowledge.
+	nodeConns := node.NewConnections(nil)
 	// Session titles: truncate immediately, then replace via cognition provider when configured.
 	titleResolver := func(c context.Context) (provider.Client, provider.Config, error) {
 		cfg, err := provider.LoadConfig(c, st)
@@ -437,6 +443,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,
+		Nodes:        nodeConns,
 		Browser:      browser,
 		Eval:         evalRunner,
 		A2A:          &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},

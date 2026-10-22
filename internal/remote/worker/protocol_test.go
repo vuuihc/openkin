@@ -9,26 +9,35 @@ import (
 
 func validHello() Hello {
 	return Hello{
-		Version:       ProtocolVersion,
-		WorkerID:      "worker-1",
-		Capabilities:  []Capability{{Name: "kin", Features: []string{"run", "cancel"}}},
-		MaxConcurrent: 2,
+		Version:  ProtocolVersion,
+		WorkerID: "device-1",
+		Agents: []Agent{{
+			ID: "claude-code", Installed: true, Available: true,
+			Version: "2.1.0", Models: []string{"sonnet"},
+		}},
+		WorkspaceRoots: []string{"/Users/me/code"},
+		MaxConcurrent:  2,
 	}
 }
 
-func TestHelloValidationRejectsDuplicateCapabilities(t *testing.T) {
+func TestHelloValidationRejectsDuplicateAgents(t *testing.T) {
 	h := validHello()
-	h.Capabilities = append(h.Capabilities, h.Capabilities[0])
+	h.Agents = append(h.Agents, h.Agents[0])
 	if err := h.Validate(); err == nil {
-		t.Fatal("duplicate capability was accepted")
+		t.Fatal("duplicate agent was accepted")
+	}
+}
+
+func TestHelloValidationRejectsAgentWithoutID(t *testing.T) {
+	h := validHello()
+	h.Agents[0].ID = "  "
+	if err := h.Validate(); err == nil {
+		t.Fatal("agent without an id was accepted")
 	}
 }
 
 func TestFrameRoundTripAndBounds(t *testing.T) {
-	frame, err := NewFrame("assignment", Assignment{
-		ID: "a1", LeaseID: "l1", TaskID: "t1", Agent: "kin",
-		Cwd: "/tmp/project", Prompt: "run tests",
-	})
+	frame, err := NewFrame("hello", validHello())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +54,13 @@ func TestFrameRoundTripAndBounds(t *testing.T) {
 	}
 	if _, err := NewFrame("unknown", nil); err == nil {
 		t.Fatal("unknown frame kind was accepted")
+	}
+}
+
+func TestHelloAckRejectsImpossibleHeartbeat(t *testing.T) {
+	ack := HelloAck{Version: ProtocolVersion, HeartbeatSeconds: 0}
+	if err := ack.Validate(); err == nil {
+		t.Fatal("zero heartbeat interval was accepted")
 	}
 }
 

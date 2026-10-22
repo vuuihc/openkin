@@ -33,7 +33,7 @@ func TestWorkerAPIScopesLeaseToDeviceAndRevocation(t *testing.T) {
 	hello := worker.Hello{
 		Version:       worker.ProtocolVersion,
 		WorkerID:      "remote-1",
-		Capabilities:  []worker.Capability{{Name: "kin", Features: []string{"run"}}},
+		Agents:        []worker.Agent{{ID: "kin", Installed: true, Available: true}},
 		MaxConcurrent: 1,
 	}
 	rec := request(http.MethodPost, "/api/workers/register", deviceToken, hello)

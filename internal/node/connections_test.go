@@ -1,0 +1,140 @@
+package node
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"nhooyr.io/websocket"
+
+	"github.com/vuuihc/openkin/internal/remote/worker"
+)
+
+type fakeSender struct {
+	id     string
+	frames []worker.Frame
+	closed bool
+}
+
+func (f *fakeSender) DeviceID() string { return f.id }
+
+func (f *fakeSender) Send(_ context.Context, frame worker.Frame) error {
+	f.frames = append(f.frames, frame)
+	return nil
+}
+
+func (f *fakeSender) Close(_ websocket.StatusCode, _ string) { f.closed = true }
+
+func TestConnectionsAttachReplacesWithoutCallingItGone(t *testing.T) {
+	gone := []string{}
+	conns := NewConnections(func(id string) { gone = append(gone, id) })
+
+	first := &fakeSender{id: "device-1"}
+	if previous := conns.Attach(first); previous != nil {
+		t.Fatalf("first attach displaced %v", previous)
+	}
+	second := &fakeSender{id: "device-1"}
+	if previous := conns.Attach(second); previous != first {
+		t.Fatalf("reconnect displaced %v, want the first connection", previous)
+	}
+	// A reconnect is a new socket, not a device leaving: failing that device's
+	// in-flight turns on every blip would be worse than the blip.
+	if len(gone) != 0 {
+		t.Fatalf("reconnect reported the device gone: %v", gone)
+	}
+
+	// The replaced connection must not remove its successor on the way out.
+	conns.Detach(first)
+	if !conns.Connected("device-1") {
+		t.Fatal("detaching the replaced connection removed the live one")
+	}
+	conns.Detach(second)
+	if conns.Connected("device-1") {
+		t.Fatal("detaching the live connection left it connected")
+	}
+	if len(gone) != 1 || gone[0] != "device-1" {
+		t.Fatalf("gone = %v, want one report for device-1", gone)
+	}
+}
+
+func TestConnectionsSendToOfflineDevice(t *testing.T) {
+	conns := NewConnections(nil)
+	if err := conns.Send(context.Background(), "missing", worker.Frame{}); !errors.Is(err, ErrOffline) {
+		t.Fatalf("send to an offline device: %v, want ErrOffline", err)
+	}
+
+	sender := &fakeSender{id: "device-1"}
+	conns.Attach(sender)
+	frame, err := worker.NewFrame("cancel", map[string]string{"reason": "stop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conns.Send(context.Background(), "device-1", frame); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.frames) != 1 || sender.frames[0].Kind != "cancel" {
+		t.Fatalf("frames = %v", sender.frames)
+	}
+}
+
+func TestConnectionsOnline(t *testing.T) {
+	conns := NewConnections(nil)
+	conns.Attach(&fakeSender{id: "a"})
+	conns.Attach(&fakeSender{id: "b"})
+	online := conns.Online()
+	if len(online) != 2 {
+		t.Fatalf("online = %v", online)
+	}
+}
+
+func TestWSEndpoint(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{in: "https://kin.example.com", want: "wss://kin.example.com/api/node"},
+		{in: "http://192.168.1.20:7777", want: "ws://192.168.1.20:7777/api/node"},
+		{in: "https://kin.example.com/", want: "wss://kin.example.com/api/node"},
+		{in: "wss://kin.example.com", want: "wss://kin.example.com/api/node"},
+		{in: "", wantErr: true},
+		{in: "kin.example.com", wantErr: true},
+		{in: "ftp://kin.example.com", wantErr: true},
+	}
+	for _, tc := range cases {
+		got, err := wsEndpoint(tc.in)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("wsEndpoint(%q) = %q, want an error", tc.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("wsEndpoint(%q): %v", tc.in, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("wsEndpoint(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDecodeCapabilitiesIgnoresJunk(t *testing.T) {
+	if got := DecodeCapabilities(""); len(got.WorkspaceRoots) != 0 {
+		t.Fatalf("empty input decoded to %v", got)
+	}
+	if got := DecodeCapabilities("{not json"); len(got.WorkspaceRoots) != 0 {
+		t.Fatalf("junk input decoded to %v", got)
+	}
+	encoded, err := EncodeCapabilities(worker.Hello{
+		WorkspaceRoots: []string{"/code/a"},
+		MaxConcurrent:  3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := DecodeCapabilities(encoded)
+	if len(got.WorkspaceRoots) != 1 || got.WorkspaceRoots[0] != "/code/a" || got.MaxConcurrent != 3 {
+		t.Fatalf("round trip = %+v", got)
+	}
+}

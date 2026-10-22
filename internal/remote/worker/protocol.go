@@ -1,6 +1,10 @@
-// Package worker defines the narrow protocol used by user-owned headless
-// workers. Transport is deliberately separate: Relay and direct HTTPS carry
-// the same authenticated frames.
+// Package worker defines the narrow protocol a Kin Node speaks with its Hub.
+//
+// A Node is a user-owned machine that runs turns with the agents installed on
+// it. It dials out to the Hub (the Hub never dials in), says who it is with
+// `hello`, keeps its presence fresh with `heartbeat`, and is handed work over
+// the same authenticated frames. Transport is deliberately separate: direct
+// WSS and the outbound Relay carry the same frames.
 package worker
 
 import (
@@ -12,23 +16,50 @@ import (
 
 const (
 	ProtocolVersion = 1
-	MaxCapabilities = 32
-	MaxFeatures     = 32
+	MaxAgents       = 32
+	MaxRoots        = 32
+	MaxModels       = 64
 	MaxFrameBytes   = 1 << 20
 )
 
-type Capability struct {
-	Name     string   `json:"name"`
-	Version  string   `json:"version,omitempty"`
-	Features []string `json:"features,omitempty"`
+// Agent is one agent runtime as the machine that owns it sees it: what is
+// installed there, whether it can run right now, and which models it offers.
+// It mirrors a `device_agents` row. None of it is secret — provider keys and
+// agent logins never leave the device (ADR 0022 D7).
+type Agent struct {
+	ID           string   `json:"id"`
+	Installed    bool     `json:"installed"`
+	Available    bool     `json:"available"`
+	Version      string   `json:"version,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	DefaultModel string   `json:"default_model,omitempty"`
+	Models       []string `json:"models,omitempty"`
+	IsDefault    bool     `json:"is_default,omitempty"`
 }
 
+// Hello is a Node's opening frame, and the device's own account of itself.
+//
+// WorkerID is the device id: one daemon runs one Node per machine, and the
+// Hub binds the frame to the device credential that carried it.
 type Hello struct {
-	Version       int          `json:"version"`
-	WorkerID      string       `json:"worker_id"`
-	Label         string       `json:"label,omitempty"`
-	Capabilities  []Capability `json:"capabilities"`
-	MaxConcurrent int          `json:"max_concurrent"`
+	Version        int      `json:"version"`
+	WorkerID       string   `json:"worker_id"`
+	Label          string   `json:"label,omitempty"`
+	Platform       string   `json:"platform,omitempty"`
+	Arch           string   `json:"arch,omitempty"`
+	KinVersion     string   `json:"kin_version,omitempty"`
+	Agents         []Agent  `json:"agents"`
+	WorkspaceRoots []string `json:"workspace_roots,omitempty"`
+	MaxConcurrent  int      `json:"max_concurrent"`
+}
+
+// HelloAck is the Hub's answer: the protocol version it agreed to and how often
+// the Node should check in. A version the Hub does not speak is refused by
+// closing with `error` rather than by negotiating down.
+type HelloAck struct {
+	Version          int   `json:"version"`
+	HeartbeatSeconds int   `json:"heartbeat_seconds"`
+	HubTime          int64 `json:"hub_time"`
 }
 
 type Lease struct {
@@ -44,36 +75,6 @@ type Heartbeat struct {
 	At       int64  `json:"at"`
 }
 
-type Assignment struct {
-	ID             string `json:"assignment_id"`
-	LeaseID        string `json:"lease_id"`
-	TaskID         string `json:"task_id"`
-	Agent          string `json:"agent"`
-	Model          string `json:"model,omitempty"`
-	Cwd            string `json:"cwd"`
-	Prompt         string `json:"prompt"`
-	PermissionMode string `json:"permission_mode,omitempty"`
-}
-
-type TaskEvent struct {
-	AssignmentID string          `json:"assignment_id"`
-	TaskID       string          `json:"task_id"`
-	Type         string          `json:"type"`
-	Payload      json.RawMessage `json:"payload,omitempty"`
-	Seq          int             `json:"seq"`
-}
-
-type Artifact struct {
-	AssignmentID string `json:"assignment_id"`
-	TaskID       string `json:"task_id"`
-	ID           string `json:"artifact_id"`
-	Name         string `json:"name"`
-	Mime         string `json:"mime,omitempty"`
-	Size         int64  `json:"size"`
-	SHA256       string `json:"sha256"`
-	Body         []byte `json:"body,omitempty"`
-}
-
 type Frame struct {
 	Version int             `json:"version"`
 	Kind    string          `json:"kind"`
@@ -81,9 +82,8 @@ type Frame struct {
 }
 
 var allowedFrameKinds = map[string]bool{
-	"hello": true, "lease": true, "heartbeat": true, "assignment": true,
-	"event": true, "artifact": true, "cancel": true, "ack": true,
-	"error": true,
+	"hello": true, "hello_ack": true, "lease": true, "heartbeat": true,
+	"cancel": true, "ack": true, "error": true,
 }
 
 func (h Hello) Validate() error {
@@ -93,29 +93,30 @@ func (h Hello) Validate() error {
 	if len(strings.TrimSpace(h.WorkerID)) > 128 {
 		return errors.New("worker_id exceeds 128 characters")
 	}
-	if len(h.Capabilities) == 0 || len(h.Capabilities) > MaxCapabilities {
-		return errors.New("capabilities must contain 1 to 32 entries")
+	if len(h.Agents) == 0 || len(h.Agents) > MaxAgents {
+		return fmt.Errorf("agents must contain 1 to %d entries", MaxAgents)
+	}
+	if len(h.WorkspaceRoots) > MaxRoots {
+		return fmt.Errorf("workspace_roots exceeds %d entries", MaxRoots)
 	}
 	if h.MaxConcurrent < 1 || h.MaxConcurrent > 256 {
 		return errors.New("max_concurrent must be between 1 and 256")
 	}
-	seen := make(map[string]struct{}, len(h.Capabilities))
-	for i, c := range h.Capabilities {
-		name := strings.TrimSpace(c.Name)
-		if name == "" || len(name) > 128 {
-			return fmt.Errorf("capabilities[%d].name is invalid", i)
+	seen := make(map[string]struct{}, len(h.Agents))
+	for i, agent := range h.Agents {
+		id := strings.TrimSpace(agent.ID)
+		if id == "" || len(id) > 128 {
+			return fmt.Errorf("agents[%d].id is invalid", i)
 		}
-		if _, ok := seen[name]; ok {
-			return fmt.Errorf("duplicate capability %q", name)
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate agent %q", id)
 		}
-		seen[name] = struct{}{}
-		if len(c.Features) > MaxFeatures {
-			return fmt.Errorf("capabilities[%d] has too many features", i)
+		seen[id] = struct{}{}
+		if len(agent.Reason) > 512 {
+			return fmt.Errorf("agents[%d].reason is too long", i)
 		}
-		for j, feature := range c.Features {
-			if strings.TrimSpace(feature) == "" || len(feature) > 128 {
-				return fmt.Errorf("capabilities[%d].features[%d] is invalid", i, j)
-			}
+		if len(agent.Models) > MaxModels {
+			return fmt.Errorf("agents[%d] has too many models", i)
 		}
 	}
 	return nil
@@ -134,17 +135,12 @@ func (h Heartbeat) Validate() error {
 	return nil
 }
 
-func (a Assignment) Validate() error {
-	for name, value := range map[string]string{
-		"assignment_id": a.ID, "lease_id": a.LeaseID, "task_id": a.TaskID,
-		"agent": a.Agent, "cwd": a.Cwd, "prompt": a.Prompt,
-	} {
-		if strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%s is required", name)
-		}
+func (a HelloAck) Validate() error {
+	if a.Version != ProtocolVersion {
+		return fmt.Errorf("unsupported worker protocol version %d", a.Version)
 	}
-	if len(a.Prompt) > 1<<20 {
-		return errors.New("prompt exceeds 1 MiB")
+	if a.HeartbeatSeconds < 1 || a.HeartbeatSeconds > 600 {
+		return errors.New("heartbeat_seconds must be between 1 and 600")
 	}
 	return nil
 }

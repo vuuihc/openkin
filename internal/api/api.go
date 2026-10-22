@@ -28,6 +28,7 @@ import (
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/mcp"
+	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -139,6 +140,14 @@ type Server struct {
 	// workers. Leases are intentionally ephemeral and workers reconnect after
 	// daemon restart.
 	Workers *worker.Registry
+	// Nodes holds the live Node control-channel connections. Nil disables
+	// /api/node, which is what a daemon that does not expect Nodes to dial in
+	// (a test, an embedder) wants.
+	Nodes *node.Connections
+	// NodeFrames routes a frame that arrived on a Node connection and is not
+	// part of the handshake or the heartbeat. Nil means nothing consumes them
+	// yet, and the Hub answers with an error frame.
+	NodeFrames func(ctx context.Context, deviceID string, frame worker.Frame) error
 	// Browser is the optional Playwright bridge for task-attached actions.
 	Browser *browserworker.Runner
 	// Eval is the optional file-backed replay/evaluation service.
@@ -383,6 +392,11 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/ws", s.handleWS)
 		r.Get("/api/events", s.handleEventStream)
 		r.Get("/api/sessions/wait", s.handleSessionsWait)
+		// The Node control channel: a machine that runs turns dials out and
+		// stays connected here. Authenticated by its paired device token.
+		if s.Nodes != nil {
+			r.Get("/api/node", s.handleNodeConnect)
+		}
 		if s.A2A != nil && s.A2A.Enabled {
 			r.Mount("/a2a", s.A2A.Handler())
 		}

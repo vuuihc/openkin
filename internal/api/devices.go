@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 )
@@ -38,11 +40,31 @@ type pairingExchangeResponse struct {
 }
 
 type deviceResponse struct {
-	ID         string `json:"id"`
-	Label      string `json:"label,omitempty"`
-	CreatedAt  int64  `json:"created_at"`
-	LastUsedAt *int64 `json:"last_used_at,omitempty"`
-	RevokedAt  *int64 `json:"revoked_at,omitempty"`
+	ID           string              `json:"id"`
+	Label        string              `json:"label,omitempty"`
+	Platform     string              `json:"platform,omitempty"`
+	Arch         string              `json:"arch,omitempty"`
+	Role         string              `json:"role,omitempty"`
+	KinVersion   string              `json:"kin_version,omitempty"`
+	Reachability string              `json:"reachability"`
+	LastSeenAt   *int64              `json:"last_seen_at,omitempty"`
+	CreatedAt    int64               `json:"created_at"`
+	RevokedAt    *int64              `json:"revoked_at,omitempty"`
+	Agents       []deviceAgentResult `json:"agents"`
+	// Roots are the workspace roots the device reported. Paths, not secrets:
+	// the same list the machine would show a user who asked it.
+	Roots []string `json:"workspace_roots,omitempty"`
+}
+
+type deviceAgentResult struct {
+	ID           string   `json:"id"`
+	Installed    bool     `json:"installed"`
+	Available    bool     `json:"available"`
+	Version      string   `json:"version,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	DefaultModel string   `json:"default_model,omitempty"`
+	Models       []string `json:"models,omitempty"`
+	IsDefault    bool     `json:"is_default,omitempty"`
 }
 
 func (s *Server) handleCreatePairingSession(w http.ResponseWriter, r *http.Request) {
@@ -145,23 +167,59 @@ func (s *Server) handlePairingExchange(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleListDevices answers "which machines does this Hub know about, and what
+// can each of them run" — the question a console needs before it can offer to
+// run a session somewhere.
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
-	devices, err := s.Store.ListDeviceCredentials(r.Context())
+	devices, err := s.Store.ListDevices(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	out := make([]deviceResponse, 0, len(devices))
 	for _, device := range devices {
-		out = append(out, deviceResponse{
-			ID:         device.ID,
-			Label:      device.Label,
-			CreatedAt:  device.CreatedAt,
-			LastUsedAt: device.LastUsedAt,
-			RevokedAt:  device.RevokedAt,
-		})
+		out = append(out, s.deviceResponse(r.Context(), device))
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) deviceResponse(ctx context.Context, device store.Device) deviceResponse {
+	response := deviceResponse{
+		ID:           device.ID,
+		Label:        device.Label,
+		Platform:     device.Platform,
+		Arch:         device.Arch,
+		Role:         device.Role,
+		KinVersion:   device.KinVersion,
+		Reachability: device.Reachability,
+		LastSeenAt:   device.LastSeenAt,
+		CreatedAt:    device.CreatedAt,
+		RevokedAt:    device.RevokedAt,
+		Agents:       []deviceAgentResult{},
+		Roots:        node.DecodeCapabilities(device.Capabilities).WorkspaceRoots,
+	}
+	if s.Nodes != nil && s.Nodes.Connected(device.ID) {
+		// A live socket outranks the last thing written to the row: the device
+		// is here now, whatever the database says about a moment ago.
+		response.Reachability = store.ReachabilityOnline
+	}
+	agents, err := s.Store.ListDeviceAgents(ctx, device.ID)
+	if err != nil {
+		return response
+	}
+	for _, agent := range agents {
+		response.Agents = append(response.Agents, deviceAgentResult{
+			ID:           agent.AgentID,
+			Installed:    agent.Installed,
+			Available:    agent.Available,
+			Version:      agent.Version,
+			Reason:       agent.Reason,
+			DefaultModel: agent.DefaultModel,
+			Models:       agent.Models,
+			IsDefault:    agent.IsDefault,
+		})
+	}
+	return response
 }
 
 func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {

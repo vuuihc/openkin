@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,6 +43,16 @@ func main() {
 	case "token":
 		if err := runToken(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "kin token: %v\n", err)
+			os.Exit(1)
+		}
+	case "node":
+		flags, err := parseNodeFlags(os.Args[2:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "kin node: %v\n", err)
+			os.Exit(2)
+		}
+		if err := server.RunNode(version, flags); err != nil {
+			fmt.Fprintf(os.Stderr, "kin node: %v\n", err)
 			os.Exit(1)
 		}
 	case "approve-mcp":
@@ -112,10 +123,46 @@ func runMCP(ctx context.Context, args []string) error {
 }
 
 func runHub(args []string) error {
-	if len(args) < 1 || args[0] != "claim-code" {
-		return fmt.Errorf("usage: kin hub claim-code")
+	if len(args) < 1 {
+		return fmt.Errorf("usage: kin hub claim-code | kin hub node-token [--domain HOST] [--label NAME]")
 	}
-	return server.RunHubClaimCode()
+	switch args[0] {
+	case "claim-code":
+		return server.RunHubClaimCode()
+	case "node-token":
+		fs := flag.NewFlagSet("hub node-token", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		domain := fs.String("domain", "", "this hub's public hostname, used only to print the command")
+		label := fs.String("label", "", "what to call the machine in the device list")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubNodeToken(*label, *domain)
+	default:
+		return fmt.Errorf("unknown hub subcommand %q (want: claim-code, node-token)", args[0])
+	}
+}
+
+// parseNodeFlags reads `kin node` options.
+func parseNodeFlags(args []string) (server.NodeFlags, error) {
+	var flags server.NodeFlags
+	fs := flag.NewFlagSet("node", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&flags.HubURL, "hub", "", "the Hub to connect to, e.g. https://kin.example.com")
+	fs.StringVar(&flags.Token, "token", "", "device token from `kin hub node-token`")
+	fs.StringVar(&flags.Label, "label", "", "name for this machine in the Hub's device list")
+	roots := fs.String("root", "", "a directory this machine will work in (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return flags, err
+	}
+	if trimmed := strings.TrimSpace(*roots); trimmed != "" {
+		for _, root := range strings.Split(trimmed, ",") {
+			if root = strings.TrimSpace(root); root != "" {
+				flags.Roots = append(flags.Roots, root)
+			}
+		}
+	}
+	return flags, nil
 }
 
 func runToken(args []string) error {
@@ -193,6 +240,7 @@ func usage(code int) {
 
 Usage:
   kin serve [flags]   start the daemon
+  kin node [flags]    run turns for a Hub, using this machine's agents
   kin supervise       run the daemon with bounded crash recovery
   kin token rotate    regenerate ~/.kin/token
   kin notify test     send a test notification via configured Bark/ntfy
@@ -200,6 +248,7 @@ Usage:
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin mcp              public MCP client bridge for local hosts
   kin hub claim-code  print a fresh owner claim code for an unclaimed hub
+  kin hub node-token  mint a device token for another machine to run kin node
   kin version         print version
   kin help            show this help
 
@@ -213,6 +262,12 @@ Serve flags:
   --funnel              public HTTPS via Funnel (requires --tailscale)
   --relay URL            connect through a user-owned WebSocket relay
   --ts-control-url URL  Headscale/custom control server for tsnet
+
+Node flags:
+  --hub URL             the Hub to connect to (required)
+  --token TOKEN         device token; defaults to ~/.kin/node-token
+  --label NAME          what to call this machine in the device list
+  --root PATH           a directory this machine will work in (repeatable)
 
 Environment:
   KIN_STATE_DIR         state directory (default ~/.kin)

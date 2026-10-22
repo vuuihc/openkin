@@ -98,11 +98,29 @@ func (s *Store) InsertDeviceCredential(ctx context.Context, credential DeviceCre
 	if credential.ID == "" || credential.TokenHash == "" || credential.CreatedAt <= 0 {
 		return fmt.Errorf("invalid device credential")
 	}
-	_, err := s.db.ExecContext(ctx, `
+	// The credential is the token, the registry row is the device. Writing both
+	// here is what keeps a freshly paired device from being invisible to every
+	// query that asks about devices rather than about tokens.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("insert device credential: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO device_credentials (id, token_hash, label, created_at)
 		VALUES (?, ?, ?, ?)`,
-		credential.ID, credential.TokenHash, credential.Label, credential.CreatedAt)
-	if err != nil {
+		credential.ID, credential.TokenHash, credential.Label, credential.CreatedAt); err != nil {
+		return fmt.Errorf("insert device credential: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO devices (id, label, role, reachability, created_at)
+		VALUES (?, ?, 'client', ?, ?)
+		ON CONFLICT(id) DO NOTHING`,
+		credential.ID, credential.Label, ReachabilityUnknown, credential.CreatedAt); err != nil {
+		return fmt.Errorf("insert device credential: register device: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("insert device credential: %w", err)
 	}
 	return nil
@@ -184,7 +202,13 @@ func (s *Store) ListDeviceCredentials(ctx context.Context) ([]DeviceCredential, 
 }
 
 func (s *Store) RevokeDeviceCredential(ctx context.Context, id string, now int64) error {
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("revoke device credential: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
 		UPDATE device_credentials SET revoked_at = ?
 		WHERE id = ? AND revoked_at IS NULL`, now, id)
 	if err != nil {
@@ -193,13 +217,37 @@ func (s *Store) RevokeDeviceCredential(ctx context.Context, id string, now int64
 	if n, _ := result.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
+	// A revoked device is not merely offline: it is out, and the registry row
+	// has to say so even if it never says hello again.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE devices SET revoked_at = ?, reachability = ?
+		WHERE id = ?`, now, ReachabilityOffline, id); err != nil {
+		return fmt.Errorf("revoke device credential: mark device: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("revoke device credential: %w", err)
+	}
 	return nil
 }
 
 func (s *Store) RevokeAllDeviceCredentials(ctx context.Context, now int64) error {
-	if _, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("revoke device credentials: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE device_credentials SET revoked_at = ?
 		WHERE revoked_at IS NULL`, now); err != nil {
+		return fmt.Errorf("revoke device credentials: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE devices SET revoked_at = ?, reachability = ?
+		WHERE revoked_at IS NULL`, now, ReachabilityOffline); err != nil {
+		return fmt.Errorf("revoke device credentials: mark devices: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("revoke device credentials: %w", err)
 	}
 	return nil
