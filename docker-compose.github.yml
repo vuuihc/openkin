@@ -1,0 +1,82 @@
+# Adds GitHub as a sign-in method.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.github.yml up -d
+#
+# Kin implements exactly one federation protocol (OIDC) and nothing
+# provider-specific. GitHub speaks OAuth 2.0 and is not an OIDC provider, so Dex
+# sits in front of it. Adding Google or GitLab later means adding a connector to
+# the block below, not touching Kin.
+#
+# Set GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, and DEX_CLIENT_SECRET in .env
+# first. See .env.example for the GitHub OAuth App settings.
+
+services:
+  kin:
+    environment:
+      # The issuer must match the public URL exactly, including the /dex prefix.
+      # Dex is published there through Kin itself, which is what makes the two
+      # agree while the backchannel talks over the Compose network.
+      KIN_OIDC_ISSUER: https://${KIN_DOMAIN:?set KIN_DOMAIN in .env}/dex
+      KIN_OIDC_CLIENT_ID: kin
+      KIN_OIDC_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?set DEX_CLIENT_SECRET in .env}
+      KIN_OIDC_DISPLAY_NAME: GitHub
+      # Kin cannot resolve its own public hostname from inside the container, so
+      # discovery and token exchange dial Dex directly.
+      KIN_OIDC_BACKCHANNEL_ADDR: dex:5556
+    depends_on:
+      - dex
+
+  dex:
+    image: dexidp/dex:v2.46.1-alpine
+    restart: unless-stopped
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    volumes:
+      - dex-data:/var/dex
+    configs:
+      - source: dex_config
+        target: /etc/dex/config.yaml
+
+# Dex's config format has no environment expansion of its own. Compose
+# substitutes ${VARS} into this block from .env before Dex ever parses it. That
+# is why the config lives here rather than in a mounted file: a mounted file
+# would ship the literal string "${KIN_DOMAIN}" to Dex.
+configs:
+  dex_config:
+    content: |
+      issuer: https://${KIN_DOMAIN:?set KIN_DOMAIN in .env}/dex
+
+      storage:
+        type: sqlite3
+        config:
+          file: /var/dex/dex.db
+
+      web:
+        http: 0.0.0.0:5556
+
+      # Dex has no self-service registration. The only account Kin cares about
+      # is the owner's, and that is created by the terminal claim code.
+      staticClients:
+        - id: kin
+          name: Kin
+          secret: ${DEX_CLIENT_SECRET:?set DEX_CLIENT_SECRET in .env}
+          redirectURIs:
+            - https://${KIN_DOMAIN}/api/auth/oidc/callback
+
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
+            clientSecret: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in .env}
+            # GitHub sends the browser here directly, so this is the public URL
+            # and reaches Dex through Kin's reverse proxy at /dex.
+            redirectURI: https://${KIN_DOMAIN}/dex/callback
+
+      # Dex logs per-request lines at info. Kin's own log is the operator-facing
+      # surface; keep Dex to warnings.
+      logger:
+        level: warn
+
+volumes:
+  dex-data:

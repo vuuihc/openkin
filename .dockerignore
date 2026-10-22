@@ -1,0 +1,44 @@
+# Keep the build context small and free of host artifacts.
+#
+# web/dist is deliberately NOT ignored: the console is embedded from that
+# committed tree, and excluding it would produce an image with no UI at all.
+
+.git
+.gitignore
+
+# Local state and secrets must never enter an image layer.
+.env
+.env.*
+!.env.example
+.kin-dev
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+
+# Node and build output. The Go build needs none of it.
+node_modules
+**/node_modules
+ui/dist
+desktop/dist
+desktop/dist-electron
+desktop/resources/kin
+dist
+kin
+
+# Tooling and docs not needed to compile.
+.github
+.vscode
+.idea
+docs
+design
+ios
+tasks
+execplan
+*.md
+!README.md
+
+# OS noise.
+.DS_Store
+Thumbs.db

@@ -1,0 +1,56 @@
+# Kin Hub — the authoritative multi-device daemon.
+#
+#   1. cp .env.example .env    and set KIN_DOMAIN
+#   2. docker compose up -d --build
+#   3. docker compose logs kin        (find the claim code)
+#   4. Open https://<KIN_DOMAIN> and enter it
+#
+# Sign in with email and password. To add GitHub as well, layer the second file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.github.yml up -d
+#
+# Requirements: the domain must resolve to this host and ports 80 and 443 must
+# be forwarded to it. Let's Encrypt issues the certificate on first request.
+
+name: openkin
+
+services:
+  kin:
+    image: ghcr.io/vuuihc/openkin:latest
+    build:
+      context: .
+      args:
+        VERSION: ${KIN_VERSION:-dev}
+    restart: unless-stopped
+    ports:
+      # Port 80 must be reachable from the internet: it is how the certificate
+      # is obtained and renewed. Without it an already-issued certificate keeps
+      # working until it expires, and renewal fails loudly.
+      - "80:80"
+      - "443:443"
+    environment:
+      KIN_STATE_DIR: /data
+      # Empty unless docker-compose.github.yml is layered on top.
+      KIN_OIDC_ISSUER: ${KIN_OIDC_ISSUER:-}
+      KIN_OIDC_CLIENT_ID: ${KIN_OIDC_CLIENT_ID:-}
+      KIN_OIDC_CLIENT_SECRET: ${KIN_OIDC_CLIENT_SECRET:-}
+      KIN_OIDC_DISPLAY_NAME: ${KIN_OIDC_DISPLAY_NAME:-}
+      KIN_OIDC_BACKCHANNEL_ADDR: ${KIN_OIDC_BACKCHANNEL_ADDR:-}
+    command:
+      - serve
+      - --role=hub
+      - --domain=${KIN_DOMAIN:?set KIN_DOMAIN in .env}
+      - --acme-email=${ACME_EMAIL:-}
+    volumes:
+      - kin-data:/data
+    healthcheck:
+      # Checks the daemon is up from inside the container, without going back
+      # out through TLS.
+      test: ["CMD", "kin", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  kin-data:
