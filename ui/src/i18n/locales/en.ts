@@ -738,6 +738,14 @@ const en: MessageTree = {
       light: "Light",
       dark: "Dark",
     },
+    account: {
+      heading: "Account",
+      blurb: "The account this Hub signs you in with. Signing out requires signing in again.",
+      unknownUser: "Signed in",
+      deviceCountNote: "Every device connected to this Hub shares this one account.",
+      signOut: "Sign out",
+      signingOut: "Signing out…",
+    },
     relay: {
       heading: "Remote Relay",
       desc: "Access this Mac from your phone through a Cloudflare Worker you control. No Tailscale or shared Wi-Fi required.",
@@ -790,6 +798,8 @@ const en: MessageTree = {
       copy: "Copy",
       tokenHintA: "Rotate with ",
       tokenHintB: " if leaked. A running daemon picks up the new token automatically.",
+      accountSession:
+        "This browser reaches the Hub with an account, so no device token is shown here. Desktop and mobile clients pair with the daemon they connect to.",
     },
     notify: {
       heading: "Notifications",
@@ -974,6 +984,43 @@ const en: MessageTree = {
     whereSettingsHint: "(or reveal/copy token there)",
     whereTerminal: "From the terminal:",
     whereServe: "the open URL printed by",
+  },
+  account: {
+    claimTitle: "Claim this Hub",
+    claimBlurb:
+      "This Hub has no owner yet. Enter the claim code printed in the server logs, then choose the email and password you will sign in with.",
+    loginTitle: "Sign in to Kin",
+    loginBlurb: "Sign in to reach this Hub and the devices connected to it.",
+    codeLabel: "Claim code",
+    codePlaceholder: "XXXXX-XXXXX",
+    emailLabel: "Email",
+    emailPlaceholder: "you@example.com",
+    passwordLabel: "Password",
+    newPasswordPlaceholder: "At least 8 characters",
+    passwordHint: "At least 8 characters.",
+    nameLabel: "Display name",
+    namePlaceholder: "Optional",
+    claimAction: "Claim and sign in",
+    loginAction: "Sign in",
+    working: "Working…",
+    orDivider: "or",
+    continueWith: "Continue with {provider}",
+    whereTitle: "Where to find the claim code",
+    whereBody:
+      "The Hub prints it on first start. It is valid for 24 hours and can be used once. On the server:",
+    codeExpired:
+      "There is no active claim code right now. Run kin hub claim-code on the server to print a new one.",
+    errors: {
+      invalid_credentials: "Email or password is incorrect.",
+      claim_code_invalid: "That claim code is not valid or has expired.",
+      registration_closed: "This Hub already has an owner. Sign in instead.",
+      weak_password: "That password is too weak. Use at least 8 characters.",
+      identity_taken: "That login is already linked to another account.",
+      rate_limited: "Too many attempts. Try again in a moment.",
+      provider_error: "The provider could not sign you in. Try again.",
+      session_expired: "Your session expired. Sign in again.",
+      sign_in_failed: "Sign-in failed. Try again.",
+    },
   },
   terminal: {
     title: "Terminal",

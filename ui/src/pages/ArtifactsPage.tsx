@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ApiError,
   formatBytes,
-  getToken,
+  isAuthenticated,
   listArtifacts,
   setArtifactStatus,
   type Artifact,
@@ -50,7 +50,7 @@ export default function ArtifactsPage() {
   const slow = useSlowHint(items === null && !error);
 
   const load = useCallback(async () => {
-    if (!getToken()) return;
+    if (!isAuthenticated()) return;
     try {
       const status = filter === "all" ? undefined : filter;
       const list = await listArtifacts(status);

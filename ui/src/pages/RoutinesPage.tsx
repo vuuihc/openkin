@@ -4,7 +4,7 @@ import {
   ApiError,
   createRoutine,
   deleteRoutine,
-  getToken,
+  isAuthenticated,
   isTerminal,
   listAgents,
   listRoutineRuns,
@@ -106,7 +106,7 @@ export default function RoutinesPage() {
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(async () => {
-    if (!getToken()) return;
+    if (!isAuthenticated()) return;
     try {
       const [rs, feed, agentList] = await Promise.all([
         listRoutines({ limit: 100, q: routineQuery.trim() || undefined }),

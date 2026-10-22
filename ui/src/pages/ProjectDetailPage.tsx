@@ -5,7 +5,7 @@ import {
   getOnePager,
   getProject,
   getProjectPulse,
-  getToken,
+  isAuthenticated,
   listProjectArtifacts,
   patchProject,
   putOnePager,
@@ -83,7 +83,7 @@ export default function ProjectDetailPage() {
   const slow = useSlowHint(loading);
 
   const load = useCallback(async () => {
-    if (!getToken() || !id) return;
+    if (!isAuthenticated() || !id) return;
     setLoading(true);
     try {
       const [p, op, arts, pu] = await Promise.all([

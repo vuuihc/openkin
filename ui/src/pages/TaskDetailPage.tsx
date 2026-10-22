@@ -22,7 +22,7 @@ import {
   markRoutineRunRead,
   getTaskUsage,
   getTaskLimitWait,
-  getToken,
+  isAuthenticated,
   isTerminal,
   listAgents,
   listEvents,
@@ -169,7 +169,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {
-    if (!getToken()) return;
+    if (!isAuthenticated()) return;
     setUsageLoading(true);
     try {
       setUsage(await getTaskUsage(id));

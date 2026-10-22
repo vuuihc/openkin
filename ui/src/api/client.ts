@@ -1,3 +1,4 @@
+import { gateFor } from "../lib/accountGate";
 import { useAppStore } from "../store/appStore";
 import { t } from "../i18n";
 import {
@@ -60,6 +61,18 @@ export function clearToken(): void {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Whether this session can call the API at all.
+ *
+ * A standalone daemon authenticates with a stored device token. A Hub signs the
+ * browser in with an HttpOnly cookie and there is no token to find, so a guard
+ * written as `if (!getToken()) return;` would silently never load anything
+ * there. Anything asking "may I fetch yet" wants this instead.
+ */
+export function isAuthenticated(): boolean {
+  return !!getToken() || useAppStore.getState().account.authenticated;
 }
 
 /** Adopt a master Relay URL emitted by the authenticated Settings API. */
@@ -222,8 +235,15 @@ export class ApiError extends Error {
 }
 
 function notifyUnauthorized(): void {
+  const { account, requireToken, requireAccount } = useAppStore.getState();
+  // A Hub signs the browser in with a cookie. Losing it means the sign-in
+  // expired, which is an account problem, not a token problem.
+  if (account.enabled) {
+    requireAccount(gateFor(account) === "claim" ? "claim" : "login");
+    return;
+  }
   // Funnel every API-layer 401 into the global connect screen.
-  useAppStore.getState().requireToken("unauthorized");
+  requireToken("unauthorized");
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -236,7 +256,14 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers.set("Accept", "application/json");
   }
 
-  const res = await fetch(withRelayCredentials(path), { ...init, headers });
+  // The Hub authenticates the browser with an HttpOnly session cookie, so
+  // requests have to opt into sending credentials. Same-origin keeps that from
+  // leaking to a relay host reached through withRelayCredentials.
+  const res = await fetch(withRelayCredentials(path), {
+    credentials: "same-origin",
+    ...init,
+    headers,
+  });
   if (!res.ok) {
     if (res.status === 401) {
       notifyUnauthorized();
@@ -844,6 +871,7 @@ export async function getArtifactContent(id: string): Promise<string> {
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const res = await fetch(`/api/artifacts/${encodeURIComponent(id)}/content`, {
     headers,
+    credentials: "same-origin",
   });
   if (!res.ok) {
     if (res.status === 401) notifyUnauthorized();
@@ -1359,9 +1387,14 @@ export async function uploadFile(file: File): Promise<Upload> {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(withRelayCredentials("/api/uploads"), { method: "POST", body: form, headers });
+  const res = await fetch(withRelayCredentials("/api/uploads"), {
+    method: "POST",
+    credentials: "same-origin",
+    body: form,
+    headers,
+  });
   if (!res.ok) {
-    if (res.status === 401) useAppStore.getState().requireToken("unauthorized");
+    if (res.status === 401) notifyUnauthorized();
     const text = await res.text().catch(() => "");
     throw new ApiError(res.status, text || res.statusText);
   }
@@ -1870,18 +1903,23 @@ export function connectWS(
       : onMessageOrOpts;
 
   const token = getToken();
-  if (!token) {
+  // A Hub browser session has no local token; the handshake carries the session
+  // cookie instead, which the browser attaches for a same-origin socket.
+  const cookieSession = useAppStore.getState().account.authenticated;
+  if (!token && !cookieSession) {
     opts.onStatus?.("disconnected");
     return () => undefined;
   }
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsParams = new URLSearchParams({ token });
+  const wsParams = new URLSearchParams();
+  if (token) wsParams.set("token", token);
   const room = getRelayValue(RELAY_ROOM_KEY);
   const key = getRelayValue(RELAY_KEY_KEY);
   if (room) wsParams.set("room", room);
   if (key) wsParams.set("key", key);
-  const url = `${proto}//${window.location.host}/api/ws?${wsParams.toString()}`;
+  const qs = wsParams.toString();
+  const url = `${proto}//${window.location.host}/api/ws${qs ? `?${qs}` : ""}`;
   let ws: WebSocket | null = null;
   let closed = false;
   let retry: ReturnType<typeof setTimeout> | null = null;

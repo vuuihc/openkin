@@ -5,7 +5,7 @@ import {
   attachAgentSession,
   getAgentSession,
   getAgentSessionHistory,
-  getToken,
+  isAuthenticated,
   type AgentSession,
   type AgentSessionHistoryItem,
 } from "../api/client";
@@ -70,7 +70,7 @@ export default function AgentSessionDetailPage() {
   const slow = useSlowHint(loading);
 
   const loadSession = useCallback(async () => {
-    if (!getToken() || !id) return;
+    if (!isAuthenticated() || !id) return;
     setLoading(true);
     setError(null);
     setHistoryError(null);

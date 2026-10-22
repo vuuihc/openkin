@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ApiError,
   ensureProject,
-  getToken,
+  isAuthenticated,
   listProjects,
   type Project,
   type ProjectMode,
@@ -60,7 +60,7 @@ export default function ProjectsPage() {
   const slow = useSlowHint(items === null && !error);
 
   const load = useCallback(async () => {
-    if (!getToken()) return;
+    if (!isAuthenticated()) return;
     try {
       const list = await listProjects("active");
       setItems(list);

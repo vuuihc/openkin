@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  getToken,
+  isAuthenticated,
   isTerminal,
   listProjects,
   listTasks,
@@ -71,7 +71,7 @@ export default function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
-    if (!getToken()) {
+    if (!isAuthenticated()) {
       setTasks([]);
       setProjects([]);
       return;

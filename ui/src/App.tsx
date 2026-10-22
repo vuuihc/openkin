@@ -24,8 +24,18 @@ import AgentsPage from "./pages/AgentsPage";
 import RoutinesPage from "./pages/RoutinesPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { dispatchWS, useAppStore } from "./store/appStore";
+import AccountScreen from "./components/AccountScreen";
+import { gateFor } from "./lib/accountGate";
+import { dispatchWS, useAppStore, type AuthState } from "./store/appStore";
 import { clearSessionViewed } from "./lib/sessionViewed";
+
+/** The one thing standing between an anonymous browser and the console. */
+function AuthGate({ auth }: { auth: Exclude<AuthState, { status: "ok" }> }) {
+  if (auth.status === "need_account") {
+    return <AccountScreen mode={auth.mode} />;
+  }
+  return <ConnectScreen reason={auth.reason} />;
+}
 
 export default function App() {
   const auth = useAppStore((s) => s.auth);
@@ -39,15 +49,26 @@ export default function App() {
 
   useEffect(() => {
     if (!getToken()) {
-      requireToken("missing");
-    } else {
-      setAuthOk();
+      // A Hub session is a cookie, not a token, so "no token" only closes the
+      // gate when the daemon has no account system to offer instead.
+      const account = useAppStore.getState().account;
+      if (account.enabled && !account.authenticated) {
+        const gate = gateFor(account);
+        useAppStore.getState().requireAccount(gate === "claim" ? "claim" : "login");
+        return;
+      }
+      if (!account.enabled) {
+        requireToken("missing");
+        return;
+      }
     }
+    setAuthOk();
   }, [requireToken, setAuthOk]);
 
   const refreshRoutineUnread = useCallback(async () => {
-    if (!getToken()) return;
-    if (useAppStore.getState().auth.status === "need_token") return;
+    // Deliberately not gated on getToken(): a Hub session authenticates with a
+    // cookie and has no local token, and the badge works there too.
+    if (useAppStore.getState().auth.status !== "ok") return;
     try {
       const { count } = await getRoutineUnreadCount();
       setRoutineUnreadCount(count);
@@ -90,12 +111,12 @@ export default function App() {
     });
   }, [refreshRoutineUnread, auth.status]);
 
-  // Tray popover is a minimal chrome-less surface (still needs token).
+  // Tray popover is a minimal chrome-less surface (still needs auth).
   if (isTray) {
-    if (auth.status === "need_token") {
+    if (auth.status !== "ok") {
       return (
         <>
-          <ConnectScreen reason={auth.reason} />
+          <AuthGate auth={auth} />
           <ToastHost />
         </>
       );
@@ -108,10 +129,10 @@ export default function App() {
     );
   }
 
-  if (auth.status === "need_token") {
+  if (auth.status !== "ok") {
     return (
       <>
-        <ConnectScreen reason={auth.reason} />
+        <AuthGate auth={auth} />
         <ToastHost />
       </>
     );

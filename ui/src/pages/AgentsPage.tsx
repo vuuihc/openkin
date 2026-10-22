@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import {
   ApiError,
   formatCost,
-  getToken,
   getUsageLimits,
   getUsageSummary,
+  isAuthenticated,
   listAgentManagement,
   listAgents,
   smokeAgents,
@@ -56,7 +56,7 @@ export default function AgentsPage() {
   const slow = useSlowHint((rows === null || agents === null) && !error);
 
   const load = useCallback(async (refresh = false) => {
-    if (!getToken()) return;
+    if (!isAuthenticated()) return;
     setError(null);
     try {
       const [data, limits, agentList, management] = await Promise.all([

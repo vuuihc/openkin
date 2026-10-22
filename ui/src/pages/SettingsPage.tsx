@@ -36,6 +36,7 @@ import {
   type AutoImportSnapshot,
 } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
+import { AccountSection } from "../components/settings/AccountSection";
 import { relayPrimaryAction } from "../components/settings/RelayGuidance";
 import { RoutingDefaultsSection, RoutingProfilesSection } from "../components/settings/RoutingSettings";
 import {
@@ -947,6 +948,7 @@ export default function SettingsPage() {
           ))}
         </div>
       </SettingsSection>
+      <AccountSection />
       </SettingsTabPanel>
 
       {/* Remote Relay */}
@@ -1277,22 +1279,22 @@ export default function SettingsPage() {
                 </button>
               </div>
             )}
-            <div>
-              <div className="text-xs text-kin-muted">
-                {tr("settings.connection.token")}
-              </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                <code className="break-all font-mono text-xs text-kin-text">
-                  {reveal ? token : token ? "••••••••••••••••" : "—"}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => setReveal((v) => !v)}
-                  className="min-h-[44px] text-xs text-kin-blue hover:underline"
-                >
-                  {reveal ? tr("settings.hide") : tr("settings.reveal")}
-                </button>
-                {token && (
+            {token ? (
+              <div>
+                <div className="text-xs text-kin-muted">
+                  {tr("settings.connection.token")}
+                </div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <code className="break-all font-mono text-xs text-kin-text">
+                    {reveal ? token : "••••••••••••••••"}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => setReveal((v) => !v)}
+                    className="min-h-[44px] text-xs text-kin-blue hover:underline"
+                  >
+                    {reveal ? tr("settings.hide") : tr("settings.reveal")}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void copy(token)}
@@ -1300,14 +1302,21 @@ export default function SettingsPage() {
                   >
                     {tr("settings.connection.copy")}
                   </button>
-                )}
+                </div>
+                <p className="mt-1 text-xs text-kin-muted">
+                  {tr("settings.connection.tokenHintA")}
+                  <code className="text-kin-secondary">kin token rotate</code>
+                  {tr("settings.connection.tokenHintB")}
+                </p>
               </div>
-              <p className="mt-1 text-xs text-kin-muted">
-                {tr("settings.connection.tokenHintA")}
-                <code className="text-kin-secondary">kin token rotate</code>
-                {tr("settings.connection.tokenHintB")}
+            ) : (
+              // A Hub answers this endpoint without a token on purpose: the
+              // browser got in with an account, and handing it the daemon's own
+              // credential would outlive the session it came from.
+              <p className="text-xs text-kin-muted leading-relaxed">
+                {tr("settings.connection.accountSession")}
               </p>
-            </div>
+            )}
           </div>
         </div>
       </section>

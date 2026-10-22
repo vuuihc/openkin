@@ -5,7 +5,7 @@ import {
   formatBytes,
   getArtifact,
   getArtifactContent,
-  getToken,
+  isAuthenticated,
   setArtifactStatus,
   type Artifact,
 } from "../api/client";
@@ -35,7 +35,7 @@ export default function ArtifactDetailPage() {
   const slow = useSlowHint(loading);
 
   const load = useCallback(async () => {
-    if (!getToken() || !id) return;
+    if (!isAuthenticated() || !id) return;
     setLoading(true);
     try {
       const [meta, body] = await Promise.all([
