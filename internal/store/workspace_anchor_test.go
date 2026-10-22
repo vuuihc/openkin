@@ -493,3 +493,72 @@ func TestTheWireNeverAcceptsWhatTheStoreRefuses(t *testing.T) {
 		}
 	}
 }
+
+// Two checkouts of one repository stop it resolving on that device, and that has
+// to be a fact about the report and not about its order. A machine that lists
+// the same path again — [checkout A, checkout B, checkout A] — would otherwise
+// put the anchor back, and whether a turn runs in the wrong copy would depend on
+// how the machine happened to enumerate its roots.
+func TestTwoCheckoutsStayAmbiguousHoweverTheyAreOrdered(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	anchorTestDevice(t, s, "laptop")
+	if err := s.RecordDeviceWorkspaceRoots(ctx, "laptop", []ReportedRoot{
+		{Path: "/code/openkin", RemoteURL: "github.com/vuuihc/openkin", RelativePath: AnchorRepoRoot},
+		{Path: "/code/openkin-worktree", RemoteURL: "github.com/vuuihc/openkin", RelativePath: AnchorRepoRoot},
+		{Path: "/code/openkin", RemoteURL: "github.com/vuuihc/openkin", RelativePath: AnchorRepoRoot},
+	}, 1000); err != nil {
+		t.Fatal(err)
+	}
+	anchor, err := s.EnsureGitAnchor(ctx, "github.com/vuuihc/openkin", AnchorRepoRoot, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok, err := s.ResolveAnchorPath(ctx, anchor, "laptop"); err != nil || ok {
+		t.Fatalf("a repeated path resolved the ambiguity: %q ok=%v err=%v", got, ok, err)
+	}
+	roots, err := s.ListDeviceWorkspaceRoots(ctx, "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 0 {
+		t.Fatalf("the device kept a root for a repository it gave two answers for: %+v", roots)
+	}
+}
+
+// An anchor row written by an older daemon can hold a relative path this version
+// refuses to clean. Resolution has to fail closed on it: the row is a path the
+// Hub cannot vouch for, and the alternative to refusing is joining it onto a
+// checkout and running there.
+func TestAnAnchorThatDoesNotCleanFailsClosed(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	anchorTestDevice(t, s, "laptop")
+	if err := s.RecordDeviceWorkspaceRoots(ctx, "laptop", []ReportedRoot{
+		{Path: "/code/openkin", RemoteURL: "github.com/vuuihc/openkin", RelativePath: AnchorRepoRoot},
+	}, 1000); err != nil {
+		t.Fatal(err)
+	}
+	anchor, err := s.EnsureGitAnchor(ctx, "github.com/vuuihc/openkin", AnchorRepoRoot, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What a row written before the check existed can look like.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE workspace_anchors SET relative_path = ? WHERE id = ?`, "../../etc", anchor.ID); err != nil {
+		t.Fatal(err)
+	}
+	anchor.RelativePath = "../../etc"
+	got, ok, err := s.ResolveAnchorPath(ctx, anchor, "laptop")
+	if ok {
+		t.Fatalf("an uncleanable anchor resolved to %q", got)
+	}
+	// Refused with a reason, not as "this device does not have it": the device
+	// does have it, the row is what cannot be used.
+	if err == nil {
+		t.Fatal("the broken row was refused without saying why")
+	}
+	if !strings.Contains(err.Error(), "leaves its checkout") {
+		t.Fatalf("err = %v", err)
+	}
+}

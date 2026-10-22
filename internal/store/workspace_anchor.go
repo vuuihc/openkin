@@ -398,6 +398,12 @@ func (s *Store) RecordDeviceWorkspaceRoots(ctx context.Context, deviceID string,
 	// named. Such an anchor keeps no root on this device, and resolution fails
 	// loudly instead — the alternative is running in the wrong copy, silently.
 	claimed := make(map[string]string, len(roots))
+	// disputed is every anchor this hello has already shown two paths for. It is
+	// separate from claimed because the report can name a path twice: without
+	// it, [checkout A, checkout B, checkout A] would refuse the anchor and then
+	// let the third entry put it back, so whether a repository resolves here
+	// would depend on the order the machine happened to list its roots in.
+	disputed := make(map[string]bool)
 	for _, reported := range roots {
 		absPath := cleanNodePath(reported.Path)
 		remoteURL := strings.TrimSpace(reported.RemoteURL)
@@ -424,6 +430,11 @@ func (s *Store) RecordDeviceWorkspaceRoots(ctx context.Context, deviceID string,
 			return err
 		}
 		if prev, seen := claimed[anchorID]; seen && !sameNodePath(prev, absPath) {
+			disputed[anchorID] = true
+		}
+		if disputed[anchorID] {
+			// The row the earlier entry wrote is dropped by the sweep below,
+			// because keep is what this device is allowed to still have.
 			delete(keep, anchorID)
 			continue
 		}

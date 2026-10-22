@@ -427,7 +427,11 @@ func ServeWith(version string, flags ServeFlags) error {
 	// takes the same path through the engine as one that runs here: same event
 	// storage, same cursor, same console (ADR 0022 D8).
 	eng.SetRemoteRunner(identity.ID, func(t store.Task, executionID string) (adapter.Adapter, error) {
-		return &node.Adapter{Conns: nodeConns, Turns: nodeTurns, DeviceID: t.ExecutingDeviceID}, nil
+		return &node.Adapter{
+			Conns: nodeConns, Turns: nodeTurns,
+			DeviceID:    t.ExecutingDeviceID,
+			DeviceLabel: deviceLabel(st, t.ExecutingDeviceID),
+		}, nil
 	})
 
 	evalRunner := &eval.Runner{
@@ -1006,6 +1010,18 @@ func isActiveTaskStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+// deviceLabel is what to call a device in a line a person reads. A device that
+// was never given a name, or is no longer in the registry, is called by its id:
+// the message is about the machine either way, and an unnamed machine has
+// nothing better to offer.
+func deviceLabel(st *store.Store, deviceID string) string {
+	device, err := st.GetDevice(context.Background(), deviceID)
+	if err != nil || strings.TrimSpace(device.Label) == "" {
+		return deviceID
+	}
+	return strings.TrimSpace(device.Label)
 }
 
 func newTerminalManager(detectProfiles func() []terminal.Profile) *terminal.Manager {

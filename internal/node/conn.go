@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"sync/atomic"
+	"time"
 
 	"nhooyr.io/websocket"
 
@@ -40,12 +40,37 @@ type conn struct {
 	gen      uint64
 	ws       *websocket.Conn
 
-	mu sync.Mutex
+	// write is the turn-taking for the socket. It is a channel rather than a
+	// mutex because waiting for the turn has to be interruptible: the frame
+	// reader writes too (it answers a turn the Hub is not running with a
+	// cancel), and a reader parked on an un-interruptible lock would stop
+	// reading for as long as the peer refuses to drain — which is how a
+	// connection that is merely slow stops being detached, and therefore stops
+	// failing the turns it was carrying.
+	write chan struct{}
 }
+
+// sendTimeout bounds one write when the caller sets no deadline of its own.
+//
+// A peer that stops reading its socket would otherwise hold the write turn
+// forever, and every later frame — a dispatch, a cancel, a heartbeat — would
+// queue behind it. Expiring the write closes the socket (nhooyr tears the
+// connection down when a write's context ends), and a closed socket is a state
+// the rest of this package already converges from: the reader returns, the
+// connection is detached, and Turns.Abandon fails that machine's turns with a
+// reason.
+//
+// It is a variable so a test can shorten it.
+var sendTimeout = 10 * time.Second
 
 // NewSender wraps an accepted WebSocket as the Hub's side of one device.
 func NewSender(deviceID string, ws *websocket.Conn) Sender {
-	return &conn{deviceID: deviceID, gen: connGenerations.Add(1), ws: ws}
+	return &conn{
+		deviceID: deviceID,
+		gen:      connGenerations.Add(1),
+		ws:       ws,
+		write:    make(chan struct{}, 1),
+	}
 }
 
 func (c *conn) DeviceID() string { return c.deviceID }
@@ -53,8 +78,17 @@ func (c *conn) DeviceID() string { return c.deviceID }
 func (c *conn) Generation() uint64 { return c.gen }
 
 func (c *conn) Send(ctx context.Context, frame worker.Frame) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, sendTimeout)
+		defer cancel()
+	}
+	select {
+	case c.write <- struct{}{}:
+		defer func() { <-c.write }()
+	case <-ctx.Done():
+		return fmt.Errorf("waiting to write to %s: %w", c.deviceID, ctx.Err())
+	}
 	return WriteFrame(ctx, c.ws, frame)
 }
 

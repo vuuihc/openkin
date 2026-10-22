@@ -120,3 +120,51 @@ func TestAdapterCancelReachesTheDevice(t *testing.T) {
 		t.Fatal("cancel did not close the event channel")
 	}
 }
+
+// A dispatch goes on the connection that is current at that moment, and the turn
+// it opens belongs to it. This is the invariant the registry and the connection
+// table each hold half of: a machine that reconnects while a turn is being
+// dispatched must end up with a turn that its new connection can speak for, and
+// the ending of the old socket must not reach it.
+func TestADispatchAfterAReconnectBindsToTheNewConnection(t *testing.T) {
+	first := newTestConn("device-1")
+	conns := NewConnections(nil)
+	conns.Attach(first)
+	second := newTestConn("device-1")
+	conns.Attach(second)
+	turns := NewTurns()
+	ad := &Adapter{Conns: conns, Turns: turns, DeviceID: "device-1"}
+
+	handle, err := ad.Start(context.Background(), adapter.TaskSpec{
+		ID: "task-1", Agent: "claude-code", Cwd: "/code/kin", Prompt: "run this",
+		Execution: adapter.ExecutionRef{ID: "turn-1", Agent: "claude-code"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if frames := first.sent(); len(frames) != 0 {
+		t.Fatalf("the replaced connection was dispatched to: %+v", frames)
+	}
+	if frames := second.sent(); len(frames) != 1 || frames[0].Kind != "turn.dispatch" {
+		t.Fatalf("frames = %+v", frames)
+	}
+
+	// The old socket's ending must not touch it...
+	if abandoned := turns.Abandon(first); len(abandoned) != 0 {
+		t.Fatalf("a replaced connection abandoned %v", abandoned)
+	}
+	// ...and the old socket cannot speak for it either.
+	if err := turns.Deliver(first, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err == nil {
+		t.Fatal("a replaced connection delivered an event for the new turn")
+	}
+	// The new one can.
+	if err := turns.Deliver(second, worker.TurnEvent{TurnID: "turn-1", Seq: 1, Event: event(t, "message")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turns.Finish(second, worker.TurnFinish{TurnID: "turn-1", Status: worker.TurnOK}); err != nil {
+		t.Fatal(err)
+	}
+	if got := drain(t, handle.(*Handle)); len(got) != 1 || got[0].Type != "message" {
+		t.Fatalf("events = %+v", got)
+	}
+}

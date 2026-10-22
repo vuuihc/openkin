@@ -784,7 +784,41 @@ func TestAnUnknownTurnIsToldToStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := node.WriteFrame(ctx, ws, up); err != nil {
+	stop := writeAndExpectCancel(t, ctx, ws, up)
+	if stop.TurnID != "turn-from-a-previous-hub" {
+		t.Fatalf("cancel = %+v", stop)
+	}
+	if !strings.Contains(stop.Reason, "no longer running") {
+		t.Fatalf("the machine is not told why: %q", stop.Reason)
+	}
+
+	// The same answer for the other two frames a device can send about a turn
+	// this Hub has no record of. The ack it sends first is the one worth
+	// answering promptly: it arrives before the agent has done anything, so a
+	// cancel there is a run that never happens rather than one thrown away.
+	started, err := worker.NewFrame("turn.started", worker.TurnStarted{TurnID: "turn-started-elsewhere"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := writeAndExpectCancel(t, ctx, ws, started); got.TurnID != "turn-started-elsewhere" {
+		t.Fatalf("start ack cancel = %+v", got)
+	}
+	finish, err := worker.NewFrame("turn.finish", worker.TurnFinish{
+		TurnID: "turn-finished-elsewhere", Status: worker.TurnOK,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := writeAndExpectCancel(t, ctx, ws, finish); got.TurnID != "turn-finished-elsewhere" {
+		t.Fatalf("finish cancel = %+v", got)
+	}
+}
+
+// writeAndExpectCancel sends one frame about a turn and returns the cancel the
+// Hub answers it with, failing the test if the answer is anything else.
+func writeAndExpectCancel(t *testing.T, ctx context.Context, ws *websocket.Conn, frame worker.Frame) worker.TurnCancel {
+	t.Helper()
+	if err := node.WriteFrame(ctx, ws, frame); err != nil {
 		t.Fatal(err)
 	}
 	down, err := node.ReadFrame(ctx, ws)
@@ -792,16 +826,11 @@ func TestAnUnknownTurnIsToldToStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	if down.Kind != "turn.cancel" {
-		t.Fatalf("the hub answered an unknown turn with %q", down.Kind)
+		t.Fatalf("the hub answered a %s frame for an unknown turn with %q", frame.Kind, down.Kind)
 	}
-	stop, err := node.Decode[worker.TurnCancel](down)
+	cancel, err := node.Decode[worker.TurnCancel](down)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stop.TurnID != "turn-from-a-previous-hub" {
-		t.Fatalf("cancel = %+v", stop)
-	}
-	if !strings.Contains(stop.Reason, "no longer running") {
-		t.Fatalf("the machine is not told why: %q", stop.Reason)
-	}
+	return cancel
 }

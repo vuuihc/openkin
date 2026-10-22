@@ -22,6 +22,10 @@ const (
 	// DefaultPushGrace is how long the reason for a stalled turn waits for room
 	// in a reader's buffer before the turn is closed without it.
 	DefaultPushGrace = 30 * time.Second
+	// cancelTimeout bounds one "stop that turn" write. It is short because the
+	// answer to a cancel that cannot be delivered is the connection ending, not
+	// a longer wait.
+	cancelTimeout = 10 * time.Second
 )
 
 // Turns tracks the turns this Hub has dispatched and not yet seen finish.
@@ -48,7 +52,9 @@ var ErrTurnUnknown = errors.New("unknown turn")
 type turn struct {
 	id       string
 	deviceID string
-	taskID   string
+	// deviceLabel is what to call that device in a message a person reads. It
+	// falls back to the id, which is all a device that never said its name has.
+	deviceLabel string
 
 	// sender is the connection this turn was dispatched on, and the only one
 	// allowed to speak for it. A device that reconnects gets a new connection
@@ -77,6 +83,14 @@ type turn struct {
 	// startTimer fails the turn if the device never says it began. Cleared by
 	// the first word from the device.
 	startTimer *time.Timer
+
+	// answered records which of the two ways a turn stops waiting for its first
+	// word got there first: the device saying it started, or the deadline giving
+	// up on it. The deadline runs on a timer goroutine, so without one flag
+	// under one lock, an ack landing in the gap could be accepted and then
+	// failed anyway — the transcript would say the device never started a turn
+	// it is in fact running. Guarded by Turns.mu.
+	answered bool
 
 	closeOnce sync.Once
 	ended     chan struct{}
@@ -112,12 +126,13 @@ func (t *Turns) pushGrace() time.Duration {
 }
 
 // Open registers a turn on the connection that is dispatching it, and returns
-// the handle the engine will read.
+// the handle the engine will read. deviceLabel is the display name used in
+// anything the transcript says about the machine; it may be empty.
 //
 // The same turn id twice is an error rather than a replacement: two runs
 // sharing one id would interleave their events into one transcript, and one of
 // them is a bug.
-func (t *Turns) Open(turnID string, sender Sender, taskID string) (*Handle, error) {
+func (t *Turns) Open(turnID string, sender Sender, deviceLabel string) (*Handle, error) {
 	if strings.TrimSpace(turnID) == "" || sender == nil {
 		return nil, errors.New("turn id and connection are required")
 	}
@@ -125,26 +140,37 @@ func (t *Turns) Open(turnID string, sender Sender, taskID string) (*Handle, erro
 		return nil, errors.New("turn has no device")
 	}
 	item := &turn{
-		id:       turnID,
-		deviceID: sender.DeviceID(),
-		taskID:   taskID,
-		sender:   sender,
-		events:   make(chan adapter.Event, 64),
-		ended:    make(chan struct{}),
+		id:          turnID,
+		deviceID:    sender.DeviceID(),
+		deviceLabel: deviceLabel,
+		sender:      sender,
+		events:      make(chan adapter.Event, 64),
+		ended:       make(chan struct{}),
 	}
-	item.startTimer = time.AfterFunc(t.startTimeout(), func() {
-		t.failIfOpen(item, fmt.Sprintf("device %s did not start the turn", item.deviceID))
-	})
 
 	t.mu.Lock()
 	if _, exists := t.byID[turnID]; exists {
 		t.mu.Unlock()
-		item.startTimer.Stop()
 		return nil, fmt.Errorf("turn %s is already running", turnID)
 	}
 	t.byID[turnID] = item
+	// Armed once the turn is in the registry, and under the same lock that
+	// publishes it: a deadline that fired before the insert would end a turn
+	// nobody can look up — and its close deletes from the registry by id, which
+	// for a refused duplicate would be someone else's live turn.
+	item.startTimer = time.AfterFunc(t.startTimeout(), func() {
+		t.failIfOpen(item, fmt.Sprintf("device %s did not start the turn", item.name()))
+	})
 	t.mu.Unlock()
 	return &Handle{turns: t, turn: item}, nil
+}
+
+// name is the device as a person would recognize it.
+func (item *turn) name() string {
+	if strings.TrimSpace(item.deviceLabel) != "" {
+		return item.deviceLabel
+	}
+	return item.deviceID
 }
 
 // Started records that the device has taken a dispatch and is about to run it.
@@ -152,12 +178,22 @@ func (t *Turns) Open(turnID string, sender Sender, taskID string) (*Handle, erro
 // Until this arrives the Hub has only its own write to the socket as evidence
 // that anything was received, and a device that is connected but stuck would
 // otherwise leave the turn open forever.
+//
+// It settles that question against the deadline under the registry lock: an ack
+// that arrives as the deadline fires either wins (and the turn runs) or loses
+// (and the caller is told the turn is already gone, so the device hears a
+// cancel instead of nothing).
 func (t *Turns) Started(sender Sender, started worker.TurnStarted) error {
-	item, err := t.owned(sender, started.TurnID, "start")
+	item, err := t.owned(sender, started.TurnID)
 	if err != nil {
 		return err
 	}
 	t.mu.Lock()
+	if item.answered {
+		t.mu.Unlock()
+		return fmt.Errorf("%w: %s was given up on before the device answered", ErrTurnUnknown, started.TurnID)
+	}
+	item.answered = true
 	if item.startTimer != nil {
 		item.startTimer.Stop()
 		item.startTimer = nil
@@ -167,7 +203,7 @@ func (t *Turns) Started(sender Sender, started worker.TurnStarted) error {
 }
 
 // owned finds a turn this connection is allowed to speak for.
-func (t *Turns) owned(sender Sender, turnID, what string) (*turn, error) {
+func (t *Turns) owned(sender Sender, turnID string) (*turn, error) {
 	if sender == nil {
 		return nil, errors.New("no connection")
 	}
@@ -194,13 +230,13 @@ func (t *Turns) Deliver(sender Sender, event worker.TurnEvent) error {
 	// number exists to prevent.
 	decoded, err := decodeEvent(event.Event)
 	if err != nil {
-		if item, ownErr := t.owned(sender, event.TurnID, "event"); ownErr == nil {
+		if item, ownErr := t.owned(sender, event.TurnID); ownErr == nil {
 			t.fail(item, fmt.Sprintf("device sent an unreadable turn event: %v", err))
 		}
 		return err
 	}
 
-	item, err := t.owned(sender, event.TurnID, "event")
+	item, err := t.owned(sender, event.TurnID)
 	if err != nil {
 		return err
 	}
@@ -228,7 +264,7 @@ func (t *Turns) Deliver(sender Sender, event worker.TurnEvent) error {
 
 // Finish records how a device says a turn ended.
 func (t *Turns) Finish(sender Sender, finish worker.TurnFinish) error {
-	item, err := t.owned(sender, finish.TurnID, "finish")
+	item, err := t.owned(sender, finish.TurnID)
 	if err != nil {
 		return err
 	}
@@ -272,7 +308,7 @@ func (t *Turns) Abandon(sender Sender) []string {
 
 	abandoned := make([]string, 0, len(doomed))
 	for _, item := range doomed {
-		t.fail(item, fmt.Sprintf("device %s disconnected mid-turn", deviceID))
+		t.fail(item, fmt.Sprintf("device %s disconnected mid-turn", item.name()))
 		abandoned = append(abandoned, item.id)
 	}
 	return abandoned
@@ -297,15 +333,20 @@ func (t *Turns) fail(item *turn, message string) {
 	t.close(item)
 }
 
-// failIfOpen is fail for callers that may be racing a turn that has already
-// ended — a deadline firing at the same moment the device answers.
+// failIfOpen is fail for the deadline, which runs on its own goroutine and may
+// be racing the device's first word about the turn.
+//
+// Claiming the turn and deciding to fail it are one step under the registry
+// lock: checking first and failing afterwards would let an ack land in between,
+// be accepted, and then be failed anyway.
 func (t *Turns) failIfOpen(item *turn, message string) {
 	t.mu.Lock()
-	closed := item.closed
-	t.mu.Unlock()
-	if closed {
+	if item.closed || item.answered {
+		t.mu.Unlock()
 		return
 	}
+	item.answered = true
+	t.mu.Unlock()
 	t.fail(item, message)
 }
 
@@ -345,6 +386,10 @@ func (t *Turns) push(item *turn, event adapter.Event) bool {
 	}
 
 	go func() {
+		// Tell the machine to stop before waiting for room: the reader is not
+		// coming back, so the agent is working for a transcript nobody will
+		// write, and the reason below is all that is left to send it.
+		_ = t.cancelDevice(item, "the hub fell behind this turn's events")
 		select {
 		case item.events <- errorEvent("the hub fell behind this turn's events"):
 		case <-item.ended:
@@ -359,6 +404,26 @@ func (t *Turns) push(item *turn, event adapter.Event) bool {
 		t.close(item)
 	}()
 	return false
+}
+
+// cancelDevice asks the machine to stop running a turn the Hub has given up on.
+//
+// Best effort by design: a device only finds out that the Hub stopped caring
+// when its next frame is refused, and an agent that never sends another event
+// would keep working to completion with nobody collecting the result. A failed
+// write means the control channel is already gone, and the connection ending is
+// what ends the turn on that side.
+func (t *Turns) cancelDevice(item *turn, reason string) error {
+	if item.sender == nil {
+		return errors.New("no control channel")
+	}
+	frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{TurnID: item.id, Reason: reason})
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
+	defer cancel()
+	return item.sender.Send(ctx, frame)
 }
 
 // close ends a turn and closes its event channel, which is what the engine's
@@ -384,7 +449,15 @@ func (t *Turns) close(item *turn) {
 		close(item.events)
 
 		t.mu.Lock()
-		delete(t.byID, item.id)
+		// Only if this turn is still the one registered under that id: a turn
+		// that was closed after being refused as a duplicate would otherwise
+		// delete the live turn of the same id, and a turn that is not in the
+		// registry can never be delivered, finished or abandoned — the task
+		// would sit in running with a run loop parked on a channel nobody
+		// closes.
+		if t.byID[item.id] == item {
+			delete(t.byID, item.id)
+		}
 		t.mu.Unlock()
 	})
 }
@@ -406,20 +479,7 @@ func (h *Handle) Events() <-chan adapter.Event { return h.turn.events }
 // says afterwards arrives for a turn the Hub has finished with and is dropped.
 func (h *Handle) Cancel() error {
 	defer h.turns.close(h.turn)
-	if h.turn.sender == nil {
-		return errors.New("no control channel")
-	}
-	frame, err := worker.NewFrame("turn.cancel", worker.TurnCancel{
-		TurnID: h.turn.id,
-		Reason: "canceled on the hub",
-	})
-	if err != nil {
-		return err
-	}
-	if err := h.turn.sender.Send(context.Background(), frame); err != nil {
-		return fmt.Errorf("cancel turn %s: %w", h.turn.id, err)
-	}
-	return nil
+	return h.turns.cancelDevice(h.turn, "canceled on the hub")
 }
 
 // decodeEvent unwraps one adapter event from a turn.event payload.

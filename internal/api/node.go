@@ -225,7 +225,12 @@ func (s *Server) serveNode(ctx context.Context, sender node.Sender, ws *websocke
 			_ = s.Store.TouchDevice(ctx, deviceID, time.Now().UnixMilli())
 		default:
 			// Saying so is better than dropping a frame silently: a Node that
-			// sends something the Hub does not understand should hear about it.
+			// sends something the Hub does not understand is answered — with a
+			// turn.cancel for a turn this Hub is not running (see
+			// routeNodeFrame), or with nothing at all if the frame was not about
+			// a turn. There is no error frame in this protocol: a Node has no
+			// reader for one, so inventing it here would be a message nobody
+			// receives.
 			_ = s.routeNodeFrame(ctx, sender, frame)
 		}
 	}
@@ -260,6 +265,17 @@ func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, fram
 			return
 		}
 		turnID = event.TurnID
+	case "turn.started":
+		// The device took a dispatch whose turn is already gone — the deadline
+		// gave up on it, or the Hub restarted while the frame was in flight.
+		// Answering this one matters more than the others: the ack is the first
+		// thing a Node sends, so it is the earliest chance to stop an agent that
+		// has not produced anything yet.
+		started, err := node.Decode[worker.TurnStarted](frame)
+		if err != nil {
+			return
+		}
+		turnID = started.TurnID
 	case "turn.finish":
 		finish, err := node.Decode[worker.TurnFinish](frame)
 		if err != nil {

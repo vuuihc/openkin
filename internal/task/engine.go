@@ -70,6 +70,14 @@ type CreateRequest struct {
 	// means the daemon handling the request; anything else is dispatched over
 	// the node control channel (ADR 0022).
 	ExecutingDeviceID string `json:"executing_device_id,omitempty"`
+	// WorkspaceAnchorID pins the new task to a workspace identity the caller
+	// already has, instead of deriving one from Cwd. It is kept out of the
+	// public contract for the same reason SessionRef is: a client naming an
+	// anchor directly could point a task at a checkout its own cwd never
+	// mentioned. A rerun is the caller — it continues work that already had
+	// this identity, and re-deriving it would let the same work land in a
+	// different copy of the workspace.
+	WorkspaceAnchorID string `json:"-"`
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -1298,7 +1306,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		// The cwd is an address on the machine that will run this; the anchor is
 		// the same workspace said portably, so a turn dispatched to another
 		// machine can be handed *that* machine's address instead of this one's.
-		WorkspaceAnchorID: e.workspaceAnchorFor(ctx, req.Cwd, req.ExecutingDeviceID, now),
+		WorkspaceAnchorID: e.newTaskAnchor(ctx, req, now),
 	}
 	if sessionRef := strings.TrimSpace(req.SessionRef); sessionRef != "" {
 		t.SessionRef = &sessionRef

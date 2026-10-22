@@ -23,6 +23,20 @@ import (
 // resolve the task's workspace.
 var errWorkspaceUnresolvable = errors.New("the device cannot resolve this task's workspace")
 
+// newTaskAnchor is the workspace identity a new task gets: the one the caller
+// already named, or a fresh one derived from the directory.
+//
+// A named anchor is taken as given. It comes from the rerun path, which is
+// continuing a task that already had this identity, and a caller that can set
+// it is inside this process (CreateRequest.WorkspaceAnchorID is not part of the
+// public contract).
+func (e *Engine) newTaskAnchor(ctx context.Context, req CreateRequest, now int64) string {
+	if anchorID := strings.TrimSpace(req.WorkspaceAnchorID); anchorID != "" {
+		return anchorID
+	}
+	return e.workspaceAnchorFor(ctx, req.Cwd, req.ExecutingDeviceID, now)
+}
+
 // workspaceAnchorFor records the portable identity of a working directory, or
 // returns "" when there is none to record.
 //

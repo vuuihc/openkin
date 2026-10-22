@@ -20,6 +20,9 @@ type Adapter struct {
 	Conns    *Connections
 	Turns    *Turns
 	DeviceID string
+	// DeviceLabel is the machine as a person knows it ("studio"), used in the
+	// lines a turn writes into a transcript. Empty falls back to DeviceID.
+	DeviceLabel string
 }
 
 // Start dispatches a turn and returns the handle its events will arrive on.
@@ -53,7 +56,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 	if err != nil {
 		return nil, err
 	}
-	handle, err := a.Turns.Open(turnID, sender, spec.ID)
+	handle, err := a.Turns.Open(turnID, sender, a.DeviceLabel)
 	if err != nil {
 		return nil, err
 	}

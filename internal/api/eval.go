@@ -237,6 +237,10 @@ func (s *Server) handleReplayTask(w http.ResponseWriter, r *http.Request) {
 			// the device it would run here, at a path that belongs to the other
 			// machine — which is the failure this whole mechanism exists to stop.
 			ExecutingDeviceID: original.ExecutingDeviceID,
+			// And the same workspace identity, not a fresh guess at one: deriving
+			// it again would let the rerun land in a different copy of the same
+			// repository, which is the same failure one step further along.
+			WorkspaceAnchorID: original.WorkspaceAnchorID,
 		}
 		if err := s.validateTaskCreateRequest(r.Context(), createReq); err != nil {
 			replayError(w, err)
