@@ -191,6 +191,39 @@ func TestNodeChannelDropsARevokedDevice(t *testing.T) {
 	}
 }
 
+// TestNodeChannelKeepsAValidDevice: the revocation check runs on a timer against
+// every open channel, so a machine in good standing has to come through it
+// untouched. A watchdog that dropped healthy connections would be worse than the
+// hole it closes.
+func TestNodeChannelKeepsAValidDevice(t *testing.T) {
+	restore := nodeRevokeCheck
+	nodeRevokeCheck = 10 * time.Millisecond
+	defer func() { nodeRevokeCheck = restore }()
+
+	s, master, conns := nodeTestServer(t)
+	hub := httptest.NewServer(s.Handler())
+	defer hub.Close()
+
+	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
+	startNode(t, hub.URL, deviceToken)
+	awaitDevice(t, s, deviceID, func(d store.Device) bool {
+		return d.Reachability == store.ReachabilityOnline
+	})
+
+	// Several checks' worth of time, and the channel is still there.
+	time.Sleep(150 * time.Millisecond)
+	if !conns.Connected(deviceID) {
+		t.Fatal("a device in good standing lost its control channel")
+	}
+	device, err := s.Store.GetDevice(context.Background(), deviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.Reachability != store.ReachabilityOnline {
+		t.Fatalf("reachability = %q, want online", device.Reachability)
+	}
+}
+
 func TestNodeChannelRequiresAPairedDevice(t *testing.T) {
 	s, master, _ := nodeTestServer(t)
 	hub := httptest.NewServer(s.Handler())

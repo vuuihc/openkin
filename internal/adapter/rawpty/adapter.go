@@ -33,6 +33,13 @@ func New() *Adapter {
 	return &Adapter{Shell: "/bin/sh"}
 }
 
+// AutoApprovesAll implements adapter's permission-ceiling probe, and it is true
+// for every mode: the prompt *is* the command line, so there was never anything
+// to approve. A machine that runs dispatched work through this adapter is a
+// machine whose operator has decided to let the Hub run commands on it, and
+// --allow-yolo is where that decision is recorded.
+func (a *Adapter) AutoApprovesAll(string) bool { return true }
+
 // Start implements adapter.Adapter.
 // Prompt is the command line; executed as: shell -c "<prompt>" in spec.Cwd.
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {

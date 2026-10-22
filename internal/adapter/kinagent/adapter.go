@@ -45,6 +45,14 @@ func New(resolve Resolver) *Adapter {
 	return &Adapter{Resolve: resolve}
 }
 
+// AutoApprovesAll implements adapter's permission-ceiling probe, and it is true
+// for every mode: this agent's tools (bash, write_file, edit_file) run the
+// moment the model asks for them, with no approval step to grade. A dispatched
+// turn that names it is therefore a turn that runs arbitrary commands on this
+// machine unattended, whatever permission mode the Hub wrote down — which is
+// exactly the decision --allow-yolo exists to make the operator take.
+func (a *Adapter) AutoApprovesAll(string) bool { return true }
+
 // Start runs the Kin agent loop for the task prompt.
 func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.RunHandle, error) {
 	var client provider.Client

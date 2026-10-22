@@ -94,3 +94,14 @@ func (v *cwdValidator) Start(ctx context.Context, spec TaskSpec) (RunHandle, err
 	}
 	return v.next.Start(ctx, spec)
 }
+
+// AutoApprovesAll forwards the wrapped adapter's own answer.
+//
+// This wrapper sits in front of every runner a registry hands out, so a question
+// it swallows is a question answered wrongly by default: the Node's permission
+// ceiling asks whether a mode leaves anyone able to approve, and "no opinion"
+// reads as a safe mode — the opposite of the truth for exactly the agents whose
+// answer matters.
+func (v *cwdValidator) AutoApprovesAll(mode string) bool {
+	return AutoApprovesAll(v.next, mode)
+}

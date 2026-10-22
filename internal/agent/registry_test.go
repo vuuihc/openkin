@@ -203,3 +203,38 @@ func TestResetSession(t *testing.T) {
 type sessionHookFunc func(context.Context, string) error
 
 func (f sessionHookFunc) Reset(ctx context.Context, taskID string) error { return f(ctx, taskID) }
+
+// bypassAdapter is an agent that answers the permission-ceiling probe: it has no
+// approval channel, so it treats accept_edits as the bypass yolo is.
+type bypassAdapter struct{ stubAdapter }
+
+func (bypassAdapter) AutoApprovesAll(mode string) bool {
+	return adapter.NormalizePermissionMode(mode) == adapter.PermissionAcceptEdits ||
+		adapter.NormalizePermissionMode(mode) == adapter.PermissionYOLO
+}
+
+// TestGetRunnableKeepsTheAdaptersOwnAnswers: every runner the registry hands out
+// goes through a wrapper of its own (cwd validation today), and a wrapper that
+// only implements Start silently swallows anything else asked of the adapter.
+// The permission ceiling asks exactly this question, and a swallowed answer
+// reads as "safe mode" — the wrong way round for the agents that need it.
+func TestGetRunnableKeepsTheAdaptersOwnAnswers(t *testing.T) {
+	r := MustRegistry(Entry{
+		ID: "opencode", Name: "OpenCode", Priority: 10, Runner: bypassAdapter{},
+		Status: func(context.Context) Status { return Status{Installed: true, Available: true} },
+	})
+	reg, err := r.GetRunnable(context.Background(), "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for mode, want := range map[string]bool{
+		adapter.PermissionAcceptEdits: true,
+		adapter.PermissionYOLO:        true,
+		adapter.PermissionDefault:     false,
+	} {
+		if got := adapter.AutoApprovesAll(reg.Runner, mode); got != want {
+			t.Fatalf("AutoApprovesAll(%q) through the registry = %v, want %v (runner is %T)",
+				mode, got, want, reg.Runner)
+		}
+	}
+}
