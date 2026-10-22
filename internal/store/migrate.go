@@ -6,7 +6,66 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 32
+const schemaVersion = 33
+
+// migrationIdentityTables splits accounts from login credentials.
+//
+// `users.id` is the account key and never changes. `user_identities` holds one
+// row per way to reach that account, keyed on (provider, subject). Nothing
+// anywhere merges or matches accounts by email: an OIDC provider may hand back
+// an address it never verified, and OIDC Core §5.7 forbids using email as the
+// unique identifier for exactly that reason. `users.email` is display and
+// contact data, deliberately not unique.
+const migrationIdentityTables = `
+CREATE TABLE IF NOT EXISTS users (
+  id             TEXT PRIMARY KEY,
+  email          TEXT NOT NULL DEFAULT '',
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  email_source   TEXT NOT NULL DEFAULT '',
+  display_name   TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL,
+  disabled_at    INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS user_identities (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider     TEXT NOT NULL,
+  subject      TEXT NOT NULL,
+  secret_hash  TEXT NOT NULL DEFAULT '',
+  label        TEXT NOT NULL DEFAULT '',
+  created_at   INTEGER NOT NULL,
+  last_used_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_identities_subject
+  ON user_identities(provider, subject);
+CREATE INDEX IF NOT EXISTS idx_user_identities_user
+  ON user_identities(user_id);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id           TEXT PRIMARY KEY,
+  token_hash   TEXT NOT NULL UNIQUE,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,
+  last_seen_at INTEGER,
+  user_agent   TEXT NOT NULL DEFAULT '',
+  ip           TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
+  ON auth_sessions(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires
+  ON auth_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+  token_hash TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_active
+  ON bootstrap_tokens(expires_at, used_at);
+`
 
 const migration001 = `
 CREATE TABLE tasks (
@@ -392,7 +451,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -1816,6 +1875,25 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 032: %w", err)
 		}
 		v = 32
+	}
+
+	if v == 32 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 033: %w", err)
+		}
+		if _, err := tx.Exec(migrationIdentityTables); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 033 identity tables: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 33`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 033: %w", err)
+		}
+		v = 33
 	}
 
 	return nil
