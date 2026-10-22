@@ -190,9 +190,17 @@ func (r WorkspaceRoot) Validate() error {
 		return fmt.Errorf("relative_path exceeds %d bytes", MaxRootPath)
 	}
 	if rel := strings.TrimSpace(r.RelativePath); rel != "" {
-		if isAbsNodePath(rel) || rel == ".." || strings.HasPrefix(rel, "../") ||
-			strings.Contains(rel, "/../") || strings.Contains(rel, `\..`) {
-			return fmt.Errorf("relative_path %q escapes the checkout", rel)
+		if isAbsNodePath(rel) {
+			return fmt.Errorf("relative_path %q is absolute", rel)
+		}
+		// A path inside a checkout that names its way out of the checkout is not
+		// a path inside it. The Hub stores this and resolves it on other machines
+		// without ever seeing the directory, so the check has to be on the text:
+		// normalize the separators, then refuse any ".." segment.
+		for _, segment := range strings.Split(strings.ReplaceAll(rel, `\`, "/"), "/") {
+			if segment == ".." {
+				return fmt.Errorf("relative_path %q escapes the checkout", rel)
+			}
 		}
 	}
 	if len(r.RemoteURL) > MaxRemoteURL {
@@ -202,7 +210,13 @@ func (r WorkspaceRoot) Validate() error {
 		// The Hub stores this and every other device reads it, so it has to be
 		// canonical already: a URL that still carries a credential must never
 		// reach the database (ADR 0022 D7).
-		if strings.ContainsAny(remote, "@\\ \t\n") || strings.Contains(remote, "://") {
+		// A query or fragment is where a credential would hide, and a canonical
+		// remote is the one string every device reads (ADR 0022 D7). The leading
+		// and trailing slash are here too: the Hub's own check refuses them, and a
+		// hello that only fails once it reaches the store gets the whole machine
+		// refused for one bad root.
+		if strings.ContainsAny(remote, "@\\ \t\n?#") || strings.Contains(remote, "://") ||
+			strings.HasPrefix(remote, "/") || strings.HasSuffix(remote, "/") {
 			return fmt.Errorf("remote_url %q is not canonical", remote)
 		}
 	}

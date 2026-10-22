@@ -2214,6 +2214,13 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 			return
 		}
 		cwd = resolved
+		if strings.TrimSpace(t.WorkspaceAnchorID) == "" {
+			// The row carries no portable identity, so the path above is the one
+			// the task was created with. That is the honest answer for a task with
+			// no anchor, and it is worth a line: everything else about this turn
+			// looks the same as one whose workspace was resolved.
+			e.noteUnanchoredRemoteTurn(ctx, t, turnExecutionID)
+		}
 	}
 
 	spec := adapter.TaskSpec{

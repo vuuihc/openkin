@@ -2084,9 +2084,10 @@ ON eval_results(run_id, case_id, rep_idx);
 // which is the one migration shape that can quietly destroy data: a DROP TABLE
 // on a table other rows point at fires ON DELETE CASCADE, and task_agent_sessions
 // points here. Foreign keys are therefore off for the length of the rebuild, on
-// a connection of its own (the pragma is per connection, and the pool has more
-// than one), and the child rows are counted before and after to prove nothing
-// was cascaded away.
+// a connection of its own — the pragma is per connection, and the pool hands out
+// whichever one is free (it is capped at one, but nothing here should depend on
+// that) — and the child rows are counted before and after to prove nothing was
+// cascaded away.
 //
 // The rebuild is idempotent and the version bump is a separate transaction: a
 // crash in between leaves a database that is already correct, and the next

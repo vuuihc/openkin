@@ -1142,16 +1142,25 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 		status = StatusQueued
 	}
 
+	// The workspace identity travels with the cwd, because a cwd on its own is an
+	// address on whichever machine wrote it. A source that never got one — a task
+	// created before its device reported that root — gets one derived now.
+	anchorID := src.WorkspaceAnchorID
+	if anchorID == "" {
+		anchorID = e.workspaceAnchorFor(ctx, src.Cwd, src.ExecutingDeviceID, now)
+	}
+
 	dst := store.Task{
-		ID:             newID,
-		Title:          title,
-		Agent:          agent,
-		Cwd:            src.Cwd,
-		Prompt:         prompt,
-		Model:          src.Model,
-		PermissionMode: src.PermissionMode,
-		Status:         status,
-		CreatedAt:      now,
+		ID:                newID,
+		Title:             title,
+		Agent:             agent,
+		Cwd:               src.Cwd,
+		Prompt:            prompt,
+		Model:             src.Model,
+		PermissionMode:    src.PermissionMode,
+		WorkspaceAnchorID: anchorID,
+		Status:            status,
+		CreatedAt:         now,
 		// A fork continues the same conversation in the same directory, so it
 		// runs where the source runs. Carrying only the cwd would leave the
 		// branch on this machine: same path, different files, different agent

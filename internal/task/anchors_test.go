@@ -284,7 +284,9 @@ func TestCreateRecordsTheLocalCheckoutAsARoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(devices) != 1 || devices[0] != "hub-machine" {
+	// Named the way a user knows them: the label, because nobody can look up an
+	// id in a refusal message.
+	if len(devices) != 1 || devices[0] != "hub" {
 		t.Fatalf("devices = %v", devices)
 	}
 }
@@ -359,4 +361,159 @@ func sameTestPath(t *testing.T, a, b string) bool {
 		rb = filepath.Clean(b)
 	}
 	return ra == rb
+}
+
+// A fork continues the same conversation in the same directory, so it carries
+// the same workspace identity. Without one, the branch would run at whatever the
+// path happens to mean on the machine that runs it — the copy problem the anchor
+// exists to prevent, reintroduced by the branch.
+func TestForkKeepsTheWorkspaceIdentity(t *testing.T) {
+	local := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, local)
+	ctx := context.Background()
+	e.SetRemoteRunner("hub-machine", nil)
+
+	deviceRow(t, st, "laptop")
+	if err := st.RecordDeviceWorkspaceRoots(ctx, "laptop", []store.ReportedRoot{
+		{Path: "/code/openkin", RemoteURL: "github.com/vuuihc/openkin", RelativePath: store.AnchorRepoRoot},
+	}, 1000); err != nil {
+		t.Fatal(err)
+	}
+	remoteAgent := &specRecorder{}
+	e.SetRemoteRunner("hub-machine", func(store.Task, string) (adapter.Adapter, error) {
+		return remoteAgent, nil
+	})
+
+	src, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/code/openkin/internal/task", Prompt: "start here",
+		ExecutingDeviceID: "laptop",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, src.ID, StatusSucceeded, 5*time.Second)
+	if src.WorkspaceAnchorID == "" {
+		t.Fatal("the source task got no anchor, so this test proves nothing")
+	}
+
+	forked, err := e.Fork(ctx, src.ID, ForkRequest{Prompt: "and now this"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forked.ExecutingDeviceID != "laptop" {
+		t.Fatalf("fork runs on %q, not the machine that owns the directory", forked.ExecutingDeviceID)
+	}
+	if forked.WorkspaceAnchorID != src.WorkspaceAnchorID {
+		t.Fatalf("fork anchor = %q, source = %q", forked.WorkspaceAnchorID, src.WorkspaceAnchorID)
+	}
+
+	waitStatus(t, e, forked.ID, StatusSucceeded, 5*time.Second)
+	specs := remoteAgent.started()
+	if len(specs) != 2 {
+		t.Fatalf("dispatches = %+v", specs)
+	}
+	if specs[1].Cwd != "/code/openkin/internal/task" {
+		t.Fatalf("the fork ran at %q", specs[1].Cwd)
+	}
+}
+
+// A remote turn with no portable identity runs at the path the task was created
+// with, checked against the machine's own roots and nothing else. That is the
+// weaker of the two checks, and a transcript that looked exactly like a resolved
+// turn would hide it.
+func TestRemoteTurnWithoutAWorkspaceIdentitySaysSo(t *testing.T) {
+	local := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, local)
+	ctx := context.Background()
+	e.SetRemoteRunner("hub-machine", nil)
+
+	// The machine is known but has reported no roots at all: nothing to match a
+	// path against, so no anchor can be derived.
+	deviceRow(t, st, "laptop")
+	remoteAgent := &specRecorder{}
+	e.SetRemoteRunner("hub-machine", func(store.Task, string) (adapter.Adapter, error) {
+		return remoteAgent, nil
+	})
+
+	created, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/code/scratch", Prompt: "run it anyway",
+		ExecutingDeviceID: "laptop",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, created.ID, StatusSucceeded, 5*time.Second)
+	if created.WorkspaceAnchorID != "" {
+		t.Fatalf("this task was supposed to have no anchor: %q", created.WorkspaceAnchorID)
+	}
+
+	specs := remoteAgent.started()
+	if len(specs) != 1 || specs[0].Cwd != "/code/scratch" {
+		t.Fatalf("dispatch = %+v", specs)
+	}
+	events, err := st.ListEvents(ctx, created.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noted := false
+	for _, ev := range events {
+		if ev.Type == "meta" && strings.Contains(string(ev.Payload), "no workspace identity") &&
+			strings.Contains(string(ev.Payload), "laptop") && strings.Contains(string(ev.Payload), "/code/scratch") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Fatalf("nothing in the transcript says the workspace was not resolved: %+v", events)
+	}
+}
+
+// A Hub restart is the one ending no device can send: the turn table is in the
+// process that just died, so nobody will ever report how those turns ended. The
+// task must not stay running, and the events that did arrive must stay — they
+// are what the user already saw.
+func TestAHubRestartFailsARemoteTurnAndKeepsItsEvents(t *testing.T) {
+	local := &fakeAdapter{events: successEvents()}
+	_, st := testEngine(t, 4, local)
+	ctx := context.Background()
+	deviceRow(t, st, "laptop")
+
+	now := store.NowMilli()
+	rec := store.Task{
+		ID: "01REMOTERUNNINGTASK0000001", Title: "carry on", Agent: "claude-code",
+		Cwd: "/code/openkin", Prompt: "keep going", Status: StatusRunning,
+		ExecutingDeviceID: "laptop", CreatedAt: now,
+	}
+	if err := st.InsertTask(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendEvent(ctx, rec.ID, "message", []byte(`{"role":"assistant","content":"half done"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The next process starts, sees the turn nobody is running, and settles it.
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": local}, NewBus(), 4)
+	defer e.Close()
+	if err := e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	settled, err := e.Get(ctx, rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.Status != StatusFailed {
+		t.Fatalf("status = %s", settled.Status)
+	}
+	events, err := st.ListEvents(ctx, rec.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %+v", events)
+	}
+	if events[0].Type != "message" || !strings.Contains(string(events[0].Payload), "half done") {
+		t.Fatalf("the events the hub had already received were not kept: %+v", events[0])
+	}
+	if events[1].Type != "error" || !strings.Contains(string(events[1].Payload), "daemon restarted") {
+		t.Fatalf("the restart was not recorded: %+v", events[1])
+	}
 }

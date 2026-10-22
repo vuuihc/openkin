@@ -99,7 +99,10 @@ func (s *Store) EnsureGitAnchor(ctx context.Context, remoteURL, relativePath str
 	if err := validateCanonicalRemote(remoteURL); err != nil {
 		return WorkspaceAnchor{}, err
 	}
-	relativePath = cleanAnchorRel(relativePath)
+	relativePath, err := cleanAnchorRel(relativePath)
+	if err != nil {
+		return WorkspaceAnchor{}, err
+	}
 	now = anchorNow(now)
 
 	existing, err := scanAnchor(s.db.QueryRowContext(ctx, anchorSelect+`
@@ -256,7 +259,10 @@ func (s *Store) ResolveAnchorPath(ctx context.Context, anchor WorkspaceAnchor, d
 		if err := rows.Scan(&relative, &absPath); err != nil {
 			return "", false, fmt.Errorf("resolve anchor roots: %w", err)
 		}
-		relative = cleanAnchorRel(relative)
+		relative, err = cleanAnchorRel(relative)
+		if err != nil {
+			return "", false, err
+		}
 		if !anchorPathHasPrefix(anchor.RelativePath, relative) {
 			continue
 		}
@@ -270,25 +276,33 @@ func (s *Store) ResolveAnchorPath(ctx context.Context, anchor WorkspaceAnchor, d
 	if bestRoot == "" {
 		return "", false, nil
 	}
-	return joinNodePath(bestRoot, anchor.RelativePath), true, nil
+	resolved, err := joinNodePath(bestRoot, anchor.RelativePath)
+	if err != nil {
+		return "", false, err
+	}
+	return resolved, true, nil
 }
 
-// DevicesWithAnchor lists the devices that can resolve an anchor. It is what
+// DevicesWithAnchor names the devices that can resolve an anchor. It is what
 // turns "this machine does not have that workspace" into an answer the user can
-// act on.
+// act on, so it answers with the label a device is known by and falls back to
+// its id only when it has none: nobody can look up an id.
 func (s *Store) DevicesWithAnchor(ctx context.Context, anchor WorkspaceAnchor) ([]string, error) {
 	query := `
-		SELECT DISTINCT r.device_id
+		SELECT DISTINCT COALESCE(NULLIF(TRIM(d.label), ''), r.device_id)
 		FROM workspace_anchor_roots r
 		JOIN workspace_anchors a ON a.id = r.anchor_id
+		LEFT JOIN devices d ON d.id = r.device_id
 		WHERE a.kind = ? AND a.remote_url = ?
-		ORDER BY r.device_id`
+		ORDER BY 1`
 	args := []any{AnchorGitRemote, anchor.RemoteURL}
 	if anchor.Kind == AnchorDevicePath {
 		query = `
-			SELECT DISTINCT device_id FROM workspace_anchor_roots
-			WHERE anchor_id = ?
-			ORDER BY device_id`
+			SELECT DISTINCT COALESCE(NULLIF(TRIM(d.label), ''), r.device_id)
+			FROM workspace_anchor_roots r
+			LEFT JOIN devices d ON d.id = r.device_id
+			WHERE r.anchor_id = ?
+			ORDER BY 1`
 		args = []any{anchor.ID}
 	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -367,9 +381,25 @@ func (s *Store) RecordDeviceWorkspaceRoots(ctx context.Context, deviceID string,
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// What this device already has, so a repeat hello reuses the anchor it wrote
+	// last time. It matters for device paths: a device-path anchor is identified
+	// by its root row, so minting a new one on every hello would orphan every
+	// task pointing at the old id and leave the row a task names unresolvable.
+	existing, err := devicePathAnchors(ctx, tx, deviceID)
+	if err != nil {
+		return err
+	}
+
 	keep := make(map[string]bool, len(roots))
+	// claimed is where this hello says each anchor lives, and it is what makes
+	// two checkouts of one repository visible. A device that reports two of them
+	// has two answers to "where is this repository here" and the Hub cannot pick
+	// between them: either choice would hand a turn a checkout the task never
+	// named. Such an anchor keeps no root on this device, and resolution fails
+	// loudly instead — the alternative is running in the wrong copy, silently.
+	claimed := make(map[string]string, len(roots))
 	for _, reported := range roots {
-		absPath := strings.TrimSpace(reported.Path)
+		absPath := cleanNodePath(reported.Path)
 		remoteURL := strings.TrimSpace(reported.RemoteURL)
 		if absPath == "" {
 			continue
@@ -384,13 +414,20 @@ func (s *Store) RecordDeviceWorkspaceRoots(ctx context.Context, deviceID string,
 				return err
 			}
 			kind = AnchorGitRemote
-			relative = cleanAnchorRel(reported.RelativePath)
+			if relative, err = cleanAnchorRel(reported.RelativePath); err != nil {
+				return err
+			}
 		}
 
-		anchorID, err := ensureAnchorTx(ctx, tx, kind, remoteURL, relative, now)
+		anchorID, err := ensureAnchorTx(ctx, tx, kind, remoteURL, relative, existing, absPath, now)
 		if err != nil {
 			return err
 		}
+		if prev, seen := claimed[anchorID]; seen && !sameNodePath(prev, absPath) {
+			delete(keep, anchorID)
+			continue
+		}
+		claimed[anchorID] = absPath
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workspace_anchor_roots (anchor_id, device_id, abs_path, verified_at)
 			VALUES (?, ?, ?, ?)
@@ -446,7 +483,10 @@ func (s *Store) RecordDeviceWorkspaceRoots(ctx context.Context, deviceID string,
 // root matches only itself — a directory that is not a repository is not a
 // parent of anything portable.
 func (s *Store) MatchDeviceRoot(ctx context.Context, deviceID, dir string, now int64) (WorkspaceAnchor, string, bool, error) {
-	dir = strings.TrimSpace(dir)
+	// The typed path is normalized the same way the reported roots are, so a cwd
+	// written with a ".." in it is matched as the directory it names rather than
+	// as text that happens to start with a root.
+	dir = cleanNodePath(dir)
 	if dir == "" {
 		return WorkspaceAnchor{}, "", false, nil
 	}
@@ -468,7 +508,15 @@ func (s *Store) MatchDeviceRoot(ctx context.Context, deviceID, dir string, now i
 		if !nodePathContains(root.AbsPath, dir) {
 			continue
 		}
-		relative := joinRelPaths(root.RelativePath, relativeNodePath(root.AbsPath, dir))
+		// The anchor is the directory's place in the *checkout*, which is what a
+		// root row's abs_path holds. The row's own relative path is the workspace
+		// it was created for, and it is not part of this answer: adding it would
+		// count the same path twice for a device whose root is a subdirectory of
+		// its checkout, and name a directory that is not there.
+		relative, err := cleanAnchorRel(relativeNodePath(root.AbsPath, dir))
+		if err != nil {
+			return WorkspaceAnchor{}, "", false, err
+		}
 		anchor, err := s.EnsureGitAnchor(ctx, root.RemoteURL, relative, now)
 		if err != nil {
 			return WorkspaceAnchor{}, "", false, err
@@ -481,12 +529,45 @@ func (s *Store) MatchDeviceRoot(ctx context.Context, deviceID, dir string, now i
 	return WorkspaceAnchor{}, "", false, nil
 }
 
+// devicePathAnchors returns the device-path anchors one device already holds a
+// root for, keyed by the root path as it will be compared.
+func devicePathAnchors(ctx context.Context, tx *sql.Tx, deviceID string) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT r.anchor_id, r.abs_path
+		FROM workspace_anchor_roots r
+		JOIN workspace_anchors a ON a.id = r.anchor_id
+		WHERE r.device_id = ? AND a.kind = ?`, deviceID, AnchorDevicePath)
+	if err != nil {
+		return nil, fmt.Errorf("find device anchors: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var anchorID, absPath string
+		if err := rows.Scan(&anchorID, &absPath); err != nil {
+			return nil, fmt.Errorf("find device anchors: %w", err)
+		}
+		out[cleanNodePath(absPath)] = anchorID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("find device anchors: %w", err)
+	}
+	return out, nil
+}
+
 // ensureAnchorTx is EnsureGitAnchor for a caller already inside a transaction.
-func ensureAnchorTx(ctx context.Context, tx *sql.Tx, kind, remoteURL, relativePath string, now int64) (string, error) {
+//
+// A repository anchor is shared identity and is deduped by (remote, path). A
+// device-path anchor has no identity beyond its root row, so the caller passes
+// what this device already holds (existing) and the path being reported: an
+// anchor that already names this directory on this device is reused, and only a
+// genuinely new directory gets a new one.
+func ensureAnchorTx(ctx context.Context, tx *sql.Tx, kind, remoteURL, relativePath string, existing map[string]string, absPath string, now int64) (string, error) {
 	if kind == AnchorDevicePath {
-		// A device-path anchor is identified through its root row, which the
-		// caller writes immediately after this. Nothing to dedupe here: the
-		// caller's root upsert is what makes a repeat hello idempotent.
+		if id, ok := existing[cleanNodePath(absPath)]; ok {
+			return id, nil
+		}
 		id := ulid.Make().String()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workspace_anchors (id, project_id, kind, remote_url, relative_path, created_at, updated_at)
@@ -555,46 +636,83 @@ func validateCanonicalRemote(remote string) error {
 	return nil
 }
 
-// cleanAnchorRel normalizes a workspace path inside a checkout.
+// cleanAnchorRel normalizes a workspace path inside a checkout, and refuses one
+// that leaves it.
 //
 // Slashes, not filepath separators: an anchor travels between machines, and its
-// relative path has to mean the same thing on all of them.
-func cleanAnchorRel(relative string) string {
+// relative path has to mean the same thing on all of them. A ".." segment is a
+// refusal rather than something to resolve: the Hub cannot see the directory it
+// names, so a path that walks out of the checkout would be stored as an identity
+// for one workspace while pointing a turn at a directory in another.
+func cleanAnchorRel(relative string) (string, error) {
 	relative = strings.TrimSpace(strings.ReplaceAll(relative, "\\", "/"))
 	relative = strings.Trim(relative, "/")
 	if relative == "" || relative == "." {
-		return AnchorRepoRoot
+		return AnchorRepoRoot, nil
 	}
-	return path.Clean(relative)
+	cleaned := path.Clean(relative)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("workspace path %q leaves its checkout", relative)
+	}
+	return cleaned, nil
 }
 
 // anchorPathHasPrefix reports whether rel is rel-or-below prefix of target, by
 // path segments: "sub" is a prefix of "sub/dir" but never of "subway".
+//
+// A path that will not clean cannot be a prefix of anything, and the answer for
+// it is no: this decides whether a workspace resolves, and the safe direction for
+// that question is to refuse.
 func anchorPathHasPrefix(target, prefix string) bool {
-	target = cleanAnchorRel(target)
-	prefix = cleanAnchorRel(prefix)
+	target, err := cleanAnchorRel(target)
+	if err != nil {
+		return false
+	}
+	if prefix, err = cleanAnchorRel(prefix); err != nil {
+		return false
+	}
 	if prefix == AnchorRepoRoot {
 		return true
 	}
 	return target == prefix || strings.HasPrefix(target, prefix+"/")
 }
 
-// joinRelPaths joins two workspace-relative paths.
-func joinRelPaths(base, extra string) string {
-	base = cleanAnchorRel(base)
-	extra = cleanAnchorRel(extra)
-	if extra == AnchorRepoRoot {
-		return base
+// cleanNodePath normalizes a path on another machine for textual comparison.
+//
+// These paths belong to a filesystem the Hub cannot see, so it cannot resolve
+// them — but they can still be normalized as text: backslashes become slashes,
+// "." segments go, and ".." pops the segment in front of it. A ".." that would
+// climb above the start of the path stays where it is, and that is what makes
+// every containment check below answer no: no declared root is reachable by
+// walking up out of it.
+func cleanNodePath(p string) string {
+	p = strings.ReplaceAll(strings.TrimSpace(p), `\`, "/")
+	rooted := strings.HasPrefix(p, "/")
+	segments := make([]string, 0, 8)
+	for _, segment := range strings.Split(p, "/") {
+		switch segment {
+		case "", ".":
+		case "..":
+			if n := len(segments); n > 0 && segments[n-1] != ".." {
+				segments = segments[:n-1]
+			} else {
+				segments = append(segments, "..")
+			}
+		default:
+			segments = append(segments, segment)
+		}
 	}
-	if base == AnchorRepoRoot {
-		return extra
+	cleaned := strings.Join(segments, "/")
+	if rooted && !strings.HasPrefix(cleaned, "..") {
+		cleaned = "/" + cleaned
 	}
-	return base + "/" + extra
+	return cleaned
 }
 
 // sameNodePath compares two paths as the machine that owns them wrote them.
 func sameNodePath(a, b string) bool {
-	return strings.TrimRight(strings.TrimSpace(a), "/\\") == strings.TrimRight(strings.TrimSpace(b), "/\\")
+	a, b = cleanNodePath(a), cleanNodePath(b)
+	return a != "" && a == b
 }
 
 // nodePathContains reports whether dir is at or below root.
@@ -602,23 +720,23 @@ func sameNodePath(a, b string) bool {
 // The comparison is textual on purpose: these are paths on another machine, and
 // the Hub cannot resolve, stat or symlink-check them. The device enforces the
 // boundary for real (node.Executor.allowedCwd); this only decides whether an
-// anchor can be derived.
+// anchor can be derived. Both sides are normalized the same way first, so a
+// directory named with a ".." in it is compared as the directory it names.
 func nodePathContains(root, dir string) bool {
-	root = strings.TrimRight(strings.TrimSpace(root), "/\\")
-	dir = strings.TrimRight(strings.TrimSpace(dir), "/\\")
+	root, dir = cleanNodePath(root), cleanNodePath(dir)
 	if root == "" || dir == "" {
 		return false
 	}
 	if root == dir {
 		return true
 	}
-	return strings.HasPrefix(dir, root+"/") || strings.HasPrefix(dir, root+`\`)
+	return strings.HasPrefix(dir, root+"/")
 }
 
-// relativeNodePath returns dir relative to root, in slash form.
+// relativeNodePath returns dir relative to root, in slash form. Both are
+// already normalized, and root is a prefix of dir.
 func relativeNodePath(root, dir string) string {
-	root = strings.TrimRight(strings.TrimSpace(root), "/\\")
-	dir = strings.TrimRight(strings.TrimSpace(dir), "/\\")
+	root, dir = cleanNodePath(root), cleanNodePath(dir)
 	if root == dir {
 		return AnchorRepoRoot
 	}
@@ -630,16 +748,19 @@ func relativeNodePath(root, dir string) string {
 // The separator follows the base path, because the result is handed back to the
 // device that owns it: a Windows checkout gets backslashes, everything else
 // gets slashes.
-func joinNodePath(absPath, relative string) string {
+func joinNodePath(absPath, relative string) (string, error) {
 	absPath = strings.TrimRight(strings.TrimSpace(absPath), "/\\")
-	relative = cleanAnchorRel(relative)
+	relative, err := cleanAnchorRel(relative)
+	if err != nil {
+		return "", err
+	}
 	if relative == AnchorRepoRoot {
-		return absPath
+		return absPath, nil
 	}
 	sep := "/"
 	if strings.Contains(absPath, `\`) && !strings.Contains(absPath, "/") {
 		sep = `\`
 		relative = strings.ReplaceAll(relative, "/", `\`)
 	}
-	return absPath + sep + relative
+	return absPath + sep + relative, nil
 }

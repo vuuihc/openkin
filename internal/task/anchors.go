@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -113,6 +114,32 @@ func (e *Engine) dispatchCwd(ctx context.Context, t store.Task) (string, error) 
 			describeAnchor(anchor), where)
 	}
 	return path, nil
+}
+
+// noteUnanchoredRemoteTurn records that a turn left this daemon with no
+// workspace identity to check.
+//
+// The machine that runs it still refuses paths outside the roots it declared,
+// so this is not an open door — but it is the weaker check of the two, and
+// without a line in the transcript it is indistinguishable from a turn whose
+// workspace was resolved. Saying so is the difference between a fallback and a
+// silent one.
+func (e *Engine) noteUnanchoredRemoteTurn(ctx context.Context, t store.Task, executionID string) {
+	name := t.ExecutingDeviceID
+	if device, err := e.store.GetDevice(ctx, t.ExecutingDeviceID); err == nil {
+		if label := strings.TrimSpace(device.Label); label != "" {
+			name = label
+		}
+	}
+	payload, err := json.Marshal(map[string]string{"message": fmt.Sprintf(
+		"no workspace identity for this turn: %s runs it at %s, the path this task was created with, "+
+			"which only that machine's own roots can vouch for", name, t.EffectiveCwd())})
+	if err != nil {
+		return
+	}
+	if ev, err := e.persistRunEvent(ctx, t.ID, executionID, "meta", payload); err == nil {
+		e.bus.PublishEvent(ev)
+	}
 }
 
 // describeAnchor says which workspace in the words a user would use.

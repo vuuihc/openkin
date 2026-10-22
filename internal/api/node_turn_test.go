@@ -703,6 +703,49 @@ func TestCreateJudgesTheAgentOnTheMachineThatWillRunIt(t *testing.T) {
 	}
 }
 
+// A rerun is the same work again: same directory, same machine. A new task that
+// lost the machine would run the Hub's own copy of that path — or fail on a
+// directory that only exists over there — instead of repeating what the user
+// asked to repeat.
+func TestReplayRerunStaysOnTheSameMachine(t *testing.T) {
+	s, master, _, _ := remoteHub(t)
+	h := s.Handler()
+
+	// No live node needed: the task row is what the replay copies, and the
+	// dispatch that follows is not what this test is about.
+	_, deviceID := pairDevice(t, h, master)
+	work := t.TempDir()
+	original := createTask(t, h, master, map[string]any{
+		"agent": "claude-code", "cwd": work, "prompt": "do the thing over there",
+		"executing_device_id": deviceID,
+	})
+	if original.ExecutingDeviceID != deviceID {
+		t.Fatalf("created = %+v", original)
+	}
+
+	rec := postJSON(t, h, "/api/tasks/"+original.ID+"/replay", master,
+		map[string]any{"mode": "rerun", "prompt": "again"})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("replay: %d %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Mode string     `json:"mode"`
+		Task store.Task `json:"task"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Mode != "rerun" || body.Task.ID == "" || body.Task.ID == original.ID {
+		t.Fatalf("replay = %+v", body)
+	}
+	if body.Task.ExecutingDeviceID != deviceID {
+		t.Fatalf("the rerun runs on %q, not %q", body.Task.ExecutingDeviceID, deviceID)
+	}
+	if body.Task.Cwd != work {
+		t.Fatalf("the rerun runs at %q, not %q", body.Task.Cwd, work)
+	}
+}
+
 // A device can be running a turn this Hub knows nothing about: the Hub
 // restarted, or the connection was replaced while the dispatch was in flight.
 // Ignoring its events would leave an agent working on a machine nobody is

@@ -233,6 +233,10 @@ func (s *Server) handleReplayTask(w http.ResponseWriter, r *http.Request) {
 			Model: original.Model, PermissionMode: original.PermissionMode,
 			ProjectID: original.ProjectID, Dispatch: body.Dispatch,
 			Title: stringPtr("Replay · " + original.Title),
+			// A rerun is the same work again: same directory, same machine. Without
+			// the device it would run here, at a path that belongs to the other
+			// machine — which is the failure this whole mechanism exists to stop.
+			ExecutingDeviceID: original.ExecutingDeviceID,
 		}
 		if err := s.validateTaskCreateRequest(r.Context(), createReq); err != nil {
 			replayError(w, err)

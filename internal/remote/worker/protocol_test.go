@@ -111,6 +111,16 @@ func TestWorkspaceRootValidation(t *testing.T) {
 			RemoteURL: "x-access-token:ghp_secret@github.com/vuuihc/openkin"},
 		"remote with a scheme": {Path: "/code/openkin", RemoteURL: "https://github.com/vuuihc/openkin"},
 		"scp remote":           {Path: "/code/openkin", RemoteURL: "git@github.com:vuuihc/openkin.git"},
+		"remote with a query":  {Path: "/code/openkin", RemoteURL: "github.com/vuuihc/openkin?token=x"},
+		"remote with a fragment": {Path: "/code/openkin",
+			RemoteURL: "github.com/vuuihc/openkin#main"},
+		// Every way of writing "out of the checkout" that is not a plain "/../":
+		// the Hub stores this and resolves it on machines it cannot look at.
+		"leading dotdot":        {Path: "/code/openkin", RelativePath: ".."},
+		"backslash escape":      {Path: "/code/openkin", RelativePath: `..\etc`},
+		"backslash nested":      {Path: "/code/openkin", RelativePath: `sub\..\..\etc`},
+		"dotdot then slash":     {Path: "/code/openkin", RelativePath: "sub/.."},
+		"trailing backslash up": {Path: "/code/openkin", RelativePath: `sub/..\..`},
 	} {
 		if err := root.Validate(); err == nil {
 			t.Fatalf("%s: accepted %+v", name, root)
@@ -120,6 +130,10 @@ func TestWorkspaceRootValidation(t *testing.T) {
 	// a Windows box, so absoluteness cannot be filepath.IsAbs.
 	if err := (WorkspaceRoot{Path: `C:\code`}).Validate(); err != nil {
 		t.Fatalf("windows path rejected: %v", err)
+	}
+	if err := (WorkspaceRoot{Path: `C:\code\openkin`, RemoteURL: "github.com/vuuihc/openkin",
+		RelativePath: `internal\task`}).Validate(); err != nil {
+		t.Fatalf("windows relative path rejected: %v", err)
 	}
 	if err := (Hello{
 		Version: ProtocolVersion, WorkerID: "device-1",
