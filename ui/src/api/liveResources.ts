@@ -249,16 +249,54 @@ export class LiveResourceStore {
     };
   }
 
-  async reconnect(): Promise<void> {
-    const work: Promise<void>[] = [];
-    for (const registration of this.taskListRegistrations.values()) {
-      work.push(this.refreshTaskList(registration.params, true));
+  /**
+   * Apply one page of the Hub's change feed: the rows that changed and the ids
+   * that are gone.
+   *
+   * `startedAt` is the revision the page was requested at. Any row a live frame
+   * already replaced since then is dropped, because a feed page travels over
+   * HTTP while frames keep arriving, and applying it blind would let a
+   * millisecond-old row overwrite a fresh one.
+   *
+   * Returns the messages that were actually applied, so the caller can run the
+   * same side effects (toasts, badges) it runs for frames. A page is not a
+   * snapshot: it says what moved, and the list the user is looking at is
+   * updated in place.
+   */
+  applyChangesSince(
+    startedAt: number,
+    tasks: readonly Task[],
+    deleted: readonly string[],
+  ): WSMessage[] {
+    const applied: WSMessage[] = [];
+    for (const task of tasks) {
+      if ((this.taskRevisions.get(task.id) ?? 0) > startedAt) continue;
+      const message: WSMessage = { kind: "task_update", data: task };
+      this.applyMessage(message);
+      applied.push(message);
     }
-    if (this.pendingRegistrations > 0) work.push(this.refreshPending(true));
-    for (const taskId of this.taskRegistrations.keys()) {
-      work.push(this.refreshTask(taskId, true));
+    for (const id of deleted) {
+      if ((this.taskRevisions.get(id) ?? 0) > startedAt) continue;
+      const message: WSMessage = { kind: "task_deleted", data: { id } };
+      this.applyMessage(message);
+      applied.push(message);
     }
-    await Promise.allSettled(work);
+    return applied;
+  }
+
+  /**
+   * Re-read the details that are on screen, events included.
+   *
+   * A live frame only carries the task row, and only the change feed is
+   * cursor-based; the transcript of an open session has no feed of its own, so
+   * after a gap it is re-read from the event cursor. Called with ids after a
+   * catch-up, or with none to refresh everything registered.
+   */
+  async refreshOpenDetails(taskIds?: readonly string[]): Promise<void> {
+    const ids = taskIds
+      ? taskIds.filter((id) => this.taskRegistrations.has(id))
+      : [...this.taskRegistrations.keys()];
+    await Promise.allSettled(ids.map((id) => this.refreshTask(id, true)));
   }
 
   applyMessage(message: WSMessage): void {

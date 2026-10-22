@@ -388,6 +388,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The global change feed: tasks whose rows changed after the cursor, plus
+         *     the ids of tasks that were deleted, merged into one chronological order.
+         *     Without updated_since it walks the history from the beginning, which is
+         *     how a client builds its first snapshot: page until has_more is false.
+         *     A client takes /api/sessions/cursor before its snapshot and follows the
+         *     feed from there.
+         *      */
+        get: operations["listSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/cursor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The current end of the change feed. Read it before building a snapshot
+         *     from the list endpoints; a change that lands in between is then
+         *     delivered twice rather than not at all.
+         *      */
+        get: operations["getSessionCursor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sessions/wait": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bounded long poll for clients that cannot hold a stream open. Answers as
+         *     soon as something changed, and otherwise after timeout with an empty
+         *     page in the same shape as /api/sessions.
+         *      */
+        get: operations["waitForSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Server-Sent Events. Each frame is `event: <kind>` with one WSMessage as
+         *     its data, so a client shares one message handler with the WebSocket bus.
+         *     Realtime is an accelerant, never the truth: a client advances its cursor
+         *     only from /api/sessions, because a frame says nothing about the changes
+         *     it did not carry. Comment lines (`: ping`) are heartbeats.
+         *      */
+        get: operations["streamEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/tasks": {
         parameters: {
             query?: never;
@@ -1270,6 +1355,13 @@ export interface components {
             /** @enum {string} */
             decision: "approved" | "denied";
         };
+        SessionChangePage: {
+            sessions: components["schemas"]["Task"][];
+            deleted: string[];
+            /** @description Send this back as updated_since. Unchanged when there was nothing to report. */
+            next_cursor: number;
+            has_more: boolean;
+        };
         Task: {
             id: string;
             title: string;
@@ -1298,6 +1390,8 @@ export interface components {
             workspace_policy?: string | null;
             current_workspace_id?: string | null;
             event_epoch: number;
+            /** @description Position in the global change feed; null only for rows written before the cursor existed. */
+            hub_seq?: number | null;
             routine_id?: string;
             routine_noteworthy?: boolean;
             routine_tldr?: string;
@@ -2214,6 +2308,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: {
+                /** @description Cursor from the previous page. Omit to start from the beginning. */
+                updated_since?: number;
+                /** @description Changes per page, default 200, capped at 500. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of changes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionChangePage"];
+                };
+            };
+            /** @description Invalid cursor or limit */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getSessionCursor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current cursor */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        cursor: number;
+                    };
+                };
+            };
+        };
+    };
+    waitForSessions: {
+        parameters: {
+            query?: {
+                updated_since?: number;
+                /** @description Seconds to wait, default 25, capped at 60. */
+                timeout?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of changes, possibly empty */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionChangePage"];
+                };
+            };
+            /** @description Invalid cursor or timeout */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    streamEvents: {
+        parameters: {
+            query?: {
+                room?: components["parameters"]["RelayRoom"];
+                key?: components["parameters"]["RelayKey"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
                 };
             };
         };

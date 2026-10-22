@@ -518,6 +518,103 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /api/sessions:
+    get:
+      operationId: listSessions
+      description: |
+        The global change feed: tasks whose rows changed after the cursor, plus
+        the ids of tasks that were deleted, merged into one chronological order.
+        Without updated_since it walks the history from the beginning, which is
+        how a client builds its first snapshot: page until has_more is false.
+        A client takes /api/sessions/cursor before its snapshot and follows the
+        feed from there.
+      parameters:
+        - in: query
+          name: updated_since
+          schema:
+            type: integer
+            minimum: 0
+          description: Cursor from the previous page. Omit to start from the beginning.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 0
+          description: Changes per page, default 200, capped at 500.
+      responses:
+        "200":
+          description: One page of changes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionChangePage"
+        "400":
+          description: Invalid cursor or limit
+  /api/sessions/cursor:
+    get:
+      operationId: getSessionCursor
+      description: |
+        The current end of the change feed. Read it before building a snapshot
+        from the list endpoints; a change that lands in between is then
+        delivered twice rather than not at all.
+      responses:
+        "200":
+          description: Current cursor
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cursor]
+                properties:
+                  cursor:
+                    type: integer
+  /api/sessions/wait:
+    get:
+      operationId: waitForSessions
+      description: |
+        Bounded long poll for clients that cannot hold a stream open. Answers as
+        soon as something changed, and otherwise after timeout with an empty
+        page in the same shape as /api/sessions.
+      parameters:
+        - in: query
+          name: updated_since
+          schema:
+            type: integer
+            minimum: 0
+        - in: query
+          name: timeout
+          schema:
+            type: integer
+            minimum: 0
+          description: Seconds to wait, default 25, capped at 60.
+      responses:
+        "200":
+          description: One page of changes, possibly empty
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionChangePage"
+        "400":
+          description: Invalid cursor or timeout
+  /api/events:
+    get:
+      operationId: streamEvents
+      description: |
+        Server-Sent Events. Each frame is `event: <kind>` with one WSMessage as
+        its data, so a client shares one message handler with the WebSocket bus.
+        Realtime is an accelerant, never the truth: a client advances its cursor
+        only from /api/sessions, because a frame says nothing about the changes
+        it did not carry. Comment lines (`: ping`) are heartbeats.
+      parameters:
+        - $ref: "#/components/parameters/RelayRoom"
+        - $ref: "#/components/parameters/RelayKey"
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
   /api/tasks:
     get:
       operationId: listTasks
@@ -1959,6 +2056,23 @@ components:
           enum:
             - approved
             - denied
+    SessionChangePage:
+      type: object
+      required: [sessions, deleted, next_cursor, has_more]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        deleted:
+          type: array
+          items:
+            type: string
+        next_cursor:
+          type: integer
+          description: Send this back as updated_since. Unchanged when there was nothing to report.
+        has_more:
+          type: boolean
     Task:
       type: object
       additionalProperties: true
@@ -2062,6 +2176,11 @@ components:
             - "null"
         event_epoch:
           type: integer
+        hub_seq:
+          type:
+            - integer
+            - "null"
+          description: Position in the global change feed; null only for rows written before the cursor existed.
         routine_id:
           type: string
         routine_noteworthy:

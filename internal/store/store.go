@@ -542,6 +542,28 @@ func (s *Store) ListTaskChangesSince(ctx context.Context, since int64, limit int
 	return page, nil
 }
 
+// CurrentHubSeq returns the end of the change feed.
+//
+// A client takes this before it builds a snapshot from the ordinary list
+// endpoints, then follows the cursor from there. Reading it first is what makes
+// the pair safe: a change that lands between the two calls is delivered twice,
+// which costs nothing, rather than being delivered by neither.
+func (s *Store) CurrentHubSeq(ctx context.Context) (int64, error) {
+	var maxSeq sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT MAX(hub_seq) FROM (
+			SELECT hub_seq FROM tasks
+			UNION ALL
+			SELECT hub_seq FROM task_tombstones
+		)`).Scan(&maxSeq); err != nil {
+		return 0, fmt.Errorf("current hub_seq: %w", err)
+	}
+	if !maxSeq.Valid {
+		return 0, nil
+	}
+	return maxSeq.Int64, nil
+}
+
 // tasksByID loads the given tasks, keyed by id, in one query.
 func (s *Store) tasksByID(ctx context.Context, ids []string) (map[string]Task, error) {
 	args := make([]any, 0, len(ids))

@@ -473,6 +473,52 @@ export function getTask(id: string): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}`);
 }
 
+/**
+ * One page of the global change feed.
+ *
+ * `sessions` are the tasks whose rows changed after the cursor, `deleted` the
+ * ids of tasks that no longer exist. Both matter: a client cannot notice an
+ * absent row by looking at the ones it got.
+ */
+export type SessionChangePage = {
+  sessions: Task[];
+  deleted: string[];
+  next_cursor: number;
+  has_more: boolean;
+};
+
+/** What changed after `updatedSince`, oldest change first. */
+export function listSessions(params?: {
+  updatedSince?: number;
+  limit?: number;
+}): Promise<SessionChangePage> {
+  const q = new URLSearchParams();
+  if (params?.updatedSince) q.set("updated_since", String(params.updatedSince));
+  if (params?.limit) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  return apiFetch<SessionChangePage>(`/api/sessions${qs ? `?${qs}` : ""}`);
+}
+
+/** Wait (bounded) for something to change, then return the same page shape. */
+export function waitSessions(params?: {
+  updatedSince?: number;
+  timeoutSeconds?: number;
+  signal?: AbortSignal;
+}): Promise<SessionChangePage> {
+  const q = new URLSearchParams();
+  if (params?.updatedSince) q.set("updated_since", String(params.updatedSince));
+  if (params?.timeoutSeconds) q.set("timeout", String(params.timeoutSeconds));
+  const qs = q.toString();
+  return apiFetch<SessionChangePage>(`/api/sessions/wait${qs ? `?${qs}` : ""}`, {
+    signal: params?.signal,
+  });
+}
+
+/** The current end of the feed. Read it before taking a snapshot. */
+export function getSessionCursor(): Promise<number> {
+  return apiFetch<{ cursor: number }>("/api/sessions/cursor").then((r) => r.cursor ?? 0);
+}
+
 export type TaskWorkspaceEntry = {
   name: string;
   path: string;
@@ -1883,91 +1929,164 @@ export function getUsageSummary(days = 30): Promise<UsageRow[]> {
   return apiFetch<UsageRow[]>(`/api/usage/summary?days=${days}`);
 }
 
-export type ConnectWSOptions = {
+export type EventStreamOptions = {
   onMessage: (msg: WSMessage) => void;
-  /** Fired after a successful (re)open — pages re-fetch lists / since_seq. */
+  /** Fired when a stream opens, including after a reconnect. */
   onOpen?: () => void;
   onStatus?: (status: "connecting" | "connected" | "disconnected") => void;
+  /**
+   * Fired when the stream is not viable on this network. The caller is expected
+   * to switch to the long poll; the stream stops retrying at that point.
+   */
+  onUnavailable?: () => void;
 };
 
+/** How long the stream may stay silent before it is considered broken. */
+const STREAM_FIRST_BYTE_TIMEOUT = 5_000;
+const STREAM_IDLE_TIMEOUT = 45_000;
+/** Attempts that never deliver a byte before we stop trying. */
+const STREAM_MAX_BARREN_ATTEMPTS = 2;
+
 /**
- * Open the global WS bus. Uses ?token= (browser WS cannot set Authorization easily).
- * Automatic retry with exponential backoff (capped). Surfaces connection status.
+ * Follow the Hub's event stream (Server-Sent Events) and hand every message to
+ * `onMessage` in the same envelope the WebSocket bus uses.
+ *
+ * Events are an accelerant, never the truth: the caller still catches up through
+ * listSessions. That is what makes it safe to give up on this stream — a client
+ * that only long-polls loses latency, not correctness.
+ *
+ * Two watchdogs exist because a buffering proxy looks exactly like a healthy
+ * connection from here: bytes that never arrive. If the server's opening frame
+ * does not show up quickly, or a live stream goes quiet for too long, the
+ * connection is treated as blocked rather than left hanging.
  */
-export function connectWS(
-  onMessageOrOpts: ((msg: WSMessage) => void) | ConnectWSOptions,
-): () => void {
-  const opts: ConnectWSOptions =
-    typeof onMessageOrOpts === "function"
-      ? { onMessage: onMessageOrOpts }
-      : onMessageOrOpts;
-
-  const token = getToken();
-  // A Hub browser session has no local token; the handshake carries the session
-  // cookie instead, which the browser attaches for a same-origin socket.
-  const cookieSession = useAppStore.getState().account.authenticated;
-  if (!token && !cookieSession) {
-    opts.onStatus?.("disconnected");
-    return () => undefined;
-  }
-
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsParams = new URLSearchParams();
-  if (token) wsParams.set("token", token);
-  const room = getRelayValue(RELAY_ROOM_KEY);
-  const key = getRelayValue(RELAY_KEY_KEY);
-  if (room) wsParams.set("room", room);
-  if (key) wsParams.set("key", key);
-  const qs = wsParams.toString();
-  const url = `${proto}//${window.location.host}/api/ws${qs ? `?${qs}` : ""}`;
-  let ws: WebSocket | null = null;
-  let closed = false;
-  let retry: ReturnType<typeof setTimeout> | null = null;
+export function streamEvents(opts: EventStreamOptions): () => void {
+  let stopped = false;
   let attempt = 0;
+  let barrenAttempts = 0;
   let everOpened = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let controller: AbortController | null = null;
 
+  // The connection indicator belongs to whoever owns the fallback: a stream
+  // that gives up is not a console that has gone offline.
   const setStatus = (s: "connecting" | "connected" | "disconnected") => {
     opts.onStatus?.(s);
-    useAppStore.getState().setWSStatus(s);
   };
 
-  const connect = () => {
-    if (closed) return;
-    setStatus("connecting");
-    ws = new WebSocket(url);
-    ws.onopen = () => {
-      attempt = 0;
-      setStatus("connected");
-      if (everOpened) {
-        // Reconnect: bump gen so list pages self-heal without manual refresh.
-        useAppStore.getState().noteReconnect();
-      }
-      everOpened = true;
-      opts.onOpen?.();
-    };
-    ws.onmessage = (ev) => {
-      const msg = parseWSMessage(ev.data);
-      if (msg) opts.onMessage(msg);
-    };
-    ws.onclose = () => {
-      if (closed) return;
-      setStatus("disconnected");
-      // Exponential backoff: 1s, 2s, 4s … cap 15s (high-latency Funnel).
-      const delay = Math.min(15_000, 1000 * 2 ** Math.min(attempt, 4));
-      attempt += 1;
-      retry = setTimeout(connect, delay);
-    };
-    ws.onerror = () => {
-      ws?.close();
-    };
+  const scheduleRetry = () => {
+    if (stopped) return;
+    // Exponential backoff, capped: a daemon restart is seconds, a laptop that
+    // woke from sleep is not, and neither should hammer the Hub.
+    const delay = Math.min(15_000, 1000 * 2 ** Math.min(attempt, 4));
+    attempt += 1;
+    retry = setTimeout(run, delay);
   };
-  connect();
+
+  const run = async () => {
+    if (stopped) return;
+    setStatus("connecting");
+    controller = new AbortController();
+    const headers = new Headers({ Accept: "text/event-stream" });
+    const token = getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+
+    let sawBytes = false;
+    let idle: ReturnType<typeof setTimeout> | null = null;
+    const armWatchdog = (ms: number) => {
+      if (idle) clearTimeout(idle);
+      idle = setTimeout(() => controller?.abort(), ms);
+    };
+
+    try {
+      const res = await fetch(withRelayCredentials("/api/events"), {
+        credentials: "same-origin",
+        headers,
+        signal: controller.signal,
+      });
+      if (res.status === 401 || res.status === 403) {
+        // Retrying an unauthorized stream would trip the daemon's auth-failure
+        // blocker, and no amount of retrying fixes it.
+        stopped = true;
+        setStatus("disconnected");
+        notifyUnauthorized();
+        return;
+      }
+      if (!res.ok || !res.body) throw new Error(`stream failed: ${res.status}`);
+
+      armWatchdog(STREAM_FIRST_BYTE_TIMEOUT);
+      attempt = 0;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!sawBytes) {
+          sawBytes = true;
+          barrenAttempts = 0;
+          setStatus("connected");
+          if (everOpened) {
+            // Reconnect: pages that fetched a snapshot self-heal.
+            useAppStore.getState().noteReconnect();
+          }
+          everOpened = true;
+          opts.onOpen?.();
+        }
+        armWatchdog(STREAM_IDLE_TIMEOUT);
+        buffer += decoder.decode(value, { stream: true });
+        // Frames are separated by a blank line; a chunk boundary can split one.
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary !== -1) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          dispatchFrame(frame, opts.onMessage);
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch {
+      // Aborted by a watchdog, offline, or the stream ended: all the same here.
+    } finally {
+      if (idle) clearTimeout(idle);
+    }
+    if (stopped) return;
+    setStatus("disconnected");
+    if (!sawBytes) {
+      barrenAttempts += 1;
+      if (barrenAttempts >= STREAM_MAX_BARREN_ATTEMPTS) {
+        // This network will not carry a stream. Stop trying and let the caller
+        // long-poll instead of burning connections every few seconds.
+        stopped = true;
+        opts.onUnavailable?.();
+        return;
+      }
+    }
+    scheduleRetry();
+  };
+
+  void run();
 
   return () => {
-    closed = true;
+    stopped = true;
     if (retry) clearTimeout(retry);
-    ws?.close();
+    controller?.abort();
   };
+}
+
+/** Parse one SSE frame: `event:` names the kind, `data:` carries the envelope. */
+function dispatchFrame(frame: string, onMessage: (msg: WSMessage) => void): void {
+  let data = "";
+  for (const rawLine of frame.split("\n")) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (line === "" || line.startsWith(":")) continue; // heartbeat / comment
+    if (line.startsWith("data:")) {
+      data += line.slice(5).trimStart();
+    }
+  }
+  if (!data) return;
+  const msg = parseWSMessage(data);
+  if (msg) onMessage(msg);
 }
 
 export function formatCost(cost?: number | null): string {

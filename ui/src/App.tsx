@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
-  connectWS,
   getToken,
   getRoutineUnreadCount,
 } from "./api/client";
 import { liveResources } from "./api/liveResources";
+import { SessionSync } from "./api/sessionSync";
 import { usePendingResources } from "./api/useLiveResources";
 import ConnectScreen from "./components/ConnectScreen";
 import AppShell from "./components/layout/AppShell";
@@ -93,9 +93,8 @@ export default function App() {
 
   useEffect(() => {
     if (auth.status !== "ok") return;
-    return connectWS({
+    const sync = new SessionSync(liveResources, {
       onMessage: (msg) => {
-        liveResources.applyMessage(msg);
         dispatchWS(msg);
         if (msg.kind === "task_update") {
           if (msg.data.status === "running" || msg.data.status === "queued") {
@@ -104,11 +103,9 @@ export default function App() {
           if (msg.data.routine_id) void refreshRoutineUnread();
         }
       },
-      onOpen: () => {
-        void liveResources.reconnect();
-        void refreshRoutineUnread();
-      },
     });
+    sync.start();
+    return () => sync.stop();
   }, [refreshRoutineUnread, auth.status]);
 
   // Tray popover is a minimal chrome-less surface (still needs auth).

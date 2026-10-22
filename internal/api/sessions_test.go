@@ -119,3 +119,35 @@ func TestSessionsEndpointReportsMorePages(t *testing.T) {
 		t.Fatalf("second page starts at %s, want task-02", rest.Tasks[0].ID)
 	}
 }
+
+// The cursor is read before a snapshot, so it has to be the current end of the
+// feed rather than the oldest change in it.
+func TestSessionCursorReportsTheEndOfTheFeed(t *testing.T) {
+	s, token := newTestServer(t)
+	insertSessionTestTask(t, s, "task-a")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/cursor", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Cursor int64 `json:"cursor"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Cursor == 0 {
+		t.Fatal("cursor = 0 with a task present")
+	}
+	// Following the feed from here yields nothing until something changes.
+	_, page := getSessions(t, s, token, fmt.Sprintf("?updated_since=%d", body.Cursor))
+	if len(page.Tasks) != 0 || len(page.Deleted) != 0 {
+		t.Fatalf("feed at the cursor = %+v, want empty", page)
+	}
+	if page.NextCursor != body.Cursor {
+		t.Fatalf("next_cursor = %d, want %d", page.NextCursor, body.Cursor)
+	}
+}

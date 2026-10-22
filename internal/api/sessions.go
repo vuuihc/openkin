@@ -7,6 +7,26 @@ import (
 	"github.com/vuuihc/openkin/internal/store"
 )
 
+// handleSessionCursor returns the current end of the change feed.
+//
+// A client reads this before it builds its first snapshot from the ordinary list
+// endpoints, so that everything it then hears about is either newer than the
+// snapshot or already in it. Taking it here rather than after the snapshot is
+// the whole point: the failure mode of the other order is a change that arrives
+// while the snapshot is in flight and is never delivered at all.
+func (s *Server) handleSessionCursor(w http.ResponseWriter, r *http.Request) {
+	if s.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "store unavailable"})
+		return
+	}
+	cursor, err := s.Store.CurrentHubSeq(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{"cursor": cursor})
+}
+
 // handleListSessions serves the global change feed.
 //
 // This is how a client that has been away catches up: it sends the cursor it

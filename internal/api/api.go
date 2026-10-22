@@ -287,6 +287,7 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Delete("/api/connectors/credentials/{ref}", s.handleDeleteConnectorCredential)
 		r.Get("/api/tasks", s.handleListTasks)
 		r.Get("/api/sessions", s.handleListSessions)
+		r.Get("/api/sessions/cursor", s.handleSessionCursor)
 		r.Post("/api/tasks", s.handleCreateTask)
 		r.Get("/api/tasks/{id}", s.handleGetTask)
 		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
