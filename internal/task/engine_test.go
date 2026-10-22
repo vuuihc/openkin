@@ -316,6 +316,37 @@ func TestMultipleUsageEventsIgnoreCumulativeResult(t *testing.T) {
 	}
 }
 
+// TestAResultBooksATurnThatReportedNoUsageOfItsOwn pins the fallback an adapter
+// may rely on: an agent that reports its numbers once, on the result, is still
+// accounted for, because the result's tokens are booked when the turn emitted no
+// usage event of its own. An adapter whose numbers cannot honestly be read as
+// this turn's (see internal/adapter/acp) has to keep them out of the result
+// payload, since this is the only path that would book them.
+func TestAResultBooksATurnThatReportedNoUsageOfItsOwn(t *testing.T) {
+	ad := &fakeAdapter{events: []adapter.Event{
+		{Type: "result", Payload: json.RawMessage(`{"tokens_in":120,"tokens_out":7,"is_error":false}`)},
+	}}
+	e, st := testEngine(t, 4, ad)
+
+	task, err := e.Create(context.Background(), CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "measure once",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitStatus(t, e, task.ID, StatusSucceeded, 2*time.Second)
+	if final.TokensIn != 120 || final.TokensOut != 7 {
+		t.Fatalf("tokens = %d/%d, want 120/7", final.TokensIn, final.TokensOut)
+	}
+	records, err := st.ListUsageRecords(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("usage records = %d, want 1", len(records))
+	}
+}
+
 func TestCancelRunning(t *testing.T) {
 	ad := &fakeAdapter{
 		events: []adapter.Event{

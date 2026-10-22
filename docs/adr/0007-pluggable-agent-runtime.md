@@ -35,3 +35,8 @@ Kin historically treated itself as a special engine identity: default host, orch
 
 Tier 2 generic CLI agents (`internal/adapter/genericcli`, ADR 0009) register through the same factory composition root without engine ID switches. Presence-only catalog entries remain non-runnable until an invocation row exists and passes smoke tests.
 
+## Amendments
+
+- **Cross-machine agent execution** is no longer a non-goal: ADR 0022 makes it the architecture (a Hub owns sessions, any device runs the turn with its own agent). The reasoning above is left as written.
+- **Protocol agents** are a fourth access path alongside the built-ins, tier 2, and the Kin runtime: `internal/adapter/acp` registers one *client* for the Agent Client Protocol, and which agent it drives is the machine's own choice (`KIN_ACP_BIN`). It registers through the same composition root; the per-agent policy that used to be implied by an agent id (permission ceiling) is asked of the adapter instead.
+

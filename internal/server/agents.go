@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/adapter/acp"
 	"github.com/vuuihc/openkin/internal/adapter/claudecode"
 	"github.com/vuuihc/openkin/internal/adapter/codex"
 	"github.com/vuuihc/openkin/internal/adapter/detect"
@@ -221,6 +222,13 @@ func buildAgentRegistry(
 			},
 		}),
 		grok.NewPluginFactory(),
+		// The ACP agent is whatever binary this machine has: the protocol is the
+		// contract, so Kin registers one client and lets the binary decide which
+		// agent it is talking to (KIN_ACP_BIN / KIN_ACP_ARGS, codex-acp by default).
+		acp.NewPluginFactory(acp.PluginConfig{
+			DaemonURL: daemonURL,
+			TokenFunc: tokenFn,
+		}),
 	}
 
 	// Native first-class adapters — skip when assembling generic factories.
@@ -231,6 +239,7 @@ func buildAgentRegistry(
 		"droid":       true,
 		"grok":        true,
 		"rawpty":      true,
+		"acp":         true,
 	}
 	invocations := detect.GenericInvocations()
 	for _, spec := range detect.SkillsDiscoveryCatalog() {

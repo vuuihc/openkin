@@ -534,20 +534,20 @@ GET /api/sessions?updated_since=<hub_seq>&limit=200&owner=me
 |---|---|---|
 | `user_message_chunk` | `message`（role=user） | |
 | `agent_message_chunk` | `message`（role=assistant, `Partial: true`） | 主要流式路径 |
-| `agent_thought_chunk` | `message`（`phase=thought`） | 复用 `event_meta` 的 phase |
-| `tool_call` | `tool_use` | 新建 |
-| `tool_call_update` | `tool_use` | 补丁语义：除 `toolCallId` 外全部可选 |
-| `plan` | `plan` | **每次都是完整替换**，对齐 ADR 0018 |
-| `usage_update` | `usage` | **token/成本账目的来源**，映射到既有 `UsagePayload` |
+| `agent_thought_chunk` | `message`（`role=reasoning`, `phase=progress`） | **落地时改了映射**：早先发的是 `phase=thought`——那是控制台**没听说过**的 phase，于是 agent 的私有推理被当成它的回答画出来（一轮最后一段思维链就是"答案"）。改成全仓统一的推理形状（`role=reasoning` + `phase=progress`，kinagent/codex 都这样） |
+| `tool_call` | `tool_use`（+ 输出已在同一条里时补 `tool_result`） | 新建 |
+| `tool_call_update` | 终态 → `tool_result`，其余 → `tool_use` | 补丁语义：除 `toolCallId` 外全部可选。**落地时改了映射**：控制台按 `tool_use`/`tool_result` 配对合并步骤，一条永不闭合的步骤看起来像卡住的 turn（见 `update.go` 的 `toolCallUpdateEvents`） |
+| `plan` | `plan` → 控制台里是流程框里的一行 | 每次都是**完整替换**（schema 里这个 update 就是 `$ref` 到 `Plan`）。控制台没有独立的计划面板：投影**持有那条 note 本身**（按 speaker 一行、每轮重置）就地改写，不管它落在哪个流程框里——按前缀在"当前框"里找是不够的：一条回答会把框关掉，下一版计划就会另起一行。写之前先 `flushStream()`（和其它产步事件一致），否则 plan 会和流式的 prompt 回显互相吞掉（一边被改成半句话、key 被抢走，计划从屏幕上消失）。`entries` 为空表示 agent 撤回计划，那一行改写为「计划已被 agent 撤回」。（ADR 0018 讲的是持久化的 worker steps，不是这个事件类型；早先版本把它写成"对齐 ADR 0018"是错的） |
+| `usage_update` | `notice`（状态行） | **不记账**。schema 里 `cost.amount` 是"整个会话的累计成本"、`used/size` 是上下文占用，都不是一轮的增量；而 Kin 的 `usage` 事件是增量账目，且是 critical 事件（不可记账即整轮失败）。更何况引擎只在**本轮没有 `usage` 事件**时才把 `session/prompt` 返回里带的 token 记上——在这里记一笔等于让这一轮丢掉自己那份数字。`session/prompt` 返回里的 `usage` 同样**只显示不记账**：那是 UNSTABLE 字段，schema 自己就自相矛盾（字段说 "for this turn"，里面的 `inputTokens` 说 "across all turns"、`totalTokens` 说 "across session"），上游还有一个未决的 RFD。Kin 的账是增量账，口径没定的数字不进账（见「M2.6 第三轮复审」） |
 | `available_commands_update` | `notice` | 完整替换列表 |
 | `current_mode_update` | `notice` | |
 | `config_option_update` | `notice` | 完整 config 状态，含模型变化 |
-| `session_info_update` | 更新 task 标题 | `{title?, updatedAt?}` |
+| `session_info_update` | `notice` | `{title?, updatedAt?}`。**落地时改了映射**：`tasks.title` 由 prompt（或 summarizer）写，事件流里没有第二条改名路径，在适配器里现造一条就是给同一个字段加第二个写者 |
 | `notice` | `notice` | `{severity, title, description}`，需 client 能力 |
 | `compaction_update` | `notice` | 需 client 能力 |
 | `compaction_summary_chunk` | `message`（`phase=compaction`） | 需 client 能力 |
 | （`session/prompt` 的返回） | `result` | 含 `stopReason` |
-| （`session/request_permission`） | `approval_requested` | 见 §7.5 |
+| （`session/request_permission`） | 进了收件箱 → 由持有该行的引擎/Hub 写 `approval_requested`；没进 → `notice` | 见 §7.5 |
 
 #### ⚠️ 一个必须避开的陷阱：`session/load` 的重放
 
@@ -571,7 +571,9 @@ ACP 的权限请求是 agent→client 的**请求**（要回响应），参数 `
 
 ```text
 agent  ──session/request_permission──▶  Kin ACP adapter (Node)
-                                              │  转成 turn.event: approval_requested
+                                              │  有收件箱：建行，事件由持行者写
+                                              │  （engine 本地 / Hub 派发）
+                                              │  没收件箱：写一条 notice
                                               ▼
                                     Hub 审批引擎（既有）
                                               │
@@ -583,11 +585,16 @@ agent  ──session/request_permission──▶  Kin ACP adapter (Node)
                      adapter ──▶ outcome: selected | cancelled
 ```
 
+**记录这件事只有一个写者。** 建了行就有卡片：事件由持有该行的引擎（本地轮）或 Hub（派发轮）写，带 `approval_id`。适配器再写一条就是同一个问题进两次转写——而且后到的那条会落在人已经回答之后。所以适配器只在**没建行**时留痕，并且留的是 `notice` 而不是 `approval_requested`：那条路径恰恰是"没有任何东西可批准"（agent 只给了拒绝选项、一个选项都没给、没有 Kin 可问、建行失败），而控制台把 `approval_requested` 画成「needs your approval ↓」——指着一张永远不会出现的卡片。
+
+`approval_requested` 是 critical 事件（丢了这一轮就得算失败），`notice` 不是；把"没人被问过"记成前者，等于给一个没有裁决者的问题套上裁决语义。
+
 **三条必须遵守的规范约束：**
 
 1. **取消是耦合的。** 规范要求：client 一旦发出 `session/cancel`，**MUST** 立即对所有待决的 `session/request_permission` 回 `outcome: "cancelled"`。所以 Kin 取消 turn 时必须级联取消所有待决审批——**不能留悬挂的反向请求**，否则 agent 侧永久阻塞。
 2. **绝不自动批准。** 规范允许 client "MAY auto-allow or auto-reject"，并指出"supervisor 必须决定谁的自动批准策略说了算"。**Kin 是唯一的所有者**：Node 掉线 / 审批超时 / 任何不确定状态一律收敛为 `cancelled`，**永不 `allow`**。
 3. **agent 可能不理会取消。** 规范承认"an agent that ignores `session/cancel` leaves `session/prompt` pending forever"，且取消无超时语义。因此 Kin 侧必须有**自己的超时与终态收敛**，不能依赖 agent 配合。
+4. **权限模式不由 Kin 执行，也不能假装它被执行。** 协议里没有"权限模式"这个东西：Kin 没有开关可以拨，而"要不要问"是 agent 自己的选择（§7.4 的映射表里没有一项能改变这一点）。所以一个 `yolo` / `accept_edits` 的 ACP turn，既不是"Kin 会让它无人值守地跑"，也不是"Kin 保证它每一步都问人"——**Kin 保证不了**。Node 的权限天花板因此必须把这两种模式当成"审批被绕过"（`AutoApprovesAll` 返回 true），只有操作者用 `--allow-yolo` 明确同意才放行；`default` 不受影响（agent 问，人就答）。这正是天花板要问适配器而不是问模式名的原因。
 
 ### 7.6 会话切换与 handoff
 
