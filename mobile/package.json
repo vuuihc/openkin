@@ -1,0 +1,22 @@
+{
+  "name": "kin-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Capacitor shell that runs the Kin console on iOS",
+  "scripts": {
+    "sync": "cap sync ios",
+    "open": "cap open ios",
+    "run:ios": "cap run ios",
+    "build:ios": "scripts/build-ios.sh",
+    "build:ios:device": "scripts/build-ios.sh device"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
+    "typescript": "^7.0.2"
+  },
+  "type": "module"
+}

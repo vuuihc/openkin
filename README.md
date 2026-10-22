@@ -37,7 +37,7 @@ kin serve --tailscale    # anywhere with Tailscale
 kin serve --relay wss://kin-relay.your-domain.workers.dev
 ```
 
-**iOS companion app** — see [ios/README.md](https://github.com/vuuihc/openkin/blob/main/ios/README.md) for the TestFlight track or build from source.
+**iOS app** — a Capacitor shell that runs the Hub's own console; see [mobile/README.md](./mobile/README.md) to build it.
 
 ## Docs
 
