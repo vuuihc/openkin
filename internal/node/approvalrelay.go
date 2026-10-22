@@ -42,7 +42,27 @@ type ApprovalRelay struct {
 	send    WriteFunc
 	waiters map[string]*approvalWaiter
 	byID    map[string]*approvalWaiter
+	// answered keeps the outcome of questions that are already over, under every
+	// id they were known by. An answer is not consumed by the wait that happened
+	// to read it first: the agent's client long-polls, and a second wait for a
+	// question this machine already has an answer to must get that answer rather
+	// than "not a question this machine asked" — which the client reads as a
+	// failed wait and turns into a deny.
+	answered     map[string]approvalOutcome
+	answeredKeys []string
 }
+
+// maxAnsweredRetained bounds the outcomes kept for questions that are over.
+//
+// The retention is a courtesy to a wait that comes back late, not a record: the
+// Hub's row is the record. Oldest first, so a machine that has been connected
+// for weeks holds a window rather than a transcript.
+const maxAnsweredRetained = 256
+
+// maxOpenQuestions bounds the questions one machine forwards at a time. Each one
+// is an agent blocked on a person, so the cap is far above what a working
+// machine reaches; it is here so a runaway agent cannot grow this map forever.
+const maxOpenQuestions = 512
 
 // SetSender installs the connection's write path, and — when it is taken away —
 // ends every question this machine is still waiting on.
@@ -127,9 +147,7 @@ func (r *ApprovalRelay) Ask(ctx context.Context, req task.CreateApprovalRequest)
 		status:   make(chan worker.ApprovalStatus, 1),
 		decision: make(chan approvalOutcome, 1),
 	}
-	r.track(requestID, waiter)
-
-	frame, err := worker.NewFrame("approval.request", worker.ApprovalRequest{
+	request := worker.ApprovalRequest{
 		RequestID: requestID,
 		TurnID:    executionID,
 		Kind:      req.Kind,
@@ -137,7 +155,19 @@ func (r *ApprovalRelay) Ask(ctx context.Context, req task.CreateApprovalRequest)
 		Agent:     strings.TrimSpace(req.ExecutionAgent),
 		Step:      req.ExecutionStep,
 		Model:     strings.TrimSpace(req.ExecutionModel),
-	})
+	}
+	// The same bounds the Hub applies, applied before the question leaves: a
+	// payload the Hub would refuse is refused here, with a reason, instead of
+	// being sent up to be rejected as a frame the sender should never have
+	// produced.
+	if err := request.Validate(); err != nil {
+		return "", err
+	}
+	if !r.track(requestID, waiter) {
+		return "", fmt.Errorf("this machine already has %d questions open", maxOpenQuestions)
+	}
+
+	frame, err := worker.NewFrame("approval.request", request)
 	if err != nil {
 		r.forget(waiter)
 		return "", err
@@ -173,11 +203,17 @@ func (r *ApprovalRelay) Ask(ctx context.Context, req task.CreateApprovalRequest)
 }
 
 // Waiting reports whether an approval id is one this machine forwarded to its
-// Hub, as opposed to one its own inbox holds.
+// Hub, as opposed to one its own inbox holds — including the ones it already has
+// an answer for, so that the wait below is still routed here rather than to an
+// inbox that never heard of this id.
 func (r *ApprovalRelay) Waiting(approvalID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.byApproval(approvalID) != nil
+	if r.byApproval(approvalID) != nil {
+		return true
+	}
+	_, answered := r.answered[approvalID]
+	return answered
 }
 
 // Decision blocks until the Hub has decided the question, or the connection
@@ -188,14 +224,18 @@ func (r *ApprovalRelay) Waiting(approvalID string) bool {
 // is concerned: the error it gets back makes its tool call fail with something a
 // person can read, instead of holding the turn open forever.
 //
-// The question is released once its outcome has been read, or by End when the
-// connection goes away: a caller that never comes back for an answer it was
-// promised leaves nothing behind that a reconnect has to reason about.
+// Once answered, a question keeps answering: the outcome is remembered until the
+// connection ends, so a client that long-polls the same id twice gets the same
+// decision both times.
 func (r *ApprovalRelay) Decision(ctx context.Context, approvalID string) (string, error) {
 	r.mu.Lock()
 	waiter := r.byApproval(approvalID)
+	answered, wasAnswered := r.answered[approvalID]
 	r.mu.Unlock()
 	if waiter == nil {
+		if wasAnswered {
+			return answered.decision, answered.err
+		}
 		// Either this machine never asked, or the connection ended between the
 		// question and this wait. Both are "there is no answer coming here", which is
 		// all the caller needs to know.
@@ -203,7 +243,7 @@ func (r *ApprovalRelay) Decision(ctx context.Context, approvalID string) (string
 	}
 	select {
 	case outcome := <-waiter.decision:
-		r.forget(waiter)
+		r.settle(waiter, outcome)
 		return outcome.decision, outcome.err
 	case <-ctx.Done():
 		return "", ctx.Err()
@@ -284,6 +324,10 @@ func (r *ApprovalRelay) End() {
 	}
 	r.waiters = make(map[string]*approvalWaiter)
 	r.byID = make(map[string]*approvalWaiter)
+	// The answers go with the questions: the Hub's row is the record, and this
+	// connection is no longer a place one can be read from.
+	r.answered = make(map[string]approvalOutcome)
+	r.answeredKeys = nil
 	r.mu.Unlock()
 	for _, waiter := range waiters {
 		waiter.once.Do(func() {
@@ -308,30 +352,73 @@ func (r *ApprovalRelay) Pending() int {
 	return len(r.waiters)
 }
 
-// track registers a waiter under the id this machine made up.
-func (r *ApprovalRelay) track(requestID string, waiter *approvalWaiter) {
+// track registers a waiter under the id this machine made up. It reports false,
+// and registers nothing, when the machine already has its cap of questions open.
+func (r *ApprovalRelay) track(requestID string, waiter *approvalWaiter) bool {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.waiters == nil {
 		r.waiters = make(map[string]*approvalWaiter)
 	}
+	if len(r.waiters) >= maxOpenQuestions {
+		return false
+	}
 	r.waiters[requestID] = waiter
-	r.mu.Unlock()
+	return true
 }
 
 // forget removes a waiter under both the ids it may be known by.
 func (r *ApprovalRelay) forget(waiter *approvalWaiter) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dropLocked(waiter)
+}
+
+// settle removes a waiter and remembers its outcome under every id it was known
+// by, so the answer outlives the wait that happened to read it first.
+func (r *ApprovalRelay) settle(waiter *approvalWaiter, outcome approvalOutcome) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range r.dropLocked(waiter) {
+		r.rememberLocked(id, outcome)
+	}
+}
+
+// dropLocked removes a waiter from every id it is registered under, and returns
+// those ids. The caller holds the lock.
+func (r *ApprovalRelay) dropLocked(waiter *approvalWaiter) []string {
+	var ids []string
 	for requestID, candidate := range r.waiters {
 		if candidate == waiter {
 			delete(r.waiters, requestID)
+			ids = append(ids, requestID)
 		}
 	}
 	for approvalID, candidate := range r.byID {
 		if candidate == waiter {
 			delete(r.byID, approvalID)
+			ids = append(ids, approvalID)
 		}
 	}
-	r.mu.Unlock()
+	return ids
+}
+
+// rememberLocked keeps one outcome under one id, oldest out first. The caller
+// holds the lock.
+func (r *ApprovalRelay) rememberLocked(id string, outcome approvalOutcome) {
+	if r.answered == nil {
+		r.answered = make(map[string]approvalOutcome)
+	}
+	if _, exists := r.answered[id]; exists {
+		return
+	}
+	r.answered[id] = outcome
+	r.answeredKeys = append(r.answeredKeys, id)
+	if len(r.answeredKeys) > maxAnsweredRetained {
+		oldest := r.answeredKeys[0]
+		r.answeredKeys = r.answeredKeys[1:]
+		delete(r.answered, oldest)
+	}
 }
 
 // byApproval finds the waiter for a Hub approval id or a local request id. The

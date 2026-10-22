@@ -255,7 +255,9 @@ func (s *Server) routeNodeFrame(ctx context.Context, sender node.Sender, frame w
 // cancelUnknownTurn tells a device to stop a turn the Hub has no record of.
 //
 // The turn id comes from the frame, which is the only place it exists on this
-// side: the whole point is that there is no turn object to look it up in.
+// side: the whole point is that there is no turn object to look it up in. A
+// frame that is a question rather than a report of the turn gets its own answer
+// first — a cancelled turn does not, on its own, end a permission wait.
 func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, frame worker.Frame) {
 	turnID := ""
 	switch frame.Kind {
@@ -282,7 +284,31 @@ func (s *Server) cancelUnknownTurn(ctx context.Context, sender node.Sender, fram
 			return
 		}
 		turnID = finish.TurnID
+	case "approval.request":
+		// A permission question about a turn this Hub is not running: there is no
+		// inbox to put it in. The turn.cancel below is what stops the agent that
+		// asked, but it is this refusal that ends the wait the machine is blocked
+		// on — without it the agent's tool call sits there until its own client
+		// gives up, and blames a timeout for a question the Hub never had.
+		request, err := node.Decode[worker.ApprovalRequest](frame)
+		if err != nil || strings.TrimSpace(request.RequestID) == "" {
+			return
+		}
+		status, err := worker.NewFrame("approval.status", worker.ApprovalStatus{
+			RequestID: request.RequestID,
+			Error:     "the hub is no longer running this turn",
+		})
+		if err != nil {
+			return
+		}
+		writeCtx, cancelWrite := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelWrite()
+		_ = sender.Send(writeCtx, status)
+		turnID = request.TurnID
 	default:
+		return
+	}
+	if strings.TrimSpace(turnID) == "" {
 		return
 	}
 	cancel, err := worker.NewFrame("turn.cancel", worker.TurnCancel{

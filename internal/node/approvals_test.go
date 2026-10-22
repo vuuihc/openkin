@@ -7,20 +7,22 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
 
-// fakeInbox is the engine's approval inbox, with the three things a
-// cross-device approval uses it for: taking a question, waiting for an answer,
-// and settling one nobody answered.
+// fakeInbox is the engine's approval inbox, with the things a cross-device
+// approval uses it for: taking a question, waiting for an answer, reading one
+// back, and settling one nobody answered.
 type fakeInbox struct {
 	mu       sync.Mutex
 	asked    []task.CreateApprovalRequest
 	rows     map[string]store.Approval
 	refuse   error
+	waitErr  error
 	decision chan string
 }
 
@@ -44,7 +46,11 @@ func (f *fakeInbox) RequestApproval(_ context.Context, req task.CreateApprovalRe
 func (f *fakeInbox) WaitApproval(ctx context.Context, id string, _ time.Duration) (store.Approval, error) {
 	f.mu.Lock()
 	row, ok := f.rows[id]
+	waitErr := f.waitErr
 	f.mu.Unlock()
+	if waitErr != nil {
+		return store.Approval{}, waitErr
+	}
 	if !ok {
 		return store.Approval{}, store.ErrNotFound
 	}
@@ -62,6 +68,17 @@ func (f *fakeInbox) WaitApproval(ctx context.Context, id string, _ time.Duration
 	case <-ctx.Done():
 		return store.Approval{}, ctx.Err()
 	}
+}
+
+// GetApproval reads a row back, the way the engine does after a wait that failed.
+func (f *fakeInbox) GetApproval(_ context.Context, id string) (store.Approval, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.rows[id]
+	if !ok {
+		return store.Approval{}, store.ErrNotFound
+	}
+	return row, nil
 }
 
 func (f *fakeInbox) Decide(_ context.Context, id, decision, via string) (store.Approval, error) {
@@ -90,6 +107,21 @@ func (f *fakeInbox) decided(id string) (string, string) {
 		return row.Decision, ""
 	}
 	return row.Decision, *row.DecidedVia
+}
+
+// setWaitErr makes the next waits fail, the way a store that is unavailable
+// does.
+func (f *fakeInbox) setWaitErr(err error) {
+	f.mu.Lock()
+	f.waitErr = err
+	f.mu.Unlock()
+}
+
+// drop removes a row, the way a question that is over stops existing.
+func (f *fakeInbox) drop(id string) {
+	f.mu.Lock()
+	delete(f.rows, id)
+	f.mu.Unlock()
 }
 
 func (f *fakeInbox) questions() []task.CreateApprovalRequest {
@@ -308,7 +340,8 @@ func TestAQuestionDiesWithTheConnectionThatAsked(t *testing.T) {
 }
 
 // TestADuplicateRequestIdDoesNotOpenASecondRow keeps one device from turning one
-// question into two rows by repeating its id.
+// question into two rows by repeating its id — and keeps the repeat from looking
+// like a hang: the second request is refused with a reason, on the same id.
 func TestADuplicateRequestIdDoesNotOpenASecondRow(t *testing.T) {
 	turns := NewTurns()
 	inbox := newFakeInbox()
@@ -318,11 +351,26 @@ func TestADuplicateRequestIdDoesNotOpenASecondRow(t *testing.T) {
 	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err != nil {
 		t.Fatal(err)
 	}
-	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err == nil {
-		t.Fatal("the same request id was accepted twice")
+	waitForKind(t, conn, "approval.status")
+	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err != nil {
+		t.Fatalf("a repeated request id was dropped instead of answered: %v", err)
 	}
 	if got := len(inbox.questions()); got != 1 {
 		t.Fatalf("the hub asked %d questions for one request id", got)
+	}
+	statuses := framesOfKind(conn.sent(), "approval.status")
+	if len(statuses) != 2 {
+		t.Fatalf("the device heard %d answers to two requests", len(statuses))
+	}
+	refusal, err := Decode[worker.ApprovalStatus](statuses[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refusal.RequestID != "req-1" || !strings.Contains(refusal.Error, "already open") {
+		t.Fatalf("the repeat was answered with %+v, want a refusal it can match", refusal)
+	}
+	if pending := approvals.Pending(); len(pending) != 1 {
+		t.Fatalf("pending = %v, want the one question that was actually asked", pending)
 	}
 }
 
@@ -348,5 +396,140 @@ func TestAbandonLeavesOtherConnectionsQuestionsAlone(t *testing.T) {
 	}
 	if pending := approvals.Pending(); len(pending) != 1 {
 		t.Fatalf("the live question is gone: %v", pending)
+	}
+}
+
+// TestAWaitThatFailsIsRetriedUntilTheQuestionIsAnswered pins the difference
+// between a wait that failed and an answer: a wait can fail on a store that
+// blinked, or on an expiry that collided with a decision, and the machine is
+// still blocked on a question a person can still answer. Giving up there would
+// strand the agent on a question nobody is waiting to deliver.
+func TestAWaitThatFailsIsRetriedUntilTheQuestionIsAnswered(t *testing.T) {
+	turns := NewTurns()
+	inbox := newFakeInbox()
+	failed := make(chan struct{}, 4)
+	approvals := &Approvals{
+		Turns:  turns,
+		Engine: inbox,
+		Poll:   time.Millisecond,
+		Warn: func(string, ...any) {
+			select {
+			case failed <- struct{}{}:
+			default:
+			}
+		},
+	}
+	conn := openTurn(t, turns, "turn-1", "task-1", "device-1")
+
+	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err != nil {
+		t.Fatal(err)
+	}
+	waitForKind(t, conn, "approval.status")
+
+	// The wait starts failing — a store that is briefly unavailable, which is
+	// exactly when a decision must not be dropped.
+	inbox.setWaitErr(errors.New("the approval store is unavailable"))
+	select {
+	case <-failed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the failing wait was never noticed")
+	}
+	inbox.setWaitErr(nil)
+	inbox.decision <- store.DecisionApproved
+
+	decision, err := Decode[worker.ApprovalDecision](waitForKind(t, conn, "approval.decision"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.RequestID != "req-1" || decision.Decision != store.DecisionApproved {
+		t.Fatalf("decision = %+v, want the answer that was given while the wait was failing", decision)
+	}
+}
+
+// TestAQuestionWhoseRowIsGoneIsRefused is the other half of the same rule: when
+// the question itself is gone, there is nothing left to wait for, and the device
+// is told so rather than left polling a row that does not exist.
+func TestAQuestionWhoseRowIsGoneIsRefused(t *testing.T) {
+	turns := NewTurns()
+	inbox := newFakeInbox()
+	approvals := &Approvals{Turns: turns, Engine: inbox, Poll: time.Millisecond}
+	conn := openTurn(t, turns, "turn-1", "task-1", "device-1")
+
+	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err != nil {
+		t.Fatal(err)
+	}
+	waitForKind(t, conn, "approval.status")
+
+	// The row disappears underneath the wait, and the engine says so.
+	inbox.drop("apr-1")
+	inbox.setWaitErr(errors.New("no such approval"))
+
+	statuses := framesOfKind(conn.sent(), "approval.status")
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && len(statuses) < 2 {
+		time.Sleep(2 * time.Millisecond)
+		statuses = framesOfKind(conn.sent(), "approval.status")
+	}
+	if len(statuses) < 2 {
+		t.Fatal("the device was left waiting on a question that no longer exists")
+	}
+	refusal, err := Decode[worker.ApprovalStatus](statuses[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refusal.RequestID != "req-1" || refusal.Error == "" {
+		t.Fatalf("refusal = %+v, want the reason the question ended", refusal)
+	}
+}
+
+// TestAQuestionTheDeviceCannotBeToldAboutIsNotLeftAnswerable closes the one hole
+// in the disconnect rule: the row is created, the answer cannot be delivered,
+// and the entry is gone from the map by the time this returns — so Abandon can
+// never reach it. Left pending, it would be a question in the console that a
+// person can answer with nothing on the other end.
+func TestAQuestionTheDeviceCannotBeToldAboutIsNotLeftAnswerable(t *testing.T) {
+	turns := NewTurns()
+	inbox := newFakeInbox()
+	approvals := &Approvals{Turns: turns, Engine: inbox, Poll: time.Millisecond}
+	conn := openTurn(t, turns, "turn-1", "task-1", "device-1")
+	conn.sendErr = errors.New("the device's socket is not taking writes")
+
+	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err == nil {
+		t.Fatal("an answer that never left was reported as delivered")
+	}
+	if got := len(inbox.questions()); got != 1 {
+		t.Fatalf("the hub asked %d questions, want the one it could not answer", got)
+	}
+	decision, via := inbox.decided("apr-1")
+	if decision != store.DecisionExpired || via != "device_disconnected" {
+		t.Fatalf("row = %q via %q, want it settled rather than left answerable", decision, via)
+	}
+	if pending := approvals.Pending(); len(pending) != 0 {
+		t.Fatalf("the undeliverable question is still open: %v", pending)
+	}
+}
+
+// TestARefusalFitsTheWireWithoutCuttingARune keeps a long reason inside the
+// protocol's limit without turning its tail into mojibake: the message is going
+// to a person, and half a character is worse than a shorter sentence.
+func TestARefusalFitsTheWireWithoutCuttingARune(t *testing.T) {
+	turns := NewTurns()
+	inbox := newFakeInbox()
+	approvals := &Approvals{Turns: turns, Engine: inbox, Poll: time.Millisecond}
+	conn := openTurn(t, turns, "turn-1", "task-1", "device-1")
+	inbox.refuse = errors.New(strings.Repeat("拒", worker.MaxApprovalError))
+
+	if err := approvals.Route(context.Background(), conn, approvalRequestFrame(t, "req-1", "turn-1")); err != nil {
+		t.Fatal(err)
+	}
+	status, err := Decode[worker.ApprovalStatus](waitForKind(t, conn, "approval.status"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := status.Validate(); err != nil {
+		t.Fatalf("the refusal does not fit the wire: %v", err)
+	}
+	if !utf8.ValidString(status.Error) {
+		t.Fatalf("the refusal was cut mid-character: %q", status.Error)
 	}
 }

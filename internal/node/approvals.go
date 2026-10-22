@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
@@ -14,7 +15,7 @@ import (
 )
 
 // ApprovalAuthority is the approval inbox this Hub asks its people through. It
-// is what the engine already is, narrowed to the three things a cross-device
+// is what the engine already is, narrowed to the four things a cross-device
 // approval needs, so that a Hub has exactly one approval store no matter which
 // machine the agent is running on (ADR 0022 D1).
 type ApprovalAuthority interface {
@@ -22,6 +23,10 @@ type ApprovalAuthority interface {
 	RequestApproval(ctx context.Context, req task.CreateApprovalRequest) (store.Approval, error)
 	// WaitApproval returns when the question is answered or expires.
 	WaitApproval(ctx context.Context, id string, timeout time.Duration) (store.Approval, error)
+	// GetApproval reads one question back, decided or not. It is how a wait that
+	// failed tells "nobody has answered yet" from "there is no such question any
+	// more".
+	GetApproval(ctx context.Context, id string) (store.Approval, error)
 	// Decide records an outcome nobody chose — used when the machine asking the
 	// question goes away, so its request cannot be left looking answerable.
 	Decide(ctx context.Context, id, decision, via string) (store.Approval, error)
@@ -60,11 +65,25 @@ type Approvals struct {
 // question stays open until somebody answers it or its TTL runs out.
 const DefaultApprovalPoll = 30 * time.Second
 
+// maxOpenApprovals bounds the questions one Hub holds open at a time.
+//
+// Nothing else bounds them: every question is one a device is blocked on, so a
+// machine that asks without ever being answered would otherwise grow this map
+// for as long as its connection lasts. Past the cap a question is refused with a
+// reason, which is an answer the agent can act on.
+const maxOpenApprovals = 512
+
+// approvalRetryDelay is how long a failed wait pauses before asking again.
+//
+// A wait that fails is not an answer: the question is still open and the device
+// is still blocked, so the wait is retried. The pause is what keeps a store that
+// is failing steadily from turning that retry into a spin.
+const approvalRetryDelay = time.Second
+
 // pendingApproval is one question a device is blocked on.
 type pendingApproval struct {
 	requestID string
 	approval  string
-	turnID    string
 	sender    Sender
 	// cancel ends this entry's wait when the connection goes away, so the
 	// goroutine does not sit on a socket that can no longer carry the answer.
@@ -94,7 +113,11 @@ func (a *Approvals) Route(ctx context.Context, sender Sender, frame worker.Frame
 			return err
 		}
 		if err := request.Validate(); err != nil {
-			return err
+			// The device is blocked until it hears about this request id, so a
+			// refusal it can read is an answer; dropping the frame would leave it
+			// waiting out its own timeout and blaming the timeout for a request the
+			// Hub turned down on sight.
+			return a.refuseIfAskable(ctx, sender, request.RequestID, err)
 		}
 		return a.ask(ctx, sender, request)
 	default:
@@ -106,12 +129,16 @@ func (a *Approvals) Route(ctx context.Context, sender Sender, frame worker.Frame
 // the answer that will be sent back to it.
 func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.ApprovalRequest) error {
 	if a.Engine == nil {
-		return errors.New("this hub has no approval inbox")
+		return a.refuseIfAskable(ctx, sender, request.RequestID, errors.New("this hub has no approval inbox"))
 	}
 	// The task is looked up from the turn, never taken from the device: a machine
 	// asking for permission can only ask about the work this Hub gave it. This is
 	// also what stops a paired device from opening approval rows against tasks it
 	// has nothing to do with.
+	//
+	// The failure is returned rather than refused here: a Hub that is not running
+	// this turn answers by telling the machine to stop running it (see
+	// api.cancelUnknownTurn), which is more than this question's refusal.
 	item, err := a.turn(sender, request.TurnID)
 	if err != nil {
 		return err
@@ -123,7 +150,6 @@ func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.Appro
 	waitCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	entry := &pendingApproval{
 		requestID: request.RequestID,
-		turnID:    request.TurnID,
 		sender:    sender,
 		cancel:    cancel,
 	}
@@ -131,13 +157,22 @@ func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.Appro
 	if a.pending == nil {
 		a.pending = make(map[string]*pendingApproval)
 	}
-	if _, exists := a.pending[request.RequestID]; exists {
-		a.mu.Unlock()
-		cancel()
-		return fmt.Errorf("approval request %s is already open", request.RequestID)
+	_, duplicate := a.pending[request.RequestID]
+	full := !duplicate && len(a.pending) >= maxOpenApprovals
+	if !duplicate && !full {
+		a.pending[request.RequestID] = entry
 	}
-	a.pending[request.RequestID] = entry
 	a.mu.Unlock()
+	switch {
+	case duplicate:
+		cancel()
+		return a.refuseIfAskable(ctx, sender, request.RequestID,
+			fmt.Errorf("approval request %s is already open", request.RequestID))
+	case full:
+		cancel()
+		return a.refuseIfAskable(ctx, sender, request.RequestID,
+			fmt.Errorf("this hub already has %d questions open", maxOpenApprovals))
+	}
 
 	approval, err := a.Engine.RequestApproval(ctx, task.CreateApprovalRequest{
 		TaskID:         item.taskID,
@@ -178,9 +213,13 @@ func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.Appro
 		ApprovalID: approval.ID,
 	}); err != nil {
 		// The device never learned the id, so it is not waiting for a decision
-		// either. The row stays: a person may still be looking at it.
+		// either — but the row exists, and a person answering it would be answering
+		// nobody. Abandon cannot reach it: the entry is out of the map before this
+		// returns, so settling it here is the only thing between a blink on the
+		// wire and a question that stays answerable until its TTL runs out.
 		a.forget(entry)
 		cancel()
+		a.settle(approval.ID)
 		return fmt.Errorf("answer approval request %s: %w", request.RequestID, err)
 	}
 	go a.await(waitCtx, entry)
@@ -188,17 +227,51 @@ func (a *Approvals) ask(ctx context.Context, sender Sender, request worker.Appro
 }
 
 // await waits for the decision and sends it down the connection that asked.
+//
+// Every way out of this loop either delivers an answer or refuses the question
+// to the device. There is no path that walks away from a question a machine is
+// still blocked on: a wait that fails is retried, because the row is still there
+// and a person can still answer it.
 func (a *Approvals) await(ctx context.Context, entry *pendingApproval) {
 	defer a.forget(entry)
 	for {
-		approval, err := a.Engine.WaitApproval(ctx, entry.approval, a.poll())
-		if err != nil {
-			if ctx.Err() == nil {
-				a.warn("approval %s: %v", entry.approval, err)
-			}
+		if ctx.Err() != nil {
+			// The connection ended. Abandon settles the row.
 			return
 		}
-		if approval.Decision == store.DecisionPending {
+		approval, err := a.Engine.WaitApproval(ctx, entry.approval, a.poll())
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			a.warn("approval %s: waiting for a decision: %v", entry.approval, err)
+			// A failed wait is not an answer. The engine can hand back a conflict
+			// for a decision that landed in the same instant as an expiry, and a
+			// store can blink; reading the row back is what tells "nobody has
+			// answered yet" from "there is no such question any more", and what
+			// keeps a person's answer from being turned into an error.
+			read, readErr := a.Engine.GetApproval(ctx, entry.approval)
+			switch {
+			case readErr == nil:
+				approval = read
+			case errors.Is(readErr, store.ErrNotFound):
+				a.refuse(ctx, entry.sender, entry.requestID,
+					errors.New("the question this request opened is no longer on the hub"))
+				return
+			default:
+				a.warn("approval %s: reading it back: %v", entry.approval, readErr)
+				if !sleepCtx(ctx, approvalRetryDelay) {
+					return
+				}
+				continue
+			}
+			if approval.Decision == store.DecisionPending {
+				if !sleepCtx(ctx, approvalRetryDelay) {
+					return
+				}
+				continue
+			}
+		} else if approval.Decision == store.DecisionPending {
 			// Nobody has decided yet. The wait is a long poll, not a deadline: the
 			// question is open until a person answers it or its TTL runs out.
 			continue
@@ -213,6 +286,19 @@ func (a *Approvals) await(ctx context.Context, entry *pendingApproval) {
 			a.warn("approval %s: %v", entry.approval, err)
 		}
 		return
+	}
+}
+
+// sleepCtx waits, and reports whether the wait finished rather than being
+// cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -251,13 +337,41 @@ func (a *Approvals) status(ctx context.Context, sender Sender, status worker.App
 // Best effort: a device that cannot be told is a device whose connection is
 // gone, which fails its waiters anyway.
 func (a *Approvals) refuse(ctx context.Context, sender Sender, requestID string, cause error) {
-	message := strings.TrimSpace(cause.Error())
-	if len(message) > worker.MaxApprovalError {
-		message = message[:worker.MaxApprovalError]
-	}
+	message := truncateRunes(strings.TrimSpace(cause.Error()), worker.MaxApprovalError)
 	if err := a.status(ctx, sender, worker.ApprovalStatus{RequestID: requestID, Error: message}); err != nil {
 		a.warn("refuse approval request %s: %v", requestID, err)
 	}
+}
+
+// refuseIfAskable refuses a request when it carries an id the device can match
+// the refusal to. A request whose id is missing or unusable has nobody to tell,
+// so the problem is reported to the caller instead — there is no frame that
+// could carry it back.
+func (a *Approvals) refuseIfAskable(ctx context.Context, sender Sender, requestID string, cause error) error {
+	id := strings.TrimSpace(requestID)
+	if id == "" || len(id) > worker.MaxApprovalID {
+		return cause
+	}
+	a.refuse(ctx, sender, id, cause)
+	return nil
+}
+
+// truncateRunes shortens a message to a byte budget without cutting a rune in
+// half. The reason is read by a person and passed on to an agent's tool call:
+// half a character is mojibake where the rest of the message was readable.
+func truncateRunes(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	cut := value[:limit]
+	for len(cut) > 0 {
+		r, size := utf8.DecodeLastRuneInString(cut)
+		if r != utf8.RuneError || size > 1 {
+			break
+		}
+		cut = cut[:len(cut)-1]
+	}
+	return cut
 }
 
 // decide sends the answer to the machine that asked the question.

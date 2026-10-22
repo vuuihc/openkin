@@ -162,6 +162,42 @@ func TestApprovalExpiry(t *testing.T) {
 	}
 }
 
+// TestAnExpiryDoesNotOverwriteADecisionThatLandedFirst is the race a long poll
+// meets: the TTL fires in the same instant a person answers. The expiry loses,
+// and — the part that matters to the machine waiting on it — the answer comes
+// back instead of a conflict, which reads as a failed wait and a denied tool
+// call for a question somebody approved.
+func TestAnExpiryDoesNotOverwriteADecisionThatLandedFirst(t *testing.T) {
+	ctx := context.Background()
+	e, _ := testEngine(t, 4, &fakeAdapter{runFor: 10 * time.Second})
+
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "ask first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+
+	a, err := e.RequestApproval(ctx, CreateApprovalRequest{TaskID: task.ID, Kind: "tool_use"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Decide(ctx, a.ID, store.DecisionApproved, "web"); err != nil {
+		t.Fatal(err)
+	}
+
+	// What the TTL path does when it arrives second.
+	got, err := e.expireApproval(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("expiring a question that was already answered: %v", err)
+	}
+	if got.Decision != store.DecisionApproved {
+		t.Fatalf("decision = %q, want the answer a person gave", got.Decision)
+	}
+	if got.DecidedVia == nil || *got.DecidedVia != "web" {
+		t.Fatalf("via = %v, want the person's decision left as it was", got.DecidedVia)
+	}
+}
+
 func TestFollowUpRequiresTerminalSession(t *testing.T) {
 	ctx := context.Background()
 

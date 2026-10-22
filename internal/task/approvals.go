@@ -300,7 +300,21 @@ func (e *Engine) maybeExpire(ctx context.Context, a store.Approval) (store.Appro
 	if age < ttl {
 		return a, nil
 	}
-	return e.Decide(ctx, a.ID, store.DecisionExpired, "timeout")
+	return e.expireApproval(ctx, a.ID)
+}
+
+// expireApproval ends a question nobody answered, tolerating a person who
+// answered it in the same instant.
+//
+// The conflict is not an error to pass on: their decision is the answer the
+// caller has been waiting for, and a waiter that only saw the conflict would go
+// on waiting for an answer that is already there.
+func (e *Engine) expireApproval(ctx context.Context, id string) (store.Approval, error) {
+	expired, err := e.Decide(ctx, id, store.DecisionExpired, "timeout")
+	if errors.Is(err, ErrAlreadyDecided) {
+		return e.store.GetApproval(ctx, id)
+	}
+	return expired, err
 }
 
 // ExpireStale marks all pending approvals older than TTL as expired.

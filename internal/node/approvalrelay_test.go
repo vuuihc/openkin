@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"testing"
@@ -42,6 +43,13 @@ func (l *hubLink) next(t *testing.T, kind string) worker.Frame {
 	}
 	t.Fatalf("the machine never sent a %s frame", kind)
 	return worker.Frame{}
+}
+
+// sent is everything the machine has put on the wire so far.
+func (l *hubLink) sent() []worker.Frame {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]worker.Frame(nil), l.frames...)
 }
 
 // ask builds the request an agent's permission call turns into.
@@ -268,5 +276,50 @@ func TestAFrameAboutAQuestionNobodyAskedIsRefused(t *testing.T) {
 	}
 	if err := relay.Handle(context.Background(), decision); err == nil {
 		t.Fatal("a decision for an unknown request was accepted")
+	}
+}
+
+// TestAQuestionTooBigForTheWireIsRefusedBeforeItLeaves keeps the machine's
+// bounds on the machine's side. A payload the Hub would reject as a frame the
+// sender should never have produced has to be refused here, where the agent is
+// waiting and can be told why, rather than sent up to be dropped.
+func TestAQuestionTooBigForTheWireIsRefusedBeforeItLeaves(t *testing.T) {
+	link := &hubLink{}
+	relay := &ApprovalRelay{}
+	relay.SetSender(link.send)
+
+	request := ask("turn-1")
+	request.Payload = json.RawMessage(`{"content":"` + strings.Repeat("x", worker.MaxApprovalPayload) + `"}`)
+	if _, err := relay.Ask(context.Background(), request); err == nil {
+		t.Fatal("a question too big for the wire was sent anyway")
+	}
+	if frames := link.sent(); len(frames) != 0 {
+		t.Fatalf("the machine put %d frames on the wire for a question it cannot ask", len(frames))
+	}
+	if relay.Pending() != 0 {
+		t.Fatal("a question that never left is still being waited on")
+	}
+}
+
+// TestAMachineWithTooManyQuestionsOpenStopsAsking bounds what one runaway agent
+// can accumulate: every forwarded question is an agent blocked on a person, and
+// past the cap the machine says so instead of growing the map.
+func TestAMachineWithTooManyQuestionsOpenStopsAsking(t *testing.T) {
+	link := &hubLink{}
+	relay := &ApprovalRelay{}
+	relay.SetSender(link.send)
+
+	relay.mu.Lock()
+	relay.waiters = make(map[string]*approvalWaiter, maxOpenQuestions)
+	for i := 0; i < maxOpenQuestions; i++ {
+		relay.waiters["req-"+itoa(i)] = &approvalWaiter{}
+	}
+	relay.mu.Unlock()
+
+	if _, err := relay.Ask(context.Background(), ask("turn-1")); err == nil {
+		t.Fatal("the machine kept asking past its own limit")
+	}
+	if frames := link.sent(); len(frames) != 0 {
+		t.Fatalf("the machine sent %d frames past its limit", len(frames))
 	}
 }

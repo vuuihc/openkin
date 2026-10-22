@@ -3,10 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
+
+	"nhooyr.io/websocket"
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/approvalbridge"
@@ -195,8 +199,10 @@ func TestAnAgentOnAMachineAsksTheHubsInbox(t *testing.T) {
 	if approval.Kind != "tool_use" || len(approval.Payload) == 0 {
 		t.Fatalf("the question lost its content on the way: %+v", approval)
 	}
-	// Attribution survives the trip: the console says which turn asked, on which
-	// machine, through which agent.
+	// Attribution survives the trip: the row says which turn asked and through
+	// which agent. The console shows the agent today; naming the machine on the
+	// card needs a device label on this row, which is a UI follow-up rather than
+	// something this path drops (the task it belongs to carries the device).
 	if approval.ExecutionID == nil || *approval.ExecutionID == "" {
 		t.Fatalf("the approval does not say which turn asked: %+v", approval)
 	}
@@ -226,6 +232,86 @@ func TestAnAgentOnAMachineAsksTheHubsInbox(t *testing.T) {
 	if running := turns.Running(""); len(running) != 0 {
 		t.Fatalf("turns still open on the hub: %v", running)
 	}
+}
+
+// TestAQuestionAboutATurnTheHubIsNotRunningIsAnswered pins the third path a
+// device's question can take: the Hub has no record of the turn, so there is no
+// inbox to put it in. The machine is blocked until it hears about the request
+// itself — a turn.cancel stops the turn, but only an approval.status ends that
+// wait — so both go back.
+func TestAQuestionAboutATurnTheHubIsNotRunningIsAnswered(t *testing.T) {
+	s, _, _ := nodeTestServer(t)
+	s.NodeFrames = func(context.Context, node.Sender, worker.Frame) error {
+		return node.ErrTurnUnknown
+	}
+	sender := &recordingSender{deviceID: "device-1"}
+	frame, err := worker.NewFrame("approval.request", worker.ApprovalRequest{
+		RequestID: "req-1", TurnID: "turn-gone", Kind: "tool_use", Agent: "claude-code",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.routeNodeFrame(context.Background(), sender, frame); !errors.Is(err, node.ErrTurnUnknown) {
+		t.Fatalf("routeNodeFrame err = %v, want the unknown turn", err)
+	}
+
+	statuses := sender.ofKind("approval.status")
+	if len(statuses) != 1 {
+		t.Fatalf("the machine heard %d answers to its question; frames = %+v", len(statuses), sender.sent())
+	}
+	status, err := node.Decode[worker.ApprovalStatus](statuses[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.RequestID != "req-1" || status.Error == "" || status.ApprovalID != "" {
+		t.Fatalf("status = %+v, want a refusal it can match to its request", status)
+	}
+	cancels := sender.ofKind("turn.cancel")
+	if len(cancels) != 1 {
+		t.Fatalf("the agent was not told to stop: %+v", sender.sent())
+	}
+	cancel, err := node.Decode[worker.TurnCancel](cancels[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cancel.TurnID != "turn-gone" {
+		t.Fatalf("turn.cancel = %+v", cancel)
+	}
+}
+
+// recordingSender is one device connection that keeps what the Hub pushed to it.
+type recordingSender struct {
+	deviceID string
+
+	mu     sync.Mutex
+	frames []worker.Frame
+}
+
+func (s *recordingSender) DeviceID() string                   { return s.deviceID }
+func (s *recordingSender) Generation() uint64                 { return 1 }
+func (s *recordingSender) Close(websocket.StatusCode, string) {}
+
+func (s *recordingSender) Send(_ context.Context, frame worker.Frame) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frames = append(s.frames, frame)
+	return nil
+}
+
+func (s *recordingSender) sent() []worker.Frame {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]worker.Frame(nil), s.frames...)
+}
+
+func (s *recordingSender) ofKind(kind string) []worker.Frame {
+	var out []worker.Frame
+	for _, frame := range s.sent() {
+		if frame.Kind == kind {
+			out = append(out, frame)
+		}
+	}
+	return out
 }
 
 // TestAPendingApprovalDiesWithTheMachineThatAsked is the convergence rule on the

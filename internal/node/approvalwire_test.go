@@ -132,7 +132,8 @@ func awaitQuestion(t *testing.T, inbox *fakeInbox) []task.CreateApprovalRequest 
 // TestAQuestionCrossesBothHalvesUnderTheHubsId is the exchange end to end on one
 // wire: the machine asks, the Hub answers the request with the id of the row it
 // created, the answer comes back under the id the machine made up, and the
-// machine releases the question once its agent has read the outcome.
+// machine releases the question once its agent has read the outcome — while the
+// answer itself stays readable under that id.
 func TestAQuestionCrossesBothHalvesUnderTheHubsId(t *testing.T) {
 	inbox := newFakeInbox()
 	wire := newApprovalWire(t, inbox)
@@ -176,8 +177,15 @@ func TestAQuestionCrossesBothHalvesUnderTheHubsId(t *testing.T) {
 	if err != nil || decision != store.DecisionApproved {
 		t.Fatalf("decision = (%q, %v)", decision, err)
 	}
-	if wire.relay.Pending() != 0 || wire.relay.Waiting(got.id) {
+	if wire.relay.Pending() != 0 {
 		t.Fatalf("the answered question is still open: pending=%d", wire.relay.Pending())
+	}
+	// Answered once, answered always: the agent's client long-polls, and a second
+	// wait for a question this machine already has the answer to gets that answer
+	// rather than "not a question this machine asked".
+	again, err := wire.relay.Decision(context.Background(), got.id)
+	if again != decision || err != nil {
+		t.Fatalf("the second wait heard (%q, %v), want the same answer", again, err)
 	}
 	wire.clean(t)
 }

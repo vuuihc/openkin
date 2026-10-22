@@ -105,7 +105,7 @@ CREATE TABLE approvals (
   kind        TEXT NOT NULL,             -- 'tool_use' | 'generic'
   payload     TEXT NOT NULL,             -- JSON: tool name, input, agent-provided context
   decision    TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|denied|expired
-  decided_via TEXT,                      -- 'web' | 'timeout'
+  decided_via TEXT,                      -- 'web' | 'timeout' | 'device_disconnected'
   created_at  INTEGER NOT NULL,
   decided_at  INTEGER
 );

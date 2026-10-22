@@ -1124,8 +1124,11 @@ func (s *Server) handleInternalCreateApproval(w http.ResponseWriter, r *http.Req
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 			return
 		}
-		// Only the id is read by the agent's client, and it is the Hub's row: the
-		// wait below finds it by that id.
+		// Only the id is read back by the agent's client — it is the Hub's row, and
+		// the wait below finds it by that id. The rest is the shape a local create
+		// returns, filled in from the request rather than from a row this daemon
+		// does not hold: task_id and kind are what the caller just sent, and the
+		// decision is pending because the Hub's row is.
 		writeJSON(w, http.StatusCreated, map[string]any{
 			"id":       id,
 			"task_id":  req.TaskID,
@@ -1153,9 +1156,11 @@ func (s *Server) handleInternalCreateApproval(w http.ResponseWriter, r *http.Req
 func (s *Server) handleInternalWaitApproval(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if s.ApprovalRelay != nil && s.ApprovalRelay.Waiting(id) {
-		// One this machine forwarded. The wait is the Hub's to end: it answers
-		// when a person decides, or when the connection does. The agent's client
-		// long-polls, so a wait that outlives its own request is asked again.
+		// One this machine forwarded. The wait is the Hub's to end: it answers when
+		// a person decides, or when the connection does, so `timeout` does not apply
+		// here — the row is not in this daemon's store and there is nothing local to
+		// poll. The agent's client long-polls, so a decision it was already given is
+		// handed back to it rather than looked up again.
 		decision, err := s.ApprovalRelay.Decision(r.Context(), id)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
