@@ -82,3 +82,53 @@ func TestNetworkModeRelay(t *testing.T) {
 		t.Fatalf("networkMode = %q, want lan+relay", mode2)
 	}
 }
+
+func TestParseServeFlagsDefaultsToStandalone(t *testing.T) {
+	f, err := ParseServeFlags(nil)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if f.Role != RoleStandalone {
+		t.Fatalf("role = %q, want %q", f.Role, RoleStandalone)
+	}
+}
+
+func TestParseServeFlagsHub(t *testing.T) {
+	f, err := ParseServeFlags([]string{"--role", "hub", "--domain", "Kin.Example.com", "--acme-email", "me@example.com"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if f.Role != RoleHub {
+		t.Fatalf("role = %q", f.Role)
+	}
+	if f.Domain != "Kin.Example.com" {
+		// Normalization happens in remote.NewHub, which is where the value is
+		// actually consumed; the flag layer must not silently rewrite it.
+		t.Fatalf("domain = %q", f.Domain)
+	}
+}
+
+func TestParseServeFlagsHubRequiresDomain(t *testing.T) {
+	if _, err := ParseServeFlags([]string{"--role", "hub"}); err == nil {
+		t.Fatal("--role hub without --domain must be rejected")
+	}
+}
+
+func TestParseServeFlagsDomainRequiresHubRole(t *testing.T) {
+	if _, err := ParseServeFlags([]string{"--domain", "kin.example.com"}); err == nil {
+		t.Fatal("--domain without --role hub must be rejected rather than ignored")
+	}
+}
+
+func TestParseServeFlagsRejectsUnknownRole(t *testing.T) {
+	// `node` is a real role in the multi-device design, but accepting the flag
+	// before the role exists would let a deployment look configured while
+	// behaving as a standalone daemon.
+	_, err := ParseServeFlags([]string{"--role", "node"})
+	if err == nil {
+		t.Fatal("--role node must be rejected until it is implemented")
+	}
+	if !strings.Contains(err.Error(), "node") {
+		t.Fatalf("error should name the rejected role: %v", err)
+	}
+}

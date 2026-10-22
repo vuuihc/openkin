@@ -62,6 +62,23 @@ type DeviceLookup func(context.Context, string) (Principal, bool)
 // Like DeviceLookup it keeps this package free of persistence dependencies.
 type SessionLookup func(context.Context, string) (Principal, bool)
 
+// StateDirEnv overrides the daemon state directory. Containers set it to a
+// mounted volume so the database and secrets do not live in the image layer.
+const StateDirEnv = "KIN_STATE_DIR"
+
+// StateDir returns the daemon state directory: $KIN_STATE_DIR when set,
+// otherwise ~/.kin.
+func StateDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv(StateDirEnv)); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("home dir: %w", err)
+	}
+	return filepath.Join(home, ".kin"), nil
+}
+
 // TokenFile returns the path of the daemon auth token.
 func TokenFile(stateDir string) string {
 	return filepath.Join(stateDir, "token")

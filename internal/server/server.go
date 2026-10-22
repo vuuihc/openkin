@@ -22,6 +22,7 @@ import (
 	"github.com/vuuihc/openkin/internal/adapter/detect"
 	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/api"
+	authsvc "github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
@@ -46,6 +47,13 @@ import (
 
 const defaultPort = 7777
 
+// Roles a Kin process can take. `node` arrives with M2 (multi-device
+// execution); it is not accepted yet rather than accepted-and-ignored.
+const (
+	RoleStandalone = "standalone"
+	RoleHub        = "hub"
+)
+
 // ServeFlags are CLI options for `kin serve` (spec §7).
 type ServeFlags struct {
 	Port         int
@@ -54,6 +62,9 @@ type ServeFlags struct {
 	Funnel       bool
 	TSControlURL string
 	RelayURL     string   // WebSocket relay URL (e.g. wss://kin-relay.example.com)
+	Role         string   // standalone (default) or hub
+	Domain       string   // public hostname; required for --role hub
+	ACMEEmail    string   // Let's Encrypt contact address; optional
 	Args         []string // remaining args after command name
 }
 
@@ -68,11 +79,30 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	fs.BoolVar(&f.Funnel, "funnel", false, "public HTTPS via Tailscale Funnel (requires --tailscale)")
 	fs.StringVar(&f.TSControlURL, "ts-control-url", "", "Headscale/custom control URL for tsnet")
 	fs.StringVar(&f.RelayURL, "relay", "", "WebSocket relay URL (e.g. wss://kin-relay.example.com)")
+	fs.StringVar(&f.Role, "role", RoleStandalone, "process role: standalone or hub")
+	fs.StringVar(&f.Domain, "domain", "", "public hostname for --role hub (e.g. kin.example.com)")
+	fs.StringVar(&f.ACMEEmail, "acme-email", "", "Let's Encrypt contact address for --role hub")
 	if err := fs.Parse(args); err != nil {
 		return f, err
 	}
 	f.Args = fs.Args()
 
+	f.Role = strings.ToLower(strings.TrimSpace(f.Role))
+	if f.Role == "" {
+		f.Role = RoleStandalone
+	}
+	switch f.Role {
+	case RoleStandalone, RoleHub:
+	default:
+		return f, fmt.Errorf("unknown --role %q (want %s or %s; a node role arrives with multi-device execution)",
+			f.Role, RoleStandalone, RoleHub)
+	}
+	if f.Role == RoleHub && strings.TrimSpace(f.Domain) == "" {
+		return f, fmt.Errorf("--role hub requires --domain")
+	}
+	if f.Role == RoleStandalone && strings.TrimSpace(f.Domain) != "" {
+		return f, fmt.Errorf("--domain requires --role hub")
+	}
 	if f.Funnel && !f.Tailscale {
 		return f, fmt.Errorf("--funnel requires --tailscale")
 	}
@@ -96,11 +126,10 @@ func Serve(version string) error {
 
 // ServeWith starts the daemon with explicit flags (tests / main).
 func ServeWith(version string, flags ServeFlags) error {
-	home, err := os.UserHomeDir()
+	stateDir, err := remote.StateDir()
 	if err != nil {
-		return fmt.Errorf("home dir: %w", err)
+		return err
 	}
-	stateDir := filepath.Join(home, ".kin")
 	if err := os.MkdirAll(filepath.Join(stateDir, "logs"), 0o700); err != nil {
 		return fmt.Errorf("state dir: %w", err)
 	}
@@ -289,6 +318,30 @@ func ServeWith(version string, flags ServeFlags) error {
 
 	auth := remote.NewFileAuth(tokenPath)
 	mode := networkMode(flags)
+
+	// A Hub owns accounts and terminates its own TLS. A standalone daemon does
+	// neither: it keeps the token-only behavior it has always had, so nothing
+	// about local use changes.
+	var hub *remote.Hub
+	var accounts *authsvc.Service
+	var oidcProvider *authsvc.OIDCProvider
+	if flags.Role == RoleHub {
+		hub, err = remote.NewHub(remote.HubConfig{
+			Domain:   flags.Domain,
+			Email:    flags.ACMEEmail,
+			StateDir: stateDir,
+		})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = hub.Close() }()
+
+		accounts = authsvc.New(st, authsvc.Config{})
+		oidcProvider, err = buildOIDCProvider(context.Background(), hub)
+		if err != nil {
+			return err
+		}
+	}
 	terminals := newTerminalManager(terminal.DetectProfiles)
 	defer terminals.Close()
 	suitesDir := os.Getenv("KIN_EVAL_SUITES_DIR")
@@ -319,6 +372,8 @@ func ServeWith(version string, flags ServeFlags) error {
 	srvAPI := &api.Server{
 		Store:      st,
 		Auth:       auth,
+		Accounts:   accounts,
+		OIDC:       oidcProvider,
 		Engine:     eng,
 		Agents:     reg,
 		Connectors: connectorManager,
@@ -514,6 +569,9 @@ func ServeWith(version string, flags ServeFlags) error {
 	} else {
 		transports = append(transports, remote.Loopback{})
 	}
+	if hub != nil {
+		transports = append(transports, hub)
+	}
 
 	var tsTransport *remotetsnet.Transport
 	if flags.Tailscale {
@@ -553,6 +611,13 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		a := listenerInfo{name: tr.Name(), ln: ln}
 		switch tr.Name() {
+		case "hub":
+			// The Hub's public URL carries no token: visitors sign in. The
+			// master token still works over HTTPS for CLI and MCP clients, but
+			// it is never printed into a URL that could end up in a browser
+			// history or a shared screenshot.
+			a.tls = true
+			a.url = hub.URL()
 		case "loopback":
 			a.url = fmt.Sprintf("http://127.0.0.1:%d", port)
 			a.open = a.url + "/?token=" + auth.Token()
@@ -648,6 +713,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 	fmt.Printf("  token file: %s\n", tokenPath)
 
+	if accounts != nil {
+		printBootstrapState(context.Background(), accounts)
+	}
+
 	// Print the browser link and the one-time pairing link separately.
 	if openURL := mostPublicOpen(listeners); openURL != "" {
 		fmt.Printf("  open: %s\n", openURL)
@@ -663,8 +732,19 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 	}
 
-	// Serve all listeners.
+	// Serve all listeners. TLSConfig must be set before any Serve call, so it
+	// is assigned here rather than inside the loop.
 	httpServer := &http.Server{Handler: handler}
+	if hub != nil {
+		httpServer.TLSConfig = hub.TLSConfig()
+		if err := hub.StartChallengeServer(); err != nil {
+			// Losing the challenge port does not stop an already-cached
+			// certificate from working, so this is a warning rather than a
+			// failure to start. Renewal will fail later, loudly.
+			fmt.Fprintf(os.Stderr, "kin: warning: %v\n", err)
+			fmt.Fprintln(os.Stderr, "kin: warning: certificate renewal will fail until port 80 is reachable")
+		}
+	}
 	errCh := make(chan error, len(listeners))
 	var wg sync.WaitGroup
 	for _, a := range listeners {
@@ -672,13 +752,21 @@ func ServeWith(version string, flags ServeFlags) error {
 			continue
 		}
 		wg.Add(1)
-		go func(ln net.Listener) {
+		go func(a listenerInfo) {
 			defer wg.Done()
-			err := httpServer.Serve(ln)
+			var err error
+			if a.tls {
+				// ServeTLS with empty file paths uses TLSConfig.GetCertificate,
+				// which is autocert's hook. It also configures HTTP/2, which
+				// wrapping the listener by hand would not.
+				err = httpServer.ServeTLS(a.ln, "", "")
+			} else {
+				err = httpServer.Serve(a.ln)
+			}
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 			}
-		}(a.ln)
+		}(a)
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM.
@@ -829,6 +917,8 @@ type listenerInfo struct {
 	url  string // base URL without token (for ui.base_url)
 	open string // browser URL with the master token
 	qr   string // full URL with token for QR
+	// tls marks a listener that must be served with the Hub's certificate.
+	tls bool
 }
 
 // rank: funnel/tsnet https > tsnet > relay > lan > loopback

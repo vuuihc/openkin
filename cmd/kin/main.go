@@ -68,6 +68,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "kin export: %v\n", err)
 			os.Exit(1)
 		}
+	case "hub":
+		if err := runHub(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "kin hub: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -81,7 +86,7 @@ func main() {
 func runMCP(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	home, err := os.UserHomeDir()
+	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
 	}
@@ -99,11 +104,18 @@ func runMCP(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	token, err := remote.ReadToken(filepath.Join(home, ".kin"))
+	token, err := remote.ReadToken(stateDir)
 	if err != nil {
 		return fmt.Errorf("read daemon token: %w", err)
 	}
 	return mcp.RunStdio(ctx, *daemon, token, *client, *scopes, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func runHub(args []string) error {
+	if len(args) < 1 || args[0] != "claim-code" {
+		return fmt.Errorf("usage: kin hub claim-code")
+	}
+	return server.RunHubClaimCode()
 }
 
 func runToken(args []string) error {
@@ -112,11 +124,10 @@ func runToken(args []string) error {
 	}
 	switch args[0] {
 	case "rotate":
-		home, err := os.UserHomeDir()
+		stateDir, err := remote.StateDir()
 		if err != nil {
 			return err
 		}
-		stateDir := filepath.Join(home, ".kin")
 		tok, err := remote.RotateToken(stateDir)
 		if err != nil {
 			return err
@@ -136,11 +147,11 @@ func runNotify(args []string) error {
 	if len(args) < 1 || args[0] != "test" {
 		return fmt.Errorf("usage: kin notify test")
 	}
-	home, err := os.UserHomeDir()
+	stateDir, err := remote.StateDir()
 	if err != nil {
 		return err
 	}
-	dbPath := filepath.Join(home, ".kin", "kin.db")
+	dbPath := filepath.Join(stateDir, "kin.db")
 	st, err := store.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", dbPath, err)
@@ -188,16 +199,27 @@ Usage:
   kin export --output <path.zip>
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin mcp              public MCP client bridge for local hosts
+  kin hub claim-code  print a fresh owner claim code for an unclaimed hub
   kin version         print version
   kin help            show this help
 
 Serve flags:
   --port N              listen port (default 7777)
+  --role ROLE           standalone (default) or hub
+  --domain HOST         public hostname; required for --role hub
+  --acme-email ADDR     Let's Encrypt contact address for --role hub
   --lan                 bind 0.0.0.0; print LAN QR
   --tailscale           serve via tsnet node "kin"
   --funnel              public HTTPS via Funnel (requires --tailscale)
   --relay URL            connect through a user-owned WebSocket relay
   --ts-control-url URL  Headscale/custom control server for tsnet
+
+Environment:
+  KIN_STATE_DIR         state directory (default ~/.kin)
+
+Hub sign-in is configured through the environment:
+  KIN_OIDC_ISSUER, KIN_OIDC_CLIENT_ID, KIN_OIDC_CLIENT_SECRET,
+  KIN_OIDC_DISPLAY_NAME, KIN_OIDC_REDIRECT_URL, KIN_OIDC_BACKCHANNEL_ADDR
 `)
 	os.Exit(code)
 }
