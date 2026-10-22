@@ -43,6 +43,20 @@ than one process write a conversation's event log is unsound without
 introducing the conflict-resolution machinery this project has deliberately
 avoided.
 
+A survey of comparable tools (2026-10-22, primary sources) also shapes the
+boundaries below. Remote agent supervision is a populated space, but
+"self-hostable" is a weak axis within it: many tools are self-hostable only
+because the relay is a local process, which makes the operator the user by
+construction. The genuinely scarce property is a relay the user does *not*
+have to trust, and a handful of projects achieve it with end-to-end
+encryption. That property is unavailable to Kin for a structural reason rather
+than a missing feature: a Hub that arbitrates approvals and allocates sequence
+numbers must see plaintext. The same survey found that no comparable project
+states its residual trust boundary completely, and that every major commercial
+offering keeps session content on vendor infrastructure even when it offers
+self-hosted execution. Kin's position is therefore "no vendor in the path,
+with the boundary written down", not "self-hosted therefore private".
+
 ## Decision
 
 Separate **session ownership** from **agent execution**. A Kin deployment
@@ -94,6 +108,16 @@ The following boundaries are part of the decision, not implementation detail:
    with an in-process Node, sharing the same scheduling and event path as a
    remote Node. A separate local-execution fast path is not permitted, because
    it would drift from the remote path that carries the real risk.
+10. **The Hub is an authority, not a relay, and the trust boundary is stated
+    rather than implied.** A Hub must hold plaintext to allocate sequence
+    numbers, arbitrate approvals, and schedule turns, so Kin cannot offer the
+    "operator-blind relay" property that some comparable tools implement with
+    end-to-end encryption, and does not claim to. What Kin commits to is
+    narrower and verifiable: no vendor sits in the path (a standalone
+    deployment has no Hub at all), secrets never leave a Node, and a Hub is
+    expected to run on a machine its owner trusts. Deploying a Hub on an
+    untrusted host is out of scope and will not be mitigated with client-side
+    encryption, because that would contradict the Hub's role.
 
 Authentication for a multi-device Hub uses OIDC with an **operator-chosen**
 identity provider. Its purpose is narrow: letting a new device join and

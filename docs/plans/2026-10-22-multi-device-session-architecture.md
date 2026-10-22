@@ -55,7 +55,7 @@
 | "Your supervisor must serialize per session itself" | Kin 的一会话一活跃 turn 写锁 |
 | 无内建鉴权，"you own the entire authn/authz layer yourself" | Kin 的设备凭据 + 权限梯度 |
 
-所以定位是：**ACP 是"IDE ↔ 本地 agent"的协议，Kin 是它上面缺的那一层。** 这也意味着差异化不能是"远程控制 agent"——生态里已有一批产品在做这件事（Reemoat、AgentDeck、Runmote 等）——而是会话/审批/审计/Artifacts 这条主线，加上**不绑定 ACP**（现有 5 个 adapter 继续工作）。
+所以定位是：**ACP 是"IDE ↔ 本地 agent"的协议，Kin 是它上面缺的那一层。** 这也意味着差异化不能是"远程控制 agent"——生态里已有一批产品在做这件事（Reemoat、AgentDeck、Runmote 等）——也不能只是"自托管"（见 §7.7 的核验），而是会话/审批/审计/Artifacts 这条主线，加上**不绑定 ACP**（现有 5 个 adapter 继续工作）与**路径中无厂商**。
 
 ---
 
@@ -601,9 +601,34 @@ agent  ──session/request_permission──▶  Kin ACP adapter (Node)
 - `_meta` **不是**结构扩展点：规范禁止在规范类型的根部添加自定义字段，自定义结构只能放进 `_meta` 或 `_` 前缀方法。`Error` 对象甚至没有 `_meta`，**无法在错误响应上挂 correlation id**——需要的话得走带内约定。
 - **v1→v2 的漂移是真实且快速的**：`session/load`、`session/set_mode`、`fs/*`、`terminal/*` 在 v2 中已被移除或替换。**因此 v1↔v2 的方法映射要做成可替换的映射表，不能烤进领域模型**——这是对 ADR 0007「adapter 只做归一化」的一次具体检验。
 
-**战略现实（应当诚实面对）：** ACP 生态里已经有一批**直接竞品**在做"跨设备监督 ACP agent"：Reemoat（"self-hosted remote control for any coding agent"）、AgentDeck、Runmote、tlbx、Remote Agent Server、Perch、Bellows 等，客户端列表约 80 项。
+**战略现实（2026-10-22 逐家核验一手来源）：** ACP 生态里已有一批**直接竞品**在做"跨设备监督 agent"（客户端列表约 80 项）。但核验后得到的结论比预期更尖锐——
 
-**Kin 的差异化不在"远程控制 agent"，而在：** ① 会话/审批/审计/Artifacts 是产品主线，不是附属；② **不绑定 ACP**——现有 5 个 adapter + Tier-2 泛型继续工作，ACP 只是新增一族；③ 用户自托管 + 模型中立。**建议把这条写进 ADR 与文档，避免被读成"又一个 ACP 远程客户端"。**
+**"自部署"本身不是差异化。** 这个生态里一半项目之所以"自部署"，是因为中继就是本机的一个进程，隐私问题被平凡地消解（operator 就是你自己）：tlbx、Remote Agent Server、Agmente、`acp_rpc_bridge` 都属此类。真正稀缺的轴是**"中继可以是你不信任的那台机器"**，即对中继 E2EE。有源码或测试向量佐证的只有五家：
+
+| 项目 | 对中继 E2EE | 证据强度 | 采用度 |
+|---|---|---|---|
+| **Happy** | ✅ libsodium `crypto_box_easy` / `crypto_secretbox_easy` | 出货源码；但**默认走厂商服务器** `api.cluster-fluster.com` | **24.3k★**，生态里唯一有真实采用 |
+| **Reemoat** | ✅ `Noise_IK_25519_ChaChaPoly_BLAKE2s` | 有向量测试，且主动写出残余信任边界 | 25★ |
+| **Mobvibe** | ✅ libsodium 兼容 KDF + `crypto_box_seal` | 源码 | 145★，停更约 3 个月 |
+| **AgentDeck** | ⚠️ 仅 `adk1_` 配对 ID；**旧 UUID 配对是明文** | 源码 + 隐私政策自陈；中继仓库无 LICENSE | 5★ |
+| **Superlite** | ✅ 内容走 WebRTC P2P | 源码；但信令走**共享 Firebase 项目（硬编码凭据）**，且强制 Google 登录 | 活跃 |
+
+其余多数连 E2EE 都不宣称，只有 TLS / 隧道 / VPN overlay——对"你已经信任的中继"够用，对"你租来的中继"等于没有（Runmote、VibeAround、Aptove Bridge、ACP Remote）。**Bellows** 声音最大（"sealed end to end… it never sees the conversation"）但闭源、无架构文档，"sealed" 在所有公开材料里没有定义——**只能算宣称，不能算实现**。
+
+**Lody 的情况（与原始观察一致）：** 仓库里确有 `packages/e2ee-core`，但其 README 自陈 **"Production E2EE composition is not enabled"**（该包仍是 `private: true`、版本 `0.0.0`）；隐私政策明列收集 "Conversation content and related workflow context"，后端为 Cloudflare + Convex，且必须 GitHub OAuth 登录。**即：E2EE 代码存在，但在生产里是关掉的。**
+
+**大厂一律不是自部署：** Anthropic 文档直说 "While Remote Control is connected, the session transcript … is stored on Anthropic servers"，且 Pro/Max/Team/Enterprise 账号必需（API key 不可用）；即便走 self-hosted environments 仍是 "Session content still goes to `api.anthropic.com`"。Cursor 的 self-hosted worker 文档同样直白："Cursor runs the agent loop, inference, and planning. Your worker performs file edits and terminal commands."，并列出 "file contents, terminal output, diffs, screenshots, local MCP results" 都会离开你的网络。OpenAI Codex 远程连接过厂商 relay + ChatGPT 账号；GitHub Copilot 远程控制需企业策略 "Store local sessions in the Cloud"。**四家模式一致：自部署（若有）搬走的是*执行*，*编排与会话内容*留在厂商侧。**
+
+**由此修正本方案的定位论证（原先那句"用户自托管 + 模型中立"说得太顺）：**
+
+Kin 的 Hub **不是中继，是权威**——它必须持有明文才能分配 `seq`、做审批、跑调度。所以 Kin **在结构上不可能**提供 Reemoat/Happy 式的"运营商看不见"，也不该假装能。诚实的说法只有两条：
+
+1. **路径中没有厂商。** 这是 Kin 真正占得住的位置，且市场上只有 tlbx / Remote Agent Server / Agmente 默认如此（Happy 默认厂商服务器，AgentDeck 默认 `agentdeck.xianqiao.wang`）。Kin 的 standalone 更彻底：**连 Hub 都可以不存在**。
+2. **信任边界写在明处。** 核验结论是"没人把这条做全"，Reemoat 最接近（它在 `DECISIONS.md` 里主动写出 E2EE 挡不住 Authority、也挡不住官方客户端）。Kin 应当照做：Hub 看得到全部会话内容（它是权威），**但看不到 provider API key、agent 凭据、`~/.kin/secrets/`（D7）**，也不需要工作区文件的本地路径。
+
+**同时必须说清代价：Hub 要部署在你信任的机器上。** 把 Hub 放在一台你不信任的 VPS 上、再指望 Kin 保护你——本方案不提供这个保证，也不打算用 E2EE 去绕，那与"Hub 是会话权威"直接矛盾。这条要落进文档与 ADR，避免日后被读成"自部署 = 隐私"。
+
+**结论：差异化既不能是"远程控制 agent"，也不能只是"自托管"。** 是：① 会话/审批/审计/Artifacts 是产品主线而非附属；② **不绑定 ACP**——现有 5 个 adapter + Tier-2 泛型继续工作，ACP 只是新增一族；③ **路径中无厂商**（连 Hub 都可选），且明确声明信任边界。
 
 **明确不做：** 不用 ACP 替换现有 adapter；不支持 v2（等它稳定）；不实现自定义 ACP 传输（Node 通道是 Kin 自己的协议，不是 ACP 传输的替代品）。
 
@@ -841,7 +866,8 @@ kin serve
 | R7 | 事件上行放大 Hub 写入量 | 性能 | Hub 单写者本就串行；批量追加 + 事务合并；必要时按 turn 批量提交 |
 | R8 | **ACP v1→v2 漂移**：`session/load`、`set_mode`、`fs/*`、`terminal/*` 在 v2 已被移除/替换 | 后续返工 | v1↔v2 映射做成**可替换映射表**，不烤进领域模型；v2 等稳定后再做，且走显式版本协商 |
 | R9 | **baseline-only agent**：只实现基线方法的 agent 没有 list/resume/replay | 用户遇到难懂的行为 | 能力探测矩阵 + 显式回退路径；`device_agents.reason` 原样透出缺失的能力 |
-| R10 | **与 ACP 远程监督竞品同质化**（Reemoat/AgentDeck/Runmote/tlbx/…） | 定位 | 差异化写进 ADR 与文档：会话/审批/审计/Artifacts 是主线；不绑定 ACP；用户自托管 |
+| R10 | **与 ACP 远程监督竞品同质化**（Reemoat/AgentDeck/Runmote/tlbx/…） | 定位 | 差异化写进 ADR 与文档：会话/审批/审计/Artifacts 是主线；不绑定 ACP；路径中无厂商（§7.7） |
+| R12 | **把"自部署"当隐私卖点**：Kin 的 Hub 是会话权威，结构上做不到 Reemoat/Happy 式的"运营商看不见" | 信任误导 | 定位改为"路径中无厂商 + 信任边界写在明处"；文档与 ADR 明说 Hub 必须部署在受信任机器上，不用 E2EE 假称能绕（§7.7、§14） |
 | R11 | `session/load` 重放污染 `events` | 数据重复 | §7.4 的 `replaying` 标志位 + 专门的回归测试 |
 
 ### 未决问题（实现前需定）
@@ -857,6 +883,7 @@ kin serve
 
 - **不做 multi-master**。Node 不持有可写副本；Hub 是唯一写者。这保留了 `2026-09-05` 计划的原意。
 - **不做 OpenKin 运营的账号/中继/云**。OIDC 是用户自选 IdP，Hub 是用户自部署。
+- **不做"运营商看不见"的中继模式**。Hub 是会话权威，必须持有明文；Kin 不提供对 Hub 的 E2EE，也不宣称"自部署 = 隐私"。信任边界是：路径中无厂商 + 秘密不出设备（D7）+ Hub 部署在你信任的机器上。
 - **不新增会话实体**。Task 就是 session。
 - **不复制 provider transcript 进 Kin**。Kin 的 `events` 是权威，provider JSONL 不再是会话保存的依赖。
 - **不做跨设备原生会话 resume**。原生 session id 是设备本地的；跨设备一律走 handoff。
