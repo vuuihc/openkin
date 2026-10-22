@@ -7,7 +7,7 @@ describe("newChatControlGroups", () => {
 
     expect(groups.map((group) => group.id)).toEqual(["run", "route", "workspace"]);
     expect(groups[0].controls).toEqual(["permission", "routine"]);
-    expect(groups[1].controls).toEqual(["hostModel", "dispatch"]);
+    expect(groups[1].controls).toEqual(["machine", "hostModel", "dispatch"]);
     expect(groups[2].controls).toEqual(["cwd", "branch"]);
   });
 
@@ -18,6 +18,21 @@ describe("newChatControlGroups", () => {
     expect(groups.flatMap((group) => group.controls)).toEqual([
       "permission",
       "routine",
+      "cwd",
+      "branch",
+    ]);
+  });
+
+  it("drops the controls that cannot cross machines", () => {
+    // A routine is created and run by this Hub, and team dispatch is the Hub's
+    // own routing; offering either for another machine would promise something
+    // the request cannot carry.
+    const groups = newChatControlGroups({ asRoutine: false, remote: true });
+
+    expect(groups.flatMap((group) => group.controls)).toEqual([
+      "permission",
+      "machine",
+      "hostModel",
       "cwd",
       "branch",
     ]);

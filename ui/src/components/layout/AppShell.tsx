@@ -20,7 +20,7 @@ import {
   type Task,
 } from "../../api/client";
 import { liveResources } from "../../api/liveResources";
-import { useTaskList } from "../../api/useLiveResources";
+import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { DRAFT_PATH, setDraftCwd, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
 import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
@@ -30,7 +30,7 @@ import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { isTerminalToggle, localTerminalCwd } from "../../lib/terminal";
 import { useMachines } from "../../hooks/useMachines";
-import { machineLabelFor } from "../../lib/devices";
+import { remoteMachine } from "../../lib/devices";
 import { displayUserPrompt } from "../../lib/attachments";
 
 type Props = {
@@ -297,15 +297,18 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     return () => window.removeEventListener("keydown", onKey);
   }, [desktop, openNewChat, toggleTerminal]);
 
-  const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+  // Which machine the open task runs on. Read from the task resource the page
+  // itself uses, not from the sidebar list: that list is capped and filtered by
+  // search, and a task missing from it would silently drop the guard below.
+  const openTaskDetail = useTaskResource(selectedTaskId ?? "", Boolean(selectedTaskId));
+  const openTask = selectedTaskId ? openTaskDetail.data.task : undefined;
   // The terminal is a shell on *this* machine. A task running on another machine
   // has a cwd that means something only over there, so it must not become this
   // shell's starting directory; the panel says why instead.
   const { machines } = useMachines();
-  const taskMachine = machineLabelFor(machines, selectedTask?.executing_device_id);
-  const remoteTask = selectedTask && !taskMachine.isSelf ? taskMachine : null;
+  const remoteTask = remoteMachine(machines, openTask?.executing_device_id);
   const terminalCwd = localTerminalCwd(
-    selectedTask,
+    openTask,
     Boolean(remoteTask),
     draftActive ? draftCwdLocal : "",
   );

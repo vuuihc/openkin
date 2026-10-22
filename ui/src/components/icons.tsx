@@ -193,6 +193,15 @@ export function IconFolder(p: IconProps) {
     </>,
   );
 }
+export function IconMachine(p: IconProps) {
+  return base(
+    p,
+    <>
+      <rect x="3" y="4.5" width="18" height="12" rx="2" />
+      <path d="M9 20h6M12 16.5V20" />
+    </>,
+  );
+}
 export function IconChevron(p: IconProps) {
   return base(p, <path d="M9 18l6-6-6-6" />);
 }

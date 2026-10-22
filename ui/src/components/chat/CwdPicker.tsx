@@ -6,6 +6,10 @@ import { isKinDesktop, pickDirectory } from "../../lib/desktop";
 import { projectLabel, shortPath } from "../../lib/paths";
 import { useAppStore } from "../../store/appStore";
 
+function sameDirs(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((dir, i) => dir === b[i]);
+}
+
 type Props = {
   cwd: string;
   onChange: (cwd: string) => void;
@@ -14,6 +18,12 @@ type Props = {
   /** Single-row footer: tighter path chip. */
   compact?: boolean;
   className?: string;
+  /**
+   * Directories to offer instead of this console's recent ones. A cwd is only
+   * meaningful on the machine that owns it, so a form aimed at another machine
+   * passes that machine's own roots.
+   */
+  suggestions?: string[];
 };
 
 /**
@@ -21,7 +31,14 @@ type Props = {
  * - Electron: native macOS/Windows/Linux folder dialog via window.kinDesktop
  * - Browser: manual path + recent cwds (web cannot expose absolute paths)
  */
-export default function CwdPicker({ cwd, onChange, locked, compact, className }: Props) {
+export default function CwdPicker({
+  cwd,
+  onChange,
+  locked,
+  compact,
+  className,
+  suggestions,
+}: Props) {
   const tr = useT();
   const [editing, setEditing] = useState(false);
   const [dirs, setDirs] = useState<string[]>([]);
@@ -35,19 +52,27 @@ export default function CwdPicker({ cwd, onChange, locked, compact, className }:
   }, [cwd]);
 
   useEffect(() => {
+    if (suggestions) {
+      // Keep the previous array when the contents match: a fresh identity every
+      // render would re-render forever.
+      setDirs((prev) => (sameDirs(prev, suggestions) ? prev : suggestions));
+      return;
+    }
     recentCwds()
       .then(setDirs)
       .catch(() => setDirs([]));
-  }, []);
+  }, [suggestions]);
 
   useEffect(() => {
     if (!editing) return;
-    recentCwds()
-      .then(setDirs)
-      .catch(() => setDirs([]));
+    if (!suggestions) {
+      recentCwds()
+        .then(setDirs)
+        .catch(() => setDirs([]));
+    }
     const t = window.setTimeout(() => inputRef.current?.focus(), 20);
     return () => window.clearTimeout(t);
-  }, [editing]);
+  }, [editing, suggestions]);
 
   function commit(value: string) {
     const v = value.trim();

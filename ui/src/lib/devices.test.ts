@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { AgentInfo, DeviceInfo } from "../api/client";
 import {
   canRunTasks,
+  catalogFor,
   cwdAfterMachineChange,
   cwdSuggestions,
   defaultAgentOn,
   findMachine,
   machineLabelFor,
   machineList,
+  remoteMachine,
 } from "./devices";
 
 function agent(over: Partial<AgentInfo> = {}): AgentInfo {
@@ -49,14 +51,14 @@ describe("machineList", () => {
     );
     expect(machines[0]).toMatchObject({ id: "desk-1", label: "Work Mac", isSelf: true, online: true });
     expect(machines[0].agents).toEqual([
-      { id: "kin", available: true, isDefault: true },
-      { id: "codex", available: false, isDefault: false },
+      { id: "kin", installed: true, available: true, reason: undefined, isDefault: true },
+      { id: "codex", installed: true, available: false, reason: undefined, isDefault: false },
     ]);
     expect(machines[1]).toMatchObject({ id: "node-1", label: "studio", isSelf: false });
     expect(machines[1].roots).toEqual(["/code/kin"]);
     expect(machines[1].agents).toEqual([
-      { id: "codex", available: true, reason: undefined, isDefault: true },
-      { id: "grok", available: false, reason: "not signed in", isDefault: undefined },
+      { id: "codex", installed: true, available: true, reason: undefined, isDefault: true },
+      { id: "grok", installed: true, available: false, reason: "not signed in", isDefault: undefined },
     ]);
   });
 
@@ -181,5 +183,64 @@ describe("canRunTasks", () => {
     expect(canRunTasks(machines[1])).toBe(true);
     expect(canRunTasks(machines[2])).toBe(false);
     expect(canRunTasks(undefined)).toBe(false);
+  });
+});
+
+describe("remoteMachine", () => {
+  const machines = machineList([device()], SELF, []);
+
+  it("names the machine only when the task runs somewhere else", () => {
+    expect(remoteMachine(machines, "node-1")).toEqual({ text: "studio", known: true });
+    // Runs here, or no machine recorded: nothing to explain to the reader.
+    expect(remoteMachine(machines, "desk-1")).toBeNull();
+    expect(remoteMachine(machines, undefined)).toBeNull();
+    expect(remoteMachine(machines, "")).toBeNull();
+  });
+
+  it("still names a machine the console can no longer see", () => {
+    // A revoked machine must not read as "local" just because it is missing.
+    expect(remoteMachine(machines, "node-9")).toEqual({ text: "node-9", known: false });
+  });
+});
+
+describe("catalogFor", () => {
+  const local: AgentInfo[] = [agent({ id: "kin", name: "Kin", default: true })];
+  const machines = machineList([device()], SELF, local);
+
+  it("is the local registry for this machine", () => {
+    expect(catalogFor(machines[0], local)).toBe(local);
+    // Before the machine list has loaded nothing is known: stay with local.
+    expect(catalogFor(undefined, local)).toBe(local);
+  });
+
+  it("is exactly what the other machine reported, named as elsewhere", () => {
+    // The Hub validates a dispatched agent against this list, so offering
+    // anything more would turn a click into a rejected request.
+    expect(catalogFor(machines[1], local)).toEqual([
+      {
+        id: "codex",
+        name: "Codex",
+        kind: "cli",
+        capabilities: [],
+        installed: true,
+        available: true,
+        default: true,
+        reason: undefined,
+        model_list_source: "none",
+        model_list_status: "unavailable",
+      },
+      {
+        id: "grok",
+        name: "Grok",
+        kind: "cli",
+        capabilities: [],
+        installed: true,
+        available: false,
+        default: false,
+        reason: "not signed in",
+        model_list_source: "none",
+        model_list_status: "unavailable",
+      },
+    ]);
   });
 });

@@ -51,7 +51,7 @@ import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
-import { IconBack, IconPanel, IconTrash } from "../components/icons";
+import { IconBack, IconMachine, IconPanel, IconTrash } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
@@ -59,6 +59,8 @@ import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { useMachines } from "../hooks/useMachines";
+import { remoteMachine } from "../lib/devices";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
@@ -96,6 +98,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const id = taskId || paramId;
   const navigate = useNavigate();
   const tr = useT();
+  const { machines } = useMachines();
   const detail = useTaskResource(id);
   const pending = usePendingResources();
   const task = detail.data.task;
@@ -819,6 +822,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }
 
   const terminal = isTerminal(task.status);
+  const machine = remoteMachine(machines, task.executing_device_id);
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   const hostAgentName =
@@ -1078,6 +1082,24 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 compact
                 className="flex-none"
               />
+              {machine ? (
+                <>
+                  <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                    ·
+                  </span>
+                  {/* Which machine the cwd above lives on. Without it the path in
+                      this strip reads as a directory on the machine showing it. */}
+                  <span
+                    className="flex-none inline-flex items-center gap-1 text-[11.5px] text-kin-secondary"
+                    title={tr("machine.remoteHint", { name: machine.text })}
+                  >
+                    <IconMachine size={12} />
+                    {machine.known
+                      ? tr("machine.runsOn", { name: machine.text })
+                      : tr("machine.runsOnUnknown", { name: machine.text })}
+                  </span>
+                </>
+              ) : null}
             </div>
           </div>
         </div>

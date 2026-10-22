@@ -74,7 +74,7 @@ export function contextCwd(
  * honest answer, and the panel explains why.
  */
 export function localTerminalCwd(
-  task: { cwd?: string; executing_device_id?: string } | undefined,
+  task: { cwd?: string; executing_device_id?: string } | null | undefined,
   runsElsewhere: boolean,
   draftCwd: string,
 ): string {

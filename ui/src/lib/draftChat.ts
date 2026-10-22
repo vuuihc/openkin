@@ -3,6 +3,7 @@
 import type { Upload } from "../api/client";
 
 const CWD_KEY = "kin_draft_cwd";
+const MACHINE_KEY = "kin_draft_machine";
 const PROMPT_KEY = "kin_draft_prompt";
 const ATTACHMENTS_KEY = "kin_draft_attachments";
 
@@ -24,6 +25,29 @@ export function getDraftCwd(): string {
 export function setDraftCwd(cwd: string): void {
   try {
     localStorage.setItem(CWD_KEY, cwd);
+  } catch {
+    // ignore
+  }
+  notifyDraft();
+}
+
+/**
+ * The machine the draft is aimed at. Stored next to the cwd because the two
+ * only make sense together: a path from another machine with no machine
+ * recorded would quietly become a local path.
+ */
+export function getDraftMachine(): string {
+  try {
+    return localStorage.getItem(MACHINE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setDraftMachine(id: string): void {
+  try {
+    if (id) localStorage.setItem(MACHINE_KEY, id);
+    else localStorage.removeItem(MACHINE_KEY);
   } catch {
     // ignore
   }

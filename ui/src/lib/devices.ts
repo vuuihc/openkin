@@ -1,4 +1,5 @@
 import type { AgentInfo, DeviceInfo } from "../api/client";
+import { agentDisplayName } from "./agentMention";
 
 /**
  * One machine the console can send work to.
@@ -22,6 +23,7 @@ export type Machine = {
 /** One agent runtime on one machine, as that machine reported it. */
 export type MachineAgent = {
   id: string;
+  installed: boolean;
   available: boolean;
   reason?: string;
   isDefault?: boolean;
@@ -48,7 +50,9 @@ export function machineList(
     roots: [],
     agents: localAgents.map((a) => ({
       id: a.id,
+      installed: a.installed,
       available: a.available,
+      reason: a.reason,
       isDefault: a.default,
     })),
   };
@@ -62,6 +66,7 @@ export function machineList(
       roots: d.workspace_roots ?? [],
       agents: (d.agents ?? []).map((a) => ({
         id: a.id,
+        installed: a.installed,
         available: a.available,
         reason: a.reason,
         isDefault: a.is_default,
@@ -96,6 +101,24 @@ export function machineLabelFor(
   return { text: machine.label, isSelf: machine.isSelf, known: true };
 }
 
+/**
+ * The machine a task runs on, when that is *not* the machine showing the page.
+ *
+ * Null covers both "runs here" and "no machine recorded", which read the same
+ * to a reader: nothing to explain. A machine this console cannot see any more
+ * still comes back (known: false), so a revoked device is named rather than
+ * silently presented as local.
+ */
+export function remoteMachine(
+  machines: Machine[],
+  deviceId: string | undefined,
+): { text: string; known: boolean } | null {
+  if (!deviceId) return null;
+  const label = machineLabelFor(machines, deviceId);
+  if (label.isSelf) return null;
+  return { text: label.text, known: label.known };
+}
+
 /** Directories to suggest for a machine: its own, never another machine's. */
 export function cwdSuggestions(machine: Machine | undefined, localDirs: string[]): string[] {
   if (!machine || machine.isSelf) return localDirs;
@@ -112,6 +135,33 @@ export function cwdAfterMachineChange(current: string, before: string[], after: 
   const trimmed = current.trim();
   if (trimmed && !before.includes(trimmed)) return current;
   return after[0] ?? "";
+}
+
+/**
+ * The agents to offer for a machine.
+ *
+ * For this machine that is the local registry. For another machine it is what
+ * that machine reported — and nothing else, because that list is what the Hub
+ * validates a dispatched agent against: offering an agent the target does not
+ * have would turn a click into a rejected request.
+ */
+export function catalogFor(
+  machine: Machine | undefined,
+  localAgents: AgentInfo[],
+): AgentInfo[] {
+  if (!machine || machine.isSelf) return localAgents;
+  return machine.agents.map((a) => ({
+    id: a.id,
+    name: agentDisplayName(a.id),
+    kind: "cli",
+    capabilities: [],
+    installed: a.installed,
+    available: a.available,
+    default: Boolean(a.isDefault),
+    reason: a.reason,
+    model_list_source: "none",
+    model_list_status: "unavailable",
+  }));
 }
 
 /** The agent a fresh task on this machine would use when none is chosen. */

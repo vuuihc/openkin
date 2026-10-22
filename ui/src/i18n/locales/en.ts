@@ -121,11 +121,14 @@ const en: MessageTree = {
   },
   machine: {
     title: "Machine",
+    detecting: "Checking…",
+    pickerHint: "Which machine runs this. Switching also switches whose agents are offered and what the cwd refers to.",
+    gone: "{name} is no longer in the machine list",
+    goneHint: "{name} is no longer available (revoked, or the device list could not be read). Choose another machine.",
+    rootsHint: "{name} works in directories like {path}; the cwd has to exist on that machine.",
     refresh: "Check again",
     thisMachine: "This machine",
     offline: "offline",
-    unavailable: "unavailable",
-    defaultMark: "default",
     remoteHint:
       "The task runs on {name}, on that machine's own filesystem and with its own agents — so the cwd below has to be a path that exists there.",
     offlineHint: "{name} is offline; work cannot be sent there.",
@@ -133,8 +136,6 @@ const en: MessageTree = {
     noAgents: "No usable agent on {name}.",
     listUnavailable:
       "The machine list could not be read (it needs Hub owner access), so only this machine can run work.",
-    bypassHint:
-      "Unless that machine was started with --allow-yolo, a permission mode that bypasses approvals is refused there.",
     runsOn: "runs on {name}",
     runsOnUnknown: "runs on {name} (no longer visible)",
   },

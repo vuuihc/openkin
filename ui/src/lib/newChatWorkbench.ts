@@ -1,4 +1,5 @@
 export type NewChatControlId =
+  | "machine"
   | "permission"
   | "routine"
   | "hostModel"
@@ -14,14 +15,18 @@ export type NewChatControlGroup = {
 
 export function newChatControlGroups({
   asRoutine,
+  remote = false,
 }: {
   asRoutine: boolean;
+  /** Aimed at another machine: no routine (they run here) and no team dispatch
+   *  (that is the Hub's own routing, which does not cross machines). */
+  remote?: boolean;
 }): NewChatControlGroup[] {
   return [
     {
       id: "run",
       labelKey: "newChat.controlsRun",
-      controls: ["permission", "routine"],
+      controls: remote ? ["permission"] : ["permission", "routine"],
     },
     ...(asRoutine
       ? []
@@ -29,7 +34,9 @@ export function newChatControlGroups({
           {
             id: "route" as const,
             labelKey: "newChat.controlsRoute",
-            controls: ["hostModel", "dispatch"] as NewChatControlId[],
+            controls: (remote
+              ? ["machine", "hostModel"]
+              : ["machine", "hostModel", "dispatch"]) as NewChatControlId[],
           },
         ]),
     {

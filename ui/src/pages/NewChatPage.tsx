@@ -6,9 +6,7 @@ import {
   createTask,
   findProjectByRoot,
   getRoutingOptions,
-  listAgents,
   recentCwds,
-  type AgentInfo,
   type OnePagerSummary,
   type Project,
 } from "../api/client";
@@ -17,8 +15,9 @@ import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import AgentModelPicker from "../components/chat/AgentModelPicker";
+import MachinePicker from "../components/chat/MachinePicker";
 import { DispatchSelector, defaultDispatchSelection, isDispatchReady, type DispatchSelection } from "../components/chat/DispatchSelector";
-import { IconRoutines } from "../components/icons";
+import { IconMachine, IconRoutines } from "../components/icons";
 import RoutineScheduleFields, {
   defaultNextRunLocal,
   parseLocalDateTime,
@@ -36,11 +35,20 @@ import {
   clearDraftPrompt,
   getDraftAttachments,
   getDraftCwd,
+  getDraftMachine,
   getDraftPrompt,
   setDraftAttachments,
   setDraftCwd,
+  setDraftMachine,
   setDraftPrompt,
 } from "../lib/draftChat";
+import { useMachines } from "../hooks/useMachines";
+import {
+  catalogFor,
+  cwdAfterMachineChange,
+  cwdSuggestions,
+  findMachine,
+} from "../lib/devices";
 import { projectLabel } from "../lib/paths";
 import {
   getDraftPermissionMode,
@@ -76,8 +84,15 @@ export default function NewChatPage() {
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
 
   const [selectedModel, setSelectedModel] = useState("");
-  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [selectedHost, setSelectedHost] = useState("");
+  const [machineId, setMachineId] = useState<string>(() => getDraftMachine());
+  const {
+    machines,
+    agents: localAgents,
+    loading: machinesLoading,
+    failed: machinesFailed,
+    refresh: refreshMachines,
+  } = useMachines();
   const [dispatch, setDispatch] = useState<DispatchSelection>(defaultDispatchSelection);
   const [dispatchPreviewBlocked, setDispatchPreviewBlocked] = useState(false);
   const [sending, setSending] = useState(false);
@@ -91,16 +106,16 @@ export default function NewChatPage() {
     null,
   );
   const [projectLookupKey, setProjectLookupKey] = useState(0);
+  const [dirs, setDirs] = useState<string[]>([]);
 
   useEffect(() => {
-    listAgents()
-      .then(setAgents)
-      .catch(() => setAgents([]));
+    refreshMachines();
     recentCwds()
-      .then((dirs) => {
+      .then((recent) => {
+        setDirs(recent);
         setCwd((c) => {
           if (c) return c;
-          const next = dirs[0] || "";
+          const next = recent[0] || "";
           if (next) setDraftCwd(next);
           return next;
         });
@@ -113,6 +128,7 @@ export default function NewChatPage() {
         }
       })
       .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- machine list is re-read once per open
   }, []);
 
   useEffect(() => {
@@ -129,9 +145,28 @@ export default function NewChatPage() {
     }
   }, [params]);
 
+  const machine = machineId ? findMachine(machines, machineId) : undefined;
+  // A machine that was chosen and has since gone away (revoked, or the device
+  // list failed) must not fall back to running here: the cwd in the box is a
+  // path on that machine, and the same path may well exist on this one.
+  const machineGone = Boolean(machineId) && !machinesLoading && !machine;
+  const isSelf = !machine || machine.isSelf;
+  const remote = !isSelf;
+
   // Resolve project summary for the selected cwd (read-only; never auto-create).
+  // Only here: a project is a Hub-side record keyed by a path on the Hub's own
+  // filesystem, so looking up another machine's path would match a local
+  // project that happens to sit at the same path. A machine that has gone away
+  // counts as elsewhere: its cwd is still a path over there.
   useEffect(() => {
     const path = cwd.trim();
+    if (remote || machineGone) {
+      setProject(null);
+      setProjectSummary(null);
+      setProjectLookupState("idle");
+      setProjectLookupError(null);
+      return;
+    }
     if (!path) {
       setProject(null);
       setProjectSummary(null);
@@ -183,7 +218,17 @@ export default function NewChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [cwd, projectLookupKey, tr]);
+  }, [cwd, remote, machineGone, projectLookupKey, tr]);
+
+  const agents = useMemo(
+    () => catalogFor(remote ? machine : undefined, localAgents),
+    [remote, machine, localAgents],
+  );
+  const cwdDirs = useMemo(
+    () => cwdSuggestions(remote ? machine : undefined, dirs),
+    [remote, machine, dirs],
+  );
+  const machineLabel = machine && !machine.isSelf ? machine.label : "";
 
   const available = useMemo(
     () => agents.filter((a) => a.available),
@@ -217,11 +262,41 @@ export default function NewChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-check when host agent id changes
   }, [mainAgentId]);
 
+  function chooseMachine(id: string | null) {
+    const chosen = id ?? "";
+    // Re-picking the machine already selected must not touch the directory:
+    // cwdAfterMachineChange would move a valid cwd to the first suggestion of
+    // the same machine, i.e. into a different repository.
+    if (chosen === machineId) return;
+    const next = findMachine(machines, chosen);
+    setMachineId(chosen);
+    setDraftMachine(chosen);
+    const after = cwdSuggestions(next, dirs);
+    const moved = cwdAfterMachineChange(cwd, cwdDirs, after);
+    if (moved !== cwd) {
+      setCwd(moved);
+      setDraftCwd(moved);
+    }
+    // Agent ids and models are the machine's own; keep nothing that was picked
+    // for the machine being left.
+    setSelectedHost("");
+    setSelectedModel("");
+    if (next && !next.isSelf) setAsRoutine(false);
+  }
+
   async function onSubmit(text: string) {
     const raw = text.trim();
     if (!raw) return;
     if (!cwd.trim()) {
       pushToast(tr("newChat.chooseCwd"), "error");
+      return;
+    }
+    if (machineGone) {
+      pushToast(tr("machine.goneHint", { name: machineId }), "error");
+      return;
+    }
+    if (remote && !machine.online) {
+      pushToast(tr("machine.offlineHint", { name: machineLabel }), "error");
       return;
     }
 
@@ -261,7 +336,12 @@ export default function NewChatPage() {
       return;
     }
     if (available.length === 0) {
-      pushToast(tr("newChat.noAgents"), "error");
+      pushToast(
+        remote
+          ? tr("machine.noAgents", { name: machineLabel })
+          : tr("newChat.noAgents"),
+        "error",
+      );
       return;
     }
 
@@ -281,7 +361,7 @@ export default function NewChatPage() {
     const prompt = raw;
 
     // Validate dispatch selection before submitting.
-    const dispatchReady = isDispatchReady(dispatch, dispatchPreviewBlocked);
+    const dispatchReady = !remote && isDispatchReady(dispatch, dispatchPreviewBlocked);
     if (dispatch.mode && !dispatchReady) {
       pushToast(tr("newChat.dispatchIncomplete"), "error");
       setSending(false);
@@ -296,9 +376,12 @@ export default function NewChatPage() {
         cwd: cwd.trim(),
         prompt,
         permission_mode: permissionMode,
-        project_id: project?.id,
+        project_id: remote ? undefined : project?.id,
         ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
-        ...(dispatchReady ? { dispatch: { mode: dispatch.mode, team: dispatch.team, objective: dispatch.objective, agent: dispatch.agent, provider: dispatch.provider, model: dispatch.model } } : {}),
+        // Team dispatch is the Hub's own multi-agent routing and does not cross
+        // machines, so a remote task is sent without it.
+        ...(dispatchReady && !remote ? { dispatch: { mode: dispatch.mode, team: dispatch.team, objective: dispatch.objective, agent: dispatch.agent, provider: dispatch.provider, model: dispatch.model } } : {}),
+        ...(remote ? { executing_device_id: machine.id } : {}),
       });
       clearDraftPrompt();
       navigate(`/tasks/${task.id}`, { replace: true });
@@ -320,10 +403,22 @@ export default function NewChatPage() {
     project != null ||
     projectLookupState === "loading" ||
     projectLookupState === "error";
-  const controlGroups = newChatControlGroups({ asRoutine });
+  const controlGroups = newChatControlGroups({ asRoutine, remote });
 
   function renderControl(control: NewChatControlId) {
     switch (control) {
+      case "machine":
+        return (
+          <MachinePicker
+            key={control}
+            machines={machines}
+            value={machine && !machine.isSelf ? machine.id : null}
+            missing={machineGone ? machineId : null}
+            loading={machinesLoading}
+            disabled={sending}
+            onChange={chooseMachine}
+          />
+        );
       case "permission":
         return (
           <PermissionModePicker
@@ -394,6 +489,7 @@ export default function NewChatPage() {
             cwd={cwd}
             locked={false}
             compact
+            suggestions={cwdDirs}
             onChange={(v) => {
               setCwd(v);
               setDraftCwd(v);
@@ -423,6 +519,24 @@ export default function NewChatPage() {
             {tr("newChat.hostAgent", { name: defaultAgent.name })}
           </div>
         )}
+        {remote ? (
+          <div
+            className="ml-2 inline-flex items-center gap-1 text-[12px] text-kin-secondary"
+            title={tr("machine.remoteHint", { name: machineLabel })}
+          >
+            <IconMachine size={12} />
+            {tr("machine.runsOn", { name: machineLabel })}
+          </div>
+        ) : null}
+        {remote ? (
+          <button
+            type="button"
+            onClick={refreshMachines}
+            className="ml-2 text-[11.5px] text-kin-blue hover:underline"
+          >
+            {tr("machine.refresh")}
+          </button>
+        ) : null}
       </div>
 
       <div
@@ -450,7 +564,7 @@ export default function NewChatPage() {
           </p>
         )}
 
-        {agents.some((a) => !a.available) && (
+        {agents.some((a) => !a.available) && !remote && (
           <div className="mt-3">
             <button
               type="button"
@@ -461,9 +575,20 @@ export default function NewChatPage() {
             </button>
           </div>
         )}
+        {machinesFailed ? (
+          <p className="mt-2 text-[11.5px] text-kin-muted">
+            {tr("machine.listUnavailable")}
+          </p>
+        ) : null}
 
         <div className="mt-8 w-full max-w-xl space-y-3">
-          {!cwd.trim() ? (
+          {remote ? (
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-[13px] text-kin-secondary">
+              {machine && machine.roots.length > 0
+                ? tr("machine.rootsHint", { name: machineLabel, path: machine.roots[0] })
+                : tr("machine.noRoots", { name: machineLabel })}
+            </div>
+          ) : !cwd.trim() ? (
             <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-[13px] text-kin-secondary">
               {tr("newChat.noCwdHint")}
             </div>
