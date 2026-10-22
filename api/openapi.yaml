@@ -1753,6 +1753,11 @@ components:
           type: string
         routine_id:
           type: string
+        executing_device_id:
+          type: string
+          description: >-
+            Run this task on another machine. The Hub must know the device, and
+            it must not be revoked; empty runs it here.
         dispatch: {}
     FollowUpRequest:
       type: object
@@ -2174,6 +2179,12 @@ components:
           type:
             - string
             - "null"
+        executing_device_id:
+          type: string
+          description: >-
+            The device that runs every turn of this task. Empty means the daemon
+            that stores it; a device id means the turn is dispatched to that
+            machine, which executes it with its own agents and its own filesystem.
         event_epoch:
           type: integer
         hub_seq:

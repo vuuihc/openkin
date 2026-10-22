@@ -1208,6 +1208,8 @@ export interface components {
             workspace_mode?: string;
             project_id?: string;
             routine_id?: string;
+            /** @description Run this task on another machine. The Hub must know the device, and it must not be revoked; empty runs it here. */
+            executing_device_id?: string;
             dispatch?: unknown;
         };
         FollowUpRequest: {
@@ -1389,6 +1391,8 @@ export interface components {
             workspace_branch?: string | null;
             workspace_policy?: string | null;
             current_workspace_id?: string | null;
+            /** @description The device that runs every turn of this task. Empty means the daemon that stores it; a device id means the turn is dispatched to that machine, which executes it with its own agents and its own filesystem. */
+            executing_device_id?: string;
             event_epoch: number;
             /** @description Position in the global change feed; null only for rows written before the cursor existed. */
             hub_seq?: number | null;
