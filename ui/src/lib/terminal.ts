@@ -64,6 +64,23 @@ export function contextCwd(
   return draftCwd;
 }
 
+/**
+ * The directory a local shell should start in for the page currently open.
+ *
+ * The terminal is a shell on *this* machine. A task dispatched to another
+ * machine carries a cwd that exists on that machine's filesystem, so using it
+ * here would open a same-named local directory and quietly suggest the remote
+ * work is happening under it. In that case the draft cwd (or nothing) is the
+ * honest answer, and the panel explains why.
+ */
+export function localTerminalCwd(
+  task: { cwd?: string; executing_device_id?: string } | undefined,
+  runsElsewhere: boolean,
+  draftCwd: string,
+): string {
+  return contextCwd(runsElsewhere ? undefined : task?.cwd, draftCwd);
+}
+
 /** A route-derived cwd supersedes a folder chosen only for the terminal panel. */
 export function effectiveTerminalCwd(
   routeCwd: string,

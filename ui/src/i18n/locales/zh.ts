@@ -1049,6 +1049,8 @@ const zh = {
     defaultProfile: "默认",
     newWithProfile: "新建 {profile}",
     closePanel: "关闭终端面板",
+    runsOn: "这个任务在 {name} 上执行；终端是本机的 shell，不会进入那台机器上的目录。",
+    runsOnUnknown: "这个任务在 {name} 上执行（该机器已不可见）；终端是本机的 shell，不会进入那台机器上的目录。",
     closeSession: "关闭此会话",
     chooseFolder: "选择文件夹",
     noProfiles: "未找到支持的 shell",

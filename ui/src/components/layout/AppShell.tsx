@@ -28,7 +28,9 @@ import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
-import { contextCwd, isTerminalToggle } from "../../lib/terminal";
+import { isTerminalToggle, localTerminalCwd } from "../../lib/terminal";
+import { useMachines } from "../../hooks/useMachines";
+import { machineLabelFor } from "../../lib/devices";
 import { displayUserPrompt } from "../../lib/attachments";
 
 type Props = {
@@ -296,10 +298,22 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   }, [desktop, openNewChat, toggleTerminal]);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId);
-  const terminalCwd = contextCwd(
-    selectedTask?.cwd,
+  // The terminal is a shell on *this* machine. A task running on another machine
+  // has a cwd that means something only over there, so it must not become this
+  // shell's starting directory; the panel says why instead.
+  const { machines } = useMachines();
+  const taskMachine = machineLabelFor(machines, selectedTask?.executing_device_id);
+  const remoteTask = selectedTask && !taskMachine.isSelf ? taskMachine : null;
+  const terminalCwd = localTerminalCwd(
+    selectedTask,
+    Boolean(remoteTask),
     draftActive ? draftCwdLocal : "",
   );
+  const terminalNotice = remoteTask
+    ? tr(remoteTask.known ? "terminal.runsOn" : "terminal.runsOnUnknown", {
+        name: remoteTask.text,
+      })
+    : null;
 
   // Tray "New Chat" deep-link: /?new=1 or /new
   useEffect(() => {
@@ -389,6 +403,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           <TerminalPanel
             open={terminalOpen}
             cwd={terminalCwd}
+            notice={terminalNotice}
             onClose={() => setTerminalOpen(false)}
           />
         )}

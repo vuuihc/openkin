@@ -20,6 +20,13 @@ type Props = {
   open: boolean;
   cwd: string;
   onClose: () => void;
+  /**
+   * Why this shell is not in the directory the page is about. The panel is a
+   * local shell; when the selected task runs on another machine its cwd is a
+   * path on *that* machine, and opening a same-named local directory would be a
+   * quiet lie about what the terminal is looking at.
+   */
+  notice?: string | null;
 };
 
 type SessionWithConnection = TerminalSession & {
@@ -30,7 +37,7 @@ type SessionWithConnection = TerminalSession & {
  * Full-screen terminal overlay (same shell pattern as the workspace/files panel).
  * Lives inside the main content column so the app sidebar stays visible.
  */
-export default function TerminalPanel({ open, cwd, onClose }: Props) {
+export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
   const tr = useT();
   const [hasOpened, setHasOpened] = useState(false);
   const loadStartedRef = useRef(false);
@@ -333,6 +340,12 @@ export default function TerminalPanel({ open, cwd, onClose }: Props) {
             <IconX size={14} />
           </button>
         </div>
+
+        {notice ? (
+          <div className="flex-none border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-1.5 text-[11.5px] text-kin-secondary">
+            {notice}
+          </div>
+        ) : null}
 
         {sessions.length > 0 && (
           <TerminalTabs

@@ -1065,6 +1065,8 @@ const en: MessageTree = {
     defaultProfile: "default",
     newWithProfile: "New {profile}",
     closePanel: "Close terminal panel",
+    runsOn: "This task runs on {name}. The terminal is a shell on this machine and does not open that machine's directory.",
+    runsOnUnknown: "This task runs on {name} (no longer visible). The terminal is a shell on this machine and does not open that machine's directory.",
     closeSession: "Close this session",
     chooseFolder: "Choose folder",
     noProfiles: "No supported shells found",

@@ -6,6 +6,7 @@ import {
   maxTerminalHeight,
   parseTerminalHeight,
   contextCwd,
+  localTerminalCwd,
   terminalSocketURL,
   MIN_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_HEIGHT,
@@ -187,5 +188,26 @@ describe("terminalSocketURL", () => {
     expect(url).toMatch(
       /^ws:\/\/localhost:3000\/api\/terminal\/sessions\/mySessionId\/ws\?token=myToken123$/,
     );
+  });
+});
+
+describe("localTerminalCwd", () => {
+  it("starts in the selected task's directory when the task runs here", () => {
+    expect(localTerminalCwd({ cwd: "/code/kin" }, false, "/draft")).toBe("/code/kin");
+  });
+
+  it("ignores a remote task's directory, which is a path on another machine", () => {
+    expect(
+      localTerminalCwd({ cwd: "/srv/app", executing_device_id: "node-1" }, true, "/draft"),
+    ).toBe("/draft");
+    // With no draft directory either, the shell starts wherever the user's own
+    // shell would, rather than in a same-named local folder.
+    expect(
+      localTerminalCwd({ cwd: "/srv/app", executing_device_id: "node-1" }, true, ""),
+    ).toBe("");
+  });
+
+  it("falls back to the draft cwd with no task selected", () => {
+    expect(localTerminalCwd(undefined, false, "/draft")).toBe("/draft");
   });
 });
