@@ -678,14 +678,37 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 | `oidc` | IdP 的 `sub` | OpenID Connect |
 | `password` | email 的小写规范化形式 | `secret_hash` = argon2id |
 
-**关于 GitHub 的协议：** GitHub 提供的是 OAuth 2.0，**不提供 OIDC**（没有 discovery 文档）。所以"接外部 OIDC"和"用 GitHub 登录"在实现上是**两个 adapter**，不是一个。这不是设计选择，是 GitHub 的事实；如果只写 OIDC 会以为配一个 issuer 就能覆盖 GitHub，落地时会卡住。
+**关于 GitHub 的协议（2026-10-22 核实）：** GitHub 官方文档明说：
+
+> GitHub does not currently implement OpenID Connect in its OAuth flows and does not issue ID tokens for users or apps.
+> — <https://docs.github.com/en/apps/github-authentication-discovery-endpoints>
+
+细节要说准，否则会写错方向：GitHub **确实**在 `https://github.com/login/oauth/.well-known/openid-configuration` 发布了一份 discovery 文档（HTTP 200），但它是给 MCP 客户端做端点发现用的——其 `claims_supported` 只有 `sub/aud/exp/nbf/iat/iss/act`，**既没有 `email` 也没有 `email_verified`**，而且 GitHub 不签发 ID token。所以拿一个通用 OIDC 客户端去接 GitHub，会在"验签 ID token"那一步断掉。
+
+结论：**"接外部 OIDC"和"用 GitHub 登录"在实现上是两个 adapter，不是一个。** 这不是设计选择，是 GitHub 的事实。（顺带排除一个常见误解：`token.actions.githubusercontent.com` 上那份 OIDC 文档是给 **Actions workflow 换云厂商凭据**用的，它连 `authorization_endpoint` 和 `token_endpoint` 都没有，跟"用户登录"无关。）
 
 #### 为什么不让 email 当唯一 id
 
-这是唯一必须较真的一点。**email 不是标识符，是可变、可被声称的属性。** 拿它当唯一键有两个后果：
+这不是风格偏好，是**规范明令禁止**。OpenID Connect Core §5.7 原文：
+
+> other Claims such as `email`, `phone_number`, `preferred_username`, and `name` **MUST NOT be used as unique identifiers for the End-User**, whether obtained from the ID Token or the UserInfo Endpoint.
+> — <https://openid.net/specs/openid-connect-core-1_0.html#ClaimStability>
+
+§5.1 对 `email` 的措辞同样是 "The RP **MUST NOT** rely upon this value being unique"。**这条约束把完全合规的 OIDC provider 也一起管住了**——它不是说某家实现不好，而是说这个声明本身就不承担唯一性。
+
+落到 GitHub 上，风险是具体的、可利用的：
 
 1. **账号会丢**：用户在 GitHub 改了邮箱，就找不回自己的 session 池了。
-2. **会被冒名**（要害）：GitHub 允许账号上存在**未验证**邮箱。若逻辑是"email 相同即认为是同一个人"，攻击者只要在自己 GitHub 账号里填上你的邮箱，登录之后就拿到你的全部会话。这是 OAuth 集成里最经典的一类漏洞，GitHub 自家文档专门警告过不要拿 email 当主键。
+2. **会被冒名（要害）**：GitHub 允许账号挂着**未验证**的邮箱——`POST /user/emails` 的官方响应示例里，新加的三个地址 `verified` 全是 `false`。唯一的护栏是"一个邮箱只能属于一个 GitHub 账号"，**不是"你得证明你能收信"**。所以只要逻辑是"email 相同即同一个人"，攻击者把自己账号的邮箱填成你的，登录即拿到你的全部会话。GitHub 的最佳实践文档正是为此而写：
+
+   > **_Never_** use identifiers that can change over time, including user handles, organization slugs, or email addresses.
+   > — <https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/best-practices-for-creating-a-github-app#use-the-durable-unique-id-to-store-the-user>
+
+   同一页给出了唯一稳定的键，措辞是保证级的："This value **will never change for the user or be used to point to a different user**"——指的就是 `GET /user` 的数值 `id`。
+
+   还有两个坑必须处理：GitHub 对未验证的 Enterprise Managed User 会返回**伪造的占位邮箱**（形如 `email+shortcode@domain.com`）；用户的 primary email 未验证时，token 交换会直接以 `unverified_user_email` 失败——这要当**一等错误**处理（提示"请先在 GitHub 验证邮箱"），不能混进"登录失败"一笔带过。
+
+3. **即使 provider 给了 `email_verified` 也不能当键**：实测各家支持并不齐——Google、Okta、Auth0 给 `email_verified`，**Microsoft Entra ID 不给**（只有可选的 `xms_edov`，而那是"域名归属已验证"，不是"这个地址归此人所有"）。也就是说"用 email 当键"的方案在换一家 IdP 时会**静默出错**；下面的设计不受这个差异影响。
 
 所以要的是这三条，而不是 email 当键：
 
@@ -694,6 +717,14 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 - **关联第二条登录方式必须是"已认证动作"**：先登录着，再在设置里"添加密码"/"绑定 GitHub"。**永不按 email 自动合并。** 这是硬约束，不是偏好。
 
 这样你要的体验完全成立——GitHub 和邮箱密码进同一个账号、同一个 session 池——而且**不依赖 email 可信**。原来"一个 Hub 只接受一个 issuer"的约束也随之取消：多 provider 现在是安全的，因为每条凭据单独一行，关联只能靠认证动作。
+
+#### GitHub 侧的落地细节
+
+- **用 GitHub App，不用 OAuth App。** GitHub 官方对 OAuth App 的文档里直接写着 "If possible, consider using a GitHub App instead of an OAuth app"——GitHub App 权限更细、token 更短命。两者都是 OAuth 2.0，代码路径一样。
+- **注意作用域模型不同**：GitHub App **不用 scope**，改用注册时配置的细粒度权限。要读邮箱得申请 **`email_addresses`（read）** 用户权限；OAuth App 的对应物才是 `user:email` scope。照 OAuth App 的写法去配 GitHub App 会拿不到邮箱。
+- **PKCE 用 S256**（GitHub 支持）；但**不要**去验签 ID token——GitHub 不签发。身份靠"拿 access token 调 `GET /user`"确认。
+- 若要展示邮箱，调 `GET /user/emails` 并**只接受 `verified === true`** 的条目，同时挡掉 `email+shortcode@domain.com` 形态的占位串。拿不到已验证邮箱不是错误——**本设计里 email 不是键，缺它不影响登录**。
+- ⚠️ 一个待验证项：GitHub OpenAPI 给 `GET /user`、`GET /user/emails` 标了 `x-github.enabledForGitHubApps: false`，但渲染出的 REST 文档又明确把 "GitHub App user access tokens" 列为支持。该标记管的是 *installation* token 而非 *user* token，判断是文档不一致而非真限制——**但实现时必须实测一次**，别照推断写。
 
 ### 8.3 首次接入与后续接入
 
@@ -916,7 +947,9 @@ kin serve
 | R13 | **拿 email 当身份键导致账号被冒名**（GitHub 允许未验证邮箱） | 账号接管 | 账号键是 `users.id`，凭据键是 `(provider, subject)`；关联只允许已认证动作，**永不按 email 自动合并**（§8.2） |
 | R14 | **Hub 暴露到公网后被抢注 owner** | 账号接管 | 首次认领需终端打印的一次性配对码，不是"先到先得"（§8.3） |
 | R15 | **密码登录把 Hub 变成 ID 系统**：需要限速、锁定、哈希，且重置密码需要发信通道 | 安全/运维 | 用 argon2id + 每 IP/每账号失败限速（不做就不开该 provider）；重置走 Hub 本机 CLI，不引入 SMTP（§8.3） |
-| R16 | **GitHub 不是 OIDC**，只写 OIDC 会以为一个 issuer 覆盖 GitHub | 返工 | GitHub 与 OIDC 实现为两个 adapter；`subject` 一律取不可变 id（§8.2） |
+| R16 | **GitHub 不是 OIDC**：不签发 ID token，discovery 文档里也没有 `email`/`email_verified` | 返工 | GitHub 与 OIDC 实现为两个 adapter；不去验签 ID token，身份靠 `GET /user` 确认；`subject` 取数值 `id`（§8.2） |
+| R17 | **GitHub 未验证邮箱**：token 交换可能直接以 `unverified_user_email` 失败；EMU 还会返回伪造占位邮箱 | 登录失败且提示难懂/脏数据 | 把 `unverified_user_email` 当一等错误，提示"请先在 GitHub 验证邮箱"；邮箱只接受 `GET /user/emails` 里 `verified === true` 的条目，并挡掉 `email+shortcode@` 形态（§8.2） |
+| R18 | **GitHub App 的 `x-github.enabledForGitHubApps: false` 标记**与 REST 文档所述支持相矛盾 | 实现期卡住 | 该标记管 installation token 而非 user token，判断是文档不一致；**实现时先实测一次**，不照推断写（§8.2） |
 | R5 | ACP agent 质量参差 | 用户遇到难懂的失败 | conformance 门禁 + `device_agents.reason` 原样透出 |
 | R6 | 权限梯度铺开引入越权或误拒 | 安全/体验 | 逐路由核对表 + 表驱动测试；先只读/任务控制/审批/管理四档 |
 | R7 | 事件上行放大 Hub 写入量 | 性能 | Hub 单写者本就串行；批量追加 + 事务合并；必要时按 turn 批量提交 |

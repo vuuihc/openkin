@@ -137,12 +137,20 @@ immutable id; credentials are `user_identities` rows keyed by
 operator-chosen OIDC provider, or by a local password, and every path lands in
 the same session set. Three constraints make that safe:
 
-- **The account key is the user id, never an email address.** Email is a
-  mutable, claimable attribute, and GitHub permits unverified addresses on an
-  account, so treating a matching email as proof of identity would let anyone
-  who puts someone else's address on their own account sign into that person's
-  sessions. The `subject` for each provider must likewise be an identifier the
-  provider never reassigns: GitHub's numeric `id`, not its `login`.
+- **The account key is the user id, never an email address.** OpenID Connect Core
+  §5.7 requires that `email` "MUST NOT be used as unique identifiers for the
+  End-User", a constraint that binds fully compliant providers rather than
+  criticising any particular one. Concretely, GitHub permits unverified
+  addresses on an account, and its own best-practice guidance says to "never use
+  identifiers that can change over time, including user handles, organization
+  slugs, or email addresses", because an account keyed by email would otherwise
+  be claimable by anyone who sets someone else's address on their own account.
+  The `subject` for each provider must likewise be an identifier the provider
+  never reassigns: GitHub's numeric `id`, which GitHub documents as a value that
+  "will never change for the user or be used to point to a different user",
+  rather than its mutable `login`. Provider support for `email_verified` also
+  varies — Google and Okta supply it, Microsoft Entra ID does not — so any
+  design resting on that claim breaks silently when the provider changes.
 - **Linking a second credential is an authenticated action**, performed by a
   user who is already signed in. Automatic account merging by matching email is
   not implemented at any point.
@@ -150,14 +158,19 @@ the same session set. Three constraints make that safe:
   not by whichever login arrives first. An exposed Hub would otherwise be
   claimable by a stranger during the window before its owner first signs in.
 
-GitHub is an OAuth 2.0 provider, not an OpenID Connect provider, so it is a
-separate adapter rather than a configuration of the OIDC one. A local password
-provider makes the Hub an identity provider, and the obligations that creates
-ship with it rather than later: argon2id hashing, and per-address and
-per-account rate limiting and lockout on the login endpoint. Password reset is a
-CLI command on the Hub host rather than an emailed link, because self-service
-reset would require an outbound mail path and would itself rest on the
-assumption that an email address is trustworthy.
+GitHub does not issue ID tokens and its discovery document carries neither an
+`email` nor an `email_verified` claim, so it is a separate OAuth 2.0 adapter
+rather than a configuration of the OIDC one; a generic OIDC client would fail at
+ID-token verification. This is also why the GitHub-specific error
+`unverified_user_email`, which GitHub returns instead of a token when a user's
+primary address is unverified, must be surfaced as its own message.
+
+A local password provider makes the Hub an identity provider, and the
+obligations that creates ship with it rather than later: argon2id hashing, and
+per-address and per-account rate limiting and lockout on the login endpoint.
+Password reset is a CLI command on the Hub host rather than an emailed link,
+because self-service reset would require an outbound mail path and would itself
+rest on the assumption that an email address is trustworthy.
 
 The Agent Client Protocol is adopted as an additional adapter family, not a
 replacement. Its `session/request_permission` maps onto the existing approval
