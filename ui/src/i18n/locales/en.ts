@@ -102,6 +102,41 @@ const en: MessageTree = {
     summaryFocus: "Current Focus",
     summaryNext: "Next",
     noCwdHint: "Choose a working directory to see project direction",
+    cwdLabel: "Working directory (cwd)",
+    cwdOnMachine: "Working directory on {name}",
+    permissionLabel: "Permission mode",
+    promptLabel: "Prompt",
+    promptPlaceholder: "What should Kin do?",
+    dispatch: "Dispatch",
+    detecting: "Detecting…",
+    agentsLabel: "Agents",
+    override: "Override default agent…",
+    hideOverride: "Hide override",
+    autoAgent: "Auto ({id})",
+    required: "cwd and prompt are required",
+    agentHint:
+      "A new task does not force an agent — it uses {name} by default. The same task can hand off to another agent at any time.",
+    agentHintRemote:
+      "The task runs on {name}, with the agents that machine has installed. This is the inventory it reported.",
+  },
+  machine: {
+    title: "Machine",
+    refresh: "Check again",
+    thisMachine: "This machine",
+    offline: "offline",
+    unavailable: "unavailable",
+    defaultMark: "default",
+    remoteHint:
+      "The task runs on {name}, on that machine's own filesystem and with its own agents — so the cwd below has to be a path that exists there.",
+    offlineHint: "{name} is offline; work cannot be sent there.",
+    noRoots: "{name} declared no working directories — type a path that exists on it.",
+    noAgents: "No usable agent on {name}.",
+    listUnavailable:
+      "The machine list could not be read (it needs Hub owner access), so only this machine can run work.",
+    bypassHint:
+      "Unless that machine was started with --allow-yolo, a permission mode that bypasses approvals is refused there.",
+    runsOn: "runs on {name}",
+    runsOnUnknown: "runs on {name} (no longer visible)",
   },
   composer: {
     placeholder: "Message Kin…",

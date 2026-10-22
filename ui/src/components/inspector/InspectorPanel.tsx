@@ -7,6 +7,9 @@ import {
   type TaskEvent,
 } from "../../api/client";
 import { useAppStore } from "../../store/appStore";
+import { useT } from "../../i18n/react";
+import { useMachines } from "../../hooks/useMachines";
+import { machineLabelFor } from "../../lib/devices";
 import Transcript from "../Transcript";
 import { displayUserPrompt } from "../../lib/attachments";
 
@@ -27,7 +30,14 @@ export default function InspectorPanel({
   fullScreen,
 }: Props) {
   const pushToast = useAppStore((s) => s.pushToast);
+  const tr = useT();
+  const { machines } = useMachines();
   const terminal = isTerminal(task.status);
+  // A task that runs on the machine serving this console needs no badge; one that
+  // runs somewhere else does, and so does a machine this console cannot see any
+  // more (revoked, or belonging to another Hub).
+  const where = machineLabelFor(machines, task.executing_device_id);
+  const runsElsewhere = task.executing_device_id && !where.isSelf ? where : null;
 
   async function onCancel() {
     try {
@@ -72,6 +82,13 @@ export default function InspectorPanel({
               {task.model ? ` · ${task.model}` : ""}
               {task.cwd ? ` · ${task.cwd}` : ""}
             </div>
+            {runsElsewhere ? (
+              <div className="mt-2 text-[12px] text-kin-secondary">
+                {runsElsewhere.known
+                  ? tr("machine.runsOn", { name: runsElsewhere.text })
+                  : tr("machine.runsOnUnknown", { name: runsElsewhere.text })}
+              </div>
+            ) : null}
           </div>
           {onClose && (
             <button

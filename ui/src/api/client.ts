@@ -380,6 +380,54 @@ export function listAgents(): Promise<AgentInfo[]> {
   return apiFetch<AgentInfo[]>("/api/agents");
 }
 
+/** One agent runtime as the machine itself reported it. */
+export type DeviceAgentInfo = {
+  id: string;
+  installed: boolean;
+  available: boolean;
+  version?: string;
+  reason?: string;
+  default_model?: string;
+  models?: string[];
+  is_default?: boolean;
+};
+
+/** A machine the Hub knows: the daemon itself, or a Node that dialled in. */
+export type DeviceInfo = {
+  id: string;
+  label?: string;
+  platform?: string;
+  arch?: string;
+  role?: string;
+  kin_version?: string;
+  reachability: string;
+  last_seen_at?: number;
+  created_at: number;
+  revoked_at?: number;
+  agents: DeviceAgentInfo[];
+  /** Directories this machine said it works in. Paths, not secrets. */
+  workspace_roots?: string[];
+};
+
+export function listDevices(): Promise<DeviceInfo[]> {
+  return apiFetch<DeviceInfo[]>("/api/devices");
+}
+
+export type ServerVersion = {
+  version?: string;
+  desktop_id?: string;
+  desktop_name?: string;
+};
+
+/**
+ * Who the daemon serving this console is. Without it the console cannot tell
+ * "run it here" from "send it to another machine" — and, later, cannot tell
+ * whose filesystem a terminal is looking at.
+ */
+export function serverVersion(): Promise<ServerVersion> {
+  return apiFetch<ServerVersion>("/api/version");
+}
+
 export type AgentProviderState =
   | "not_detected"
   | "detected"
