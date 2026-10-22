@@ -96,13 +96,23 @@ The following boundaries are part of the decision, not implementation detail:
    it would drift from the remote path that carries the real risk.
 
 Authentication for a multi-device Hub uses OIDC with an **operator-chosen**
-identity provider. OpenKin operates no account service and hosts no user data;
-standalone mode never contacts an identity provider. Login mints a device
-credential, and subsequent traffic uses that credential, so a Hub does not
-depend on the identity provider being reachable for already-paired devices.
-This keeps the §5.1 promise "core capability does not require an official
-account" intact: OIDC is how a user signs in to their own server, not how they
-register with OpenKin.
+identity provider. Its purpose is narrow: letting a new device join and
+immediately see the account's sessions without requiring an already-authorised
+device to be at hand, which is what token pairing alone cannot do. OpenKin
+operates no account service and hosts no user data; standalone mode never
+contacts an identity provider. Login mints a device credential, and subsequent
+traffic uses that credential, so a Hub does not depend on the identity provider
+being reachable for devices that are already paired. This keeps the §5.1
+promise "core capability does not require an official account" intact: OIDC is
+how a user signs in to their own server, not how they register with OpenKin.
+
+A Hub accepts exactly one issuer, and user identity is the `(issuer, subject)`
+pair. Accepting several issuers would silently split one person into separate
+users with disjoint session sets, which reads to the user as data loss;
+automatic account merging by email is not attempted. The first successful login
+claims ownership and self-registration is closed afterwards, so that reaching
+the Hub and holding an account at its identity provider is not by itself
+sufficient to read someone's sessions.
 
 The Agent Client Protocol is adopted as an additional adapter family, not a
 replacement. Its `session/request_permission` maps onto the existing approval

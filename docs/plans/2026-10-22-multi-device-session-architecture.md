@@ -629,18 +629,31 @@ agent  ──session/request_permission──▶  Kin ACP adapter (Node)
 
 也就是说：**OIDC 是"登录你自己服务器"的方式，不是"注册 OpenKin 账号"**。这个区别必须写进 ADR 和文档，否则会被误读成定位漂移。
 
-### 8.3 认证流程
+### 8.3 新设备如何接入（这是 OIDC 的真正价值）
 
-| 客户端 | 流程 |
-|---|---|
-| Web console | Authorization Code + PKCE，系统浏览器 |
-| iOS / Desktop | Authorization Code + PKCE，`ASWebAuthenticationSession` / 系统浏览器 |
-| CLI / Node | Device Authorization Grant（RFC 8628）——无浏览器场景 |
+诉求原话是"私有化部署后，新设备配置认证下就能同步全部设备上面的 session"。这件事有**两条路径**，OIDC 是其中更省事的那条：
 
-登录成功后 Hub **签发设备凭据**（复用 `device_credentials`），此后所有流量用设备凭据。这样：
-- OIDC 只用于**登录**，不在每次请求上依赖 IdP（IdP 挂了不影响已登录设备）；
-- 复用既有的吊销机制（`revoked_at`）；
-- Node 的长期连接不需要刷新 OIDC token。
+| 路径 | 怎么用 | 限制 |
+|---|---|---|
+| **A. 配对**（已有机制） | 新设备扫码 → 拿设备凭据 → 立刻看到全部 session | **手上必须有一台已授权的设备**。手机丢了、电脑不在身边就不行 |
+| **B. OIDC 登录**（新增） | 打开 Hub 地址 → 用 IdP 账号登录 → Hub 认出是你 → 发设备凭据 → 看到全部 session | 需要 Hub 能访问 IdP（仅登录时） |
+
+**OIDC 的增量价值就是 B 相对 A 的那一格：没有任何一台已授权设备在手时，仍能把新设备接进来。** 对个人使用来说，这正是"换台电脑、登录一下，全部会话都在"的体验。
+
+**识别键是 `(issuer, subject)`**，同一个 subject = 同一个 user = **同一个 session 池**。这就是"同一个账号下多台设备"的实现方式。
+
+#### 三个必须定死的安全细节
+
+1. **一个 Hub 只接受一个 issuer**（配置时写死）。否则同一个人的 Google `sub` 和 GitHub `sub` 会是**两个不同用户 → 两个互相看不见的 session 池**，用户会以为丢数据。账户合并（按 email 归并）不做——那是安全风险，收益也低。
+2. **首个登录者成为 owner，之后默认关闭注册。** 否则任何能访问到 Hub 且在该 IdP 有账号的人都能登进来。落地方式：`users` 表为空时允许首次登录并记为 owner；此后只有已在 `users` 里的 subject 能登录，新增设备要么由已授权设备配对，要么由 owner 在设置里加入 allowlist。
+3. **OIDC 只用于登录，不参与日常请求。** 登录成功即签发设备凭据（复用 `device_credentials`），之后所有流量用设备凭据：
+   - IdP 挂了不影响已登录设备；
+   - 复用既有的吊销机制（`revoked_at` 一置，WS 也会被踢）；
+   - Node 的长期连接不需要刷新 OIDC token。
+
+CLI / Node（无浏览器场景）用 Device Authorization Grant（RFC 8628）。
+
+**standalone 模式完全不走 OIDC**，隐含 local owner，所以 PRINCIPLE §5.1「核心能力不依赖官方账号」继续成立。
 
 ### 8.4 安全加固（自托管暴露到公网的必备项）
 
