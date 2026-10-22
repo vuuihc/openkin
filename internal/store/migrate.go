@@ -6,7 +6,79 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 33
+const schemaVersion = 34
+
+// migrationDeviceRegistry adds the durable device registry, per-device agent
+// capabilities, workspace anchors, and the columns that make a task's owner and
+// executing device explicit.
+//
+// Everything here is additive. A standalone daemon never fills these in and
+// keeps behaving exactly as it did; a Hub starts using them the moment it has an
+// account. `hub_seq` is the part that changes behaviour rather than recording
+// it: it is the global sync cursor, the only monotonic number in the system that
+// spans tasks, and the Hub is its sole allocator (ADR 0022).
+const migrationDeviceRegistry = `
+CREATE TABLE IF NOT EXISTS devices (
+  id            TEXT PRIMARY KEY,
+  owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  label         TEXT NOT NULL DEFAULT '',
+  platform      TEXT NOT NULL DEFAULT '',
+  arch          TEXT NOT NULL DEFAULT '',
+  role          TEXT NOT NULL DEFAULT 'node' CHECK (role IN ('node','hub','client')),
+  kin_version   TEXT NOT NULL DEFAULT '',
+  capabilities  TEXT NOT NULL DEFAULT '{}',
+  reachability  TEXT NOT NULL DEFAULT 'unknown',
+  last_seen_at  INTEGER,
+  created_at    INTEGER NOT NULL,
+  revoked_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_devices_owner ON devices(owner_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_devices_seen  ON devices(last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS device_agents (
+  device_id     TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  agent_id      TEXT NOT NULL,
+  installed     INTEGER NOT NULL DEFAULT 0,
+  available     INTEGER NOT NULL DEFAULT 0,
+  version       TEXT NOT NULL DEFAULT '',
+  reason        TEXT NOT NULL DEFAULT '',
+  default_model TEXT NOT NULL DEFAULT '',
+  models        TEXT NOT NULL DEFAULT '[]',
+  is_default    INTEGER NOT NULL DEFAULT 0,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (device_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_anchors (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('git_remote','device_path')),
+  remote_url    TEXT NOT NULL DEFAULT '',
+  relative_path TEXT NOT NULL DEFAULT '',
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workspace_anchor_roots (
+  anchor_id   TEXT NOT NULL REFERENCES workspace_anchors(id) ON DELETE CASCADE,
+  device_id   TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  abs_path    TEXT NOT NULL,
+  verified_at INTEGER,
+  PRIMARY KEY (anchor_id, device_id)
+);
+
+-- The five tasks columns this migration needs live in migration001's CREATE
+-- TABLE (the fresh-install shape) and in the guarded ADD COLUMN loop of the
+-- 033 -> 034 step (the upgrade shape). They are not repeated here: a fresh
+-- install running this string would hit "duplicate column name".
+CREATE INDEX IF NOT EXISTS idx_tasks_hub_seq ON tasks(hub_seq);
+CREATE INDEX IF NOT EXISTS idx_tasks_owner_created ON tasks(owner_user_id, created_at DESC);
+
+-- A device credential is the token; the registry row is the device. They share
+-- an id, so anything already paired is already registered.
+INSERT OR IGNORE INTO devices (id, label, role, created_at)
+  SELECT id, label, 'node', created_at FROM device_credentials;
+`
 
 // migrationIdentityTables splits accounts from login credentials.
 //
@@ -98,7 +170,12 @@ CREATE TABLE tasks (
   routine_tldr TEXT NOT NULL DEFAULT '',
   routine_unread INTEGER NOT NULL DEFAULT 0,
   event_epoch INTEGER NOT NULL DEFAULT 0,
-  dispatch TEXT
+  dispatch TEXT,
+  owner_user_id TEXT,
+  origin_device_id TEXT,
+  executing_device_id TEXT,
+  workspace_anchor_id TEXT,
+  hub_seq INTEGER
 );
 
 CREATE TABLE events (
@@ -451,7 +528,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -1894,6 +1971,45 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 033: %w", err)
 		}
 		v = 33
+	}
+
+	if v == 33 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 034: %w", err)
+		}
+		for _, col := range []struct{ name, def string }{
+			{"owner_user_id", "TEXT"},
+			{"origin_device_id", "TEXT"},
+			{"executing_device_id", "TEXT"},
+			{"workspace_anchor_id", "TEXT"},
+			{"hub_seq", "INTEGER"},
+		} {
+			var n int
+			q := fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = '%s'`, col.name)
+			if err := tx.QueryRow(q).Scan(&n); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("check %s column: %w", col.name, err)
+			}
+			if n == 0 {
+				if _, err := tx.Exec(fmt.Sprintf(`ALTER TABLE tasks ADD COLUMN %s %s`, col.name, col.def)); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("add %s column: %w", col.name, err)
+				}
+			}
+		}
+		if _, err := tx.Exec(migrationDeviceRegistry); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 034 device registry: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 34`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 034: %w", err)
+		}
+		v = 34
 	}
 
 	return nil

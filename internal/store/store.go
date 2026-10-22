@@ -814,6 +814,10 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 		}
 		return Event{}, fmt.Errorf("read task event epoch: %w", err)
 	}
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return Event{}, err
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO events (task_id, seq, ts, type, payload)
@@ -821,6 +825,9 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 		taskID, seq, ts, typ, string(payload),
 	); err != nil {
 		return Event{}, fmt.Errorf("insert event: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET hub_seq = ? WHERE id = ?`, hubSeq, taskID); err != nil {
+		return Event{}, fmt.Errorf("advance task hub_seq: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Event{}, fmt.Errorf("commit event: %w", err)
@@ -857,6 +864,10 @@ func (s *Store) AppendUsageEvent(ctx context.Context, taskID, typ string, payloa
 		}
 		return Event{}, Task{}, fmt.Errorf("read task event epoch: %w", err)
 	}
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return Event{}, Task{}, err
+	}
 	ts := time.Now().UnixMilli()
 	record.TaskID = taskID
 	record.EventSeq = seq
@@ -882,12 +893,13 @@ func (s *Store) AppendUsageEvent(ctx context.Context, taskID, typ string, payloa
 		UPDATE tasks
 		SET tokens_in = tokens_in + ?,
 		    tokens_out = tokens_out + ?,
+		    hub_seq = ?,
 		    cost_usd = CASE
 		      WHEN ? IS NULL THEN cost_usd
 		      ELSE COALESCE(cost_usd, 0) + ?
 		    END
 		WHERE id = ?`,
-		input, output, record.CostUSD, record.CostUSD, taskID,
+		input, output, hubSeq, record.CostUSD, record.CostUSD, taskID,
 	)
 	if err != nil {
 		return Event{}, Task{}, fmt.Errorf("update task usage summary: %w", err)
@@ -917,6 +929,30 @@ func nextEventSeq(ctx context.Context, tx *sql.Tx, taskID string) (int, error) {
 		return 1, nil
 	}
 	return int(maxSeq.Int64) + 1, nil
+}
+
+// nextHubSeq allocates the next value of the global sync cursor.
+//
+// events.seq orders one task's events; hub_seq is a single monotonic number
+// across every task, and it is what a client stores so it can ask "what changed
+// since I was last here" without refetching the world. It is advanced by the
+// writer of the task row, in the same transaction as the change that caused it,
+// so a reader that has seen hub_seq = N can never observe a task whose row
+// changed but whose cursor did not (ADR 0022: only a Hub allocates it, and a
+// standalone daemon is a Hub with an in-process Node).
+//
+// MAX+1 across the table needs no counter row and no lock because the store is
+// single-writer by construction: MaxOpenConns(1) serializes every write in the
+// process, which is exactly the guarantee events.seq already relies on.
+func nextHubSeq(ctx context.Context, tx *sql.Tx) (int64, error) {
+	var maxSeq sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(hub_seq) FROM tasks`).Scan(&maxSeq); err != nil {
+		return 0, fmt.Errorf("max hub_seq: %w", err)
+	}
+	if !maxSeq.Valid {
+		return 1, nil
+	}
+	return maxSeq.Int64 + 1, nil
 }
 
 func logicalUsageInput(record UsageRecord) int {
@@ -1084,7 +1120,14 @@ func (s *Store) TruncateEventsFrom(ctx context.Context, taskID string, fromSeq i
 	if _, err := tx.ExecContext(ctx, `DELETE FROM events WHERE task_id = ? AND seq >= ?`, taskID, fromSeq); err != nil {
 		return fmt.Errorf("truncate events: %w", err)
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE tasks SET event_epoch = event_epoch + 1 WHERE id = ?`, taskID)
+	// A reader that already synced up to the old head must be told the tail is
+	// gone, so the truncation advances the global cursor like any other change.
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx,
+		`UPDATE tasks SET event_epoch = event_epoch + 1, hub_seq = ? WHERE id = ?`, hubSeq, taskID)
 	if err != nil {
 		return fmt.Errorf("advance event epoch: %w", err)
 	}
