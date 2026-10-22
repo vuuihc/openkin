@@ -99,7 +99,19 @@ func TestRoutineCompletionNoteworthyPush(t *testing.T) {
 	}
 	waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
 
-	got, err := st.GetTask(ctx, task.ID)
+	// The terminal status is written before the routine annotation that follows
+	// it, so the flag has to be waited for on its own: polling the status and
+	// then reading the row is a race the slower (race-enabled) build always
+	// loses.
+	var got store.Task
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got, err = st.GetTask(ctx, task.ID)
+		if err == nil && got.RoutineNoteworthy {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +119,7 @@ func TestRoutineCompletionNoteworthyPush(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) && hits.Load() == 0 {
 		time.Sleep(20 * time.Millisecond)
 	}
