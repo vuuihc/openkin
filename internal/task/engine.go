@@ -1507,15 +1507,17 @@ func (e *Engine) syncNativeSessionBinding(ctx context.Context, taskID, agentID, 
 		return
 	}
 	// A ref a turn reported from another machine belongs to that machine's
-	// agent, not to this one's. Binding it here would write the other machine's
-	// session into this Hub's catalog under an id this Hub never issued —
-	// overwriting a real local session whenever the two refs collide.
+	// agent. The catalog is keyed by device, so indexing it here would no longer
+	// collide with a local session — but the Hub can only read the agents on its
+	// own filesystem, so the row would be a stub nothing can fill in. The ref
+	// still travels on the task; the machine that owns the session indexes it.
 	if e.isRemoteDevice(task.ExecutingDeviceID) {
 		return
 	}
+	deviceID := e.selfDevice()
 	info, err := e.agents.InspectSession(ctx, agentID, externalRef)
 	if err != nil {
-		if existing, existingErr := e.store.GetAgentSession(ctx, agentID, externalRef); existingErr == nil {
+		if existing, existingErr := e.store.GetAgentSession(ctx, deviceID, agentID, externalRef); existingErr == nil {
 			now := time.Now().UnixMilli()
 			existing.Status = "active"
 			existing.LastSeenAt = now
@@ -1548,6 +1550,7 @@ func (e *Engine) syncNativeSessionBinding(ctx context.Context, taskID, agentID, 
 		capabilities = append(capabilities, string(capability))
 	}
 	row, err := e.store.UpsertAgentSession(ctx, store.AgentSession{
+		DeviceID:      deviceID,
 		AgentID:       agentID,
 		ExternalRef:   externalRef,
 		SourceURI:     info.SourceURI,

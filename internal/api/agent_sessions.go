@@ -242,7 +242,7 @@ func (s *Server) handleImportAgentSessions(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 		for _, session := range sessions {
-			row, err := s.Store.UpsertAgentSession(r.Context(), fromAgentSession(session))
+			row, err := s.Store.UpsertAgentSession(r.Context(), fromAgentSession(session, s.DesktopID))
 			if err != nil {
 				result.Errors[id] = err.Error()
 				continue
@@ -519,13 +519,17 @@ func (s *Server) agentSessionResponse(r *http.Request, row store.AgentSession) a
 	}
 }
 
-func fromAgentSession(session agent.SessionInfo) store.AgentSession {
+// fromAgentSession maps a provider session into the catalog row for the machine
+// it was read from: an import scans this daemon's own filesystem, so that
+// machine is this one.
+func fromAgentSession(session agent.SessionInfo, deviceID string) store.AgentSession {
 	caps := make([]string, 0, len(session.Capabilities))
 	for _, cap := range session.Capabilities {
 		caps = append(caps, string(cap))
 	}
 	return store.AgentSession{
-		AgentID: session.AgentID, ExternalRef: session.ExternalRef,
+		DeviceID: strings.TrimSpace(deviceID),
+		AgentID:  session.AgentID, ExternalRef: session.ExternalRef,
 		SourceURI: session.SourceURI, Title: session.Title, Cwd: session.Cwd,
 		Status: session.Status, Capabilities: caps,
 		SourceCursor: session.SourceCursor, ContentDigest: session.ContentDigest,

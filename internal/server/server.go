@@ -225,6 +225,12 @@ func ServeWith(version string, flags ServeFlags) error {
 	}, time.Now().UnixMilli()); err != nil {
 		return err
 	}
+	// Session rows written before a session's identity named a machine are this
+	// machine's: this daemon owns this database, and it is the only thing that
+	// ever wrote them.
+	if err := st.AdoptUnownedAgentSessions(ctx, identity.ID); err != nil {
+		return err
+	}
 	if flags.TSControlURL != "" {
 		_ = st.SetSetting(ctx, "tailscale.control_url", flags.TSControlURL)
 	} else if v, err := st.GetSetting(ctx, "tailscale.control_url"); err == nil && v != "" && flags.Tailscale {

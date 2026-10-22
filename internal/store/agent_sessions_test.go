@@ -98,7 +98,7 @@ func TestAgentSessionMetadataRoundTripAndBindingProjection(t *testing.T) {
 	if err := st.DetachTaskAgentSessions(ctx, task.ID, "handoff"); err != nil {
 		t.Fatal(err)
 	}
-	detached, err := st.GetAgentSession(ctx, "codex", "codex-1")
+	detached, err := st.GetAgentSession(ctx, "", "codex", "codex-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestAgentSessionMetadataRoundTripAndBindingProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	got, err := reopened.GetAgentSession(ctx, "codex", "codex-1")
+	got, err := reopened.GetAgentSession(ctx, "", "codex", "codex-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,5 +267,104 @@ func TestCrossProviderHandoffKeepsNamespacedMetadataOnly(t *testing.T) {
 	}
 	if !seenFirst || !seenSecond {
 		t.Fatalf("handoff binding ids missing: %+v", bindings)
+	}
+}
+
+// The same ref on two machines is two sessions, not one row overwritten: each
+// machine's agent issues its own ids (ADR 0022 D7).
+func TestAgentSessionIdentityIncludesTheMachine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kin.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+
+	laptop, err := st.UpsertAgentSession(ctx, AgentSession{
+		DeviceID: "laptop", AgentID: "claude-code", ExternalRef: "session-1",
+		Title: "on the laptop", Cwd: "/code/openkin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	studio, err := st.UpsertAgentSession(ctx, AgentSession{
+		DeviceID: "studio", AgentID: "claude-code", ExternalRef: "session-1",
+		Title: "on the studio", Cwd: "/srv/openkin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if laptop.ID == studio.ID {
+		t.Fatalf("two machines collapsed into one session row: %+v", laptop)
+	}
+
+	// Re-reporting one machine's session updates that row and only that row.
+	again, err := st.UpsertAgentSession(ctx, AgentSession{
+		DeviceID: "laptop", AgentID: "claude-code", ExternalRef: "session-1",
+		Title: "renamed on the laptop",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != laptop.ID || again.Title != "renamed on the laptop" {
+		t.Fatalf("second report of the laptop session=%+v", again)
+	}
+	untouched, err := st.GetAgentSession(ctx, "studio", "claude-code", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untouched.Title != "on the studio" {
+		t.Fatalf("the studio session was overwritten: %+v", untouched)
+	}
+	// A machine's own ref is not visible under another machine's name.
+	if _, err := st.GetAgentSession(ctx, "nas", "claude-code", "session-1"); err == nil {
+		t.Fatal("a ref resolved on a machine that never reported it")
+	}
+
+	rows, err := st.ListAgentSessions(ctx, AgentSessionListOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].DeviceID == "" || rows[1].DeviceID == "" {
+		t.Fatalf("listed sessions=%+v", rows)
+	}
+}
+
+// Rows written before a session's identity named a machine belong to the
+// database's owner, and adopting them must not touch rows that already name one.
+func TestAdoptUnownedAgentSessions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if _, err := s.UpsertAgentSession(ctx, AgentSession{
+		AgentID: "codex", ExternalRef: "old", DeviceID: "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertAgentSession(ctx, AgentSession{
+		AgentID: "codex", ExternalRef: "remote", DeviceID: "studio",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AdoptUnownedAgentSessions(ctx, "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AdoptUnownedAgentSessions(ctx, "laptop"); err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := s.GetAgentSession(ctx, "laptop", "codex", "old")
+	if err != nil {
+		t.Fatalf("unowned row was not adopted: %v", err)
+	}
+	if adopted.DeviceID != "laptop" {
+		t.Fatalf("adopted row=%+v", adopted)
+	}
+	other, err := s.GetAgentSession(ctx, "studio", "codex", "remote")
+	if err != nil || other.DeviceID != "studio" {
+		t.Fatalf("a row naming another machine was rewritten: %+v err=%v", other, err)
+	}
+	// Without a device to adopt into, nothing is claimed.
+	if err := s.AdoptUnownedAgentSessions(ctx, "  "); err != nil {
+		t.Fatal(err)
 	}
 }

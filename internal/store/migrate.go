@@ -1,12 +1,13 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 35
+const schemaVersion = 36
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -626,6 +627,7 @@ CREATE TABLE IF NOT EXISTS a2a_operations (
 const migrationSessionTables = `
 CREATE TABLE IF NOT EXISTS agent_sessions (
   id              TEXT PRIMARY KEY,
+  device_id       TEXT NOT NULL DEFAULT '',
   agent_id        TEXT NOT NULL,
   external_ref    TEXT NOT NULL,
   source_uri      TEXT NOT NULL DEFAULT '',
@@ -639,12 +641,12 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   first_seen_at   INTEGER NOT NULL,
   last_seen_at    INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL,
-  UNIQUE(agent_id, external_ref)
+  UNIQUE(device_id, agent_id, external_ref)
 );
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated
   ON agent_sessions(updated_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
-  ON agent_sessions(agent_id, updated_at DESC, id DESC);
+  ON agent_sessions(device_id, agent_id, updated_at DESC, id DESC);
 CREATE TABLE IF NOT EXISTS task_agent_sessions (
   id               TEXT PRIMARY KEY,
   task_id          TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -2055,5 +2057,124 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 35
 	}
 
+	if v == 35 {
+		if err := s.migrateAgentSessionIdentity(); err != nil {
+			return err
+		}
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 036: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 36`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 036: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateAgentSessionIdentity rebuilds agent_sessions so a session is
+// identified by the machine it lives on as well as by its agent and ref.
+//
+// SQLite cannot drop a UNIQUE constraint in place, so the table is rebuilt —
+// which is the one migration shape that can quietly destroy data: a DROP TABLE
+// on a table other rows point at fires ON DELETE CASCADE, and task_agent_sessions
+// points here. Foreign keys are therefore off for the length of the rebuild, on
+// a connection of its own (the pragma is per connection, and the pool has more
+// than one), and the child rows are counted before and after to prove nothing
+// was cascaded away.
+//
+// The rebuild is idempotent and the version bump is a separate transaction: a
+// crash in between leaves a database that is already correct, and the next
+// start finishes the bookkeeping instead of rebuilding twice.
+func (s *Store) migrateAgentSessionIdentity() error {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("begin migration 036: %w", err)
+	}
+	defer conn.Close()
+	var hasDeviceID int
+	if err := conn.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info('agent_sessions') WHERE name = 'device_id'`,
+	).Scan(&hasDeviceID); err != nil {
+		return fmt.Errorf("migration 036 inspect agent_sessions: %w", err)
+	}
+	if hasDeviceID > 0 {
+		return nil
+	}
+	var enforced int
+	if err := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&enforced); err != nil {
+		return fmt.Errorf("migration 036 read foreign_keys: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("migration 036 disable foreign keys: %w", err)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA foreign_keys = %d`, enforced))
+	}()
+
+	var linksBefore int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_agent_sessions`).Scan(&linksBefore); err != nil {
+		return fmt.Errorf("migration 036 count task links: %w", err)
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin migration 036 rebuild: %w", err)
+	}
+	if _, err := tx.Exec(`
+CREATE TABLE agent_sessions_v36 (
+  id              TEXT PRIMARY KEY,
+  device_id       TEXT NOT NULL DEFAULT '',
+  agent_id        TEXT NOT NULL,
+  external_ref    TEXT NOT NULL,
+  source_uri      TEXT NOT NULL DEFAULT '',
+  title           TEXT NOT NULL DEFAULT '',
+  cwd             TEXT NOT NULL DEFAULT '',
+  status          TEXT NOT NULL DEFAULT 'unknown',
+  capabilities    TEXT NOT NULL DEFAULT '[]',
+  metadata        TEXT NOT NULL DEFAULT '{}',
+  source_cursor   TEXT NOT NULL DEFAULT '',
+  content_digest  TEXT NOT NULL DEFAULT '',
+  first_seen_at   INTEGER NOT NULL,
+  last_seen_at    INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL,
+  UNIQUE(device_id, agent_id, external_ref)
+);
+INSERT INTO agent_sessions_v36 (
+  id, device_id, agent_id, external_ref, source_uri, title, cwd, status,
+  capabilities, metadata, source_cursor, content_digest,
+  first_seen_at, last_seen_at, updated_at
+)
+SELECT id, '', agent_id, external_ref, source_uri, title, cwd, status,
+       capabilities, metadata, source_cursor, content_digest,
+       first_seen_at, last_seen_at, updated_at
+FROM agent_sessions;
+DROP TABLE agent_sessions;
+ALTER TABLE agent_sessions_v36 RENAME TO agent_sessions;
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated
+  ON agent_sessions(updated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent
+  ON agent_sessions(device_id, agent_id, updated_at DESC, id DESC);
+`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration 036 rebuild agent_sessions: %w", err)
+	}
+	var linksAfter int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_agent_sessions`).Scan(&linksAfter); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration 036 count task links: %w", err)
+	}
+	if linksAfter != linksBefore {
+		_ = tx.Rollback()
+		return fmt.Errorf("migration 036 would drop %d task links", linksBefore-linksAfter)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration 036 rebuild: %w", err)
+	}
 	return nil
 }

@@ -35,8 +35,17 @@ func NormalizeAutoImportMode(value string) (string, error) {
 
 // AgentSession is a metadata-only index row for a provider-owned session.
 // Transcript content is intentionally not part of this model.
+//
+// A session's identity is the machine it lives on as well as the agent and the
+// ref: two machines each running their own claude-code have their own session
+// ids, and the same ref on both is two different sessions, not a collision to
+// merge (ADR 0022 D7).
 type AgentSession struct {
-	ID            string            `json:"id"`
+	ID string `json:"id"`
+	// DeviceID is the machine whose agent owns this session. Empty means the
+	// row predates the column and no machine has claimed it yet; the daemon
+	// that owns the database adopts those rows at startup.
+	DeviceID      string            `json:"device_id,omitempty"`
 	AgentID       string            `json:"agent_id"`
 	ExternalRef   string            `json:"external_ref"`
 	SourceURI     string            `json:"-"`
@@ -118,7 +127,8 @@ func normalizeAgentSession(s AgentSession, now int64) (AgentSession, error) {
 	return s, nil
 }
 
-// UpsertAgentSession inserts or updates one metadata-only provider index row.
+// UpsertAgentSession inserts or updates one metadata-only provider index row,
+// keyed by (device, agent, ref).
 func (s *Store) UpsertAgentSession(ctx context.Context, input AgentSession) (AgentSession, error) {
 	now := time.Now().UnixMilli()
 	input, err := normalizeAgentSession(input, now)
@@ -135,11 +145,11 @@ func (s *Store) UpsertAgentSession(ctx context.Context, input AgentSession) (Age
 	}
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO agent_sessions (
-			id, agent_id, external_ref, source_uri, title, cwd, status,
+			id, device_id, agent_id, external_ref, source_uri, title, cwd, status,
 			capabilities, metadata, source_cursor, content_digest,
 			first_seen_at, last_seen_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(agent_id, external_ref) DO UPDATE SET
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(device_id, agent_id, external_ref) DO UPDATE SET
 			source_uri = excluded.source_uri,
 			title = excluded.title,
 			cwd = excluded.cwd,
@@ -150,19 +160,20 @@ func (s *Store) UpsertAgentSession(ctx context.Context, input AgentSession) (Age
 			content_digest = excluded.content_digest,
 			last_seen_at = excluded.last_seen_at,
 			updated_at = excluded.updated_at
-	`, input.ID, input.AgentID, input.ExternalRef, input.SourceURI, input.Title,
+	`, input.ID, input.DeviceID, input.AgentID, input.ExternalRef, input.SourceURI, input.Title,
 		input.Cwd, input.Status, string(caps), string(metadata), input.SourceCursor,
 		input.ContentDigest, input.FirstSeenAt, input.LastSeenAt, input.UpdatedAt)
 	if err != nil {
 		return AgentSession{}, fmt.Errorf("upsert agent session: %w", err)
 	}
-	return s.GetAgentSession(ctx, input.AgentID, input.ExternalRef)
+	return s.GetAgentSession(ctx, input.DeviceID, input.AgentID, input.ExternalRef)
 }
 
-// GetAgentSession loads a provider session by its namespaced external ID.
-func (s *Store) GetAgentSession(ctx context.Context, agentID, externalRef string) (AgentSession, error) {
+// GetAgentSession loads a provider session by the machine it lives on and its
+// namespaced external ID.
+func (s *Store) GetAgentSession(ctx context.Context, deviceID, agentID, externalRef string) (AgentSession, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, agent_id, external_ref, source_uri, title, cwd, status,
+		SELECT id, device_id, agent_id, external_ref, source_uri, title, cwd, status,
 		       capabilities, metadata, source_cursor, content_digest,
 		       first_seen_at, last_seen_at, updated_at,
 		       EXISTS (
@@ -171,15 +182,34 @@ func (s *Store) GetAgentSession(ctx context.Context, agentID, externalRef string
 		           AND b.state = 'attached'
 		       )
 		FROM agent_sessions
-		WHERE agent_id = ? AND external_ref = ?
-	`, strings.TrimSpace(agentID), strings.TrimSpace(externalRef))
+		WHERE device_id = ? AND agent_id = ? AND external_ref = ?
+	`, strings.TrimSpace(deviceID), strings.TrimSpace(agentID), strings.TrimSpace(externalRef))
 	return scanAgentSession(row)
+}
+
+// AdoptUnownedAgentSessions gives unclaimed rows to the machine this daemon
+// runs on.
+//
+// Rows written before a session's identity included a machine have no device,
+// and only this daemon ever wrote them — the database is the one it owns. It is
+// idempotent and safe to call at every start: a row that already names a
+// machine is left alone, including one that names another machine.
+func (s *Store) AdoptUnownedAgentSessions(ctx context.Context, deviceID string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE agent_sessions SET device_id = ? WHERE device_id = ''`, deviceID); err != nil {
+		return fmt.Errorf("adopt unowned agent sessions: %w", err)
+	}
+	return nil
 }
 
 // GetAgentSessionByID loads an indexed session by Kin row ID.
 func (s *Store) GetAgentSessionByID(ctx context.Context, id string) (AgentSession, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, agent_id, external_ref, source_uri, title, cwd, status,
+		SELECT id, device_id, agent_id, external_ref, source_uri, title, cwd, status,
 		       capabilities, metadata, source_cursor, content_digest,
 		       first_seen_at, last_seen_at, updated_at,
 		       EXISTS (
@@ -237,7 +267,7 @@ func (s *Store) ListAgentSessions(ctx context.Context, opts AgentSessionListOpts
 	}
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.agent_id, s.external_ref, s.source_uri, s.title, s.cwd,
+		SELECT s.id, s.device_id, s.agent_id, s.external_ref, s.source_uri, s.title, s.cwd,
 		       s.status, s.capabilities, s.metadata, s.source_cursor,
 		       s.content_digest, s.first_seen_at, s.last_seen_at, s.updated_at,
 		       EXISTS (
@@ -268,7 +298,7 @@ func scanAgentSession(row interface{ Scan(...any) error }) (AgentSession, error)
 	var out AgentSession
 	var capsRaw, metadataRaw string
 	if err := row.Scan(
-		&out.ID, &out.AgentID, &out.ExternalRef, &out.SourceURI, &out.Title,
+		&out.ID, &out.DeviceID, &out.AgentID, &out.ExternalRef, &out.SourceURI, &out.Title,
 		&out.Cwd, &out.Status, &capsRaw, &metadataRaw, &out.SourceCursor,
 		&out.ContentDigest, &out.FirstSeenAt, &out.LastSeenAt, &out.UpdatedAt,
 		&out.Linked,
