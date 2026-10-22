@@ -559,6 +559,10 @@ func ServeWith(version string, flags ServeFlags) error {
 		return status, nil
 	}
 
+	if _, err := buildFederationProxy(hub, srvAPI); err != nil {
+		return err
+	}
+
 	handler := srvAPI.Handler()
 
 	// Build transports.

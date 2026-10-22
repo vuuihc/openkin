@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/vuuihc/openkin/internal/api"
 	authsvc "github.com/vuuihc/openkin/internal/auth"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
@@ -54,6 +55,22 @@ func buildOIDCProvider(ctx context.Context, hub *remote.Hub) (*authsvc.OIDCProvi
 	}
 	fmt.Printf("oidc: %s via %s\n", provider.Config().ProviderLabel(), issuer)
 	return provider, nil
+}
+
+// buildFederationProxy returns the reverse proxy that publishes a same-origin
+// identity provider, or nil when the provider lives on its own origin.
+func buildFederationProxy(hub *remote.Hub, srvAPI *api.Server) (*federationProxy, error) {
+	proxy, err := newFederationProxy(hub, os.Getenv(envOIDCIssuer), os.Getenv(envOIDCBackchannelAddr))
+	if err != nil {
+		return nil, err
+	}
+	if proxy == nil {
+		return nil, nil
+	}
+	srvAPI.FederationProxy = proxy
+	srvAPI.FederationProxyPath = proxy.Prefix()
+	fmt.Printf("oidc: publishing the provider at %s%s\n", hub.URL(), proxy.Prefix())
+	return proxy, nil
 }
 
 // printBootstrapState tells the operator how to claim a Hub that has no owner

@@ -83,6 +83,11 @@ type Server struct {
 	// OIDC is the optional federated identity provider. Nil when only local
 	// passwords are enabled.
 	OIDC *auth.OIDCProvider
+	// FederationProxy publishes a same-origin identity provider under this
+	// Hub, mounted at FederationProxyPath. Nil when the provider has its own
+	// origin and is reached directly.
+	FederationProxy     http.Handler
+	FederationProxyPath string
 	// Static is the embedded (or on-disk) UI filesystem. May be nil in tests.
 	Static http.Handler
 	// UploadsDir is where POST /api/uploads stores image attachments. Empty disables uploads.
@@ -234,6 +239,12 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/auth/me", s.handleAuthMe)
 	r.Get("/api/auth/oidc/start", s.handleOIDCStart)
 	r.Get("/api/auth/oidc/callback", s.handleOIDCCallback)
+	if s.FederationProxy != nil && s.FederationProxyPath != "" {
+		// A provider published behind this Hub keeps its own paths, its own
+		// cookies, and its own CSRF defenses. Kin forwards and stays out of it.
+		r.Handle(s.FederationProxyPath, s.FederationProxy)
+		r.Handle(s.FederationProxyPath+"/*", s.FederationProxy)
+	}
 	if s.A2A != nil && s.A2A.Enabled {
 		a2aHandler := s.A2A.Handler()
 		r.Get("/.well-known/agent-card.json", func(w http.ResponseWriter, req *http.Request) {
