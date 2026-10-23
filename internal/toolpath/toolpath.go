@@ -161,25 +161,34 @@ func FilterPATH(pathEnv string) string {
 // way that reads like a bug in it rather than like something Kin did.
 const fallbackPATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 
-// dirEnvVars are variables that name a directory a tool searches for its own
-// helpers, ahead of PATH.
+// helperEnvVars are variables that name a directory, a file, or a program git
+// uses for an operation of its own, ahead of anything PATH would say.
 //
 // Rewriting PATH is only as good as the other doors. git takes GIT_EXEC_PATH
 // before anything on PATH, so a shim named there survives the rewrite and every
 // `git-*` helper is still found through it — which is the arrangement this
 // package exists to refuse, since the shim ships the whole family as symlinks.
-// A refused value is dropped rather than rewritten: git then falls back to its
-// own compiled-in location, which is where its helpers really are.
 //
-// The rest name a file or program git reads for the same purpose — a
-// configuration file, a credential program. They are judged as paths, and only
-// a refused one is dropped.
-var dirEnvVars = map[string]bool{
+// The rest name a program or a configuration file. The push path is why they
+// are here: git runs GIT_SSH, or the shell command in GIT_SSH_COMMAND, to reach
+// a remote, with GIT_PROXY_COMMAND and SSH_ASKPASS on the way, and GIT_ASKPASS
+// to answer a credential prompt. A wrapper named in any of them is executed for
+// every push, on the same path that carries code. GIT_CONFIG and its system and
+// global siblings point git at a file that can name a helper of its own.
+//
+// A refused value is dropped rather than rewritten: git then falls back to its
+// own compiled-in location, to plain ssh, or to no configuration file at all,
+// which is where those really are.
+var helperEnvVars = map[string]bool{
 	"GIT_EXEC_PATH":     true,
 	"GIT_CONFIG":        true,
 	"GIT_CONFIG_SYSTEM": true,
 	"GIT_CONFIG_GLOBAL": true,
 	"GIT_ASKPASS":       true,
+	"GIT_SSH":           true,
+	"GIT_SSH_COMMAND":   true,
+	"GIT_PROXY_COMMAND": true,
+	"SSH_ASKPASS":       true,
 }
 
 // injectedConfig reports whether an environment variable belongs to git's
@@ -196,15 +205,63 @@ func injectedConfig(name string) bool {
 }
 
 // namesRefusedProduct reports whether a value carries the fingerprint of the
-// refused product.
+// refused product, read as text rather than as a path.
 //
-// A substring test, deliberately: these values are not paths. An injected
-// credential helper reads `!node "/Users/…/.lody/dsh/helper.js"`, so judging the
-// value as a path finds nothing — the directory is inside a command.
+// A substring and component test, deliberately: these values are not paths. An
+// injected credential helper reads `!node "/Users/…/.lody/dsh/helper.js"`, so
+// judging the value as a path finds nothing — the directory is inside a command.
+// Matching the state directory as a whole component, rather than only between
+// two separators, is what catches the spellings that carry no trailing
+// separator: a relative `.lody/bin`, or the directory itself.
 func namesRefusedProduct(value string) bool {
 	folded := foldCase(value)
-	return strings.Contains(folded, foldCase(SessionShimComponent)) ||
-		strings.Contains(folded, string(filepath.Separator)+foldCase(stateDirComponent)+string(filepath.Separator))
+	if strings.Contains(folded, foldCase(SessionShimComponent)) {
+		return true
+	}
+	for _, part := range strings.Split(folded, string(filepath.Separator)) {
+		if part == foldCase(stateDirComponent) {
+			return true
+		}
+	}
+	return false
+}
+
+// helperValueRefused reports whether the value of one of helperEnvVars names
+// the refused product, judging it as the shell would spell it and as text.
+//
+// The two tests are not the same test, and neither alone is enough. A leading ~
+// is the shell's way of writing the home directory, and filepath.Abs resolves it
+// against the working directory instead — so it is expanded first, or a refused
+// path written the way a user writes one passes a purely lexical check. That
+// same working directory is why the path test is limited to absolute values:
+// several of these variables hold a command line rather than a path —
+// GIT_SSH_COMMAND is `ssh -i key` — and resolving that against Kin's own
+// directory judges a place the child will never look. A relative value is
+// therefore read as text, which is what catches one naming the product.
+func helperValueRefused(value string) bool {
+	if expanded := expandHome(value); filepath.IsAbs(expanded) {
+		if Refuse(expanded) != "" {
+			return true
+		}
+	}
+	return namesRefusedProduct(value)
+}
+
+// expandHome resolves a leading ~ or ~/ against the home directory, the way a
+// shell and git's own path handling do. Everything else is returned as given:
+// there is no other spelling rule that can be applied without guessing.
+func expandHome(value string) string {
+	if value != "~" && !strings.HasPrefix(value, "~/") {
+		return value
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return value
+	}
+	if value == "~" {
+		return home
+	}
+	return filepath.Join(home, value[len("~/"):])
 }
 
 // SanitizeEnv returns env with PATH filtered, ready to hand to a child process.
@@ -238,9 +295,10 @@ func SanitizeEnv(env []string) []string {
 		if dropInjected && injectedConfig(name) {
 			continue
 		}
-		// Someone else's GIT_EXEC_PATH is their configuration and is passed
-		// through untouched; only one that names a refused directory goes.
-		if dirEnvVars[name] && Refuse(value) != "" {
+		// Someone else's GIT_EXEC_PATH or GIT_SSH_COMMAND is their configuration
+		// and is passed through untouched; only one that names the refused
+		// product goes.
+		if helperEnvVars[name] && helperValueRefused(value) {
 			continue
 		}
 		out = append(out, entry)

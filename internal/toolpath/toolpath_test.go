@@ -380,6 +380,139 @@ func TestSanitizeEnvDropsARefusedHelperDirectory(t *testing.T) {
 	}
 }
 
+// The variables git uses to reach a remote are doors of their own: a wrapper
+// named in one of them runs on every push, on the very path that carries code.
+//
+// GIT_SSH_COMMAND is the reason these are not judged as paths alone. It holds a
+// command line — `ssh -i key` — so a path test finds nothing in it.
+func TestSanitizeEnvDropsARefusedRemoteProgram(t *testing.T) {
+	cases := []struct {
+		name  string
+		entry string
+	}{
+		{"ssh program", "GIT_SSH=/tmp/gh-session-bin/abc/ssh"},
+		{"ssh command line", `GIT_SSH_COMMAND=/Users/dev/.lody/gh-session-bin/abc/ssh -o StrictHostKeyChecking=no`},
+		{"proxy command", "GIT_PROXY_COMMAND=/tmp/gh-session-bin/abc/connect"},
+		{"askpass", "SSH_ASKPASS=/tmp/gh-session-bin/abc/askpass"},
+		{"git askpass", "GIT_ASKPASS=/Users/dev/.lody/bin/git-askpass"},
+		{"global config", "GIT_CONFIG_GLOBAL=/Users/dev/.lody/gitconfig"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, entry := range SanitizeEnv([]string{"PATH=/usr/bin", tc.entry}) {
+				if entry == tc.entry {
+					t.Fatalf("kept %q, which names the refused product", entry)
+				}
+			}
+		})
+	}
+
+	// The user's own, which is not ours to drop. Dropping a working
+	// GIT_SSH_COMMAND would break their push rather than protect it.
+	for _, own := range []string{
+		"GIT_SSH_COMMAND=ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes",
+		"GIT_SSH=/usr/bin/ssh",
+		"GIT_CONFIG_GLOBAL=/Users/dev/.gitconfig",
+	} {
+		kept := SanitizeEnv([]string{"PATH=/usr/bin", own})
+		found := false
+		for _, entry := range kept {
+			if entry == own {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("dropped %q, which names nothing refused", own)
+		}
+	}
+}
+
+// A refused path spelled the way a shell writes it — and the way it reaches git
+// through an environment variable — is the same path.
+//
+// The two cases here are not the same test. `~/.lody/bin` is caught by the
+// product's fingerprint wherever it appears, so it documents the realistic
+// spelling. The symlinked one is caught by nothing else: the literal spelling
+// names an innocent directory, and only resolving it after expanding `~` shows
+// where it goes. A lexical check would wave it through.
+func TestSanitizeEnvDropsAShellSpelledRefusedPath(t *testing.T) {
+	home := t.TempDir()
+	shim := filepath.Join(home, SessionShimComponent, "abc")
+	if err := os.MkdirAll(shim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTool(t, shim, "git-askpass")
+	if err := os.Symlink(shim, filepath.Join(home, "bin")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	for _, entry := range []string{
+		"GIT_EXEC_PATH=~/.lody/bin",
+		"GIT_ASKPASS=~/bin/git-askpass",
+	} {
+		for _, got := range SanitizeEnv([]string{"PATH=/usr/bin", entry}) {
+			if got == entry {
+				t.Fatalf("kept %q, a shell spelling of a refused path", got)
+			}
+		}
+	}
+}
+
+// A command line is not a path, and Kin's working directory is not the child's.
+//
+// Judging `ssh -i key` by resolving it here refuses the user's own
+// GIT_SSH_COMMAND whenever the daemon happens to run from inside the state
+// directory — which is exactly where it runs on a machine that lays its
+// worktrees out there. The working directory is set explicitly so the case does
+// not depend on where this checkout lives.
+func TestSanitizeEnvKeepsACommandLineValue(t *testing.T) {
+	home := t.TempDir()
+	state := filepath.Join(home, stateDirComponent)
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Chdir(state)
+
+	for _, entry := range []string{
+		"GIT_SSH_COMMAND=ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes",
+		"GIT_SSH=ssh",
+		"GIT_CONFIG=worktree.config",
+	} {
+		kept := SanitizeEnv([]string{"PATH=/usr/bin", entry})
+		found := false
+		for _, got := range kept {
+			if got == entry {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("dropped %q, which names nothing refused: %v", entry, kept)
+		}
+	}
+}
+
+// A relative spelling of the state directory names the same directory, and
+// nothing can resolve it here: the child changes into a repository of its own
+// choosing, so the value is read as text.
+//
+// The working directory is a fresh temporary directory rather than this
+// checkout, which lives under the refused state directory — from there `Refuse`
+// rejects the value for the other reason and the test would pass with the guard
+// removed, which is how the earlier relative-path test went wrong.
+func TestSanitizeEnvDropsARelativeSpellingOfTheStateDirectory(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+
+	const entry = "GIT_EXEC_PATH=.lody/bin"
+	for _, got := range SanitizeEnv([]string{"PATH=/usr/bin", entry}) {
+		if got == entry {
+			t.Fatalf("kept %q, a relative spelling of the refused state directory", got)
+		}
+	}
+}
+
 func writeTool(t *testing.T, dir, name string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
