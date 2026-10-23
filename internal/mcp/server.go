@@ -106,6 +106,11 @@ type authContext struct {
 	// through this session records. Empty for a master token or a paired device,
 	// neither of which is an account.
 	OwnerUserID string
+	// Holder reports that this caller acts for whoever holds the machine, rather
+	// than as a guest on it. It decides the tools that describe the machine
+	// itself — its projects, routines, artifacts, and usage — and it is resolved
+	// here, once, from the same store rule the REST routes use.
+	Holder bool
 }
 
 type sessionState struct {
@@ -256,6 +261,7 @@ func (s *Server) Handler() http.Handler {
 			Scope:     store.ScopeForPrincipal(principal),
 
 			OwnerUserID: principal.UserID,
+			Holder:      store.ActsForHolder(principal),
 		}
 		if len(req.ID) == 0 && req.Method == "tools/call" {
 			_ = s.finish(r.Context(), req, auth, errorResponse(req, -32600, "tools/call notifications are not supported"))
@@ -490,10 +496,73 @@ func (s *Server) lockIdempotency(key string) func() {
 	}
 }
 
+// toolReach says what a tool needs before it may run at all.
+//
+// The gate is a property of the tool, declared in one table and enforced in one
+// place, because the failure mode of doing it per handler is exactly what
+// happened here: list_tasks got a scope and the other fourteen tools that name
+// a task did not, so the MCP surface stayed a way around the REST guards while
+// looking fixed. A new tool added without an entry here fails the table's own
+// test rather than shipping unguarded.
+type toolReach int
+
+const (
+	// reachOpen needs neither a task nor the machine: it names nothing.
+	reachOpen toolReach = iota
+	// reachTask acts on one task, named by task_id, and is checked against the
+	// caller's scope. Out of scope answers "not found", like the REST 404.
+	reachTask
+	// reachHolder reads or changes the machine itself.
+	reachHolder
+)
+
+var toolReaches = map[string]toolReach{
+	"list_tasks":           reachOpen, // scoped by its own argument, not by id
+	"create_task":          reachOpen, // creates into the caller's own scope
+	"approve_task_action":  reachOpen, // gated on the approval's task
+	"answer_task_question": reachOpen, // gated on the question's task
+	"resolve_idempotency":  reachOpen,
+
+	"get_task":          reachTask,
+	"list_task_events":  reachTask,
+	"list_worker_steps": reachTask,
+	"send_task_message": reachTask,
+	"cancel_task":       reachTask,
+	"retry_task":        reachTask,
+	"continue_task":     reachTask,
+
+	"list_projects":      reachHolder,
+	"list_artifacts":     reachHolder,
+	"read_artifact":      reachHolder,
+	"list_routines":      reachHolder,
+	"run_routine":        reachHolder,
+	"get_usage":          reachHolder,
+	"get_routing_status": reachHolder,
+}
+
 func (s *Server) executeTool(ctx context.Context, req request, auth authContext, params toolCallParams) response {
 	args := params.Arguments
 	var result any
 	var err error
+
+	reach, known := toolReaches[params.Name]
+	if !known {
+		// Not the unknown-tool error: the switch below owns that message, and a
+		// tool listed there but missing here is a programming error, not a bad
+		// request. Refusing is the safe reading of both.
+		return errorResponse(req, -32602, "unknown tool: "+params.Name)
+	}
+	switch reach {
+	case reachHolder:
+		if !auth.Holder {
+			return errorResponse(req, -32004, params.Name+" not found")
+		}
+	case reachTask:
+		id := requiredString(args, "task_id")
+		if !s.ownsTask(auth.Scope, id) {
+			return errorResponse(req, -32004, "task not found")
+		}
+	}
 
 	switch params.Name {
 	case "list_tasks":
@@ -966,7 +1035,10 @@ func (s *Server) approveTaskAction(ctx context.Context, auth authContext, args m
 	// answer. Without this, the MCP surface would be the way around the REST
 	// check on the same row.
 	if !s.ownsTask(auth.Scope, a.TaskID) {
-		return nil, fmt.Errorf("approval %s not found", id)
+		// Wrapped, not formatted: the code a client sees has to be the same one a
+		// genuinely absent approval gets, or "not yours" and "not there" are
+		// distinguishable from outside.
+		return nil, fmt.Errorf("approval %s: %w", id, store.ErrNotFound)
 	}
 	if s.Store != nil && auth.SessionID != "" {
 		origin, originErr := s.Store.GetMCPTaskOrigin(ctx, a.TaskID)
@@ -999,7 +1071,7 @@ func (s *Server) answerTaskQuestion(ctx context.Context, auth authContext, args 
 	// Same rule as the approval gate: answering is authority over the task the
 	// question was asked for.
 	if !s.ownsTask(auth.Scope, q.TaskID) {
-		return nil, fmt.Errorf("question %s not found", id)
+		return nil, fmt.Errorf("question %s: %w", id, store.ErrNotFound)
 	}
 	selected := stringSliceArg(args, "selected")
 	return s.Engine.AnswerUserQuestion(ctx, id, task.AnswerUserQuestionRequest{

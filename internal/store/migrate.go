@@ -17,14 +17,21 @@ const schemaVersion = 36
 // silently hide whatever came next. The tombstone is both the notification and
 // the floor under the maximum. Rows are tiny and are never pruned; a client that
 // has been away for a year still learns what it missed.
+//
+// owner_user_id is who owned the deleted task, so the deletion can be delivered
+// to the account that could see the row. NULL means nobody in particular: a task
+// from before accounts existed, which only the holder of the machine is told
+// about.
+//
+// The comments live out here rather than inside the CREATE TABLE because SQLite
+// stores the statement verbatim and re-parses it when it rewrites a table, and a
+// `--` comment inside the column list comes back out as a syntax error. Comments
+// in the schema text are a trap for the next ALTER, not documentation.
 const migrationTaskTombstones = `
 CREATE TABLE IF NOT EXISTS task_tombstones (
   task_id    TEXT PRIMARY KEY,
   hub_seq    INTEGER NOT NULL,
   deleted_at INTEGER NOT NULL,
-  -- Who owned the deleted task, so the deletion can be delivered to the account
-  -- that could see the row. NULL means nobody in particular: a task from before
-  -- accounts existed, which only the holder of the machine is told about.
   owner_user_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_task_tombstones_hub_seq ON task_tombstones(hub_seq);
@@ -794,11 +801,22 @@ const migration008 = `SELECT 1;`
 // databases below its version, which means every future hand-built database and
 // every test fixture has to replay the whole chain to be correct. A column that
 // only ever needs to exist is cheaper to assert than to version.
+//
+// A table that is not there is skipped rather than created: this asserts what
+// isolation reads, and silently conjuring a table would hide the fixture that
+// forgot it.
 func (s *Store) ensureTaskScopeSchema() error {
 	for _, col := range []struct{ table, column string }{
 		{"tasks", "owner_user_id"},
 		{"task_tombstones", "owner_user_id"},
 	} {
+		present, err := s.tableExists(col.table)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
 		var exists int
 		q := fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('%s') WHERE name = ?`, col.table)
 		if err := s.db.QueryRow(q, col.column).Scan(&exists); err != nil {
@@ -815,15 +833,32 @@ func (s *Store) ensureTaskScopeSchema() error {
 	// per client. Without these it would walk the account's whole history to
 	// answer "what changed since", which is the read the feed exists to make
 	// cheap.
-	for _, q := range []string{
-		`CREATE INDEX IF NOT EXISTS idx_tasks_owner_hub_seq ON tasks(owner_user_id, hub_seq)`,
-		`CREATE INDEX IF NOT EXISTS idx_task_tombstones_owner_seq ON task_tombstones(owner_user_id, hub_seq)`,
+	for _, idx := range []struct{ name, table, cols string }{
+		{"idx_tasks_owner_hub_seq", "tasks", "owner_user_id, hub_seq"},
+		{"idx_task_tombstones_owner_seq", "task_tombstones", "owner_user_id, hub_seq"},
 	} {
-		if _, err := s.db.Exec(q); err != nil {
+		present, err := s.tableExists(idx.table)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(
+			`CREATE INDEX IF NOT EXISTS %s ON %s(%s)`, idx.name, idx.table, idx.cols)); err != nil {
 			return fmt.Errorf("index task scope: %w", err)
 		}
 	}
 	return nil
+}
+
+func (s *Store) tableExists(name string) (bool, error) {
+	var n int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name).Scan(&n); err != nil {
+		return false, fmt.Errorf("inspect table %s: %w", name, err)
+	}
+	return n > 0, nil
 }
 
 func (s *Store) migrate() error {
@@ -854,7 +889,10 @@ func (s *Store) migrate() error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 001: %w", err)
 		}
-		return nil
+		// migration001 already carries the columns, so this is normally a no-op —
+		// but "normally" is exactly what drifts. Asserting on every path out of
+		// here is what keeps a fresh install and an upgraded one the same shape.
+		return s.ensureTaskScopeSchema()
 	}
 	if v == 1 {
 		tx, err := s.db.Begin()

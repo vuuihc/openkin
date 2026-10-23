@@ -184,8 +184,16 @@ func (b *Bus) PublishTask(t store.Task) {
 }
 
 // PublishTaskDeleted broadcasts that a task row was permanently removed.
-func (b *Bus) PublishTaskDeleted(id string) {
-	b.Publish(WSMessage{Kind: "task_deleted", Data: map[string]string{"id": id}})
+//
+// ownerUserID is passed in rather than looked up: by the time this runs the row
+// is gone, so the resolver would answer "" and the account that owned the task
+// would be the one account not told it disappeared.
+func (b *Bus) PublishTaskDeleted(id, ownerUserID string) {
+	b.Publish(WSMessage{
+		Kind:        "task_deleted",
+		Data:        map[string]string{"id": id},
+		OwnerUserID: ownerUserID,
+	})
 }
 
 // PublishEvent broadcasts an event envelope with task_id.

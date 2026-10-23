@@ -1890,7 +1890,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	if err := e.store.DeleteTask(ctx, id); err != nil {
 		return err
 	}
-	e.bus.PublishTaskDeleted(id)
+	e.bus.PublishTaskDeleted(id, t.OwnerUserID)
 	return nil
 }
 

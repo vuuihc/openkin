@@ -521,16 +521,25 @@ func (s *Store) ListTaskChangesSince(ctx context.Context, since int64, limit int
 	}
 	taskCond, taskArgs := scope.predicate("tasks")
 	tombCond, tombArgs := scope.predicate("task_tombstones")
-	args := append(append([]any{}, taskArgs...), tombArgs...)
+	// The cursor test sits inside each branch, next to that branch's scope, so
+	// SQLite can serve both from (owner_user_id, hub_seq) instead of building the
+	// account's whole history and filtering it afterwards. Moving it out here is
+	// otherwise free: a NULL hub_seq fails `hub_seq > ?` instead of comparing as
+	// 0, and 0 is not above any cursor this can be called with, so the same rows
+	// come back either way.
+	args := append([]any{}, taskArgs...)
+	args = append(args, since)
+	args = append(args, tombArgs...)
 	args = append(args, since, limit+1)
 	// One extra row tells us whether the page was cut short.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT kind, ref, seq FROM (
-			SELECT 'task' AS kind, id AS ref, COALESCE(hub_seq, 0) AS seq FROM tasks WHERE `+taskCond+`
+			SELECT 'task' AS kind, id AS ref, hub_seq AS seq FROM tasks
+				WHERE `+taskCond+` AND hub_seq > ?
 			UNION ALL
-			SELECT 'deleted' AS kind, task_id AS ref, hub_seq AS seq FROM task_tombstones WHERE `+tombCond+`
+			SELECT 'deleted' AS kind, task_id AS ref, hub_seq AS seq FROM task_tombstones
+				WHERE `+tombCond+` AND hub_seq > ?
 		)
-		WHERE seq > ?
 		ORDER BY seq ASC
 		LIMIT ?`, args...)
 	if err != nil {
@@ -698,6 +707,16 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, `UPDATE artifacts SET source_task_id = NULL WHERE source_task_id = ?`, id); err != nil {
 		return fmt.Errorf("detach artifacts: %w", err)
 	}
+	// Allocate the tombstone's number while the row is still here. nextHubSeq is
+	// MAX(hub_seq)+1 over tasks and tombstones, and the row being deleted is part
+	// of that MAX — so asking afterwards lets the tombstone land on the deleted
+	// row's own number, and the one client that most needs the news, the one that
+	// already synced up to that number, is the one that never hears it. Deleting
+	// the most recently changed task is the common case, not a corner.
+	hubSeq, err := nextHubSeq(ctx, tx)
+	if err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete task: %w", err)
@@ -708,10 +727,6 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	}
 	// The row is gone, so the deletion itself carries the cursor: a syncing
 	// client sees the tombstone, drops the task, and the number is never reused.
-	hubSeq, err := nextHubSeq(ctx, tx)
-	if err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO task_tombstones (task_id, hub_seq, deleted_at, owner_user_id) VALUES (?, ?, ?, ?)`,
 		id, hubSeq, time.Now().UnixMilli(), owner); err != nil {

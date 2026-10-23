@@ -252,3 +252,56 @@ func insertOwnedTestTask(t *testing.T, s *Store, id, ownerUserID string) {
 		t.Fatalf("insert task %s: %v", id, err)
 	}
 }
+
+// The cursor a client holds is the number of the newest change it has seen. If a
+// deletion writes its tombstone at or below that number, the one client that most
+// needs the news — the one that had already synced that far — is the one that
+// never hears it, and the task sits in its list forever. The single-task case is
+// the sharpest: the tombstone has nothing else to be numbered above.
+func TestDeletingATaskPublishesTheDeletionAboveItsOwnCursor(t *testing.T) {
+	ctx := context.Background()
+	s := openDeviceTestStore(t)
+	insertCursorTestTask(t, s, "only-task")
+
+	own := *taskHubSeq(t, s, "only-task")
+	if err := s.DeleteTask(ctx, "only-task"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The client is exactly where the deleted task left it.
+	page, err := s.ListTaskChangesSince(ctx, own, 0, Unscoped())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Deleted) != 1 || page.Deleted[0] != "only-task" {
+		t.Fatalf("a client at the deleted task's own cursor got %+v, want the tombstone", page)
+	}
+	if page.NextCursor <= own {
+		t.Fatalf("tombstone cursor %d did not advance past %d", page.NextCursor, own)
+	}
+}
+
+// The same guarantee with history behind it, so the tombstone cannot pass by
+// landing above a coincidentally-low number.
+func TestDeletingTheMostRecentlyChangedTaskAdvancesTheCursor(t *testing.T) {
+	ctx := context.Background()
+	s := openDeviceTestStore(t)
+	insertCursorTestTask(t, s, "task-a")
+	insertCursorTestTask(t, s, "task-b")
+
+	newest := *taskHubSeq(t, s, "task-b")
+	if err := s.DeleteTask(ctx, "task-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := s.ListTaskChangesSince(ctx, newest, 0, Unscoped())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Deleted) != 1 || page.Deleted[0] != "task-b" {
+		t.Fatalf("a client at task-b's cursor got %+v, want the tombstone", page)
+	}
+	if page.NextCursor <= newest {
+		t.Fatalf("tombstone cursor %d did not advance past %d", page.NextCursor, newest)
+	}
+}

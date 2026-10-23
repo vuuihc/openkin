@@ -282,25 +282,25 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
 		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
 		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
-		r.Get("/api/workers", s.handleListWorkers)
+		r.With(holderOnly).Get("/api/workers", s.handleListWorkers)
 		r.With(operatorOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)
 		r.Get("/api/agents", s.handleListAgents)
-		r.Get("/api/agent-providers", s.handleListAgentProviders)
+		r.With(holderOnly).Get("/api/agent-providers", s.handleListAgentProviders)
 		r.With(holderOnly).Get("/api/agent-sessions", s.handleListAgentSessions)
 		r.With(holderOnly).Get("/api/agent-sessions/page", s.handleListAgentSessionsPage)
 		r.With(holderOnly).Get("/api/agent-sessions/{id}", s.handleGetAgentSession)
 		r.With(operatorOnly).Post("/api/agent-sessions/import", s.handleImportAgentSessions)
 		r.With(operatorOnly).Get("/api/agent-sessions/{id}/history", s.handleGetAgentSessionHistory)
 		r.With(operatorOnly).Post("/api/agent-sessions/{id}/attach", s.handleAttachAgentSession)
-		r.Get("/api/agents/management", s.handleAgentsManagement)
+		r.With(holderOnly).Get("/api/agents/management", s.handleAgentsManagement)
 		r.With(operatorOnly).Post("/api/agents/smoke", s.handleAgentsSmoke)
-		r.Get("/api/connectors", s.handleListConnectors)
+		r.With(holderOnly).Get("/api/connectors", s.handleListConnectors)
 		r.With(operatorOnly).Post("/api/connectors", s.handleRegisterConnector)
 		r.With(operatorOnly).Patch("/api/connectors/{id}", s.handleUpdateConnector)
 		r.With(operatorOnly).Delete("/api/connectors/{id}", s.handleDisableConnector)
-		r.Get("/api/connectors/{id}/tools", s.handleListConnectorTools)
+		r.With(holderOnly).Get("/api/connectors/{id}/tools", s.handleListConnectorTools)
 		r.With(operatorOnly).Post("/api/connectors/{id}/call", s.handleCallConnector)
 		r.With(operatorOnly).Put("/api/connectors/credentials/{ref}", s.handleSetConnectorCredential)
 		r.With(operatorOnly).Delete("/api/connectors/credentials/{ref}", s.handleDeleteConnectorCredential)
@@ -361,13 +361,13 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Post("/api/notify/test", s.handleNotifyTest)
 		r.With(holderOnly).Get("/api/usage/summary", s.handleUsageSummary)
 		r.With(holderOnly).Get("/api/usage/limits", s.handleUsageLimits)
-		r.Get("/api/routing/options", s.handleGetRoutingOptions)
-		r.Get("/api/routing/preview", s.handleGetRoutingPreview)
-		r.Get("/api/routing/defaults", s.handleGetRoutingDefaults)
+		r.With(holderOnly).Get("/api/routing/options", s.handleGetRoutingOptions)
+		r.With(holderOnly).Get("/api/routing/preview", s.handleGetRoutingPreview)
+		r.With(holderOnly).Get("/api/routing/defaults", s.handleGetRoutingDefaults)
 		r.With(operatorOnly).Put("/api/routing/defaults", s.handlePutRoutingDefaults)
-		r.Get("/api/routing/profiles", s.handleGetRoutingProfiles)
+		r.With(holderOnly).Get("/api/routing/profiles", s.handleGetRoutingProfiles)
 		r.With(operatorOnly).Put("/api/routing/profiles", s.handlePutRoutingProfiles)
-		r.Get("/api/routing/provider-profiles", s.handleGetProviderProfiles)
+		r.With(holderOnly).Get("/api/routing/provider-profiles", s.handleGetProviderProfiles)
 		r.With(operatorOnly).Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
 		r.With(operatorOnly).Post("/api/uploads", s.handleUpload)
 		r.With(holderOnly).Get("/api/uploads/{name}", s.handleServeUpload)
@@ -727,7 +727,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		if list == nil {
 			list = []AgentInfo{}
 		}
-		writeJSON(w, http.StatusOK, list)
+		writeJSON(w, http.StatusOK, hideAgentBinaries(r, list))
 		return
 	}
 	// Tests without discovery: mirror engine adapters.
@@ -748,7 +748,29 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []AgentInfo{}
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, hideAgentBinaries(r, list))
+}
+
+// hideAgentBinaries blanks the install path for a caller that does not hold the
+// machine.
+//
+// This route is the one machine-describing read left open to members on purpose:
+// choosing an agent to run a task needs the catalogue. An absolute install path
+// is not part of that need — it is the holder's filesystem layout, and it is the
+// kind of detail that is harmless alone and useful in aggregate.
+func hideAgentBinaries(r *http.Request, list []AgentInfo) []AgentInfo {
+	p, ok := remote.PrincipalFromContext(r.Context())
+	if ok && store.ActsForHolder(p) {
+		return list
+	}
+	// AgentInfo is a value type, so this copies rather than mutating whatever
+	// ListAgents handed back — which may be shared with the management view.
+	redacted := make([]AgentInfo, len(list))
+	copy(redacted, list)
+	for i := range redacted {
+		redacted[i].Binary = ""
+	}
+	return redacted
 }
 
 func (s *Server) handleAgentsManagement(w http.ResponseWriter, r *http.Request) {

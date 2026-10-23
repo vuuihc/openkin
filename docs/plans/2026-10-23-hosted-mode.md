@@ -52,22 +52,38 @@ unscoped，是因为配对本身是 operatorOnly——凭据由持有人签发�
 |---|---|
 | store | `owner_user_id` 写入并读出；`ListTasks` / `ListApprovals` / `ListUserQuestions` 收 scope；删除前先读 owner 写进 tombstone |
 | REST | `/api/tasks/{id}` 整棵子树受 `taskInScope` 保护，**404 而不是 403**——任务是否存在本身就是不该泄露的信息 |
-| MCP | 同一份规则，避免工具面成为 HTTP 面的绕路 |
+| MCP | `toolReaches` 一张表声明每个工具够得着什么，在 `executeTool` 里统一执行；不是逐个 handler 判断 |
 | 实时流 | WebSocket / SSE / `sessions/wait` 都按 scope 订阅；不隔离的话每条流都是列不出但推得动的通道 |
 | 变更流 | 游标是"**我看得见的**最后一个变更"；因为 owner 写入后不再修改，这个条件稳定，所以游标不会漏 |
-| 机器自身记录 | projects / routines / artifacts / agent-sessions / recent-cwds / uploads / usage 归持有人：member 拒绝，**配对设备放行**（用 `operatorOnly` 会顺手打断远控） |
+| 机器自身记录 | projects / routines / artifacts / agent-sessions / recent-cwds / uploads / usage / connectors / workers / agent-providers / agents-management / routing 全部归持有人：member 拒绝，**配对设备放行**（用 `operatorOnly` 会顺手打断远控） |
 | 人闸 | 审批/回答改成"看行背后的任务归谁"，不再是角色判断，于是 member 能批自己的任务 |
 
 老库在 open 时补齐：`ensureTaskScopeSchema` 加列和 `(owner, cursor)` 索引，
 幂等且增量。**故意不写成编号迁移**——编号迁移只跑一次，会让以后每个测试 fixture
-为了正确性重放整条链。
+为了正确性重放整条链。三条出库路径（已是最新版 / 升级 / 全新安装）都会走一遍断言。
+
+### 3a. 第一轮 review 后的修正
+
+第二双眼睛找出四个真问题，都在同一次提交里修掉：
+
+| 问题 | 症状 | 修法 |
+|---|---|---|
+| MCP 只有 `list_tasks` 带 scope | 另外 14 个按 id 取任务的工具照常通行——HTTP 面堵住、工具面绕过去 | `toolReaches` 表 + 一条测试：任何宣告的工具没登记就 fail |
+| 删除把自己编号到游标下方 | 删掉"最新改动的那个任务"时，tombstone 落在该任务自己的序号上；**已经同步到那个号的客户端永远收不到删除** | `nextHubSeq` 移到 `DELETE` 之前——被删的行还在 MAX 里，tombstone 必然严格更大 |
+| `PublishTaskDeleted` 查不到 owner | 行已经没了，resolver 返回空，于是"任务归谁"里唯一收不到删除通知的正是那个账号 | owner 从 `engine.Delete` 手里已有的行传进去，不查库 |
+| 一台机器的描述性 GET 对 member 全开 | routing / connectors / workers / agent-providers / agents-management 谁都读得到 | 同一把 `holderOnly` 尺子 |
+
+另外：A2A 建任务时补上 `owner_user_id`（否则它建的任务在 `/api/tasks` 里对
+同一个账号不可见，两套答案打架）；`maybeInjectProjectContext` 改成**没有 principal
+也拒绝**（原先是"有 principal 才检查"，漏判方向是别人的项目文档进你的 prompt）。
 
 ## 未做（review 提出、我判断不该顺手改的）
 
 **1. 控制台看不到 role**（`internal/api/auth.go:34` 的 `authUser` 没有 role 字段），
-所以 member 会渲染出 operator 界面然后收一屏 403。现在 member 会被
-`/api/projects`、`/api/routines` 等一律 403，**这个缺口比之前更明显**：以前他只是看到
-不该看的东西，现在他会看到一屏报错。
+所以 member 会渲染出 operator 界面然后收一屏 403。第 3 条把 connectors / workers /
+routing 也收进持有人之后，**这个缺口比之前更明显**：以前他只是看到不该看的东西，
+现在他会看到一屏报错。真要做 member 界面时，任务创建路径需要的
+`GET /api/agents`（选 agent）是故意留开的，其余的要么按 member 重做，要么就别渲染。
 
 **2. `User.IsOwner()` 没有生产调用者**，守卫里是内联比较；测试断言它反而给人"helper 和守卫一致"的错觉。
 
@@ -79,6 +95,26 @@ bootstrap / login / logout。托管模式的"注册后多端登录"还差这一�
 **5. 成员不能配对自己的设备。** 于是设备凭据只可能由 owner 签发，隔离里把
 `PrincipalDevice` 当作 holder（unscoped）是成立的；等成员能自己配对时，
 这条必须改成读登记账户的角色，`devices.owner_user_id` 已经准备好承载它。
+
+**6. MCP scope 是自己声明的**（`X-Kin-MCP-Scopes: admin` 就拿到 admin）。
+**没有改**，因为它现在买不到东西：admin 只解锁三个工具，`approve_task_action` /
+`answer_task_question` 背后是"审批归哪个任务"，`resolve_idempotency` 只在自己
+principal + client 的 key 空间里操作。真正的控制是 reach 检查，不是 scope 声明。
+要让 scope 也变成硬边界的话，得按 principal 类型设上限，那时再说。
+
+**7. member 选 `cwd` 就能读到持有人机器上的文件。** `POST /api/tasks` 只覆盖 owner、
+不覆盖 `cwd`；随后 `GET /api/tasks/{id}/source/file` 的边界是任务自己的 `cwd`
+（`validateScopePath`，`..` 已正确拦住），于是 member 把 `cwd` 指向持有人机器上任意
+git 仓库，就能读那个仓库里的文件。**这不是越权漏洞而是威胁模型问题**：member 本来就能
+让 agent 以 daemon 用户身份跑命令，读文件严格弱于那个。但它是**唯一一处 member 的触达
+范围是"机器级"而不是"任务级"**的地方，托管模式对外开注册之前必须有个说法：
+限制可选 `cwd`（白名单 / 只能选已有 project），或者明确接受它。
+
+**8. A2A 的身份键改过（`a2a:<kind>:<Identity()>`），旧行不会自动改键。**
+`IsA2ATaskOwner` 只从 `a2a_idempotency` / `a2a_operations` 的 `principal_id` 解析归属，
+**不读 `tasks.owner_user_id`**。所以如果这两张表里有升级前写下的 `a2a:user:` 行，
+升级后同一账户会收到 403，重试还会再建一个任务。**实测这两张表 0 行**（作者自己的库，
+157 个任务、0 个 owner），所以此刻无影响；真出现那行数据时，要么折叠旧键，要么写迁移。
 
 ## 下一步
 

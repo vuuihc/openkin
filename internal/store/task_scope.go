@@ -108,6 +108,11 @@ func (s TaskScope) MatchesOwner(ownerUserID string) bool {
 // It takes no context because its caller is the bus, which attributes messages
 // synchronously while publishing and has no request to thread through. The
 // lookup is a primary-key hit on a local database.
+//
+// It must never be called while holding a transaction or an open *sql.Rows: the
+// pool is one connection wide, and this would wait for a connection its own
+// caller is holding. Every current caller publishes after its store call has
+// returned, which is the shape to keep.
 func (s *Store) TaskOwner(taskID string) string {
 	if s == nil || taskID == "" {
 		return ""

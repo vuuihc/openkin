@@ -196,3 +196,60 @@ func expectNothing(t *testing.T, ch chan WSMessage, msg string) {
 	default:
 	}
 }
+
+// TestBusDeliversADeletionToTheAccountThatOwnedIt covers the message the bus
+// cannot look up. A deletion is published after the row is gone, so the resolver
+// answers "" for it — and a scoped subscriber matching on that empty answer is
+// the one account that never hears its own task disappeared, while every other
+// account is told nothing either. Passing the owner in is what closes it, so the
+// resolver here deliberately answers "" for the deleted id to prove the message
+// does not depend on it.
+func TestBusDeliversADeletionToTheAccountThatOwnedIt(t *testing.T) {
+	b := NewBus()
+	b.SetOwnerResolver(func(string) string { return "" })
+
+	holder := b.Subscribe()
+	member := b.SubscribeFor(store.OwnedBy("user-a"))
+	other := b.SubscribeFor(store.OwnedBy("user-b"))
+	if member == nil || other == nil {
+		t.Fatal("scoped subscription refused")
+	}
+
+	b.PublishTaskDeleted("task-a", "user-a")
+
+	if msg := expectOne(t, member, "the owner missed its own task's deletion"); msg.Kind != "task_deleted" {
+		t.Fatalf("member got kind=%q, want task_deleted", msg.Kind)
+	}
+	expectNothing(t, other, "another account was told about the deletion")
+	if msg := expectOne(t, holder, "the holder missed the deletion"); msg.Kind != "task_deleted" {
+		t.Fatalf("holder got kind=%q, want task_deleted", msg.Kind)
+	}
+}
+
+// TestBusDoesNotGuessWhenADeletionHasNoOwner pins the fallback that made the
+// previous test necessary. An empty owner means "unknown — go and look it up",
+// so a deletion published without one is attributed by a lookup. That lookup runs
+// after the row is gone and therefore finds nothing, which is exactly why the
+// engine passes the owner in: without it, the account that owned the task is the
+// one account that is never told it disappeared.
+func TestBusDoesNotGuessWhenADeletionHasNoOwner(t *testing.T) {
+	lookups := 0
+	b := NewBus()
+	b.SetOwnerResolver(func(string) string { lookups++; return "" }) // the row is gone
+
+	holder := b.Subscribe()
+	member := b.SubscribeFor(store.OwnedBy("user-a"))
+	if member == nil {
+		t.Fatal("scoped subscription refused")
+	}
+
+	b.PublishTaskDeleted("task-orphan", "")
+
+	if lookups == 0 {
+		t.Fatal("an owner-less deletion skipped the lookup that is its only source of an owner")
+	}
+	expectNothing(t, member, "an unattributable deletion reached a scoped member")
+	if msg := expectOne(t, holder, "the holder missed the deletion"); msg.Kind != "task_deleted" {
+		t.Fatalf("holder got kind=%q, want task_deleted", msg.Kind)
+	}
+}

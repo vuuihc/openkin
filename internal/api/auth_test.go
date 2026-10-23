@@ -732,6 +732,9 @@ func TestAMemberCannotReadTheMachinesOwnRecords(t *testing.T) {
 	member := joinMember(t, s, handler, "holder-member", "holder@example.com")
 
 	// Every one of these reads the holder's machine, not the caller's tasks.
+	// The routing and agent-management reads are on the list for the same
+	// reason as the rest: they name the machine's providers, profiles, and
+	// installed CLIs, none of which a guest on someone's Hub administers.
 	for _, path := range []string{
 		"/api/projects",
 		"/api/routines",
@@ -741,6 +744,15 @@ func TestAMemberCannotReadTheMachinesOwnRecords(t *testing.T) {
 		"/api/recent-cwds",
 		"/api/usage/summary",
 		"/api/git/branches?cwd=/tmp",
+		"/api/workers",
+		"/api/connectors",
+		"/api/agents/management",
+		"/api/agent-providers",
+		"/api/routing/options",
+		"/api/routing/preview",
+		"/api/routing/defaults",
+		"/api/routing/profiles",
+		"/api/routing/provider-profiles",
 	} {
 		if rec := member.get(path); rec.Code != http.StatusForbidden {
 			t.Fatalf("member reading %s: %d %s, want 403", path, rec.Code, rec.Body.String())

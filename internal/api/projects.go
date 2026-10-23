@@ -690,7 +690,11 @@ func (s *Server) maybeInjectProjectContext(ctx context.Context, req *task.Create
 	if req == nil || s.ProjectsDir == "" || s.Store == nil {
 		return
 	}
-	if p, ok := remote.PrincipalFromContext(ctx); ok && !store.ActsForHolder(p) {
+	// No principal means no proof of holding the machine, and this path's failure
+	// mode is copying the holder's document into someone else's prompt. So it
+	// takes the same direction as every other scope check here: absent, deny.
+	caller, ok := remote.PrincipalFromContext(ctx)
+	if !ok || !store.ActsForHolder(caller) {
 		return
 	}
 	// Skip if prompt already carries project context (e.g. Continue Focus).

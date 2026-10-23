@@ -98,7 +98,10 @@ func TestUpgradeToDeviceRegistryKeepsExistingRows(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `
 		DROP INDEX IF EXISTS idx_tasks_hub_seq;
 		DROP INDEX IF EXISTS idx_tasks_owner_created;
+		DROP INDEX IF EXISTS idx_tasks_owner_hub_seq;
+		DROP INDEX IF EXISTS idx_task_tombstones_owner_seq;
 		ALTER TABLE tasks DROP COLUMN owner_user_id;
+		ALTER TABLE task_tombstones DROP COLUMN owner_user_id;
 		ALTER TABLE tasks DROP COLUMN origin_device_id;
 		ALTER TABLE tasks DROP COLUMN executing_device_id;
 		ALTER TABLE tasks DROP COLUMN workspace_anchor_id;

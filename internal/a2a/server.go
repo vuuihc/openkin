@@ -197,6 +197,10 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		ID:  taskID,
 		Cwd: body.Cwd, Prompt: prompt, Agent: body.Agent, Model: body.Model,
 		PermissionMode: body.PermissionMode, ProjectID: body.ProjectID, Dispatch: body.Dispatch,
+		// A2A already decides who may touch a task (IsA2ATaskOwner, above). Leaving
+		// the account blank would make the task invisible to that same account on
+		// /api/tasks, so the two answers would disagree.
+		OwnerUserID: callerUserID(r),
 	})
 	if err != nil {
 		if _, getErr := s.Engine.Get(r.Context(), taskID); errors.Is(getErr, store.ErrNotFound) {
@@ -465,6 +469,16 @@ func (s *Server) writeTaskStatus(w http.ResponseWriter, r *http.Request, status 
 		ID: t.ID, ContextID: t.ID, Status: normalizeStatus(t.Status), Task: t, Artifacts: artifacts,
 		Approvals: approvals, Questions: questions,
 	})
+}
+
+// callerUserID is the account a request acts as, or "" when it acts as the
+// machine itself (master token, paired device). It is the same value the REST
+// layer stamps on a task it creates, so both surfaces agree on who owns what.
+func callerUserID(r *http.Request) string {
+	if principal, ok := remote.PrincipalFromContext(r.Context()); ok {
+		return principal.UserID
+	}
+	return ""
 }
 
 func principalID(r *http.Request) string {
