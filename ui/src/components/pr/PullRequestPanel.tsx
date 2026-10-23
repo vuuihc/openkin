@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   getTaskPullRequest,
@@ -36,6 +36,15 @@ type Props = {
 /** How often, and how many times, to follow a query the daemon is running. */
 const POLL_INTERVAL_MS = 1500;
 const MAX_POLLS = 12;
+/**
+ * Ceiling on one read, so an attempt always ends.
+ *
+ * The read itself is a local cache lookup, but the transport can be a relay to
+ * a machine somewhere else. Without a ceiling, a request that never answers
+ * would hold the loop open — and with it the disabled button that reports the
+ * panel is still following — for as long as the tab lives.
+ */
+const POLL_READ_TIMEOUT_MS = 15_000;
 
 /**
  * Pull-request state for a task's branch, read-only.
@@ -73,17 +82,30 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
     [tr],
   );
 
+  // Which read is allowed to publish. Two can be in flight — the panel's first
+  // read and a refresh the user asked for while it was still running — and the
+  // answer to the older one is not the newer state. Without this, the slower of
+  // the two wins, and a refresh that just fetched a pull request can be erased
+  // by the read that started before it.
+  const latest = useRef(0);
+
   const load = useCallback(
     async (signal?: AbortSignal) => {
+      const seq = ++latest.current;
+      const mine = () => seq === latest.current;
       try {
         const next = await getTaskPullRequest(taskId);
-        if (signal?.aborted) return;
+        if (signal?.aborted || !mine()) return;
         setSnapshot(next);
         setError(null);
       } catch (err) {
-        if (signal?.aborted) return;
+        if (signal?.aborted || !mine()) return;
         setError(describe(err));
       } finally {
+        // Clearing this is about the panel's first paint rather than about this
+        // read: whichever read answered first has already published, and a
+        // superseded one that kept the flag would leave a spinner under an
+        // error nobody can dismiss.
         if (!signal?.aborted) setLoading(false);
       }
     },
@@ -96,6 +118,15 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // The age is computed while rendering, so a panel left open would go on
+  // saying "just now" about an observation that is hours old — and once the
+  // poll loop settles, nothing else on this screen renders again.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const refreshing = snapshot?.refreshing === true;
   const following = pollDecision(refreshing, polls, MAX_POLLS);
@@ -119,11 +150,29 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
       return;
     }
     if (polls >= MAX_POLLS) return;
-    const timer = setTimeout(() => {
-      setPolls((n) => n + 1);
-      void load();
+    let cancelled = false;
+    let controller: AbortController | null = null;
+    const timer = setTimeout(async () => {
+      // The next attempt is booked when this one ends, not when it starts.
+      // Booking on the start let reads slower than the interval overlap, and
+      // then an older answer could land on top of a newer one.
+      controller = new AbortController();
+      const abort = setTimeout(() => controller?.abort(), POLL_READ_TIMEOUT_MS);
+      try {
+        // `load` reports failure through state and does not reject, so this
+        // counts the attempt rather than the answer — a failed poll still
+        // books the next one.
+        await load(controller.signal);
+      } finally {
+        clearTimeout(abort);
+      }
+      if (!cancelled) setPolls((n) => n + 1);
     }, POLL_INTERVAL_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      controller?.abort();
+    };
   }, [refreshing, polls, load]);
 
   // Escape closes, as it does for the console's other overlays.
@@ -137,13 +186,21 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
   }, [onClose]);
 
   const onRefresh = useCallback(async () => {
+    // Supersedes any read in flight, including the panel's first one.
+    const seq = ++latest.current;
     setBusy(true);
     try {
-      setSnapshot(await refreshTaskPullRequest(taskId));
+      const next = await refreshTaskPullRequest(taskId);
+      if (seq !== latest.current) return;
+      setSnapshot(next);
       setError(null);
     } catch (err) {
+      if (seq !== latest.current) return;
       setError(describe(err));
     } finally {
+      // Whoever started this refresh ends it. Keyed on the sequence number
+      // instead, a read that superseded it would leave the button disabled with
+      // no request behind it.
       setBusy(false);
     }
   }, [taskId, describe]);
