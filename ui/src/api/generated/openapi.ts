@@ -1006,6 +1006,8 @@ export interface components {
         AgentSession: {
             id: string;
             agent_id: string;
+            /** @description Machine whose agent owns this session. Absent when the row predates the column; the daemon that owns the database attributes such a row to itself. */
+            device_id?: string;
             external_ref: string;
             title: string;
             cwd: string;

@@ -1647,6 +1647,9 @@ export function bindCloudflareRelayDomain(body: {
 export type AgentSession = {
   id: string;
   agent_id: string;
+  /** Machine whose agent owns this session. Absent means this machine: either
+   *  the row predates the column, or a standalone daemon indexed it. */
+  device_id?: string;
   external_ref: string;
   title: string;
   cwd: string;

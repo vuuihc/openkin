@@ -20,6 +20,7 @@ import (
 type agentSessionResponse struct {
 	ID            string   `json:"id"`
 	AgentID       string   `json:"agent_id"`
+	DeviceID      string   `json:"device_id,omitempty"`
 	ExternalRef   string   `json:"external_ref"`
 	Title         string   `json:"title"`
 	Cwd           string   `json:"cwd"`
@@ -510,8 +511,9 @@ func (s *Server) agentSessionResponse(r *http.Request, row store.AgentSession) a
 		label = filepath.Base(filepath.Clean(row.Cwd))
 	}
 	return agentSessionResponse{
-		ID: row.ID, AgentID: row.AgentID, ExternalRef: row.ExternalRef,
-		Title: row.Title, Cwd: row.Cwd, ProjectID: projectID, ProjectLabel: label,
+		ID: row.ID, AgentID: row.AgentID, DeviceID: row.DeviceID,
+		ExternalRef: row.ExternalRef, Title: row.Title, Cwd: row.Cwd,
+		ProjectID: projectID, ProjectLabel: label,
 		Status: row.Status, Capabilities: row.Capabilities,
 		SourceCursor: row.SourceCursor, ContentDigest: row.ContentDigest,
 		FirstSeenAt: row.FirstSeenAt, LastSeenAt: row.LastSeenAt,

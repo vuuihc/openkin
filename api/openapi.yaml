@@ -1322,6 +1322,11 @@ components:
           type: string
         agent_id:
           type: string
+        device_id:
+          type: string
+          description: Machine whose agent owns this session. Absent when the row
+            predates the column; the daemon that owns the database attributes
+            such a row to itself.
         external_ref:
           type: string
         title:
