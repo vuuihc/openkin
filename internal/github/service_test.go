@@ -125,6 +125,7 @@ func TestEnsureFreshDoesNotBlockOnTheNetwork(t *testing.T) {
 // Repeated views while a query is in flight must join it, not start another.
 func TestConcurrentViewsShareOneRefresh(t *testing.T) {
 	release := make(chan struct{})
+	started := make(chan struct{}, 1)
 	var mu sync.Mutex
 	calls := 0
 	reader := &fakeRunner{
@@ -133,6 +134,13 @@ func TestConcurrentViewsShareOneRefresh(t *testing.T) {
 			mu.Lock()
 			calls++
 			mu.Unlock()
+			// Signal without waiting for a reader: the assertion below asks
+			// whether a query started, not how many did, and a blocked send
+			// would deadlock the very case it is meant to detect.
+			select {
+			case started <- struct{}{}:
+			default:
+			}
 			<-release
 		},
 		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
@@ -145,7 +153,29 @@ func TestConcurrentViewsShareOneRefresh(t *testing.T) {
 			t.Fatalf("EnsureFresh %d: %v", i, err)
 		}
 	}
+
+	// The query runs on a goroutine the views do not wait for, so counting here
+	// raced its first instruction and read zero. Wait for the query to actually
+	// be in flight — which is also the state the other four views were supposed
+	// to find and join.
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("five views started no query at all")
+	}
 	close(release)
+
+	// Counting immediately raced the released queries. Wait for the in-flight
+	// set to drain instead: a goroutine leaves it only after a full query, so
+	// every query these views started has reached the reader by then — and a
+	// query that was going to start has started.
+	deadline := time.Now().Add(5 * time.Second)
+	for svc.refreshing(target) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if svc.refreshing(target) {
+		t.Fatal("background query never finished")
+	}
 
 	mu.Lock()
 	got := calls
