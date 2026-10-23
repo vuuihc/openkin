@@ -1,7 +1,12 @@
 /**
- * Generate macOS template tray icons and a rounded-square app icon without extra deps.
- * Template icons: black glyphs on transparent background (macOS tints them).
- * App icon: dark rounded square with white "K" → icon.png + icon.icns.
+ * Generate the Kin artwork every shell ships, without extra deps:
+ *   - macOS tray template icons (black glyphs, transparent background)
+ *   - the app icon: dark square with a white "K"
+ *       desktop/assets/icon.png + icon.icns  (Electron dock/Finder)
+ *       mobile/.../AppIcon-1024.png           (iOS; opaque, edge to edge)
+ *
+ * One painter, three files: the phone app and the menu-bar app are the same
+ * product and must not drift into two different icons.
  */
 import { deflateSync } from "node:zlib";
 import {
@@ -15,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = join(root, "..");
 
 function crc32(buf) {
   let c = ~0;
@@ -54,6 +60,38 @@ function writeGrayAlphaPng(path, size, paint) {
   ihdr.writeUInt32BE(size, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 4; // greyscale+alpha
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw, { level: 9 })),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+  writeFileSync(path, png);
+}
+
+/** Write an 8-bit RGB PNG with no alpha channel (color type 2). */
+function writeRgbPng(path, size, paint) {
+  const stride = 1 + size * 3; // filter byte + RGB per pixel
+  const raw = Buffer.alloc(stride * size);
+  for (let y = 0; y < size; y++) {
+    const row = y * stride;
+    raw[row] = 0; // none filter
+    for (let x = 0; x < size; x++) {
+      const { r, g, b } = paint(x, y, size);
+      const i = row + 1 + x * 3;
+      raw[i] = r;
+      raw[i + 1] = g;
+      raw[i + 2] = b;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolour, no alpha: the App Store rejects an icon that has one
   ihdr[10] = 0;
   ihdr[11] = 0;
   ihdr[12] = 0;
@@ -133,6 +171,19 @@ function paintAppIcon(x, y, size) {
   return { g, a };
 }
 
+/**
+ * The same artwork, edge to edge, for iOS: the system draws the rounded
+ * corners itself, so an icon that arrives pre-rounded would end up with a dark
+ * square floating inside the mask. The glyph is inset to the share of the
+ * canvas it covers on the desktop icon, where the mask does that cropping.
+ */
+function paintIosAppIcon(x, y, size) {
+  const inset = size * 0.14;
+  const k = paintK(x - inset, y - inset, size - inset * 2);
+  const v = k.a > 0 ? 255 : 40;
+  return { r: v, g: v, b: v };
+}
+
 /** Build icon.icns from a master PNG via sips + iconutil (macOS only). */
 function writeIcns(pngPath, icnsPath) {
   if (process.platform !== "darwin") {
@@ -185,4 +236,18 @@ const iconPng = join(assets, "icon.png");
 writeGrayAlphaPng(iconPng, 512, paintAppIcon);
 writeIcns(iconPng, join(assets, "icon.icns"));
 
+const iosIcon = join(
+  repoRoot,
+  "mobile",
+  "ios",
+  "App",
+  "App",
+  "Assets.xcassets",
+  "AppIcon.appiconset",
+  "AppIcon-1024.png",
+);
+mkdirSync(dirname(iosIcon), { recursive: true });
+writeRgbPng(iosIcon, 1024, paintIosAppIcon);
+
 console.log("desktop: icons written to assets/ (rounded-square app icon)");
+console.log("mobile: iOS app icon written to Assets.xcassets/AppIcon.appiconset");
