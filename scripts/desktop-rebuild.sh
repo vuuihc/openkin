@@ -8,9 +8,15 @@
 # Unlike `make desktop-dev` (backend only + Electron), this always:
 #   1. builds the Vite UI into web/dist (embedded by Go)
 #   2. builds ./kin with the new embed
-#   3. stops any daemon on :7777 (desktop otherwise attaches to the old one)
-#   4. stops previous Kin Electron for this repo
-#   5. launches desktop (npm run dev)
+#   3. refreshes the launchd node's own copy of kin, when one is installed
+#   4. stops any daemon on :7777 (desktop otherwise attaches to the old one)
+#   5. stops previous Kin Electron for this repo
+#   6. launches desktop (npm run dev)
+#
+# Step 3 exists because the desktop shell loads the console from :7777, and on
+# a machine set up with `scripts/install-node-service.sh` that port belongs to
+# the *installed* copy at ~/.kin/node/kin — not to the $BIN built here. Skip it
+# with KIN_SKIP_NODE_REFRESH=1.
 
 set -euo pipefail
 
@@ -144,7 +150,7 @@ kill_desktop_dev() {
   fi
 }
 
-echo "==> [1/4] build UI (ui → web/dist)"
+echo "==> [1/5] build UI (ui → web/dist)"
 (
   cd "$ROOT/ui"
   if [[ ! -d node_modules ]]; then
@@ -154,12 +160,39 @@ echo "==> [1/4] build UI (ui → web/dist)"
   npm run build
 )
 
-echo "==> [2/4] go build → $BIN"
+echo "==> [2/5] go build → $BIN"
 go build -o "$BIN" ./cmd/kin
 chmod +x "$BIN"
 ./scripts/dev-sign.sh "$BIN"
 
-echo "==> [3/4] stop old daemon + desktop"
+echo "==> [3/5] refresh the launchd node's copy of kin"
+# Only when this machine is actually set up as a node. Without the refresh the
+# node keeps serving the UI embedded in the *previous* build, and the desktop
+# shell — which loads the console from :7777 — looks like the rebuild did
+# nothing. See the header comment.
+NODE_PLIST="$HOME/Library/LaunchAgents/dev.openkin.node.plist"
+NODE_BIN="$HOME/.kin/node/kin"
+NODE_LABEL="dev.openkin.node"
+if [[ ! -f "$NODE_PLIST" ]]; then
+  echo "    (no $NODE_LABEL installed — skipping)"
+elif [[ "${KIN_SKIP_NODE_REFRESH:-0}" == "1" ]]; then
+  echo "    (KIN_SKIP_NODE_REFRESH=1 — skipping)"
+elif [[ ! -f "$NODE_BIN" ]]; then
+  echo "    ($NODE_BIN missing — run ./scripts/install-node-service.sh)"
+else
+  install -m 755 "$BIN" "$NODE_BIN.new"
+  ./scripts/dev-sign.sh "$NODE_BIN.new" >/dev/null 2>&1 || true
+  # Rename rather than overwrite: a running child keeps its old inode, so this
+  # is safe whether or not the node happens to be up, and the next start picks
+  # up the new file.
+  mv -f "$NODE_BIN.new" "$NODE_BIN"
+  # -k restarts the job so the supervisor itself is the new binary too; the
+  # kill on :7777 below then bounces only the child.
+  launchctl kickstart -k "gui/$(id -u)/$NODE_LABEL" >/dev/null 2>&1 || true
+  echo "    refreshed $NODE_BIN and restarted $NODE_LABEL"
+fi
+
+echo "==> [4/5] stop old daemon + desktop"
 # Desktop attaches to any healthy daemon on :7777 without replacing it —
 # must kill first so the new binary is spawned as sidecar.
 kill_port_listeners "$PORT"
@@ -191,7 +224,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   done
 fi
 
-echo "==> [4/4] launch desktop app"
+echo "==> [5/5] launch desktop app"
 # Icons are cheap; keep tray assets fresh like `make desktop-dev`.
 if [[ -f "$ROOT/desktop/scripts/gen-icons.mjs" ]]; then
   (cd "$ROOT/desktop" && node scripts/gen-icons.mjs) || true
