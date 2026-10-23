@@ -20,7 +20,6 @@ import { getDraftCwd, getDraftPrompt, subscribeDraft } from "../../lib/draftChat
 import {
   archiveProject,
   getProjectSortMode,
-  groupByProject,
   setProjectSortMode,
   subscribeProjectSidebar,
   toggleProjectPinned,
@@ -30,6 +29,15 @@ import {
   type ProjectGroup,
   type ProjectSortMode,
 } from "../../lib/projectSidebar";
+import {
+  groupByDevice,
+  ONLY_THIS_MACHINE,
+  projectKey,
+  sessionsForProject,
+  showMachineLabels,
+  type DeviceGroup,
+} from "../../lib/deviceSidebar";
+import { useMachines } from "../../hooks/useMachines";
 import {
   sidebarNavSections,
   type SidebarNavItemId,
@@ -124,43 +132,6 @@ function useSidebarDisclosure(key: string): [boolean, () => void] {
   return [open, toggle];
 }
 
-function SidebarDisclosure({
-  storageKey,
-  label,
-  count,
-  children,
-  className = "",
-}: {
-  storageKey: string;
-  label: string;
-  count?: number;
-  children: ReactNode;
-  className?: string;
-}) {
-  const [open, toggle] = useSidebarDisclosure(storageKey);
-  return (
-    <div className={className}>
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        className="w-full flex items-center gap-1 px-2 py-1 text-left text-[10px] text-kin-muted hover:text-kin-secondary transition-colors"
-      >
-        <IconChevron
-          size={11}
-          className={[
-            "flex-none transition-transform",
-            open ? "rotate-90" : "",
-          ].join(" ")}
-        />
-        <span className="truncate flex-1">{label}</span>
-        {count != null && <span className="tabular-nums opacity-70">{count}</span>}
-      </button>
-      {open && children}
-    </div>
-  );
-}
-
 export default function Sidebar({
   tasks,
   selectedTaskId,
@@ -199,37 +170,26 @@ export default function Sidebar({
   );
 
   const sortMode = getProjectSortMode();
+  // Which machine runs a session is the first thing the tree answers, so the
+  // device list is read here rather than passed down: a console that has not
+  // heard back yet still shows one unnamed machine (this one), never raw ids.
+  const { machines, loading: machinesLoading } = useMachines();
   // prefsTick invalidates after localStorage updates (sort / pin / archive / interact).
+  const machineList = machines.length > 0 ? machines : ONLY_THIS_MACHINE;
   const archivedGroups = useMemo(
-    () => groupByProject(tasks, null, false, true),
-    [tasks, prefsTick],
-  );
-  const archivedProjectKeys = useMemo(
-    () => new Set(archivedGroups.map((group) => projectKey(group.cwd))),
-    [archivedGroups],
+    () => groupByDevice(tasks, externalSessions, machineList, null, true, machinesLoading),
+    [tasks, externalSessions, machineList, machinesLoading, prefsTick],
   );
   const groups = useMemo(
-    () =>
-      mergeExternalProjectGroups(
-        groupByProject(tasks),
-        externalSessions.filter(
-          (session) => !archivedProjectKeys.has(projectKey(session.cwd)),
-        ),
-      ),
-    [tasks, externalSessions, archivedProjectKeys, prefsTick],
+    () => groupByDevice(tasks, externalSessions, machineList, null, false, machinesLoading),
+    [tasks, externalSessions, machineList, machinesLoading, prefsTick],
   );
+  /** A lone machine needs no heading: the tree is already all of it. A machine
+   *  with both live and archived rows is still one machine. */
+  const machineLabels = showMachineLabels(groups, archivedGroups);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const sortMenuRef = useRef<HTMLDivElement>(null);
-  const [groupMode, setGroupMode] = useState<"project" | "agent">(() => {
-    try {
-      return localStorage.getItem("kin_session_group_mode") === "agent"
-        ? "agent"
-        : "project";
-    } catch {
-      return "project";
-    }
-  });
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const sessionProviders = agentCatalog.filter((agent) =>
@@ -300,11 +260,20 @@ export default function Sidebar({
     handledSelectionRef.current = selectedTaskId;
   }, [selectedTaskId, tasks]);
 
-  const draftGroupCwd =
-    hasDraft && draftCwd
-      ? [...groups, ...archivedGroups].find((g) => normCwd(g.cwd) === normCwd(draftCwd))
-          ?.cwd ?? null
-      : null;
+  // A draft belongs to one machine. The same cwd can be a project on several
+  // machines, so matching on the path alone would nest a "New chat" row under
+  // each of them.
+  const draftHome = hasDraft && draftCwd
+    ? [...groups, ...archivedGroups].reduce<{ deviceId: string; cwd: string } | null>(
+        (found, device) => {
+          if (found) return found;
+          const g = device.projects.find((p) => normCwd(p.cwd) === normCwd(draftCwd));
+          return g ? { deviceId: device.id, cwd: g.cwd } : null;
+        },
+        null,
+      )
+    : null;
+  const draftGroupCwd = draftHome?.cwd ?? null;
   // Show orphan "New chat" tab when we have a draft and it is not nested under a project group.
   const showOrphanDraft = Boolean(hasDraft && !draftGroupCwd);
 
@@ -319,6 +288,53 @@ export default function Sidebar({
     archiveProject(g.cwd);
   };
 
+  /**
+   * One project row, on the machine that holds it.
+   *
+   * Archived projects differ in three ways only: new sessions restore them,
+   * the pin button is inert, and the archive button means the opposite.
+   */
+  const projectBlock = (g: ProjectGroup, device: DeviceGroup, mode: "active" | "archived") => {
+    const archived = mode === "archived";
+    return (
+      <ProjectBlock
+        key={`${device.id}:${mode}:${g.cwd}`}
+        group={g}
+        nestDraft={Boolean(
+          hasDraft && draftHome?.deviceId === device.id && draftHome.cwd === g.cwd,
+        )}
+        draftRowActive={Boolean(draftActive)}
+        selectedTaskId={selectedTaskId}
+        draftLabel={tr("nav.draftChat")}
+        onDraftClick={() => {
+          navigate("/new");
+          onCloseMobile();
+        }}
+        onCloseMobile={onCloseMobile}
+        onNewSession={() => {
+          if (archived) unarchiveProject(g.cwd);
+          touchProject(g.cwd);
+          if (onNewSessionInProject) onNewSessionInProject(g.cwd);
+          else onNewChat();
+          onCloseMobile();
+        }}
+        onTogglePin={() => toggleProjectPinned(g.cwd)}
+        onArchive={() => (archived ? unarchiveProject(g.cwd) : onArchive(g))}
+        pinLabel={g.pinned && !archived ? tr("nav.unpinProject") : tr("nav.pinProject")}
+        collapseLabel={tr("nav.collapseProject")}
+        expandLabel={tr("nav.expandProject")}
+        coverLabel={tr("nav.openCover")}
+        archiveLabel={archived ? tr("nav.unarchiveProject") : tr("nav.archiveProject")}
+        newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
+        onDeleteSession={onDeleteSession}
+        deleteLabel={tr("task.deleteSession")}
+        externalSessions={sessionsForProject(device.sessions, g)}
+        onOpenExternalSession={onOpenExternalSession}
+        mode={mode}
+      />
+    );
+  };
+
   const panel = (
     <aside className="w-[248px] max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
       <div className="px-3 pt-3 pb-2 flex items-center gap-2">
@@ -327,36 +343,6 @@ export default function Sidebar({
         </div>
         <span className="text-[14px] font-semibold tracking-tight">{tr("app.name")}</span>
         <div className="ml-auto flex items-center gap-1">
-          <div
-            role="group"
-            aria-label={tr("nav.groupSessions")}
-            className="flex items-center rounded-md border border-kin-border overflow-hidden"
-          >
-            {(["project", "agent"] as const).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                aria-pressed={groupMode === mode}
-                title={tr(`nav.groupBy${mode === "project" ? "Project" : "Agent"}`)}
-                onClick={() => {
-                  setGroupMode(mode);
-                  try {
-                    localStorage.setItem("kin_session_group_mode", mode);
-                  } catch {
-                    // ignore unavailable local storage
-                  }
-                }}
-                className={[
-                  "px-1.5 h-6 text-[10px] transition-colors",
-                  groupMode === mode
-                    ? "bg-kin-blue-soft text-kin-blue"
-                    : "text-kin-muted hover:bg-[var(--kin-fill-strong)]",
-                ].join(" ")}
-              >
-                {mode === "project" ? tr("nav.groupProjectShort") : tr("nav.groupAgentShort")}
-              </button>
-            ))}
-          </div>
           <div className="relative" ref={sortMenuRef}>
             <button
               type="button"
@@ -541,16 +527,6 @@ export default function Sidebar({
           )}
         </button>
 
-        {groupMode === "agent" && (
-          <AgentGroupedTree
-            tasks={tasks}
-            sessions={externalSessions}
-            selectedTaskId={selectedTaskId}
-            onOpenExternalSession={onOpenExternalSession}
-            onCloseMobile={onCloseMobile}
-          />
-        )}
-        <div className={groupMode === "agent" ? "hidden" : undefined}>
         {groups.length === 0 && archivedGroups.length === 0 && (
           <div className="px-2 py-4 text-[12.5px] text-kin-muted leading-relaxed">
             {searchQuery.trim()
@@ -559,44 +535,18 @@ export default function Sidebar({
           </div>
         )}
 
-        {groups.map((g) => {
-          const nestDraft = Boolean(hasDraft && draftGroupCwd === g.cwd);
-          return (
-            <ProjectBlock
-              key={g.cwd}
-              group={g}
-              nestDraft={nestDraft}
-              draftRowActive={Boolean(draftActive)}
-              selectedTaskId={selectedTaskId}
-              draftLabel={tr("nav.draftChat")}
-              onDraftClick={() => {
-                navigate("/new");
-                onCloseMobile();
-              }}
-              onCloseMobile={onCloseMobile}
-              onNewSession={() => {
-                touchProject(g.cwd);
-                if (onNewSessionInProject) onNewSessionInProject(g.cwd);
-                else onNewChat();
-                onCloseMobile();
-              }}
-              onTogglePin={() => toggleProjectPinned(g.cwd)}
-              onArchive={() => onArchive(g)}
-              pinLabel={g.pinned ? tr("nav.unpinProject") : tr("nav.pinProject")}
-              collapseLabel={tr("nav.collapseProject")}
-              expandLabel={tr("nav.expandProject")}
-              coverLabel={tr("nav.openCover")}
-              archiveLabel={tr("nav.archiveProject")}
-              newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
-              onDeleteSession={onDeleteSession}
-              deleteLabel={tr("task.deleteSession")}
-              externalSessions={sessionsForProject(externalSessions, g)}
-              onOpenExternalSession={onOpenExternalSession}
-              mode="active"
-            />
-          );
-        })}
-
+        {groups.map((device) => (
+          <DeviceSection
+            key={device.id || "__self__"}
+            device={device}
+            label={deviceLabel(device, tr)}
+            count={device.count}
+            showLabel={machineLabels}
+            mode="active"
+          >
+            {device.projects.map((g) => projectBlock(g, device, "active"))}
+          </DeviceSection>
+        ))}
         {showOrphanDraft && (
           <div>
             <div className="kin-section-label">{tr("nav.draft")}</div>
@@ -624,7 +574,7 @@ export default function Sidebar({
                 {tr("nav.archivedProjects")}
               </span>
               <span className="text-[11px] tabular-nums opacity-70">
-                {archivedGroups.length}
+                {archivedGroups.reduce((n, device) => n + device.projects.length, 0)}
               </span>
               <span
                 className={[
@@ -637,49 +587,22 @@ export default function Sidebar({
             </button>
             {archivedOpen && (
               <div className="space-y-3 mt-1">
-                {archivedGroups.map((g) => {
-                  const nestDraft = Boolean(hasDraft && draftGroupCwd === g.cwd);
-                  return (
-                    <ProjectBlock
-                      key={`arch-${g.cwd}`}
-                      group={g}
-                      nestDraft={nestDraft}
-                      draftRowActive={Boolean(draftActive)}
-                      selectedTaskId={selectedTaskId}
-                      draftLabel={tr("nav.draftChat")}
-                      onDraftClick={() => {
-                        navigate("/new");
-                        onCloseMobile();
-                      }}
-                      onCloseMobile={onCloseMobile}
-                      onNewSession={() => {
-                        unarchiveProject(g.cwd);
-                        touchProject(g.cwd);
-                        if (onNewSessionInProject) onNewSessionInProject(g.cwd);
-                        else onNewChat();
-                        onCloseMobile();
-                      }}
-                      onTogglePin={() => toggleProjectPinned(g.cwd)}
-                      onArchive={() => unarchiveProject(g.cwd)}
-                      pinLabel={tr("nav.pinProject")}
-                      collapseLabel={tr("nav.collapseProject")}
-                      expandLabel={tr("nav.expandProject")}
-                      coverLabel={tr("nav.openCover")}
-                      archiveLabel={tr("nav.unarchiveProject")}
-                      newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
-                      onDeleteSession={onDeleteSession}
-                      deleteLabel={tr("task.deleteSession")}
-                      externalSessions={sessionsForProject(externalSessions, g)}
-                      onOpenExternalSession={onOpenExternalSession}
-                      mode="archived"
-                    />
-                  );
-                })}
+                {archivedGroups.map((device) => (
+                  <DeviceSection
+                    key={`arch-${device.id || "__self__"}`}
+                    device={device}
+                    label={deviceLabel(device, tr)}
+                    count={device.count}
+                    showLabel={machineLabels}
+                    mode="archived"
+                  >
+                    {device.projects.map((g) => projectBlock(g, device, "archived"))}
+                  </DeviceSection>
+                ))}
               </div>
             )}
           </div>
         )}
-        </div>
       </nav>
 
       <div className="border-t border-kin-border px-2 py-2 space-y-2">
@@ -735,6 +658,70 @@ export default function Sidebar({
         </div>
       )}
     </>
+  );
+}
+
+/** What to call a machine in the tree. The console's own machine is named by
+ *  where you are looking from, not by whatever the daemon calls itself; any
+ *  other group is either a machine the list named or a raw id it did not. */
+function deviceLabel(device: DeviceGroup, tr: (key: string) => string): string {
+  if (device.isSelf) return tr("nav.thisMachine");
+  return device.label;
+}
+
+/**
+ * One machine's projects, under a heading that says whether it can take work.
+ *
+ * @param showLabel When there is only one machine in the tree a heading would
+ *                  name the obvious, so the section renders as a plain group.
+ * @param mode      Active and archived render the same machine twice, and each
+ *                  keeps its own collapsed state — sharing the key would make
+ *                  collapsing one silently pre-collapse the other.
+ */
+function DeviceSection({
+  device,
+  label,
+  count,
+  showLabel,
+  mode,
+  children,
+}: {
+  device: DeviceGroup;
+  label: string;
+  count: number;
+  showLabel: boolean;
+  mode: "active" | "archived";
+  children: ReactNode;
+}) {
+  const tr = useT();
+  const [open, toggle] = useSidebarDisclosure(
+    `device:${mode}:${device.id || "self"}`,
+  );
+  if (!showLabel) return <div className="space-y-3">{children}</div>;
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[12px] font-medium text-kin-secondary hover:text-kin-text transition-colors"
+      >
+        <IconChevron
+          size={11}
+          className={["flex-none transition-transform", open ? "rotate-90" : ""].join(" ")}
+        />
+        <span
+          className={[
+            "w-1.5 h-1.5 rounded-full flex-none",
+            device.online ? "bg-kin-green" : "bg-kin-muted/40",
+          ].join(" ")}
+          title={device.online ? tr("nav.machineOnline") : tr("nav.machineOffline")}
+        />
+        <span className="truncate flex-1 min-w-0">{label}</span>
+        <span className="tabular-nums text-[11px] opacity-70">{count}</span>
+      </button>
+      {open && <div className="space-y-3 pl-1">{children}</div>}
+    </div>
   );
 }
 
@@ -901,10 +888,9 @@ function ProjectBlock({
           )}
 
           <div className="space-y-0.5 max-h-[min(280px,40vh)] overflow-y-auto kin-scroll pr-0.5">
-            <ProjectAgentTree
+            <ProjectSessionRows
               tasks={g.items}
               sessions={externalSessions}
-              storagePrefix={`project:${projectKey(g.cwd)}`}
               selectedTaskId={selectedTaskId}
               onDeleteSession={onDeleteSession}
               deleteLabel={deleteLabel}
@@ -917,42 +903,6 @@ function ProjectBlock({
 
     </div>
   );
-}
-
-function projectKey(cwd: string): string {
-  return normCwd(cwd) || "__unassigned__";
-}
-
-function projectLabelForSession(session: AgentSession): string {
-  return session.project_label || (session.cwd ? session.cwd.split("/").filter(Boolean).pop() : "") || "Unassigned";
-}
-
-function sessionsForProject(sessions: AgentSession[], group: ProjectGroup): AgentSession[] {
-  return sessions.filter((session) => projectKey(session.cwd) === projectKey(group.cwd));
-}
-
-function mergeExternalProjectGroups(
-  groups: ProjectGroup[],
-  sessions: AgentSession[],
-): ProjectGroup[] {
-  const out = [...groups];
-  const known = new Set(out.map((group) => projectKey(group.cwd)));
-  for (const session of sessions) {
-    const key = projectKey(session.cwd);
-    if (known.has(key)) continue;
-    known.add(key);
-    out.push({
-      label: projectLabelForSession(session),
-      cwd: session.cwd,
-      items: [],
-      pinned: false,
-      archived: false,
-      lastInteractedAt: session.updated_at,
-      createdAt: session.first_seen_at,
-      hasActiveTask: false,
-    });
-  }
-  return out;
 }
 
 function ExternalSessionRow({
@@ -1050,191 +1000,7 @@ function externalSessionBadgeClass(availability: AgentSessionAvailability): stri
   return "border-kin-border text-kin-muted";
 }
 
-function AgentGroupedTree({
-  tasks,
-  sessions,
-  selectedTaskId,
-  onOpenExternalSession,
-  onCloseMobile,
-}: {
-  tasks: Task[];
-  sessions: AgentSession[];
-  selectedTaskId?: string | null;
-  onOpenExternalSession?: (session: AgentSession) => void;
-  onCloseMobile: () => void;
-}) {
-  const tr = useT();
-  const groups = useMemo(() => {
-    const ids = new Set<string>();
-    for (const task of tasks) ids.add(task.agent || "kin");
-    for (const session of sessions) ids.add(session.agent_id);
-    return [...ids].sort().map((agentID) => ({
-      agentID,
-      tasks: tasks.filter((task) => (task.agent || "kin") === agentID),
-      sessions: sessions.filter((session) => session.agent_id === agentID),
-    }));
-  }, [sessions, tasks]);
-  if (groups.length === 0) {
-    return <div className="px-2 py-4 text-[12.5px] text-kin-muted">{tr("nav.emptyHint")}</div>;
-  }
-  return (
-    <div className="space-y-2">
-      {groups.map((group) => (
-        <SidebarDisclosure
-          key={group.agentID}
-          storageKey={`agent:${group.agentID}`}
-          label={group.agentID}
-          count={group.tasks.length + group.sessions.length}
-        >
-          <div className="pl-2 border-l border-kin-border ml-1">
-            <AgentProjectTree
-              tasks={group.tasks}
-              sessions={group.sessions}
-              storagePrefix={`agent:${group.agentID}`}
-              selectedTaskId={selectedTaskId}
-              onOpenExternalSession={onOpenExternalSession}
-              onCloseMobile={onCloseMobile}
-            />
-          </div>
-        </SidebarDisclosure>
-      ))}
-    </div>
-  );
-}
-
-function AgentProjectTree({
-  tasks,
-  sessions,
-  storagePrefix,
-  selectedTaskId,
-  onDeleteSession,
-  deleteLabel,
-  onOpenExternalSession,
-  onCloseMobile,
-}: {
-  tasks: Task[];
-  sessions: AgentSession[];
-  storagePrefix?: string;
-  selectedTaskId?: string | null;
-  onDeleteSession?: (task: Task) => void;
-  deleteLabel?: string;
-  onOpenExternalSession?: (session: AgentSession) => void;
-  onCloseMobile: () => void;
-}) {
-  const projects = useMemo(() => {
-    const map = new Map<
-      string,
-      { label: string; tasks: Task[]; sessions: AgentSession[] }
-    >();
-    for (const task of tasks) {
-      const key = projectKey(task.cwd);
-      const project = map.get(key) ?? {
-        label: task.cwd ? task.cwd.split("/").filter(Boolean).pop() || "Unassigned" : "Unassigned",
-        tasks: [],
-        sessions: [],
-      };
-      project.tasks.push(task);
-      map.set(key, project);
-    }
-    for (const session of sessions) {
-      const key = projectKey(session.cwd);
-      const project = map.get(key) ?? {
-        label: projectLabelForSession(session),
-        tasks: [],
-        sessions: [],
-      };
-      project.sessions.push(session);
-      map.set(key, project);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [sessions, tasks]);
-
-  return (
-    <div className="space-y-1">
-      {projects.map(([key, project]) => (
-        <SidebarDisclosure
-          key={key}
-          storageKey={`${storagePrefix ?? "agent"}:project:${key}`}
-          label={project.label}
-          count={project.tasks.length + project.sessions.length}
-          className="ml-1"
-        >
-          <AgentSessionRows
-            tasks={project.tasks}
-            sessions={project.sessions}
-            selectedTaskId={selectedTaskId}
-            onDeleteSession={onDeleteSession}
-            deleteLabel={deleteLabel}
-            onOpenExternalSession={onOpenExternalSession}
-            onCloseMobile={onCloseMobile}
-          />
-        </SidebarDisclosure>
-      ))}
-    </div>
-  );
-}
-
-function ProjectAgentTree({
-  tasks,
-  sessions,
-  storagePrefix,
-  selectedTaskId,
-  onDeleteSession,
-  deleteLabel,
-  onOpenExternalSession,
-  onCloseMobile,
-}: {
-  tasks: Task[];
-  sessions: AgentSession[];
-  storagePrefix?: string;
-  selectedTaskId?: string | null;
-  onDeleteSession?: (task: Task) => void;
-  deleteLabel: string;
-  onOpenExternalSession?: (session: AgentSession) => void;
-  onCloseMobile: () => void;
-}) {
-  const groups = useMemo(() => {
-    const map = new Map<string, { tasks: Task[]; sessions: AgentSession[] }>();
-    for (const task of tasks) {
-      const key = task.agent || "kin";
-      const group = map.get(key) ?? { tasks: [], sessions: [] };
-      group.tasks.push(task);
-      map.set(key, group);
-    }
-    for (const session of sessions) {
-      const group = map.get(session.agent_id) ?? { tasks: [], sessions: [] };
-      group.sessions.push(session);
-      map.set(session.agent_id, group);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [sessions, tasks]);
-
-  return (
-    <div className="space-y-1">
-      {groups.map(([agentID, group]) => (
-        <SidebarDisclosure
-          key={agentID}
-          storageKey={`${storagePrefix ?? "project"}:agent:${agentID}`}
-          label={agentID}
-          count={group.tasks.length + group.sessions.length}
-          className="ml-1"
-        >
-          <AgentSessionRows
-            tasks={group.tasks}
-            sessions={group.sessions}
-            selectedTaskId={selectedTaskId}
-            onDeleteSession={onDeleteSession}
-            deleteLabel={deleteLabel}
-            onOpenExternalSession={onOpenExternalSession}
-            onCloseMobile={onCloseMobile}
-          />
-        </SidebarDisclosure>
-      ))}
-    </div>
-  );
-}
-
-function AgentSessionRows({
+function ProjectSessionRows({
   tasks,
   sessions,
   selectedTaskId,
@@ -1252,9 +1018,29 @@ function AgentSessionRows({
   onCloseMobile: () => void;
 }) {
   const tr = useT();
+  const rows = useMemo(() => mergeProjectRows(tasks, sessions), [tasks, sessions]);
   return (
     <div className="space-y-0.5">
-      {tasks.map((task) => {
+      {rows.map((row) => {
+        if (row.session) {
+          const session = row.session;
+          return (
+            <ExternalSessionRow
+              key={session.id}
+              session={session}
+              label={tr("nav.externalSession")}
+              sessionTitle={displayAgentSessionTitle(
+                session,
+                tr("agentSession.sessionFallback", {
+                  agent: agentDisplayName(session.agent_id),
+                }),
+              )}
+              onOpen={onOpenExternalSession}
+              onCloseMobile={onCloseMobile}
+            />
+          );
+        }
+        const task = row.task!;
         const active = task.id === selectedTaskId;
         const dot = sessionStatusDotClass(task.status, isSessionViewed(task.id));
         return (
@@ -1299,22 +1085,41 @@ function AgentSessionRows({
           </div>
         );
       })}
-      {sessions.map((session) => (
-        <ExternalSessionRow
-          key={session.id}
-          session={session}
-          label={tr("nav.externalSession")}
-          sessionTitle={displayAgentSessionTitle(
-            session,
-            tr("agentSession.sessionFallback", {
-              agent: agentDisplayName(session.agent_id),
-            }),
-          )}
-          onOpen={onOpenExternalSession}
-          onCloseMobile={onCloseMobile}
-        />
-      ))}
     </div>
+  );
+}
+
+type ProjectRow = {
+  key: string;
+  at: number;
+  active: boolean;
+  task?: Task;
+  session?: AgentSession;
+};
+
+/**
+ * One list per project: a session Kin ran and a session an agent ran are both
+ * just sessions in this project, so they share a timeline. A task still running
+ * stays on top of it.
+ */
+function mergeProjectRows(tasks: Task[], sessions: AgentSession[]): ProjectRow[] {
+  const rows: ProjectRow[] = [
+    ...tasks.map((task) => ({
+      key: task.id,
+      at: task.finished_at ?? task.started_at ?? task.created_at ?? 0,
+      active: !isTerminal(task.status),
+      task,
+    })),
+    ...sessions.map((session) => ({
+      key: session.id,
+      at: session.updated_at ?? 0,
+      active: false,
+      session,
+    })),
+  ];
+  return rows.sort(
+    (a, b) =>
+      Number(b.active) - Number(a.active) || b.at - a.at || a.key.localeCompare(b.key),
   );
 }
 

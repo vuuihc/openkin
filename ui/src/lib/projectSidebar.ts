@@ -285,7 +285,6 @@ export function groupByProject(
   includeArchived = false,
   onlyArchived = false,
 ): ProjectGroup[] {
-  const sortMode = prefs?.sortMode ?? getProjectSortMode();
   const pinnedCwds = prefs?.pinned ?? getPinnedProjects();
   const archivedCwds = prefs?.archived ?? getArchivedProjects();
   const lastMap = prefs?.lastInteracted ?? readLastInteractedMap();
@@ -348,7 +347,29 @@ export function groupByProject(
     });
   }
 
-  groups.sort((a, b) => {
+  return sortProjectGroups(groups, prefs, onlyArchived);
+}
+
+/**
+ * Order project rows the way the sidebar shows them: pins, then the sort mode's
+ * tier, then recency, then name.
+ *
+ * Exported because grouping is not always the last step: the sidebar merges in
+ * projects that exist only because an imported agent session named them, and a
+ * row appended after the sort would sit at the bottom no matter how recently it
+ * was touched.
+ */
+export function sortProjectGroups(
+  groups: ProjectGroup[],
+  prefs?: ProjectSidebarPrefs | null,
+  onlyArchived = false,
+): ProjectGroup[] {
+  const sortMode = prefs?.sortMode ?? getProjectSortMode();
+  const pinnedCwds = prefs?.pinned ?? getPinnedProjects();
+  const pinRank = new Map<string, number>();
+  pinnedCwds.forEach((c, i) => pinRank.set(normCwd(c), i));
+
+  return [...groups].sort((a, b) => {
     if (!onlyArchived) {
       const aPin = pinRank.has(normCwd(a.cwd));
       const bPin = pinRank.has(normCwd(b.cwd));
@@ -371,6 +392,4 @@ export function groupByProject(
     }
     return a.label.localeCompare(b.label);
   });
-
-  return groups;
 }
