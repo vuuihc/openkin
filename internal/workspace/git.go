@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/toolpath"
 )
@@ -21,6 +22,9 @@ const (
 	PathListStdoutLimit int64 = 4 * 1024 * 1024
 	// stderrCap is always applied to captured stderr in errors.
 	stderrCap int64 = 64 * 1024
+	// pipeGrace bounds how long a finished command's inherited pipes may stay
+	// open after the process itself is gone.
+	pipeGrace = 2 * time.Second
 )
 
 // gitRunner runs git with explicit argv (never a shell).
@@ -92,6 +96,12 @@ func (g execGit) Run(ctx context.Context, dir string, env map[string]string, std
 	cmd.Env = toolpath.SanitizeEnv(mergeEnv(os.Environ(), env))
 	// Always force non-interactive git; replace any inherited value.
 	cmd.Env = mergeEnv(cmd.Env, map[string]string{"GIT_TERMINAL_PROMPT": "0"})
+	// The context kills git, but git is not always the only process holding the
+	// output pipe: a clean filter it spawned inherits it, and Wait would sit on
+	// that pipe until the filter exits on its own. A short grace period bounds
+	// the wait — the timeout a caller set is a promise about when this returns,
+	// not about when the first process in the tree dies.
+	cmd.WaitDelay = pipeGrace
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &limitWriter{w: &stdout, n: stdoutLimit + 1}
