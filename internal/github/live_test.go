@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/toolpath"
 )
 
 // Live checks against the machine's real credentials.
@@ -35,7 +37,7 @@ func TestLiveResolveGHAvoidsTheSessionWrapper(t *testing.T) {
 		t.Fatalf("ResolveGH: %v", err)
 	}
 	// The whole point: a wrapper earlier on PATH must not win.
-	if reason := rejectGHPath(bin.Path); reason != "" {
+	if reason := toolpath.Refuse(bin.Path); reason != "" {
 		t.Fatalf("resolved %q, which is refused: %s", bin.Path, reason)
 	}
 	t.Logf("resolved gh at %s", bin.Path)

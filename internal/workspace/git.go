@@ -8,7 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/vuuihc/openkin/internal/toolpath"
 )
 
 const (
@@ -23,6 +26,40 @@ const (
 // gitRunner runs git with explicit argv (never a shell).
 type gitRunner interface {
 	Run(ctx context.Context, dir string, env map[string]string, stdoutLimit int64, args ...string) ([]byte, error)
+}
+
+// gitPathEnv names an environment variable holding an explicit git to run.
+const gitPathEnv = "KIN_GIT_PATH"
+
+// resolveGit returns an absolute path to a git binary Kin is willing to run.
+//
+// Deliberately not exec.LookPath. On a machine that also runs an agent desktop
+// app, PATH is not trustworthy: that app installs per-session wrappers — the
+// whole `git-*` family, not only `gh` — and injects its directory into this
+// daemon's PATH twice, ahead of /usr/bin and /opt/homebrew/bin. Every git
+// operation Kin performs would then run inside another product's session, on
+// the same path that will carry `git push`. See internal/toolpath.
+//
+// A missing git is not fatal here: the runner reports ErrGitUnavailable when it
+// is asked to do something, which is the answer callers already handle.
+func resolveGit() string {
+	path, err := toolpath.Resolve(toolpath.Spec{
+		Name:   "git",
+		EnvVar: gitPathEnv,
+		Known:  knownGitLocations(),
+	})
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+func knownGitLocations() []string {
+	paths := []string{"/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".local", "bin", "git"))
+	}
+	return paths
 }
 
 // execGit is the production gitRunner.
@@ -48,7 +85,11 @@ func (g execGit) Run(ctx context.Context, dir string, env map[string]string, std
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Env = mergeEnv(os.Environ(), env)
+	// PATH is filtered, not inherited: git finds `git-remote-https` and the
+	// credential helpers through it, so a wrapper directory left in the child's
+	// environment would be picked up one level down even though Kin resolved
+	// git itself to a clean absolute path.
+	cmd.Env = toolpath.SanitizeEnv(mergeEnv(os.Environ(), env))
 	// Always force non-interactive git; replace any inherited value.
 	cmd.Env = mergeEnv(cmd.Env, map[string]string{"GIT_TERMINAL_PROMPT": "0"})
 

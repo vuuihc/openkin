@@ -4,8 +4,7 @@
 // The package holds no token and never asks the user for one. It runs the
 // user's own GitHub CLI when one it is willing to run exists, and otherwise
 // falls back to unauthenticated reads of the public API. Both paths are
-// read-only; publishing lives in publish.go and is deliberately not reachable
-// from here.
+// read-only, and nothing here is reachable from a write path.
 package github
 
 import (
@@ -18,34 +17,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/toolpath"
 )
 
 // Environment variable naming a gh binary to use, ahead of every search path.
 const ghPathEnv = "KIN_GH_PATH"
-
-// sessionShimComponent is the path component under which the LODY desktop app
-// installs a per-session `gh` wrapper.
-//
-// That wrapper is not the GitHub CLI. It proxies calls to LODY's own service,
-// prints its own telemetry on stdout, and — by the app's own published contract
-// — must not be used for local projects: "Local projects and their worktrees
-// retain native authentication… Do not install managed wrappers, broker
-// contexts or tokens in these sessions."
-//
-// It matters because it is not hypothetical: the wrapper directory is injected
-// into this machine's Kin daemon PATH, twice, ahead of /opt/homebrew/bin. A
-// plain exec.Command("gh") from the daemon would run it. So Kin resolves gh by
-// absolute path and refuses anything under that component.
-const sessionShimComponent = "gh-session-bin"
-
-// lodyStateDirComponent is the desktop app's state directory. Refusing the whole
-// directory, not just the shim, means a future layout cannot reintroduce this
-// by renaming one folder.
-const lodyStateDirComponent = ".lody"
 
 var (
 	// ErrGHUnavailable means no gh binary Kin is willing to run was found.
@@ -67,60 +47,19 @@ type GHBinary struct {
 
 // ResolveGH locates a gh binary Kin is willing to run.
 //
-// Order: an explicit KIN_GH_PATH, then the usual install locations, then PATH
-// with the rejected directories filtered out. The PATH scan is last so that a
-// normal install anywhere still works, and filtered so that ordering cannot be
-// used to substitute a wrapper.
+// The search order and the refusals live in internal/toolpath, which git uses
+// too: the wrapper that has to be avoided here installs the whole `git-*`
+// family, so resolving one tool and not the other would only move the problem.
 func ResolveGH() (GHBinary, error) {
-	if override := strings.TrimSpace(os.Getenv(ghPathEnv)); override != "" {
-		if reason := rejectGHPath(override); reason != "" {
-			return GHBinary{}, fmt.Errorf("%s=%s: %s", ghPathEnv, override, reason)
-		}
-		if isExecutableFile(override) {
-			return GHBinary{Path: override}, nil
-		}
-		return GHBinary{}, fmt.Errorf("%s=%s: not an executable file", ghPathEnv, override)
+	path, err := toolpath.Resolve(toolpath.Spec{
+		Name:   "gh",
+		EnvVar: ghPathEnv,
+		Known:  knownGHLocations(),
+	})
+	if err != nil {
+		return GHBinary{}, fmt.Errorf("%w: %s", ErrGHUnavailable, err)
 	}
-
-	searched := knownGHLocations()
-	for _, candidate := range searched {
-		if rejectGHPath(candidate) != "" || !isExecutableFile(candidate) {
-			continue
-		}
-		return GHBinary{Path: candidate}, nil
-	}
-	if bin, found := resolveFromPath(os.Getenv("PATH"), &searched); found {
-		return bin, nil
-	}
-	return GHBinary{}, fmt.Errorf("%w (looked in %s)", ErrGHUnavailable, strings.Join(searched, ", "))
-}
-
-// resolveFromPath scans PATH for a gh Kin is willing to run, appending every
-// candidate it considered to searched.
-//
-// Entries are searched in order, so this only runs after the known install
-// locations have failed — a normal install anywhere still works, and PATH
-// ordering cannot be used to put a wrapper in front of it.
-func resolveFromPath(pathEnv string, searched *[]string) (GHBinary, bool) {
-	for _, dir := range filepath.SplitList(pathEnv) {
-		if dir == "" || rejectGHPath(dir) != "" {
-			continue
-		}
-		candidate := filepath.Join(dir, "gh")
-		*searched = append(*searched, candidate)
-		if !isExecutableFile(candidate) {
-			continue
-		}
-		// The candidate is judged, not only the directory it sits in: a `gh` in
-		// a clean directory that is a symlink into a wrapper directory is
-		// precisely the substitution this control exists to refuse, and vetoing
-		// the directory alone would wave it through.
-		if rejectGHPath(candidate) != "" {
-			continue
-		}
-		return GHBinary{Path: candidate}, true
-	}
-	return GHBinary{}, false
+	return GHBinary{Path: path}, nil
 }
 
 func knownGHLocations() []string {
@@ -129,72 +68,6 @@ func knownGHLocations() []string {
 		paths = append(paths, filepath.Join(home, ".local", "bin", "gh"))
 	}
 	return paths
-}
-
-// rejectGHPath returns a human-readable reason to refuse a path, or "" to accept.
-//
-// Both the path as given and its symlink target are judged: a symlink in a
-// clean directory pointing into a wrapper directory would otherwise pass. The
-// comparison is absolute and, where the platform's filesystem is
-// case-insensitive, case-folded — a lexical check that is neither can be spelled
-// past without meaning to.
-func rejectGHPath(path string) string {
-	for _, candidate := range []string{filepath.Clean(path), resolveSymlinks(path)} {
-		if candidate == "" {
-			continue
-		}
-		if abs, err := filepath.Abs(candidate); err == nil {
-			candidate = abs
-		}
-		for _, part := range strings.Split(candidate, string(filepath.Separator)) {
-			if foldCase(part) == sessionShimComponent {
-				return "refusing a per-session gh wrapper installed by another product; " +
-					"local projects are meant to use native authentication"
-			}
-		}
-		if home, err := os.UserHomeDir(); err == nil {
-			if within(filepath.Join(home, lodyStateDirComponent), candidate) {
-				return "refusing a gh inside another product's state directory"
-			}
-		}
-	}
-	return ""
-}
-
-// foldCase lowercases a path component on platforms whose filesystem is
-// case-insensitive, so that `.LODY` cannot be spelled past a check for `.lody`.
-// On a case-sensitive platform the two names really are different directories,
-// and folding them would refuse an innocent one.
-func foldCase(s string) string {
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		return strings.ToLower(s)
-	}
-	return s
-}
-
-func resolveSymlinks(path string) string {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return ""
-	}
-	return resolved
-}
-
-// within reports whether path is root itself or sits underneath it.
-func within(root, path string) bool {
-	rel, err := filepath.Rel(foldCase(root), foldCase(path))
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func isExecutableFile(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	return runtime.GOOS == "windows" || info.Mode().Perm()&0o111 != 0
 }
 
 // ghTimeout bounds a single gh invocation. Reading a pull request is a small
@@ -260,30 +133,12 @@ func (c GHClient) Run(ctx context.Context, args ...string) ([]byte, error) {
 
 // ghEnv builds the child environment: the user's, minus wrapper directories,
 // plus the settings that keep gh non-interactive and machine-readable.
+//
+// gh runs helpers of its own — git among them — so the PATH it is handed is
+// filtered rather than inherited: resolving gh to a clean absolute path while
+// leaving the wrapper on the child's PATH would let it back in one level down.
 func ghEnv() []string {
-	env := os.Environ()
-	out := make([]string, 0, len(env)+6)
-	for _, entry := range env {
-		name, value, ok := strings.Cut(entry, "=")
-		if !ok {
-			out = append(out, entry)
-			continue
-		}
-		if name == "PATH" {
-			filtered := filterShimFromPath(value)
-			if filtered == "" {
-				// Every entry was filtered out. Leaving PATH unset would be worse
-				// than the thing being defended against: gh runs git and other
-				// helpers of its own, and with no PATH it fails in a way that
-				// reads like a gh bug.
-				filtered = "/usr/bin:/bin:/usr/sbin:/sbin"
-			}
-			out = append(out, name+"="+filtered)
-			continue
-		}
-		out = append(out, entry)
-	}
-	return append(out,
+	return append(toolpath.SanitizeEnv(os.Environ()),
 		"GH_PROMPT_DISABLED=1",
 		"GH_NO_UPDATE_NOTIFIER=1",
 		"GH_PAGER=cat",
@@ -291,17 +146,6 @@ func ghEnv() []string {
 		"NO_COLOR=1",
 		"CLICOLOR=0",
 	)
-}
-
-func filterShimFromPath(path string) string {
-	var kept []string
-	for _, dir := range filepath.SplitList(path) {
-		if dir == "" || rejectGHPath(dir) != "" {
-			continue
-		}
-		kept = append(kept, dir)
-	}
-	return strings.Join(kept, string(filepath.ListSeparator))
 }
 
 // httpStatusRe matches the "(HTTP 404)" suffix gh appends to API errors. The

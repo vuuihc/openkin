@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -80,11 +79,7 @@ type AnchorResolver struct {
 
 // NewAnchorResolver resolves git once, the same way NewManager does.
 func NewAnchorResolver() AnchorResolver {
-	path, err := exec.LookPath("git")
-	if err != nil {
-		path = ""
-	}
-	return AnchorResolver{git: execGit{Path: path}}
+	return AnchorResolver{git: execGit{Path: resolveGit()}}
 }
 
 func (r AnchorResolver) toplevel(ctx context.Context, dir string) (string, error) {

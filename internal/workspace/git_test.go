@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/toolpath"
 )
 
 // TestGitHelperProcess is not a real test; it is re-exec'd as a fake git binary.
@@ -168,6 +170,60 @@ func TestGitRunner_TerminalPromptForcedZero(t *testing.T) {
 	if string(out) != "0" {
 		t.Fatalf("GIT_TERMINAL_PROMPT=%q want 0", string(out))
 	}
+}
+
+// git resolves its own helpers — `git-remote-https`, the credential helpers —
+// through the PATH it inherits. Resolving the binary to a clean absolute path
+// while handing the child the daemon's own PATH would let the wrapper back in
+// one level down, on the exact code path that later carries `git push`.
+func TestGitRunner_FiltersTheWrapperOutOfTheChildPATH(t *testing.T) {
+	shim := filepath.Join(t.TempDir(), toolpath.SessionShimComponent, "abc")
+	t.Setenv("PATH", strings.Join(
+		[]string{shim, "/usr/bin"}, string(filepath.ListSeparator)))
+
+	out, err := helperRunner{
+		mode: "echo-env",
+		env:  map[string]string{"KIN_GIT_HELPER_ENVKEY": "PATH"},
+	}.Run(context.Background(), "", nil, ControlStdoutLimit, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if strings.Contains(got, toolpath.SessionShimComponent) {
+		t.Fatalf("child PATH still names the wrapper: %q", got)
+	}
+	if !strings.Contains(got, "/usr/bin") {
+		t.Fatalf("child PATH lost the ordinary directories: %q", got)
+	}
+}
+
+// The same refusal, at the point the daemon chooses a git: a wrapper must not be
+// reached even when it is the only thing on offer.
+func TestResolveGitRefusesTheSessionWrapperEvenWhenItIsAllThereIs(t *testing.T) {
+	shim := filepath.Join(t.TempDir(), toolpath.SessionShimComponent, "abc")
+	if err := os.MkdirAll(shim, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wrapper := filepath.Join(shim, "git")
+	if err := os.WriteFile(wrapper, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("through PATH", func(t *testing.T) {
+		t.Setenv("PATH", shim)
+		if got := resolveGit(); got != "" && toolpath.Refuse(got) != "" {
+			t.Fatalf("resolveGit() = %q, a wrapper", got)
+		}
+	})
+
+	t.Run("through the override", func(t *testing.T) {
+		// Refused rather than fallen back: someone who set the override meant
+		// it, and quietly running a different git would be the worse answer.
+		t.Setenv(gitPathEnv, wrapper)
+		if got := resolveGit(); got != "" {
+			t.Fatalf("resolveGit() = %q, want no git rather than a silent substitute", got)
+		}
+	})
 }
 
 func TestGitRunner_StderrCapped(t *testing.T) {

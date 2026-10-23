@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -31,10 +30,7 @@ func NewManager(stateDir string) *Manager {
 			stateDir = resolved
 		}
 	}
-	path, err := exec.LookPath("git")
-	if err != nil {
-		path = ""
-	}
+	path := resolveGit()
 	return &Manager{
 		stateDir: stateDir,
 		gitPath:  path,
