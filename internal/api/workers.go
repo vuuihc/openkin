@@ -9,12 +9,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
 type workerResponse struct {
-	worker.Record
+	workers.Record
 }
 
 func (s *Server) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +36,7 @@ func (s *Server) handleRegisterWorker(w http.ResponseWriter, r *http.Request) {
 	record, err := s.Workers.RegisterForOwner(hello, principal.DeviceID)
 	if err != nil {
 		status := http.StatusBadRequest
-		if errors.Is(err, worker.ErrWorkerExists) {
+		if errors.Is(err, workers.ErrWorkerExists) {
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
@@ -63,13 +64,13 @@ func (s *Server) handleHeartbeatWorker(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		status := http.StatusBadRequest
 		switch {
-		case errors.Is(err, worker.ErrWorkerNotFound):
+		case errors.Is(err, workers.ErrWorkerNotFound):
 			status = http.StatusNotFound
-		case errors.Is(err, worker.ErrWorkerRevoked), errors.Is(err, worker.ErrLeaseExpired):
+		case errors.Is(err, workers.ErrWorkerRevoked), errors.Is(err, workers.ErrLeaseExpired):
 			status = http.StatusConflict
-		case errors.Is(err, worker.ErrWorkerOwner):
+		case errors.Is(err, workers.ErrWorkerOwner):
 			status = http.StatusForbidden
-		case errors.Is(err, worker.ErrWorkerExists):
+		case errors.Is(err, workers.ErrWorkerExists):
 			status = http.StatusConflict
 		}
 		writeJSON(w, status, map[string]string{"error": err.Error()})
@@ -80,7 +81,7 @@ func (s *Server) handleHeartbeatWorker(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 	if s.Workers == nil {
-		writeJSON(w, http.StatusOK, []worker.Record{})
+		writeJSON(w, http.StatusOK, []workers.Record{})
 		return
 	}
 	records := s.Workers.List()
@@ -94,7 +95,7 @@ func (s *Server) handleListWorkers(w http.ResponseWriter, r *http.Request) {
 		records = filtered
 	}
 	if records == nil {
-		records = []worker.Record{}
+		records = []workers.Record{}
 	}
 	writeJSON(w, http.StatusOK, records)
 }
@@ -109,7 +110,7 @@ func (s *Server) handleRevokeWorker(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "worker id is required"})
 		return
 	}
-	if _, err := s.Workers.Revoke(id, time.Now()); errors.Is(err, worker.ErrWorkerNotFound) {
+	if _, err := s.Workers.Revoke(id, time.Now()); errors.Is(err, workers.ErrWorkerNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "worker not found"})
 		return
 	} else if err != nil {

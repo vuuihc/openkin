@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
@@ -40,11 +41,11 @@ func TestWorkerAPIScopesLeaseToDeviceAndRevocation(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("register: %d %s", rec.Code, rec.Body.String())
 	}
-	var registered worker.Record
+	var registered workers.Record
 	if err := json.Unmarshal(rec.Body.Bytes(), &registered); err != nil {
 		t.Fatal(err)
 	}
-	if registered.OwnerDeviceID != deviceID || registered.State != worker.StateOnline {
+	if registered.OwnerDeviceID != deviceID || registered.State != workers.StateOnline {
 		t.Fatalf("registered = %+v", registered)
 	}
 	rec = request(http.MethodPost, "/api/workers/register", master, hello)

@@ -28,6 +28,7 @@ import (
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
+	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
@@ -303,7 +304,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		return strings.TrimSpace(pref), err
 	}
 	notifier := &notify.Sender{Store: st}
-	workerRegistry := worker.NewRegistry(worker.DefaultLeaseTTL, func(record worker.Record) {
+	workerRegistry := workers.NewRegistry(workers.DefaultLeaseTTL, func(record workers.Record) {
 		notifier.NotifyWorkerOffline(context.Background(), record.WorkerID, "", record.Label)
 	})
 	// Nodes are the machines that run turns with their own agents. The
@@ -1028,11 +1029,11 @@ func runSleepGuard(
 	}
 }
 
-func runWorkerLeaseSweep(ctx context.Context, registry *worker.Registry) {
+func runWorkerLeaseSweep(ctx context.Context, registry *workers.Registry) {
 	if registry == nil {
 		return
 	}
-	ticker := time.NewTicker(worker.DefaultLeaseTTL / 2)
+	ticker := time.NewTicker(workers.DefaultLeaseTTL / 2)
 	defer ticker.Stop()
 	for {
 		select {

@@ -26,6 +26,7 @@ import (
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
+	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
@@ -138,7 +139,7 @@ type Server struct {
 	// Workers is the in-memory registry for optional user-owned headless
 	// workers. Leases are intentionally ephemeral and workers reconnect after
 	// daemon restart.
-	Workers *worker.Registry
+	Workers *workers.Registry
 	// Nodes holds the live Node control-channel connections. Nil disables
 	// /api/node, which is what a daemon that does not expect Nodes to dial in
 	// (a test, an embedder) wants.

@@ -18,6 +18,7 @@ import (
 	"nhooyr.io/websocket"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
@@ -69,7 +70,7 @@ func remoteHub(t *testing.T, onEnded ...func(*node.Turns, node.Sender)) (*Server
 		Auth:       remote.NewAuth(token),
 		Engine:     eng,
 		Version:    "test",
-		Workers:    worker.NewRegistry(time.Minute, nil),
+		Workers:    workers.NewRegistry(time.Minute, nil),
 		DesktopID:  "hub-machine",
 		Nodes:      conns,
 		NodeFrames: turns.RouteFrame,

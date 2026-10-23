@@ -1,4 +1,11 @@
-package worker
+// Package workers is the Hub's registry of Node worker leases (ADR 0020).
+//
+// Only a Hub keeps this table: a Node announces itself and renews a lease, but
+// it never tracks anyone else. The frames it exchanges are the protocol's
+// business (internal/remote/worker), which is why this package sits above that
+// one rather than inside it — the protocol is a specification both sides share,
+// and a Hub-only registry is not part of it.
+package workers
 
 import (
 	"crypto/rand"
@@ -8,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
 const DefaultLeaseTTL = 30 * time.Second
@@ -30,12 +39,12 @@ const (
 )
 
 type Record struct {
-	Hello
-	OwnerDeviceID string `json:"owner_device_id,omitempty"`
-	Lease         Lease  `json:"lease"`
-	State         State  `json:"state"`
-	LastSeen      int64  `json:"last_seen_at"`
-	RevokedAt     int64  `json:"revoked_at,omitempty"`
+	worker.Hello
+	OwnerDeviceID string       `json:"owner_device_id,omitempty"`
+	Lease         worker.Lease `json:"lease"`
+	State         State        `json:"state"`
+	LastSeen      int64        `json:"last_seen_at"`
+	RevokedAt     int64        `json:"revoked_at,omitempty"`
 }
 
 // OfflineHook is called once when a live lease crosses its expiry.
@@ -59,13 +68,13 @@ func NewRegistry(leaseTTL time.Duration, onOffline OfflineHook) *Registry {
 	}
 }
 
-func (r *Registry) Register(h Hello) (Record, error) {
+func (r *Registry) Register(h worker.Hello) (Record, error) {
 	return r.RegisterForOwner(h, "")
 }
 
 // RegisterForOwner registers a worker and binds its lease to a device
 // credential. An empty owner is reserved for tests and local composition.
-func (r *Registry) RegisterForOwner(h Hello, ownerDeviceID string) (Record, error) {
+func (r *Registry) RegisterForOwner(h worker.Hello, ownerDeviceID string) (Record, error) {
 	if err := h.Validate(); err != nil {
 		return Record{}, err
 	}
@@ -88,7 +97,7 @@ func (r *Registry) RegisterForOwner(h Hello, ownerDeviceID string) (Record, erro
 	record := Record{
 		Hello: h, OwnerDeviceID: strings.TrimSpace(ownerDeviceID),
 		State: StateOnline, LastSeen: now,
-		Lease: Lease{
+		Lease: worker.Lease{
 			ID: leaseID, WorkerID: id, IssuedAt: now,
 			ExpiresAt: now + r.leaseTTL.Milliseconds(),
 		},
@@ -110,13 +119,13 @@ func (r *Registry) RegisterForOwner(h Hello, ownerDeviceID string) (Record, erro
 	return record, nil
 }
 
-func (r *Registry) Heartbeat(h Heartbeat) (Record, error) {
+func (r *Registry) Heartbeat(h worker.Heartbeat) (Record, error) {
 	return r.HeartbeatForOwner(h, "")
 }
 
 // HeartbeatForOwner renews a lease only when it belongs to ownerDeviceID.
 // Empty owner preserves the local/test registry API.
-func (r *Registry) HeartbeatForOwner(h Heartbeat, ownerDeviceID string) (Record, error) {
+func (r *Registry) HeartbeatForOwner(h worker.Heartbeat, ownerDeviceID string) (Record, error) {
 	if err := h.Validate(); err != nil {
 		return Record{}, err
 	}
