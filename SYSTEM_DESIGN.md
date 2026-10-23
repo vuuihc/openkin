@@ -2,10 +2,10 @@
 
 [中文](./SYSTEM_DESIGN.zh.md)
 
-**Status:** Draft v0.3 — direction, not an API contract
+**Status:** Draft v0.4 — direction, not an API contract
 **Project / brand:** OpenKin · **Product subject:** Kin · **CLI:** `kin` (alias: `ok`)
-**Based on:** [PRINCIPLE.md](./PRINCIPLE.md) · [中文](./PRINCIPLE.zh.md) — console-first §12; v0.3 inserts an Artifacts slice before Memory (see §2, §7)
-**Promise:** Your agent. Your memory. Any model.
+**Based on:** [PRINCIPLE.md](./PRINCIPLE.md) · [中文](./PRINCIPLE.zh.md) — console-first §12; v0.4 records the 2026-10-23 scope cut (see §7)
+**Promise:** Your agents. Your machines. Any device.
 
 Exploratory drafts and implementation diaries do not live in this repo. This is a **public** architecture snapshot: enough to decide whether OpenKin is for you—not an internal working memo.
 
@@ -14,24 +14,24 @@ Exploratory drafts and implementation diaries do not live in this repo. This is 
 ## 1. Overview
 
 ```text
-User-owned Kin Core (local-first daemon)
+User-owned Kin Core
   ├── Agent plugin registry     ← compiled plugins (Kin, Claude Code, Codex, …); interchangeable hosts
   ├── Agent adapters            ← process runners + normalized events for each plugin
   ├── Task engine + approvals/questions ← dispatch, watch, approve, ask, audit
   ├── Provider / cost layer     ← usage and spend per task and model
-  ├── Remote access (ladder)    ← LAN → tailnet / Funnel; never a Kin cloud
-  ├── Artifacts (P0 shipped)    ← session deliverables library + reader; multi-device via same daemon
-  ├── Identity + Memory (v2)    ← continuous subject, governed memory (may extract from Artifacts)
-  └── Client shells             ← desktop app + any-device web console
+  ├── Hub (optional)            ← the user's own server: accounts, sessions, device fan-out
+  ├── Node channel              ← reach a machine behind NAT without opening a port
+  ├── Artifacts (P0 shipped)    ← session deliverables library + reader
+  └── Client shells             ← desktop app + phone web console
 ```
 
 **Hard constraints** (from principles):
 
 | Constraint | Meaning |
 |------------|---------|
-| User-owned | No Kin account required; export / delete / self-host |
-| Local-first | Device is source of truth; cloud only when explicitly enabled |
-| Model-agnostic | Provider quirks do not own identity or memory |
+| User-owned | No OpenKin-operated account required; export / delete / self-host |
+| No vendor in the path | Standalone on one machine, or a Hub the user runs; never our infrastructure |
+| Model-agnostic | Provider quirks do not own sessions or configuration |
 | Progressive authority | External effects are authorizable and auditable |
 | Small by default | Optional layers are later, not v1 entities ([§5.11](./PRINCIPLE.md)) |
 
@@ -50,12 +50,13 @@ Entry point: **dispatch, watch, and approve agent tasks from any device** — se
 - **Approval inbox**: permission requests and clarifying questions on desktop and phone; every decision/answer audited
 - Cost transparency: tokens and spend per task and provider
 - Remote access ladder (§5): LAN QR → embedded tailnet + Funnel → full tailnet
-- Export; core use without any Kin account
+- **One account on a Hub the user runs**: sign in on a second device and see the same sessions
+- Export; core use with no OpenKin-operated account
 
-**Shipped P0 slice after MVP, before Memory — Artifacts**
+**Shipped P0 slice after MVP — Artifacts**
 
 Real pain: agents often produce topic study materials (Markdown / HTML); users manually download them, lose session linkage, and struggle to read across devices.
-**Artifacts** keep **readable session deliverables** in a local library, preserve provenance to the source task, and offer a console reader; multi-device access reuses the remote ladder against **your** daemon—not a Kin content cloud.
+**Artifacts** keep **readable session deliverables** in a local library, preserve provenance to the source task, and offer a console reader; multi-device access goes through the user's own Hub, not a vendor content cloud.
 Checklist: [docs/TODO.md](./docs/TODO.md). Decision: [docs/adr/0003-artifacts-and-reader.md](./docs/adr/0003-artifacts-and-reader.md).
 
 - **P0** — capture (propose to save) · file truth + index · library list · MD / sandboxed HTML reader · jump to source task
@@ -63,16 +64,16 @@ Checklist: [docs/TODO.md](./docs/TODO.md). Decision: [docs/adr/0003-artifacts-an
 
 **Explicitly later — or never**
 
-- Governed memory + identity — the v2 story (“Kin knows you across agents”); semantics in §3 stay stable; **may extract from Artifacts, but is not the same object**
 - Full LLM Wiki / second-brain PKM — must not jump the queue ahead of Artifacts
 - Kin-built code agent — **never**; adapters supervise, they do not reimplement
 - Native mobile apps — fast follow on the same API; web console first (store review must not gate MVP iteration)
-- Kin-operated relay / content cloud — relay only if traction demands it and it stays optional; **artifact sync is not a Kin cloud**
+- OpenKin-operated relay / content cloud — relay only if traction demands it and it stays optional
 - ~~Full sync product~~ — **withdrawn 2026-10-22 by [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md)**, which adds a Hub/Node split for multi-device sessions
-- Multi-user, long-lived routines, automatic model routing — **still later or never.** A Hub is single-owner: ownership is claimed with a one-time terminal code, and registration closes afterwards
+- Multi-user, long-lived routines, automatic model routing — **still later or never.** A Hub is single-owner by default: ownership is claimed with a one-time terminal code, and registration closes afterwards. Opening registration means account isolation lands first
 
-**Note on PRINCIPLE §12.** This design re-ordered the MVP: console before conversation/memory. Conversation already happens inside the agents Kin supervises; the unmet need—validated by both vendors shipping remote control—is cross-agent supervision without a vendor in the middle. PRINCIPLE §12/§13 were updated (2026-07).
-**2026-07-17:** Insert **Artifacts** between console MVP and Remember (v2), still under §5.11: shelf + reader before memory governance.
+**Note on PRINCIPLE §12.** This design re-ordered the MVP: console before conversation. Conversation already happens inside the agents Kin supervises; the unmet need—validated by both vendors shipping remote control—is cross-agent supervision without a vendor in the middle. PRINCIPLE §12/§13 were updated (2026-07).
+**2026-07-17:** Insert **Artifacts** as a shipped slice between console MVP and later work.
+**2026-10-23:** Governed memory, Kin Identity, and the continuous-learning themes were **removed** from the roadmap, not deferred. See PRINCIPLE §11 *Retired 2026-10-23*. Multi-device moved from "later" to now, as an account on the user's own Hub.
 
 ---
 
@@ -91,11 +92,11 @@ Even if users only see the console first, these names keep their meaning in late
 | **Provider config** | Endpoints and capabilities; secrets in the OS secret store, never in logs |
 | **Artifact** (near-term) | Readable session deliverable (md/html/…); files are truth; metadata holds source task and status (`proposed|saved|archived`) |
 | **Export bundle** | Versioned takeaway package (**no** secrets; **includes** artifacts tree convention) |
-| **Identity / Profile** (v2) | Structured “who Kin is and how it acts” |
-| **Memory** (v2) | Governed items with type, source, confidence, confirmation; inference ≠ user fact |
+| **Hub** | The user's own always-on server: accounts, sessions, device fan-out. Optional — a standalone daemon is a Hub of one |
+| **Node** | A machine that runs agents and connects out to a Hub; no inbound port required |
+| **Account** | A login on a Hub. The account that claims the Hub is its owner; paired devices act on the owner's behalf |
 
-User-visible memory path (v2): **save · propose · confirm/reject · edit/delete**.
-User-visible artifact path (near-term): **propose save · confirm/ignore · read · (P1) companion · optional extract to Memory**.
+User-visible artifact path: **propose save · confirm/ignore · read · (P1) companion**.
 
 Authority ladder (product language): observe → prepare → execute after confirm → delegate within scope → user-defined routines.
 
@@ -113,10 +114,9 @@ External coding agents are **managed workers behind adapters** — Kin supervise
 | Trust & Audit | Grants, confirmations, credentials, egress awareness |
 | Providers / cost | Provider config, usage accounting, spend per task; per-agent daily limits (display-only) |
 | Artifacts (P0 shipped) | Capture, index, library, reader; P1 companion threads; HTML sandbox |
-| Remote access | The §5 ladder; never a mandatory Kin cloud |
+| Hub | Accounts, session storage, device fan-out, the global change cursor served to clients |
+| Remote access | The §5 ladder; never a mandatory OpenKin relay |
 | Console UI | One UI shared by desktop shell and any-device web |
-| Identity (v2) | Preferences, boundaries, consistency across models/devices |
-| Memory (v2) | Full lifecycle of governed memory (including conflict and export); may extract from Artifacts |
 | Store / Export | Local persistence and user-owned backup (including artifacts file tree) |
 
 User-visible main paths:
@@ -125,14 +125,13 @@ User-visible main paths:
 2. **Watch** — streaming progress and cost
 3. **Approve** — handle confirmations from any connected device
 4. **Review** — history, audit, spend
-5. **Read / Artifacts** (near-term) — save session deliverables and read them; from P1, companion on the current doc
-6. **Remember** (v2) — profile + governed memory that travels across agents and models
+5. **Read / Artifacts** — save session deliverables and read them; from P1, companion on the current doc
 
 ---
 
 ## 5. Remote access ladder
 
-Goal: reach “approve and watch on another device” at **lowest user cost**, never forcing traffic through a Kin-operated cloud.
+Goal: reach “approve and watch on another device” at **lowest user cost**, never forcing traffic through an OpenKin-operated cloud.
 
 | Rung | User cost | Mechanism |
 |------|-----------|-----------|
@@ -141,9 +140,25 @@ Goal: reach “approve and watch on another device” at **lowest user cost**, n
 | User’s own tailnet | People who already run Tailscale | Join as a node on the user’s tailnet |
 | User’s own tunnel | Advanced | BYO frp / Cloudflare Tunnel / etc.; documented, not required |
 
-**Explicitly out (unless future traction demands it, and it stays optional):** Kin-account relay, Kin-operated message bus as the only path. Vendor remote control may still exist; Kin offers the path that **does not go through that vendor**.
+**Explicitly out (unless future traction demands it, and it stays optional):** an OpenKin-operated relay, or an OpenKin-operated message bus as the only path. Vendor remote control may still exist; Kin offers the path that **does not go through that vendor**.
 
-Multi-device reading of Artifacts uses the same ladder: **the phone opens the library on your daemon**, not a Kin-hosted drive.
+Multi-device reading of Artifacts goes through the user's own Hub or daemon, not an OpenKin-hosted drive.
+
+---
+
+## 5b. Sessions across devices
+
+The Hub stores an account's sessions and serves them to every signed-in device from a single monotonic cursor. A Node — a machine running agents — connects **out** to the Hub, so a laptop behind NAT needs no inbound port and no tailnet.
+
+Three rules keep this simple, and they are the whole design:
+
+1. **Sessions are append-only.** One writer (the Node), one order, assigned by the Hub. Clients replay from a cursor. There is no merge step and no CRDT, because two writers never edit the same session.
+2. **Offline writes queue locally.** A message composed while disconnected shows immediately and is sent on reconnect; the Hub assigns its position on arrival.
+3. **Secrets never leave the machine that holds them.** Provider API keys, agent OAuth tokens, and `~/.kin/secrets/` do not sync. The Hub carries capability metadata, not credentials.
+
+End-to-end encryption and conflict resolution are **not** offered. See [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md).
+
+Accounts exist so that a second device can see the first device's work. A Hub is single-owner by default; opening registration to other people requires per-account isolation of tasks, artifacts, and the live event stream, which is not yet implemented.
 
 ---
 
@@ -185,8 +200,8 @@ Themes, not a calendar. Details change; order of value should not.
 2. **Approve** — confirmations from desktop and phone, audited
 3. **Reach** — the remote ladder, QR onboarding
 4. **Track** — cost per task and provider
-5. **Artifacts** (near-term) — deliverable library + reader; P1 companion sidebar ([TODO](./docs/TODO.md) · [ADR 0003](./docs/adr/0003-artifacts-and-reader.md))
-6. **Remember** *(v2)* — profile + governed memory that travels across agents and models
+5. **Artifacts** — deliverable library + reader; P1 companion sidebar ([TODO](./docs/TODO.md) · [ADR 0003](./docs/adr/0003-artifacts-and-reader.md))
+6. **Follow** — a Hub you run, an account, and the same sessions on every device ([ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md))
 7. **Live in it** — polish until maintainers run their daily agent work through Kin
 
 ---
@@ -195,12 +210,12 @@ Themes, not a calendar. Details change; order of value should not.
 
 What we publish, and when we invite trials or contributors: [docs/OPEN_DEVELOPMENT.md](./docs/OPEN_DEVELOPMENT.md).
 
-Open core promise (with code later): daemon, adapters, task engine, trust/audit, cost accounting, console UI, import/export, local mode — **without** forcing a vendor cloud. Artifacts and the memory layer, when they land, are open too: the user-visible data plane is the part most worth being seen.
+Open core promise (with code later): daemon, adapters, task engine, trust/audit, cost accounting, console UI, import/export, local mode, **and the Hub** — without forcing a vendor cloud. Artifacts are open too: the user-visible data plane is the part most worth being seen.
 
 ---
 
 ## 9. Summary
 
-Kin is a **self-hosted console for your agents, growing into a personal agent core**: one place to dispatch, watch, and approve agent work across vendors — on your own network — with readable session deliverables kept as Artifacts you can re-open across devices, and identity and memory that later travel across models.
+Kin is a **self-hosted console for your agents**: one place to dispatch, watch, and approve agent work across vendors — on your own machines or your own Hub — with readable session deliverables kept as Artifacts you can re-open from any device.
 
 > Kin should grow with the user, without owning the user.

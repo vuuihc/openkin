@@ -3,15 +3,15 @@
 [中文](./PRINCIPLE.zh.md)
 
 **Status:** Draft v0.1
-**Nature:** Open-source, local-first, cross-device, model-agnostic personal agent
+**Nature:** Open-source, self-hosted, cross-device, model-agnostic multi-agent console
 **Project / brand:** OpenKin
 **Product subject:** Kin (the continuous local agent you own)
 **CLI:** `kin` (alias: `ok`)
 **Promise:**
 
-> Your agent. Your memory. Any model.
+> Your agents. Your machines. Any device.
 
-**Positioning (short):** local-first multi-agent console & personal coach — one Kin across devices and models.
+**Positioning (short):** a multi-agent console you host yourself — dispatch, watch, and approve agents across your machines, from any device.
 
 > Not the same product as Kin / mykin.ai (commercial personal-AI companion for iOS/Android). OpenKin is an independent open-source project.
 
@@ -19,49 +19,43 @@
 
 ## 1. Product definition
 
-Kin is a user-owned personal agent that persists across devices.
+Kin is a user-owned agent console. It runs coding and research agents on machines the user controls, and gives the user one place to dispatch them, watch them, and approve what they propose to do—from any device they sign in on.
 
-It builds a long-term understanding of the user’s background, goals, preferences, and ways of working; discusses problems; offers advice; and—with appropriate authority—uses tools to get real work done.
-
-Kin is not equivalent to any single large language model.
-
-Claude, GPT, Gemini, DeepSeek, local models, and other inference services are cognition backends Kin can use for different tasks. Users can switch models without losing Kin’s memory, identity, configuration, tools, workflows, or history of the relationship.
+Kin is not itself a model. Claude, GPT, Gemini, DeepSeek, local models, and other inference services are backends the agents it supervises can call.
 
 ```text
 Kin
-├── Identity       Who it is, and its relationship with the user
-├── Memory         What it understands about the user and the past
-├── Habits         Preferences and ways of working
-├── Agency         What it may plan and execute
-├── Tools          Systems and services it is allowed to call
-├── Policies       Permission, confirmation, safety, privacy
-└── Embodiments    macOS, iOS, Android, Web, CLI, …
+├── Sessions     What was asked, what the agent did, what was decided
+├── Agency       What agents may plan and execute
+├── Tools        Systems and services they are allowed to call
+├── Policies     Permission, confirmation, safety, privacy
+└── Embodiments  macOS, iOS, Android, Web, CLI, …
 ```
 
 The model is a replaceable “brain.”
 Clients are “bodies” on different devices.
 Tools are “hands” on the real world.
-**Memory, identity, and the user relationship** are the continuous subject.
+**Sessions and the audit trail** are the continuous subject.
 
 ---
 
 ## 2. Vision
 
-Kin’s long-term goal is not a chat client with more features. It is personal intelligence infrastructure the user owns for years.
+Kin runs agents on machines the user owns, and lets the user drive them from
+whatever device is in their hand. The user owns the runtime, the data, and the
+credentials; nothing has to pass through a vendor.
 
-A mature Kin should:
+A Kin that is working should:
 
-1. Avoid forcing the user to re-explain themselves every session.
-2. Feel like the same Kin after a device change.
-3. Keep identity and long-term memory when model vendors change.
-4. Learn the user’s language, workflow, and judgment standards.
-5. Act inside clear permission boundaries—not only answer questions.
-6. Let the user inspect, correct, export, and delete personal data.
-7. Extend the user’s capability without taking control of important decisions.
+1. Show what an agent is doing while it does it, on the device you are holding.
+2. Let you approve or stop it from that device, and record that you did.
+3. Survive a device change: the same sessions, on the next screen.
+4. Act inside clear permission boundaries—not only answer questions.
+5. Let the user inspect, correct, export, and delete their own data.
 
-Long term:
-
-> A digital partner that knows me, can deliberate with me, can handle some affairs on my behalf, and remains under my control.
+That is the whole of it. Kin is not trying to become a companion, a memory, or
+a second self; the ambitions that used to live in this section were the reason
+the project stalled, and they are recorded as non-goals in §11 instead.
 
 ---
 
@@ -69,9 +63,9 @@ Long term:
 
 ### 3.1 Model locked to user identity
 
-Habits, context, and long-term memory are often trapped in one vendor or client. Switching models means redoing prompts, context, memory, tools, workflows, and interaction habits.
+Working setup—prompts, tool wiring, session history, habits—gets trapped in one vendor’s client. Switching models means rebuilding all of it.
 
-Kin separates the personal agent’s identity from the model service.
+Kin keeps sessions and configuration in the user’s own storage, so changing the model behind them is a swap, not a migration.
 
 ### 3.2 Server-first, thin clients
 
@@ -79,13 +73,7 @@ Many agent systems center a server, gateway, or bot channel. Clients become thin
 
 Kin is **client-first**. Each client is a native embodiment of device capability—not just a chat window.
 
-### 3.3 Opaque long-term memory
-
-Products “remember the user” while hiding what is stored, why, from where, whether it is still true, conflicts, and how to edit or delete.
-
-Kin memory must be inspectable, explainable, correctable, and portable.
-
-### 3.4 Agency without clear authority
+### 3.3 Agency without clear authority
 
 File, mail, calendar, browser, terminal, and account access create real-world impact. Higher autonomy is not automatically better product.
 
@@ -115,24 +103,31 @@ Early Kin is **not** primarily for zero-configuration mass consumers. Some techn
 
 ### 5.1 The user owns Kin
 
-Personal data, memory, config, and workflows belong to the user—not maintainers, clouds, or model vendors.
+Personal data, config, and workflows belong to the user—not maintainers, clouds, or model vendors.
 
 Must support: local use, export, delete, self-host, replace sync, replace model vendors, and core function without official services.
 
 Official cloud accounts must not be a hard dependency for core capability.
 
-### 5.2 Local-first
+### 5.2 Self-hosted, no vendor in the path
 
-The user’s device is the primary home of data—not a cache of the cloud.
+Kin’s data lives on machines the user controls. That may be one laptop running standalone—the default—or a Hub the user runs on their own server and reaches at their own domain. Both are the user’s; neither is ours.
 
-Local-first does not forbid cloud. It means:
+What this forbids:
 
-- Local is the first copy
-- Offline access to what is already on device
-- Cloud only for explicitly enabled sync, backup, or remote execution
-- Visibility into what left the device
-- Sensitive credentials not synced by default
-- Cloud components replaceable or self-hostable
+- An OpenKin-operated service being required for core capability
+- Data passing through infrastructure the user does not control
+- Credentials leaving the machine that holds them
+
+What it does not forbid:
+
+- A Hub that stays on, so devices keep the same sessions without a laptop awake
+- Cloud model providers—those are backends the agents call, not the datastore
+- Remote execution on a machine the user owns
+
+Standalone remains the default for a user who never configures a Hub, and offline
+use of what is already on the device keeps working. But “local is always the first
+copy” is not a rule Kin holds itself to once the user has put a Hub in the picture.
 
 ### 5.3 Model-agnostic
 
@@ -145,7 +140,7 @@ Generation · Streaming · Structured Output · Tool Calling
 Vision · Audio · Reasoning · Embeddings · Reranking · Context Caching
 ```
 
-Provider quirks must not pollute identity, memory, or tools.
+Provider quirks must not pollute sessions, configuration, or tools.
 
 Users should set per-task models, defaults and fallbacks, OpenAI-compatible endpoints, local inference, degrade when a model fails, and see model, cost, and latency per task.
 
@@ -155,33 +150,31 @@ Routing may exist; it must not become mandatory complexity.
 
 From the user’s view, Kin is one subject—not a separate bot per device.
 
-Device capabilities differ (macOS files/clipboard/menu bar; mobile share/voice/notifications; Web for config and audit; CLI for scripts). Identity, memory, and task state stay continuous.
+Device capabilities differ (macOS files/clipboard/menu bar; mobile share/voice/notifications; Web for config and audit; CLI for scripts). Sessions and task state stay continuous.
 
 ### 5.5 Simplicity over feature pile-up
 
 Internals may be complex; daily UX must not be.
 
-Stable entrances: **Ask · Plan · Do · Read/Artifacts · Remember · Review · Routine**.
+Stable entrances: **Ask · Plan · Do · Read/Artifacts · Review · Routine**.
 
-**Artifacts** cover readable session deliverables (study primers, HTML notes, long-form outputs)—capture, library, reader, provenance. **Remember** covers governed long-term memory (optionally extracted from Artifacts). Do not merge them into one concept.
+**Artifacts** cover readable session deliverables (study primers, HTML notes, long-form outputs)—capture, library, reader, provenance.
 
 Advanced concepts (many agents, workflows, skills, nodes, providers) expose gradually. Users may own a complex system without managing it every day.
 
-**Prefer simple implementations too.** Application-level behaviors (session wrap-up, cover write-back, coaching nudges, project memory tidying) should start as reviewable prompts / in-conversation flows—not as hard-coded APIs, tables, state machines, and dedicated UI entities. Reserve hard-coded paths for: permission and safety boundaries, durable sources of truth, stream/task protocols, and contracts a prompt cannot reliably guarantee.
+**Prefer simple implementations too.** Application-level behaviors (session wrap-up, cover write-back, coaching nudges) should start as reviewable prompts / in-conversation flows—not as hard-coded APIs, tables, state machines, and dedicated UI entities. Reserve hard-coded paths for: permission and safety boundaries, durable sources of truth, stream/task protocols, and contracts a prompt cannot reliably guarantee.
 
 Counter-example: a dedicated recycle table + REST + review card for “write wrap-up into the One-Pager” is heavier, harder to understand, and harder to maintain than asking Kin in the chat to update the cover.
 
-### 5.6 Memory must be governable
+### 5.6 Label what Kin inferred
 
-Memory is not only chat logs or a vector DB. Distinguish at least:
+Kin states things the user told it, things it read, and things it concluded — and
+does not blur them. A summary, a suggestion, or a "you usually prefer X" is
+marked as Kin's reading, never dressed up as the user's own words or as fact.
 
-```text
-Profile · Episodic · Semantic · Procedural · Task · Relationship
-```
-
-Non-raw memories should carry content, source, times, confidence, scope, sensitivity, user confirmation, conflicts, and review/expiry rules.
-
-Model inference must never be disguised as user-stated fact. Users must see why Kin believes something.
+This is the whole of the old memory-governance principle that survives: Kin does
+not keep a memory subsystem, but it still owes the user provenance on anything it
+says on the user's behalf.
 
 ### 5.7 Judgment over sycophancy
 
@@ -217,7 +210,7 @@ In an era of exploding model and agent surface area, what ships fastest is usual
 
 #### Discipline
 
-1. **Nail the main path first:** worth opening daily on one machine—accurate memory, real work, legible history.
+1. **Nail the main path first:** worth opening daily on one machine—real work, legible history.
 2. **Do not prepay distant architecture:** implement multi-device and orchestration stories when friction is real.
    *Condition met 2026-10-22:* friction is real — users already switch between daemons and lose conversation continuity on every switch. ADR 0022 is the response. The rule itself stands; for this one item it now reads "implement", not "defer".
 3. **External executors are Tools, not a second Kin:** third-party coding agents or harnesses may be invoked; they are not a second identity or runtime.
@@ -243,7 +236,7 @@ Fine as long-term vision; **not default v1 surface** unless real use demands it:
 - Desktop control / computer-use as a default capability
 - User-facing multi-agent casts
 - Plugin marketplaces and routing platforms
-- Official cloud as the only path for identity, memory, or execution
+- Official cloud as the only path for sessions, execution, or identity
 
 Until a capability is needed repeatedly in daily use, prefer the simpler path: the same Kin on the machine that already has the tools.
 
@@ -271,9 +264,8 @@ Fewer entities must not mean a soulless chat shell. Keep these seeds—**impleme
 
 | Keep | Small form |
 |------|------------|
-| User ownership | Local-first; export; no required official account |
+| User ownership | Self-hosted; export; no required OpenKin account |
 | Model portability | A few providers; no routing platform |
-| Governable memory | Confirm, view, delete, source; prefer sparse over dirty |
 | Legible authority | Confirm before external effects; one readable timeline |
 
 #### One line
@@ -284,39 +276,27 @@ Fewer entities must not mean a soulless chat shell. Keep these seeds—**impleme
 
 ## 6. Core product components
 
-### 6.1 Kin Identity
-
-Stable identity: agent name, user settings, style, boundaries, long-term goals, default decision principles, consistency across devices and models.
-
-Not one unmaintainable mega system prompt—structured config + explicit user settings + governed long-term memory.
-
-### 6.2 Kin Memory
-
-Extract, store, retrieve, update, merge, conflict, expire, delete, import/export.
-
-Separate: raw records, user-stated facts, model summaries, model inferences, user-corrected conclusions.
-
-### 6.2.1 Kin Artifacts (session deliverables, near-term)
+### 6.1 Kin Artifacts (session deliverables)
 
 Artifacts are **readable deliverables** produced in agent sessions (topic study Markdown, HTML primers, long write-ups)—not vector memory and not a bookmark drawer.
 
-Responsibilities: capture or user-save from sessions; file-backed truth plus searchable index; provenance to source task/session; library + reader in the console; later, document-scoped companion reading; optional **propose** extract into Memory/Wiki (user confirms by default).
+Responsibilities: capture or user-save from sessions; file-backed truth plus searchable index; provenance to source task/session; library + reader in the console; later, document-scoped companion reading.
 
-Constraints: propose/confirm for high-impact saves; sandbox untrusted HTML; multi-device via the remote ladder to **the same daemon**, not a Kin content cloud; included in export/leave.
+Constraints: propose/confirm for high-impact saves; sandbox untrusted HTML; multi-device through the user's own Hub, not a vendor content cloud; included in export/leave.
 
 Checklist: [docs/TODO.md](./docs/TODO.md). Decision: [docs/adr/0003-artifacts-and-reader.md](./docs/adr/0003-artifacts-and-reader.md).
 
-### 6.3 Kin Runtime
+### 6.2 Kin Runtime
 
 Context assembly, model calls, tool calls, agent loop, plans, pause/resume/retry, human confirmation, execution traces.
 
 Sub-agents may exist internally; the user still meets one Kin. Workers are internal, not a cast of personalities to manage.
 
-### 6.4 Provider Layer
+### 6.3 Provider Layer
 
 Pluggable providers, configurable endpoints, user-controlled API keys, local models, capability detection, timeout/retry/fallback, cost metadata. Sensitive context is not sent to every provider by default.
 
-### 6.5 Tool and Skill Layer
+### 6.4 Tool and Skill Layer
 
 **Tool:** atomic capability (read file, search mail, create event).
 **Skill:** reusable method (prep a meeting, summarize a day, tidy downloads).
@@ -325,19 +305,24 @@ Clear I/O, permission declarations, risk level, testability, versioning, logs, d
 
 Compatible with open tool protocols (e.g. MCP) without hard-wiring the whole architecture to one external protocol.
 
-### 6.6 Sync Layer
+### 6.5 Sync Layer
 
-Optional consistency for identity, config, conversations, memory, tasks, workflows, non-sensitive tool config.
+The Hub holds an account's sessions. Any device the user signs in on — phone, laptop, console — reads the same sessions from it, and can aim an agent running on a Node it can reach.
 
-Must handle offline edits, conflicts, partial sync, device revoke, E2E encryption, versions, schema upgrades, large attachments, local-only secrets.
+The model is deliberately narrow:
 
-Sync is replaceable—not the center of Kin.
+- **Sessions are append-only streams.** One writer (the Node running the agent), one order, assigned by the Hub. Readers replay from a cursor. There is no merge step and no CRDT, because two writers never edit the same session.
+- **Offline writes queue locally.** A message composed while disconnected shows immediately and is sent on reconnect; the Hub assigns its position on arrival. Order is by arrival, not by device clock.
+- **Secrets never sync.** Provider API keys, agent OAuth tokens, and `~/.kin/secrets/` stay on the machine that holds them. The Hub stores capability metadata, not credentials.
+- **Revoking a device is immediate** and needs no cooperation from that device.
 
-### 6.7 Client Shell
+That is the whole commitment. End-to-end encryption and conflict resolution are **not** promised anywhere in Kin; see [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md). Do not describe Kin as providing them until they exist.
 
-Same Kin, memory, task state, permission system, provider/skill config across shells; platform differences in integration, input, background work, notifications, tools, layout, OS permissions.
+### 6.6 Client Shell
 
-### 6.8 Trust and Audit
+Same Kin, session state, permission system, provider/skill config across shells; platform differences in integration, input, background work, notifications, tools, layout, OS permissions.
+
+### 6.7 Trust and Audit
 
 Permissions, confirmation, credentials, sandboxing, audit, risk tiers, outbound data prompts, sensitive handling, revoke and device management.
 
@@ -351,7 +336,7 @@ Not chat-only: **Converse · Plan · Act · Review · Routine**.
 
 Plans include steps, deps, risks, permissions, tools, open questions.
 Act names effects, tools, confirmations, outbound data.
-Review covers outcomes, failures, Kin decisions, new memories, fix/undo.
+Review covers outcomes, failures, Kin decisions, fix/undo.
 Routines need triggers, bounds, permissions, last status, history, pause/delete.
 
 ---
@@ -369,7 +354,7 @@ User-adjustable structured prefs: length, style, proactivity, risk appetite, adv
 ## 9. Privacy and safety floor
 
 1. No private data upload without user awareness.
-2. No default use of long-term memory for model training.
+2. No use of session content, prompts, or user data for model training by default.
 3. No plaintext secrets in logs.
 4. Credentials not exposed raw to the model.
 5. Device-level keys not synced by default.
@@ -387,13 +372,13 @@ High-risk actions use deterministic policy and tool constraints—not model poli
 
 The open version is a real independent personal agent—not a demo shell of a commercial product.
 
-Open core should include at least: runtime, provider interface, local memory, permission/audit, tool/skill SDK, basic client, import/export, local mode, self-host docs, plugin docs.
+Open core should include at least: runtime, provider interface, permission/audit, tool/skill SDK, basic client, import/export, local mode, self-host docs, plugin docs.
 
 Prefer a permissive license suitable for ecosystem growth (e.g. Apache-2.0).
 
-Official hosted services must not be the only source of identity, long-term memory, model access, sync protocol, plugin install, or export.
+Official hosted services must not be the only source of identity, model access, sync protocol, plugin install, or export. A user must be able to run the Hub themselves.
 
-Encourage third-party clients, providers, sync backends, tools/skills, local models, and compatible implementations.
+Encourage third-party clients, providers, tools/skills, local models, and compatible implementations.
 
 See [docs/OPEN_DEVELOPMENT.md](./docs/OPEN_DEVELOPMENT.md) for what we publish and how we pace open development.
 
@@ -406,6 +391,17 @@ Not trying to be: multi-tenant enterprise agent platform; large-scale agent clus
 Multi-agent tech is fine; showing many agents is not the goal.
 Cloud run is fine; cloud-hosted is not the center.
 Companionship is fine; addictive dependence is not.
+
+### Retired 2026-10-23
+
+Earlier revisions of this document described a Kin that accumulates long-term
+memory, a persistent "Kin Identity" that survives model changes, and a
+continuous-learning loop that makes Kin better the more it is used. Those were a
+second product sitting on top of this one, and they are what stalled the project.
+
+They are **not** on the roadmap. They are not "v2". They are not a reason to shape
+today's schema, storage, or API. If Kin ever needs them, they come back as a
+proposal that cites its own ADR—not as a debt the current reader is assumed to owe.
 
 ---
 
@@ -420,10 +416,11 @@ The MVP is the **agent console**: dispatch, watch, and approve external agent ta
 3. Task lifecycle: dispatch, streaming progress, cancel, history
 4. Approval inbox on desktop and phone; every decision audited
 5. Cost visibility: tokens and spend per task and provider
-6. Remote access ladder: LAN -> embedded tailnet / Funnel -> full tailnet; never a Kin cloud
+6. Remote access ladder: LAN -> embedded tailnet / Funnel -> full tailnet; never an OpenKin-operated relay
 7. Local task storage; full import/export
 8. Stable desktop client (shell) + any-device web console
-9. Core use without any Kin account
+9. One account on a Hub the user runs: sign in on a second device and see the same sessions
+10. Core use with no OpenKin-operated account—standalone, or a self-hosted Hub
 
 ### Priority
 
@@ -433,15 +430,16 @@ P2  Remote ladder | cost stats | push notifications | more adapters | CLI polish
 P2b Artifacts library P0 (capture, local store, reader, source-task link)
     Artifacts companion P1 (sidebar, doc-scoped thread, tags/search)
     (see docs/TODO.md · ADR 0003)
-P3  Governed memory + profile (v2; may extract from Artifacts) | native mobile app | long-lived routines | auto routing | sub-agents
+P3  Native mobile app | long-lived routines | auto routing | sub-agents
 ```
 
 First version serves the creators. Live in it before expanding.
 
-When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map. Artifacts land before full Wiki/Memory because “keep deliverables readable across devices with session provenance” is a sharper pain and does not require full memory governance first.
+When expanding scope, follow §5.11: deepen P1 feel before unlocking the P3 map.
 
-*Revised 2026-07: the console ships before conversation/memory. Conversation already happens inside the agents Kin supervises; the unmet need is cross-agent supervision without a vendor in the middle. Governed memory remains the v2 differentiator.*
-*Revised 2026-07-17: explicit near-term Artifacts theme (library + reader/companion) between console polish and Remember; do not conflate Artifacts with Memory.*
+*Revised 2026-07: the console ships before conversation. Conversation already happens inside the agents Kin supervises; the unmet need is cross-agent supervision without a vendor in the middle.*
+*Revised 2026-07-17: explicit near-term Artifacts theme (library + reader) between console polish and later work.*
+*Revised 2026-10-23: multi-device became P1, not a v2 theme—an account on the user's own Hub, with sessions following them across devices. The governed-memory and profile items were removed from P3; see §11.*
 
 ---
 
@@ -450,8 +448,8 @@ When expanding scope, follow §5.11: deepen P1 feel before unlocking P3 map. Art
 Platform-neutral core from day one; clients by real value.
 
 **Phase 1 — Desktop daemon + console:** wrap agents; watch and approve locally and on the LAN.
-**Phase 2 — Remote reach:** the access ladder (tailnet / Funnel), phone web console, push notifications.
-**Phase 3 — Native companion & deeper multi-device:** a native mobile client on the same API; identity and memory continuing across devices under explicit authority (v2).
+**Phase 2 — Remote reach:** a Hub the user runs, reached at their own domain. Sign in once and the same sessions are on every device; the access ladder (tailnet / Funnel) remains for reaching Nodes directly.
+**Phase 3 — Native companion:** a native mobile client on the same API, and remote control of the machines you left running.
 
 ---
 
@@ -460,13 +458,17 @@ Platform-neutral core from day one; clients by real value.
 Every major feature/architecture answers:
 
 - **Ownership:** vendor lock-in? export/migrate? works without official servers?
-- **Continuity:** works after model change? same Kin after device change? upgrade keeps history?
+- **Continuity:** works after model change? same sessions after device change? upgrade keeps history?
 - **Simplicity:** must users understand it? hideable by defaults? harming primary UX for niche power? can a prompt / existing agent loop express it without a new hard-coded product entity (API, table, state machine)?
 - **Explainability:** why this action? what info used? can wrong state be fixed?
 - **Safety:** worst failure? undo? least privilege? unnecessary data to the model?
 - **Openness:** third-party replaceable parts? clear specs? hidden private deps?
 
 Violate several → does not enter Kin Core.
+
+**Undecided? Go read a working implementation first.** When a question is genuinely open—how sessions should sync, what happens on an offline write, whether a step needs pairing or a plain login—look at how **Lody** does it before inventing an answer. Lody is the closest working reference for this product shape: multi-machine agent sessions, remote control from a phone, local-first writes. Matching it is the default; diverging needs a stated reason, not a preference.
+
+This is a tie-breaker, not an authority. Lody is not a spec, its choices are not all good, and nothing here overrides §5.2 (no vendor in the path) or §9 (privacy floor). It answers "what would a working version of this look like", not "what must Kin do".
 
 ---
 
@@ -475,19 +477,18 @@ Violate several → does not enter Kin Core.
 Not only downloads, messages, or tokens.
 
 - Real work, sustained use
-- Model switch without rebuilding personal context
+- A second device shows the same sessions, with nothing re-explained and nothing exported
+- Model switch without losing the thread
 - Habits becoming skills/routines
-- Less re-explaining after memory
-- Declining memory correction rate over time
 - Study materials / long-form agent outputs stay out of the Downloads folder, remain readable multi-device, and keep a link to the source session
 - Tool success and recovery after failure
 - Users understand execution traces
-- Long-term use without official cloud
+- Long-term use without an OpenKin-operated cloud
 - Community providers/tools/skills/clients
 
 Ultimate check:
 
-> After a device or model change, the user still believes this is the same Kin.
+> After a device change, the user's work is simply there—no migration, no re-setup, no re-explaining.
 
 ---
 
@@ -495,13 +496,13 @@ Ultimate check:
 
 Restrained, clear, engineering-credible. No inflated “autonomous intelligence,” no false full automation, no “replace humans” story. Emphasize ownership, continuity, openness, real capability.
 
-> OpenKin is a local-first multi-agent console and personal coach: one Kin that carries your memory, habits, and capabilities across devices and models.
+> OpenKin is a multi-agent console you host yourself: dispatch, watch, and approve agents across your machines, from whatever device you are holding.
 
 Shorter: **One Kin. Every device. Any model.**
 
 Repo blurb:
 
-> OpenKin — open-source, local-first multi-agent console & coach. CLI: `kin` (alias: `ok`). Memory, habits, tools, and identity stay independent from any model provider. Not the same product as mykin.ai (commercial Kin personal-AI app).
+> OpenKin — open-source, self-hosted multi-agent console. CLI: `kin` (alias: `ok`). Your machines, your data, your providers; no vendor in the path. Not the same product as mykin.ai (commercial Kin personal-AI app).
 
 ---
 
@@ -510,10 +511,10 @@ Repo blurb:
 Kin does not belong to a model.
 Kin does not belong to a cloud.
 Kin does not restart because the device changed.
-Kin does not form uncorrectable memory out of sight.
+Kin does not claim credit it did not earn, or state as fact what it only inferred.
 Kin does not confuse more permission with more intelligence.
-Kin may know the user better over time; the user keeps interpretation, correction, and final say.
+Kin runs where the user puts it, and answers to the user who put it there.
 
-Kin’s value is not seeming human—it is being a long-term, reliable, controllable part of the user’s capability.
+Kin’s value is not seeming human—it is being a reliable, legible, controllable part of the user’s capability.
 
 > Kin should grow with the user, without owning the user.

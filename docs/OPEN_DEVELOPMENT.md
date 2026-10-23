@@ -64,12 +64,12 @@ Poor early help: Phase-3 multi-device platforms, unbounded “computer use” pr
 
 Promote difference, not autonomy hype:
 
-- One Kin across models; memory you can inspect  
-- Local-first; leave anytime  
+- One console across agents and models; your sessions, on your machines  
+- Self-hosted; leave anytime  
 - Authority you can see  
 - Small on purpose  
 
-Avoid: “fully autonomous,” “replaces you,” “OS for everything,” multi-device demos before single-machine excellence.
+Avoid: “fully autonomous,” “replaces you,” “OS for everything.”
 
 ---
 

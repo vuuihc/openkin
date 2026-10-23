@@ -2,22 +2,22 @@
 
 [English](./README.md)
 
-> **OpenKin** — 本地优先的多 Agent 控制台与个人教练。  
+> **OpenKin** — 自托管的多 Agent 控制台。  
 > 命令行：`kin`（别名：`ok`）
 
 ```text
 一个控制台，管理你所有的 coding agent。Self-hosted，任意设备。
-Your agent. Your memory. Any model.
+Your agents. Your machines. Any device.
 ```
 
-在手机或任何设备上派发、监控、批准 agent 任务——Claude Code、Codex、任意 CLI——流量只走你自己的网络。没有厂商中继，不需要 OpenKin 账户。并将生长为记忆归你所有的 local-first 个人 Agent（**Kin**）。
+在手机或任何设备上派发、监控、批准 agent 任务——Claude Code、Codex、任意 CLI。可以在单机上独立运行，也可以在自己的服务器上跑一个 **Hub**，随处登录：同一批会话，没有厂商中继，不需要 OpenKin 账户。
 
 **命名约定**
 
 | 层级 | 名称 | 说明 |
 |------|------|------|
 | 项目 / 品牌 | **OpenKin** | 对外可检索的开源名 |
-| 产品主体 | **Kin** | 你拥有的、连续存在的本地 Agent |
+| 产品主体 | **Kin** | 你拥有的本地 Agent |
 | CLI | `kin` | 可选别名：`ok` |
 | 数据目录（现状） | `~/.kin` | 兼容暂不改动 |
 
@@ -39,10 +39,10 @@ MVP agent 控制台（daemon + web UI）已实现。macOS 菜单栏 **桌面壳*
 
 - **跨 agent 控制台** —— 一处派发 / 监控 / 批准 Claude Code、Codex 或任意 CLI agent
 - **Self-hosted 远程** —— 局域网 → tailnet / Funnel 梯子；流量不经过任何 agent 厂商的云
+- **跟着你走** —— 在自己的服务器上跑 Hub，换设备登录即见同一批会话
 - **费用透明** —— 按任务、按 Provider 的 token 与花费
-- **用户拥有** —— 本地优先；无需 OpenKin 账户；可导出、可离开
-- **产物随后（Artifacts）** —— 会话学习资料 / 长文入库与阅读器；见 [docs/TODO.md](./docs/TODO.md)
-- **记忆更后（v2）** —— 跨 agent、跨模型延续的可治理记忆
+- **用户拥有** —— 自托管；无需 OpenKin 账户；可导出、可离开
+- **产物（Artifacts）** —— 会话学习资料 / 长文入库与阅读器；见 [docs/TODO.md](./docs/TODO.md)
 - **小而美** —— 如无必要勿增实体；痛感驱动长大（见 [PRINCIPLE §5.11](./PRINCIPLE.zh.md)）
 
 ## 桌面应用

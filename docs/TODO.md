@@ -163,16 +163,20 @@ Interaction contract: Kin remains one identity. The main agent works against Nor
 
 - Auto-scan all disks for repos to “become projects”
 - Multi-root monorepo UX beyond simple `project_roots`
-- Wiki/Memory extract from One-Pagers (v2 Remember track)
 - Optional weak kanban *view* (only if real pain remains—not default IA)
 
 ---
 
-## Theme: Wiki / governed memory (pointer)
+## Theme: Wiki / governed memory — RETIRED 2026-10-23
 
-Semantic memory / LLM wiki remains the **v2 Remember** track. Prefer: Artifacts P0/P1 → Project One-Pagers as active covers → then sparse Wiki extraction. Do not dual-build a second notes product in parallel without a written ADR.
+The semantic-memory / LLM-wiki / "Remember" track is **cancelled**, not deferred. See
+PRINCIPLE §11 *Retired 2026-10-23*: governed memory, Kin Identity, and the continuous-learning
+loop were a second product sitting on top of this one, and they are gone from the roadmap.
 
-One-Pagers and Artifacts are **upstream shelves** for later memory—not memory themselves.
+Artifacts and Project One-Pagers stay. They are readable deliverables, not memory, and they
+do not need a memory layer to justify themselves.
+
+Do not restart this track without a new ADR. "It was on the old roadmap" is not a reason.
 
 ---
 
@@ -180,6 +184,7 @@ One-Pagers and Artifacts are **upstream shelves** for later memory—not memory 
 
 | Date | Change |
 |------|--------|
+| 2026-10-23 | Retired the Wiki / governed-memory ("Remember") theme; multi-device via a user-run Hub is now the active direction |
 | 2026-07-17 | Added Artifacts P0/P1 from study-material / multi-device reading pain |
 | 2026-03-22 | Added Projects + One-Pager theme (ADR 0008 + plan); explicit non-goals: kanban / % / overview-session-as-SoT |
 | 2026-03-22 | Projects P0 implemented: store/API/UI, Continue Focus, One-Pager edit |

@@ -933,7 +933,7 @@ iOS 今天已是"单 daemon 的瘦投影"（`ios/README.md`），有**零本地�
 
 - 跨设备工作区自动 provision（git clone / 同步）
 - 多 Hub 联邦（`ServerProfile` 多 Hub 的会话聚合）
-- 端到端加密同步（PRINCIPLE §6.6 提到，但明确"sync 可替换、非中心"）
+- 端到端加密同步（当时 PRINCIPLE §6.6 提到过；2026-10-23 起 PRINCIPLE §6.5 明确**不承诺** E2EE 与冲突解决）
 - provider JSONL 的跨设备取证
 
 ### dogfood 怎么跑（P0-A 完成后）

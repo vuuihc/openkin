@@ -118,7 +118,7 @@ its own ADR`）同理：它是**程序性门槛，不是禁令**——写那份 
 | `PRINCIPLE.md` §12 **L412 / L423** | 标题 `no vendor relay`；must-have 第 6 条 `... full tailnet; **never a Kin cloud**` | 同 L22，绝对措辞。注意**只有这两处**——第 9 条的 "Core use" 不算 |
 | `PRINCIPLE.md` §13 L454 | 多端连续标记为 "**(v2)**" | 它现在就是目标本身，不是 v2 |
 | `PRINCIPLE.md` §4 L110 | "not primarily for zero-configuration mass consumers" | 托管执行的用户画像正落在这句排除的人群里 |
-| `PRINCIPLE.md` §6.2.1 L305 | 多端阅读"访问**同一 daemon**，而不是 Kin 托管网盘" | 与 §5.11 同源。**注意它说的是"不是托管网盘"**——托管执行不是网盘，这条要不要动取决于你打算托管什么 |
+| `PRINCIPLE.md` §6.1（原 §6.2.1） | 多端阅读"访问**同一 daemon**，而不是 Kin 托管网盘" | 与 §5.11 同源。**注意它说的是"不是托管网盘"**——托管执行不是网盘，这条要不要动取决于你打算托管什么 |
 | `SYSTEM_DESIGN.md` §9 L204 | 摘要 "on your own network" | 把产品锁在自有网络内 |
 | `docs/MVP_TECH_SPEC.md` §0 L15 | "MUST NOT build: … **user accounts, a Kin cloud/relay** …" | 对实现者是"MUST NOT，不得即兴"，杀伤力最大。账户与 relay 都已实现 |
 | `docs/OPEN_DEVELOPMENT.md` §4 L72 | "Avoid: … **multi-device demos before single-machine excellence**" | 全仓库对多端最直白的一句话禁令 |

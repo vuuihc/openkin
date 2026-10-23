@@ -2,22 +2,22 @@
 
 [中文](./README.zh.md)
 
-> **OpenKin** — local-first multi-agent console & personal coach.  
+> **OpenKin** — self-hosted multi-agent console.  
 > CLI: `kin` (alias: `ok`)
 
 ```text
 One console for all your coding agents. Self-hosted. Any device.
-Your agent. Your memory. Any model.
+Your agents. Your machines. Any device.
 ```
 
-Dispatch, watch, and approve agent tasks — Claude Code, Codex, any CLI — from your phone or any device, over your own network. No vendor relay, no OpenKin account. Growing into a local-first personal agent (**Kin**) whose memory you own.
+Dispatch, watch, and approve agent tasks — Claude Code, Codex, any CLI — from your phone or any device. Run it standalone on one machine, or run a **Hub** on your own server and sign in from everywhere: same sessions, no vendor relay, no OpenKin account.
 
 **Naming**
 
 | Layer | Name | Notes |
 |-------|------|--------|
 | Project / brand | **OpenKin** | Searchable open-source name |
-| Product subject | **Kin** | The continuous local agent you own |
+| Product subject | **Kin** | The local agent you own |
 | CLI | `kin` | Optional alias: `ok` |
 | Data dir (today) | `~/.kin` | Unchanged for compatibility |
 
@@ -55,10 +55,10 @@ MVP agent console (daemon + web UI) is implemented. A macOS menu-bar **desktop s
 
 - **Cross-agent console** — dispatch / monitor / approve Claude Code, Codex, or any CLI agent from one place
 - **Self-hosted remote** — LAN → tailnet / Funnel ladder; traffic never routed through an agent vendor's cloud
+- **Follows you** — run a Hub on your own server, sign in on a second device, see the same sessions
 - **Cost transparency** — tokens and spend per task, per provider
-- **User-owned** — local-first; no OpenKin account; export and leave
-- **Artifacts, next** — keep readable session deliverables (study notes, HTML) in a local library with a reader; see [docs/TODO.md](./docs/TODO.md)
-- **Memory, later (v2)** — governed memory that travels across agents and models
+- **User-owned** — self-hosted; no OpenKin account; export and leave
+- **Artifacts** — keep readable session deliverables (study notes, HTML) in a local library with a reader; see [docs/TODO.md](./docs/TODO.md)
 - **Small by default** — do not multiply entities without necessity; grow from real pain ([PRINCIPLE §5.11](./PRINCIPLE.md))
 
 ## Desktop app
