@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -665,4 +666,80 @@ func TestAnonymousNoticeFollowsTheLeadRowNotGHAvailability(t *testing.T) {
 	if snap.Notice != "" {
 		t.Fatalf("notice = %q, want none with no observations", snap.Notice)
 	}
+}
+
+// A failed attempt belongs to a row, and the row is where the console prints it
+// — next to the pull-request number it failed to refresh. Copying the same
+// sentence into the snapshot notice printed it twice on a phone: once as a grey
+// banner, once as the red line under the card.
+func TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice(t *testing.T) {
+	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	ctx := context.Background()
+
+	// RepoForDir reads the remote with real git, the same way the daemon does.
+	dir := initRepoWithOrigin(t, "git@github.com:owner/repo.git")
+	if err := st.InsertTask(ctx, store.Task{
+		ID: "t1", Title: "pr", Agent: "kin", Cwd: dir, Prompt: "pr",
+		Status: "running", CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertWorkspace(ctx, store.WorkspaceGeneration{
+		ID: "w1", TaskID: "t1", Generation: 1, State: "ready",
+		SourceRoot: dir, Scope: ".", WorkspaceBranch: "kin/task/t1/g1",
+		TargetBranch: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCurrentWorkspace(ctx, "t1", "w1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Fresh, so no background query is started: the row below is the answer.
+	now := time.Now().UnixMilli()
+	if err := st.RecordPRObservation(ctx, store.PRObservation{
+		Repo: "github.com/owner/repo", HeadBranch: "kin/task/t1/g1", TaskID: "t1",
+		Number: number(7), State: "open", Source: SourceGH, ObservedAt: &now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Then the branch query failed. A failure is recorded on its own path
+	// precisely so that it cannot erase the number it failed to refresh.
+	if err := st.RecordPRFailure(ctx, "github.com/owner/repo", "kin/task/t1/g1", "t1",
+		"gh: not found or not visible"); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := svc.SnapshotForTask(ctx, "t1", false)
+	if err != nil {
+		t.Fatalf("SnapshotForTask: %v", err)
+	}
+	if snap.Notice != "" {
+		t.Fatalf("notice = %q, want the failure to stay on its row", snap.Notice)
+	}
+	if len(snap.Observations) != 1 {
+		t.Fatalf("got %d observations, want 1", len(snap.Observations))
+	}
+	lead := snap.Observations[0]
+	if lead.LastError != "gh: not found or not visible" || lead.Number == nil || *lead.Number != 7 {
+		t.Fatalf("row = %+v, want the failure alongside the number it failed to refresh", lead)
+	}
+}
+
+// initRepoWithOrigin makes a directory git will recognise as a checkout of the
+// given remote.
+func initRepoWithOrigin(t *testing.T, origin string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "--quiet"},
+		{"remote", "add", "origin", origin},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %s: %v (%s)", strings.Join(args, " "), err, out)
+		}
+	}
+	return dir
 }

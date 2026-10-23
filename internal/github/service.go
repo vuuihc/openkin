@@ -96,7 +96,10 @@ type Snapshot struct {
 	// look at an unpublished branch would render "no pull request" while the
 	// question was still open — asserting something not yet checked.
 	Refreshing bool `json:"refreshing"`
-	// Notice explains a degraded read in one sentence, or is empty.
+	// Notice explains a degraded read in one sentence, or is empty. It is about
+	// the read, never about a row: a failed attempt is reported by that row's
+	// own last_error, next to the data it explains, and copying it here printed
+	// the same sentence twice.
 	Notice string `json:"notice,omitempty"`
 }
 
@@ -535,14 +538,8 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 			snap.Notice = err.Error()
 		}
 	} else {
-		cached, err := s.EnsureFresh(ctx, target)
-		if err != nil {
+		if _, err := s.EnsureFresh(ctx, target); err != nil {
 			return snap, err
-		}
-		// A previous attempt's failure is worth surfacing even though the read
-		// itself succeeded: the row below may be older than it looks.
-		if cached.LastError != "" {
-			snap.Notice = cached.LastError
 		}
 		snap.Refreshing = s.refreshing(target)
 	}
