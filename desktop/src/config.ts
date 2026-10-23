@@ -51,19 +51,17 @@ export function trayIconPath(): string {
 
 /**
  * App / Dock / window icon.
- * Dev: desktop/assets/icon.png. Packaged: electron-builder embeds icns;
- * PNG under app path is still fine for BrowserWindow / dock.setIcon.
+ *
+ * Always a PNG: macOS ships the bundle icon as `.icns`, but `nativeImage`
+ * cannot decode that container and hands back an empty image, which used to
+ * leave a packaged build with a logged warning and no runtime icon at all.
+ * `assets/**` is inside the asar, so the PNG is there in both modes.
  */
 export function appIconPath(): string {
   const candidates = [
     join(app.getAppPath(), "assets", "icon.png"),
-    join(app.getAppPath(), "assets", "icon.icns"),
     join(__dirname, "..", "assets", "icon.png"),
-    join(__dirname, "..", "assets", "icon.icns"),
   ];
-  if (!isDev()) {
-    candidates.unshift(join(process.resourcesPath, "icon.icns"));
-  }
   for (const p of candidates) {
     if (existsSync(p)) return p;
   }

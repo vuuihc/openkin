@@ -105,6 +105,27 @@ function deepLinkFromArgv(argv: string[]): string | null {
   return argv.find((arg) => arg.startsWith(`${DEEP_LINK_SCHEME}://`)) ?? null;
 }
 
+/**
+ * True when this launch should stay out of the way: started by the OS at login,
+ * or explicitly asked to start hidden.
+ *
+ * Everything else — a double-click in Finder, `open -a Kin`, a relaunch after
+ * quitting — is someone asking to see Kin, so it must put a window on screen.
+ * Idling in the menu bar on those launches is what made a second launch look
+ * like the first one had failed.
+ */
+function isBackgroundLaunch(): boolean {
+  if (process.argv.includes("--hidden") || process.argv.includes("--background")) {
+    return true;
+  }
+  if (process.platform !== "darwin") return false;
+  try {
+    return app.getLoginItemSettings().wasOpenedAtLogin;
+  } catch {
+    return false;
+  }
+}
+
 function applyAppBranding(): void {
   app.setAboutPanelOptions({
     applicationName: APP_NAME,
@@ -345,15 +366,15 @@ if (!gotLock) {
 
       const launchPath = pendingDeepLinkPath;
       pendingDeepLinkPath = null;
-      if (isDev()) {
-        mainWindow.show(launchPath ?? "/");
-        console.log("[kin-desktop] dev: main window opened");
-      } else if (launchPath) {
+      if (launchPath) {
         mainWindow.show(launchPath);
-      } else {
+      } else if (isBackgroundLaunch()) {
         console.log(
-          "[kin-desktop] tray setup complete — idle in menu bar (window hidden)",
+          "[kin-desktop] background launch — idle in menu bar (window hidden)",
         );
+      } else {
+        mainWindow.show("/");
+        console.log("[kin-desktop] main window opened");
       }
     })
     .catch((err) => {
