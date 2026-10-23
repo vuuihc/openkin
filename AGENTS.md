@@ -289,3 +289,34 @@ Scope notes:
 - Ask before destructive operations, dependency-wide upgrades, public API
   breaks, schema resets, network publication, or actions that affect external
   systems.
+
+### This repository is public
+
+Secrets are not the only thing that leaks. A hostname, a LAN address, a device
+id or an account name published here stays published, and it points at a live
+system. Redacting credentials while committing the topology they protect is not
+redaction.
+
+Use placeholders in **every** committed file — docs, plans, ADRs, tests,
+fixtures, examples, comments, commit messages:
+
+| Instead of | Commit |
+|---|---|
+| your Hub's domain | `kin.example.com` |
+| your LAN addresses | `192.168.1.42`, `192.168.1.10` |
+| your NAS / server name | `<nas-host>` |
+| your machine's name | `MacBook Pro` |
+| device or desktop ids | `node-<node-id>`, `desktop-<desktop-id>` |
+| your own account name / email | `owner@example.com` |
+| a tunnel URL you actually got | `random-words.trycloudflare.com` |
+
+- Author emails in commit metadata are public forever too. Commit with an
+  address you are willing to publish, or a GitHub noreply address.
+- Before pushing a batch of docs, plans or fixtures, scan the outgoing range
+  for anything that looks like real infrastructure:
+  `git log -p <base>..HEAD | grep -nE 'https?://|([0-9]{1,3}\.){3}[0-9]{1,3}|\.trycloudflare\.com|@gmail\.com'`
+  and check each hit is a placeholder rather than something you recognise.
+- If something real does land, treat it as permanent. Rewriting history is the
+  only real fix, it changes every commit SHA from that point on, and the old
+  objects can stay fetchable on the host until it garbage-collects. Rotate
+  whatever was exposed rather than assuming the rewrite was enough.
