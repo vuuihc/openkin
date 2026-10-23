@@ -116,7 +116,12 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
       void load();
     }, POLL_INTERVAL_MS);
     return () => clearTimeout(timer);
-  }, [following, load]);
+    // `polls` belongs in this list even though nothing in the body reads it:
+    // it is the only dependency that moves between the first attempt and the
+    // last, so dropping it arms one timer and then goes quiet for the rest of
+    // the budget. `following` looks like the signal and is not — it is derived
+    // from `polls` and holds the same value across attempts.
+  }, [following, polls, load]);
 
   // Escape closes, as it does for the console's other overlays.
   useEffect(() => {
@@ -215,7 +220,10 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
           {!snapshot ? (
             loading ? <Loading /> : null
           ) : !lead ? (
-            <p className="text-[12.5px] text-kin-muted">{tr("pr.notChecked")}</p>
+            // A first look at a branch reaches here with no rows at all, which
+            // is the case the daemon's refreshing flag exists for: saying "not
+            // checked yet" while a query is in flight reads as an answer.
+            <Checking following={following} fallback={tr("pr.notChecked")} />
           ) : (
             <ObservationCard lead={lead} following={following} />
           )}
@@ -242,7 +250,7 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
                         href={o.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex flex-none items-center gap-1 text-kin-blue hover:underline"
+                        className="flex min-h-[44px] min-w-[44px] flex-none items-center gap-1 text-kin-blue hover:underline sm:min-h-0 sm:min-w-0"
                       >
                         <IconExternal size={12} />
                       </a>
@@ -255,6 +263,40 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The line that stands in for an answer while the daemon is still querying, and
+ * the one that admits the panel has stopped waiting for it.
+ *
+ * `fallback` is what to say when nothing is in flight. It is a parameter rather
+ * than a sibling because "not checked yet" reads as a settled answer, and it
+ * must not be shown while a query is running: a first look at an unpublished
+ * branch is precisely when the daemon's refreshing flag earns its keep.
+ */
+function Checking({
+  following,
+  fallback,
+}: {
+  following: PollDecision;
+  fallback?: string;
+}) {
+  const tr = useT();
+  if (following === "idle") {
+    return fallback ? (
+      <p className="text-[12.5px] text-kin-muted">{fallback}</p>
+    ) : null;
+  }
+  return (
+    <p className="flex items-start gap-1.5 text-[12.5px] text-kin-muted">
+      {following === "poll" && (
+        <IconSpinner size={13} className="mt-0.5 flex-none" />
+      )}
+      <span>
+        {following === "poll" ? tr("pr.checking") : tr("pr.checkingSlow")}
+      </span>
+    </p>
   );
 }
 
@@ -277,26 +319,13 @@ function ObservationCard({
 }) {
   const tr = useT();
   const ci = parseCISummary(lead.ci_summary);
-  const checking = following === "poll";
 
   return (
     <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5">
       {lead.observed_at === undefined ? (
-        <p className="flex items-start gap-1.5 text-[12.5px] text-kin-muted">
-          {checking && <IconSpinner size={13} className="mt-0.5 flex-none" />}
-          <span>
-            {checking
-              ? tr("pr.checking")
-              : following === "exhausted"
-                ? tr("pr.checkingSlow")
-                : tr("pr.neverChecked")}
-          </span>
-        </p>
+        <Checking following={following} fallback={tr("pr.neverChecked")} />
       ) : lead.number === undefined ? (
-        <p className="flex items-start gap-1.5 text-[12.5px] text-kin-muted">
-          {checking && <IconSpinner size={13} className="mt-0.5 flex-none" />}
-          <span>{tr("pr.none")}</span>
-        </p>
+        <p className="text-[12.5px] text-kin-muted">{tr("pr.none")}</p>
       ) : (
         <>
           <div className="flex items-start gap-2">
@@ -372,6 +401,16 @@ function ObservationCard({
             {tr("pr.lastAttemptFailed", { reason: lead.last_error })}
           </div>
         ) : null}
+        {/* A row with an observation has a card that reads as settled — a
+            number, or "no pull request for this branch yet" — so the only place
+            left to say the daemon is still working, or has stopped and given up
+            the budget, is here. Guarded on `following` as well as the row, so
+            that a settled card keeps the footer it had. */}
+        {lead.observed_at !== undefined && following !== "idle" && (
+          <div className="mt-0.5">
+            <Checking following={following} />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3084,6 +3084,13 @@ export interface operations {
                     "application/json": components["schemas"]["TaskPullRequestSnapshot"];
                 };
             };
+            /** @description The caller may read pull-request state but not spend GitHub rate limit on demand; querying is limited to the node's owner */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description The snapshot could not be assembled */
             502: {
                 headers: {

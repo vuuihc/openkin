@@ -1013,6 +1013,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TaskPullRequestSnapshot"
+        "403":
+          description: >-
+            The caller may read pull-request state but not spend GitHub rate
+            limit on demand; querying is limited to the node's owner
         "502":
           description: The snapshot could not be assembled
         "503":
