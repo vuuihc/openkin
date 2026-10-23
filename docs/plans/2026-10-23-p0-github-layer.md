@@ -162,6 +162,23 @@ diff、merge、finalize，**以及读路径推导 repo 坐标用的那两条**
 **未验证**：垫片对 `git remote get-url` 的输出是否与真 git 逐字节一致（只比对了本例的
 URL）；以及垫片在 git 操作失败时的退出码是否原样透传。
 
+**已解决（P0b 之前）**：`internal/toolpath` 是 `gh` 和 `git` 共用的那一份解析器，
+`internal/github/gh.go` 与 `internal/workspace/{git,manager,anchor}.go` 都改成调它。
+三件事值得记下来：
+
+1. **解析顺序**：显式覆盖（`KIN_GH_PATH` / `KIN_GIT_PATH`）→ 常见安装位置 →
+   PATH（过滤掉被拒绝的目录）。覆盖值指向垫片时**报错而不是回退**——设了它的人是有意的，
+   悄悄换一个二进制更糟。
+2. **只解析二进制不够，子进程的 PATH 也要重写**：git 自己会通过 PATH 找
+   `git-remote-https` 和凭据 helper，gh 自己会调 git。所以 `execGit.Run` 和 `ghEnv()`
+   都把垫片目录从交给子进程的 PATH 里删掉（`toolpath.SanitizeEnv`）。
+3. **本机的实际落点**：`/opt/homebrew/bin/git` **不存在**（只有 `/usr/bin/git`，
+   Apple Git 2.50.1），所以 git 落到 `/usr/bin/git`；`gh` 落到 `/opt/homebrew/bin/gh`。
+
+`internal/toolpath` 的测试覆盖拒绝规则（垫片目录、符号链接、大小写、相对路径、
+产品 state dir）与解析顺序；`internal/workspace/git_test.go` 另钉两条接线：
+子进程 PATH 里不再出现垫片，以及覆盖值指向垫片时不返回任何 git。
+
 ---
 
 ## 4. 形状
@@ -301,6 +318,31 @@ secure-store 密钥或调第三方 API。P0a 的读路径对此有一处**有意
 路由本身的三个答案（200 空快照 / 502 组装失败 / 503 未配置）在
 `internal/api/github_pr_test.go` 里直接打 HTTP，因为控制台就是靠状态码分流的。
 其中 200 那条同时断言 `"observations":[]`——回头改坏成 `null` 会在这里红。
+
+### 8.3 跟随查询的循环，别把"派生出来的状态"当信号
+
+读路径在响应背后起了一个后台查询，所以 `refreshing: true` 时面板要跟着轮询，
+否则"暂无 PR"会被当成答案。这里踩了一个值得记下来的坑：
+
+轮询的 effect 依赖写成 `[following, load]`。而 `following` 是从
+`pollDecision(refreshing, polls, MAX_POLLS)` 派生出来的**字符串**——在 `polls` 从 0 走到 11
+的整个区间里它一直是 `"poll"`，`load` 又是 `useCallback` 稳定的，于是依赖不变、
+effect 不重跑、**只发出一次轮询就彻底安静**：转圈、按钮禁用、daemon 已经拿到的答案
+再也读不到。实测（同一个 stub 响应、同一个组件）：
+
+| 依赖 | 36 秒内的请求 | 结果 |
+|---|---|---|
+| `[following, load]` | 2（首次 + 1 次轮询，t=1511ms） | 卡在转圈，刷新按钮**一直禁用** |
+| `[following, polls, load]` | 13（首次 + 12 次，间隔 1502ms） | 18.1s 后停下，出"后台仍在查询"，按钮解禁 |
+
+原因是计数器把信号**从派生值里拿掉了**：`useMachines.ts` 那种写法能成立，是因为它的依赖
+（`current.at`、`current.failed`）每次尝试都会变；这里刻意用一个计数器，就是为了让"状态"
+在区间内不动。所以**计数器本身必须进依赖**，并且值得在依赖旁写一行注释——从字面上看
+`polls` 是"没被用到的依赖"，很容易被后来的人当成噪音删掉。
+
+同一个改动顺带补了两处：预算耗尽时**任何** lead 行（不只"从未查询过"那种）都会说
+"后台仍在查询"；以及首次打开、一行都还没有时，`refreshing` 为真就说"正在查询"，
+而不是"尚未查询此分支"——后者读起来是结论，而它恰恰不是。
 
 ---
 
