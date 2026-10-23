@@ -133,8 +133,15 @@ Industry habits that keep agent-driven changes reviewable and recoverable:
   locale files in the same change.
 - Preserve keyboard operation, visible focus, semantic controls, loading,
   empty, error, and disconnected states.
-- A UI source change that affects the shipped console must regenerate and
-  commit `web/dist/` after `npm run build` succeeds.
+- A UI source change that affects the shipped console must regenerate
+  `web/dist/` with `npm run build` and commit **`web/dist/index.html`** — it is
+  tracked, and it is what names the hashed entry chunk.
+  **Do not commit `web/dist/assets/`**: `.gitignore` excludes it deliberately,
+  because those bundles are rebuilt by `make build` / CI and only the
+  placeholder `index.html` needs to exist for `go build` on a fresh clone.
+  Committing `index.html` without its assets would point a fresh clone at files
+  that are not in the tree, so the two must be kept in step by rebuilding, never
+  by committing the bundles.
 
 ## Storage and API changes
 
@@ -262,8 +269,9 @@ Scope notes:
   work; do not squash away useful history just to look tidy.
 - Stage explicit paths or reviewed hunks. Never use a broad add when caches,
   credentials, logs, databases, or unrelated user files may be present.
-- Commit generated `web/dist/` only with the source change that produced it or
-  as an immediately adjacent `build(web)` commit.
+- Commit generated `web/dist/index.html` only with the source change that
+  produced it or as an immediately adjacent `build(web)` commit. Never commit
+  `web/dist/assets/` — see the UI conventions section for why.
 - Do not amend commits created by another person or agent. Do not rebase shared
   branches, force-push, or push to a remote unless explicitly requested.
 - Prefer developing on a dedicated worktree/branch rather than dirtying the
