@@ -4,9 +4,11 @@
 > 为准，而不是以 LODY 的功能清单为准。
 >
 > 相关：`PRINCIPLE.md` §5.11 / §14 · `docs/plans/2026-10-22-mvp-milestones.md` ·
-> `docs/plans/2026-10-23-hosted-mode.md` · `docs/plans/2026-10-23-docs-audit.md`
+> `docs/plans/2026-10-23-hosted-mode.md` · `docs/plans/2026-10-23-docs-audit.md` ·
+> `docs/plans/2026-10-23-p0-github-layer.md`（P0 这一层的形状，§10 要求的产物）
 
-**状态**：已审阅，决策已定（§9）。待开工。
+**状态**：已审阅，决策已定（§9）。开工中——P0a 的**后端**已实现（§6 P0 下的分步），
+控制台面板、真机验收、完成后评审尚未做。
 
 ---
 
@@ -349,6 +351,11 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 > 排第一的理由：这是唯一一个「不做就永远只是半个产品」的缺口（§2.1）。
 > 参考 LODY：`specs/local-github-pr-observation.md`（无账号也能看 PR + CI）、
 > `specs/github-command-credentials.md`（凭据选择顺序）。
+>
+> **分步与形状**：见 `2026-10-23-p0-github-layer.md`。P0a（只读）/ P0b（publish）/
+> P0c（评论回喂）三步，形状一次定清。实测发现两个改变设计的事实：本机 PATH 上的
+> `gh` 是 LODY 的会话垫片（且被注入 Kin daemon 的 PATH），以及本机当前没有可用的
+> GitHub 凭据——后者意味着「读不到」必须是正常状态，不是报错。
 
 ### P1 — 设计系统重建
 
