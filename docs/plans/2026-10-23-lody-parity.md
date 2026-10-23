@@ -122,13 +122,18 @@ LODY 的推荐工作流（`site-docs/content/docs/zh/(guides)/workflow.mdx`）�
         → 拉 PR 评论喂回 agent 修 → push → 触发下一轮 AI review → 归档
 ```
 
-OpenKin 走到 **diff 就断了**。已核实：
+OpenKin 走到 **diff 就断了**。**本节已按 P0a 的落地修正**（原判断"Go 侧没有任何
+GitHub 集成"在 P0a 之后不再成立）：
 
-- Go 侧**没有任何** GitHub 集成——`grep -rn "github" internal/api/*.go` 的命中全是 module import 路径。
-- 没有 PR 创建 / PR 状态 / CI 状态 / PR 评论拉取的任何 endpoint。
-- 控制台里唯一的 "PR" 字样是 routines 的一句示例文案。
+- Go 侧**已经有只读的 PR 观测层**：`internal/github/`，暴露
+  `GET /api/tasks/{id}/pr` 与 `POST /api/tasks/{id}/pr/refresh`
+  （见 `2026-10-23-p0-github-layer.md`）。凭证只从本机 `gh` 或匿名公开读取得，
+  Kin 自己不持有 token。
+- **所以缺口不再是"读不到"，而是"写不了"**：没有 PR 创建（P0b），没有 PR 评论
+  拉回会话（P0c）。
+- 控制台侧**仍未动**：唯一的 "PR" 字样还是 routines 的一句示例文案，面板待做。
 
-**「每会话 = 一功能 = 一 PR」这个 LODY 骨架，Kin 缺了后半截。**
+**「每会话 = 一功能 = 一 PR」这个 LODY 骨架，Kin 现在有了读的一半，写的一半还缺。**
 
 ### 2.2 UI 结构差距（均已核实）
 

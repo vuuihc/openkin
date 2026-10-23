@@ -1,8 +1,14 @@
 # 多设备会话架构（Hub + Node）
 
-**Status:** 设计待评审 — 尚未实现
+**Status:** 已实现并在真实环境运行（2026-10-23 更正——原写"设计待评审—尚未实现"，已过时）
 **Date:** 2026-10-22
 **Related:** [ADR 0022](../adr/0022-hub-node-multi-device-sessions.md) · [Local Agent Session Hub](./2026-09-17-local-agent-session-hub.md) · [ADR 0007](../adr/0007-pluggable-agent-runtime.md) · [ADR 0020](../adr/0020-user-owned-worker-leases.md) · [ADR 0014](../adr/0014-workspace-generations-and-lazy-promotion.md) · [REMOTE_ACCESS.md](../REMOTE_ACCESS.md)
+
+> **2026-10-23 更正。** 本文写于设计阶段，正文若干处"现状"描述此后已被实现取代：
+> Hub / Node 角色、设备配对、`updated_since` 游标同步、四种接入方式
+> （loopback / LAN / Tailscale+Funnel / 自建 relay）均已落地（`internal/remote/`）；
+> iOS 的 SwiftUI 客户端已被 `mobile/` 的 Capacitor 外壳取代（`b513573`，见 §10.3）。
+> 正文保留为当时的设计记录，**不要据其"现状"段落判断今天的实现状态**。
 
 ---
 
@@ -859,11 +865,23 @@ GET  /api/agents?device_id=             → 按设备过滤；不传则聚合所
 
 ### 10.3 iOS
 
-iOS 今天已是"单 daemon 的瘦投影"（`ios/README.md`），有**零本地存储、零 sync 层**。这意味着：
+> **本小节已按 `b513573` 修正。** 下面原来描述的 SwiftUI 客户端
+> （`ios/`、`ServerProfile`、`DesktopSwitcherButton`）**已经不存在**：那 47 个
+> Swift 文件连同构建它们的 workflow 一起删掉了。
 
-- **好消息：** iOS 无需新增本地数据库，Hub 权威模型与它的现状天然吻合。
-- **要改的：** 从"N 个 profile 切换"变成"一个 Hub + 设备列表"。`DesktopSwitcherButton` 的语义从"切换数据源"变成"切换执行设备"。
-- 保留 `ServerProfile`（仍可能连多个 Hub），但一个 Hub 内的设备不再需要切换。
+今天的 iOS 是 `mobile/` 里的一个 **Capacitor 外壳**，`capacitor.config.ts` 把它
+指向 Hub 自己的控制台（`server.url = KIN_HUB_URL`，在 `cap sync` 时定死，所以是
+per-deployment 的）。它**不是第二个客户端**——登录、每一个相对 `/api` 调用、游标
+同步，走的都是浏览器控制台那同一份代码。
+
+- **好消息：** 与 Hub 权威模型天然吻合，而且比 SwiftUI 时期更吻合——没有第二份
+  需要跟着改的客户端。设备列表、会话同步这些能力**只做一遍**，Web 和手机同时得到。
+- **要改的：** 不存在"从 N 个 profile 切换到 1 个 Hub"的改造了；外壳只认一个
+  origin。多 Hub 需求若出现，是给外壳加一个 origin 选择，不是恢复 profile 切换。
+- **约束：** 手机上的体验**等于** Web 控制台在 ~390–440px 下的体验。手机的短板
+  不是原生能力，是控制台的窄屏质量——见 `2026-10-23-lody-parity.md` §2.2 与 P3b。
+- **无 APNs**：外壳没有推送通道，通知仍靠 Bark / ntfy webhook。P3b 要求的
+  "从通知进会话"要额外做（见该计划）。
 
 ---
 

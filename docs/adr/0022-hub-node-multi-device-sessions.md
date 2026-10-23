@@ -22,6 +22,14 @@ Multi-device use today therefore means holding N independent daemons and
 switching between them. The iOS client models this explicitly with
 `ServerProfile` plus a desktop switcher; nothing is shared across devices.
 
+> **Withdrawal note (2026-10-23).** The iOS sentence above describes the client
+> this ADR was written against. That client no longer exists: commit `b513573`
+> deleted the SwiftUI app and replaced it with a Capacitor shell in `mobile/`
+> that loads the Hub's own console, so there is no `ServerProfile` and no
+> desktop switcher, and no second client to keep in step. The paragraph's
+> premise — N daemons switched between by hand — is what this ADR set out to
+> remove, and it has been removed.
+
 Earlier plans rejected closing this gap. `2026-09-05-ios-desktop-remote-control.md`
 locks "one authoritative daemon, the phone is a remote projection, not a second
 writable Kin replica" and lists peer-to-peer and multi-master database

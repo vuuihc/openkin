@@ -1,9 +1,18 @@
 # iOS UI Redesign Spec
 
-**Status:** Implementation in progress
+> **SUPERSEDED (2026-10-23) — do not implement.** This plan targets the native
+> SwiftUI app under `ios/`, which no longer exists: commit `b513573` deleted the
+> 47 Swift files and the iOS workflow, and replaced them with a Capacitor shell
+> in `mobile/` that loads the Hub's own console. The scope, screen inventory, and
+> component work below are all moot. Phone UI work now happens in the web console
+> and is planned in `2026-10-23-lody-parity.md` (P3b). Kept as a record of the
+> approach that was abandoned, and of why: a second client had to be kept in step
+> with the first.
+
+**Status:** Superseded by `b513573` — was "Implementation in progress"
 **Date:** 2026-09-22
-**Scope:** Native iOS SwiftUI companion app under `ios/`
-**Primary references:** `ios/README.md`, `docs/plans/2026-09-17-ios-console-parity.md`, `docs/plans/2026-09-21-desktop-ux-refactor.md`, `kin-desktop-ui-redesign/README.md`
+**Scope:** ~~Native iOS SwiftUI companion app under `ios/`~~ — app deleted
+**Primary references:** ~~`ios/README.md`~~, `docs/plans/2026-09-17-ios-console-parity.md`, `docs/plans/2026-09-21-desktop-ux-refactor.md`, `kin-desktop-ui-redesign/README.md`
 
 ## Skill Stack
 
