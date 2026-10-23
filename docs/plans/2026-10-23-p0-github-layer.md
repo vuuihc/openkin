@@ -354,8 +354,9 @@ effect 不重跑、**只发出一次轮询就彻底安静**：转圈、按钮禁
 | **P0b** | publish：push + `gh pr create`（描述由 agent 写，从快照 diff 取材），与 finalize 同级 | **写** |
 | **P0c** | 评论拉取（issue + review 两类）+ `comments_seen` 游标 + 「回喂 agent」 | 只读 + 投递给会话 |
 
-> **P0b 的前置条件（F3）**：先把 git 也做一次"拒绝垫片"的解析，否则 `git push` 会经过
-> LODY 的凭据代理。与 `gh` 共用一个解析器，不要各写一份。
+> **P0b 的前置条件（F3）— 已满足**：git 也做了一次"拒绝垫片"的解析
+> （`internal/toolpath`，与 `gh` 共用一份）。`git push` 不再经过 LODY 的凭据代理，
+> 所以 P0b 可以直接从"写 push"开始。
 
 P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和评论**。
 这样"读"不必等"写"——凭据是否可用、reconciler 是否调好，都不挡住先把面板跑起来。
