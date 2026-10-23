@@ -105,23 +105,26 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
   // than the success: a failed poll changes no snapshot, and a loop re-armed by
   // the snapshot would stop there — spinner turning, button disabled, and the
   // answer the daemon was still fetching unreachable without closing the panel.
+  //
+  // The two inputs are read here rather than the `following` derived from them,
+  // and that is the point. `following` holds the same value across every
+  // attempt, so an effect keyed on it fires one timer and then goes quiet for
+  // the rest of the budget, and the dependency that would have re-armed the
+  // loop looks — to anyone reading the dependency list — like something left
+  // over. Reading the inputs keeps the dependencies honest by construction.
+  // `pollDecision` is the same rule, stated once for the render below.
   useEffect(() => {
-    if (following === "idle") {
+    if (!refreshing) {
       setPolls(0);
       return;
     }
-    if (following === "exhausted") return;
+    if (polls >= MAX_POLLS) return;
     const timer = setTimeout(() => {
       setPolls((n) => n + 1);
       void load();
     }, POLL_INTERVAL_MS);
     return () => clearTimeout(timer);
-    // `polls` belongs in this list even though nothing in the body reads it:
-    // it is the only dependency that moves between the first attempt and the
-    // last, so dropping it arms one timer and then goes quiet for the rest of
-    // the budget. `following` looks like the signal and is not — it is derived
-    // from `polls` and holds the same value across attempts.
-  }, [following, polls, load]);
+  }, [refreshing, polls, load]);
 
   // Escape closes, as it does for the console's other overlays.
   useEffect(() => {

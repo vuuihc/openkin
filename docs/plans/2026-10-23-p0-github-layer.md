@@ -335,10 +335,32 @@ effect 不重跑、**只发出一次轮询就彻底安静**：转圈、按钮禁
 | `[following, load]` | 2（首次 + 1 次轮询，t=1511ms） | 卡在转圈，刷新按钮**一直禁用** |
 | `[following, polls, load]` | 13（首次 + 12 次，间隔 1502ms） | 18.1s 后停下，出"后台仍在查询"，按钮解禁 |
 
+（上表是在"effect 从 `following` 分支 + 把 `polls` 补进依赖"那一版上测的；下面说的最终写法
+把正文换成直接读 `refreshing`/`polls`，同一套 stub 下重测仍是 13 次、同样在 18s 停下。）
+
 原因是计数器把信号**从派生值里拿掉了**：`useMachines.ts` 那种写法能成立，是因为它的依赖
 （`current.at`、`current.failed`）每次尝试都会变；这里刻意用一个计数器，就是为了让"状态"
-在区间内不动。所以**计数器本身必须进依赖**，并且值得在依赖旁写一行注释——从字面上看
-`polls` 是"没被用到的依赖"，很容易被后来的人当成噪音删掉。
+在区间内不动。于是把它放回依赖只是修好了症状——依赖表里仍然有一个"正文没读过的变量"，
+下一个人照样可以把它当噪音删掉。**改法是让 effect 直接读两个原始输入**
+（`refreshing`、`polls`），派生的 `following` 只留给渲染：
+
+```js
+useEffect(() => {
+  if (!refreshing) { setPolls(0); return; }
+  if (polls >= MAX_POLLS) return;
+  const timer = setTimeout(() => { setPolls((n) => n + 1); void load(); }, POLL_INTERVAL_MS);
+  return () => clearTimeout(timer);
+}, [refreshing, polls, load]);
+```
+
+这样两个依赖都在正文里出现，删掉任何一个都必须先删掉一行逻辑，而不是删掉一行看起来没用的
+依赖。`pollDecision` 保留给渲染用（按钮禁用、卡片文案），是**同一条规则的另一种表述**，
+两处必须一致——这是这次改动唯一的代价。
+
+> **未钉住的部分**：轮询的**接线**（依赖表本身）没有自动化测试。仓库的 vitest 跑在 node
+> 环境，没有 jsdom / testing-library，412 个测试全是纯函数测试；为一个 effect 引入一套
+> DOM 测试栈，比这条 bug 本身重。所以接线的证据是浏览器里的 A/B 实测（上表），
+> 而 `pollDecision` 的规则由纯函数测试覆盖。要给组件加测试环境的话，属 P6。
 
 同一个改动顺带补了两处：预算耗尽时**任何** lead 行（不只"从未查询过"那种）都会说
 "后台仍在查询"；以及首次打开、一行都还没有时，`refreshing` 为真就说"正在查询"，
