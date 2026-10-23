@@ -776,7 +776,7 @@ func TestForkIsolatedRequiresCheckpoint(t *testing.T) {
 	}
 	_ = waitStatus(t, e, src.ID, StatusSucceeded, 3*time.Second)
 	userSeq := firstUserSeq(t, st, src.ID)
-	beforeTasks, err := st.ListTasks(ctx, store.ListTasksOpts{})
+	beforeTasks, err := st.ListTasks(ctx, store.ListTasksOpts{Scope: store.Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,7 +785,7 @@ func TestForkIsolatedRequiresCheckpoint(t *testing.T) {
 	if !errors.Is(err, workspace.ErrCheckpointUnavailable) {
 		t.Fatalf("err=%v", err)
 	}
-	afterTasks, err := st.ListTasks(ctx, store.ListTasksOpts{})
+	afterTasks, err := st.ListTasks(ctx, store.ListTasksOpts{Scope: store.Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}

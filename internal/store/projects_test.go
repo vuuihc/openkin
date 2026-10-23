@@ -86,7 +86,7 @@ func TestProjectCRUD(t *testing.T) {
 	if err := s.InsertTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
-	tasks, err := s.ListTasks(ctx, ListTasksOpts{ProjectID: "proj-1"})
+	tasks, err := s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), ProjectID: "proj-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

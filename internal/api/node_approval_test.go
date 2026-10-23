@@ -150,7 +150,7 @@ func awaitApproval(t *testing.T, s *Server, taskID string) store.Approval {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		list, err := s.Engine.ListApprovals(context.Background(), store.ListApprovalsOpts{Status: store.DecisionPending})
+		list, err := s.Engine.ListApprovals(context.Background(), store.ListApprovalsOpts{Status: store.DecisionPending, Scope: store.Unscoped()})
 		if err == nil {
 			for _, approval := range list {
 				if approval.TaskID == taskID {

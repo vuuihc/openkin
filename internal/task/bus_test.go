@@ -3,6 +3,8 @@ package task
 import (
 	"testing"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // TestBusOverflowDisconnectsSlowSubscriber is the Milestone 1 red test:
@@ -80,5 +82,117 @@ func TestBusPublishNeverBlocksOnSlowSubscriber(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Publish blocked on slow subscriber")
+	}
+}
+
+// TestBusKeepsOneAccountOutOfAnothersEvents is the isolation contract at the
+// stream: the socket is a delivery path for the same rows the list endpoint
+// filters, so a scoped subscriber must not be handed a task it could not have
+// fetched. Publish is synchronous, so an absent message is absent by the time
+// Publish returns — no sleeping to prove a negative.
+func TestBusKeepsOneAccountOutOfAnothersEvents(t *testing.T) {
+	owners := map[string]string{"task-a": "user-a", "task-b": "user-b"}
+	b := NewBus()
+	b.SetOwnerResolver(func(taskID string) string { return owners[taskID] })
+
+	holder := b.Subscribe() // the master token / the account that claimed this Hub
+	member := b.SubscribeFor(store.OwnedBy("user-a"))
+	if member == nil {
+		t.Fatal("a scoped subscription on a bus with an owner resolver must be honoured")
+	}
+
+	// Another account's event reaches the machine's holder and nobody else.
+	b.PublishEvent(store.Event{TaskID: "task-b"})
+	expectNothing(t, member, "a member received another account's event")
+	expectOne(t, holder, "the holder missed another account's event")
+
+	// The member's own event reaches both.
+	b.PublishEvent(store.Event{TaskID: "task-a"})
+	if msg := expectOne(t, holder, "the holder missed the member's event"); msg.TaskID() != "task-a" {
+		t.Fatalf("holder got task_id=%q, want task-a", msg.TaskID())
+	}
+	if msg := expectOne(t, member, "the member missed its own event"); msg.TaskID() != "task-a" {
+		t.Fatalf("member got task_id=%q, want task-a", msg.TaskID())
+	}
+}
+
+// TestBusFiltersTaskUpdatesWithoutALookup covers the one message that carries
+// its own owner: a task row arrives whole, so it is filtered from the row and
+// never from the database — which matters because by the time a deletion is
+// broadcast the row is already gone.
+func TestBusFiltersTaskUpdatesWithoutALookup(t *testing.T) {
+	lookups := 0
+	b := NewBus()
+	b.SetOwnerResolver(func(string) string { lookups++; return "" })
+
+	member := b.SubscribeFor(store.OwnedBy("user-a"))
+	if member == nil {
+		t.Fatal("scoped subscription refused")
+	}
+
+	b.PublishTask(store.Task{ID: "task-b", OwnerUserID: "user-b"})
+	expectNothing(t, member, "a member received another account's task_update")
+	if lookups != 0 {
+		t.Fatalf("a task_update carries its owner but triggered %d lookup(s)", lookups)
+	}
+
+	b.PublishTask(store.Task{ID: "task-a", OwnerUserID: "user-a"})
+	if msg := expectOne(t, member, "the member missed its own task_update"); msg.TaskID() != "task-a" {
+		t.Fatalf("member got task_id=%q, want task-a", msg.TaskID())
+	}
+}
+
+// TestBusRefusesScopedSubscriptionWithoutAResolver pins the fail-closed
+// direction: with no way to attribute a message, "I cannot tell whose this is"
+// must not decay into "deliver it anyway".
+func TestBusRefusesScopedSubscriptionWithoutAResolver(t *testing.T) {
+	b := NewBus()
+	if ch := b.SubscribeFor(store.OwnedBy("user-a")); ch != nil {
+		t.Fatal("a scoped subscription on a resolver-less bus must be refused, not silently unscoped")
+	}
+	// An empty scope means "nothing", not "everything", so it is not a way through either.
+	if ch := b.SubscribeFor(store.TaskScope{}); ch != nil {
+		t.Fatal("the zero scope must be refused on a resolver-less bus")
+	}
+	// Consumers with no account behind them still get the firehose.
+	if ch := b.Subscribe(); ch == nil {
+		t.Fatal("an unscoped subscription must not need a resolver")
+	}
+}
+
+// TestBusDropsEventsItCannotAttribute is the other half of fail-closed: once a
+// resolver exists but does not know the task, the message belongs to nobody the
+// member can be shown, so the member is not shown it.
+func TestBusDropsEventsItCannotAttribute(t *testing.T) {
+	b := NewBus()
+	b.SetOwnerResolver(func(string) string { return "" })
+
+	member := b.SubscribeFor(store.OwnedBy("user-a"))
+	if member == nil {
+		t.Fatal("scoped subscription refused")
+	}
+	b.PublishEvent(store.Event{TaskID: "task-orphan"})
+	expectNothing(t, member, "an unattributable event reached a scoped member")
+}
+
+// expectOne asserts a message is already waiting.
+func expectOne(t *testing.T, ch chan WSMessage, msg string) WSMessage {
+	t.Helper()
+	select {
+	case got := <-ch:
+		return got
+	default:
+		t.Fatal(msg)
+		return WSMessage{}
+	}
+}
+
+// expectNothing asserts the channel is empty without blocking.
+func expectNothing(t *testing.T, ch chan WSMessage, msg string) {
+	t.Helper()
+	select {
+	case got := <-ch:
+		t.Fatalf("%s: %+v", msg, got.Data)
+	default:
 	}
 }

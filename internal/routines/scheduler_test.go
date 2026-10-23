@@ -65,7 +65,7 @@ func TestTickDispatchesDueAndAdvances(t *testing.T) {
 	}
 
 	// One routine-tagged task created.
-	runs, err := st.ListTasks(ctx, store.ListTasksOpts{RoutineID: "r1", Limit: 10})
+	runs, err := st.ListTasks(ctx, store.ListTasksOpts{Scope: store.Unscoped(), RoutineID: "r1", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestTickDispatchesDueAndAdvances(t *testing.T) {
 	if err := sch.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	runs, _ = st.ListTasks(ctx, store.ListTasksOpts{RoutineID: "r1", Limit: 10})
+	runs, _ = st.ListTasks(ctx, store.ListTasksOpts{Scope: store.Unscoped(), RoutineID: "r1", Limit: 10})
 	if len(runs) != 1 {
 		t.Fatalf("after second tick runs=%d", len(runs))
 	}
@@ -162,7 +162,7 @@ func TestTickReservesOnlyInteractiveSlotWhenEngineHasOneWorker(t *testing.T) {
 	if err := sch.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	runs, err := st.ListTasks(ctx, store.ListTasksOpts{RoutineID: "r1", Limit: 10})
+	runs, err := st.ListTasks(ctx, store.ListTasksOpts{Scope: store.Unscoped(), RoutineID: "r1", Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestTickRecoversManualDispatchWithoutCreatingDuplicate(t *testing.T) {
 	if state != "dispatched" {
 		t.Fatalf("dispatch state=%q want dispatched", state)
 	}
-	runs, err := st.ListTasks(ctx, store.ListTasksOpts{RoutineID: r.ID, Limit: 10})
+	runs, err := st.ListTasks(ctx, store.ListTasksOpts{Scope: store.Unscoped(), RoutineID: r.ID, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

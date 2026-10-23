@@ -149,6 +149,10 @@ func (s *Store) GetApproval(ctx context.Context, id string) (Approval, error) {
 type ListApprovalsOpts struct {
 	Status string // empty = all; typically "pending"
 	Limit  int
+	// Scope narrows the result to the tasks one caller may see. An approval is
+	// authority over the task behind it, so it inherits the task's scope: an
+	// empty scope returns nothing rather than everything.
+	Scope TaskScope
 }
 
 // ListApprovals returns approvals ordered by created_at desc, with task title/agent joined.
@@ -160,16 +164,18 @@ func (s *Store) ListApprovals(ctx context.Context, opts ListApprovalsOpts) ([]Ap
 	if limit > 500 {
 		limit = 500
 	}
+	scopeCond, scopeArgs := opts.Scope.predicate("t")
 
 	var b strings.Builder
-	args := make([]any, 0, 2)
+	args := make([]any, 0, 3)
 	b.WriteString(`
 		SELECT a.id, a.task_id, a.kind, a.payload, a.decision, a.decided_via, a.created_at, a.decided_at,
 			a.execution_id, a.execution_agent, a.execution_step, a.execution_model,
 			t.title, t.agent
 		FROM approvals a
 		JOIN tasks t ON t.id = a.task_id
-		WHERE 1=1`)
+		WHERE ` + scopeCond)
+	args = append(args, scopeArgs...)
 	if opts.Status != "" {
 		b.WriteString(` AND a.decision = ?`)
 		args = append(args, opts.Status)

@@ -21,7 +21,11 @@ const migrationTaskTombstones = `
 CREATE TABLE IF NOT EXISTS task_tombstones (
   task_id    TEXT PRIMARY KEY,
   hub_seq    INTEGER NOT NULL,
-  deleted_at INTEGER NOT NULL
+  deleted_at INTEGER NOT NULL,
+  -- Who owned the deleted task, so the deletion can be delivered to the account
+  -- that could see the row. NULL means nobody in particular: a task from before
+  -- accounts existed, which only the holder of the machine is told about.
+  owner_user_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_task_tombstones_hub_seq ON task_tombstones(hub_seq);
 
@@ -781,13 +785,57 @@ const migration008 = `SELECT 1;`
 // already includes the columns and legacy fixtures without an approvals table
 // both advance to user_version=10 cleanly.
 
+// ensureTaskScopeSchema adds the columns that account isolation reads, to
+// databases that were created before those columns existed. Like
+// ensureDeviceSchema it is additive and idempotent, and it runs on every open,
+// so a fresh install (which gets them from migration001) finds it a no-op.
+//
+// It is deliberately not a numbered migration. A numbered step runs once, on
+// databases below its version, which means every future hand-built database and
+// every test fixture has to replay the whole chain to be correct. A column that
+// only ever needs to exist is cheaper to assert than to version.
+func (s *Store) ensureTaskScopeSchema() error {
+	for _, col := range []struct{ table, column string }{
+		{"tasks", "owner_user_id"},
+		{"task_tombstones", "owner_user_id"},
+	} {
+		var exists int
+		q := fmt.Sprintf(`SELECT COUNT(*) FROM pragma_table_info('%s') WHERE name = ?`, col.table)
+		if err := s.db.QueryRow(q, col.column).Scan(&exists); err != nil {
+			return fmt.Errorf("inspect %s: %w", col.table, err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s TEXT`, col.table, col.column)); err != nil {
+			return fmt.Errorf("add %s.%s: %w", col.table, col.column, err)
+		}
+	}
+	// The scoped change feed seeks on owner and cursor together, once per poll,
+	// per client. Without these it would walk the account's whole history to
+	// answer "what changed since", which is the read the feed exists to make
+	// cheap.
+	for _, q := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_tasks_owner_hub_seq ON tasks(owner_user_id, hub_seq)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_tombstones_owner_seq ON task_tombstones(owner_user_id, hub_seq)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			return fmt.Errorf("index task scope: %w", err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) migrate() error {
 	var v int
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return fmt.Errorf("read user_version: %w", err)
 	}
 	if v >= schemaVersion {
-		return s.ensureDeviceSchema()
+		if err := s.ensureDeviceSchema(); err != nil {
+			return err
+		}
+		return s.ensureTaskScopeSchema()
 	}
 	if v == 0 {
 		tx, err := s.db.Begin()
@@ -2075,7 +2123,9 @@ ON eval_results(run_id, case_id, rep_idx);
 		}
 	}
 
-	return nil
+	// Every path out of here has to reach the same shape, so the assertion runs
+	// on the upgraded path too rather than only on the already-current one.
+	return s.ensureTaskScopeSchema()
 }
 
 // migrateAgentSessionIdentity rebuilds agent_sessions so a session is

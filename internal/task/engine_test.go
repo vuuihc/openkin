@@ -1335,7 +1335,7 @@ func TestCreatePrepareFailureNoTask(t *testing.T) {
 	if !errors.Is(err, workspace.ErrNotGit) {
 		t.Fatalf("err=%v", err)
 	}
-	tasks, err := st.ListTasks(context.Background(), store.ListTasksOpts{})
+	tasks, err := st.ListTasks(context.Background(), store.ListTasksOpts{Scope: store.Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}

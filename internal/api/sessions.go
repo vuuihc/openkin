@@ -37,9 +37,15 @@ func (s *Server) handleSessionCursor(w http.ResponseWriter, r *http.Request) {
 //
 // It is deliberately not the same endpoint as GET /api/tasks. That one answers
 // "show me my tasks" with filters, search, and most-recent-first ordering; this
-// one answers "what changed", which has exactly one correct order and must not
-// be filtered by anything, or a filtered-out change would advance the cursor
-// past a task the client never learned about.
+// one answers "what changed", which has exactly one correct order and takes no
+// user-facing filter at all — a change the caller narrowed away would still
+// advance the cursor, and the client would never learn about the task it
+// skipped.
+//
+// The account scope is the one narrowing that belongs here, because it is not a
+// preference about which changes to show: a change outside the scope is one the
+// caller is not allowed to have, so stepping the cursor over it is the point
+// rather than a bug.
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	if s.Store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "store unavailable"})
@@ -64,7 +70,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	page, err := s.Store.ListTaskChangesSince(r.Context(), since, limit)
+	page, err := s.Store.ListTaskChangesSince(r.Context(), since, limit, taskScope(r))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

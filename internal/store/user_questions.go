@@ -156,6 +156,9 @@ func (s *Store) GetUserQuestion(ctx context.Context, id string) (UserQuestion, e
 type ListUserQuestionsOpts struct {
 	Status string // empty = all; typically "pending"
 	Limit  int
+	// Scope narrows the result to the tasks one caller may see. A question is
+	// asked on behalf of a task, so it inherits the task's scope.
+	Scope TaskScope
 }
 
 // ListUserQuestions returns user questions ordered by created_at desc, with task title/agent joined.
@@ -167,16 +170,18 @@ func (s *Store) ListUserQuestions(ctx context.Context, opts ListUserQuestionsOpt
 	if limit > 500 {
 		limit = 500
 	}
+	scopeCond, scopeArgs := opts.Scope.predicate("t")
 
 	var b strings.Builder
-	args := make([]any, 0, 2)
+	args := make([]any, 0, 3)
 	b.WriteString(`
 		SELECT q.id, q.task_id, q.payload, q.status, q.response, q.answered_via, q.created_at, q.answered_at,
 			q.execution_id, q.execution_agent, q.execution_step, q.execution_model,
 			t.title, t.agent
 		FROM user_questions q
 		JOIN tasks t ON t.id = q.task_id
-		WHERE 1=1`)
+		WHERE ` + scopeCond)
+	args = append(args, scopeArgs...)
 	if opts.Status != "" {
 		b.WriteString(` AND q.status = ?`)
 		args = append(args, opts.Status)

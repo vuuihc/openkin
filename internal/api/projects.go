@@ -16,6 +16,7 @@ import (
 	"github.com/oklog/ulid/v2"
 
 	"github.com/vuuihc/openkin/internal/projectpulse"
+	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -679,8 +680,17 @@ func (s *Server) handleRefreshProjectPulse(w http.ResponseWriter, r *http.Reques
 
 // maybeInjectProjectContext prepends a bounded One-Pager digest when the task
 // is (or will be) linked to a project. Never fails the create path.
+//
+// It injects nothing for a caller that does not act for the machine's holder.
+// The digest is the holder's project document, and a member creating a task in
+// a directory that happens to resolve to one of the holder's projects would
+// otherwise have that document copied into their own prompt — a leak that never
+// passes through a project endpoint and so would survive every guard on them.
 func (s *Server) maybeInjectProjectContext(ctx context.Context, req *task.CreateRequest) {
 	if req == nil || s.ProjectsDir == "" || s.Store == nil {
+		return
+	}
+	if p, ok := remote.PrincipalFromContext(ctx); ok && !store.ActsForHolder(p) {
 		return
 	}
 	// Skip if prompt already carries project context (e.g. Continue Focus).

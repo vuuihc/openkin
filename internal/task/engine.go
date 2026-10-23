@@ -78,6 +78,11 @@ type CreateRequest struct {
 	// this identity, and re-deriving it would let the same work land in a
 	// different copy of the workspace.
 	WorkspaceAnchorID string `json:"-"`
+	// OwnerUserID is the account that asked for this task, and is what account
+	// isolation reads. It is kept out of the public contract for the same reason
+	// SessionRef is: the daemon fills it from the authenticated principal, so a
+	// client cannot create a task that appears to belong to someone else.
+	OwnerUserID string `json:"-"`
 }
 
 // FollowUpRequest is the body for POST /api/tasks/{id}/prompt.
@@ -300,6 +305,12 @@ func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 	var events eventWriter
 	if st != nil {
 		events = storeEventWriter{st: st}
+		// Let the bus attribute a message that names only a task id. Most
+		// messages do — an event, an approval, a question — because carrying the
+		// whole task row on every agent output line would be absurd. Without
+		// this, a scoped subscriber cannot be served at all, and SubscribeFor
+		// refuses one rather than streaming another account's work.
+		bus.SetOwnerResolver(st.TaskOwner)
 	}
 	return &Engine{
 		store:               st,
@@ -1307,6 +1318,10 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		// the same workspace said portably, so a turn dispatched to another
 		// machine can be handed *that* machine's address instead of this one's.
 		WorkspaceAnchorID: e.newTaskAnchor(ctx, req, now),
+		// Who asked. Empty for the callers that have no principal — a routine
+		// firing on a timer, an eval run — which is why the scope predicate has
+		// an "everything" case rather than treating empty as a match.
+		OwnerUserID: strings.TrimSpace(req.OwnerUserID),
 	}
 	if sessionRef := strings.TrimSpace(req.SessionRef); sessionRef != "" {
 		t.SessionRef = &sessionRef

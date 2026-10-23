@@ -81,7 +81,7 @@ func TestUserQuestionListFiltersAndJoin(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := s.ListUserQuestions(ctx, ListUserQuestionsOpts{Status: UQStatusPending})
+	pending, err := s.ListUserQuestions(ctx, ListUserQuestionsOpts{Status: UQStatusPending, Scope: Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestUserQuestionListFiltersAndJoin(t *testing.T) {
 	if pending[0].TaskTitle != "ask auth" || pending[0].TaskAgent != "claude-code" {
 		t.Fatalf("join fields: title=%q agent=%q", pending[0].TaskTitle, pending[0].TaskAgent)
 	}
-	all, err := s.ListUserQuestions(ctx, ListUserQuestionsOpts{})
+	all, err := s.ListUserQuestions(ctx, ListUserQuestionsOpts{Scope: Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestUserQuestionExecutionRoundTrip(t *testing.T) {
 	if got.ExecutionModel == nil || *got.ExecutionModel != model {
 		t.Fatalf("exec model=%v", got.ExecutionModel)
 	}
-	list, err := s.ListUserQuestions(ctx, ListUserQuestionsOpts{Status: UQStatusPending})
+	list, err := s.ListUserQuestions(ctx, ListUserQuestionsOpts{Status: UQStatusPending, Scope: Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}

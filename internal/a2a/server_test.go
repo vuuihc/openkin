@@ -69,7 +69,7 @@ func TestA2AIdempotencyAndCard(t *testing.T) {
 		t.Fatalf("idempotency ids=%q/%q", first.ID, second.ID)
 	}
 	time.Sleep(20 * time.Millisecond)
-	tasks, err := st.ListTasks(context.Background(), store.ListTasksOpts{Limit: 10})
+	tasks, err := st.ListTasks(context.Background(), store.ListTasksOpts{Scope: store.Unscoped(), Limit: 10})
 	if err != nil || len(tasks) != 1 {
 		t.Fatalf("tasks=%d err=%v", len(tasks), err)
 	}

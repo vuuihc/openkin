@@ -76,7 +76,7 @@ func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
 				limit = n
 			}
 		}
-		runs, err := s.Store.ListTasks(r.Context(), store.ListTasksOpts{RoutineID: "*", Limit: limit})
+		runs, err := s.Store.ListTasks(r.Context(), store.ListTasksOpts{RoutineID: "*", Limit: limit, Scope: taskScope(r)})
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return

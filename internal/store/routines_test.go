@@ -120,7 +120,7 @@ func TestTaskRoutineFieldsAndUnread(t *testing.T) {
 		t.Fatalf("unread=%d err=%v", n, err)
 	}
 
-	runs, err := s.ListTasks(ctx, ListTasksOpts{RoutineID: "*", Limit: 10})
+	runs, err := s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), RoutineID: "*", Limit: 10})
 	if err != nil || len(runs) != 1 || runs[0].ID != "t1" {
 		t.Fatalf("runs=%+v err=%v", runs, err)
 	}

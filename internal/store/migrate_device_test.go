@@ -290,3 +290,64 @@ func TestAgentSessionRebuildIsIdempotent(t *testing.T) {
 		t.Fatalf("row after a second run = %+v err=%v", got, err)
 	}
 }
+
+// A database that reached the current schema before account isolation existed
+// has no owner on its tombstones. The additive ensure has to repair that on
+// open, because the version chain will not run again for a database that is
+// already at the current version — which is exactly the shape a running daemon
+// upgrades from.
+func TestOpeningACurrentDatabaseAddsTheScopeColumns(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Rebuild the tombstone table in its pre-isolation shape.
+	if _, err := s.db.ExecContext(ctx, `
+		DROP TABLE task_tombstones;
+		CREATE TABLE task_tombstones (
+		  task_id    TEXT PRIMARY KEY,
+		  hub_seq    INTEGER NOT NULL,
+		  deleted_at INTEGER NOT NULL
+		);
+		CREATE INDEX idx_task_tombstones_hub_seq ON task_tombstones(hub_seq);`); err != nil {
+		t.Fatalf("roll tombstones back: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen at the current version: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	for _, table := range []string{"tasks", "task_tombstones"} {
+		if cols := tableColumns(t, reopened, table); !cols["owner_user_id"] {
+			t.Fatalf("%s has no owner_user_id after reopening: %v", table, cols)
+		}
+	}
+
+	// The repaired column has to be usable, not merely present: a deletion must
+	// record its owner, and the scoped feed must route it on that.
+	insertOwnedTestTask(t, reopened, "task-a", "user-a")
+	if err := reopened.DeleteTask(ctx, "task-a"); err != nil {
+		t.Fatal(err)
+	}
+	member, err := reopened.ListTaskChangesSince(ctx, 0, 0, OwnedBy("user-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(member.Deleted) != 1 || member.Deleted[0] != "task-a" {
+		t.Fatalf("deletions after repair = %v, want [task-a]", member.Deleted)
+	}
+	other, err := reopened.ListTaskChangesSince(ctx, 0, 0, OwnedBy("user-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other.Deleted) != 0 {
+		t.Fatalf("another account saw the deletion: %v", other.Deleted)
+	}
+}

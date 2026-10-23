@@ -117,6 +117,13 @@ type Task struct {
 	// the highest value it has seen and asks for everything after it. Null only
 	// for rows written before the cursor existed.
 	HubSeq *int64 `json:"hub_seq,omitempty"`
+
+	// OwnerUserID is the account that created this task, and the key account
+	// isolation reads. Empty means no account was behind it: a standalone
+	// daemon, a routine firing on a timer, an eval run, or a row written before
+	// accounts existed. Only the owner of the machine sees those, which is why
+	// TaskScope has an All case rather than treating empty as a match.
+	OwnerUserID string `json:"owner_user_id,omitempty"`
 }
 
 // EffectiveCwd returns the path adapters and workspace file APIs should use.
@@ -257,6 +264,9 @@ type ListTasksOpts struct {
 	RoutineID string
 	// RoutineUnreadOnly keeps only unread routine runs (implies routine runs).
 	RoutineUnreadOnly bool
+	// Scope is what the caller is allowed to see. The zero value matches
+	// nothing, so every request-facing caller must set it; see TaskScope.
+	Scope TaskScope
 }
 
 // HasActiveTasks reports whether any task requires the daemon to remain
@@ -292,6 +302,7 @@ func scanTask(scanner interface {
 	var dispatch sql.NullString
 	var executingDevice sql.NullString
 	var anchorID sql.NullString
+	var ownerUserID sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
 		&model, &sessionRef, &permissionMode, &t.Status,
@@ -301,7 +312,7 @@ func scanTask(scanner interface {
 		&workspaceScope, &baseOID, &branch, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 		&t.WorkspacePolicy, &t.CurrentWorkspaceID, &t.EventEpoch,
-		&dispatch, &executingDevice, &anchorID, &t.HubSeq,
+		&dispatch, &executingDevice, &anchorID, &t.HubSeq, &ownerUserID,
 	); err != nil {
 		return Task{}, err
 	}
@@ -374,10 +385,13 @@ func scanTask(scanner interface {
 	if dispatch.Valid && dispatch.String != "" {
 		t.Dispatch = json.RawMessage(dispatch.String)
 	}
+	if ownerUserID.Valid {
+		t.OwnerUserID = ownerUserID.String
+	}
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -401,6 +415,9 @@ func (s *Store) ListTasks(ctx context.Context, opts ListTasksOpts) ([]Task, erro
 	var b strings.Builder
 	args := make([]any, 0, 4)
 	b.WriteString(`SELECT ` + taskColumns + ` FROM tasks WHERE 1=1`)
+	scopeCond, scopeArgs := opts.Scope.predicate("")
+	b.WriteString(` AND ` + scopeCond)
+	args = append(args, scopeArgs...)
 	if opts.Status != "" {
 		b.WriteString(` AND status = ?`)
 		args = append(args, opts.Status)
@@ -484,7 +501,15 @@ type TaskChangePage struct {
 // Deletions are part of the feed because a client cannot notice an absent row.
 // Tasks and tombstones are numbered by the same sequence, so ordering them
 // together is what makes a single integer cursor sufficient.
-func (s *Store) ListTaskChangesSince(ctx context.Context, since int64, limit int) (TaskChangePage, error) {
+//
+// The scope filters the feed, and the cursor it returns is the position of the
+// last change the caller could actually see — not the last change that exists.
+// That is sound because the scope's condition is stable: a task's owner is set
+// when the row is inserted and never rewritten, so "everything after my cursor
+// that I can see" can never miss a row that later enters the scope. The index on
+// (owner_user_id, hub_seq) is what keeps the seek honest, so a member does not
+// rescan another account's changes on every poll.
+func (s *Store) ListTaskChangesSince(ctx context.Context, since int64, limit int, scope TaskScope) (TaskChangePage, error) {
 	if limit <= 0 {
 		limit = 200
 	}
@@ -494,16 +519,20 @@ func (s *Store) ListTaskChangesSince(ctx context.Context, since int64, limit int
 	if since < 0 {
 		since = 0
 	}
+	taskCond, taskArgs := scope.predicate("tasks")
+	tombCond, tombArgs := scope.predicate("task_tombstones")
+	args := append(append([]any{}, taskArgs...), tombArgs...)
+	args = append(args, since, limit+1)
 	// One extra row tells us whether the page was cut short.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT kind, ref, seq FROM (
-			SELECT 'task' AS kind, id AS ref, COALESCE(hub_seq, 0) AS seq FROM tasks
+			SELECT 'task' AS kind, id AS ref, COALESCE(hub_seq, 0) AS seq FROM tasks WHERE `+taskCond+`
 			UNION ALL
-			SELECT 'deleted' AS kind, task_id AS ref, hub_seq AS seq FROM task_tombstones
+			SELECT 'deleted' AS kind, task_id AS ref, hub_seq AS seq FROM task_tombstones WHERE `+tombCond+`
 		)
 		WHERE seq > ?
 		ORDER BY seq ASC
-		LIMIT ?`, since, limit+1)
+		LIMIT ?`, args...)
 	if err != nil {
 		return TaskChangePage{}, fmt.Errorf("list task changes: %w", err)
 	}
@@ -638,8 +667,11 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var exists int
-	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM tasks WHERE id = ?`, id).Scan(&exists); err != nil {
+	// Read the owner before the row goes: the tombstone has to carry it, because
+	// after the delete there is nothing left to ask. A deletion that reached
+	// every client would hand a member the id of a task they were never shown.
+	var owner sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT owner_user_id FROM tasks WHERE id = ?`, id).Scan(&owner); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -681,8 +713,8 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO task_tombstones (task_id, hub_seq, deleted_at) VALUES (?, ?, ?)`,
-		id, hubSeq, time.Now().UnixMilli()); err != nil {
+		`INSERT INTO task_tombstones (task_id, hub_seq, deleted_at, owner_user_id) VALUES (?, ?, ?, ?)`,
+		id, hubSeq, time.Now().UnixMilli(), owner); err != nil {
 		return fmt.Errorf("record task deletion: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -728,6 +760,13 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if t.ExecutingDeviceID != "" {
 		executingDevice = t.ExecutingDeviceID
 	}
+	// NULL, not '', when no account asked for this task. The scope predicate
+	// compares owner_user_id for equality, so an empty string would read as an
+	// account whose id is empty instead of as "nobody".
+	var ownerUserID any
+	if t.OwnerUserID != "" {
+		ownerUserID = t.OwnerUserID
+	}
 	noteworthy := 0
 	if t.RoutineNoteworthy {
 		noteworthy = 1
@@ -757,8 +796,8 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			workspace_scope, workspace_base_oid, workspace_branch, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
 				workspace_policy, current_workspace_id, event_epoch, dispatch,
-			executing_device_id, workspace_anchor_id, hub_seq
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			executing_device_id, workspace_anchor_id, hub_seq, owner_user_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
@@ -767,7 +806,7 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
 		t.WorkspacePolicy, t.CurrentWorkspaceID, t.EventEpoch,
-		dispatchJSON(t.Dispatch), executingDevice, anchorID, hubSeq,
+		dispatchJSON(t.Dispatch), executingDevice, anchorID, hubSeq, ownerUserID,
 	); err != nil {
 		return fmt.Errorf("insert task: %w", err)
 	}

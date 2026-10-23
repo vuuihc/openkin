@@ -28,7 +28,7 @@ func TestTaskChangeFeedCoversUpdatesAndDeletions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page, err := s.ListTaskChangesSince(ctx, 0, 0)
+	page, err := s.ListTaskChangesSince(ctx, 0, 0, Unscoped())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestTaskChangeFeedCoversUpdatesAndDeletions(t *testing.T) {
 
 	// A client that already synced to the end sees nothing at all, and its
 	// cursor stays where it was rather than moving to some invented value.
-	idle, err := s.ListTaskChangesSince(ctx, page.NextCursor, 0)
+	idle, err := s.ListTaskChangesSince(ctx, page.NextCursor, 0, Unscoped())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestTaskChangeFeedPagesWithoutSkipping(t *testing.T) {
 		deleted []string
 	)
 	for {
-		page, err := s.ListTaskChangesSince(ctx, cursor, 2)
+		page, err := s.ListTaskChangesSince(ctx, cursor, 2, Unscoped())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -156,7 +156,7 @@ func TestUpgradeNumbersTasksThatPredateTheCursor(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = upgraded.Close() })
 
-	page, err := upgraded.ListTaskChangesSince(ctx, 0, 0)
+	page, err := upgraded.ListTaskChangesSince(ctx, 0, 0, Unscoped())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,5 +172,83 @@ func TestUpgradeNumbersTasksThatPredateTheCursor(t *testing.T) {
 	insertCursorTestTask(t, upgraded, "task-c")
 	if got := taskHubSeq(t, upgraded, "task-c"); got == nil || *got <= page.NextCursor {
 		t.Fatalf("new task cursor = %v, want > %d", got, page.NextCursor)
+	}
+}
+
+// The feed hands out whole task rows, so it is the most complete way to read
+// another account's work if it is not scoped. What the member is handed must be
+// only their own; what the member's cursor does is the other half, because a
+// cursor that never moves makes their client poll the same range forever.
+func TestTaskChangeFeedHidesOtherAccountsWithoutStalling(t *testing.T) {
+	ctx := context.Background()
+	s := openDeviceTestStore(t)
+	insertOwnedTestTask(t, s, "task-a", "user-a")
+	insertOwnedTestTask(t, s, "task-b", "user-b")
+	insertOwnedTestTask(t, s, "task-orphan", "") // predates accounts: the machine's holder owns it
+	if err := s.DeleteTask(ctx, "task-b"); err != nil {
+		t.Fatal(err)
+	}
+
+	member, err := s.ListTaskChangesSince(ctx, 0, 0, OwnedBy("user-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(member.Tasks) != 1 || member.Tasks[0].ID != "task-a" {
+		t.Fatalf("member feed = %+v, want only task-a", member.Tasks)
+	}
+	if len(member.Deleted) != 0 {
+		t.Fatalf("member deletions = %v, want none: another account's task id is not theirs to learn", member.Deleted)
+	}
+	if member.NextCursor != *taskHubSeq(t, s, "task-a") {
+		t.Fatalf("member cursor = %d, want the position of the last change it saw", member.NextCursor)
+	}
+
+	// The holder still sees everything, deletion included.
+	holder, err := s.ListTaskChangesSince(ctx, 0, 0, Unscoped())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(holder.Tasks) != 2 {
+		t.Fatalf("holder feed = %+v, want both surviving tasks", holder.Tasks)
+	}
+	if len(holder.Deleted) != 1 || holder.Deleted[0] != "task-b" {
+		t.Fatalf("holder deletions = %v, want [task-b]", holder.Deleted)
+	}
+
+	// Resuming from the member's cursor must find the next thing that is theirs,
+	// even though another account wrote in between — this is the case a cursor
+	// pinned to "where I stopped" gets wrong if the owner filter is unstable.
+	insertOwnedTestTask(t, s, "task-a2", "user-a")
+	resumed, err := s.ListTaskChangesSince(ctx, member.NextCursor, 0, OwnedBy("user-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Tasks) != 1 || resumed.Tasks[0].ID != "task-a2" {
+		t.Fatalf("resumed feed = %+v, want just the member's new task", resumed.Tasks)
+	}
+	if resumed.NextCursor <= member.NextCursor {
+		t.Fatalf("cursor did not advance: %d -> %d", member.NextCursor, resumed.NextCursor)
+	}
+
+	// A member with nothing of its own gets an empty feed rather than a leak,
+	// and asking again from the cursor it was given is stable.
+	stranger, err := s.ListTaskChangesSince(ctx, 0, 0, OwnedBy("user-nobody"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stranger.Tasks) != 0 || len(stranger.Deleted) != 0 {
+		t.Fatalf("stranger feed = %+v, want empty", stranger)
+	}
+}
+
+// insertOwnedTestTask is insertCursorTestTask with an owner, which is what the
+// scope filters on.
+func insertOwnedTestTask(t *testing.T, s *Store, id, ownerUserID string) {
+	t.Helper()
+	if err := s.InsertTask(context.Background(), Task{
+		ID: id, Title: id, Agent: "codex", Cwd: "/tmp", Prompt: "p",
+		Status: "running", CreatedAt: NowMilli(), OwnerUserID: ownerUserID,
+	}); err != nil {
+		t.Fatalf("insert task %s: %v", id, err)
 	}
 }

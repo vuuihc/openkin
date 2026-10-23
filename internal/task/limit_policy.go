@@ -348,7 +348,7 @@ func (e *Engine) recoverLimitWaits(ctx context.Context) {
 	// on ListTasks' UI-oriented 200-row cap.
 	var before string
 	for {
-		tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Status: StatusFailed, Limit: 200, Before: before})
+		tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Status: StatusFailed, Limit: 200, Before: before, Scope: store.Unscoped()})
 		if err != nil || len(tasks) == 0 {
 			break
 		}

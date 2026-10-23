@@ -288,9 +288,9 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)
 		r.Get("/api/agents", s.handleListAgents)
 		r.Get("/api/agent-providers", s.handleListAgentProviders)
-		r.Get("/api/agent-sessions", s.handleListAgentSessions)
-		r.Get("/api/agent-sessions/page", s.handleListAgentSessionsPage)
-		r.Get("/api/agent-sessions/{id}", s.handleGetAgentSession)
+		r.With(holderOnly).Get("/api/agent-sessions", s.handleListAgentSessions)
+		r.With(holderOnly).Get("/api/agent-sessions/page", s.handleListAgentSessionsPage)
+		r.With(holderOnly).Get("/api/agent-sessions/{id}", s.handleGetAgentSession)
 		r.With(operatorOnly).Post("/api/agent-sessions/import", s.handleImportAgentSessions)
 		r.With(operatorOnly).Get("/api/agent-sessions/{id}/history", s.handleGetAgentSessionHistory)
 		r.With(operatorOnly).Post("/api/agent-sessions/{id}/attach", s.handleAttachAgentSession)
@@ -308,36 +308,41 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/sessions", s.handleListSessions)
 		r.Get("/api/sessions/cursor", s.handleSessionCursor)
 		r.Post("/api/tasks", s.handleCreateTask)
-		r.Get("/api/tasks/{id}", s.handleGetTask)
-		r.Get("/api/tasks/{id}/usage", s.handleTaskUsage)
-		r.Get("/api/tasks/{id}/events", s.handleListEvents)
-		r.Post("/api/tasks/{id}/replay", s.handleReplayTask)
-		r.Get("/api/tasks/{id}/workers", s.handleListWorkerSteps)
-		r.Post("/api/tasks/{id}/browser/actions", s.handleBrowserAction)
-		r.Get("/api/tasks/{id}/limit-wait", s.handleTaskLimitWait)
-		r.Get("/api/tasks/{id}/workspaces", s.handleListTaskWorkspaces)
-		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
-		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
-		r.With(operatorOnly).Put("/api/tasks/{id}/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
-		r.Get("/api/tasks/{id}/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
-		r.Get("/api/tasks/{id}/source/tree", s.handleListSourceTree)
-		r.Get("/api/tasks/{id}/source/file", s.handleReadSourceFile)
-		r.Get("/api/tasks/{id}/workspace/list", s.handleLegacyListWorkspace)
-		r.Get("/api/tasks/{id}/workspace/file", s.handleLegacyReadWorkspaceFile)
-		r.With(operatorOnly).Put("/api/tasks/{id}/workspace/file", s.handleLegacyWriteWorkspaceFile)
-		r.With(operatorOnly).Post("/api/tasks/{id}/workspace/restore", s.handleRestoreTaskWorkspace)
-		r.Post("/api/tasks/{id}/cancel", s.handleCancelTask)
-		r.With(operatorOnly).Delete("/api/tasks/{id}", s.handleDeleteTask)
-		r.Post("/api/tasks/{id}/prompt", s.handleFollowUp)
-		r.Post("/api/tasks/{id}/retry", s.handleRetry)
-		r.Post("/api/tasks/{id}/limit/continue", s.handleLimitContinue)
-		r.Post("/api/tasks/{id}/fork", s.handleFork)
-		r.With(taskActorOnly).Get("/api/approvals", s.handleListApprovals)
-		r.With(taskActorOnly).Post("/api/approvals/{id}/decision", s.handleDecision)
-		r.With(taskActorOnly).Get("/api/user-questions", s.handleListUserQuestions)
-		r.With(taskActorOnly).Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
-		r.Get("/api/recent-cwds", s.handleRecentCwds)
-		r.Get("/api/git/branches", s.handleGitBranches)
+		// Everything that names one task goes through taskInScope. Scoping only
+		// the list would leave the id as a way around it.
+		r.Route("/api/tasks/{id}", func(r chi.Router) {
+			r.Use(s.taskInScope)
+			r.Get("/", s.handleGetTask)
+			r.Get("/usage", s.handleTaskUsage)
+			r.Get("/events", s.handleListEvents)
+			r.Post("/replay", s.handleReplayTask)
+			r.Get("/workers", s.handleListWorkerSteps)
+			r.Post("/browser/actions", s.handleBrowserAction)
+			r.Get("/limit-wait", s.handleTaskLimitWait)
+			r.Get("/workspaces", s.handleListTaskWorkspaces)
+			r.Get("/workspaces/{workspace_id}/tree", s.handleListWorkspaceTree)
+			r.Get("/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
+			r.With(operatorOnly).Put("/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
+			r.Get("/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
+			r.Get("/source/tree", s.handleListSourceTree)
+			r.Get("/source/file", s.handleReadSourceFile)
+			r.Get("/workspace/list", s.handleLegacyListWorkspace)
+			r.Get("/workspace/file", s.handleLegacyReadWorkspaceFile)
+			r.With(operatorOnly).Put("/workspace/file", s.handleLegacyWriteWorkspaceFile)
+			r.With(operatorOnly).Post("/workspace/restore", s.handleRestoreTaskWorkspace)
+			r.Post("/cancel", s.handleCancelTask)
+			r.With(operatorOnly).Delete("/", s.handleDeleteTask)
+			r.Post("/prompt", s.handleFollowUp)
+			r.Post("/retry", s.handleRetry)
+			r.Post("/limit/continue", s.handleLimitContinue)
+			r.Post("/fork", s.handleFork)
+		})
+		r.Get("/api/approvals", s.handleListApprovals)
+		r.With(s.approvalInScope).Post("/api/approvals/{id}/decision", s.handleDecision)
+		r.Get("/api/user-questions", s.handleListUserQuestions)
+		r.With(s.userQuestionInScope).Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
+		r.With(holderOnly).Get("/api/recent-cwds", s.handleRecentCwds)
+		r.With(holderOnly).Get("/api/git/branches", s.handleGitBranches)
 		r.With(operatorOnly).Post("/api/git/checkout", s.handleGitCheckout)
 		r.With(operatorOnly).Get("/api/settings", s.handleGetSettings)
 		r.With(operatorOnly).Put("/api/settings", s.handlePutSettings)
@@ -354,8 +359,8 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Delete("/api/providers/{id}", s.handleDeleteProvider)
 		r.With(operatorOnly).Post("/api/providers/{id}/activate", s.handleActivateProvider)
 		r.With(operatorOnly).Post("/api/notify/test", s.handleNotifyTest)
-		r.Get("/api/usage/summary", s.handleUsageSummary)
-		r.Get("/api/usage/limits", s.handleUsageLimits)
+		r.With(holderOnly).Get("/api/usage/summary", s.handleUsageSummary)
+		r.With(holderOnly).Get("/api/usage/limits", s.handleUsageLimits)
 		r.Get("/api/routing/options", s.handleGetRoutingOptions)
 		r.Get("/api/routing/preview", s.handleGetRoutingPreview)
 		r.Get("/api/routing/defaults", s.handleGetRoutingDefaults)
@@ -365,39 +370,39 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/api/routing/provider-profiles", s.handleGetProviderProfiles)
 		r.With(operatorOnly).Put("/api/routing/provider-profiles", s.handlePutProviderProfiles)
 		r.With(operatorOnly).Post("/api/uploads", s.handleUpload)
-		r.Get("/api/uploads/{name}", s.handleServeUpload)
-		r.Get("/api/artifacts", s.handleListArtifacts)
+		r.With(holderOnly).Get("/api/uploads/{name}", s.handleServeUpload)
+		r.With(holderOnly).Get("/api/artifacts", s.handleListArtifacts)
 		r.With(operatorOnly).Post("/api/artifacts", s.handleCreateArtifact)
-		r.Get("/api/artifacts/{id}", s.handleGetArtifact)
-		r.Get("/api/artifacts/{id}/content", s.handleGetArtifactContent)
+		r.With(holderOnly).Get("/api/artifacts/{id}", s.handleGetArtifact)
+		r.With(holderOnly).Get("/api/artifacts/{id}/content", s.handleGetArtifactContent)
 		r.With(operatorOnly).Post("/api/artifacts/{id}/status", s.handleSetArtifactStatus)
-		r.Get("/api/projects", s.handleListProjects)
+		r.With(holderOnly).Get("/api/projects", s.handleListProjects)
 		r.With(operatorOnly).Post("/api/projects", s.handleCreateProject)
 		r.With(operatorOnly).Post("/api/projects/ensure", s.handleEnsureProject)
-		r.Get("/api/projects/by-root", s.handleFindProjectByRoot)
-		r.Get("/api/projects/{id}", s.handleGetProject)
+		r.With(holderOnly).Get("/api/projects/by-root", s.handleFindProjectByRoot)
+		r.With(holderOnly).Get("/api/projects/{id}", s.handleGetProject)
 		r.With(operatorOnly).Patch("/api/projects/{id}", s.handlePatchProject)
-		r.Get("/api/projects/{id}/one-pager", s.handleGetOnePager)
+		r.With(holderOnly).Get("/api/projects/{id}/one-pager", s.handleGetOnePager)
 		r.With(operatorOnly).Put("/api/projects/{id}/one-pager", s.handlePutOnePager)
-		r.Get("/api/projects/{id}/pulse", s.handleGetProjectPulse)
+		r.With(holderOnly).Get("/api/projects/{id}/pulse", s.handleGetProjectPulse)
 		r.With(operatorOnly).Post("/api/projects/{id}/pulse/refresh", s.handleRefreshProjectPulse)
-		r.Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
-		r.Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
-		r.Get("/api/routines", s.handleListRoutines)
+		r.With(holderOnly).Get("/api/projects/{id}/tasks", s.handleListProjectTasks)
+		r.With(holderOnly).Get("/api/projects/{id}/artifacts", s.handleListProjectArtifacts)
+		r.With(holderOnly).Get("/api/routines", s.handleListRoutines)
 		r.With(operatorOnly).Post("/api/routines", s.handleCreateRoutine)
-		r.Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
-		r.Get("/api/routines/health", s.handleRoutineHealth)
+		r.With(holderOnly).Get("/api/routines/unread-count", s.handleRoutineUnreadCount)
+		r.With(holderOnly).Get("/api/routines/health", s.handleRoutineHealth)
 		r.With(operatorOnly).Post("/api/routines/mark-all-read", s.handleMarkAllRoutineRunsRead)
-		r.Get("/api/routines/{id}", s.handleGetRoutine)
+		r.With(holderOnly).Get("/api/routines/{id}", s.handleGetRoutine)
 		r.With(operatorOnly).Patch("/api/routines/{id}", s.handlePatchRoutine)
 		r.With(operatorOnly).Delete("/api/routines/{id}", s.handleDeleteRoutine)
 		r.With(operatorOnly).Post("/api/routines/{id}/run-now", s.handleRunRoutineNow)
-		r.Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
-		r.Get("/api/evals/suites", s.handleListEvalSuites)
-		r.Get("/api/evals/runs", s.handleListEvalRuns)
-		r.Get("/api/evals/runs/{id}", s.handleGetEvalRun)
-		r.Post("/api/evals/runs", s.handleCreateEvalRun)
-		r.Post("/api/evals/compare", s.handleCompareEvalRuns)
+		r.With(holderOnly).Post("/api/routines/runs/{taskID}/read", s.handleMarkRoutineRunRead)
+		r.With(holderOnly).Get("/api/evals/suites", s.handleListEvalSuites)
+		r.With(holderOnly).Get("/api/evals/runs", s.handleListEvalRuns)
+		r.With(holderOnly).Get("/api/evals/runs/{id}", s.handleGetEvalRun)
+		r.With(holderOnly).Post("/api/evals/runs", s.handleCreateEvalRun)
+		r.With(holderOnly).Post("/api/evals/compare", s.handleCompareEvalRuns)
 		r.With(operatorOnly).Post("/api/evals/routines", s.handleCreateEvalRoutine)
 		r.Get("/api/ws", s.handleWS)
 		r.Get("/api/events", s.handleEventStream)
@@ -494,30 +499,138 @@ func operatorOnly(next http.Handler) http.Handler {
 	})
 }
 
-// taskActorOnly guards the human gate: listing, approving, or denying a task's
-// pending actions, and answering a question a task is blocked on.
+// taskActorOnly formerly guarded the human gate — listing, approving, or
+// denying a task's pending actions, and answering a question a task is blocked
+// on — by refusing every account that was not the owner.
 //
-// These handlers took no principal at all, which was correct while one account
-// existed — "the human" and "the owner" were the same actor, so there was
-// nothing to check. With member accounts possible, approving is authority over
-// someone else's task, and it is authority of a pointed kind: an approval is
-// what lets an agent run a command.
+// It is gone rather than narrowed. The gate is now a property of the row's task
+// (see gateOnTaskOwner), which is what it was always approximating: a member
+// answering their own task's approval is the product working, and a member
+// answering someone else's is the leak the flat refusal was standing in for.
+// Keeping a role test alongside the scope check would only be a second rule to
+// drift from the first.
+
+// approvalInScope refuses a request whose {id} names an approval belonging to a
+// task the caller cannot see, and userQuestionInScope does the same for a
+// question.
 //
-// A member is refused because tasks are not yet scoped to an account, so a
-// member has no tasks and no standing to answer for one. A paired device is
-// admitted: the approval inbox on a phone is a product requirement, and a
-// device credential is enrolled by the owner rather than self-registered. When
-// tasks do carry an owner, this becomes a per-task check and the member
-// exclusion goes away.
-func taskActorOnly(next http.Handler) http.Handler {
+// Both were once a flat "members are refused", which was the right answer while
+// a member could not own a task. Now that tasks carry an owner, approving is a
+// per-task question and the honest one is whether this caller owns the task
+// behind the row — a member answering their own task's approval is the product
+// working, not a leak.
+//
+// The answer is 404 for the same reason it is on /api/tasks/{id}: whether
+// someone else's approval exists is not this caller's to learn.
+func (s *Server) approvalInScope(next http.Handler) http.Handler {
+	return s.gateOnTaskOwner(func(ctx context.Context, id string) (string, bool) {
+		a, err := s.Store.GetApproval(ctx, id)
+		if err != nil {
+			return "", false
+		}
+		return a.TaskID, true
+	}, next)
+}
+
+func (s *Server) userQuestionInScope(next http.Handler) http.Handler {
+	return s.gateOnTaskOwner(func(ctx context.Context, id string) (string, bool) {
+		q, err := s.Store.GetUserQuestion(ctx, id)
+		if err != nil {
+			return "", false
+		}
+		return q.TaskID, true
+	}, next)
+}
+
+// gateOnTaskOwner resolves the row named by {id} to the task behind it, and
+// refuses unless that task falls inside the caller's scope.
+func (s *Server) gateOnTaskOwner(resolve func(context.Context, string) (string, bool), next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		principal, ok := remote.PrincipalFromContext(r.Context())
-		if !ok {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "task access required"})
+		scope := taskScope(r)
+		if scope.All {
+			next.ServeHTTP(w, r)
 			return
 		}
-		if principal.Kind == remote.PrincipalUser && principal.Role != store.RoleOwner {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "task access required"})
+		if s.Store == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		taskID, ok := resolve(r.Context(), chi.URLParam(r, "id"))
+		if !ok || !scope.MatchesOwner(s.Store.TaskOwner(taskID)) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// holderOnly guards the routes that describe the machine itself — its projects,
+// routines, artifacts, agent sessions, uploads, and usage — as opposed to one
+// account's tasks.
+//
+// It is not operatorOnly, and the difference is the product. A paired phone is
+// enrolled by the holder and is a full client of the machine it was paired to;
+// refusing it here would break the remote control this exists for. A member
+// account is the one that must not pass: a guest on someone's Hub runs its own
+// tasks and has no business reading the holder's project list, prompts, or file
+// paths.
+//
+// The rule is store.ScopeForPrincipal read the other way, deliberately. A
+// second list of principal kinds here would be a second answer to "who holds
+// this machine", and the day the two disagree the quieter one is a leak.
+func holderOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := remote.PrincipalFromContext(r.Context())
+		if !ok || !store.ActsForHolder(p) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "machine holder access required"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// taskScope returns what the caller of this request may see of the task list.
+// The rule itself lives in store.ScopeForPrincipal so this package and MCP
+// cannot drift apart on it.
+func taskScope(r *http.Request) store.TaskScope {
+	p, ok := remote.PrincipalFromContext(r.Context())
+	if !ok {
+		// No principal means no request context. Match nothing: an empty list
+		// is a bug someone reports, a full list is a leak nobody notices.
+		return store.TaskScope{}
+	}
+	return store.ScopeForPrincipal(p)
+}
+
+// taskInScope refuses a request whose {id} names a task the caller cannot see.
+// It guards the whole /api/tasks/{id} subtree, because scoping the list alone
+// would leave the id as a way around it.
+//
+// The answer is 404, not 403. Whether a task exists is itself something one
+// account should not learn about another's, and the list endpoint already hides
+// that; a 403 here would confirm the guess.
+//
+// An unscoped caller — the master token, or the account that claimed the Hub —
+// skips the lookup entirely. That is the common case on a standalone daemon and
+// on a single-owner Hub, and it keeps the guard off the hot path for them.
+func (s *Server) taskInScope(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scope := taskScope(r)
+		if scope.All {
+			next.ServeHTTP(w, r)
+			return
+		}
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			// No id to check. The route table always supplies one here, so this
+			// is unreachable; refuse rather than fall through unscoped if it
+			// ever stops being true.
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		t, err := s.Store.GetTask(r.Context(), id)
+		if err != nil || !scope.Matches(t) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -587,6 +700,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		Before:          q.Get("before"),
 		Query:           q.Get("q"),
 		OrderByActivity: q.Get("order") == "activity",
+		Scope:           taskScope(r),
 	}
 	if lim := q.Get("limit"); lim != "" {
 		n, err := strconv.Atoi(lim)
@@ -699,6 +813,12 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if err := s.validateTaskCreateRequest(r.Context(), req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	// Fill the owner from the authenticated principal, never from the body: a
+	// client that could name its own owner could write a task into someone
+	// else's list, or hide one from its own.
+	if p, ok := remote.PrincipalFromContext(r.Context()); ok {
+		req.OwnerUserID = p.UserID
 	}
 	// Best-effort project context inject. Failures never block task creation.
 	s.maybeInjectProjectContext(r.Context(), &req)
@@ -1083,6 +1203,7 @@ func (s *Server) handleFork(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request) {
 	opts := store.ListApprovalsOpts{
 		Status: r.URL.Query().Get("status"),
+		Scope:  taskScope(r),
 	}
 	list, err := s.Engine.ListApprovals(r.Context(), opts)
 	if err != nil {
@@ -1229,6 +1350,7 @@ func (s *Server) handleInternalWaitApproval(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleListUserQuestions(w http.ResponseWriter, r *http.Request) {
 	opts := store.ListUserQuestionsOpts{
 		Status: r.URL.Query().Get("status"),
+		Scope:  taskScope(r),
 	}
 	list, err := s.Engine.ListUserQuestions(r.Context(), opts)
 	if err != nil {
@@ -1903,7 +2025,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
-	sub := s.Engine.Bus().Subscribe()
+	// Scoped: this connection carries raw agent output, approval commands, and
+	// full task rows. An unscoped subscription would make the socket a way
+	// around everything taskInScope refuses on the REST side.
+	sub := s.Engine.Bus().SubscribeFor(taskScope(r))
+	if sub == nil {
+		_ = conn.Close(websocket.StatusInternalError, "event stream unavailable")
+		return
+	}
 	defer s.Engine.Bus().Unsubscribe(sub)
 
 	ctx := r.Context()

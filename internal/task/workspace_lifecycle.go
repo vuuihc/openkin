@@ -322,7 +322,9 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 		return err
 	}
 
-	tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Limit: 1000})
+	// Repair is daemon-wide by nature: it fixes workspace pointers for every
+	// task on this machine, whoever owns them.
+	tasks, err := e.store.ListTasks(ctx, store.ListTasksOpts{Limit: 1000, Scope: store.Unscoped()})
 	if err != nil {
 		return fmt.Errorf("list tasks for reconciliation: %w", err)
 	}

@@ -311,7 +311,7 @@ func TestCancelResolvesUserQuestion(t *testing.T) {
 	}
 
 	// Must not remain pending in list.
-	pending, err := e.ListUserQuestions(ctx, store.ListUserQuestionsOpts{Status: store.UQStatusPending})
+	pending, err := e.ListUserQuestions(ctx, store.ListUserQuestionsOpts{Status: store.UQStatusPending, Scope: store.Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}

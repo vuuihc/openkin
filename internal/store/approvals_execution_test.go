@@ -59,7 +59,7 @@ func TestApprovalExecutionRoundTrip(t *testing.T) {
 		t.Fatalf("execution_model=%v", got.ExecutionModel)
 	}
 
-	list, err := s.ListApprovals(ctx, ListApprovalsOpts{Status: DecisionPending})
+	list, err := s.ListApprovals(ctx, ListApprovalsOpts{Status: DecisionPending, Scope: Unscoped()})
 	if err != nil {
 		t.Fatal(err)
 	}

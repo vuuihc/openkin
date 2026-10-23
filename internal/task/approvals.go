@@ -1165,13 +1165,16 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 	}
 
 	dst := store.Task{
-		ID:                newID,
-		Title:             title,
-		Agent:             agent,
-		Cwd:               src.Cwd,
-		Prompt:            prompt,
-		Model:             src.Model,
-		PermissionMode:    src.PermissionMode,
+		ID:             newID,
+		Title:          title,
+		Agent:          agent,
+		Cwd:            src.Cwd,
+		Prompt:         prompt,
+		Model:          src.Model,
+		PermissionMode: src.PermissionMode,
+		// The cwd is an address on the machine that will run this; the anchor is
+		// the same workspace said portably, so a turn dispatched to another
+		// machine can be handed *that* machine's address instead of this one's.
 		WorkspaceAnchorID: anchorID,
 		Status:            status,
 		CreatedAt:         now,
@@ -1180,6 +1183,9 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 		// branch on this machine: same path, different files, different agent
 		// session — the user asked to continue that work, not to copy it here.
 		ExecutingDeviceID: src.ExecutingDeviceID,
+		// A fork belongs to whoever owned the source. Forking is not a way to
+		// acquire someone else's task, and not a way to shed your own.
+		OwnerUserID: src.OwnerUserID,
 	}
 	if status == StatusSucceeded {
 		dst.FinishedAt = &now

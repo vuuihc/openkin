@@ -421,11 +421,12 @@ func TestMemberAccountCannotReachOperatorRoutes(t *testing.T) {
 	}
 }
 
-// TestMemberAccountCannotReachTheApprovalGate covers the second half of the
-// same assumption. Approving is authority over someone else's task, and these
-// handlers read no principal at all — which was correct while "the human" and
-// "the owner" were the same actor.
-func TestMemberAccountCannotReachTheApprovalGate(t *testing.T) {
+// TestTheApprovalGateFollowsTheTaskNotTheRole covers the human gate. These
+// handlers once read no principal at all, which was correct while "the human"
+// and "the owner" were the same actor; the gate is now a property of the task
+// behind the row, so a member answering their own task's approval is the
+// product working and a member answering someone else's is the leak.
+func TestTheApprovalGateFollowsTheTaskNotTheRole(t *testing.T) {
 	s, _, code := newAuthTestServer(t)
 	handler := s.Handler()
 
@@ -433,21 +434,31 @@ func TestMemberAccountCannotReachTheApprovalGate(t *testing.T) {
 	claimOwner(t, owner, code)
 	member := joinMember(t, s, handler, "gate-member", "gate@example.com")
 
-	if rec := member.get("/api/approvals"); rec.Code != http.StatusForbidden {
-		t.Fatalf("member listing approvals: %d %s, want 403", rec.Code, rec.Body.String())
+	// An approval on the member's own task, and one on a task that is the
+	// owner's business only.
+	insertOwnedTaskForGate(t, s, "task-member", "gate-member")
+	insertOwnedTaskForGate(t, s, "task-owner", "")
+	insertApprovalForGate(t, s, "approval-member", "task-member")
+	insertApprovalForGate(t, s, "approval-owner", "task-owner")
+
+	// The member's inbox is its own, and an empty inbox is not a 403: refusing
+	// outright would tell the member that somebody else's inbox exists.
+	list := decodeApprovalIDs(t, member.get("/api/approvals"))
+	if len(list) != 1 || list[0] != "approval-member" {
+		t.Fatalf("member approvals = %v, want only its own", list)
 	}
-	if rec := member.post("/api/approvals/some-id/decision", `{"decision":"approved"}`); rec.Code != http.StatusForbidden {
-		t.Fatalf("member deciding an approval: %d %s, want 403", rec.Code, rec.Body.String())
+	if rec := member.post("/api/approvals/approval-owner/decision", `{"decision":"approved"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("member deciding the owner's approval: %d %s, want 404", rec.Code, rec.Body.String())
 	}
-	if rec := member.get("/api/user-questions"); rec.Code != http.StatusForbidden {
-		t.Fatalf("member listing questions: %d %s, want 403", rec.Code, rec.Body.String())
+	if rec := member.post("/api/approvals/approval-member/decision", `{"decision":"approved"}`); rec.Code != http.StatusOK {
+		t.Fatalf("member deciding its own approval: %d %s", rec.Code, rec.Body.String())
 	}
-	if rec := member.post("/api/user-questions/some-id/answer", `{"answer":"yes"}`); rec.Code != http.StatusForbidden {
-		t.Fatalf("member answering a question: %d %s, want 403", rec.Code, rec.Body.String())
+	if rec := member.post("/api/user-questions/some-id/answer", `{"answer":"yes"}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("member answering an unknown question: %d %s, want 404", rec.Code, rec.Body.String())
 	}
 
-	// The owner keeps the gate, and so does a paired device: the approval inbox
-	// on a phone is the product requirement this must not break.
+	// The owner keeps the whole gate, and so does a paired device: the approval
+	// inbox on a phone is the product requirement this must not break.
 	if rec := owner.get("/api/approvals"); rec.Code != http.StatusOK {
 		t.Fatalf("owner listing approvals: %d %s", rec.Code, rec.Body.String())
 	}
@@ -464,6 +475,44 @@ func TestMemberAccountCannotReachTheApprovalGate(t *testing.T) {
 	if rec := device.get("/api/approvals"); rec.Code != http.StatusOK {
 		t.Fatalf("device listing approvals: %d %s, want 200", rec.Code, rec.Body.String())
 	}
+}
+
+// insertOwnedTaskForGate creates a task with no engine behind it, which is all
+// the scope checks read.
+func insertOwnedTaskForGate(t *testing.T, s *Server, id, ownerUserID string) {
+	t.Helper()
+	if err := s.Store.InsertTask(t.Context(), store.Task{
+		ID: id, Title: id, Agent: "codex", Cwd: "/tmp", Prompt: "p",
+		Status: "running", CreatedAt: time.Now().UnixMilli(), OwnerUserID: ownerUserID,
+	}); err != nil {
+		t.Fatalf("insert task %s: %v", id, err)
+	}
+}
+
+func insertApprovalForGate(t *testing.T, s *Server, id, taskID string) {
+	t.Helper()
+	if err := s.Store.InsertApproval(t.Context(), store.Approval{
+		ID: id, TaskID: taskID, Kind: "tool_use",
+		Payload: json.RawMessage(`{"tool":"Bash"}`), CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("insert approval %s: %v", id, err)
+	}
+}
+
+func decodeApprovalIDs(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list approvals: %d %s", rec.Code, rec.Body.String())
+	}
+	var list []store.Approval
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode approvals: %v (body %s)", err, rec.Body.String())
+	}
+	ids := make([]string, 0, len(list))
+	for _, a := range list {
+		ids = append(ids, a.ID)
+	}
+	return ids
 }
 
 // TestClaimRecordsTheOwnerRole pins the other half of the same rule: the guard
@@ -489,6 +538,124 @@ func TestClaimRecordsTheOwnerRole(t *testing.T) {
 	}
 	if !user.IsOwner() {
 		t.Fatal("IsOwner() is false for the account that claimed the Hub")
+	}
+}
+
+// TestOwnerAccountSeesEverythingOnItsOwnHub pins the other half of the scope
+// rule. The owner is not "an account that happens to have a role" — they hold
+// the machine, so they see the tasks that have no owner at all: everything a
+// standalone daemon wrote before accounts existed, and everything a routine
+// creates on a timer with no principal behind it.
+func TestOwnerAccountSeesEverythingOnItsOwnHub(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	owner.master = ""
+
+	// A task with no owner, of the kind only a routine or a pre-accounts
+	// daemon produces.
+	now := time.Now().UnixMilli()
+	if err := s.Store.InsertTask(t.Context(), store.Task{
+		ID: "task-unowned", Title: "routine run", Agent: "claude-code",
+		Cwd: "/tmp/project", Prompt: "nightly", Status: "queued", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("insert unowned task: %v", err)
+	}
+
+	rec := owner.get("/api/tasks")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner listing tasks: %d %s", rec.Code, rec.Body.String())
+	}
+	var listed []store.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode tasks: %v", err)
+	}
+	var found bool
+	for _, task := range listed {
+		if task.ID == "task-unowned" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the owner could not see an unowned task; list = %+v", listed)
+	}
+	if rec := owner.get("/api/tasks/task-unowned"); rec.Code != http.StatusOK {
+		t.Fatalf("owner reading an unowned task: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestMemberAccountCannotReachTheOwnersTasks is the end-to-end half of account
+// isolation: two real sessions against the real routes. The store-level scope
+// test proves the predicate; this proves the routes actually apply it.
+func TestMemberAccountCannotReachTheOwnersTasks(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	owner.master = ""
+
+	member := joinMember(t, s, handler, "scope-member", "scope@example.com")
+
+	rec := owner.post("/api/tasks", `{"agent":"claude-code","cwd":"/tmp/project","prompt":"the owner's work"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("owner creating a task: %d %s", rec.Code, rec.Body.String())
+	}
+	var created store.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created task: %v", err)
+	}
+	if created.OwnerUserID == "" {
+		t.Fatal("a task created from an account session recorded no owner")
+	}
+
+	// The list must not contain it, and the id must not be a way around that.
+	rec = member.get("/api/tasks")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("member listing tasks: %d %s", rec.Code, rec.Body.String())
+	}
+	var listed []store.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode member tasks: %v", err)
+	}
+	if len(listed) != 0 {
+		t.Fatalf("a member saw %d of the owner's tasks: %+v", len(listed), listed)
+	}
+	if rec := member.get("/api/tasks/" + created.ID); rec.Code != http.StatusNotFound {
+		t.Fatalf("member reading the owner's task: %d %s, want 404", rec.Code, rec.Body.String())
+	}
+	if rec := member.get("/api/tasks/" + created.ID + "/events"); rec.Code != http.StatusNotFound {
+		t.Fatalf("member reading the owner's events: %d %s, want 404", rec.Code, rec.Body.String())
+	}
+	// A write is not a way in either.
+	if rec := member.post("/api/tasks/"+created.ID+"/cancel", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("member cancelling the owner's task: %d %s, want 404", rec.Code, rec.Body.String())
+	}
+
+	// The owner still reaches their own task, so the guard is not simply "deny".
+	if rec := owner.get("/api/tasks/" + created.ID); rec.Code != http.StatusOK {
+		t.Fatalf("owner reading their own task: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Two members do not see each other either: this is not a role check that
+	// merely separates "the owner" from "everyone else".
+	other := joinMember(t, s, handler, "scope-other", "other@example.com")
+	rec = member.post("/api/tasks", `{"agent":"claude-code","cwd":"/tmp/member","prompt":"member work"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("member creating a task: %d %s", rec.Code, rec.Body.String())
+	}
+	var memberTask store.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &memberTask); err != nil {
+		t.Fatalf("decode member task: %v", err)
+	}
+
+	if rec := member.get("/api/tasks/" + memberTask.ID); rec.Code != http.StatusOK {
+		t.Fatalf("member reading its own task: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := other.get("/api/tasks/" + memberTask.ID); rec.Code != http.StatusNotFound {
+		t.Fatalf("a second member read the first member's task: %d %s, want 404", rec.Code, rec.Body.String())
 	}
 }
 
@@ -541,5 +708,70 @@ func TestOwnerSessionNeverSeesTheMasterToken(t *testing.T) {
 	}
 	if tok, _ := body["token"].(string); tok != master {
 		t.Fatalf("master token was withheld from the master itself: %q", tok)
+	}
+}
+
+// TestAMemberCannotReadTheMachinesOwnRecords covers the surfaces that describe
+// the machine rather than one account's tasks: its projects, routines,
+// artifacts, agent sessions, working directories, and usage.
+//
+// These were open to any signed-in account. They are not settings, so
+// operatorOnly would be the wrong gate — a paired phone is a full client of the
+// machine it was paired to, and refusing it would break the remote control this
+// product exists for. What must not pass is a member: a guest on someone's Hub
+// runs its own tasks and has no business reading the holder's project list,
+// prompts, or file paths.
+func TestAMemberCannotReadTheMachinesOwnRecords(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	owner.master = ""
+
+	member := joinMember(t, s, handler, "holder-member", "holder@example.com")
+
+	// Every one of these reads the holder's machine, not the caller's tasks.
+	for _, path := range []string{
+		"/api/projects",
+		"/api/routines",
+		"/api/routines/unread-count",
+		"/api/artifacts",
+		"/api/agent-sessions",
+		"/api/recent-cwds",
+		"/api/usage/summary",
+		"/api/git/branches?cwd=/tmp",
+	} {
+		if rec := member.get(path); rec.Code != http.StatusForbidden {
+			t.Fatalf("member reading %s: %d %s, want 403", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// The owner holds the machine, so nothing here changed for them. The
+	// assertion is "not refused" rather than "200": a handler may still answer
+	// 503 for its own reasons on a test server with no projects directory, and
+	// that is not what this test is about.
+	for _, path := range []string{"/api/projects", "/api/routines", "/api/artifacts", "/api/usage/summary"} {
+		if rec := owner.get(path); rec.Code == http.StatusForbidden {
+			t.Fatalf("the holder was refused %s: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	// And the paired phone keeps them, which is the half a role check would have
+	// broken.
+	const deviceToken = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+	if err := s.Store.InsertDeviceCredential(t.Context(), store.DeviceCredential{
+		ID:        "device-holder",
+		TokenHash: remote.HashToken(deviceToken),
+		Label:     "phone",
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("insert device credential: %v", err)
+	}
+	device := &authClient{t: t, h: handler, master: deviceToken}
+	for _, path := range []string{"/api/projects", "/api/routines", "/api/artifacts", "/api/agent-sessions"} {
+		if rec := device.get(path); rec.Code == http.StatusForbidden {
+			t.Fatalf("a paired device was refused %s: %d %s", path, rec.Code, rec.Body.String())
+		}
 	}
 }

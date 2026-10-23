@@ -97,6 +97,15 @@ type authContext struct {
 	ClientID  string
 	SessionID string
 	Scopes    map[string]bool
+	// Scope is what this caller may see of the task list. It is resolved once,
+	// here, from the authenticated principal rather than from anything the
+	// client sent. The zero value matches nothing, so a tool that forgets to
+	// apply it returns an empty list rather than every task on the daemon.
+	Scope store.TaskScope
+	// OwnerUserID is the account behind this caller, and is what a task created
+	// through this session records. Empty for a master token or a paired device,
+	// neither of which is an account.
+	OwnerUserID string
 }
 
 type sessionState struct {
@@ -244,6 +253,9 @@ func (s *Server) Handler() http.Handler {
 			ClientID:  clientID,
 			SessionID: sessionID,
 			Scopes:    scopesForPrincipal(principal, scopeHeader),
+			Scope:     store.ScopeForPrincipal(principal),
+
+			OwnerUserID: principal.UserID,
 		}
 		if len(req.ID) == 0 && req.Method == "tools/call" {
 			_ = s.finish(r.Context(), req, auth, errorResponse(req, -32600, "tools/call notifications are not supported"))
@@ -485,7 +497,7 @@ func (s *Server) executeTool(ctx context.Context, req request, auth authContext,
 
 	switch params.Name {
 	case "list_tasks":
-		result, err = s.listTasks(ctx, args)
+		result, err = s.listTasks(ctx, auth, args)
 	case "get_task":
 		result, err = s.getTask(ctx, args)
 	case "list_task_events":
@@ -517,7 +529,7 @@ func (s *Server) executeTool(ctx context.Context, req request, auth authContext,
 	case "approve_task_action":
 		result, err = s.approveTaskAction(ctx, auth, args)
 	case "answer_task_question":
-		result, err = s.answerTaskQuestion(ctx, args)
+		result, err = s.answerTaskQuestion(ctx, auth, args)
 	case "resolve_idempotency":
 		result, err = s.resolveIdempotency(ctx, auth, args)
 	case "run_routine":
@@ -589,13 +601,27 @@ func mcpErrorMessage(err error) string {
 	return message
 }
 
-func (s *Server) listTasks(ctx context.Context, args map[string]any) (any, error) {
+// ownsTask reports whether a task falls inside the caller's scope. It is the
+// per-row check for tools that reach a task through something else — an
+// approval id, a question id — where the scope cannot be pushed into the query.
+func (s *Server) ownsTask(scope store.TaskScope, taskID string) bool {
+	if scope.All {
+		return true
+	}
+	if s.Store == nil {
+		return false
+	}
+	return scope.MatchesOwner(s.Store.TaskOwner(taskID))
+}
+
+func (s *Server) listTasks(ctx context.Context, auth authContext, args map[string]any) (any, error) {
 	limit := boundedInt(args, "limit", maxPageSize)
 	opts := store.ListTasksOpts{
 		Status: stringArg(args, "status"),
 		Before: stringArg(args, "before"),
 		Query:  stringArg(args, "query"),
 		Limit:  limit,
+		Scope:  auth.Scope,
 	}
 	var (
 		items []store.Task
@@ -842,6 +868,9 @@ func (s *Server) createMCPTask(ctx context.Context, auth authContext, req task.C
 	if req.ID == "" {
 		req.ID = ulid.Make().String()
 	}
+	// Who asked, taken from the authenticated session rather than the tool
+	// arguments, for the same reason the REST handler does it.
+	req.OwnerUserID = auth.OwnerUserID
 	originRecorded := false
 	if s.Store != nil && auth.SessionID != "" {
 		if err := s.Store.RecordMCPTaskOrigin(ctx, store.MCPTaskOrigin{
@@ -932,6 +961,13 @@ func (s *Server) approveTaskAction(ctx context.Context, auth authContext, args m
 	if err != nil {
 		return nil, err
 	}
+	// An approval is authority over the task behind it, so the same scope that
+	// decides which tasks this caller may see decides which approvals it may
+	// answer. Without this, the MCP surface would be the way around the REST
+	// check on the same row.
+	if !s.ownsTask(auth.Scope, a.TaskID) {
+		return nil, fmt.Errorf("approval %s not found", id)
+	}
 	if s.Store != nil && auth.SessionID != "" {
 		origin, originErr := s.Store.GetMCPTaskOrigin(ctx, a.TaskID)
 		if originErr != nil && !errors.Is(originErr, store.ErrNotFound) {
@@ -951,12 +987,22 @@ func (s *Server) approveTaskAction(ctx context.Context, auth authContext, args m
 	return s.Engine.Decide(ctx, id, decision, "mcp:"+auth.ClientID)
 }
 
-func (s *Server) answerTaskQuestion(ctx context.Context, args map[string]any) (any, error) {
+func (s *Server) answerTaskQuestion(ctx context.Context, auth authContext, args map[string]any) (any, error) {
 	if s.Engine == nil {
 		return nil, errors.New("task engine unavailable")
 	}
+	id := requiredString(args, "question_id")
+	q, err := s.Engine.GetUserQuestion(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// Same rule as the approval gate: answering is authority over the task the
+	// question was asked for.
+	if !s.ownsTask(auth.Scope, q.TaskID) {
+		return nil, fmt.Errorf("question %s not found", id)
+	}
 	selected := stringSliceArg(args, "selected")
-	return s.Engine.AnswerUserQuestion(ctx, requiredString(args, "question_id"), task.AnswerUserQuestionRequest{
+	return s.Engine.AnswerUserQuestion(ctx, id, task.AnswerUserQuestionRequest{
 		Selected:  selected,
 		OtherText: stringArg(args, "other_text"),
 	}, "mcp")

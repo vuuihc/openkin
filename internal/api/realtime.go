@@ -58,7 +58,14 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "streaming unsupported"})
 		return
 	}
-	sub := s.Engine.Bus().Subscribe()
+	// Scoped: the stream carries raw agent output, approval commands, and task
+	// rows, so an unscoped subscription here would hand a member everything the
+	// list endpoint just declined to show them.
+	sub := s.Engine.Bus().SubscribeFor(taskScope(r))
+	if sub == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "event stream unavailable"})
+		return
+	}
 	defer s.Engine.Bus().Unsubscribe(sub)
 
 	header := w.Header()
@@ -176,7 +183,7 @@ func (s *Server) handleSessionsWait(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if page, err := s.Store.ListTaskChangesSince(r.Context(), since, 0); err != nil {
+	if page, err := s.Store.ListTaskChangesSince(r.Context(), since, 0, taskScope(r)); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	} else if len(page.Tasks) > 0 || len(page.Deleted) > 0 {
@@ -187,9 +194,17 @@ func (s *Server) handleSessionsWait(w http.ResponseWriter, r *http.Request) {
 	// Nothing pending: wait for a nudge from the bus, and re-read the store when
 	// it arrives. The message itself is not the answer — the store is, because
 	// the wait may have been woken by a change this client already has.
+	//
+	// The scope only decides which nudges wake this waiter. A change it cannot
+	// see must not wake it, or a member would sit in a loop re-reading a feed
+	// that never moves for them.
 	var sub chan task.WSMessage
 	if s.Engine != nil {
-		sub = s.Engine.Bus().Subscribe()
+		sub = s.Engine.Bus().SubscribeFor(taskScope(r))
+		if sub == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "wait unavailable"})
+			return
+		}
 		defer s.Engine.Bus().Unsubscribe(sub)
 	}
 	timer := time.NewTimer(timeout)
@@ -203,7 +218,7 @@ func (s *Server) handleSessionsWait(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	page, err := s.Store.ListTaskChangesSince(r.Context(), since, 0)
+	page, err := s.Store.ListTaskChangesSince(r.Context(), since, 0, taskScope(r))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return

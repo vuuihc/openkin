@@ -47,7 +47,7 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 	defer s2.Close()
 
-	tasks, err := s2.ListTasks(context.Background(), ListTasksOpts{})
+	tasks, err := s2.ListTasks(context.Background(), ListTasksOpts{Scope: Unscoped()})
 	if err != nil {
 		t.Fatalf("ListTasks: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestListTasksQuery(t *testing.T) {
 	}
 
 	// Match title
-	got, err := s.ListTasks(ctx, ListTasksOpts{Query: "sidebar", Limit: 50})
+	got, err := s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Query: "sidebar", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestListTasksQuery(t *testing.T) {
 	}
 
 	// Match cwd basename
-	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "/Users/me/kin", Limit: 50})
+	got, err = s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Query: "/Users/me/kin", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestListTasksQuery(t *testing.T) {
 	}
 
 	// Match agent
-	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "codex", Limit: 50})
+	got, err = s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Query: "codex", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestListTasksQuery(t *testing.T) {
 	}
 
 	// Case-insensitive ASCII
-	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "SIDEBAR", Limit: 50})
+	got, err = s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Query: "SIDEBAR", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestListTasksQuery(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, err = s.ListTasks(ctx, ListTasksOpts{Query: "100%", Limit: 50})
+	got, err = s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Query: "100%", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestListTasksQuery(t *testing.T) {
 	}
 
 	// Empty query returns all (up to limit)
-	got, err = s.ListTasks(ctx, ListTasksOpts{Limit: 50})
+	got, err = s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +362,7 @@ func TestListTasksOrderByActivityIncludesOlderResumedTaskInsideLimit(t *testing.
 		t.Fatal(err)
 	}
 
-	got, err := s.ListTasks(ctx, ListTasksOpts{Limit: 10, OrderByActivity: true})
+	got, err := s.ListTasks(ctx, ListTasksOpts{Scope: Unscoped(), Limit: 10, OrderByActivity: true})
 	if err != nil {
 		t.Fatal(err)
 	}
