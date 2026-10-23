@@ -19,6 +19,20 @@ func TestResolveGHRejectsOverridePointingAtWrapper(t *testing.T) {
 	}
 }
 
+// A caller asks about ErrGHUnavailable; the resolver's own error says *why* a
+// refusal is not a missing binary. Both have to stay askable, which means the
+// cause is wrapped rather than formatted into the text.
+func TestResolveGHKeepsBothCauses(t *testing.T) {
+	t.Setenv(ghPathEnv, "/tmp/gh-session-bin/deadbeef/gh")
+	_, err := ResolveGH()
+	if !errors.Is(err, ErrGHUnavailable) {
+		t.Fatalf("err = %v, want it to match ErrGHUnavailable", err)
+	}
+	if !errors.Is(err, toolpath.ErrUnavailable) {
+		t.Fatalf("err = %v, want the resolver's own sentinel preserved", err)
+	}
+}
+
 // gh runs helpers of its own, so it must never be handed an environment with no
 // PATH at all — that fails in a way that reads like a gh bug rather than like
 // something Kin did. The filtering itself is toolpath's; this pins that ghEnv

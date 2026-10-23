@@ -137,8 +137,17 @@ func TestResolveReportsWhatItSearched(t *testing.T) {
 // would be worse than refusing.
 func TestResolveRejectsAnOverridePointingAtAWrapper(t *testing.T) {
 	t.Setenv("KIN_TEST_TOOL_PATH", "/tmp/gh-session-bin/deadbeef/git")
-	if _, err := Resolve(Spec{Name: "git", EnvVar: "KIN_TEST_TOOL_PATH"}); err == nil {
+	_, err := Resolve(Spec{Name: "git", EnvVar: "KIN_TEST_TOOL_PATH"})
+	if err == nil {
 		t.Fatal("Resolve accepted a wrapper path from the override")
+	}
+	// One question, one sentinel: "is there an executable I can run?" is no,
+	// whether the path was refused or merely absent, and the message says which.
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err = %v, want it to match ErrUnavailable", err)
+	}
+	if !strings.Contains(err.Error(), "wrapper") {
+		t.Fatalf("err = %v, want the reason to survive into the text", err)
 	}
 }
 

@@ -57,17 +57,22 @@ type Spec struct {
 }
 
 // Resolve returns an absolute path to an executable Kin is willing to run, or
-// ErrUnavailable wrapped with the list of places it looked.
+// an error wrapping ErrUnavailable that names the places it looked.
+//
+// Every failure wraps ErrUnavailable, including the ones where a path was named
+// and refused: the answer to "is there an executable I can run?" is no in each
+// case, and a caller that has to distinguish them can read the message. Two
+// sentinels for one outcome would only make the question harder to ask.
 func Resolve(spec Spec) (string, error) {
 	if spec.EnvVar != "" {
 		if override := strings.TrimSpace(os.Getenv(spec.EnvVar)); override != "" {
 			if reason := Refuse(override); reason != "" {
-				return "", fmt.Errorf("%s=%s: %s", spec.EnvVar, override, reason)
+				return "", fmt.Errorf("%w: %s=%s: %s", ErrUnavailable, spec.EnvVar, override, reason)
 			}
 			if isExecutableFile(override) {
 				return override, nil
 			}
-			return "", fmt.Errorf("%s=%s: not an executable file", spec.EnvVar, override)
+			return "", fmt.Errorf("%w: %s=%s: not an executable file", ErrUnavailable, spec.EnvVar, override)
 		}
 	}
 

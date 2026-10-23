@@ -57,7 +57,10 @@ func ResolveGH() (GHBinary, error) {
 		Known:  knownGHLocations(),
 	})
 	if err != nil {
-		return GHBinary{}, fmt.Errorf("%w: %s", ErrGHUnavailable, err)
+		// Both sentinels are kept: ErrGHUnavailable is what a caller asks about,
+		// and the resolver's own error says whether the problem was a refusal, a
+		// missing binary, or an override pointing somewhere unusable.
+		return GHBinary{}, fmt.Errorf("%w: %w", ErrGHUnavailable, err)
 	}
 	return GHBinary{Path: path}, nil
 }
