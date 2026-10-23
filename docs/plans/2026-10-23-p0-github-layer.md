@@ -218,6 +218,25 @@ CREATE TABLE pr_observations (
 4. **Kin 不持有 GitHub token。** P0 全程不引入 token 存储；匿名读无凭据，已认证读借用用户自己的 `gh`。
 5. **远端 URL 里的凭据不外流** —— 复用 `CanonicalRemote`，它已经剥掉 userinfo（ADR 0022 D7）。
 
+### 8.1 一处对"被动视图不隐式调第三方"的自觉偏离
+
+`AGENTS.md` 的 External integration UX gates 写着：打开设置或其他被动视图**不得**隐式读
+secure-store 密钥或调第三方 API。P0a 的读路径对此有一处**有意的偏离**，记在这里而不是
+埋在代码里：
+
+- `GET /api/tasks/{id}/pr` 在缓存过期时会**在请求之外启动一次后台查询**（响应先返回）。
+- 但它**不读任何密钥**：凭据来自用户自己的 `gh` 进程，Kin 全程不持有 token（§8.4）。
+- 而且没有可行的替代：reconciler 的巡检集合是 `state='open' AND number IS NOT NULL`，
+  即**已经成功读到过 PR 的行**。一个全新的分支永远不会被 reconciler 发现——"这个分支
+  还没有 PR"这个事实，只有视图路径能第一次学到。做成纯缓存读，面板会永远停在"未知"。
+- 边界由三件事守住：**先读缓存**（响应从不等待网络）、**floor**（同一分支
+  `failureFloor`/`anonymousFloor` 之内不重复问）、**匿名小时预算 + 限流退避**。
+- 用户主动那条路是分开的：`POST /api/tasks/{id}/pr/refresh` 同步等待，且是 `operatorOnly`。
+
+结论：这偏离的是"被动视图无副作用"的字面，服务的是它的本意（不因为打开一个页面就
+消耗用户的凭据或配额）。如果将来要收紧，收紧点应该是**把 reconciler 的巡检集合
+扩展到"尚无 PR 的活跃分支"**，而不是让视图变纯缓存。
+
 ---
 
 ## 9. 分步

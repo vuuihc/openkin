@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 36
+const schemaVersion = 37
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -565,7 +565,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -786,6 +786,53 @@ CREATE INDEX IF NOT EXISTS idx_project_roots_path ON project_roots(path);
 // Retired: prefer prompt/agent flows over a hard-coded recycle entity.
 // Kept as empty SQL so historical version steps remain contiguous.
 const migration008 = `SELECT 1;`
+
+// migrationPRObservations adds the pull-request observation cache.
+//
+// A PR is not a Kin entity. It is an observation about the outside world, keyed
+// by the pair Kin already persists: the canonical remote (`CanonicalRemote`,
+// lowercased host/owner/name) and the workspace branch the generation was given.
+// Nothing here is authoritative and any read can fail — no credentials, no
+// network, a repository that is not visible — so a row deliberately records two
+// independent things: the last *successful* observation, and the last *attempt*
+// with its error.
+//
+// A failed attempt writes only the attempt columns. That is what makes "never
+// invent a PR, and never erase a previously successful observation" a property
+// of the schema instead of a rule somebody has to remember: there is no code
+// path that clears `number` other than a newer successful answer.
+//
+// `number` is nullable so that "a successful query found no PR" is distinguishable
+// from "the last query failed" and from "we have never successfully looked".
+// `observed_at` is nullable for the same reason. Every other column is a string
+// whose "no value" is the empty string, and is NOT NULL so that a row written by
+// the failure path still scans. `comments_seen` is a separate cursor, advanced by
+// feeding comments back to the session, and is never touched by an observation
+// write.
+const migrationPRObservations = `
+CREATE TABLE IF NOT EXISTS pr_observations (
+  repo          TEXT NOT NULL,
+  head_branch   TEXT NOT NULL,
+  task_id       TEXT NOT NULL,
+  number        INTEGER,
+  url           TEXT NOT NULL DEFAULT '',
+  title         TEXT NOT NULL DEFAULT '',
+  state         TEXT NOT NULL DEFAULT '',
+  is_draft      INTEGER NOT NULL DEFAULT 0,
+  base_branch   TEXT NOT NULL DEFAULT '',
+  head_oid      TEXT NOT NULL DEFAULT '',
+  ci_state      TEXT NOT NULL DEFAULT '',
+  ci_summary    TEXT NOT NULL DEFAULT '',
+  comments_seen INTEGER NOT NULL DEFAULT 0,
+  source        TEXT NOT NULL DEFAULT '',
+  observed_at   INTEGER,
+  attempted_at  INTEGER NOT NULL DEFAULT 0,
+  last_error    TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (repo, head_branch)
+);
+CREATE INDEX IF NOT EXISTS idx_pr_observations_task ON pr_observations(task_id);
+CREATE INDEX IF NOT EXISTS idx_pr_observations_open ON pr_observations(state, attempted_at);
+`
 
 // Migration 009 adds nullable execution attribution columns to approvals.
 // Applied conditionally (missing columns only) so fresh DBs whose migration001
@@ -2159,6 +2206,26 @@ ON eval_results(run_id, case_id, rep_idx);
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration 036: %w", err)
 		}
+		v = 36
+	}
+
+	if v == 36 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 037: %w", err)
+		}
+		if _, err := tx.Exec(migrationPRObservations); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 037 pr observations: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 37`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 037: %w", err)
+		}
+		v = 37
 	}
 
 	// Every path out of here has to reach the same shape, so the assertion runs

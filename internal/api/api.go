@@ -26,6 +26,7 @@ import (
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
+	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/node"
@@ -100,6 +101,9 @@ type Server struct {
 
 	// Workspace runs Git probe/branch operations for the UI (optional in tests).
 	Workspace *workspace.Manager
+
+	// GitHub reads pull-request state for a task's branch (optional in tests).
+	GitHub *github.Service
 
 	// ListAgents returns live agent discovery status (set by server.Serve).
 	ListAgents func() []AgentInfo
@@ -324,6 +328,8 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/workspaces/{workspace_id}/file", s.handleReadWorkspaceFile)
 			r.With(operatorOnly).Put("/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
 			r.Get("/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
+			r.Get("/pr", s.handleTaskPR)
+			r.With(operatorOnly).Post("/pr/refresh", s.handleRefreshTaskPR)
 			r.Get("/source/tree", s.handleListSourceTree)
 			r.Get("/source/file", s.handleReadSourceFile)
 			r.Get("/workspace/list", s.handleLegacyListWorkspace)

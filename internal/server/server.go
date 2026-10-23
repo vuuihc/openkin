@@ -28,6 +28,7 @@ import (
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
 	"github.com/vuuihc/openkin/internal/eval"
+	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/hub/workers"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/node"
@@ -213,6 +214,10 @@ func ServeWith(version string, flags ServeFlags) error {
 		Store:     st,
 		Publisher: taskBus,
 	})
+	// Pull-request state is read with the machine's own credentials — the user's
+	// GitHub CLI, or an unauthenticated read of the public API. No token is
+	// stored, so there is nothing here to pass a secret store to.
+	githubService := github.NewService(st)
 
 	// Persist control URL setting when provided.
 	ctx := context.Background()
@@ -504,6 +509,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		Engine:     eng,
 		Agents:     reg,
 		Connectors: connectorManager,
+		GitHub:     githubService,
 		RunRoutine: func(c context.Context, id string) (store.Task, error) {
 			return routineScheduler.RunNow(c, id)
 		},
@@ -727,6 +733,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	listenCtx, listenCancel := context.WithCancel(context.Background())
 	defer listenCancel()
 	go runWorkerLeaseSweep(listenCtx, workerRegistry)
+	go runPRReconcile(listenCtx, githubService)
 
 	var listeners []listenerInfo
 
@@ -1025,6 +1032,55 @@ func runSleepGuard(
 	resubscribe:
 		if ctx.Err() != nil {
 			return
+		}
+	}
+}
+
+// prReconcileInterval and prReconcileBatch bound the background pull-request
+// pass. The batch is deliberately small: a person has a handful of open pull
+// requests, and the pass exists to notice checks finishing, not to keep the
+// whole history current.
+const (
+	prReconcileInterval = 60 * time.Second
+	prReconcileBatch    = 25
+)
+
+// runPRReconcile keeps open pull requests fresh.
+//
+// Only open pull requests are walked, and each is skipped until its own
+// credential-appropriate floor has passed, so this stays well inside both the
+// authenticated and the anonymous rate limits.
+func runPRReconcile(ctx context.Context, svc *github.Service) {
+	if svc == nil {
+		return
+	}
+	ticker := time.NewTicker(prReconcileInterval)
+	defer ticker.Stop()
+	// An open pull request whose read keeps failing would otherwise print the
+	// same line every minute for as long as it stays open. Report the change of
+	// state, not the passage of time.
+	var lastLogged string
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_, err := svc.Reconcile(ctx, prReconcileBatch)
+			if ctx.Err() != nil {
+				return
+			}
+			msg := ""
+			if err != nil {
+				msg = err.Error()
+			}
+			if msg != lastLogged {
+				lastLogged = msg
+				if msg != "" {
+					fmt.Fprintf(os.Stderr, "kin: github reconcile: %s\n", msg)
+				} else {
+					fmt.Fprintln(os.Stderr, "kin: github reconcile: recovered")
+				}
+			}
 		}
 	}
 }
