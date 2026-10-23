@@ -140,10 +140,15 @@ func fromPath(pathEnv, name string, searched *[]string) (string, bool) {
 // git — and they are found through the PATH they inherit. An unfiltered PATH
 // would let a wrapper back in one level down, which is why the child's
 // environment is rewritten rather than only the parent's lookup.
+//
+// Relative entries go too, for the reason relative answers are refused above:
+// the child changes directory, so `bin` is judged here and searched there. What
+// this does not cover is a symlink planted in a clean directory under a name
+// only the child would look up; there is no fixed list of those names to check.
 func FilterPATH(pathEnv string) string {
 	var kept []string
 	for _, dir := range filepath.SplitList(pathEnv) {
-		if dir == "" || Refuse(dir) != "" {
+		if dir == "" || !filepath.IsAbs(dir) || Refuse(dir) != "" {
 			continue
 		}
 		kept = append(kept, dir)
@@ -165,12 +170,56 @@ const fallbackPATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 // package exists to refuse, since the shim ships the whole family as symlinks.
 // A refused value is dropped rather than rewritten: git then falls back to its
 // own compiled-in location, which is where its helpers really are.
+//
+// The rest name a file or program git reads for the same purpose — a
+// configuration file, a credential program. They are judged as paths, and only
+// a refused one is dropped.
 var dirEnvVars = map[string]bool{
-	"GIT_EXEC_PATH": true,
+	"GIT_EXEC_PATH":     true,
+	"GIT_CONFIG":        true,
+	"GIT_CONFIG_SYSTEM": true,
+	"GIT_CONFIG_GLOBAL": true,
+	"GIT_ASKPASS":       true,
+}
+
+// injectedConfig reports whether an environment variable belongs to git's
+// configuration-in-the-environment family, which arrives as one unit: the count
+// bounds the numbered key/value pairs, so dropping a single member would change
+// what the remaining ones mean.
+func injectedConfig(name string) bool {
+	switch name {
+	case "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS":
+		return true
+	}
+	return strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
+		strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
+}
+
+// namesRefusedProduct reports whether a value carries the fingerprint of the
+// refused product.
+//
+// A substring test, deliberately: these values are not paths. An injected
+// credential helper reads `!node "/Users/…/.lody/dsh/helper.js"`, so judging the
+// value as a path finds nothing — the directory is inside a command.
+func namesRefusedProduct(value string) bool {
+	folded := foldCase(value)
+	return strings.Contains(folded, foldCase(SessionShimComponent)) ||
+		strings.Contains(folded, string(filepath.Separator)+foldCase(stateDirComponent)+string(filepath.Separator))
 }
 
 // SanitizeEnv returns env with PATH filtered, ready to hand to a child process.
 func SanitizeEnv(env []string) []string {
+	// The injected configuration is all-or-nothing, so it is decided before any
+	// of it is copied: half of a count-bounded set is a different configuration.
+	dropInjected := false
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && injectedConfig(name) && namesRefusedProduct(value) {
+			dropInjected = true
+			break
+		}
+	}
+
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
 		name, value, ok := strings.Cut(entry, "=")
@@ -184,6 +233,9 @@ func SanitizeEnv(env []string) []string {
 				filtered = fallbackPATH
 			}
 			out = append(out, name+"="+filtered)
+			continue
+		}
+		if dropInjected && injectedConfig(name) {
 			continue
 		}
 		// Someone else's GIT_EXEC_PATH is their configuration and is passed
@@ -217,7 +269,12 @@ func Refuse(path string) string {
 			}
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			if within(filepath.Join(home, stateDirComponent), candidate) {
+			root := filepath.Join(home, stateDirComponent)
+			// Both spellings of the root: a state directory that is itself a
+			// symlink — onto another volume, say — would otherwise be compared
+			// against paths that have already been resolved, and a binary
+			// physically inside it would pass.
+			if within(root, candidate) || within(resolveSymlinks(root), candidate) {
 				return "refusing a binary inside another product's state directory"
 			}
 		}

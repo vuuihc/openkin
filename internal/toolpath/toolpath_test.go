@@ -261,6 +261,70 @@ func TestFilterPATHDropsWrapperDirectories(t *testing.T) {
 	}
 }
 
+// A relative entry is judged here and searched by a child that has changed
+// directory, which is the same substitution as a relative answer.
+//
+// The working directory is set explicitly because this one is about *why* an
+// entry is dropped: a relative path under the state directory is refused for
+// the other reason, and the test would pass without the check it exists for.
+func TestFilterPATHDropsRelativeEntries(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if got := FilterPATH("bin:/usr/bin"); got != "/usr/bin" {
+		t.Fatalf("FilterPATH kept a relative entry: %q", got)
+	}
+}
+
+// The refused product injects credential configuration through the environment,
+// as a count plus numbered pairs. Removing a member would change what the rest
+// mean, so the set goes together.
+func TestSanitizeEnvDropsInjectedConfigNamingTheRefusedProduct(t *testing.T) {
+	env := []string{
+		"PATH=/usr/bin",
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=credential.https://github.com.helper",
+		"GIT_CONFIG_VALUE_0=",
+		"GIT_CONFIG_KEY_1=credential.https://github.com.helper",
+		`GIT_CONFIG_VALUE_1=!node "/Users/dev/.lody/dsh/helper.js"`,
+	}
+	for _, entry := range SanitizeEnv(env) {
+		if strings.HasPrefix(entry, "GIT_CONFIG_") {
+			t.Fatalf("kept %q from a configuration that names the refused product", entry)
+		}
+	}
+
+	// Without the fingerprint it is the user's own injected configuration, and
+	// dropping it would break their git.
+	const own = `GIT_CONFIG_VALUE_1=!f() { echo hi; }; f`
+	kept := SanitizeEnv([]string{"PATH=/usr/bin", "GIT_CONFIG_COUNT=1", own})
+	found := false
+	for _, entry := range kept {
+		if entry == own {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("dropped an unrelated injected configuration: %v", kept)
+	}
+}
+
+// A state directory reached through a symlink is the same directory.
+func TestRefuseFollowsASymlinkedStateDirectory(t *testing.T) {
+	home := t.TempDir()
+	real := filepath.Join(home, "product-state")
+	if err := os.MkdirAll(filepath.Join(real, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tool := writeTool(t, filepath.Join(real, "bin"), "git")
+	if err := os.Symlink(real, filepath.Join(home, stateDirComponent)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if got := Refuse(tool); got == "" {
+		t.Fatalf("Refuse(%q) accepted a binary inside a symlinked state directory", tool)
+	}
+}
+
 func TestSanitizeEnvKeepsAPATHAndDropsTheWrapper(t *testing.T) {
 	env := SanitizeEnv([]string{"HOME=/home/dev", "PATH=/tmp/gh-session-bin/abc"})
 	var path string
