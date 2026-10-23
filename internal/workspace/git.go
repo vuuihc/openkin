@@ -119,6 +119,15 @@ func (g execGit) Run(ctx context.Context, dir string, env map[string]string, std
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil, fmt.Errorf("git %s: %w", strings.Join(args, " "), context.Canceled)
 		}
+		// A lingering pipe is not a failed command. os/exec returns ErrWaitDelay
+		// — and nothing else — when the process itself exited 0 and only the
+		// pipes stayed open: "returned by Cmd.Wait if the process exits with a
+		// successful status code but its output pipes are not closed before the
+		// command's WaitDelay expires". Reporting that as a failure would turn a
+		// read that succeeded into an error, and the caller wants the bytes.
+		if errors.Is(err, exec.ErrWaitDelay) {
+			return out, nil
+		}
 		msg := strings.TrimSpace(string(capBytes(stderr.Bytes(), stderrCap)))
 		if msg == "" {
 			msg = err.Error()

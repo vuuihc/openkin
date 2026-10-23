@@ -61,6 +61,28 @@ func TestGitHelperProcess(t *testing.T) {
 	case "sleep":
 		time.Sleep(5 * time.Second)
 		os.Exit(0)
+	case "exit-holding-pipe":
+		// Exit successfully while a child still holds this process's stdout, so
+		// the pipe outlives the process Kin started — a clean filter git spawned
+		// and left behind, in the shape that matters here.
+		child := exec.Command(os.Args[0], "-test.run=TestGitHelperProcess")
+		child.Env = []string{}
+		for _, kv := range os.Environ() {
+			// Not inherited: the child must not run this same mode, and libc
+			// reads the first entry of a duplicated name.
+			if strings.HasPrefix(kv, "KIN_GIT_HELPER") {
+				continue
+			}
+			child.Env = append(child.Env, kv)
+		}
+		child.Env = append(child.Env, "KIN_GIT_HELPER=1", "KIN_GIT_HELPER_MODE=sleep")
+		child.Stdout = os.Stdout
+		if err := child.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "helper: start pipe holder: %v\n", err)
+			os.Exit(3)
+		}
+		fmt.Print("done")
+		os.Exit(0)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown helper mode\n")
 		os.Exit(2)
@@ -263,6 +285,28 @@ func TestGitRunner_ContextDeadline(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err=%v want DeadlineExceeded", err)
+	}
+}
+
+// A command that exited successfully is not a failure because something it
+// spawned outlived it still holding the output pipe. The deadline a caller set
+// is a promise about when this returns, and the grace period is what keeps that
+// promise; reporting the grace period as the outcome would turn a read that
+// succeeded into an error, and the caller wants the bytes.
+func TestGitRunner_LingeringPipeIsNotAFailure(t *testing.T) {
+	r := helperRunner{mode: "exit-holding-pipe"}
+	start := time.Now()
+	out, err := r.Run(context.Background(), "", nil, ControlStdoutLimit, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatalf("Run failed a command that exited 0: %v", err)
+	}
+	if got := string(out); got != "done" {
+		t.Fatalf("stdout = %q, want %q", got, "done")
+	}
+	// And it returned on the grace period rather than waiting for the process
+	// holding the pipe, which sleeps far longer than that.
+	if elapsed := time.Since(start); elapsed > 2*pipeGrace {
+		t.Fatalf("Run took %s, want it bounded by the %s grace period", elapsed, pipeGrace)
 	}
 }
 
