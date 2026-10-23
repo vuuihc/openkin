@@ -189,6 +189,27 @@ URL）；以及垫片在 git 操作失败时的退出码是否原样透传。
      *之后*解析的，这是实测不是推断），`FilterPATH` 直接丢掉相对条目。
    - **state dir 本身是符号链接时**：比对根以前只有未解析的那一种拼法，而候选路径是解析
      过的，于是物理上位于其中的二进制能过关。现在两种拼法都比。
+   - **push 那条路上的门**（第二轮补上）：`GIT_SSH`、`GIT_SSH_COMMAND`、
+     `GIT_PROXY_COMMAND`、`SSH_ASKPASS`。前两个是 git 连远端时真正执行的程序（`GIT_SSH_COMMAND`
+     是一整条命令行，交给 shell 跑），后两个在途中被调用；任何一个名字里带垫片，都会在
+     **每次 push** 时被执行，正是在那条搬代码的路上。被拒就删掉，git 回落到 `ssh`。
+   - **shell 拼法**：`Refuse` 是词法的，`~/.lody/...` 里的 `~` 不展开，而 `filepath.Abs`
+     会把 `~` 当成工作目录下的一个目录名。现在先按 shell 的规则展开 `~`／`~/` 再判定——
+     `~/bin/git-askpass` 这种"干净目录里指向垫片的符号链接"就是靠这一步才现形的。
+   - **但只对绝对路径做路径判定**：这条是写测试时被自己的守卫反咬出来的。`GIT_SSH_COMMAND`
+     是命令行不是路径，`filepath.Abs("ssh -i ~/.ssh/id_ed25519")` 会落到 daemon 自己的
+     工作目录——如果那个目录恰好在被拒的 state dir 之下（本机就是：worktree 全在
+     `~/.lody` 下面），用户自己的 `GIT_SSH_COMMAND` 会被无故删掉，`GIT_CONFIG_VALUE` 里
+     一行 `!f() { … }` 同理。所以路径判定只对展开后仍是绝对路径的值做，相对值和命令行
+     只做指纹判定。
+5. **`WaitDelay` 把成功的 git 变成了失败**（第二轮审查抓到，P0a 自己引入的）：给 `execGit`
+   加管道宽限期（`cmd.WaitDelay = 2s`）是为了不让一个被 git 落下、还攥着 stdout 的子进程
+   （clean filter 之类）把 `Wait` 永远挂住。但 `os/exec` 的语义是：**进程自己退出码 0、
+   只是管道没关**时，`Wait` 返回的就是 `exec.ErrWaitDelay` 本身——不是 `ExitError` 的包装。
+   于是"读成功"被报成了"失败"。实测（`sh -c 'sleep 30 & echo done'` + `WaitDelay: 1s`）：
+   1.008s 返回、exit status 0、`errors.Is(err, exec.ErrWaitDelay)` 为真、`errors.As(*ExitError)`
+   为假。改法：认出它并按成功返回（已经读到的 stdout 就是答案）；`context` 的两种错误仍
+   排在它前面，因为 ctx 被取消时 `Wait` 返回的是 ctx 的错误。
 
 `internal/toolpath` 的测试覆盖拒绝规则（垫片目录、符号链接、大小写、相对路径、
 产品 state dir、state dir 是符号链接）与解析顺序；`internal/workspace/git_test.go` 另钉两条
@@ -197,6 +218,13 @@ URL）；以及垫片在 git 操作失败时的退出码是否原样透传。
 位于被拒的 state dir 之下，相对条目因为另一个理由被拒，测试在缺守卫时照样通过，所以它现在
 自带一个临时工作目录。仍然**明确不覆盖**的是：干净目录里指向垫片的 helper 符号链接——子进程
 会按什么名字去找 helper 没有一份固定清单可查。
+
+第二轮补的四条守卫也各自做过删掉变红：四个远端程序变量各自变红；`~` 展开删掉后
+`~/bin/git-askpass` 那条变红（同一表里的 `~/.lody/bin` 靠指纹本来就拦得住，所以它只算
+记录真实拼法）；`filepath.IsAbs` 这一层删掉后，`TestSanitizeEnvKeepsACommandLineValue`
+变红——它把 HOME 换成临时目录、再 `Chdir` 进 state dir，就是为了不依赖本仓库恰好长在
+`~/.lody` 下面。`WaitDelay` 那条同规格：把 `ErrWaitDelay` 分支去掉，测试报出的正是审查里
+那句话——`exec: WaitDelay expired before I/O complete`。
 
 ---
 
@@ -402,6 +430,41 @@ tick 一次。
 同一个改动顺带补了两处：预算耗尽时**任何** lead 行（不只"从未查询过"那种）都会说
 "后台仍在查询"；以及首次打开、一行都还没有时，`refreshing` 为真就说"正在查询"，
 而不是"尚未查询此分支"——后者读起来是结论，而它恰恰不是。
+
+**第三轮：读可以重叠之后，"信号真的到 fetch 了吗"和"谁有权发布"。** 第二轮留下的两处，
+审查里都点到了：
+
+1. **读没有把 signal 交给 fetch。** `load` 收了 `AbortController` 的 signal，却只在
+   `await` 结束后看一眼 `signal.aborted`；`getTaskPullRequest` 根本不接受 signal（`apiFetch`
+   支持 `{signal}`，`waitSessions` 就在用）。于是 15s 的上限只结束了**等待**，请求本身还在
+   路上——传输层可能是连到另一台机器的 relay，一个没人等的读也是一次往返。改法：
+   `getTaskPullRequest(id, signal?)` 把 signal 透传给 `apiFetch`，被放弃的读在传输层被取消；
+   abort 引发的 reject 由 `load` 里原有的 `signal?.aborted` 分支吃掉，不会变成一行错误。
+   实测（stub 记录每个请求的 signal）：面板打开再按 Esc 关掉，在飞的那个读
+   `signal.aborted === true`（改动前每个读 `hasSignal` 都是 false、aborts 为空）；正常轮询
+   7 次读全部带 signal，同时在飞仍是 **1**、间隔 4.004s（≈2.5s 读 + 1.5s 间隔）——补 signal
+   没有动第二轮的节奏。
+2. **发布权按"请求开始"排序，而不是按"数据新旧"。** 到 P0a 为止的规则是"号最大的读才能
+   发布"，手动刷新在**开始**时取号。审查提出的场景是：一个在点按**之前**上弦的轮询计时器
+   在刷新途中开火、取到更大的号，读到的是刷新前的缓存却赢过刷新结果。
+   **实测这一条不可达，原因是按钮的 disabled 属性**：让按钮可点的状态（`refreshing` 为假，
+   或 `polls` 用完预算）恰好就是让轮询计时器被清掉的状态——两者由同一组依赖决定，cleanup
+   在"让按钮变灰/解禁"的那次提交里跑完，React 也会在派发离散事件前冲掉 passive effect，
+   所以"计时器已上弦"和"按钮可点"不会同时成立。但它的处方是对的，所以按不变量落地：
+   **刷新落地时再取一次号**，让刷新成为"最新的那个答案"，跑在它期间、读的是旧缓存的读因此
+   盖不回来；失败落地时同样取号，免得一个赛跑的读把"为什么没有新数据"那句话清掉。规则
+   从此长在写者身上，而不是长在按钮的 disabled 属性上——那是个后人可以随手删掉的 UI 约定。
+   仍然**没有自动化测试**（见下），浏览器里的实测是：stub 让读 8s、刷新 0.6s，先开面板
+   （首读在飞）再按刷新，刷新先落地显示 `#222 FRESH`，8s 后旧读带着 `#111 STALE` 回来，
+   卡片仍是 `#222`。
+
+> **未钉住的部分**：轮询的**接线**（依赖表本身、读完再预约、序号判定）没有自动化测试。
+> 仓库的 vitest 跑在 node 环境，没有 jsdom / testing-library，413 个测试全是纯函数测试；
+> 为一个 effect 引入一套 DOM 测试栈，比这条 bug 本身重。所以接线的证据是浏览器里的 A/B
+> 实测（上面几张表），而 `pollDecision` 的规则由纯函数测试覆盖。第三轮里**能下沉到纯函数
+> 层的那一半下沉了**：`signal` 是否真的交给 fetch 由 `ui/src/api/client.signal.test.ts`
+> 钉住（把 `{ signal }` 删掉立刻变红），剩下的"哪个读有权发布"仍属 P6——在那之前，这一块
+> 属于"改了就靠实测复核"的地方。
 
 ---
 
