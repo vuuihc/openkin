@@ -191,7 +191,13 @@ export default function AgentSessionDetailPage() {
       <header className="flex-none border-b border-[var(--kin-hairline)] px-3 sm:px-5 py-3 flex items-start gap-2">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          /* History when there is any; a cold deep link has none, and `-1`
+             there is a no-op that strands you on the screen. See AppShell's
+             `closeDraft` for why `location.key` cannot answer this. */
+          onClick={() => {
+            if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
+            else navigate("/sessions");
+          }}
           className="p-1.5 rounded-md text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill)]"
           aria-label={tr("agentSession.backToChat")}
         >

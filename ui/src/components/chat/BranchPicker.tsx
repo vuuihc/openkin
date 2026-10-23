@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ApiError,
   checkoutGitBranch,
@@ -7,6 +7,25 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { useAppStore } from "../../store/appStore";
+
+/**
+ * Viewport coordinates for the branch list.
+ *
+ * The list cannot be laid out relative to its trigger: the trigger lives in the
+ * composer's `overflow-x-auto` strip, and in CSS an `overflow-x` other than
+ * `visible` forces `overflow-y` to compute to `auto` too — so a ~44px-tall strip
+ * clipped the 313px panel away entirely, and tapping the branch chip on a phone
+ * opened a list that painted nowhere (measured: the panel's rect was
+ * [342,531,288,313] while `elementFromPoint` inside it hit the chat behind).
+ * Fixed positioning is measured from the viewport and escapes that clipping;
+ * nothing between here and <body> sets a transform, filter or `contain`, so
+ * `fixed` really does mean the viewport.
+ */
+type Anchor = { left: number; bottom: number; width: number; maxHeight: number };
+
+/** The panel's design width, and the least gutter we will leave at a screen edge. */
+const PANEL_WIDTH = 288;
+const EDGE = 8;
 
 type Props = {
   cwd: string;
@@ -29,7 +48,9 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
 
   const load = useCallback(async (path: string) => {
     if (!path.trim()) {
@@ -71,6 +92,57 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
       window.clearTimeout(t);
+    };
+  }, [open]);
+
+  /**
+   * Where to put the list, in viewport coordinates.
+   *
+   * Measured in a layout effect so the first painted frame is already in place
+   * — a `useEffect` would show one frame of the panel at 0,0. Re-measured on
+   * resize and on scroll *in the capture phase*, because the strip the trigger
+   * sits in scrolls independently of the window.
+   */
+  useLayoutEffect(() => {
+    if (!open) {
+      setAnchor(null);
+      return;
+    }
+    const place = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      if (!trigger) return;
+      const vw = window.innerWidth;
+      const width = Math.min(PANEL_WIDTH, vw - EDGE * 2);
+      const next = {
+        width,
+        left: Math.min(Math.max(EDGE, trigger.left), Math.max(EDGE, vw - width - EDGE)),
+        // `bottom` rather than `top`: the list opens upward from a footer, and
+        // anchoring the far edge keeps it attached when it has to shrink.
+        bottom: window.innerHeight - trigger.top + 6,
+        // The room above the trigger, so the list is wholly on screen; it
+        // scrolls inside whatever height is left. The 120px floor wins only in
+        // a window under ~270px tall, where the panel can overhang the top
+        // edge — a two-row list is worse than an overhang at that size.
+        maxHeight: Math.max(120, trigger.top - 14),
+      };
+      // `scroll` fires per frame while a finger is moving; returning the same
+      // object lets React skip the re-render when the anchor has not moved.
+      setAnchor((prev) =>
+        prev &&
+        prev.left === next.left &&
+        prev.bottom === next.bottom &&
+        prev.width === next.width &&
+        prev.maxHeight === next.maxHeight
+          ? prev
+          : next,
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
     };
   }, [open]);
 
@@ -135,6 +207,7 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
         </span>
       )}
       <button
+        ref={triggerRef}
         type="button"
         disabled={busy}
         onClick={() => {
@@ -174,17 +247,23 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
         <ChevronIcon open={open} />
       </button>
 
-      {open && (
+      {open && anchor && (
         <div
+          style={{
+            left: anchor.left,
+            bottom: anchor.bottom,
+            width: anchor.width,
+            maxHeight: anchor.maxHeight,
+          }}
           className={[
-            "absolute left-0 bottom-full mb-1.5 z-50",
-            "w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-[var(--kin-hairline-strong)]",
+            "fixed z-50 flex flex-col",
+            "rounded-xl border border-[var(--kin-hairline-strong)]",
             "bg-[var(--kin-elevated)] shadow-lg overflow-hidden",
           ].join(" ")}
           role="listbox"
           aria-label={tr("branch.listLabel")}
         >
-          <div className="p-1.5 border-b border-[var(--kin-hairline)]">
+          <div className="flex-none p-1.5 border-b border-[var(--kin-hairline)]">
             <input
               ref={filterRef}
               type="text"
@@ -200,7 +279,7 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
               disabled={locked || busy}
             />
           </div>
-          <ul className="max-h-56 overflow-y-auto py-1">
+          <ul className="flex-1 min-h-0 max-h-56 overflow-y-auto py-1">
             {branches.length === 0 ? (
               <li className="px-3 py-2 text-[12px] text-kin-muted">
                 {tr("branch.empty")}
@@ -236,12 +315,12 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
             )}
           </ul>
           {locked && (
-            <div className="px-3 py-1.5 border-t border-[var(--kin-hairline)] text-[11px] text-kin-muted">
+            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-[11px] text-kin-muted">
               {tr("branch.sessionLocked")}
             </div>
           )}
           {!locked && status.dirty && (
-            <div className="px-3 py-1.5 border-t border-[var(--kin-hairline)] text-[11px] text-kin-orange">
+            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-[11px] text-kin-orange">
               {tr("branch.dirty")}
             </div>
           )}

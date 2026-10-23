@@ -235,7 +235,13 @@ export function DispatchSelector({
           ref={popRef}
           role="dialog"
           aria-label={tr("dispatch.popoverLabel")}
-          className="absolute bottom-full left-0 mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-lg min-w-[240px] max-w-[320px]"
+          /*
+            Anchored to the trigger's *right* edge below `sm`. On a phone this
+            control is the last one in its row, so a left-anchored 240px panel
+            ran off the screen — and the sheet's own `overflow` swallowed the
+            overflow, so nothing reported it.
+          */
+          className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-lg w-[min(20rem,calc(100vw-2rem))] sm:w-auto sm:min-w-[240px] sm:max-w-[320px]"
         >
           <div className="text-xs space-y-2">
             {/* Mode toggle */}

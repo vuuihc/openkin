@@ -460,10 +460,11 @@ export default function Composer({
                   <button
                     type="button"
                     onClick={() => removeAttachment(a.id)}
+                    data-touch-mini
                     className={
                       image
-                        ? "absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        : "ml-1 w-4 h-4 rounded-full bg-black/40 text-white flex items-center justify-center opacity-70 hover:opacity-100 shrink-0"
+                        ? "touch-mini absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        : "touch-mini ml-1 w-4 h-4 rounded-full bg-black/40 text-white flex items-center justify-center opacity-70 hover:opacity-100 shrink-0"
                     }
                     aria-label={tr("composer.removeFile")}
                     title={tr("composer.removeFile")}
@@ -546,8 +547,12 @@ export default function Composer({
             onClick={() => fileRef.current?.click()}
             disabled={disabled || busy || stopping || uploading}
             className={[
+              // 44pt while the phone shell is in charge, desktop size from `md`
+              // up. A 24px target is not hittable with a thumb. (`sm:w-6` alone
+              // would not restore the desktop size: the floor is a two-class
+              // selector and outranks it.)
               "rounded-lg text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center disabled:opacity-40",
-              expanded ? "w-7 h-7 -ml-1" : "w-6 h-6",
+              expanded ? "w-11 h-11 sm:w-7 sm:h-7 sm:-ml-1" : "w-11 h-11 sm:w-6 sm:h-6",
             ].join(" ")}
             aria-label={tr("composer.attachFile")}
             title={tr("composer.attachFile")}
@@ -584,7 +589,7 @@ export default function Composer({
               type="button"
               onClick={() => void onStop()}
               disabled={stopping || busy}
-              className="ml-auto w-7 h-7 rounded-lg bg-[rgba(255,69,58,.16)] text-[#ff8a80] flex items-center justify-center disabled:opacity-40 border border-[rgba(255,69,58,.35)]"
+              className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-[rgba(255,69,58,.16)] text-[#ff8a80] flex items-center justify-center disabled:opacity-40 border border-[rgba(255,69,58,.35)]"
               aria-label={tr("composer.stop")}
               title={tr("composer.stop")}
             >
@@ -597,7 +602,7 @@ export default function Composer({
                 disabled || busy || stopping || uploading ||
                 (!value.trim() && attachments.length === 0)
               }
-              className="ml-auto w-7 h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
+              className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
               aria-label={busy ? tr("composer.sending") : tr("composer.send")}
             >
               {busy ? <IconSpinner size={15} strokeWidth={2} /> : <IconSend size={15} strokeWidth={2} />}
@@ -607,7 +612,7 @@ export default function Composer({
             <button
               type="submit"
               disabled={disabled || busy || stopping}
-              className="w-7 h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
+              className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
               aria-label={tr("composer.sendGuide")}
               title={tr("composer.sendGuide")}
             >

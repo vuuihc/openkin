@@ -90,7 +90,10 @@ export function SettingsLayout({
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="mx-auto flex w-full max-w-[920px] flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
         <div className="space-y-1">
-          <h1 className="text-[22px] font-semibold tracking-tight">{title}</h1>
+          {/* The shell's header already names this screen on the phone, and the
+              prototype gives every phone screen one nav bar — so the grid of
+              tabs starts where the h1 was, not 30px lower. */}
+          <h1 className="hidden text-[22px] font-semibold tracking-tight md:block">{title}</h1>
           <p className="text-sm text-kin-secondary">{subtitle}</p>
         </div>
         <div
@@ -116,7 +119,7 @@ export function SettingsLayout({
                 title={tab.description}
                 onClick={() => onTabChange(tab.id)}
                 className={classes(
-                  "min-h-[40px] shrink-0 rounded-lg px-3 text-[13px] font-medium outline-none transition",
+                  "min-h-[44px] shrink-0 rounded-lg px-3 text-[13px] font-medium outline-none transition sm:min-h-[40px]",
                   "focus-visible:ring-2 focus-visible:ring-kin-blue/50",
                   selected
                     ? "bg-kin-blue text-white"

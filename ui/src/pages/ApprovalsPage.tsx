@@ -128,7 +128,11 @@ export default function ApprovalsPage() {
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-[640px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight">
+        {/* One nav bar per phone screen: the shell's header carries this title
+            there (and is a heading itself), so the page does not repeat it 28px
+            tall underneath. `md`, not `sm`: the shell header is `md:hidden`, so
+            between the two the title would be on screen twice. */}
+        <h1 className="hidden text-[28px] font-bold tracking-tight md:block md:text-[32px]">
           {tr("inbox.title")}
         </h1>
         <p className="text-[13.5px] text-kin-tertiary mt-1">

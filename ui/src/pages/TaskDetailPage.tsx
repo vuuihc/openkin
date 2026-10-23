@@ -831,27 +831,59 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const hostAgentAvatar = agentAvatarMeta(task.agent || "kin");
   const followUpDraft = getFollowUpDraft(task.id);
 
+  /**
+   * Phone-only back control (the surrounding link is `md:hidden`).
+   *
+   * It used to be a `Link to="/"`, which meant opening a session from the
+   * phone's session list and pressing back dropped you on the new-chat screen
+   * with your place in the list gone. History is the honest answer when there
+   * is any — an approval opened from the inbox returns to the inbox — and the
+   * session list is the right fallback for a cold deep link.
+   *
+   * `idx > 0`, not `location.key !== "default"`: a `<Navigate replace>` mints a
+   * fresh key, so the key claims "we navigated here" even when the history is
+   * empty at index 0. See the longer note in AppShell's `closeDraft`.
+   */
+  function goBack() {
+    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
+    else navigate("/sessions");
+  }
+
   return (
     <div className="flex-1 min-w-0 min-h-0 flex relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
+        {/*
+          Two rows on a phone, one from `md` up.
+
+          The controls are all `flex-none`, so on a 390px screen they could not
+          shrink and the title — the only flexible item — absorbed the whole
+          deficit: it rendered at 0px and the tail of the row (the project link,
+          the status, and Stop) was cut off by `<main overflow-hidden>`. The
+          phone's 44pt floor made each control wider, which is what turned a
+          squeeze into a clip. `w-full` on the cluster sends it to its own line
+          deterministically, so the title gets the full width and nothing is
+          lost — no control is hidden on the small screen.
+        */}
         <div
-          className="h-11 flex-none flex items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
+          className="min-h-[44px] flex-none flex flex-wrap items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
           style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
-          <Link
-            to="/"
-            className="md:hidden mr-2 text-kin-blue min-w-[36px] min-h-[36px] flex items-center justify-center"
+          <button
+            type="button"
+            onClick={goBack}
+            aria-label={tr("app.back")}
+            className="md:hidden mr-2 text-kin-blue min-w-[44px] min-h-[44px] -ml-2 flex items-center justify-center"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <IconBack size={18} strokeWidth={2} />
-          </Link>
+          </button>
           <div className="min-w-0 flex-1">
             <div className="text-[13.5px] font-semibold text-kin-text truncate">
               {task.title || displayUserPrompt(task.prompt || "")}
             </div>
           </div>
           <div
-            className="ml-2 flex items-center gap-2 text-[12px] text-kin-muted flex-none"
+            className="w-full justify-end md:ml-2 md:w-auto md:justify-start flex items-center gap-2 text-[12px] text-kin-muted flex-none"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <span

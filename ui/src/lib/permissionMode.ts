@@ -7,6 +7,14 @@ export const PERMISSION_MODES: PermissionMode[] = [
   "yolo",
 ];
 
+/** i18n key for each mode's short label. Shared so the picker and any summary
+ *  that names the current mode can never disagree about what it is called. */
+export const PERMISSION_MODE_LABEL_KEY: Record<PermissionMode, string> = {
+  default: "permission.default",
+  accept_edits: "permission.acceptEdits",
+  yolo: "permission.yolo",
+};
+
 const STORAGE_KEY = "kin_permission_mode";
 
 export function normalizePermissionMode(raw?: string | null): PermissionMode {

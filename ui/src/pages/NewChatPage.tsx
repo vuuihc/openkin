@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
@@ -52,6 +52,8 @@ import {
 import { projectLabel } from "../lib/paths";
 import {
   getDraftPermissionMode,
+  normalizePermissionMode,
+  PERMISSION_MODE_LABEL_KEY,
   setDraftPermissionMode,
   type PermissionMode,
 } from "../lib/permissionMode";
@@ -80,6 +82,44 @@ export default function NewChatPage() {
     () => getDraftPermissionMode(),
   );
   const [asRoutine, setAsRoutine] = useState(false);
+  /** Phone only: the run/route/workspace controls live behind this. */
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const sheetOpenerRef = useRef<HTMLButtonElement>(null);
+
+  /**
+   * The phone sheet behaves like the app's other overlays: Escape closes it,
+   * focus moves into it, and focus comes back to the line that opened it.
+   *
+   * Focus lands on the sheet itself rather than its first control — that
+   * control is a <select>, and landing on one on iOS pops the wheel before
+   * anyone has read what the sheet says.
+   */
+  useEffect(() => {
+    if (!controlsOpen) return;
+    const opener = sheetOpenerRef.current;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      /*
+        An open popover inside the sheet owns this Escape and closes first; the
+        sheet goes on the next press. Phase cannot express that — both listen on
+        `document`, and whichever runs first still closes both in the same
+        keystroke — so the sheet has to look for one.
+      */
+      if (sheetRef.current?.querySelector('[role="dialog"], [role="listbox"]')) {
+        return;
+      }
+      event.stopPropagation();
+      setControlsOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const timer = window.setTimeout(() => sheetRef.current?.focus(), 20);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.clearTimeout(timer);
+      opener?.focus();
+    };
+  }, [controlsOpen]);
   const [routineInterval, setRoutineInterval] = useState(86400);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
 
@@ -405,6 +445,20 @@ export default function NewChatPage() {
     projectLookupState === "error";
   const controlGroups = newChatControlGroups({ asRoutine, remote });
 
+  /**
+   * The phone's one-line stand-in for the three control groups.
+   *
+   * On a 440pt screen those groups took 321px — a third of the display — before
+   * anything was typed, and every choice in them is one a person makes *once*,
+   * when starting a session. The line says what the run will do; the sheet
+   * behind it is where you change it.
+   */
+  const runSummary = [
+    machine && !machine.isSelf ? machine.label : tr("nav.thisMachine"),
+    tr(PERMISSION_MODE_LABEL_KEY[normalizePermissionMode(permissionMode)]),
+    cwd ? cwd.split("/").filter(Boolean).pop() || cwd : tr("newChat.noWorkspace"),
+  ].join(" · ");
+
   function renderControl(control: NewChatControlId) {
     switch (control) {
       case "machine":
@@ -510,18 +564,25 @@ export default function NewChatPage() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 kin-surface-chat">
-      <div className="h-11 flex-none flex items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]">
-        <div className="text-[13.5px] font-semibold text-kin-text">
+      {/* `gap-2` rather than a leading `ml-2` on each child: on a phone the
+          title below is `display:none` and the first visible child would
+          otherwise start 8px indented, past the gutter every other row uses. */}
+      <div className="h-11 flex-none flex items-center gap-2 px-4 sm:px-5 border-b border-[var(--kin-hairline)]">
+        {/* The phone's shell header shows this same word (`nav.newChat` and
+            `newChat.title` are one string), so only the rest of the row — who
+            hosts the session, and where it runs — is worth the 44px there. It
+            returns at `md`, where the shell header goes away. */}
+        <div className="hidden text-[13.5px] font-semibold text-kin-text md:block">
           {tr("newChat.title")}
         </div>
         {defaultAgent && (
-          <div className="ml-2 text-[12px] text-kin-muted">
+          <div className="text-[12px] text-kin-muted">
             {tr("newChat.hostAgent", { name: defaultAgent.name })}
           </div>
         )}
         {remote ? (
           <div
-            className="ml-2 inline-flex items-center gap-1 text-[12px] text-kin-secondary"
+            className="inline-flex items-center gap-1 text-[12px] text-kin-secondary"
             title={tr("machine.remoteHint", { name: machineLabel })}
           >
             <IconMachine size={12} />
@@ -532,7 +593,7 @@ export default function NewChatPage() {
           <button
             type="button"
             onClick={refreshMachines}
-            className="ml-2 text-[11.5px] text-kin-blue hover:underline"
+            className="text-[11.5px] text-kin-blue hover:underline"
           >
             {tr("machine.refresh")}
           </button>
@@ -565,10 +626,10 @@ export default function NewChatPage() {
         )}
 
         {agents.some((a) => !a.available) && !remote && (
-          <div className="mt-3">
+          <div className="mt-1 flex sm:mt-3">
             <button
               type="button"
-              className="text-[12px] text-kin-blue hover:underline"
+              className="min-h-[44px] px-3 text-[12px] text-kin-blue hover:underline sm:min-h-0 sm:px-0"
               onClick={() => navigate("/agents")}
             >
               {tr("agents.manageLink")}
@@ -624,7 +685,9 @@ export default function NewChatPage() {
       <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
         <div className="max-w-[720px] mx-auto space-y-1.5">
           {hints.length > 0 && (
-            <div className="text-[11.5px] text-kin-muted px-0.5">
+            // Desktop only: a line of @-mention hints is reference material, and
+            // on the phone it was the widest thing on the screen.
+            <div className="hidden text-[11.5px] text-kin-muted px-0.5 sm:block">
               {tr("newChat.tip", {
                 hints: hints.join(" · "),
               })}
@@ -645,7 +708,7 @@ export default function NewChatPage() {
             }}
             onSubmit={onSubmit}
           />
-          <div className="grid gap-1.5 px-0.5">
+          <div className="hidden sm:grid gap-1.5 px-0.5">
             {controlGroups.map((group) => (
               <div
                 key={group.id}
@@ -660,6 +723,26 @@ export default function NewChatPage() {
               </div>
             ))}
           </div>
+
+          {/* Phone: the same controls, one line until asked for. */}
+          <button
+            type="button"
+            ref={sheetOpenerRef}
+            onClick={() => setControlsOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={controlsOpen}
+            className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-[13px] text-kin-tertiary"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+              <circle cx="16" cy="7" r="2" />
+              <circle cx="10" cy="17" r="2" />
+            </svg>
+            <span className="min-w-0 flex-1 truncate text-left">{runSummary}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
           {asRoutine && (
             <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
               <div className="mb-2 text-[11.5px] font-medium text-kin-blue">
@@ -677,6 +760,70 @@ export default function NewChatPage() {
           )}
         </div>
       </div>
+
+      {controlsOpen && (
+        <div className="sm:hidden fixed inset-0 z-40 flex flex-col justify-end">
+          {/* Scrim. `tabIndex={-1}` keeps it out of the tab order: as a focusable
+              full-bleed button it used to be the first stop inside the dialog. */}
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            className="absolute inset-0 bg-black/55"
+            onClick={() => setControlsOpen(false)}
+          />
+          <div
+            ref={sheetRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={tr("newChat.controlsTitle")}
+            tabIndex={-1}
+            /*
+              The sheet is `fixed`, so it takes the viewport as its containing
+              block and the root's `.safe-pad` never reaches it: with a plain
+              `pb-4` the Done button sat 16px off the physical bottom, its lower
+              half inside the home-indicator strip. `max()` keeps the 16px
+              design gutter wherever there is no inset.
+            */
+            className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-[20px] border-t border-[var(--kin-hairline-strong)] bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          >
+            <div className="mx-auto mb-3.5 h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]" />
+            <div className="text-[16px] font-semibold">{tr("newChat.controlsTitle")}</div>
+            <p className="mb-3 mt-0.5 text-[12px] text-kin-muted">
+              {tr("newChat.controlsHint")}
+            </p>
+            <div className="grid gap-2">
+              {controlGroups.map((group) => (
+                <div
+                  key={group.id}
+                  className="flex min-w-0 flex-col gap-2 rounded-[12px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-3 py-2.5"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-kin-muted">
+                    {tr(group.labelKey)}
+                  </div>
+                  {/* The pickers are built for a mouse: 17–28px chips. Inside a
+                      phone sheet every one of them has to clear 44pt, so the row
+                      lifts its descendants rather than each picker carrying a
+                      second set of sizes. min-height beats an explicit height,
+                      so a fixed h-[26px] chip still grows.
+                      Note this floor is unconditional: `data-touch-mini` opts
+                      out of the app-wide `.touch-lg` rule, not out of this one. */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 [&_button]:min-h-[44px] [&_button]:min-w-[44px] [&_select]:min-h-[44px] [&_select]:min-w-[44px] [&_[role=button]]:min-h-[44px]">
+                    {group.controls.map(renderControl)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setControlsOpen(false)}
+              className="mt-3 min-h-[48px] w-full rounded-[12px] bg-kin-blue text-[15px] font-semibold text-white"
+            >
+              {tr("newChat.controlsDone")}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

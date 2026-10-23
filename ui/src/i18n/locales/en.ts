@@ -8,6 +8,8 @@ const en: MessageTree = {
     openMenu: "Open menu",
     commandPalette: "Command palette",
     closeMenu: "Close menu",
+    close: "Close",
+    back: "Back",
   },
   nav: {
     newChat: "New chat",
@@ -49,6 +51,16 @@ const en: MessageTree = {
     noSessionProviders: "No local Agent session providers detected",
     collapseProject: "Collapse project",
     expandProject: "Expand project",
+    sessions: "Sessions",
+    primary: "Primary",
+  },
+  sessions: {
+    loading: "Loading sessions…",
+    empty: "No sessions yet",
+    emptyHint: "Tap + in the top right, or start one from the desktop console.",
+    untitled: "Untitled session",
+    agentSessionsFailed:
+      "Local agent sessions could not be read right now. Kin's own sessions are still listed above.",
   },
   home: {
     slogan: "Talk to Kin, orchestrate your agents",
@@ -67,6 +79,10 @@ const en: MessageTree = {
     controlsRun: "Run",
     controlsRoute: "Route",
     controlsWorkspace: "Workspace",
+    controlsTitle: "How this run works",
+    controlsHint: "Applies to this run; your next one starts from these choices",
+    controlsDone: "Done",
+    noWorkspace: "No folder",
     roleHost: "host",
     heroSubtitleHost: "{name} hosts this session. @mentions assign workers without switching host.",
     heroTitle: "Talk to {name}, orchestrate your agents",

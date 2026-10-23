@@ -483,7 +483,7 @@ export function ProviderSettingsSection({
             {tr("settings.provider.defaultAgentHint")}
           </span>
           {agentList.some((agent) => !agent.available) ? (
-            <Link to="/agents" className="text-[11px] text-kin-blue hover:underline pt-1">
+            <Link to="/agents" className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline sm:min-h-0 sm:mt-1">
               {tr("agents.manageLink")}
             </Link>
           ) : null}

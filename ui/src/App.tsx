@@ -16,6 +16,7 @@ import ArtifactsPage from "./pages/ArtifactsPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
+import SessionsPage from "./pages/SessionsPage";
 import SettingsPage from "./pages/SettingsPage";
 import TaskSessionHost from "./pages/TaskSessionHost";
 import TasksPage from "./pages/TasksPage";
@@ -147,6 +148,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/new" replace />} />
             <Route path="/new" element={<NewChatPage />} />
+            <Route path="/sessions" element={<SessionsPage />} />
             <Route path="/inbox" element={<ApprovalsPage />} />
             <Route path="/approvals" element={<Navigate to="/inbox" replace />} />
             <Route path="/tasks" element={<TasksPage />} />

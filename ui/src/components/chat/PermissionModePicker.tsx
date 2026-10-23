@@ -1,5 +1,6 @@
 import {
   normalizePermissionMode,
+  PERMISSION_MODE_LABEL_KEY,
   type PermissionMode,
 } from "../../lib/permissionMode";
 import { useT } from "../../i18n/react";
@@ -31,11 +32,7 @@ export default function PermissionModePicker({
   const mode = normalizePermissionMode(value);
   const readOnly = locked || disabled;
 
-  const labelKey = {
-    default: "permission.default",
-    accept_edits: "permission.acceptEdits",
-    yolo: "permission.yolo",
-  } as const;
+  const labelKey = PERMISSION_MODE_LABEL_KEY;
   const hintKey = {
     default: "permission.defaultHint",
     accept_edits: "permission.acceptEditsHint",

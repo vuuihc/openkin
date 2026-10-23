@@ -749,7 +749,7 @@ export default function SettingsPage() {
   if (error && !settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
-        <h1 className="text-[22px] font-semibold">{tr("settings.title")}</h1>
+        <h1 className="hidden text-[22px] font-semibold md:block">{tr("settings.title")}</h1>
         <p className="text-sm text-kin-red mt-3" role="alert">
           {error}
         </p>
@@ -760,7 +760,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6 space-y-4">
-        <h1 className="text-[22px] font-semibold">{tr("settings.title")}</h1>
+        <h1 className="hidden text-[22px] font-semibold md:block">{tr("settings.title")}</h1>
         <SlowConnectHint show={slow} />
         <div className="rounded-xl border border-[var(--kin-hairline)] p-4 space-y-3">
           <SkeletonLine className="h-40 w-40" />
@@ -937,7 +937,7 @@ export default function SettingsPage() {
                 applyTheme(value);
               }}
               className={[
-                "px-3 py-2 rounded-lg text-[13px] font-medium min-h-[40px] border",
+                "px-3 py-2 rounded-lg text-[13px] font-medium min-h-[44px] sm:min-h-[40px] border",
                 theme === value
                   ? "border-kin-blue bg-kin-blue-soft text-kin-blue"
                   : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -1426,7 +1426,7 @@ export default function SettingsPage() {
             href="https://github.com/BerriAI/litellm"
             target="_blank"
             rel="noreferrer"
-            className="text-[11px] text-kin-blue hover:underline shrink-0"
+            className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline shrink-0 sm:min-h-0"
             title={tr("settings.price.sourceHint")}
           >
             {tr("settings.price.sourceName")} ↗
@@ -1440,7 +1440,7 @@ export default function SettingsPage() {
             href="https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
             target="_blank"
             rel="noreferrer"
-            className="text-kin-blue hover:underline"
+            className="text-kin-blue hover:underline py-2"
           >
             {tr("settings.price.sourceName")}
           </a>

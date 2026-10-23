@@ -26,6 +26,7 @@ import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
+import MobileTabBar from "./MobileTabBar";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { isTerminalToggle, localTerminalCwd } from "../../lib/terminal";
@@ -73,6 +74,68 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const selectedTaskId = taskIdFromPath(location.pathname);
   const draftActive = location.pathname === DRAFT_PATH;
   const desktop = isKinDesktop();
+  // On the phone there is no sidebar to say where you are, so the header has to.
+  const mobileTitle = draftActive
+    ? tr("nav.newChat")
+    : location.pathname.startsWith("/sessions")
+      ? tr("nav.sessions")
+      : location.pathname.startsWith("/inbox")
+        ? tr("nav.inbox")
+        : location.pathname.startsWith("/settings")
+          ? tr("nav.settings")
+          : tr("app.name");
+  const onSessionsTab = location.pathname.startsWith("/sessions");
+
+  /**
+   * Routes whose page title lives in this bar on a phone. Each of them hides
+   * its own `<h1>` below `md` so the same word cannot appear twice (it did,
+   * between `sm` and `md`). Everywhere else the bar only names the app and the
+   * page's heading is still on screen, so the bar is a heading on these routes
+   * only — which keeps exactly one visible `<h1>` at every width.
+   */
+  const barIsHeading =
+    draftActive ||
+    onSessionsTab ||
+    location.pathname.startsWith("/inbox") ||
+    location.pathname.startsWith("/settings");
+
+  /**
+   * Screens that ship their own header (back button + the real title).
+   *
+   * The prototype gives every phone screen exactly one nav bar. These three put
+   * theirs inside the page — a session's or an artifact's title is not knowable
+   * from the route — so the shell header would be a second bar saying nothing
+   * ("Kin") and eating 48px above the one bar that matters. Back is the way out
+   * of a detail screen, which is what iOS does too. `/artifacts` (the library)
+   * is a list, not a detail screen, and keeps the shell bar; `/projects/:id` is
+   * a scrolling page whose back link sits in its own content flow, so it keeps
+   * the bar too.
+   */
+  const detailRoute =
+    selectedTaskId !== null ||
+    location.pathname.startsWith("/agent-sessions/") ||
+    location.pathname.startsWith("/artifacts/");
+
+  /**
+   * Leaving the new-chat screen.
+   *
+   * `/` redirects here (App.tsx), so this screen is where a cold launch lands —
+   * and it deliberately has no tab bar, which used to leave the header
+   * hamburger as the only way out. The prototype gives it a close button; this
+   * is that button. History wins when there is any, so opening the draft from
+   * a session and closing it returns to that session.
+   *
+   * The test is `idx > 0`, not `location.key !== "default"`. A `<Navigate
+   * replace>` — which is how this screen is reached from `/` — mints a fresh
+   * random key, so the key looks like "we navigated here" on a cold launch
+   * where the history really has nothing behind it, and `navigate(-1)` is then
+   * a no-op: measured on a fresh load of `/`, `history.state` is
+   * `{key: "cxd8pjf4", idx: 0}` and clicking × did nothing at all.
+   */
+  function closeDraft() {
+    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
+    else navigate("/sessions");
+  }
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -332,7 +395,13 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   }, [location.pathname, location.search, navigate]);
 
   return (
-    <div className="h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad">
+    /*
+      `touch-lg` belongs on this root, not on <main>: the drawer (a fixed
+      sibling of <main>) and the command palette below it are the two surfaces
+      the phone uses to reach everything the three tabs do not cover, and both
+      sit outside <main>. See index.css.
+    */
+    <div className="touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad">
       <Sidebar
         tasks={tasks}
         selectedTaskId={selectedTaskId}
@@ -358,6 +427,85 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
       />
 
       <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
+        {/*
+          Height is a *minimum*, not a fixed `h-12`. With `h-12` the box is 48px
+          tall including its padding, so on a notched iPhone — where the safe
+          area alone is 59px — the content box collapsed to nothing and the
+          title rendered half inside the sensor housing.
+        */}
+        {detailRoute ? (
+          /*
+            No bar, but still the top inset. The page below draws its own
+            header, and exactly one element must own the notch: handing that
+            job to the page would mean every future detail screen has to
+            remember `pt-safe`, and getting it wrong puts a title under the
+            sensor housing.
+          */
+          <div className="md:hidden flex-none pt-safe" />
+        ) : (
+        <div
+          className="md:hidden flex items-center gap-2 px-3 min-h-[48px] pt-safe border-b border-[var(--kin-hairline)] flex-none"
+        >
+          {draftActive ? (
+            <button
+              type="button"
+              onClick={closeDraft}
+              className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
+              aria-label={tr("app.close")}
+            >
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
+              aria-label={tr("app.openMenu")}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+              </svg>
+            </button>
+          )}
+          {barIsHeading ? (
+            <h1 className="font-semibold text-[15px]">{mobileTitle}</h1>
+          ) : (
+            <span className="font-semibold text-[15px]">{mobileTitle}</span>
+          )}
+          {onSessionsTab && (
+            <button
+              type="button"
+              onClick={openNewChat}
+              className="ml-auto min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-blue"
+              aria-label={tr("nav.newChat")}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-tertiary`}
+            aria-label={tr("app.commandPalette")}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        )}
+
+        {/*
+          Below the bar, not above it. As the topmost element this pushed the
+          one bar that owns `pt-safe` down the screen, so the inset was spent on
+          a gap under the banner instead of on the notch, and the bar itself
+          still rendered under the sensor housing.
+        */}
         {wsStatus !== "connected" && (
           <div
             className="flex-none bg-[rgba(255,159,10,.12)] border-b border-[rgba(255,159,10,.25)] text-kin-orange text-[12px] text-center px-3 py-1.5"
@@ -367,39 +515,15 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           </div>
         )}
 
-        <div className="md:hidden flex items-center gap-3 px-3 h-12 border-b border-[var(--kin-hairline)] flex-none pt-[env(safe-area-inset-top)]">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(true)}
-            className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
-            aria-label={tr("app.openMenu")}
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
-            </svg>
-          </button>
-          <span className="font-semibold text-[15px]">Kin</span>
-          <button
-            type="button"
-            onClick={() => setPaletteOpen(true)}
-            className="ml-auto min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-tertiary"
-            aria-label={tr("app.commandPalette")}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m21 21-4.3-4.3" strokeLinecap="round" />
-            </svg>
-          </button>
-          {pendingCount > 0 && (
-            <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-kin-orange text-[#1a1a1c] text-[11.5px] font-bold inline-flex items-center justify-center">
-              {pendingCount}
-            </span>
-          )}
-        </div>
-
         <main className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {children}
         </main>
+
+        {/* The phone's three primary jobs. Hidden on the draft screen, which is
+            a focused flow with its own way out. */}
+        {location.pathname !== DRAFT_PATH && (
+          <MobileTabBar pendingCount={pendingCount} />
+        )}
 
         {/* Terminal panel — desktop only */}
         {desktop && (

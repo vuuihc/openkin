@@ -654,7 +654,21 @@ export default function Sidebar({
             aria-label={tr("app.closeMenu")}
             onClick={onCloseMobile}
           />
-          <div className="relative z-10 h-full shadow-window">{panel}</div>
+          <div
+            /*
+              `fixed` means the viewport is this box's containing block, so the
+              root's `.safe-pad` does not reach it: the drawer re-applies both
+              top and bottom insets itself, or its first row sits inside the
+              sensor housing and its last one under the home indicator. The
+              insets go on this box rather than on the panel inside it because
+              the panel's background is what has to stay edge to edge — with the
+              padding on the panel, the inset strips showed the scrim instead of
+              the sidebar.
+            */
+            className="relative z-10 h-full shadow-window bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          >
+            {panel}
+          </div>
         </div>
       )}
     </>
@@ -827,7 +841,16 @@ function ProjectBlock({
             e.stopPropagation();
             void openCover();
           }}
-          className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100 transition-opacity"
+          /*
+            Hidden on phones. These three are hover-revealed (`opacity-0
+            group-hover/proj:opacity-100`), so on a touch screen the tap that
+            would reveal them is also the tap that expands the project — they
+            were never reachable. Keeping them also squeezed the project name to
+            0px wide in the 240px drawer once the phone's 44pt floor widened
+            every button in this row. The expanded body carries the same three
+            actions for touch, behind `.touch-only`.
+          */
+          className="touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100 transition-opacity"
         >
           <IconFile size={12} />
         </button>
@@ -841,7 +864,7 @@ function ProjectBlock({
               onTogglePin();
             }}
             className={[
-              "flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center transition-opacity",
+              "touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center transition-opacity",
               g.pinned
                 ? "text-kin-blue opacity-100"
                 : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
@@ -859,7 +882,7 @@ function ProjectBlock({
             onArchive();
           }}
           className={[
-            "flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-opacity",
+            "touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-opacity",
             mode === "archived"
               ? "opacity-100"
               : "opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
@@ -897,6 +920,50 @@ function ProjectBlock({
               onOpenExternalSession={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
             />
+          </div>
+
+          {/*
+            Cover, pin and archive are revealed by `group-hover/proj` in the row
+            above, which a touch screen cannot produce — and once the phone's
+            44pt floor widened them, four of them also squeezed the project name
+            to 0px in the 240px drawer. They are dropped from the row there; the
+            same three actions live here instead, in the expanded body, where a
+            full-width control costs no room. Unpinning a pinned project and
+            unarchiving an archived one were reachable before (they are drawn
+            `opacity-100` in those states); pinning a fresh project and
+            archiving an active one never were.
+          */}
+          <div className="touch-only flex-col gap-1.5 px-0.5 pt-1.5">
+            <button
+              type="button"
+              onClick={() => void openCover()}
+              className="w-full truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-[12px] text-kin-secondary"
+            >
+              {coverLabel}
+            </button>
+            <div className="flex items-center gap-1.5">
+              {mode === "active" && (
+                <button
+                  type="button"
+                  onClick={onTogglePin}
+                  className={[
+                    "flex-1 min-w-0 truncate rounded-lg border px-2 text-[12px]",
+                    g.pinned
+                      ? "border-kin-blue/40 bg-kin-blue-soft text-kin-blue"
+                      : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary",
+                  ].join(" ")}
+                >
+                  {pinLabel}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onArchive}
+                className="flex-1 min-w-0 truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-[12px] text-kin-secondary"
+              >
+                {archiveLabel}
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -1077,7 +1144,7 @@ function ProjectSessionRows({
                   e.stopPropagation();
                   onDeleteSession(task);
                 }}
-                className="flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-[#ff8a80] hover:bg-[rgba(255,69,58,.12)] opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
+                className="touch-hide flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-[#ff8a80] hover:bg-[rgba(255,69,58,.12)] opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
               >
                 <IconTrash size={12} />
               </button>

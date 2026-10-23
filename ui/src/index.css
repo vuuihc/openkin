@@ -127,7 +127,96 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Safe-area padding utility for notched phones (add-to-home-screen). */
+/*
+  Safe-area padding for notched phones (native shell and add-to-home-screen).
+
+  `.safe-pad` on the AppShell root owns left, right and bottom; the top inset
+  belongs to whichever bar is topmost (`.pt-safe`), because that is not always
+  the shell's own header. Screens that render *outside* that root — sign-in and
+  connect — carry their own gutter via `.px-safe`.
+
+  `.safe-pad` reaches in-flow descendants only. A `position: fixed` overlay
+  (the new-chat sheet, the drawer) takes the viewport as its containing block,
+  so it escapes the root's padding entirely and has to re-apply the inset
+  itself — `pb-[max(1rem,env(safe-area-inset-bottom))]`.
+
+  Note on mechanism: these are in `@layer utilities` for tidiness, not for
+  cascade order. Tailwind v3 emits no real `@layer` blocks, so a custom utility
+  is emitted *after* the core ones and beats `px-4`/`pb-10`/`w-4` on the same
+  element at equal specificity. That is why the helpers below are written as
+  `max()`, and why `.touch-mini` can shrink a button that already carries a
+  `w-*`. Never put a bare `env()` helper and a `p*` utility on the same element.
+*/
+@layer utilities {
+  /* Horizontal gutter that is *at least* the design gutter, and grows to clear
+     the sensor housing in landscape. Never less than the gutter. */
+  .px-safe {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  /* Phone-only floor for the app's controls, which are drawn at desktop density
+     (17–40px). One wrapper around everything a thumb can reach, instead of a
+     per-page set of sizes. The `pointer: coarse` arm is what keeps the floor on
+     a phone held sideways, where the width arm alone would stop applying.
+
+     It stops at `md`, and that boundary is load-bearing. At ≥768px the console
+     switches to its desktop layout — a 248px sidebar with hover-revealed row
+     buttons — and a 44px floor there is not "more tappable", it is a different
+     layout: five floored buttons in a 230px row leave the truncating project
+     name 0px wide (measured). So a landscape phone or an iPad gets the desktop
+     layout at desktop density, and only the sub-`md` shell gets the floor. */
+  /* The mirror of `.touch-hide`, and it needs both halves: hidden is the
+     default, flex is the touch case. Some actions only exist behind a hover
+     (`opacity-0 group-hover:…`), so a touch screen has no way to reach them at
+     all; `.touch-hide` drops them from the cramped row and `.touch-only` puts
+     the same actions back in the row's expanded body, where 44pt controls fit
+     without squeezing the name. Keep this query in step with the floor. */
+  .touch-only {
+    display: none;
+  }
+  @media (max-width: 639.98px), ((pointer: coarse) and (max-width: 767.98px)) {
+    .touch-lg button:not([data-touch-mini]),
+    .touch-lg select,
+    .touch-lg [role="button"],
+    .touch-lg input:not([type="checkbox"]):not([type="radio"]) {
+      min-height: 44px;
+      min-width: 44px;
+    }
+    /* A radio or checkbox is 13px; the row you actually tap is its <label>. */
+    .touch-lg label:has(input[type="radio"]),
+    .touch-lg label:has(input[type="checkbox"]) {
+      min-height: 44px;
+    }
+    /* A control revealed by `:hover` does not exist on a touch screen — the
+       first tap fires the hover *and* whatever sits under the finger. Drop
+       those rather than floor them, which also returns their width to the
+       label beside them. Keep this media query in step with the floor above. */
+    .touch-hide {
+      display: none;
+    }
+    .touch-only {
+      display: flex;
+    }
+  }
+  /* A control that lives inside something smaller than 44pt and cannot be
+     grown, so it opts out of the floor above and takes a bigger, always-visible
+     target on touch instead. Today: the attachment thumbnail's remove "×",
+     which sits on a 56px tile. */
+  @media (pointer: coarse) {
+    .touch-mini {
+      width: 22px;
+      height: 22px;
+      opacity: 0.85;
+    }
+  }
+}
+
+/* Full-bleed overlay/root helper: the raw insets and nothing else. A box that
+   also draws its own gutter should use `.px-safe` instead of pairing this with
+   `px-*` — the `px-*` would lose. */
 .safe-pad {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
