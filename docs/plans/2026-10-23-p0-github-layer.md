@@ -103,7 +103,7 @@ gh is /opt/homebrew/bin/gh                        ← 真正的 gh
 
 > **2026-10-23 更正**：这条**已经不成立**。写这一层时两处 `gh auth status` 都是
 > `The token in keyring is invalid`；实现完成后再测，`/opt/homebrew/bin/gh` 已经是
-> `✓ Logged in to github.com account vuuihc (keyring)`，scopes 含 `repo`。是同一台机器上
+> `✓ Logged in to github.com account owner (keyring)`，scopes 含 `repo`。是同一台机器上
 > 的凭据状态变了，不是当时的判断有误。
 >
 > **保留这一节的理由**，以及它当初推出的两条设计：**没有凭据是正常状态**（不是错误、
