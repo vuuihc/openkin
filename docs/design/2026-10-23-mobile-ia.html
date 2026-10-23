@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Kin 移动端 IA 稿 · 底部 Tab + 列表→详情</title>
+<style>
+/* ============================================================
+   Kin 移动端设计稿 — 目的不是好看，是把三件事定下来：
+   1. 导航模型：底部 3 tab，每个 tab 一个 push 栈
+   2. 会话列表：机器 → 会话（项目名降级为行内副标题），一层滚动
+   3. 会话详情：设置类控件不在常驻，收进"新建会话"的底部 sheet
+   颜色全部取自 ui/src/index.css 的 --kin-* token，可直接 1:1 落成组件。
+   ============================================================ */
+
+:root {
+  --page: #0e0e10;
+  --bg: #1a1a1c;
+  --raised: #2c2c2e;
+  --sidebar: #141416;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+  --text: #f5f5f7;
+  --secondary: #c7c7cc;
+  --tertiary: #98989d;
+  --muted: #6e6e73;
+  --fill: rgba(255, 255, 255, 0.06);
+  --fill-strong: rgba(255, 255, 255, 0.1);
+  --blue: #0a84ff;
+  --blue-soft: rgba(10, 132, 255, 0.14);
+  --orange: #ff9f0a;
+  --orange-soft: rgba(255, 159, 10, 0.12);
+  --green: #30d158;
+  --red: #ff453a;
+  --red-soft: rgba(255, 69, 58, 0.12);
+
+  /* 安全区。桌面预览时是 0；真机上由 env() 接管。
+     注意：这里用 max() 而不是直接 env()，避免 https://... 里那个
+     ".safe-pad 把 px-4 覆盖成 0" 的老问题——内边距永远不小于 16px。 */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --gutter: max(16px, var(--sal));
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #08080a;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* ---------- 桌面预览：给个机器边框，方便截图评审 ---------- */
+.stage {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 16px;
+}
+.device {
+  position: relative;
+  width: 440px;
+  height: min(956px, calc(100vh - 32px));
+  border-radius: 46px;
+  background: var(--page);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: 0 40px 90px -20px rgba(0, 0, 0, 0.8);
+  overflow: hidden;
+  flex: none;
+}
+@media (max-width: 520px) {
+  /* 在真机上打开：去掉边框，直接铺满，这样点起来才是真的 */
+  .stage { padding: 0; gap: 0; }
+  .device { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+  .mock-badge { display: none; }
+}
+
+.mock-badge {
+  position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%);
+  font-size: 11px; color: var(--muted); letter-spacing: .04em; pointer-events: none;
+}
+
+/* ---------- App 骨架 ---------- */
+.app { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--page); }
+
+.screen { position: absolute; inset: 0; display: none; flex-direction: column; }
+.screen.active { display: flex; }
+
+/* 顶栏：高度自适应，安全区用 padding 顶开。
+   老代码是 h-12(48px 固定) + padding-top:安全区，border-box 下内容被压成
+   负数，标题一半落在刘海里——这里改成 min-height + 不设固定高度。 */
+.nav {
+  flex: none;
+  padding-top: var(--sat);
+  background: color-mix(in srgb, var(--page) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--hairline);
+}
+.nav-row {
+  min-height: 48px;
+  display: flex; align-items: center; gap: 8px;
+  padding-left: max(8px, var(--sal));
+  padding-right: max(8px, var(--sar));
+}
+.nav-title { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.nav-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+
+/* 44pt 点击区是硬底线：所有可点元素都过这一关 */
+.tap {
+  min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; border: 0; background: transparent; color: var(--blue);
+  font: inherit; font-size: 16px; cursor: pointer; border-radius: 10px;
+}
+.tap:active { background: var(--fill); }
+.tap.icon { color: var(--tertiary); }
+.tap.plain { color: var(--text); }
+
+/* ---------- 滚动区 ---------- */
+.scroll {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.scroll::-webkit-scrollbar { display: none; }
+
+/* ---------- 底部 Tab ---------- */
+.tabbar {
+  flex: none; display: flex; align-items: stretch;
+  padding-bottom: var(--sab);
+  padding-left: var(--sal); padding-right: var(--sar);
+  background: color-mix(in srgb, var(--page) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--hairline);
+}
+.tab {
+  flex: 1; min-height: 50px; border: 0; background: transparent;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  color: var(--muted); font: inherit; font-size: 10px; cursor: pointer; position: relative;
+}
+.tab.on { color: var(--blue); }
+.tab .badge {
+  position: absolute; top: 4px; left: 50%; margin-left: 4px;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: var(--orange); color: #1a1a1c; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ---------- 会话列表 ---------- */
+.section-h {
+  display: flex; align-items: center; gap: 7px;
+  padding: 18px var(--gutter) 7px;
+  font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--tertiary);
+  position: sticky; top: 0; z-index: 2;
+  background: linear-gradient(var(--page) 72%, transparent);
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex: none; }
+.dot.off { background: var(--muted); }
+
+.row {
+  display: flex; gap: 11px; align-items: flex-start; width: 100%;
+  min-height: 62px; padding: 11px var(--gutter);
+  border: 0; border-bottom: 1px solid var(--hairline);
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.row:active { background: var(--fill); }
+.row .avatar {
+  width: 34px; height: 34px; border-radius: 10px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; background: var(--blue-soft); color: #6cb2ff;
+}
+.row .avatar.orange { background: var(--orange-soft); color: var(--orange); }
+.row .body { flex: 1; min-width: 0; }
+.row .t {
+  font-size: 15px; font-weight: 500; line-height: 1.32;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.row .m { margin-top: 3px; font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; min-width: 0; }
+.row .m .proj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .right { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; padding-top: 2px; }
+.time { font-size: 11.5px; color: var(--muted); }
+
+.pill {
+  flex: none; display: inline-flex; align-items: center; gap: 4px;
+  height: 20px; padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: var(--fill); color: var(--tertiary);
+}
+.pill.run { background: var(--blue-soft); color: #6cb2ff; }
+.pill.wait { background: var(--orange-soft); color: var(--orange); }
+.pill.done { background: rgba(48, 209, 88, .13); color: var(--green); }
+.pill.fail { background: var(--red-soft); color: var(--red); }
+
+/* ---------- 会话详情 ---------- */
+.msgs { padding: 14px var(--gutter) 20px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 82%; font-size: 15px; line-height: 1.45; }
+.msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.bubble { padding: 9px 12px; border-radius: 15px; }
+.bubble.me { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
+.bubble.them { align-self: flex-start; background: var(--raised); border-bottom-left-radius: 4px; }
+.msg.me { align-self: flex-end; }
+.msg.them { align-self: flex-start; }
+
+.card {
+  border: 1px solid var(--hairline-strong); border-radius: 14px;
+  background: var(--bg); padding: 12px; margin: 2px 0;
+}
+.card.warn { border-color: rgba(255, 159, 10, .35); background: linear-gradient(var(--orange-soft), transparent); }
+.card .h { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.card .d { margin-top: 5px; font-size: 12.5px; color: var(--secondary); line-height: 1.5; }
+.card code {
+  display: block; margin-top: 8px; padding: 8px 10px; border-radius: 9px;
+  background: #0a0a0c; border: 1px solid var(--hairline);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  color: #d6d6da; overflow-x: auto; white-space: pre;
+}
+.card .acts { display: flex; gap: 8px; margin-top: 10px; }
+.btn {
+  flex: 1; min-height: 44px; border-radius: 11px; border: 1px solid var(--hairline-strong);
+  background: var(--fill); color: var(--text); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.btn.go { background: var(--blue); border-color: transparent; color: #fff; }
+.btn.no { color: var(--red); }
+.btn:active { opacity: .75; }
+
+/* 输入栏：贴在 tabbar 之上，安全区由外层负责，这里只管内边距 */
+.composer {
+  flex: none; display: flex; align-items: flex-end; gap: 8px;
+  padding: 8px max(10px, var(--sar)) 8px max(10px, var(--sal));
+  border-top: 1px solid var(--hairline); background: var(--page);
+}
+.field {
+  flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center;
+  padding: 10px 12px; border-radius: 21px; border: 1px solid var(--hairline-strong);
+  background: var(--bg); color: var(--tertiary); font-size: 15px;
+}
+.send {
+  flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0;
+  background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.send:active { opacity: .75; }
+
+/* 详情页顶部：把"机器 / 项目 / 状态"压成一行副标题，不再另起一行控件 */
+.crumb { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-top: 1px; min-width: 0; }
+.crumb .sep { opacity: .5; }
+.crumb .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 42vw; }
+
+/* ---------- 收件箱 ---------- */
+.empty { padding: 72px var(--gutter); text-align: center; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+.empty .big { font-size: 15px; color: var(--secondary); font-weight: 500; margin-bottom: 6px; }
+
+/* ---------- 新建会话 ---------- */
+/* 空白页居中，而不是把 hero 顶到输入框上方留出 500px 空洞 */
+.new-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.new-body { padding: 24px var(--gutter); text-align: center; }
+.new-body .k {
+  width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 16px;
+  background: var(--blue-soft); color: #6cb2ff; font-size: 26px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.new-body h2 { margin: 0 0 6px; font-size: 20px; font-weight: 650; letter-spacing: -.015em; }
+.new-body p { margin: 0; font-size: 13.5px; color: var(--tertiary); line-height: 1.55; }
+
+/* 关键改动：执行/路由/工作区不再是三张常驻卡片，收成一行摘要。
+   默认态只占 44px，点开才是 sheet。 */
+.summary {
+  margin: 0 var(--gutter) 10px; min-height: 44px; width: calc(100% - var(--gutter) * 2);
+  display: flex; align-items: center; gap: 8px; padding: 0 13px;
+  border-radius: 13px; border: 1px solid var(--hairline); background: var(--fill);
+  color: var(--tertiary); font: inherit; font-size: 13px; cursor: pointer; text-align: left;
+}
+.summary .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary b { color: var(--secondary); font-weight: 500; }
+
+.sheet-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .55); display: none; z-index: 20; }
+.sheet-scrim.on { display: block; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 21;
+  background: var(--raised); border-radius: 20px 20px 0 0;
+  border-top: 1px solid var(--hairline-strong);
+  padding: 10px max(16px, var(--sar)) calc(16px + var(--sab)) max(16px, var(--sal));
+  transform: translateY(102%); transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+}
+.sheet.on { transform: none; }
+.grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--hairline-strong); margin: 0 auto 14px; }
+.sheet h3 { margin: 0 0 2px; font-size: 16px; font-weight: 650; }
+.sheet .sub { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.grp { margin-bottom: 14px; }
+.grp > .lbl { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.opt {
+  min-height: 44px; padding: 0 14px; border-radius: 11px;
+  border: 1px solid var(--hairline-strong); background: var(--fill);
+  color: var(--secondary); font: inherit; font-size: 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+.opt.on { background: var(--blue-soft); border-color: rgba(10, 132, 255, .45); color: #7cbcff; font-weight: 600; }
+.opt .k2 { font-size: 11px; color: var(--muted); }
+.recent { display: flex; flex-direction: column; gap: 2px; }
+.recent button {
+  min-height: 44px; width: 100%; text-align: left; padding: 0 4px;
+  border: 0; border-bottom: 1px solid var(--hairline); background: transparent;
+  color: var(--secondary); font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: 9px;
+}
+.recent button .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
+.recent button .n { font-size: 11.5px; color: var(--muted); flex: none; }
+
+/* ---------- 设置 ---------- */
+.kv { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px var(--gutter); border-bottom: 1px solid var(--hairline); }
+.kv .body { flex: 1; min-width: 0; }
+.kv .t { font-size: 15px; }
+.kv .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.h-lg { padding: 22px var(--gutter) 6px; font-size: 12px; font-weight: 600; color: var(--tertiary); letter-spacing: .02em; }
+
+/* ---------- 评审辅助：屏幕跳转条（真机上隐藏） ---------- */
+.jump { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 99; }
+.jump button {
+  border: 1px solid var(--hairline-strong); background: #1a1a1ccc; color: var(--tertiary);
+  font: inherit; font-size: 11px; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+}
+.jump button.on { background: var(--blue); border-color: transparent; color: #fff; }
+@media (max-width: 520px) { .jump { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="jump">
+  <button data-jump="sessions" class="on">会话</button>
+  <button data-jump="detail">会话详情</button>
+  <button data-jump="inbox">收件箱</button>
+  <button data-jump="new">新建会话</button>
+  <button data-jump="settings">设置</button>
+</div>
+
+<div class="stage">
+<div class="device">
+<div class="app">
+
+  <!-- ══════════════ 1. 会话列表 ══════════════ -->
+  <section class="screen active" id="s-sessions">
+    <header class="nav">
+      <div class="nav-row">
+        <div style="flex:1;min-width:0;padding-left:8px">
+          <div class="nav-title">会话</div>
+        </div>
+        <button class="tap" data-go="new" aria-label="新建会话">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <!-- 机器名做分组头。原来这三层（机器→项目→会话）塞在抽屉里当树，
+           现在压成一层列表：机器是 section，项目降到行内副标题。 -->
+      <div class="section-h"><span class="dot"></span>MacBook Pro</div>
+
+      <button class="row" data-go="detail">
+        <span class="avatar orange">C</span>
+        <span class="body">
+          <span class="t">M3：控制台 IA 重构与 iOS 联调</span>
+          <span class="m"><span class="proj">openkin</span><span class="sep">·</span><span>2 分钟前</span></span>
+        </span>
+        <span class="right"><span class="pill wait">待审批</span></span>
+      </button>
+
+      <button class="row" data-go="detail">
+        <span class="avatar">A</span>
+        <span class="body">
+          <span class="t">修一下 launchd 节点掉线重连</span>
+          <span class="m"><span class="proj">openkin</span><span class="sep">·</span><span>18 分钟前</span></span>
+        </span>
+        <span class="right"><span class="pill run">进行中</span></span>
+      </button>
+
+      <button class="row" data-go="detail">
+        <span class="avatar">K</span>
+        <span class="body">
+          <span class="t">把移动端底部设置收进弹出面板</span>
+          <span class="m"><span class="proj">kin-multidevice</span><span class="sep">·</span><span>1 小时前</span></span>
+        </span>
+        <span class="right"><span class="pill done">已完成</span></span>
+      </button>
+
+      <div class="section-h"><span class="dot off"></span>kin-nas</div>
+
+      <button class="row" data-go="detail">
+        <span class="avatar">K</span>
+        <span class="body">
+          <span class="t">每日同步：把 NAS 上的日志汇总成周报</span>
+          <span class="m"><span class="proj">ops</span><span class="sep">·</span><span>昨天 23:40</span></span>
+        </span>
+        <span class="right"><span class="pill fail">失败</span></span>
+      </button>
+
+      <div style="height:24px"></div>
+    </div>
+
+    <nav class="tabbar">
+      <button class="tab on">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.7-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>
+        会话
+      </button>
+      <button class="tab" data-tab="inbox">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3V5Z"/><path d="M9 9.5h6"/></svg>
+        收件箱<span class="badge">2</span>
+      </button>
+      <button class="tab" data-tab="settings">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 2.6 14H2.4a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9.5 3V2.8a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        设置
+      </button>
+    </nav>
+  </section>
+
+  <!-- ══════════════ 2. 会话详情 ══════════════ -->
+  <section class="screen" id="s-detail">
+    <header class="nav">
+      <div class="nav-row">
+        <button class="tap" data-back aria-label="返回">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <div style="flex:1;min-width:0">
+          <div class="nav-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">M3：控制台 IA 重构与 iOS 联调</div>
+          <div class="crumb">
+            <span class="dot"></span><span>MacBook Pro</span>
+            <span class="sep">·</span><span class="trunc">openkin</span>
+            <span class="sep">·</span><span>Claude Code</span>
+          </div>
+        </div>
+        <button class="tap icon" aria-label="更多">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <div class="msgs">
+        <div class="msg me"><div class="bubble me">手机上的底部设置太占地方了，先看看怎么收。</div></div>
+
+        <div class="msg them">
+          <div class="who">Claude Code · MacBook Pro</div>
+          <div class="bubble them">看了一遍，底部那三张卡片占了 34% 的屏幕。执行 / 路由 / 工作区都是「开新会话」才做的决定，看会话的时候不需要常驻。</div>
+        </div>
+
+        <!-- 审批内联在消息流里：手机上不需要跳去"收件箱"再回来 -->
+        <div class="card warn">
+          <div class="h">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 8.5v4.2"/><circle cx="12" cy="16.4" r=".9" fill="currentColor" stroke="none"/><path d="M10.3 3.9 2.6 17.4A1.9 1.9 0 0 0 4.3 20.3h15.4a1.9 1.9 0 0 0 1.7-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z"/></svg>
+            需要你批准
+          </div>
+          <div class="d">要把改动提交到 main，并重新部署 Hub。</div>
+          <code>git commit -m "fix(ui): 收进底部设置面板"
+docker compose up -d</code>
+          <div class="acts">
+            <button class="btn no">拒绝</button>
+            <button class="btn go">批准</button>
+          </div>
+        </div>
+
+        <div class="msg them">
+          <div class="who">Claude Code · MacBook Pro</div>
+          <div class="bubble them">批准后我就继续。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="field">跟 Claude Code 说…</div>
+      <button class="send" aria-label="发送">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ══════════════ 3. 收件箱 ══════════════ -->
+  <section class="screen" id="s-inbox">
+    <header class="nav">
+      <div class="nav-row"><div style="flex:1;padding-left:8px"><div class="nav-title">收件箱</div></div></div>
+    </header>
+
+    <div class="scroll">
+      <div class="section-h" style="position:static">待审批 · 2</div>
+
+      <div style="padding:2px var(--gutter) 10px">
+        <div class="card warn">
+          <div class="h">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 8.5v4.2"/><circle cx="12" cy="16.4" r=".9" fill="currentColor" stroke="none"/><path d="M10.3 3.9 2.6 17.4A1.9 1.9 0 0 0 4.3 20.3h15.4a1.9 1.9 0 0 0 1.7-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z"/></svg>
+            提交并重新部署
+          </div>
+          <div class="d">M3：控制台 IA 重构与 iOS 联调 · MacBook Pro</div>
+          <code>git commit -m "fix(ui): 收进底部设置面板"</code>
+          <div class="acts">
+            <button class="btn no">拒绝</button>
+            <button class="btn go">批准</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:2px var(--gutter) 10px">
+        <div class="card warn">
+          <div class="h">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 8.5v4.2"/><circle cx="12" cy="16.4" r=".9" fill="currentColor" stroke="none"/><path d="M10.3 3.9 2.6 17.4A1.9 1.9 0 0 0 4.3 20.3h15.4a1.9 1.9 0 0 0 1.7-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z"/></svg>
+            删除 3 个过期构建产物
+          </div>
+          <div class="d">修一下 launchd 节点掉线重连 · MacBook Pro</div>
+          <code>rm -rf mobile/ios/DerivedData</code>
+          <div class="acts">
+            <button class="btn no">拒绝</button>
+            <button class="btn go">批准</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-h" style="position:static;padding-top:10px">今天已处理 · 5</div>
+      <div class="kv"><div class="body"><div class="t">git push origin main</div><div class="s">已批准 · 14:02</div></div></div>
+      <div class="kv"><div class="body"><div class="t">npm run build</div><div class="s">已批准 · 13:47</div></div></div>
+      <div style="height:20px"></div>
+    </div>
+
+    <nav class="tabbar">
+      <button class="tab" data-tab="sessions">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.7-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>
+        会话
+      </button>
+      <button class="tab on">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3V5Z"/><path d="M9 9.5h6"/></svg>
+        收件箱<span class="badge">2</span>
+      </button>
+      <button class="tab" data-tab="settings">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 2.6 14H2.4a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9.5 3V2.8a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        设置
+      </button>
+    </nav>
+  </section>
+
+  <!-- ══════════════ 4. 新建会话 ══════════════ -->
+  <section class="screen" id="s-new">
+    <header class="nav">
+      <div class="nav-row">
+        <button class="tap" data-back aria-label="关闭">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+        <div style="flex:1"><div class="nav-title">新建会话</div></div>
+      </div>
+    </header>
+
+    <div class="new-wrap">
+      <div class="new-body">
+        <div class="k">K</div>
+        <h2>说一句话，剩下的我来</h2>
+        <p>工作目录、执行模式、跑在哪台机器上<br/>都可以先用默认值，之后随时改。</p>
+      </div>
+    </div>
+
+    <!-- 一行摘要，44px。点开才展开 sheet —— 常驻时只花掉 44px 而不是 321px。 -->
+    <button class="summary" id="open-sheet">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5h6l1.6 2H21v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg>
+      <span class="grow"><b>本机</b> · 询问 · <b>openkin</b></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+    </button>
+
+    <div class="composer" style="border-top:0">
+      <div class="field">跟 Kin 说… 或 @codex / @claude-code 委派</div>
+      <button class="send" aria-label="发送">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+
+    <!-- 底部 sheet：原来常驻的三组控件挪到这里 -->
+    <div class="sheet-scrim" id="scrim"></div>
+    <div class="sheet" id="sheet">
+      <div class="grabber"></div>
+      <h3>这次怎么跑</h3>
+      <div class="sub">只对这次生效，下次沿用你的选择</div>
+
+      <div class="grp">
+        <div class="lbl">工作区</div>
+        <div class="recent">
+          <button><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5h6l1.6 2H21v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg><span class="p">~/Workspace/study/openkin</span><span class="n">刚刚</span></button>
+          <button><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5h6l1.6 2H21v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/></svg><span class="p">~/Workspace/study/kin-multidevice</span><span class="n">2 小时前</span></button>
+          <button style="border-bottom:0"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span class="p" style="color:var(--blue)">选择其他目录…</span></button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl">跑在哪</div>
+        <div class="opts">
+          <button class="opt on">本机 <span class="k2">MacBook Pro</span></button>
+          <button class="opt">kin-nas</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl">执行模式</div>
+        <div class="opts">
+          <button class="opt on">询问</button>
+          <button class="opt">自动</button>
+          <button class="opt">YOLO</button>
+        </div>
+      </div>
+
+      <div class="grp" style="margin-bottom:6px">
+        <div class="lbl">主持 agent</div>
+        <div class="opts">
+          <button class="opt on">Kin</button>
+          <button class="opt">Claude Code</button>
+          <button class="opt">Codex</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ 5. 设置 ══════════════ -->
+  <section class="screen" id="s-settings">
+    <header class="nav">
+      <div class="nav-row"><div style="flex:1;padding-left:8px"><div class="nav-title">设置</div></div></div>
+    </header>
+
+    <div class="scroll">
+      <div class="h-lg">机器</div>
+      <div class="kv">
+        <span class="dot"></span>
+        <div class="body"><div class="t">MacBook Pro</div><div class="s">在线 · 12 个 agent · 1 个根目录</div></div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </div>
+      <div class="kv">
+        <span class="dot"></span>
+        <div class="body"><div class="t">kin-nas</div><div class="s">在线 · Hub 本机 · 3 个 agent</div></div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>
+      </div>
+
+      <div class="h-lg">账号</div>
+      <div class="kv">
+        <div class="body"><div class="t">owner@…</div><div class="s">Hub 所有者 · kin.example.com</div></div>
+      </div>
+      <div class="kv">
+        <div class="body"><div class="t">退出登录</div></div>
+      </div>
+
+      <div class="h-lg">关于</div>
+      <div class="kv"><div class="body"><div class="t">Kin</div><div class="s">1.0 (202610230653)</div></div></div>
+      <div style="height:20px"></div>
+    </div>
+
+    <nav class="tabbar">
+      <button class="tab" data-tab="sessions">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.7-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/></svg>
+        会话
+      </button>
+      <button class="tab" data-tab="inbox">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H7l-3 3V5Z"/><path d="M9 9.5h6"/></svg>
+        收件箱<span class="badge">2</span>
+      </button>
+      <button class="tab on">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 2.6 14H2.4a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9.5 3V2.8a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        设置
+      </button>
+    </nav>
+  </section>
+
+</div>
+</div>
+</div>
+
+<div class="mock-badge">Kin 移动端 IA 稿 · 点底部 tab、点会话行、点新建里的摘要条都能走</div>
+
+<script>
+(function () {
+  var stack = [];
+  function show(id, push) {
+    var cur = document.querySelector('.screen.active');
+    if (cur && cur.id === 's-' + id) return;
+    if (push !== false && cur) stack.push(cur.id);
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('active', s.id === 's-' + id); });
+    document.querySelectorAll('.jump button').forEach(function (b) { b.classList.toggle('on', b.dataset.jump === id); });
+    var sc = document.querySelector('#s-' + id + ' .scroll');
+    if (sc) sc.scrollTop = 0;
+    closeSheet();
+  }
+  function back() {
+    var prev = stack.pop();
+    show(prev ? prev.replace(/^s-/, '') : 'sessions', false);
+  }
+  function openSheet() {
+    document.getElementById('sheet').classList.add('on');
+    document.getElementById('scrim').classList.add('on');
+  }
+  function closeSheet() {
+    document.getElementById('sheet').classList.remove('on');
+    document.getElementById('scrim').classList.remove('on');
+  }
+
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-go],[data-tab],[data-back],[data-jump]');
+    if (!el) return;
+    if (el.hasAttribute('data-back')) return back();
+    if (el.dataset.go) return show(el.dataset.go);
+    if (el.dataset.tab) { stack = []; return show(el.dataset.tab, false); }
+    if (el.dataset.jump) { stack = []; return show(el.dataset.jump, false); }
+  });
+  document.getElementById('open-sheet').addEventListener('click', openSheet);
+  document.getElementById('scrim').addEventListener('click', closeSheet);
+  document.querySelectorAll('.opt').forEach(function (b) {
+    b.addEventListener('click', function () {
+      b.parentElement.querySelectorAll('.opt').forEach(function (o) { o.classList.remove('on'); });
+      b.classList.add('on');
+    });
+  });
+})();
+</script>
+</body>
+</html>
