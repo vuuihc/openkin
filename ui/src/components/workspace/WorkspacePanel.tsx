@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -26,16 +28,24 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath } from "../../lib/paths";
-import { IconPanel, IconX } from "../icons";
+import { IconPanel, IconSpinner, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
-import CodeViewer from "./CodeViewer";
 import FileTree from "./FileTree";
+
 import {
   effectiveCurrentWorkspaceID,
   readWorkspaceViewFile,
   resolveWorkspaceView,
   workspaceLifecycleRefreshKey,
 } from "./workspaceView";
+
+// CodeViewer is the only thing that pulls in monaco-editor, which is by far the
+// heaviest dependency in the bundle: the editor plus five language workers.
+// Importing it statically put all of that in the entry chunk, so opening the
+// console on a phone downloaded a code editor before it could show a session
+// list. Split out and loaded once a file is opened, the way MermaidBlock
+// already handles mermaid.
+const CodeViewer = lazy(() => import("./CodeViewer"));
 
 type Props = {
   taskId: string;
@@ -534,44 +544,72 @@ export default function WorkspacePanel({
         />
 
         <div className="flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex flex-col">
-          <CodeViewer
-            path={selectedPath}
-            file={normalizeFileResponse(file)}
-            loading={loading}
-            error={error}
-            diff={enrichedDiff}
-            cwd={cwd}
-            taskId={taskId}
-            workspaceId={
-              workspaceView.kind === "generation"
-                ? workspaceView.workspaceId
-                : null
-            }
-            editable={workspaceView.editable}
-            onSaved={(updated) => setFile(updated)}
-            reviewActions={
-              workspaceView.editable && reviewActions && Boolean(selectedPath)
-            }
-            actionsBusy={actionsBusy}
-            onKeep={() => {
-              if (!selectedPath) return;
-              setDismissedPaths((prev) => {
-                const next = new Set(prev);
-                next.add(selectedPath);
-                return next;
-              });
-            }}
-            onDiscard={() => {
-              if (!selectedPath) return;
-              setDismissedPaths((prev) => {
-                const next = new Set(prev);
-                next.add(selectedPath);
-                return next;
-              });
-            }}
-          />
+          {selectedPath ? (
+            <Suspense fallback={<ViewerLoading />}>
+              <CodeViewer
+                path={selectedPath}
+                file={normalizeFileResponse(file)}
+                loading={loading}
+                error={error}
+                diff={enrichedDiff}
+                cwd={cwd}
+                taskId={taskId}
+                workspaceId={
+                  workspaceView.kind === "generation"
+                    ? workspaceView.workspaceId
+                    : null
+                }
+                editable={workspaceView.editable}
+                onSaved={(updated) => setFile(updated)}
+                reviewActions={
+                  workspaceView.editable && reviewActions && Boolean(selectedPath)
+                }
+                actionsBusy={actionsBusy}
+                onKeep={() => {
+                  if (!selectedPath) return;
+                  setDismissedPaths((prev) => {
+                    const next = new Set(prev);
+                    next.add(selectedPath);
+                    return next;
+                  });
+                }}
+                onDiscard={() => {
+                  if (!selectedPath) return;
+                  setDismissedPaths((prev) => {
+                    const next = new Set(prev);
+                    next.add(selectedPath);
+                    return next;
+                  });
+                }}
+              />
+            </Suspense>
+          ) : (
+            // Rendering the empty state here rather than inside CodeViewer keeps
+            // the editor chunk off the wire for the common case of opening the
+            // panel before picking a file — which is what the header's Files
+            // button does.
+            <div className="h-full flex items-center justify-center text-sm text-kin-muted px-6 text-center">
+              {tr("workspace.viewer.empty")}
+            </div>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Shown while the editor chunk is still downloading. */
+function ViewerLoading() {
+  const t = useT();
+  return (
+    <div
+      // The chunk fetch is a real wait, and it replaced a node Monaco used to
+      // render immediately; without this a screen reader gets silence.
+      role="status"
+      className="flex flex-1 items-center justify-center gap-2 text-[13px] text-kin-muted"
+    >
+      <IconSpinner size={14} strokeWidth={2} />
+      {t("workspace.viewer.loading")}
     </div>
   );
 }
