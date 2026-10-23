@@ -35,31 +35,57 @@
 
 A2A 身份格式变了，但 `a2a_operations` / `a2a_idempotency` **都是 0 行**，无归属丢失。
 
+### 3. 任务按账户隔离（`289a089`）
+
+原来 `/api/tasks`、`/api/tasks/{id}/events`、`/api/sessions`、`/api/approvals`、`/api/artifacts`、
+`/api/routines` **对任何已登录调用者返回全部内容**，`tasks.owner_user_id` 存在但从未写入。
+
+规则只有一份：`store.ScopeForPrincipal`。放两个包各写一遍，就是两条会漂移的规则，
+而这里漂移的代价是读到别人的任务。`TaskScope` **fail-closed**——零值谁都不匹配，
+忘了设 scope 的 handler 返回空列表（有人会报 bug），而不是全部任务（没人会注意到）。
+
+**谁算"持有这台机器"**：master token、claim 了 Hub 的账户、以及配对设备。设备之所以
+unscoped，是因为配对本身是 operatorOnly——凭据由持有人签发，代表持有人行事。
+（等成员能自己配对，这条要改，见下面第 5 条。）
+
+| 层 | 改动 |
+|---|---|
+| store | `owner_user_id` 写入并读出；`ListTasks` / `ListApprovals` / `ListUserQuestions` 收 scope；删除前先读 owner 写进 tombstone |
+| REST | `/api/tasks/{id}` 整棵子树受 `taskInScope` 保护，**404 而不是 403**——任务是否存在本身就是不该泄露的信息 |
+| MCP | 同一份规则，避免工具面成为 HTTP 面的绕路 |
+| 实时流 | WebSocket / SSE / `sessions/wait` 都按 scope 订阅；不隔离的话每条流都是列不出但推得动的通道 |
+| 变更流 | 游标是"**我看得见的**最后一个变更"；因为 owner 写入后不再修改，这个条件稳定，所以游标不会漏 |
+| 机器自身记录 | projects / routines / artifacts / agent-sessions / recent-cwds / uploads / usage 归持有人：member 拒绝，**配对设备放行**（用 `operatorOnly` 会顺手打断远控） |
+| 人闸 | 审批/回答改成"看行背后的任务归谁"，不再是角色判断，于是 member 能批自己的任务 |
+
+老库在 open 时补齐：`ensureTaskScopeSchema` 加列和 `(owner, cursor)` 索引，
+幂等且增量。**故意不写成编号迁移**——编号迁移只跑一次，会让以后每个测试 fixture
+为了正确性重放整条链。
+
 ## 未做（review 提出、我判断不该顺手改的）
 
-**1. 没有任何东西按账户隔离。** `/api/tasks`、`/api/tasks/{id}/events`、`/api/sessions`、
-`/api/agent-sessions*`、`/api/approvals`、`/api/artifacts`、`/api/routines`
-**对任何已登录调用者返回全部内容**。schema 里 `tasks.owner_user_id` 和
-`devices.owner_user_id` 存在但从未写入。
+**1. 控制台看不到 role**（`internal/api/auth.go:34` 的 `authUser` 没有 role 字段），
+所以 member 会渲染出 operator 界面然后收一屏 403。现在 member 会被
+`/api/projects`、`/api/routines` 等一律 403，**这个缺口比之前更明显**：以前他只是看到
+不该看的东西，现在他会看到一屏报错。
 
-> **这是开放注册的真正门槛**：一旦第二个用户注册，他会看到第一个用户的全部任务。
-> 新测试里那句 `member.get("/api/tasks") == 200` 等于默认承认了"所有账户共用一个任务列表"——
-> 这应该是一个**明确的决定**，不是默认值。
+**2. `User.IsOwner()` 没有生产调用者**，守卫里是内联比较；测试断言它反而给人"helper 和守卫一致"的错觉。
 
-**2. 控制台看不到 role**（`internal/api/auth.go:34` 的 `authUser` 没有 role 字段），
-所以 member 会渲染出 operator 界面然后收一屏 403。
+**3. `normalizeRole` 的 trim 分支没有测试覆盖**（现有测试只覆盖空值）。
 
-**3. `User.IsOwner()` 没有生产调用者**，守卫里是内联比较；测试断言它反而给人"helper 和守卫一致"的错觉。
+**4. 没有注册入口。** 第二个账户目前只能通过 OIDC 或直接写库产生——`/api/auth` 只有
+bootstrap / login / logout。托管模式的"注册后多端登录"还差这一环。
 
-**4. `normalizeRole` 的 trim 分支没有测试覆盖**（现有测试只覆盖空值）。
+**5. 成员不能配对自己的设备。** 于是设备凭据只可能由 owner 签发，隔离里把
+`PrincipalDevice` 当作 holder（unscoped）是成立的；等成员能自己配对时，
+这条必须改成读登记账户的角色，`devices.owner_user_id` 已经准备好承载它。
 
 ## 下一步
 
 1. **离线写：本地发件箱**（已定）。断网时消息进本地队列、UI 立刻显示；重连按到达顺序发，
    Hub 照常分配 `seq`。会话是追加流不是协作文档，**不需要 CRDT**。
-2. **任务按账户隔离**（上面第 1 条）。开放注册之前必须做。
-3. **NAS 上线**：`--role hub --domain` + 注册 + 多端登录。
-4. **配对降级为高级功能**：主流程是"一个账户登录、自动同步"，配对只用于"给设备有限权限"。
+2. **NAS 上线**：`--role hub --domain` + 注册 + 多端登录。
+3. **配对降级为高级功能**：主流程是"一个账户登录、自动同步"，配对只用于"给设备有限权限"。
 
 ## 已知取舍
 
