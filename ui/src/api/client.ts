@@ -910,12 +910,18 @@ export function listApprovals(status?: string): Promise<Approval[]> {
  * The daemon may start a background query when the cache is stale, but the
  * response never waits on the network — `refreshing` says whether one is in
  * flight so the caller can show that the answer may be about to change.
+ *
+ * `signal` is how the caller abandons a read it no longer wants: the panel
+ * follows that flag on a timer, and a read it has walked away from should stop
+ * travelling rather than arrive later to be discarded.
  */
 export function getTaskPullRequest(
   id: string,
+  signal?: AbortSignal,
 ): Promise<TaskPullRequestSnapshot> {
   return apiFetch<TaskPullRequestSnapshot>(
     `/api/tasks/${encodeURIComponent(id)}/pr`,
+    { signal },
   );
 }
 

@@ -94,7 +94,7 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
       const seq = ++latest.current;
       const mine = () => seq === latest.current;
       try {
-        const next = await getTaskPullRequest(taskId);
+        const next = await getTaskPullRequest(taskId, signal);
         if (signal?.aborted || !mine()) return;
         setSnapshot(next);
         setError(null);
@@ -192,10 +192,20 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
     try {
       const next = await refreshTaskPullRequest(taskId);
       if (seq !== latest.current) return;
+      // Landing, this is the newest answer there is, so the reads that raced it
+      // are moot: they were answered from the cache this replaced, and letting
+      // one publish afterwards would put the older card back and throw away
+      // what the user just spent rate limit on. The button's disabled state
+      // keeps a poll read from starting during a refresh; this keeps the rule
+      // with the writer rather than with an attribute a later change can drop.
+      latest.current += 1;
       setSnapshot(next);
       setError(null);
     } catch (err) {
       if (seq !== latest.current) return;
+      // Same on the way out: a read that raced a failed refresh would clear the
+      // sentence explaining why there is nothing new to show.
+      latest.current += 1;
       setError(describe(err));
     } finally {
       // Whoever started this refresh ends it. Keyed on the sequence number
