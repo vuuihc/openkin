@@ -151,6 +151,47 @@ func TestResolveRejectsAnOverridePointingAtAWrapper(t *testing.T) {
 	}
 }
 
+// A resolved tool is run with a working directory of its own choosing, and
+// os/exec resolves a relative Path after changing into it. So a relative answer
+// would execute a different file from the one that was validated here — the
+// caller's directory's copy. `tools/git` reaches this through an override, and
+// through PATH if PATH has a relative entry.
+func TestResolveNeverReturnsARelativePath(t *testing.T) {
+	dir := t.TempDir()
+	writeTool(t, filepath.Join(dir, "tools"), "git")
+	t.Chdir(dir)
+
+	// No override and nothing on PATH: there is nothing to return, so the
+	// assertions below are about the two paths that do return something.
+	t.Setenv("PATH", "")
+	if got, err := Resolve(Spec{Name: "git", EnvVar: "KIN_TEST_TOOL_PATH_ABS"}); err == nil {
+		t.Fatalf("Resolve with no override and no PATH returned %q", got)
+	}
+
+	t.Setenv("KIN_TEST_TOOL_PATH_ABS", filepath.Join("tools", "git"))
+	got, err := Resolve(Spec{Name: "git", EnvVar: "KIN_TEST_TOOL_PATH_ABS"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("Resolve returned %q, which the caller would resolve against its own directory", got)
+	}
+	if want := filepath.Join(dir, "tools", "git"); got != want {
+		t.Fatalf("resolved %q, want %q", got, want)
+	}
+
+	// The same through PATH, whose entries need not be absolute either.
+	t.Setenv("KIN_TEST_TOOL_PATH_ABS", "")
+	t.Setenv("PATH", "tools")
+	got, err = Resolve(Spec{Name: "git"})
+	if err != nil {
+		t.Fatalf("Resolve via PATH: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("Resolve via PATH returned %q, want an absolute path", got)
+	}
+}
+
 func TestResolveHonoursAnOverride(t *testing.T) {
 	dir := t.TempDir()
 	tool := writeTool(t, dir, "git")

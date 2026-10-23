@@ -66,27 +66,47 @@ type Spec struct {
 func Resolve(spec Spec) (string, error) {
 	if spec.EnvVar != "" {
 		if override := strings.TrimSpace(os.Getenv(spec.EnvVar)); override != "" {
-			if reason := Refuse(override); reason != "" {
+			resolved, reason := accept(override)
+			if reason != "" {
 				return "", fmt.Errorf("%w: %s=%s: %s", ErrUnavailable, spec.EnvVar, override, reason)
 			}
-			if isExecutableFile(override) {
-				return override, nil
-			}
-			return "", fmt.Errorf("%w: %s=%s: not an executable file", ErrUnavailable, spec.EnvVar, override)
+			return resolved, nil
 		}
 	}
 
 	searched := append([]string{}, spec.Known...)
-	for _, candidate := range spec.Known {
-		if Refuse(candidate) != "" || !isExecutableFile(candidate) {
-			continue
+	for _, known := range spec.Known {
+		if resolved, reason := accept(known); reason == "" {
+			return resolved, nil
 		}
-		return candidate, nil
 	}
 	if found, ok := fromPath(os.Getenv("PATH"), spec.Name, &searched); ok {
 		return found, nil
 	}
 	return "", fmt.Errorf("%w (looked in %s)", ErrUnavailable, strings.Join(searched, ", "))
+}
+
+// accept returns the absolute form of a path Kin is willing to run, or the
+// reason it is not.
+//
+// Absolute is not tidiness. The caller runs the result with a working directory
+// of its own choosing — a repository, for git — and os/exec resolves a relative
+// Path *after* changing into that directory, so a relative `tools/git` that was
+// validated here would execute the repository's own tools/git there instead.
+// Measured, not assumed: exec.Cmd{Path: "tools/git", Dir: <repo>} runs
+// <repo>/tools/git.
+func accept(path string) (string, string) {
+	if reason := Refuse(path); reason != "" {
+		return "", reason
+	}
+	if !isExecutableFile(path) {
+		return "", "not an executable file"
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "no absolute form: " + err.Error()
+	}
+	return abs, ""
 }
 
 // fromPath scans PATH for a name Kin is willing to run, appending every
@@ -100,19 +120,15 @@ func fromPath(pathEnv, name string, searched *[]string) (string, bool) {
 		if dir == "" || Refuse(dir) != "" {
 			continue
 		}
-		candidate := filepath.Join(dir, name)
-		*searched = append(*searched, candidate)
-		if !isExecutableFile(candidate) {
-			continue
+		entry := filepath.Join(dir, name)
+		*searched = append(*searched, entry)
+		// accept judges the candidate and not only the directory it sits in: a
+		// clean directory holding a symlink into a wrapper directory is exactly
+		// the substitution this control exists to refuse, and vetoing the
+		// directory alone would wave it through.
+		if resolved, reason := accept(entry); reason == "" {
+			return resolved, true
 		}
-		// The candidate is judged, not only the directory it sits in: a clean
-		// directory holding a symlink into a wrapper directory is exactly the
-		// substitution this control exists to refuse, and vetoing the directory
-		// alone would wave it through.
-		if Refuse(candidate) != "" {
-			continue
-		}
-		return candidate, true
 	}
 	return "", false
 }
