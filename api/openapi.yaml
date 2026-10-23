@@ -976,6 +976,47 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/tasks/{taskId}/pr:
+    get:
+      operationId: getTaskPullRequest
+      description: >-
+        Cached pull-request state for the task's current workspace branch. A
+        task that is not on a GitHub repository, has no workspace, or whose
+        checkout is gone returns 200 with an empty observation list, because
+        having no pull request is a normal state and not an error.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Pull-request snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskPullRequestSnapshot"
+        "502":
+          description: The snapshot could not be assembled
+        "503":
+          description: GitHub integration is not configured
+  /api/tasks/{taskId}/pr/refresh:
+    post:
+      operationId: refreshTaskPullRequest
+      description: >-
+        Query GitHub now, bypassing the staleness floor, and wait for the
+        answer. Separate from the read so the one action that spends rate limit
+        is its own route.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Pull-request snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskPullRequestSnapshot"
+        "502":
+          description: The snapshot could not be assembled
+        "503":
+          description: GitHub integration is not configured
   /api/evals/suites:
     get:
       operationId: listEvalSuites
@@ -2535,3 +2576,107 @@ components:
         - $ref: "#/components/schemas/TaskEventMessage"
         - $ref: "#/components/schemas/ApprovalUpdateMessage"
         - $ref: "#/components/schemas/UserQuestionUpdateMessage"
+    PullRequestObservation:
+      type: object
+      additionalProperties: false
+      description: >-
+        One cached reading of a (repository, branch) pair on GitHub. Everything
+        below observed_at was true when it was read and may be false now;
+        everything from attempted_at describes the most recent query, which may
+        be newer than the answer above it.
+      required:
+        - repo
+        - head_branch
+        - task_id
+        - attempted_at
+      properties:
+        repo:
+          type: string
+          description: Canonical github.com/owner/name, lowercased.
+        head_branch:
+          type: string
+        task_id:
+          type: string
+        number:
+          type: integer
+          description: >-
+            Absent when a successful query found no pull request for the
+            branch. Also absent when no query has ever succeeded, which
+            observed_at distinguishes.
+        url:
+          type: string
+        title:
+          type: string
+        state:
+          type: string
+          enum: [open, closed, merged]
+        is_draft:
+          type: boolean
+        base_branch:
+          type: string
+        head_oid:
+          type: string
+          description: >-
+            The head commit the remote reported. Differing from the local HEAD
+            means the pull request is behind the workspace.
+        ci_state:
+          type: string
+          enum: [none, pending, success, failure]
+        ci_summary:
+          type: string
+          description: JSON string of check counts and failing check names.
+        source:
+          type: string
+          enum: [gh, anonymous]
+          description: >-
+            Which reader answered. An anonymous read cannot see private
+            repositories, so the two are not interchangeable.
+        comments_seen:
+          type: integer
+          description: Highest comment id already handed to the session.
+        observed_at:
+          type: integer
+          description: Unix milliseconds of the last successful query.
+        attempted_at:
+          type: integer
+          description: Unix milliseconds of the last query, successful or not.
+        last_error:
+          type: string
+          description: Why the last query failed. Empty exactly when it succeeded.
+    GHStatus:
+      type: object
+      additionalProperties: false
+      required: [available]
+      description: >-
+        Whether the GitHub CLI is usable, so the console can explain an
+        anonymous read instead of silently degrading.
+      properties:
+        available:
+          type: boolean
+        detail:
+          type: string
+    TaskPullRequestSnapshot:
+      type: object
+      additionalProperties: false
+      required: [gh, refreshing]
+      properties:
+        observations:
+          type: array
+          description: One entry per workspace generation branch, newest first.
+          items:
+            $ref: "#/components/schemas/PullRequestObservation"
+        repo:
+          type: string
+        branch:
+          type: string
+        gh:
+          $ref: "#/components/schemas/GHStatus"
+        refreshing:
+          type: boolean
+          description: >-
+            A query is in flight for this branch. Without it a first look at an
+            unpublished branch would render "no pull request" while the
+            question was still open, asserting something not yet checked.
+        notice:
+          type: string
+          description: One sentence explaining a degraded read, or empty.

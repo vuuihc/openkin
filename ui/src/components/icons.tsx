@@ -270,6 +270,29 @@ export function IconExternal(p: IconProps) {
   );
 }
 
+export function IconPullRequest(p: IconProps) {
+  return base(
+    p,
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M6 9v6" />
+      <path d="M15 6h1a3 3 0 0 1 3 3v3" />
+      <path d="m16 15 3-3 3 3" />
+    </>,
+  );
+}
+
+export function IconRefresh(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M23 4v6h-6" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </>,
+  );
+}
+
 export function IconArchive(p: IconProps) {
   return base(
     p,

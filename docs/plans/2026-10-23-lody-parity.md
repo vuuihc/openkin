@@ -7,8 +7,16 @@
 > `docs/plans/2026-10-23-hosted-mode.md` · `docs/plans/2026-10-23-docs-audit.md` ·
 > `docs/plans/2026-10-23-p0-github-layer.md`（P0 这一层的形状，§10 要求的产物）
 
-**状态**：已审阅，决策已定（§9）。开工中——P0a 的**后端**已实现（§6 P0 下的分步），
-控制台面板、真机验收、完成后评审尚未做。
+**状态**：已审阅，决策已定（§9）。开工中——
+
+- **P0a 已完成**（§6 P0 下的分步）：只读 PR 观测层 + 两个 endpoint + 只读控制台面板。
+  在 1440×900 和 390×844 两个宽度下实测过（含"已知 PR + 本次查询失败"那条路径，
+  见 `2026-10-23-p0-github-layer.md` §10 验收第 4 条）。
+- **手机首屏体积已修**（见 §P3b 下"开工前已核实的三件事"第 1 条）：
+  入口 chunk gzip 1,162.87 kB → 299.59 kB。
+- **P0b（publish）多了一个前置条件**：垫片不只挡 `gh`，`git` 也被挡了。见
+  `2026-10-23-p0-github-layer.md` §3 F3——不先解决，`git push` 会经过第三方凭据代理。
+- P0c（评论回喂）未开工。
 
 ---
 
@@ -403,6 +411,56 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 > **这是当前离你最近、却最不可用的一块。**
 > 参考 LODY：`specs/mobile-workspace-dock.md`（滚动方向最小化导航、14px 方向阈值、
 > 44×44 触摸目标）、`specs/message-queue-touch-actions.md`。
+
+#### 开工前已核实的三件事（2026-10-23，免得重新推一遍）
+
+**1. 首屏体积已修掉——这一条不再是问题。**
+`CodeViewer` 静态 import 了 `@monaco-editor/react` + `monacoSetup`（内含
+`monaco-editor` 与 5 个 `?worker`），把整个编辑器塞进了入口 chunk。
+改成 `React.lazy` + `Suspense` 后实测：
+
+| | 入口 chunk (raw) | 入口 chunk (gzip) |
+|---|---|---|
+| 之前 | 4,428.71 kB | 1,162.87 kB |
+| `ea0c3f3`（拆分 monaco） | 1,063.10 kB | 297.11 kB |
+| 加上 PR 面板（当前树） | 1,074.55 kB | **299.95 kB** |
+
+中间那行是 `ea0c3f3` 自己的构建数；末行是当前树的数（PR 面板约 11 kB raw / 2.8 kB gzip）。
+数字会随每次改动漂，所以记的是"哪次构建量出来的"，不是"大概多少"。
+
+monaco 移到按需加载的 `CodeViewer-*.js`（3,359 kB）。而且**不是打开面板就下**：
+`WorkspacePanel` 在 `selectedPath` 为空时渲染的是空状态，不是 `Suspense` 里的
+`CodeViewer`；而 `selectedPath` 只在点开某个文件时才被赋值——`TaskDetailPage` 的
+"文件"按钮（`openFilesPanel`）不设路径。所以**首次打开文件面板不会下那个 chunk**，
+只有真的点了一个文件才会。理由写在 `WorkspacePanel.tsx:42` 的注释里。
+
+**2. 审批卡片"钉在底部"是可以修成原位的，数据够用。**
+`Approval` 本身**没有** `seq`（只有 `id` / `created_at`），但
+`approval_requested` 事件同时带 `approval_id` 和 `ev.seq`，而
+`transcriptProjection.ts` 已经在 `ar-${ev.seq}` 处生成了一个 `meta` 标记。
+所以按 `approval_id` 关联即可把卡片渲染到它发生的位置。
+**要一起想清楚的两件事**（这是它至今没做的原因，不是没想到）：
+- 审批来自 `/api/approvals`，事件来自已加载的事件窗口。**窗口外的审批没有锚点**，
+  必须留一个兜底位置，否则会静默消失——比钉在底部更糟。
+- `TaskDetailPage` 的 `j/k/a/d` 键盘焦点（`focusIdx`）现在按 `needsYou` 数组下标走。
+  改成原位渲染后，焦点顺序要改成按 seq，否则键盘跳转会与视觉位置不符。
+
+**3. 触摸下限不能简单地加一个 `a` 选择器——而且仓库里已经有约定，只是没写成一条规则。**
+`ui/src/index.css` 的 44px 下限挂在 `.touch-lg` 上，而 `.touch-lg` 在
+`AppShell` 根节点，**是全站生效的**。所以 `.touch-lg a` 会把每一个 `<a>` 都顶到
+44px，包括塞在紧凑行里的那些（`ChatStream.tsx:787` 是 `flex-none max-w-[40%] truncate`
+的等宽链接，`CwdPicker.tsx:212` 是 11px 的行内动作），把行高和截断都挤坏。
+真正该顶的是**行级 tap target**（`ApprovalsPage.tsx:219` 的 `className="block"`、
+`TasksPage.tsx:157`、`ArtifactsPage.tsx:188`），以及面板自己的按钮。
+
+**已有的约定**：需要触摸下限的地方，元素自己写 `min-h-[44px] ... sm:min-h-0`
+（`ProviderSettingsSection.tsx:486`、`SettingsPage.tsx:1429`、
+`NewChatPage.tsx:632`）。也就是说 opt-in 已经存在，只是靠人手写、没有名字。
+要做的不是发明选择器，而是给它一个名字（例如 `data-touch-target`，与现有
+`data-touch-mini` 的 opt-out 风格对称），再把上面几处收敛过去。
+
+**P0a 面板的实测现状**（390×844）：刷新与关闭按钮都是 44×44；卡片里的 PR 链接是
+318×20、"更早的分支"里的外链是 12×12——这一条正是给它们准备的。
 
 ### P4 — 续接正确性（模型债）
 

@@ -51,8 +51,15 @@ import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
-import { IconBack, IconMachine, IconPanel, IconTrash } from "../components/icons";
+import {
+  IconBack,
+  IconMachine,
+  IconPanel,
+  IconPullRequest,
+  IconTrash,
+} from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import PullRequestPanel from "../components/pr/PullRequestPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
@@ -142,6 +149,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [focusIdx, setFocusIdx] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
+  // The two panels are both full-bleed overlays at the same z-index, so only
+  // one can be open: opening one closes the other rather than stacking.
+  const [prOpen, setPrOpen] = useState(false);
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
@@ -743,7 +753,13 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
 
   function openFilesPanel() {
+    setPrOpen(false);
     setFilesOpen(true);
+  }
+
+  function togglePrPanel() {
+    setFilesOpen(false);
+    setPrOpen((open) => !open);
   }
 
   async function onKeepAllChanges() {
@@ -901,7 +917,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             </span>
             <button
               type="button"
-              onClick={() => setFilesOpen((open) => !open)}
+              onClick={() => {
+                setPrOpen(false);
+                setFilesOpen((open) => !open);
+              }}
               className={[
                 "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
                 filesOpen
@@ -912,6 +931,20 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             >
               <IconPanel size={13} />
               <span>{tr("workspace.title")}</span>
+            </button>
+            <button
+              type="button"
+              onClick={togglePrPanel}
+              className={[
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+                prOpen
+                  ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
+                  : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
+              ].join(" ")}
+              title={tr("pr.title")}
+            >
+              <IconPullRequest size={13} />
+              <span>{tr("pr.title")}</span>
             </button>
             <button
               type="button"
@@ -1183,6 +1216,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             />
           </div>
         </div>
+      )}
+
+      {prOpen && (
+        <PullRequestPanel taskId={task.id} onClose={() => setPrOpen(false)} />
       )}
     </div>
   );

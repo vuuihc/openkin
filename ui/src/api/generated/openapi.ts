@@ -764,6 +764,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Cached pull-request state for the task's current workspace branch. A task that is not on a GitHub repository, has no workspace, or whose checkout is gone returns 200 with an empty observation list, because having no pull request is a normal state and not an error. */
+        get: operations["getTaskPullRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/pr/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Query GitHub now, bypassing the staleness floor, and wait for the answer. Separate from the read so the one action that spends rate limit is its own route. */
+        post: operations["refreshTaskPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evals/suites": {
         parameters: {
             query?: never;
@@ -1533,6 +1567,56 @@ export interface components {
             data: components["schemas"]["UserQuestion"];
         };
         WSMessage: components["schemas"]["TaskUpdateMessage"] | components["schemas"]["TaskDeletedMessage"] | components["schemas"]["TaskEventMessage"] | components["schemas"]["ApprovalUpdateMessage"] | components["schemas"]["UserQuestionUpdateMessage"];
+        /** @description One cached reading of a (repository, branch) pair on GitHub. Everything below observed_at was true when it was read and may be false now; everything from attempted_at describes the most recent query, which may be newer than the answer above it. */
+        PullRequestObservation: {
+            /** @description Canonical github.com/owner/name, lowercased. */
+            repo: string;
+            head_branch: string;
+            task_id: string;
+            /** @description Absent when a successful query found no pull request for the branch. Also absent when no query has ever succeeded, which observed_at distinguishes. */
+            number?: number;
+            url?: string;
+            title?: string;
+            /** @enum {string} */
+            state?: "open" | "closed" | "merged";
+            is_draft?: boolean;
+            base_branch?: string;
+            /** @description The head commit the remote reported. Differing from the local HEAD means the pull request is behind the workspace. */
+            head_oid?: string;
+            /** @enum {string} */
+            ci_state?: "none" | "pending" | "success" | "failure";
+            /** @description JSON string of check counts and failing check names. */
+            ci_summary?: string;
+            /**
+             * @description Which reader answered. An anonymous read cannot see private repositories, so the two are not interchangeable.
+             * @enum {string}
+             */
+            source?: "gh" | "anonymous";
+            /** @description Highest comment id already handed to the session. */
+            comments_seen?: number;
+            /** @description Unix milliseconds of the last successful query. */
+            observed_at?: number;
+            /** @description Unix milliseconds of the last query, successful or not. */
+            attempted_at: number;
+            /** @description Why the last query failed. Empty exactly when it succeeded. */
+            last_error?: string;
+        };
+        /** @description Whether the GitHub CLI is usable, so the console can explain an anonymous read instead of silently degrading. */
+        GHStatus: {
+            available: boolean;
+            detail?: string;
+        };
+        TaskPullRequestSnapshot: {
+            /** @description One entry per workspace generation branch, newest first. */
+            observations?: components["schemas"]["PullRequestObservation"][];
+            repo?: string;
+            branch?: string;
+            gh: components["schemas"]["GHStatus"];
+            /** @description A query is in flight for this branch. Without it a first look at an unpublished branch would render "no pull request" while the question was still open, asserting something not yet checked. */
+            refreshing: boolean;
+            /** @description One sentence explaining a degraded read, or empty. */
+            notice?: string;
+        };
     };
     responses: never;
     parameters: {
@@ -2941,6 +3025,78 @@ export interface operations {
                         [key: string]: unknown;
                     };
                 };
+            };
+        };
+    };
+    getTaskPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pull-request snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPullRequestSnapshot"];
+                };
+            };
+            /** @description The snapshot could not be assembled */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description GitHub integration is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    refreshTaskPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pull-request snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskPullRequestSnapshot"];
+                };
+            };
+            /** @description The snapshot could not be assembled */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description GitHub integration is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

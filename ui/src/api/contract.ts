@@ -18,6 +18,11 @@ export type EvalRunRequest = components["schemas"]["EvalRunRequest"];
 export type EvalCompareRequest = components["schemas"]["EvalCompareRequest"];
 export type ReplayRequest = components["schemas"]["ReplayRequest"];
 export type A2ATask = components["schemas"]["A2ATask"];
+export type PullRequestObservation =
+  components["schemas"]["PullRequestObservation"];
+export type GHStatus = components["schemas"]["GHStatus"];
+export type TaskPullRequestSnapshot =
+  components["schemas"]["TaskPullRequestSnapshot"];
 
 type RecordValue = Record<string, unknown>;
 

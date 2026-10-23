@@ -15,6 +15,7 @@ import {
   type ReplayRequest,
   type Task,
   type TaskEvent,
+  type TaskPullRequestSnapshot,
   type UserQuestion,
   type UserQuestionOption,
   type UserQuestionPayload,
@@ -36,6 +37,9 @@ export type {
   EvalRunRequest,
   EvalCompareRequest,
   ReplayRequest,
+  PullRequestObservation,
+  GHStatus,
+  TaskPullRequestSnapshot,
 } from "./contract";
 
 const TOKEN_KEY = "kin_token";
@@ -898,6 +902,31 @@ export async function getTaskLimitWait(id: string): Promise<TaskLimitWait | null
 export function listApprovals(status?: string): Promise<Approval[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
   return apiFetch<Approval[]>(`/api/approvals${q}`);
+}
+
+/**
+ * Cached GitHub state for the task's current workspace branch.
+ *
+ * The daemon may start a background query when the cache is stale, but the
+ * response never waits on the network — `refreshing` says whether one is in
+ * flight so the caller can show that the answer may be about to change.
+ */
+export function getTaskPullRequest(
+  id: string,
+): Promise<TaskPullRequestSnapshot> {
+  return apiFetch<TaskPullRequestSnapshot>(
+    `/api/tasks/${encodeURIComponent(id)}/pr`,
+  );
+}
+
+/** Query GitHub now and wait. Spends rate limit, so only on an explicit tap. */
+export function refreshTaskPullRequest(
+  id: string,
+): Promise<TaskPullRequestSnapshot> {
+  return apiFetch<TaskPullRequestSnapshot>(
+    `/api/tasks/${encodeURIComponent(id)}/pr/refresh`,
+    { method: "POST" },
+  );
 }
 
 export function listUserQuestions(status?: string): Promise<UserQuestion[]> {

@@ -71,9 +71,9 @@ diff 审阅完 ───────────┤
 
 ---
 
-## 3. 两个先于设计的本机事实
+## 3. 三个先于设计的本机事实
 
-这两条是我在动手前实测的，它们改变了设计，不是脚注。
+这三条是我在动手前（F3 是动手后回头查的）实测的，它们改变了设计，不是脚注。
 
 ### F1 — PATH 上的 `gh` 是 LODY 的会话垫片，而且它被注入了 Kin daemon 的 PATH
 
@@ -117,6 +117,50 @@ gh is /opt/homebrew/bin/gh                        ← 真正的 gh
 （git 侧另说：`credential.helper` = `osxkeychain` + `cache`，
 `git push` 走的是系统钥匙串，和 `gh` 的 token 是两回事，可能仍然可用。**但不去替用户修凭据**——
 重新认证是对外动作，由用户决定。）
+
+### F3 — 垫片不只挡了 `gh`，**`git` 也被挡了**，而 Kin 的 git 走的是 PATH
+
+F1 只查了 `gh`。实现 P0a 的读路径时回头查了一次：`~/.lody/gh-session-bin/<session-id>/`
+里装的是**整个 `git-*` 家族**（`git`、`git-add`、`git-am`……），而且那个目录在
+`dev.openkin.node` 这个 launchd job 的 `EnvironmentVariables.PATH` 里出现**两次**，
+都在 `/usr/bin` 和 `/opt/homebrew/bin` 之前。
+
+**用 daemon 自己的 PATH 实测**（不是从 `type -a` 推的）：
+
+```
+LookPath(git ) = "~/.lody/gh-session-bin/<session-id>/git"
+LookPath(gh  ) = "~/.lody/gh-session-bin/<session-id>/gh"
+```
+
+而 Kin 解析 git 就是这个方式：
+
+| 位置 | 代码 |
+|---|---|
+| `internal/workspace/manager.go:34` | `path, err := exec.LookPath("git")` |
+| `internal/workspace/anchor.go:83` | `exec.LookPath("git")`（`NewAnchorResolver`） |
+
+→ **今天 daemon 的每一次 git 操作都跑在另一个产品的会话垫片里**：probe、worktree add、
+diff、merge、finalize，**以及读路径推导 repo 坐标用的那两条**
+（`rev-parse --show-toplevel`、`remote get-url origin`）。实测那次 `git clone` 的 stderr
+上就带着 `[Lody GitHub] {"source":"personal","stage":"acquire","code":"credential_unavailable"}`
+这样的遥测行（clone 最终成功，垫片退回了本地路径）。
+
+按严重程度：
+
+1. **P0b 的 `git push` 会经过 LODY 的凭据代理。** 那是 P0 的写路径，也正是
+   `github-command-credentials.md` 禁止的形态。**所以 P0b 的前置条件不是"写完 push"，
+   而是先有一次"拒绝垫片"的 git 解析**——与 §6 的 `gh` 解析器同规格：候选绝对路径，
+   拒绝 `gh-session-bin` 之下的任何候选。
+2. **不能只修 `gh`。** 读路径今天就在用垫片跑 `git remote get-url`，只是它只读一个
+   URL、不带凭据，所以没有立刻显形。要做的是**一处共享的可执行文件解析**，`git` 和
+   `gh` 都用它；P0a 已经写好的 `internal/github/gh.go` 是它的雏形，P0b 时应提到
+   两者都能用的位置。
+3. **这不是"现在就坏了"**：垫片是透传代理，退出码和输出目前是对的。它的问题是
+   **边界被第三方占着**——失败模式取决于另一个产品的行为，而那个行为不由我们决定。
+   所以它是"必须在写路径之前解决"，不是"线上着火"。
+
+**未验证**：垫片对 `git remote get-url` 的输出是否与真 git 逐字节一致（只比对了本例的
+URL）；以及垫片在 git 操作失败时的退出码是否原样透传。
 
 ---
 
@@ -243,6 +287,21 @@ secure-store 密钥或调第三方 API。P0a 的读路径对此有一处**有意
 消耗用户的凭据或配额）。如果将来要收紧，收紧点应该是**把 reconciler 的巡检集合
 扩展到"尚无 PR 的活跃分支"**，而不是让视图变纯缓存。
 
+### 8.2 失败只说一遍：原因在行上，降级在面板上
+
+`last_error` 属于**行**，`notice` 属于**这一次读取**。P0a 的面板最初两个都渲染，
+于是同一句话在一张卡片上出现了两次——顶部一条灰的、卡片底部一条红的，
+因为 `SnapshotForTask` 当时把 `cached.LastError` 也抄进了 `snap.Notice`。
+
+现在各说各的：失败原因留在行上，也就是面板渲染它的地方（卡片底部、"上次观测于…"旁边）；
+`notice` 只留"这次读取降级了"的话（匿名读、限流退避）。§10 验收第 4 条要的
+"上次观测于 <时间>，本次查询失败：<原因>"因此正好落在一处，而不是拆成两处。
+`TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice` 钉住这条。
+
+路由本身的三个答案（200 空快照 / 502 组装失败 / 503 未配置）在
+`internal/api/github_pr_test.go` 里直接打 HTTP，因为控制台就是靠状态码分流的。
+其中 200 那条同时断言 `"observations":[]`——回头改坏成 `null` 会在这里红。
+
 ---
 
 ## 9. 分步
@@ -252,6 +311,9 @@ secure-store 密钥或调第三方 API。P0a 的读路径对此有一处**有意
 | **P0a** | repo 坐标 + `gh` 解析器 + `pr_observations` + 读路径（gh，再匿名兜底）+ 有界 reconciler + 只读 API/面板 | 只读 |
 | **P0b** | publish：push + `gh pr create`（描述由 agent 写，从快照 diff 取材），与 finalize 同级 | **写** |
 | **P0c** | 评论拉取（issue + review 两类）+ `comments_seen` 游标 + 「回喂 agent」 | 只读 + 投递给会话 |
+
+> **P0b 的前置条件（F3）**：先把 git 也做一次"拒绝垫片"的解析，否则 `git push` 会经过
+> LODY 的凭据代理。与 `gh` 共用一个解析器，不要各写一份。
 
 P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和评论**。
 这样"读"不必等"写"——凭据是否可用、reconciler 是否调好，都不挡住先把面板跑起来。
