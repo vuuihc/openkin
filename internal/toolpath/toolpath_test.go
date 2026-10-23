@@ -190,6 +190,20 @@ func TestResolveNeverReturnsARelativePath(t *testing.T) {
 	if !filepath.IsAbs(got) {
 		t.Fatalf("Resolve via PATH returned %q, want an absolute path", got)
 	}
+
+	// A bare name is the same problem one more step out. exec.Command looks a
+	// name without a separator up on PATH again, and it does that against the
+	// process's PATH rather than the filtered one the child is handed.
+	writeTool(t, dir, "git")
+	t.Setenv("PATH", "")
+	t.Setenv("KIN_TEST_TOOL_PATH_ABS", "git")
+	got, err = Resolve(Spec{Name: "git", EnvVar: "KIN_TEST_TOOL_PATH_ABS"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if want := filepath.Join(dir, "git"); got != want {
+		t.Fatalf("resolved %q, want %q rather than a name exec would look up again", got, want)
+	}
 }
 
 func TestResolveHonoursAnOverride(t *testing.T) {
@@ -273,6 +287,32 @@ func TestSanitizeEnvKeepsAPATHAndDropsTheWrapper(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("SanitizeEnv dropped an unrelated variable: %v", kept)
+	}
+}
+
+// git searches GIT_EXEC_PATH before PATH, so filtering PATH alone would leave
+// the wrapper reachable one directory over.
+func TestSanitizeEnvDropsARefusedHelperDirectory(t *testing.T) {
+	for _, entry := range SanitizeEnv([]string{
+		"PATH=/usr/bin",
+		"GIT_EXEC_PATH=/tmp/gh-session-bin/abc",
+	}) {
+		if strings.HasPrefix(entry, "GIT_EXEC_PATH=") {
+			t.Fatalf("kept %q, a directory git searches before PATH", entry)
+		}
+	}
+
+	// A GIT_EXEC_PATH of the user's own is configuration, not ours to drop.
+	const own = "GIT_EXEC_PATH=/usr/local/libexec/git-core"
+	kept := SanitizeEnv([]string{"PATH=/usr/bin", own})
+	found := false
+	for _, entry := range kept {
+		if entry == own {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("dropped an unrefused GIT_EXEC_PATH: %v", kept)
 	}
 }
 

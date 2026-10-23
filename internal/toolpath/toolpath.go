@@ -156,20 +156,42 @@ func FilterPATH(pathEnv string) string {
 // way that reads like a bug in it rather than like something Kin did.
 const fallbackPATH = "/usr/bin:/bin:/usr/sbin:/sbin"
 
+// dirEnvVars are variables that name a directory a tool searches for its own
+// helpers, ahead of PATH.
+//
+// Rewriting PATH is only as good as the other doors. git takes GIT_EXEC_PATH
+// before anything on PATH, so a shim named there survives the rewrite and every
+// `git-*` helper is still found through it — which is the arrangement this
+// package exists to refuse, since the shim ships the whole family as symlinks.
+// A refused value is dropped rather than rewritten: git then falls back to its
+// own compiled-in location, which is where its helpers really are.
+var dirEnvVars = map[string]bool{
+	"GIT_EXEC_PATH": true,
+}
+
 // SanitizeEnv returns env with PATH filtered, ready to hand to a child process.
 func SanitizeEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
 		name, value, ok := strings.Cut(entry, "=")
-		if !ok || name != "PATH" {
+		if !ok {
 			out = append(out, entry)
 			continue
 		}
-		filtered := FilterPATH(value)
-		if filtered == "" {
-			filtered = fallbackPATH
+		if name == "PATH" {
+			filtered := FilterPATH(value)
+			if filtered == "" {
+				filtered = fallbackPATH
+			}
+			out = append(out, name+"="+filtered)
+			continue
 		}
-		out = append(out, name+"="+filtered)
+		// Someone else's GIT_EXEC_PATH is their configuration and is passed
+		// through untouched; only one that names a refused directory goes.
+		if dirEnvVars[name] && Refuse(value) != "" {
+			continue
+		}
+		out = append(out, entry)
 	}
 	return out
 }
