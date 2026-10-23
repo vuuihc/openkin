@@ -101,12 +101,18 @@ gh is /opt/homebrew/bin/gh                        ← 真正的 gh
 
 ### F2 — 这台机器上目前没有任何可用的 GitHub 凭据
 
-两处 `gh auth status` 都是 `The token in keyring is invalid`。
-
-这条不是"边缘情况"，它是**当前状态**。所以：
-
-- "没有凭据"必须是**正常可显示状态**，不是错误、更不是阻断。会话循环照常跑。
-- 读取需要一个**不需要凭据的兜底路径**（公开仓库的匿名读），否则今天这个功能一次都演示不了。
+> **2026-10-23 更正**：这条**已经不成立**。写这一层时两处 `gh auth status` 都是
+> `The token in keyring is invalid`；实现完成后再测，`/opt/homebrew/bin/gh` 已经是
+> `✓ Logged in to github.com account vuuihc (keyring)`，scopes 含 `repo`。是同一台机器上
+> 的凭据状态变了，不是当时的判断有误。
+>
+> **保留这一节的理由**，以及它当初推出的两条设计：**没有凭据是正常状态**（不是错误、
+> 更不是阻断）、**读取要有不需要凭据的兜底**——这两条与凭据当前是否可用无关。一台没登录
+> 的机器、一个 token 过期的下午，都会回到这个状态。凭据可用只是让已认证那条路现在
+> 也能实测（`KIN_GITHUB_LIVE=1` 下的 `TestLiveLookupAgainstGitHub` 因此真的跑了，
+> 且正确避开了 PATH 上排第一的 `gh-session-bin` 垫片，见 F1）。
+>
+> 未变的结论：**不去替用户修凭据**——重新认证是对外动作，由用户决定。
 
 （git 侧另说：`credential.helper` = `osxkeychain` + `cache`，
 `git push` 走的是系统钥匙串，和 `gh` 的 token 是两回事，可能仍然可用。**但不去替用户修凭据**——
@@ -248,7 +254,7 @@ secure-store 密钥或调第三方 API。P0a 的读路径对此有一处**有意
 | **P0c** | 评论拉取（issue + review 两类）+ `comments_seen` 游标 + 「回喂 agent」 | 只读 + 投递给会话 |
 
 P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和评论**。
-这样 F2（没有凭据）不会卡住整个里程碑。
+这样"读"不必等"写"——凭据是否可用、reconciler 是否调好，都不挡住先把面板跑起来。
 
 ---
 

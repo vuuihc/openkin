@@ -506,7 +506,10 @@ func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, boo
 // empty snapshot rather than an error: having no pull request is the normal
 // state of a session that has not been published.
 func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool) (Snapshot, error) {
-	snap := Snapshot{GH: s.Status()}
+	// Observations is initialised rather than left nil so the JSON is `[]` and
+	// not `null`. The console types it as an array, and a null there is the kind
+	// of contract drift that only bites once something calls a method on it.
+	snap := Snapshot{GH: s.Status(), Observations: []store.PRObservation{}}
 
 	target, ok, err := s.TargetForTask(ctx, taskID)
 	if err != nil {
@@ -518,6 +521,7 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 			return snap, err
 		}
 		snap.Observations = observations
+		s.applyAnonymousNotice(&snap)
 		return snap, nil
 	}
 	snap.Repo = target.Repo.Canonical()
@@ -548,10 +552,57 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 		return snap, err
 	}
 	snap.Observations = observations
-	if !snap.GH.Available && len(observations) > 0 && observations[0].Source == SourceAnonymous {
-		snap.Notice = joinNotice(snap.Notice, anonymousNotice)
-	}
+	s.applyAnonymousNotice(&snap)
 	return snap, nil
+}
+
+// applyAnonymousNotice explains an anonymous answer.
+//
+// It is about the answer in hand, not about gh's state: an anonymous row is
+// missing private data whether or not the CLI happens to be working, and a row
+// read anonymously while gh was down stays anonymous after gh comes back.
+func (s *Service) applyAnonymousNotice(snap *Snapshot) {
+	lead, ok := leadObservation(snap.Observations, snap.Branch)
+	if !ok || lead.Source != SourceAnonymous {
+		return
+	}
+	snap.Notice = joinNotice(snap.Notice, anonymousNotice)
+}
+
+// leadObservation picks the row the console will lead with, so the notice
+// describes the card it appears above.
+//
+// An exact branch match wins even when it has never been observed: a failed
+// check on this branch is this branch's answer, and an older generation's row
+// belongs to a different branch. Only when nothing matches does the most
+// recently observed row stand in, which is what keeps a task whose checkout is
+// gone from going blank. This mirrors leadObservation in
+// ui/src/lib/prObservation.ts, which is the other half of the same rule.
+func leadObservation(observations []store.PRObservation, branch string) (store.PRObservation, bool) {
+	if len(observations) == 0 {
+		return store.PRObservation{}, false
+	}
+	if branch != "" {
+		for _, o := range observations {
+			if o.HeadBranch == branch {
+				return o, true
+			}
+		}
+	}
+	var best store.PRObservation
+	found := false
+	for _, o := range observations {
+		if o.ObservedAt == nil {
+			continue
+		}
+		if !found || *best.ObservedAt < *o.ObservedAt {
+			best, found = o, true
+		}
+	}
+	if found {
+		return best, true
+	}
+	return observations[0], true
 }
 
 const anonymousNotice = "reading public data without credentials; " +

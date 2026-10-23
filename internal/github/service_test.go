@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -606,3 +607,62 @@ func waitForRefresh(t *testing.T, svc *Service, target Target) {
 }
 
 func number(n int) *int { return &n }
+
+// A nil slice marshals to `null`, and the console types this field as an array.
+// The drift is invisible until something calls a method on it, which is the
+// worst time to find out.
+func TestSnapshotSerialisesObservationsAsAnArray(t *testing.T) {
+	svc, _ := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	snap, err := svc.SnapshotForTask(context.Background(), "no-such-task", false)
+	if err != nil {
+		t.Fatalf("SnapshotForTask: %v", err)
+	}
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"observations":null`) {
+		t.Fatalf("observations serialised as null: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"observations":[]`) {
+		t.Fatalf("observations is not an empty array: %s", raw)
+	}
+}
+
+// The notice describes the card the console leads with. Gating it on gh's
+// availability instead would silently drop it whenever the CLI is present but
+// the answer still came from the anonymous reader.
+func TestAnonymousNoticeFollowsTheLeadRowNotGHAvailability(t *testing.T) {
+	svc, _ := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	observed := time.Now().UnixMilli()
+
+	anon := store.PRObservation{
+		Repo: "github.com/owner/repo", HeadBranch: "kin/task/1/g1", TaskID: "t1",
+		Source: SourceAnonymous, ObservedAt: &observed,
+	}
+	snap := Snapshot{GH: GHStatus{Available: true}, Branch: "kin/task/1/g1",
+		Observations: []store.PRObservation{anon}}
+	svc.applyAnonymousNotice(&snap)
+	if snap.Notice != anonymousNotice {
+		t.Fatalf("notice = %q, want the anonymous explanation", snap.Notice)
+	}
+
+	// A different branch's anonymous row says nothing about this branch's
+	// answer, so it must not be reported as if it did.
+	gh := anon
+	gh.HeadBranch = "kin/task/1/g2"
+	gh.Source = SourceGH
+	snap = Snapshot{GH: GHStatus{Available: true}, Branch: "kin/task/1/g2",
+		Observations: []store.PRObservation{gh, anon}}
+	svc.applyAnonymousNotice(&snap)
+	if snap.Notice != "" {
+		t.Fatalf("notice = %q, want none for a gh-sourced lead row", snap.Notice)
+	}
+
+	// With nothing read at all there is nothing to explain.
+	snap = Snapshot{GH: GHStatus{Available: true}, Observations: []store.PRObservation{}}
+	svc.applyAnonymousNotice(&snap)
+	if snap.Notice != "" {
+		t.Fatalf("notice = %q, want none with no observations", snap.Notice)
+	}
+}

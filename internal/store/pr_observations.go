@@ -181,6 +181,9 @@ func (s *Store) GetPRObservation(ctx context.Context, repo, branch string) (PROb
 // ListPRObservationsByTask returns every branch observation recorded for a task,
 // newest branch first. A task can have more than one: each workspace generation
 // gets its own branch.
+//
+// Empty is an empty slice rather than nil, because this feeds a JSON array and
+// a nil slice marshals to `null`.
 func (s *Store) ListPRObservationsByTask(ctx context.Context, taskID string) ([]PRObservation, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+prObservationColumns+` FROM pr_observations WHERE task_id = ? ORDER BY head_branch DESC`,
@@ -190,7 +193,7 @@ func (s *Store) ListPRObservationsByTask(ctx context.Context, taskID string) ([]
 	}
 	defer rows.Close()
 
-	var out []PRObservation
+	out := []PRObservation{}
 	for rows.Next() {
 		o, err := scanPRObservation(rows)
 		if err != nil {
