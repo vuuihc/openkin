@@ -216,6 +216,9 @@ func (s *Service) claim(
 
 	user.ID = ulid.Make().String()
 	user.CreatedAt = now.UnixMilli()
+	// Claiming the Hub is what makes an account its owner, so the role is set
+	// here rather than by either caller: both bootstrap paths mean the same thing.
+	user.Role = store.RoleOwner
 	identity, err := buildIdentity(user.ID, now)
 	if err != nil {
 		return Session{}, err

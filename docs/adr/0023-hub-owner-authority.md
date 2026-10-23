@@ -30,11 +30,18 @@ tasks; it does not reconfigure the daemon it talks to. The loopback-only routes
 (integrated terminal, internal approval bridge) still require loopback as well,
 so a Hub owner on a laptop cannot open a terminal on the Hub host.
 
-This is sound today for one specific reason, which is load-bearing: a Hub
-closes registration after the first claim, so `PrincipalUser` is the owner and
-there is no second account to distinguish. **If a Hub ever gains a second
-account, this check must become a role test rather than a kind test.** The
-comment on `operatorOnly` says so.
+This was sound at the time for one specific reason, which was load-bearing: a
+Hub closes registration after the first claim, so `PrincipalUser` was the owner
+and there was no second account to distinguish. The condition under which that
+reasoning would stop holding was named here as it was written: *"If a Hub ever
+gains a second account, this check must become a role test rather than a kind
+test."*
+
+**That condition arrived, and [ADR 0026](./0026-operator-authority-role.md)
+makes the change.** `operatorOnly` now admits the master token and an account
+whose role is `owner`, rather than any signed-in account. The rest of this ADR
+still describes the authority model; only the test the guard performs has
+changed.
 
 Widening the guard created an escalation that had to be closed with it: the
 settings response included the daemon master token and a connect URL carrying

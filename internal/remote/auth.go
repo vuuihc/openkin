@@ -26,6 +26,11 @@ type Principal struct {
 	// UserID is set for browser sessions authenticated by a login cookie. It is
 	// the account key, never an email address.
 	UserID string
+	// Role is the account's role on this daemon and is set only for
+	// PrincipalUser. It is what separates the account that claimed the Hub from
+	// accounts that registered later, so it must be copied from the account
+	// record rather than inferred from Kind.
+	Role string
 }
 
 const (
@@ -33,6 +38,20 @@ const (
 	PrincipalDevice = "device"
 	PrincipalUser   = "user"
 )
+
+// Identity is the stable key for whoever is behind this principal: the account
+// for a browser session, the device for a paired client.
+//
+// Callers that key isolation, idempotency, or ownership on a principal must use
+// this rather than reading DeviceID. A session principal carries no DeviceID, so
+// DeviceID alone is the empty string for every account — which silently makes
+// all of them the same caller everywhere it is used as a key.
+func (p Principal) Identity() string {
+	if p.UserID != "" {
+		return p.UserID
+	}
+	return p.DeviceID
+}
 
 // SessionCookieName is the browser login cookie. The desktop shell and native
 // clients keep using bearer credentials; only the web console uses this.

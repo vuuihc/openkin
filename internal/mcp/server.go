@@ -236,11 +236,11 @@ func (s *Server) Handler() http.Handler {
 			clientID = "http-client"
 		}
 		if stateless {
-			sessionID = "stateless:" + principal.Kind + ":" + principal.DeviceID + ":" + clientID
+			sessionID = "stateless:" + principal.Kind + ":" + principal.Identity() + ":" + clientID
 		}
 		scopeHeader := r.Header.Get("X-Kin-MCP-Scopes")
 		auth := authContext{
-			Principal: Principal{Kind: principal.Kind, ID: principal.DeviceID},
+			Principal: Principal{Kind: principal.Kind, ID: principal.Identity()},
 			ClientID:  clientID,
 			SessionID: sessionID,
 			Scopes:    scopesForPrincipal(principal, scopeHeader),

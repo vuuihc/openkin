@@ -96,9 +96,17 @@ func (s *Server) handleCallConnector(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
+	// Attribute the call to whoever actually made it. A browser session was
+	// falling through to "master", recording the owner as the daemon's own
+	// token — the one principal they demonstrably are not.
 	principal := "master"
-	if p, ok := remote.PrincipalFromContext(r.Context()); ok && p.DeviceID != "" {
-		principal = p.DeviceID
+	if p, ok := remote.PrincipalFromContext(r.Context()); ok {
+		switch {
+		case p.Kind == remote.PrincipalDevice && p.DeviceID != "":
+			principal = p.DeviceID
+		case p.Kind == remote.PrincipalUser:
+			principal = "user:" + p.Identity()
+		}
 	}
 	result, err := s.Connectors.Call(r.Context(), connectors.Call{
 		ConnectorID: chi.URLParam(r, "id"),

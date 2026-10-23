@@ -470,8 +470,10 @@ func (s *Server) writeTaskStatus(w http.ResponseWriter, r *http.Request, status 
 func principalID(r *http.Request) string {
 	// The auth middleware has already authenticated the request. Device tokens
 	// are isolated from each other; the master token uses a stable namespace.
+	// A browser session is keyed by its account, since a session carries no
+	// device id and every account would otherwise share one identity.
 	if principal, ok := remote.PrincipalFromContext(r.Context()); ok {
-		return "a2a:" + principal.Kind + ":" + principal.DeviceID
+		return "a2a:" + principal.Kind + ":" + principal.Identity()
 	}
 	sum := sha256.Sum256([]byte(r.Header.Get("Authorization")))
 	return "a2a:" + hex.EncodeToString(sum[:])

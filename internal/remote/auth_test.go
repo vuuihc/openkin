@@ -112,3 +112,32 @@ func TestAuthMiddlewareStoresDeviceTokenInContext(t *testing.T) {
 		t.Fatalf("device token: status %d, want 200", rr.Code)
 	}
 }
+
+func TestPrincipalIdentitySeparatesAccounts(t *testing.T) {
+	// A session principal carries no device id. Keying identity on DeviceID
+	// alone is the empty string for every account, which is how two different
+	// people become the same caller in A2A ownership and MCP idempotency.
+	alice := Principal{Kind: PrincipalUser, UserID: "user-alice"}
+	bob := Principal{Kind: PrincipalUser, UserID: "user-bob"}
+	if alice.Identity() == bob.Identity() {
+		t.Fatalf("two accounts share identity %q", alice.Identity())
+	}
+	if got := alice.Identity(); got != "user-alice" {
+		t.Fatalf("session identity = %q, want the account id", got)
+	}
+
+	// A device principal has no account, and keeps its device id.
+	phone := Principal{Kind: PrincipalDevice, DeviceID: "device-phone"}
+	if got := phone.Identity(); got != "device-phone" {
+		t.Fatalf("device identity = %q, want the device id", got)
+	}
+	if phone.Identity() == alice.Identity() {
+		t.Fatal("a device and an account must not share identity")
+	}
+
+	// The master token is a namespace of its own and is not an account.
+	master := Principal{Kind: PrincipalMaster}
+	if master.Identity() != "" {
+		t.Fatalf("master identity = %q, want empty", master.Identity())
+	}
+}

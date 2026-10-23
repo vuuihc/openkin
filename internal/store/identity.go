@@ -13,6 +13,18 @@ import (
 // lives here rather than on users.email.
 const ProviderPassword = "password"
 
+// Roles an account can hold on this daemon.
+//
+// RoleOwner is the account that claimed the Hub. It is the only role that may
+// administer the daemon, which is what makes the operator check a role test
+// rather than a "is signed in" test (ADR 0026). RoleMember is any account that
+// registered afterwards; members drive tasks but cannot reconfigure the daemon
+// they are talking to.
+const (
+	RoleOwner  = "owner"
+	RoleMember = "member"
+)
+
 // User is an account. ID is the stable key for everything that references an
 // account. Email is display/contact data and is deliberately not unique: two
 // accounts may legitimately carry the same address, and nothing merges them.
@@ -22,8 +34,16 @@ type User struct {
 	EmailVerified bool
 	EmailSource   string
 	DisplayName   string
+	Role          string
 	CreatedAt     int64
 	DisabledAt    *int64
+}
+
+// IsOwner reports whether this account administers the daemon. An empty role
+// reads as not-owner: a row that somehow lost its role must fail closed rather
+// than inherit the claim the column exists to record.
+func (u User) IsOwner() bool {
+	return u.Role == RoleOwner
 }
 
 // UserIdentity is one login credential attached to an account. A user may have
@@ -70,10 +90,10 @@ func (s *Store) CreateUserWithIdentity(ctx context.Context, user User, identity 
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO users (id, email, email_verified, email_source, display_name, created_at, disabled_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		INSERT INTO users (id, email, email_verified, email_source, display_name, role, created_at, disabled_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		user.ID, user.Email, boolToInt(user.EmailVerified), user.EmailSource,
-		user.DisplayName, user.CreatedAt, user.DisabledAt); err != nil {
+		user.DisplayName, normalizeRole(user.Role), user.CreatedAt, user.DisabledAt); err != nil {
 		return fmt.Errorf("insert user: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -107,7 +127,7 @@ func (s *Store) AddIdentity(ctx context.Context, identity UserIdentity) error {
 // GetUser returns an account by id.
 func (s *Store) GetUser(ctx context.Context, id string) (User, error) {
 	return scanUser(s.db.QueryRowContext(ctx, `
-		SELECT id, email, email_verified, email_source, display_name, created_at, disabled_at
+		SELECT id, email, email_verified, email_source, display_name, role, created_at, disabled_at
 		FROM users WHERE id = ?`, id))
 }
 
@@ -364,7 +384,7 @@ func scanUser(row *sql.Row) (User, error) {
 	var verified int
 	var disabled sql.NullInt64
 	err := row.Scan(&user.ID, &user.Email, &verified, &user.EmailSource,
-		&user.DisplayName, &user.CreatedAt, &disabled)
+		&user.DisplayName, &user.Role, &user.CreatedAt, &disabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -372,10 +392,21 @@ func scanUser(row *sql.Row) (User, error) {
 		return User{}, fmt.Errorf("read user: %w", err)
 	}
 	user.EmailVerified = verified != 0
+	user.Role = normalizeRole(user.Role)
 	if disabled.Valid {
 		user.DisabledAt = &disabled.Int64
 	}
 	return user, nil
+}
+
+// normalizeRole maps anything unrecognized onto RoleMember. The column is the
+// authority on who administers the daemon, so an unexpected value has to read as
+// the unprivileged role rather than propagate.
+func normalizeRole(role string) string {
+	if strings.TrimSpace(role) == RoleOwner {
+		return RoleOwner
+	}
+	return RoleMember
 }
 
 func boolToInt(b bool) int {

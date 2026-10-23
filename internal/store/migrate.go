@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified INTEGER NOT NULL DEFAULT 0,
   email_source   TEXT NOT NULL DEFAULT '',
   display_name   TEXT NOT NULL DEFAULT '',
+  role           TEXT NOT NULL DEFAULT 'member',
   created_at     INTEGER NOT NULL,
   disabled_at    INTEGER
 );

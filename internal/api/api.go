@@ -226,6 +226,7 @@ func (s *Server) Handler() http.Handler {
 			return remote.Principal{
 				Kind:   remote.PrincipalUser,
 				UserID: user.ID,
+				Role:   user.Role,
 				Label:  user.DisplayName,
 			}, true
 		})
@@ -331,10 +332,10 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/api/tasks/{id}/retry", s.handleRetry)
 		r.Post("/api/tasks/{id}/limit/continue", s.handleLimitContinue)
 		r.Post("/api/tasks/{id}/fork", s.handleFork)
-		r.Get("/api/approvals", s.handleListApprovals)
-		r.Post("/api/approvals/{id}/decision", s.handleDecision)
-		r.Get("/api/user-questions", s.handleListUserQuestions)
-		r.Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
+		r.With(taskActorOnly).Get("/api/approvals", s.handleListApprovals)
+		r.With(taskActorOnly).Post("/api/approvals/{id}/decision", s.handleDecision)
+		r.With(taskActorOnly).Get("/api/user-questions", s.handleListUserQuestions)
+		r.With(taskActorOnly).Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
 		r.Get("/api/recent-cwds", s.handleRecentCwds)
 		r.Get("/api/git/branches", s.handleGitBranches)
 		r.With(operatorOnly).Post("/api/git/checkout", s.handleGitCheckout)
@@ -458,17 +459,6 @@ func loopbackOnly(next http.Handler) http.Handler {
 	})
 }
 
-// operatorOnly guards the routes that administer this daemon: its settings,
-// providers, connectors, devices, and files.
-//
-// Two principals qualify. The master token does, because whoever holds the
-// machine holds the daemon. A signed-in account does too, but only because a
-// Hub has exactly one: registration closes after the first claim, so
-// PrincipalUser is the owner and nobody else. If a Hub ever gains a second
-// account, this check has to become a role test rather than a kind test.
-//
-// A paired device token is deliberately excluded at any rate. A phone or a
-// desktop client drives tasks; it does not reconfigure the daemon it talks to.
 // isMasterRequest reports whether the caller presented the daemon's own token
 // rather than an account session or a paired-device token.
 func isMasterRequest(r *http.Request) bool {
@@ -476,6 +466,18 @@ func isMasterRequest(r *http.Request) bool {
 	return ok && principal.Kind == remote.PrincipalMaster
 }
 
+// operatorOnly guards the routes that administer this daemon: its settings,
+// providers, connectors, devices, and files.
+//
+// Two principals qualify. The master token does, because whoever holds the
+// machine holds the daemon. The owning account does, by role rather than by
+// being signed in: a Hub can hold accounts that registered after the first
+// claim, and those drive tasks without reconfiguring the daemon they talk to.
+// The role is read from the account record, so an account whose role is missing
+// or unrecognized falls through to the denial below.
+//
+// A paired device token is deliberately excluded at any rate. A phone or a
+// desktop client drives tasks; it does not reconfigure the daemon it talks to.
 func operatorOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		principal, ok := remote.PrincipalFromContext(r.Context())
@@ -483,12 +485,42 @@ func operatorOnly(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
 			return
 		}
-		switch principal.Kind {
-		case remote.PrincipalMaster, remote.PrincipalUser:
+		if principal.Kind == remote.PrincipalMaster ||
+			(principal.Kind == remote.PrincipalUser && principal.Role == store.RoleOwner) {
 			next.ServeHTTP(w, r)
-		default:
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
+			return
 		}
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
+	})
+}
+
+// taskActorOnly guards the human gate: listing, approving, or denying a task's
+// pending actions, and answering a question a task is blocked on.
+//
+// These handlers took no principal at all, which was correct while one account
+// existed — "the human" and "the owner" were the same actor, so there was
+// nothing to check. With member accounts possible, approving is authority over
+// someone else's task, and it is authority of a pointed kind: an approval is
+// what lets an agent run a command.
+//
+// A member is refused because tasks are not yet scoped to an account, so a
+// member has no tasks and no standing to answer for one. A paired device is
+// admitted: the approval inbox on a phone is a product requirement, and a
+// device credential is enrolled by the owner rather than self-registered. When
+// tasks do carry an owner, this becomes a per-task check and the member
+// exclusion goes away.
+func taskActorOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := remote.PrincipalFromContext(r.Context())
+		if !ok {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "task access required"})
+			return
+		}
+		if principal.Kind == remote.PrincipalUser && principal.Role != store.RoleOwner {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "task access required"})
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

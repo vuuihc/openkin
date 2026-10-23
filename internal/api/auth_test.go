@@ -359,6 +359,139 @@ func TestDeviceTokenCannotReachOperatorRoutes(t *testing.T) {
 	}
 }
 
+// joinMember writes a second account directly and returns a client holding its
+// session cookie. Registration closes after the first claim, so nothing in the
+// product creates one yet — the guards have to be right before that changes,
+// which is why the row is written here rather than through an API.
+//
+// The role is left unset on purpose: an account that never had one recorded has
+// to land on the unprivileged side rather than inherit the claim.
+func joinMember(t *testing.T, s *Server, handler http.Handler, id, email string) *authClient {
+	t.Helper()
+	const password = "hunter2hunter2"
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	now := time.Now().UnixMilli()
+	if err := s.Store.CreateUserWithIdentity(t.Context(),
+		store.User{ID: id, Email: email, DisplayName: "Member", CreatedAt: now},
+		store.UserIdentity{
+			ID: id + "-identity", UserID: id,
+			Provider: store.ProviderPassword, Subject: email,
+			SecretHash: hash, Label: "password", CreatedAt: now,
+		}); err != nil {
+		t.Fatalf("create member account: %v", err)
+	}
+
+	member := &authClient{t: t, h: handler}
+	if rec := member.post("/api/auth/login",
+		`{"email":"`+email+`","password":"`+password+`"}`); rec.Code != http.StatusOK {
+		t.Fatalf("member login: %d %s", rec.Code, rec.Body.String())
+	}
+	if member.cookie == nil {
+		t.Fatal("member login did not open a session")
+	}
+	return member
+}
+
+// TestMemberAccountCannotReachOperatorRoutes covers the case ADR 0026 exists
+// for: a Hub holding more than one account.
+func TestMemberAccountCannotReachOperatorRoutes(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	member := joinMember(t, s, handler, "member-account", "member@example.com")
+
+	// Signed in, but not the account that claimed the Hub.
+	if rec := member.get("/api/settings"); rec.Code != http.StatusForbidden {
+		t.Fatalf("member reading settings: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := member.do(http.MethodPut, "/api/settings", `{"notify.bark_url":""}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("member writing settings: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := member.get("/api/devices"); rec.Code != http.StatusForbidden {
+		t.Fatalf("member listing devices: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	// The routes a signed-in account legitimately uses still work.
+	if rec := member.get("/api/tasks"); rec.Code != http.StatusOK {
+		t.Fatalf("member listing tasks: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestMemberAccountCannotReachTheApprovalGate covers the second half of the
+// same assumption. Approving is authority over someone else's task, and these
+// handlers read no principal at all — which was correct while "the human" and
+// "the owner" were the same actor.
+func TestMemberAccountCannotReachTheApprovalGate(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	member := joinMember(t, s, handler, "gate-member", "gate@example.com")
+
+	if rec := member.get("/api/approvals"); rec.Code != http.StatusForbidden {
+		t.Fatalf("member listing approvals: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := member.post("/api/approvals/some-id/decision", `{"decision":"approved"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("member deciding an approval: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := member.get("/api/user-questions"); rec.Code != http.StatusForbidden {
+		t.Fatalf("member listing questions: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := member.post("/api/user-questions/some-id/answer", `{"answer":"yes"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("member answering a question: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+
+	// The owner keeps the gate, and so does a paired device: the approval inbox
+	// on a phone is the product requirement this must not break.
+	if rec := owner.get("/api/approvals"); rec.Code != http.StatusOK {
+		t.Fatalf("owner listing approvals: %d %s", rec.Code, rec.Body.String())
+	}
+	const deviceToken = "0011223344556677889900112233445566778899001122334455667788990011"
+	if err := s.Store.InsertDeviceCredential(t.Context(), store.DeviceCredential{
+		ID:        "device-gate",
+		TokenHash: remote.HashToken(deviceToken),
+		Label:     "phone",
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("insert device credential: %v", err)
+	}
+	device := &authClient{t: t, h: handler, master: deviceToken}
+	if rec := device.get("/api/approvals"); rec.Code != http.StatusOK {
+		t.Fatalf("device listing approvals: %d %s, want 200", rec.Code, rec.Body.String())
+	}
+}
+
+// TestClaimRecordsTheOwnerRole pins the other half of the same rule: the guard
+// above is only meaningful if claiming actually writes the role it checks.
+func TestClaimRecordsTheOwnerRole(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+
+	var id string
+	if err := s.Store.DB().QueryRowContext(t.Context(),
+		`SELECT id FROM users`).Scan(&id); err != nil {
+		t.Fatalf("read claimed user: %v", err)
+	}
+	user, err := s.Store.GetUser(t.Context(), id)
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+	if user.Role != store.RoleOwner {
+		t.Fatalf("claimed account role = %q, want %q", user.Role, store.RoleOwner)
+	}
+	if !user.IsOwner() {
+		t.Fatal("IsOwner() is false for the account that claimed the Hub")
+	}
+}
+
 func TestAnonymousCannotReachOperatorRoutes(t *testing.T) {
 	s, _, _ := newAuthTestServer(t)
 	anon := &authClient{t: t, h: s.Handler()}
