@@ -29,7 +29,7 @@ A **Routine** is a saved, recurring Task whose entire reason to exist is the **r
 1. **The report is the product, not the run.** Config is secondary; the feed and the notification are the surface.
 2. **Read/write separation.** A routine's *configuration* belongs to its project; a routine's *results* belong to a global inbox. (Drives the UI, below.)
 3. **The agent decides whether to ring.** Each run ends with a self-reported signal — a one-line TL;DR and `noteworthy: true|false`. Kin uses it to choose **silent-into-feed** vs **push notification**. This is the only intelligence kept, and it lives in the prompt/agent, never in a probe engine.
-4. **Background failure never blocks interactive work.** A run is a Task on the **shared FIFO queue** (`DefaultMaxConcurrent = 4`); any panic/error is recorded on the run and, at most, trips a circuit breaker — it does not touch user-initiated tasks.
+4. **Background failure never blocks interactive work.** A run is a Task on the **shared FIFO queue** (`DefaultMaxConcurrent`, 16 since ADR 0016 raised it from 4); any panic/error is recorded on the run and, at most, trips a circuit breaker — it does not touch user-initiated tasks.
 5. **Permissions reuse the Task ladder.** A routine carries a `permission_mode`; dispatched runs go through the same approval chain. No new authority path.
 6. **Pause and delete are first-class.** `enabled` toggle + CRUD; a paused routine keeps its history.
 7. **Small by default (PRINCIPLE §5.11).** One primitive (recurring Task), one inbox, one push. No priority queue, no scheduling DSL, no cron-expression editor in v1 (plain `interval_secs` + catch-up).

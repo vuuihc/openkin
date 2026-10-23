@@ -53,4 +53,4 @@ LiteLLM, …). ADR future work already called out a multi-provider list.
 
 - Settings UI lists providers with add / edit / delete / switch-active.
 - `kin` agent availability follows the active entry only.
-- No automatic routing/fallback between providers yet (explicit user switch only).
+- Automatic routing/fallback between providers shipped after this ADR (see `SYSTEM_DESIGN.md` §6 and the routing profiles); the explicit-switch-only statement below it no longer holds.

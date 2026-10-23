@@ -12,7 +12,9 @@ The MVP in one sentence: a self-hosted daemon that wraps external coding agents 
 
 ## 0. Ground rules for the implementer
 
-- **MUST NOT** build: a chat product, a memory system, user accounts, a Kin cloud/relay, an agent of your own, Docker/K8s deployment, React Native, any message queue or external database.
+- **MUST NOT** build: a chat product, a memory system, an OpenKin-operated relay, an agent of your own, Docker/K8s deployment, React Native, any message queue or external database.
+
+  > **Amended 2026-10-23.** This list used to forbid `user accounts` and `a Kin cloud/relay` outright. Accounts are now in scope: the optional hosted mode has the user register on **their own** Hub and log in from several devices, and account isolation is implemented (`docs/plans/2026-10-23-hosted-mode.md`). What stays forbidden is the same thing it always was — OpenKin operating the relay. The Hub and its domain belong to the user (`--role hub --domain`), never to us.
 - **MUST NOT** add dependencies beyond the ones listed in §2 without a written reason in the PR description.
 - The UI **MUST** talk to the daemon only via the HTTP/WS API in §6. No other channel.
 - Every milestone in §10 has acceptance criteria. A milestone is done when its criteria pass, not before. Implement milestones **in order**.

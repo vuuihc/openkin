@@ -79,4 +79,4 @@ Architecture and decisions: [docs/IMPL_NOTES.md](./docs/IMPL_NOTES.md) § Deskto
 
 ## License
 
-Intended open-source license: Apache-2.0 (to be confirmed when code lands).
+Apache-2.0 — see [LICENSE](./LICENSE).

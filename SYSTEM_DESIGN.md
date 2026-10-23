@@ -158,7 +158,7 @@ Three rules keep this simple, and they are the whole design:
 
 End-to-end encryption and conflict resolution are **not** offered. See [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md).
 
-Accounts exist so that a second device can see the first device's work. A Hub is single-owner by default; opening registration to other people requires per-account isolation of tasks, artifacts, and the live event stream, which is not yet implemented.
+Accounts exist so that a second device can see the first device's work. A Hub is single-owner by default; opening registration to other people requires per-account isolation of tasks, artifacts, and the live event stream. **That isolation is implemented** (`store.ScopeForPrincipal` is the single rule; REST, MCP, WebSocket, SSE, the change feed, and A2A all apply it), but the registration endpoint that would let a second person create an account is not — see `docs/plans/2026-10-23-hosted-mode.md`.
 
 ---
 
@@ -183,7 +183,7 @@ and audit services as REST.
 |-------|--------|
 | Daemon | Go, single static binary; pure-Go SQLite (no CGO); embeds the web console; tsnet built in |
 | Desktop shell | Electron; daemon as supervised sidecar; tray, native notifications for approvals, auto-update |
-| Local terminal | Electron main window only; ephemeral PTY sessions use token-authenticated, true-loopback-only HTTP/WebSocket routes and are never exposed through LAN, Tailnet, or Funnel |
+| Local terminal | Belongs to the machine that owns the workspace, not the client viewing it; output is a session-stream item, so any console renders it. Every terminal route needs an explicit opt-in from that machine's operator (off by default, never implied by a Hub credential or account role) — see ADR 0004 |
 | Task workspaces | Tasks outlive zero or more Kin-owned workspace generations; lazy-capable adapters start released follow-ups read-only on the current source checkout and auto-promote on the first requested write, while final diffs remain immutable and addressable by generation |
 | UI | One React + Tailwind codebase for the Electron window and the phone web console |
 | API contract | Checked-in OpenAPI is the source for the task/approval/question live-resource slice, not the complete HTTP API. TypeScript types are generated and generation drift is CI-checked. Go handlers remain handwritten; server conformance and broader endpoint coverage are deferred. |

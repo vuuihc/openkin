@@ -63,4 +63,4 @@ make desktop-dist
 
 ## 许可证
 
-计划采用宽松开源许可（如 Apache-2.0）；正式代码落地时一并确认。
+Apache-2.0 —— 见 [LICENSE](./LICENSE)。

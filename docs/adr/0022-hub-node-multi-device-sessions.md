@@ -86,10 +86,30 @@ The following boundaries are part of the decision, not implementation detail:
    installed. If neither exists the turn fails with an explicit, explainable
    reason. The Hub never silently substitutes a device or an agent, so a
    session keeps exactly one routing owner.
+   *Amended 2026-10-23.* "Can resolve the workspace anchor" assumed the
+   workspace already exists somewhere, which is true when the session started
+   on the machine that owns the checkout and false when a session is created
+   from a device that has no checkout at all. In that case resolving the anchor
+   includes **materializing** it on the chosen Node first — a clone, a
+   generation, or an explicit choice of an existing directory. The decision
+   itself is untouched: still exactly one routing owner, still an explicit
+   failure rather than a silent substitution. What changed is that resolution
+   may have to do work, not only look something up.
 4. **Secrets never leave a Node.** Provider API keys, agent credentials, and
    the local secret store do not travel to the Hub. The Hub stores only
    non-sensitive capability metadata, which is also what keeps passive
    settings views from reading secrets or probing third parties.
+   *Amended 2026-10-23.* The core is unchanged and is the part worth defending:
+   credentials never enter a prompt, an event, an audit row, or a log, and a
+   passive view never reads them. What needed saying rather than sliding past is
+   the scope of "do not travel to the Hub" once an execution environment is
+   hosted. A machine that runs turns on someone's behalf needs credentials to
+   run them, and the only acceptable ways to give it some are ones the user
+   authorized explicitly: a short-lived scoped credential, or the user placing
+   it there themselves. A design that reaches hosted execution by quietly
+   shipping the user's long-lived keys to a server has broken this decision, not
+   extended it. Nothing in the tree does that today; this sentence exists so
+   that whoever builds it has to do it in the open.
 5. **Kin's own transcript is authoritative.** `events` becomes the single
    source of truth for a conversation. Provider-owned JSONL stores
    (`~/.claude/projects`, `~/.codex/sessions`, `~/.factory/sessions`) are
@@ -110,6 +130,15 @@ The following boundaries are part of the decision, not implementation detail:
    with an in-process Node, sharing the same scheduling and event path as a
    remote Node. A separate local-execution fast path is not permitted, because
    it would drift from the remote path that carries the real risk.
+   *Amended 2026-10-23.* Read as written, this forbids a second *execution*
+   path, which is still the rule and still the reason: two paths means the one
+   that carries the real risk is the one that gets less testing. It was being
+   read as forbidding local-first behaviour — a console that works with no Hub
+   reachable, a message composed offline and sent on reconnect. Those are not a
+   second execution path: the same Node, the same adapter, the same event
+   stream, differing only in whether the Hub is currently in the path. Refusing
+   them would be refusing the product. What stays forbidden is a second way to
+   *run a turn* that exists only locally.
 10. **The Hub is an authority, not a relay, and the trust boundary is stated
     rather than implied.** A Hub must hold plaintext to allocate sequence
     numbers, arbitrate approvals, and schedule turns, so Kin cannot offer the
@@ -120,6 +149,21 @@ The following boundaries are part of the decision, not implementation detail:
     expected to run on a machine its owner trusts. Deploying a Hub on an
     untrusted host is out of scope and will not be mitigated with client-side
     encryption, because that would contradict the Hub's role.
+
+    *Amended 2026-10-23.* Two things this paragraph assumed are no longer true,
+    and it is worth being explicit rather than letting the old wording imply
+    them. First, "no vendor sits in the path" survives, but it now needs
+    defending rather than asserting: the hosted mode keeps the Hub on the
+    **user's own** machine, reached at the user's own domain (`--role hub
+    --domain`), so the sentence stays true only as long as OpenKin never
+    operates that Hub. The moment a Hub we run enters the path, this decision is
+    what has been broken. Second, a Hub now holds more than sequence numbers:
+    it holds accounts, and therefore credentials that authenticate people rather
+    than devices. That does not change the trust boundary — an account
+    credential is still a credential, and the same rule applies — but "the Hub
+    holds no secrets" was never the claim and must not be read into it. What it
+    holds is the minimum needed to arbitrate, and it is the user's own machine
+    that holds it.
 
 Authentication for a multi-device Hub is operator-configured and optional. Its
 purpose is narrow: letting a new device join and immediately see the account's

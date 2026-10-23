@@ -307,6 +307,29 @@ K1–K8 删掉任何一条，表现都不是报错，而是**悄悄变贵**—�
 **修订 ADR 0022 D3/D4/D9/D10 与 ADR 0025 的三处引用**，以及**写 §5.11 要求的那份 ADR**
 （`must cite its own ADR`——写它就是满足它，**不是删它**）。
 
+### 落地进度（2026-10-23 晚更新）
+
+| 项 | 状态 |
+|---|---|
+| 上面第 1 项（OPEN_DEVELOPMENT §3/§4） | **已做**。§4 在 `cb18da7` 删掉；§3 本次删掉 `Phase-3 multi-device platforms` |
+| 第 2 项（SYSTEM_DESIGN §1/§5） | **已做**（§1 与 §5b 在 `cb18da7`）。本次补 `SYSTEM_DESIGN.md` §6 组件表的 Local terminal 行 |
+| 第 3 项（中文文档） | **部分**。`SYSTEM_DESIGN.zh.md` §2 已同步；本次补 `PRINCIPLE.zh.md` §5.11 的两条撤回标记与"下次必须自带 ADR"那句。`README.zh.md` 仍缺「快速开始」段 |
+| 第 4 项（MVP_TECH_SPEC §0 L15） | **已做**。`user accounts` / `a Kin cloud/relay` 改成 `an OpenKin-operated relay`，并加一段说明为什么账号从禁区里拿掉 |
+| 第 5 项（README L9/L13/L59） | **部分**。L13 在 `cb18da7` 加了 Hub 子句；L9「Self-hosted.」保留（用户自建 Hub 仍是 self-hosted）。本次补 LICENSE |
+| ADR 0004 重写 | **已做**。产品面（browser/phone/LAN/Tailnet/Funnel、排除持久化）写进「Revision 2026-10-23」保留原文再撤回；四条不变量映射到机器操作者的显式开关；**明确写了这个开关今天还不存在** |
+| ADR 0022 D3/D4/D9/D10 | **已做**，逐条加日期修订段，原文保留 |
+| ADR 0025 三处 D9 引用 | **不需要改**。三处讲的是"不要第二套 scheduler / 不要 build tag 分叉"，与修订后的 D9 一致；改了是噪音 |
+| §5.11 那份 ADR | **已做**，即 `docs/adr/0026-operator-authority-role.md` |
+| 附 A 其余（0012 降级、0020 前提、0005 措辞） | **未做** |
+
+> 另外补了一条审计没列、但会误导开发的：`SYSTEM_DESIGN.md` §5b 结尾原写
+> "per-account isolation … is not yet implemented"——**现在已经实现了**，改成指向
+> `store.ScopeForPrincipal` 与托管模式计划；同时点明缺的是**注册入口**。
+>
+> §1.3（`no offline writes`）的"建议先留着"已经过期：树里已经翻面——
+> `PRINCIPLE.md`、`SYSTEM_DESIGN.md` §5b 与托管模式计划都承诺了本地离线队列。
+> 审计这一条按"已被推翻"读。
+
 ## 附 A：25 份 ADR 全名单（勾选用）
 
 **要动的只有 5 份**（0022、0004、0012、0020、0011），其余 20 份**保留**。

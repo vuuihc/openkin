@@ -56,7 +56,7 @@ Avoid: daily noise without artifacts; calendar promises we cannot keep; recruiti
 Until then, open development is **visible progress**, not a growth campaign.
 
 Good early help (when code exists): docs clarity, translations, provider adapters, small tools, tests.  
-Poor early help: Phase-3 multi-device platforms, unbounded “computer use” products, identity rewrites.
+Poor early help: unbounded “computer use” products, identity rewrites.
 
 ---
 
