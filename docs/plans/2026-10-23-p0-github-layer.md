@@ -627,7 +627,7 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 
 | # | 症状 | 证据 | 归属 |
 |---|---|---|---|
-| A | 跑在**节点**上的会话，PR 面板要么空、要么显示**本机同名路径**那个仓库的 PR | `internal/github` 只用本机路径解析仓库（`service.go:385` → `RepoForDir` → `DeriveAnchor`），全文不引用 `WorkspaceAnchorID` / `ExecutingDeviceID` / workspace anchors；而 task engine 有一条相反的守卫：`TestRemoteTaskTakesNoContextFromThisMachinesDirectories`（"a remote task takes no context from this machine's directories"）。**未证实是"空"还是"错仓库"**——取决于远端任务在 Hub 上到底有没有 generation 行，P0-入口 开工前先验这一条 | P0-入口 |
+| A | 跑在**节点**上的会话，PR 面板**一定是空的**，并且用一句肯定句说"这个任务不在 GitHub 仓库里" | 机制已查清（三步，每步都读过代码）：① 远端任务的 workspace metadata 来自 `sharedWorkspace(cwd)`（`engine.go:1366`），`Mode=ResolvedShared`、不设 `Branch`——注释写明理由是"the Hub does not own that filesystem"；② 真正落 generation 行的分支要求 `meta.Mode == ResolvedWorktree`（`engine.go:1406`），远端任务不满足，所以**根本没有 generation 行**；③ `TargetForTask` 的 `GetCurrentWorkspace` 拿到 `ErrNotFound` → 空快照。**不是"显示错仓库"**：没有行就没有路径可解析，那一半不会发生。空是确定的，错的是那句肯定句——手机在节点的检出上开会话时，这是假话 | P0-入口 |
 | B | 同时有 Actions check runs 和旧的 commit status 时，只看 check runs，外部 CI 的失败被漏掉，面板说"全部通过" | `client.go:279-294`：`len(runs.CheckRuns) > 0` 就 `return`，永远不读 `/status`；而它自己的注释说 status "still carries results from integrations that never adopted checks" | 本层 |
 
 ### 12.2 会让节点**多花配额**的
@@ -669,3 +669,11 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
   packages is a rule that drifts"，所以值得再看一眼）。
 
 修的时候按 12.1 → 12.2 → 12.3 → 12.4 → 12.5 的顺序，每条都要一个能红的测试。
+
+**A 的修法是设计题，不是补丁，所以不在这一轮动手。** Hub 读不到节点的文件系统，而
+GitHub 的观测其实**不需要本地文件**——只需要 `owner/repo` + 分支 + 一个凭据。三个候选：
+① 节点自己观测并把结果报上来；② 手机在开会话时就知道 `owner/repo` + 分支（P0-入口 的快捷
+入口本来就要求它选），由它告诉 Hub；③ 走已有的 workspace anchor（它被设计出来就是为了让
+工作区地址跨机器可移植，`ResolveAnchorPath(anchor, deviceID)` 已经能按设备解析路径）。
+真正要先定的是**用谁的凭据**：Hub 的 `gh` 是 Hub 自己的身份，节点上的私有仓库它可能根本
+看不见。这个问题属于 P0-入口，写进那里定，不在这里即兴。
