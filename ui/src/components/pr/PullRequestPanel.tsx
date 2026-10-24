@@ -235,28 +235,25 @@ export default function PullRequestPanel({
           </div>
         </div>
         {/*
-          No refresh for a checkout this daemon cannot read. The read resolves
-          the task's directory here and returns this task's cached rows; with the
-          directory on another machine there is nothing to resolve and nothing to
-          query, so the button would spend a tap to redraw the same sentence. The
-          next action for that task is on the machine named beside it.
+          The refresh is offered for every task, including one whose checkout is
+          on another machine: the read is made there, by that machine, and this
+          button is what asks it to. A machine that cannot be reached answers
+          with its own reason, which lands under the card.
         */}
-        {!elsewhere && (
-          <button
-            type="button"
-            className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => void onRefresh()}
-            disabled={busy}
-            title={tr("pr.refreshHint")}
-          >
-            {busy ? (
-              <IconSpinner size={13} strokeWidth={2} />
-            ) : (
-              <IconRefresh size={13} />
-            )}
-            <span className="hidden sm:inline">{tr("pr.refresh")}</span>
-          </button>
-        )}
+        <button
+          type="button"
+          className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => void onRefresh()}
+          disabled={busy}
+          title={tr("pr.refreshHint")}
+        >
+          {busy ? (
+            <IconSpinner size={13} strokeWidth={2} />
+          ) : (
+            <IconRefresh size={13} />
+          )}
+          <span className="hidden sm:inline">{tr("pr.refresh")}</span>
+        </button>
         {onClose && (
           <button
             type="button"
@@ -300,7 +297,7 @@ export default function PullRequestPanel({
               <Checking />
             ) : (
               <p className="text-[12.5px] text-kin-muted">
-                {unobservedLabel(tr, elsewhere)}
+                {unobservedLabel(tr)}
               </p>
             )
           ) : (

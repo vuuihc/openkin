@@ -590,7 +590,6 @@ const zh = {
     noRepo: "此任务不在 GitHub 仓库中",
     repoElsewhere: "此任务的检出目录在 {name} 上",
     repoElsewhereUnknown: "此任务的检出目录在 {name} 上（不在机器列表里）",
-    checkoutElsewhere: "此 Hub 只读自己的检出目录，而此任务的检出目录在 {name} 上。",
     refresh: "刷新",
     refreshHint: "立即查询 GitHub（会计入速率限额）",
     unavailable: "此节点未配置 GitHub 集成",

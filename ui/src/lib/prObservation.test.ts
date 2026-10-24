@@ -307,18 +307,10 @@ describe("absentRepoLabel", () => {
 });
 
 describe("unobservedLabel", () => {
-  it("promises an answer for a checkout this daemon can read", () => {
-    expect(unobservedLabel(tr, null)).toBe("pr.notChecked");
-  });
-
-  it("gives the reason instead, when the answer is not coming from here", () => {
-    // "Not checked yet" reads as a wait, and for another machine's checkout
-    // there is nothing to wait for: no read of this daemon's reaches it.
-    expect(unobservedLabel(tr, { text: "studio", known: true })).toBe(
-      "pr.checkoutElsewhere(studio)",
-    );
-    expect(unobservedLabel(tr, { text: "node-7", known: false })).toBe(
-      "pr.checkoutElsewhere(node-7)",
-    );
+  // One sentence whichever machine holds the checkout: the read is made by that
+  // machine, so a task on another one is waiting for an answer, not for news
+  // that none is coming.
+  it("says the branch has not been checked yet", () => {
+    expect(unobservedLabel(tr)).toBe("pr.notChecked");
   });
 });

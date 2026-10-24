@@ -188,15 +188,14 @@ export function absentRepoLabel(tr: Translate, elsewhere: Elsewhere): string {
 /**
  * What the body says where a pull request would go, before one has been read.
  *
- * "This branch has not been checked yet" is a promise of an answer to come, and
- * for a task whose checkout is on another machine no answer is coming: this
- * daemon has no path to that directory. The useful sentence is the reason, not
- * the wait.
+ * The same sentence whichever machine holds the checkout. It used to say that no
+ * answer was coming for another machine's checkout, because none was: the read
+ * resolved the task's directory here. It is made by the machine that holds it
+ * now, so "not checked yet" is a wait again — and the wait ends either in an
+ * answer or in that machine's own reason, which is written on the row.
  */
-export function unobservedLabel(tr: Translate, elsewhere: Elsewhere): string {
-  return elsewhere
-    ? tr("pr.checkoutElsewhere", { name: elsewhere.text })
-    : tr("pr.notChecked");
+export function unobservedLabel(tr: Translate): string {
+  return tr("pr.notChecked");
 }
 
 /** How the pull request reads: draft first, because it is the actionable part. */

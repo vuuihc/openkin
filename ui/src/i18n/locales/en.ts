@@ -600,8 +600,6 @@ const en: MessageTree = {
     noRepo: "This task is not in a GitHub repository",
     repoElsewhere: "This task's checkout is on {name}",
     repoElsewhereUnknown: "This task's checkout is on {name} (not in the machine list)",
-    checkoutElsewhere:
-      "This hub reads pull requests from its own checkouts, and this task's is on {name}.",
     refresh: "Refresh",
     refreshHint: "Query GitHub now (counts against the rate limit)",
     unavailable: "GitHub integration is not configured on this node",
