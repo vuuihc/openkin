@@ -236,6 +236,11 @@ func (s *Store) ListPRObservationsByTask(ctx context.Context, taskID string) ([]
 // This is the whole watch set for the background pass. A branch with no pull
 // request has nothing that changes on its own, so polling it in the background
 // would spend rate limit to re-learn a fact that only the user can change.
+//
+// A row whose task is gone is not watched. Deleting a task deletes its rows, but
+// a database that predates that, or a row left by any other path, would otherwise
+// be polled forever: nothing lists it, nothing can delete it, and every tick
+// spends a query on a branch no screen can reach.
 func (s *Store) ListOpenPRObservations(ctx context.Context, limit int) ([]PRObservation, error) {
 	if limit <= 0 {
 		return nil, nil
@@ -243,6 +248,7 @@ func (s *Store) ListOpenPRObservations(ctx context.Context, limit int) ([]PRObse
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+prObservationColumns+` FROM pr_observations
 		 WHERE state = 'open' AND number IS NOT NULL
+		   AND task_id IN (SELECT id FROM tasks)
 		 ORDER BY attempted_at ASC, head_branch ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list open pr observations: %w", err)

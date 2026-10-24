@@ -219,6 +219,15 @@ func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
 	if err := s.InsertArtifact(ctx, art); err != nil {
 		t.Fatal(err)
 	}
+	// A pull request this task's branch is on. The background pass watches open
+	// pull requests by row, not by task, so a row left behind here would be
+	// queried for a task that no longer exists on any screen.
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: "github.com/owner/repo", HeadBranch: "kin/task/1/g1", TaskID: task.ID,
+		Number: number(7), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := s.DeleteTask(ctx, task.ID); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
@@ -239,6 +248,11 @@ func TestDeleteTaskCascadesChildrenAndDetachesArtifacts(t *testing.T) {
 	}
 	if gotArt.SourceTaskID != nil {
 		t.Fatalf("artifact source should be nil, got %v", *gotArt.SourceTaskID)
+	}
+	if watching, err := s.ListOpenPRObservations(ctx, 10); err != nil {
+		t.Fatal(err)
+	} else if len(watching) != 0 {
+		t.Fatalf("watch set still holds %+v after the task was deleted", watching)
 	}
 	if err := s.DeleteTask(ctx, task.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second DeleteTask: %v", err)

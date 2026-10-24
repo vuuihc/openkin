@@ -67,6 +67,20 @@ func testTarget() Target {
 	}
 }
 
+// seedWatchedTask creates the task a seeded observation hangs on. The background
+// pass watches rows whose task still exists — a deleted task's rows are not
+// polled — so a row meant to be watched needs a task behind it. Without one these
+// tests would pass by watching nothing, which is not what they are about.
+func seedWatchedTask(t *testing.T, st *store.Store, taskID string) {
+	t.Helper()
+	if err := st.InsertTask(context.Background(), store.Task{
+		ID: taskID, Title: "pr fixture", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The read path is a cache read and nothing else.
 //
 // That is what lets the console ask this question on every open without spending
@@ -302,6 +316,8 @@ func TestReconcileSkipsFreshAndNonOpenRows(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	svc.SetClock(func() time.Time { return now })
 	ctx := context.Background()
+	seedWatchedTask(t, st, "t1")
+	seedWatchedTask(t, st, "t2")
 
 	// An open pull request read moments ago from the anonymous source.
 	recent := now.UnixMilli()
@@ -346,6 +362,7 @@ func TestReconcileLeavesARecentlyAttemptedRowAlone(t *testing.T) {
 	svc, st := newTestService(t, reader)
 	clock := newTestClock()
 	svc.SetClock(clock.Now)
+	seedWatchedTask(t, st, "t")
 	ctx := context.Background()
 
 	// Read successfully long ago, and attempted moments ago. That pair is what a
@@ -397,6 +414,7 @@ func TestReconcileChargesAnAnonymousFallback(t *testing.T) {
 	// claims nothing. Every read of it then fails, because the binary is not
 	// there, and each one falls through to the anonymous reader.
 	svc.ghClient = &GHClient{Bin: GHBinary{Path: "/nonexistent/gh"}}
+	seedWatchedTask(t, st, "t")
 	ctx := context.Background()
 
 	stale := clock.Now().Add(-2 * authenticatedFloor).UnixMilli()
@@ -431,6 +449,7 @@ func TestAForcedQueryIsNotChargedToTheBackgroundBudget(t *testing.T) {
 	svc, st := newTestService(t, reader)
 	clock := newTestClock()
 	svc.SetClock(clock.Now)
+	seedWatchedTask(t, st, "t")
 	ctx := context.Background()
 
 	stale := clock.Now().Add(-2 * anonymousFloor).UnixMilli()
@@ -471,6 +490,7 @@ func TestReconcileCapsAnonymousRefreshesPerHour(t *testing.T) {
 	svc, st := newTestService(t, reader)
 	now := time.Unix(1_700_000_000, 0)
 	svc.SetClock(func() time.Time { return now })
+	seedWatchedTask(t, st, "t")
 	ctx := context.Background()
 
 	// Far more stale anonymous rows than the budget allows.
@@ -615,6 +635,7 @@ func TestReconcileDoesNotSpendBudgetOnRowsItSkips(t *testing.T) {
 	svc, st := newTestService(t, reader)
 	clock := newTestClock()
 	svc.SetClock(clock.Now)
+	seedWatchedTask(t, st, "t")
 	ctx := context.Background()
 
 	// More open rows than the budget, all still fresh. They are examined and

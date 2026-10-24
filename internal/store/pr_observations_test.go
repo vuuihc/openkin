@@ -339,6 +339,7 @@ func TestAdvancePRCommentsSeenNeverMovesBackward(t *testing.T) {
 func TestListOpenPRObservationsSelectsOnlyOpenPullRequests(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
+	seedTaskForPRs(t, s, testPRTask)
 
 	seed := []PRObservation{
 		{Repo: testPRRepo, HeadBranch: "branch-open", TaskID: testPRTask, Number: number(1), State: "open"},
@@ -370,6 +371,50 @@ func TestListOpenPRObservationsSelectsOnlyOpenPullRequests(t *testing.T) {
 	}
 	if len(limited) != 0 {
 		t.Fatalf("limit 0 returned %d rows", len(limited))
+	}
+}
+
+// A row whose task is gone is not watched. Nothing lists it on any screen, so
+// nothing can ever delete it: polling it would spend a query per tick, forever,
+// on a branch nobody can reach. Deleting a task deletes its rows, but a database
+// written before that did not, and those are the rows this is for.
+func TestOpenWatchSetIgnoresRowsWhoseTaskIsGone(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: "orphan", TaskID: "01GONETASK0000000000000001",
+		Number: number(3), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	seedTaskForPRs(t, s, testPRTask)
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: "watched", TaskID: testPRTask,
+		Number: number(4), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListOpenPRObservations(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].HeadBranch != "watched" {
+		t.Fatalf("watch set = %+v, want only the row whose task still exists", got)
+	}
+}
+
+// seedTaskForPRs creates the task a seeded observation belongs to. The watch set
+// holds only rows whose task still exists, so a fixture that wants a watched row
+// has to hang it on a task.
+func seedTaskForPRs(t *testing.T, s *Store, taskID string) {
+	t.Helper()
+	if err := s.InsertTask(context.Background(), Task{
+		ID: taskID, Title: "pr fixture", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

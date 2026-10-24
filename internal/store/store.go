@@ -699,6 +699,10 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 		`DELETE FROM mcp_task_origins WHERE task_id = ?`,
 		`DELETE FROM a2a_idempotency WHERE task_id = ?`,
 		`DELETE FROM a2a_operations WHERE task_id = ?`,
+		// A deleted task's pull-request rows would otherwise stay in the watch
+		// set Reconcile polls, spending queries on a pull request nobody can
+		// reach any more — the task that named it is gone from every screen.
+		`DELETE FROM pr_observations WHERE task_id = ?`,
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
 			return fmt.Errorf("delete task children: %w", err)
