@@ -100,29 +100,45 @@ func (s *Server) askMachineInto(w http.ResponseWriter, r *http.Request, method s
 // askDeviceInto is askMachineInto for the questions whose device is a parameter
 // rather than a path segment.
 func (s *Server) askDeviceInto(w http.ResponseWriter, r *http.Request, device, method string, params any, out any) {
+	if !s.askDeviceResult(w, r.Context(), device, method, params, out) {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// askDeviceResult puts one question to one machine and decodes the answer into
+// out, reporting whether there is an answer to write.
+//
+// It is the whole of asking a machine anything: one place where a refusal, a
+// timeout, an absent machine and an answer this Hub cannot read are told apart,
+// so that a question about a directory, a branch or a task's files all fail the
+// same way. It writes the failure itself and returns false, because the successes
+// are not one shape: a machine's own answer goes back as it stands, while an
+// answer about a task is mapped into the envelope the console already reads.
+func (s *Server) askDeviceResult(w http.ResponseWriter, ctx context.Context, device, method string, params any, out any) bool {
 	raw, err := json.Marshal(params)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+		return false
 	}
-	result, err := s.askMachine(r.Context(), device, method, raw)
+	result, err := s.askMachine(ctx, device, method, raw)
 	if err != nil {
 		writeMachineQueryError(w, err)
-		return
+		return false
 	}
 	// A refusal is the machine's own sentence, passed through as it stands. The
 	// status is 400 because the machine was asked and said no: the request named
 	// something it will not do.
 	if result.Error != "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": result.Error})
-		return
+		return false
 	}
 	if err := result.Into(out); err != nil {
 		// An answer that cannot be read is this Hub's bug, not the caller's.
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
+		return false
 	}
-	writeJSON(w, http.StatusOK, out)
+	return true
 }
 
 // localDevice reports whether a device name means the daemon answering this

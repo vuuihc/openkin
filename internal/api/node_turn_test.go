@@ -632,15 +632,23 @@ func TestForkRunsWhereTheSourceRuns(t *testing.T) {
 // Answering the request from here would read — and on a write, overwrite — this
 // machine's own directory at the same address, which is usually a different
 // checkout of the same repository, so the mistake would go unnoticed.
+//
+// A read is now a question to the machine that has the files (workspace_remote.go),
+// so what this test holds is the other half: when this Hub cannot ask — it has no
+// channel to any machine here — it says so instead of falling back to its own
+// copy of that path. The write has no remote form at all and stays refused.
 func TestWorkspaceFilesAreNotServedFromTheHub(t *testing.T) {
 	s, master, conns, _ := remoteHub(t)
 	hub := httptest.NewServer(s.Handler())
 	defer hub.Close()
 
 	deviceToken, deviceID := pairDevice(t, s.Handler(), master)
-	// A directory that exists here *and* is the task's cwd: the guard has to
-	// hold even when the path would resolve.
+	// A directory that exists here *and* is the task's cwd, with a file in it:
+	// the guard has to hold even when the path would resolve.
 	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "here.txt"), []byte("hub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	startExecutor(t, hub.URL, deviceToken, []string{work}, &e2eAgent{})
 	awaitOnline(t, conns, deviceID)
 
@@ -653,11 +661,11 @@ func TestWorkspaceFilesAreNotServedFromTheHub(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+master)
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict {
+	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), deviceID) {
-		t.Fatalf("the refusal does not say where the files are: %s", rec.Body.String())
+	if strings.Contains(rec.Body.String(), "here.txt") || strings.Contains(rec.Body.String(), "entries") {
+		t.Fatalf("the hub listed its own directory for another machine's task: %s", rec.Body.String())
 	}
 
 	body, err := json.Marshal(map[string]string{"path": "note.txt", "content": "clobbered"})

@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -144,6 +144,25 @@ func writeWorkspaceEnvError(w http.ResponseWriter, err error) {
 	}
 }
 
+// taskForWorkspaceRead reads the task a file route is about, and stops at the
+// two failures that are about the task itself.
+//
+// It does not refuse a task that runs elsewhere: those routes now ask that
+// machine, and which of the two things to do is the calling handler's decision —
+// see workspace_remote.go for why.
+func (s *Server) taskForWorkspaceRead(w http.ResponseWriter, r *http.Request) (store.Task, bool) {
+	t, err := s.Engine.Get(r.Context(), chi.URLParam(r, "id"))
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return store.Task{}, false
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return store.Task{}, false
+	}
+	return t, true
+}
+
 func (s *Server) workspaceEnvForTask(r *http.Request) (*workspaceEnv, error) {
 	id := chi.URLParam(r, "id")
 	t, err := s.Engine.Get(r.Context(), id)
@@ -162,6 +181,24 @@ func (s *Server) workspaceEnvForTask(r *http.Request) (*workspaceEnv, error) {
 }
 
 func (s *Server) handleListTaskWorkspace(w http.ResponseWriter, r *http.Request) {
+	// A task that runs elsewhere: its files are on that machine, and this is the
+	// route the console's file browser calls. Ask the machine, and answer in the
+	// shape this browser already reads.
+	if t, ok := s.taskForWorkspaceRead(w, r); !ok {
+		return
+	} else if s.Engine.RunsElsewhere(t) {
+		dir := strings.TrimSpace(r.URL.Query().Get("path"))
+		s.askRemoteTree(w, r, t, dir, func(found worker.WorkspaceTreeResult) any {
+			return workspaceListResponse{
+				Root:      found.Path,
+				Path:      found.Dir,
+				Entries:   remoteTreeEntries(found.Dir, found.Entries),
+				Truncated: found.Truncated,
+			}
+		})
+		return
+	}
+
 	env, err := s.workspaceEnvForTask(r)
 	if err != nil {
 		writeWorkspaceEnvError(w, err)
@@ -258,16 +295,28 @@ func (s *Server) handleReadTaskWorkspaceFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if t, ok := s.taskForWorkspaceRead(w, r); !ok {
+		return
+	} else if s.Engine.RunsElsewhere(t) {
+		s.askRemoteFile(w, r, t, reqPath, func(found worker.WorkspaceFileResult) any {
+			return workspaceFileResponse{
+				Root:      found.Path,
+				Path:      found.File,
+				Size:      found.Size,
+				Truncated: found.Truncated,
+				Content:   found.Content,
+			}
+		})
+		return
+	}
+
 	env, err := s.workspaceEnvForTask(r)
 	if err != nil {
 		writeWorkspaceEnvError(w, err)
 		return
 	}
 
-	data, err := workspace.ReadLiveFile(
-		workspace.Metadata{Root: env.Root, Scope: "."},
-		reqPath,
-	)
+	data, err := workspace.ReadLiveFile(workspace.SharedMetadata(env.Root), reqPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 		return
@@ -284,7 +333,7 @@ func (s *Server) handleReadTaskWorkspaceFile(w http.ResponseWriter, r *http.Requ
 	size := len(data)
 	truncated := false
 	if len(data) > workspaceReadSoftLimit {
-		data = trimValidUTF8(data[:workspaceReadSoftLimit])
+		data = workspace.TrimValidUTF8(data[:workspaceReadSoftLimit])
 		truncated = true
 	}
 
@@ -349,13 +398,6 @@ func (s *Server) handleWriteTaskWorkspaceFile(w http.ResponseWriter, r *http.Req
 		Truncated: false,
 		Content:   string(content),
 	})
-}
-
-func trimValidUTF8(data []byte) []byte {
-	for len(data) > 0 && !utf8.Valid(data) {
-		data = data[:len(data)-1]
-	}
-	return data
 }
 
 func minInt(a, b int) int {

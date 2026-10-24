@@ -500,14 +500,24 @@ func TestWriteTaskWorkspaceFile(t *testing.T) {
 // there, and this machine usually holds a different checkout at the same
 // address. Showing the local one as if it were the remote task's files is the
 // mistake the workspace browser already refuses to make.
+//
+// The route now asks that machine instead (workspace_remote_test.go). This test
+// is about what is left when it cannot ask at all: the answer is that it cannot,
+// never the directory that happens to be here at the same address.
 func TestSourceBrowserRefusesATaskFromAnotherMachine(t *testing.T) {
 	s, token := newTestServer(t)
 	h := s.Handler()
 
+	// A directory that exists here, with a file in it, and is the task's cwd.
+	work := t.TempDir()
+	if err := os.WriteFile(filepath.Join(work, "here.txt"), []byte("hub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	insert := func(id, device string) {
 		t.Helper()
 		if err := s.Store.InsertTask(context.Background(), store.Task{
-			ID: id, Title: "Source", Agent: "claude-code", Cwd: t.TempDir(),
+			ID: id, Title: "Source", Agent: "claude-code", Cwd: work,
 			Prompt: "inspect", Status: "succeeded", CreatedAt: 1,
 			ExecutingDeviceID: device,
 		}); err != nil {
@@ -517,16 +527,18 @@ func TestSourceBrowserRefusesATaskFromAnotherMachine(t *testing.T) {
 	insert("task-from-elsewhere", "studio")
 	insert("task-from-here", "")
 
-	for _, path := range []string{"/source/tree", "/source/file?path=go.mod"} {
+	// This Hub has no way to ask a machine anything, and the machine named is
+	// not one it knows either way.
+	for _, path := range []string{"/source/tree", "/source/file?path=go.mod", "/source/changes"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/tasks/task-from-elsewhere"+path, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rr := httptest.NewRecorder()
 		h.ServeHTTP(rr, req)
-		if rr.Code != http.StatusConflict {
+		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("%s for a remote task: %d %s", path, rr.Code, rr.Body.String())
 		}
-		if !strings.Contains(rr.Body.String(), "another machine") {
-			t.Fatalf("%s error = %s", path, rr.Body.String())
+		if strings.Contains(rr.Body.String(), "here.txt") {
+			t.Fatalf("%s was answered from this machine's directory: %s", path, rr.Body.String())
 		}
 	}
 

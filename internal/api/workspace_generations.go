@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -66,6 +67,10 @@ type genDiffResponse struct {
 	Generation  int                `json:"generation"`
 	View        string             `json:"view"`
 	Changes     []workspace.Change `json:"changes"`
+	// Truncated reports that Changes is the beginning of a longer list, which a
+	// machine answering about its own filesystem decides (see
+	// worker.MaxWorkspaceChanges).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // handleListTaskWorkspaces lists all workspace generations for a task.
@@ -470,13 +475,12 @@ func (s *Server) handleGetWorkspaceDiff(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// sourceTask resolves the task whose source tree a request wants to browse.
+// sourceTask reads the task behind one of the source routes.
 //
-// A task that runs on another machine has no source tree here. Its cwd names a
-// directory on that machine, and this one may well hold a different checkout of
-// the same repository at the same address — so serving it would show Hub files
-// as if they were the remote task's. Same answer as the workspace browser in
-// workspace.go: this is not a request this machine can answer.
+// It reports the two failures that are about the task itself and nothing else: a
+// task that runs on another machine is not one of them any more. Its files are
+// still not here, but the machine that has them answers — see
+// workspace_remote.go, and the handlers below, which ask it.
 func (s *Server) sourceTask(w http.ResponseWriter, r *http.Request) (store.Task, bool) {
 	t, err := s.Engine.Get(r.Context(), chi.URLParam(r, "id"))
 	switch {
@@ -487,12 +491,6 @@ func (s *Server) sourceTask(w http.ResponseWriter, r *http.Request) (store.Task,
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return store.Task{}, false
 	}
-	if s.Engine.RunsElsewhere(t) {
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": fmt.Sprintf("%v (device %s)", errWorkspaceElsewhere, t.ExecutingDeviceID),
-		})
-		return store.Task{}, false
-	}
 	return t, true
 }
 
@@ -500,6 +498,19 @@ func (s *Server) sourceTask(w http.ResponseWriter, r *http.Request) (store.Task,
 func (s *Server) handleListSourceTree(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.sourceTask(w, r)
 	if !ok {
+		return
+	}
+
+	if s.Engine.RunsElsewhere(t) {
+		dir := strings.TrimSpace(r.URL.Query().Get("path"))
+		s.askRemoteTree(w, r, t, dir, func(found worker.WorkspaceTreeResult) any {
+			return genTreeResponse{
+				View:      "source",
+				Path:      found.Dir,
+				Entries:   remoteTree(found.Entries),
+				Truncated: found.Truncated,
+			}
+		})
 		return
 	}
 
@@ -551,6 +562,19 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.Engine.RunsElsewhere(t) {
+		s.askRemoteFile(w, r, t, reqPath, func(found worker.WorkspaceFileResult) any {
+			return genFileResponse{
+				View:      "source",
+				Path:      found.File,
+				Size:      int64(len(found.Content)),
+				Truncated: found.Truncated,
+				Content:   found.Content,
+			}
+		})
+		return
+	}
+
 	if s.Workspace == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
 		return
@@ -577,6 +601,49 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 		Size:    int64(len(content)),
 		Content: string(content),
 	})
+}
+
+// handleListSourceChanges answers what has changed in a task's workspace as it
+// stands right now.
+//
+// The other change route is a generation's diff, which exists once a task has an
+// isolated workspace and is what the console draws for one. A task whose files
+// are the person's own checkout has no generation and no base to diff against,
+// so this is the same question answered the other way: what does git say is
+// different from HEAD, uncommitted work included. On a machine that runs the
+// task, git is asked there — the answer is about its filesystem, not this one's.
+func (s *Server) handleListSourceChanges(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.sourceTask(w, r)
+	if !ok {
+		return
+	}
+
+	if s.Engine.RunsElsewhere(t) {
+		s.askRemoteChanges(w, r, t, func(found worker.WorkspaceChangesResult) any {
+			return genDiffResponse{View: "source", Changes: remoteChanges(found.Changes), Truncated: found.Truncated}
+		})
+		return
+	}
+
+	if s.Workspace == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
+		return
+	}
+	meta, err := sourceWorkspaceMetadata(r.Context(), s.Workspace, t)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	changes, err := s.Workspace.ListLiveChanges(r.Context(), meta)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if changes == nil {
+		// Never null: the console reads this as an array.
+		changes = []workspace.Change{}
+	}
+	writeJSON(w, http.StatusOK, genDiffResponse{View: "source", Changes: changes})
 }
 
 // generationMetadata builds workspace.Metadata from a WorkspaceGeneration.

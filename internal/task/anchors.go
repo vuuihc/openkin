@@ -130,6 +130,27 @@ func (e *Engine) dispatchCwd(ctx context.Context, t store.Task) (string, error) 
 	return path, nil
 }
 
+// RemoteWorkspaceCwd returns the directory that names a task's workspace on the
+// machine that runs it.
+//
+// It is the address every question about that task's files has to use, and it is
+// not always the path in the task row: a task with a workspace anchor gets the
+// path that anchor resolves to there, which is the only one that means anything
+// on that filesystem. The second return is false for a task that runs here —
+// this machine reads its own workspaces directly, and for an isolated one the
+// path is the clone the workspace lifecycle owns rather than the project the
+// anchor came from.
+func (e *Engine) RemoteWorkspaceCwd(ctx context.Context, t store.Task) (string, bool, error) {
+	if !e.RunsElsewhere(t) {
+		return "", false, nil
+	}
+	cwd, err := e.dispatchCwd(ctx, t)
+	if err != nil {
+		return "", true, err
+	}
+	return cwd, true, nil
+}
+
 // noteUnanchoredRemoteTurn records that a turn left this daemon with no
 // workspace identity to check.
 //

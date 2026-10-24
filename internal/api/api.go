@@ -369,6 +369,7 @@ func (s *Server) Handler() http.Handler {
 			r.With(githubQueryOnly).Post("/pr/refresh", s.handleRefreshTaskPR)
 			r.Get("/source/tree", s.handleListSourceTree)
 			r.Get("/source/file", s.handleReadSourceFile)
+			r.Get("/source/changes", s.handleListSourceChanges)
 			r.Get("/workspace/list", s.handleLegacyListWorkspace)
 			r.Get("/workspace/file", s.handleLegacyReadWorkspaceFile)
 			r.With(operatorOnly).Put("/workspace/file", s.handleLegacyWriteWorkspaceFile)
