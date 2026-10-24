@@ -61,8 +61,10 @@ func (m *Manager) ListLiveTree(_ context.Context, meta Metadata, relDir string) 
 	if !info.IsDir() {
 		return nil, false, fmt.Errorf("live path is not a directory")
 	}
+	// A bounded read that finds nothing reports io.EOF, which is how an empty
+	// directory reads: not a failure, and not a reason to refuse to list one.
 	entries, err := dir.ReadDir(liveTreeLimit + 1)
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, false, fmt.Errorf("read live tree: %w", err)
 	}
 	truncated := len(entries) > liveTreeLimit

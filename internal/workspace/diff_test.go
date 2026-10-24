@@ -325,6 +325,32 @@ func TestLiveFileHidesAndRejectsGitMetadata(t *testing.T) {
 	}
 }
 
+// An empty directory is a directory. Reading one in full reports io.EOF, which
+// is a fact about how a bounded read ends rather than a failure — and a tree
+// browser that turns it into an error cannot open a folder that is empty, which
+// is the state every folder starts in.
+func TestLiveTreeListsAnEmptyDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(t.TempDir())
+	meta := Metadata{Mode: ResolvedShared, Root: root, Scope: "."}
+
+	for _, dir := range []string{".", "empty"} {
+		entries, truncated, err := m.ListLiveTree(context.Background(), meta, dir)
+		if err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		if truncated {
+			t.Fatalf("%s: an empty directory cannot be truncated", dir)
+		}
+		if dir == "empty" && len(entries) != 0 {
+			t.Fatalf("%s: entries = %+v", dir, entries)
+		}
+	}
+}
+
 func TestLiveTreeReportsTruncation(t *testing.T) {
 	root := t.TempDir()
 	for i := 0; i < liveTreeLimit+1; i++ {
