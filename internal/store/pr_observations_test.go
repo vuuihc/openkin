@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 const (
@@ -275,29 +274,6 @@ func TestListPRObservationsByTask(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Fatalf("got %d observations for the task, want 2", len(got))
-	}
-}
-
-func TestPRObservationFresh(t *testing.T) {
-	now := time.Now()
-	fresh := now.Add(-30 * time.Second).UnixMilli()
-	stale := now.Add(-10 * time.Minute).UnixMilli()
-
-	cases := []struct {
-		name string
-		obs  PRObservation
-		want bool
-	}{
-		{"never observed", PRObservation{}, false},
-		{"within the floor", PRObservation{ObservedAt: &fresh}, true},
-		{"past the floor", PRObservation{ObservedAt: &stale}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.obs.Fresh(now, time.Minute); got != tc.want {
-				t.Fatalf("Fresh = %v, want %v", got, tc.want)
-			}
-		})
 	}
 }
 

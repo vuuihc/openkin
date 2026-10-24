@@ -331,6 +331,134 @@ func TestReconcileSkipsFreshAndNonOpenRows(t *testing.T) {
 	}
 }
 
+// A row whose last attempt just failed is not retried by the next tick.
+//
+// The observation clock stops advancing when the reads start failing — a
+// repository that went private, a login that expired, a quota that ran out — so
+// a floor keyed only on the observation would put a fresh query behind every
+// tick: twenty-five rows a minute, fifteen hundred anonymous lookups an hour
+// against a quota of sixty.
+func TestReconcileLeavesARecentlyAttemptedRowAlone(t *testing.T) {
+	reader := &fakeRunner{
+		name:      SourceAnonymous,
+		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
+	}
+	svc, st := newTestService(t, reader)
+	clock := newTestClock()
+	svc.SetClock(clock.Now)
+	ctx := context.Background()
+
+	// Read successfully long ago, and attempted moments ago. That pair is what a
+	// failing read leaves behind: RecordPRFailure moves the attempt time and
+	// deliberately leaves the last good answer where it was.
+	old := clock.Now().Add(-2 * anonymousFloor).UnixMilli()
+	if err := st.RecordPRObservation(ctx, store.PRObservation{
+		Repo: "github.com/owner/repo", HeadBranch: "b-failing", TaskID: "t",
+		Number: number(7), State: "open", Source: SourceAnonymous,
+		ObservedAt: &old, AttemptedAt: clock.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Reconcile(ctx, 10); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(reader.calls) != 0 {
+		t.Fatalf("made %d queries for a row attempted just now: %v", len(reader.calls), reader.calls)
+	}
+
+	// Once the attempt has aged past the floor it is worth another try.
+	clock.Advance(anonymousFloor)
+	if _, err := svc.Reconcile(ctx, 10); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(reader.calls) == 0 {
+		t.Fatal("a row whose last attempt has aged out was never retried")
+	}
+}
+
+// The anonymous budget is charged where the anonymous request happens, not where
+// the caller expected it to happen.
+//
+// The two differ exactly when gh is usable and then fails: an expired login, a
+// rate limit, a repository that went private. The preflight reads the row's
+// recorded source, decides the read will be authenticated, and claims nothing —
+// and then the read falls through to the anonymous path anyway. Charging on the
+// way in is how a pass spends a sixty-request hour without ever deciding to.
+func TestReconcileChargesAnAnonymousFallback(t *testing.T) {
+	reader := &fakeRunner{
+		name:      SourceAnonymous,
+		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
+	}
+	svc, st := newTestService(t, reader)
+	clock := newTestClock()
+	svc.SetClock(clock.Now)
+	// gh resolves, so the preflight believes the next read is authenticated and
+	// claims nothing. Every read of it then fails, because the binary is not
+	// there, and each one falls through to the anonymous reader.
+	svc.ghClient = &GHClient{Bin: GHBinary{Path: "/nonexistent/gh"}}
+	ctx := context.Background()
+
+	stale := clock.Now().Add(-2 * authenticatedFloor).UnixMilli()
+	for i := 0; i < anonymousBudgetPerHour+5; i++ {
+		if err := st.RecordPRObservation(ctx, store.PRObservation{
+			Repo: "github.com/owner/repo", HeadBranch: fmt.Sprintf("b-%02d", i), TaskID: "t",
+			Number: number(i + 1), State: "open", Source: SourceGH,
+			ObservedAt: &stale, AttemptedAt: stale,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := svc.Reconcile(ctx, 25); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(reader.calls) > anonymousBudgetPerHour {
+		t.Fatalf("the anonymous fallback made %d requests, want at most %d: "+
+			"the budget was not charged where the request was made",
+			len(reader.calls), anonymousBudgetPerHour)
+	}
+}
+
+// A tap is not charged to the budget that exists to stop the pass spending
+// unwatched. Exhausting the hour must not make the refresh button stop working —
+// that would be the feature refusing the one action a user can take.
+func TestAForcedQueryIsNotChargedToTheBackgroundBudget(t *testing.T) {
+	reader := &fakeRunner{
+		name:      SourceAnonymous,
+		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
+	}
+	svc, st := newTestService(t, reader)
+	clock := newTestClock()
+	svc.SetClock(clock.Now)
+	ctx := context.Background()
+
+	stale := clock.Now().Add(-2 * anonymousFloor).UnixMilli()
+	for i := 0; i < anonymousBudgetPerHour+5; i++ {
+		if err := st.RecordPRObservation(ctx, store.PRObservation{
+			Repo: "github.com/owner/repo", HeadBranch: fmt.Sprintf("b-%02d", i), TaskID: "t",
+			Number: number(i + 1), State: "open", Source: SourceAnonymous,
+			ObservedAt: &stale, AttemptedAt: stale,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Reconcile(ctx, 25); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	spent := len(reader.calls)
+
+	if _, err := svc.Observe(ctx, Target{
+		TaskID: "t", Repo: Repo{Owner: "owner", Name: "repo"}, Branch: "b-00",
+	}); err != nil {
+		t.Fatalf("Observe after the budget was spent: %v", err)
+	}
+	if len(reader.calls) != spent+1 {
+		t.Fatalf("a forced query made %d requests after the budget was spent, want 1",
+			len(reader.calls)-spent)
+	}
+}
+
 // Past the cap the pass defers to the cache rather than spending the whole
 // shared quota on rows nobody is waiting for.
 func TestReconcileCapsAnonymousRefreshesPerHour(t *testing.T) {
@@ -346,11 +474,17 @@ func TestReconcileCapsAnonymousRefreshesPerHour(t *testing.T) {
 	ctx := context.Background()
 
 	// Far more stale anonymous rows than the budget allows.
+	//
+	// Both clocks are set to the same stale instant on purpose: the store stamps
+	// an unstamped AttemptedAt from the wall clock, and this test's clock is not
+	// the wall clock, so leaving it unset would make the row neither due nor
+	// skipped for a reason the test never meant to exercise.
 	stale := now.Add(-2 * anonymousFloor).UnixMilli()
 	for i := 0; i < 25; i++ {
 		if err := st.RecordPRObservation(ctx, store.PRObservation{
 			Repo: "github.com/owner/repo", HeadBranch: fmt.Sprintf("b-%d", i), TaskID: "t",
-			Number: number(i + 1), State: "open", Source: SourceAnonymous, ObservedAt: &stale,
+			Number: number(i + 1), State: "open", Source: SourceAnonymous,
+			ObservedAt: &stale, AttemptedAt: stale,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -499,10 +633,13 @@ func TestReconcileDoesNotSpendBudgetOnRowsItSkips(t *testing.T) {
 	}
 
 	// A stale row arriving afterwards must still get its turn in this window.
+	// Stale by both clocks, since a row whose last attempt just failed is
+	// deliberately left alone (see due) — that is a different test.
 	stale := clock.Now().Add(-2 * anonymousFloor).UnixMilli()
 	if err := st.RecordPRObservation(ctx, store.PRObservation{
 		Repo: "github.com/owner/repo", HeadBranch: "stale-00", TaskID: "t",
-		Number: number(99), State: "open", Source: SourceAnonymous, ObservedAt: &stale,
+		Number: number(99), State: "open", Source: SourceAnonymous,
+		ObservedAt: &stale, AttemptedAt: stale,
 	}); err != nil {
 		t.Fatal(err)
 	}

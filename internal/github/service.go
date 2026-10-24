@@ -260,6 +260,11 @@ func (s *Service) Status() GHStatus {
 // Reading
 // ---------------------------------------------------------------------------
 
+// errBudgetSpent means the anonymous hour is used up, so the attempt was not
+// made. It is deliberately distinct from a failed lookup: nothing was asked, so
+// there is no failure to record on the row and nothing for a user to read.
+var errBudgetSpent = errors.New("anonymous budget for this hour is spent")
+
 // query asks the preferred source, then the fallback.
 //
 // gh is preferred because it is the user's own authenticated identity and sees
@@ -267,7 +272,15 @@ func (s *Service) Status() GHStatus {
 // with no credential at all, which is what keeps this feature working on a
 // machine whose gh login has expired — a state that has to be ordinary, because
 // it is the state of the machine this was written on.
-func (s *Service) query(ctx context.Context, repo Repo, branch string) (LookupResult, error) {
+//
+// The budget is claimed where the anonymous request is actually made, not where
+// the caller predicted it would be. The two are not the same decision: a row
+// whose last answer came through gh falls back to anonymous the moment gh stops
+// working — an expired login, a rate limit, a repository that went private — and
+// a claim made on the way in, against the row's recorded source, would let every
+// such fallback through uncharged. That is how a pass spends a sixty-request
+// hour without ever deciding to.
+func (s *Service) query(ctx context.Context, repo Repo, branch string, maySpendAnonymous bool) (LookupResult, error) {
 	var ghErr error
 	if client := s.ghReaderFor(); client != nil {
 		res, err := lookup(ctx, ghReader{client: *client}, repo, branch)
@@ -283,6 +296,8 @@ func (s *Service) query(ctx context.Context, repo Repo, branch string) (LookupRe
 	var anonErr error
 	if remaining := s.anonymousBackoffRemaining(); remaining > 0 {
 		anonErr = fmt.Errorf("%w: backing off for another %s", ErrRateLimited, remaining.Round(time.Second))
+	} else if maySpendAnonymous && !s.claimAnonymousBudget(s.now()) {
+		anonErr = errBudgetSpent
 	} else {
 		var res LookupResult
 		res, anonErr = lookup(ctx, s.anon, repo, branch)
@@ -302,12 +317,26 @@ func (s *Service) query(ctx context.Context, repo Repo, branch string) (LookupRe
 // The returned observation is current even when the error is non-nil: a failed
 // attempt leaves the previous successful answer in place, and the caller is
 // expected to render that answer alongside the error rather than instead of it.
+//
+// This is the path a user's tap takes, so it is not charged against the
+// background pass's anonymous budget: that budget exists to stop the pass
+// spending without anyone watching, and a tap is someone watching.
 func (s *Service) Observe(ctx context.Context, t Target) (store.PRObservation, error) {
+	return s.observe(ctx, t, false)
+}
+
+// observe is Observe with the background pass's budget attached.
+func (s *Service) observe(ctx context.Context, t Target, maySpendAnonymous bool) (store.PRObservation, error) {
 	key := t.Repo.Canonical()
-	result, err := s.query(ctx, t.Repo, t.Branch)
+	result, err := s.query(ctx, t.Repo, t.Branch, maySpendAnonymous)
 	if err != nil {
-		if recErr := s.store.RecordPRFailure(ctx, key, t.Branch, t.TaskID, err.Error()); recErr != nil {
-			return store.PRObservation{}, recErr
+		// A skipped attempt is not a failure. Recording one would write a
+		// sentence onto the row that says the query failed when the truth is
+		// that it was never made, and the next read would show it to the user.
+		if !errors.Is(err, errBudgetSpent) {
+			if recErr := s.store.RecordPRFailure(ctx, key, t.Branch, t.TaskID, err.Error()); recErr != nil {
+				return store.PRObservation{}, recErr
+			}
 		}
 		cached, _, getErr := s.store.GetPRObservation(ctx, key, t.Branch)
 		if getErr != nil {
@@ -517,10 +546,10 @@ func joinNotice(a, b string) string {
 // that cannot have moved. Open pull requests are few, and their checks change
 // while nobody is looking, which is exactly what a background pass is for.
 //
-// Anonymous rows are additionally bounded by a shared hourly budget. The floor
-// alone is not enough: twenty minutes times a batch of twenty-five is already
-// more requests an hour than the anonymous quota contains, and the pass would
-// discover that by spending the whole thing.
+// Anonymous reads are charged against a shared hourly budget at the point they
+// are made (see query). The floor alone is not enough: twenty minutes times a
+// batch of twenty-five is already more requests an hour than the anonymous quota
+// contains, and the pass would discover that by spending the whole thing.
 func (s *Service) Reconcile(ctx context.Context, limit int) (int, error) {
 	open, err := s.store.ListOpenPRObservations(ctx, limit)
 	if err != nil {
@@ -533,25 +562,22 @@ func (s *Service) Reconcile(ctx context.Context, limit int) (int, error) {
 		if ctx.Err() != nil {
 			return refreshed, ctx.Err()
 		}
-		anonymous := s.nextReadIsAnonymous(obs.Source)
-		if anonymous && s.anonymousBackoffRemaining() > 0 {
+		if s.anonymousBackoffRemaining() > 0 && s.nextReadIsAnonymous(obs.Source) {
 			continue
 		}
-		if obs.Fresh(now, s.floorFor(obs.Source)) {
+		if !s.due(obs, now) {
 			continue
 		}
 		repo, ok := ParseCanonical(obs.Repo)
 		if !ok {
 			continue
 		}
-		// Claimed last, once the row is known to be worth a query. A claim spent
-		// on a row that is then skipped is a claim unavailable to a row that
-		// needed it, and the budget is small enough that ten wasted claims idle
-		// the pass for the rest of the hour.
-		if anonymous && !s.claimAnonymousBudget(now) {
-			continue
-		}
-		if _, err := s.Observe(ctx, Target{TaskID: obs.TaskID, Repo: repo, Branch: obs.HeadBranch}); err != nil {
+		if _, err := s.observe(ctx, Target{TaskID: obs.TaskID, Repo: repo, Branch: obs.HeadBranch}, true); err != nil {
+			// A row the budget skipped is not a failure and is not the pass's
+			// first error; it is the pass working as designed.
+			if errors.Is(err, errBudgetSpent) {
+				continue
+			}
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -560,4 +586,25 @@ func (s *Service) Reconcile(ctx context.Context, limit int) (int, error) {
 		refreshed++
 	}
 	return refreshed, firstErr
+}
+
+// due reports whether a row is worth querying now.
+//
+// It consults the attempt clock as well as the observation clock, because those
+// are different clocks and a row can be old by one and new by the other. An open
+// pull request whose read started failing — the repository went private, the
+// login expired, the quota ran out — keeps an observation time that stops
+// advancing, so a floor keyed only on the observation would put a fresh query
+// behind every tick: twenty-five rows a minute is fifteen hundred anonymous
+// lookups an hour against a quota of sixty.
+//
+// The never-succeeded case has no branch here on purpose. A row with no
+// observation has no number either, so it is not in this pass's set at all —
+// only a successful answer writes a number.
+func (s *Service) due(o store.PRObservation, now time.Time) bool {
+	floor := s.floorFor(o.Source)
+	if o.ObservedAt != nil && now.Sub(time.UnixMilli(*o.ObservedAt)) < floor {
+		return false
+	}
+	return now.Sub(time.UnixMilli(o.AttemptedAt)) >= floor
 }

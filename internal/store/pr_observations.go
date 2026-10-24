@@ -61,12 +61,6 @@ type PRObservation struct {
 	LastError   string `json:"last_error,omitempty"`
 }
 
-// Fresh reports whether the last successful observation is recent enough to
-// serve without asking the forge again.
-func (o PRObservation) Fresh(now time.Time, maxAge time.Duration) bool {
-	return o.ObservedAt != nil && now.Sub(time.UnixMilli(*o.ObservedAt)) < maxAge
-}
-
 const prObservationColumns = `repo, head_branch, task_id, number, url, title, state,
 	is_draft, base_branch, head_oid, ci_state, ci_summary, comments_seen, source,
 	observed_at, attempted_at, last_error`
