@@ -256,6 +256,84 @@ func TestPublishingReportsAFailedPushAsTheMachinesOwnRefusal(t *testing.T) {
 	}
 }
 
+// A push that gh could not finish is the commonest ending there is — a pull
+// request for that branch already exists — and it must not take the panel's
+// knowledge with it. An observation is upserted whole, and the reconcile loop
+// only watches the rows that have a number, so a row written from "no number"
+// would erase a pull request nobody would ever put back.
+func TestPublishingAgainWithoutAPullRequestKeepsTheOneThePanelKnows(t *testing.T) {
+	push := &machinePublish{}
+	s, h, master, deviceID, work := publishHub(t, push.install(t))
+	push.answer(published(t, "github.com/owner/app", "kin/task/t1/g1", 4242))
+
+	task := remoteTask(t, s, deviceID, work, "")
+	client := &authClient{t: t, h: h, master: master}
+	if rec := client.post(fmt.Sprintf(publishingPath, task.ID), publishBody("Add the thing", "b")); rec.Code != http.StatusOK {
+		t.Fatalf("first publish: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The second tap on the same branch: the push lands again, and gh refuses
+	// because the pull request is already open.
+	second := published(t, "github.com/owner/app", "kin/task/t1/g1", 0)
+	second.URL = ""
+	second.Reason = `a pull request for branch "kin/task/t1/g1" into branch "main" already exists`
+	push.answer(second)
+	rec := client.post(fmt.Sprintf(publishingPath, task.ID), publishBody("Add the thing", "b"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second publish: %d %s", rec.Code, rec.Body.String())
+	}
+	var report github.PublishReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	// The person is told both halves: the branch is up, the pull request is gh's
+	// refusal, in gh's words.
+	if !report.Pushed || report.Number != 0 {
+		t.Fatalf("report = %+v, want a push with no pull request", report)
+	}
+	if !strings.Contains(report.Reason, "already exists") {
+		t.Fatalf("reason = %q, want gh's own words", report.Reason)
+	}
+
+	read := client.get("/api/tasks/" + task.ID + "/pr")
+	if read.Code != http.StatusOK {
+		t.Fatalf("read after the second publish: %d %s", read.Code, read.Body.String())
+	}
+	snap := prSnapshot(t, read)
+	for _, obs := range snap.Observations {
+		if obs.HeadBranch == "kin/task/t1/g1" && obs.Number != nil && *obs.Number == 4242 {
+			return
+		}
+	}
+	t.Fatalf("the pull request the panel knew about is gone: %+v", snap.Observations)
+}
+
+// An answer that says the branch was not pushed and does not say why is one this
+// Hub cannot render, and reading it as success would put a card on the panel for
+// a pull request nobody opened.
+func TestPublishingRefusesAnAnswerThatSaysNothing(t *testing.T) {
+	push := &machinePublish{}
+	s, h, master, deviceID, work := publishHub(t, push.install(t))
+	push.answer(github.PublishOutcome{
+		Repo:   mustRepo(t, "github.com/owner/app"),
+		Branch: "kin/task/t1/g1",
+	})
+
+	task := remoteTask(t, s, deviceID, work, "")
+	client := &authClient{t: t, h: h, master: master}
+	rec := client.post(fmt.Sprintf(publishingPath, task.ID), publishBody("t", "b"))
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("an answer with nothing in it: %d %s", rec.Code, rec.Body.String())
+	}
+	obs, err := s.Store.ListPRObservationsByTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 0 {
+		t.Fatalf("an answer that published nothing was written down: %+v", obs)
+	}
+}
+
 // Words that cannot travel are refused where they can still be edited, before a
 // branch is pushed on their behalf.
 func TestPublishingRefusesWordsThatCannotTravel(t *testing.T) {
@@ -280,6 +358,20 @@ func TestPublishingRefusesWordsThatCannotTravel(t *testing.T) {
 		publishBody("t", strings.Repeat("x", worker.MaxPRBody+1)))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("a body past the bound: %d %s", rec.Code, rec.Body.String())
+	}
+	// And a request that is past the bound before it is even JSON is refused
+	// without being read into memory: this route is reachable by anything that can
+	// reach the daemon, and the decoder's bound only applies to what it decodes.
+	// The message is asserted rather than the status, because both bounds end in
+	// the same 400 — "invalid json" is the read stopping, and a sentence about the
+	// body's length would be the whole thing having been read first.
+	huge := strings.Repeat("x", publishPRBodyLimit+1)
+	rec = client.post(fmt.Sprintf(publishingPath, task.ID), `{"title":"t","body":"`+huge+`"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("a request past the read bound: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid json") {
+		t.Fatalf("a request past the read bound was read anyway: %s", rec.Body.String())
 	}
 	if len(push.requests()) != 0 {
 		t.Fatal("words this Hub will not carry reached the machine")

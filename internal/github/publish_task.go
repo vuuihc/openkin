@@ -84,21 +84,28 @@ func (s *Service) RecordPublish(ctx context.Context, taskID, title string, answe
 	// The row is written from what the machine said rather than read back: the
 	// machine opened the pull request, so this Hub knows its number and its commit
 	// without spending another question on it. The source is "gh" — that is what
-	// pushed — and a number of zero is the ordinary way "gh could not finish"
-	// reaches the panel, which already draws that as nothing there plus a reason.
-	res := LookupResult{Source: SourceGH}
+	// pushed.
+	//
+	// A push that gh could not finish writes no observation at all, and that is
+	// the point rather than an omission: a number of zero is the ordinary way this
+	// arrives, and an observation is upserted whole, so writing one here would
+	// erase the pull request this task's branch already has — which the reconcile
+	// loop would never repair, because it watches the rows that have a number. The
+	// branch is on the remote either way, so the task row below is still corrected;
+	// the panel keeps the last true thing it knows about that branch, and the
+	// person is told the rest by the report.
 	if answer.Number > 0 {
 		number := answer.Number
-		res.PR = &PullRequest{
+		res := LookupResult{Source: SourceGH, PR: &PullRequest{
 			Number:  &number,
 			URL:     answer.URL,
 			Title:   title,
 			State:   "open",
 			HeadOID: answer.HeadOID,
+		}}
+		if err := s.record(ctx, Target{TaskID: taskID, Repo: repo, Branch: answer.Branch}, res, s.now()); err != nil {
+			return report, err
 		}
-	}
-	if err := s.record(ctx, Target{TaskID: taskID, Repo: repo, Branch: answer.Branch}, res, s.now()); err != nil {
-		return report, err
 	}
 	// The task row is corrected even when gh could not finish: the branch is on
 	// the remote now, and that is where this session's work is. Best effort, and

@@ -32,6 +32,16 @@ type publishPRRequest struct {
 	Body  string `json:"body"`
 }
 
+// publishPRBodyLimit caps the request body before it is decoded.
+//
+// The decoded body is bounded by worker.MaxPRBody, but that check runs after the
+// whole thing has been read into memory, and this route is reachable by anything
+// that can reach the daemon. The number is the worst case of the same bound
+// rather than a second opinion about it: one byte of a Markdown body costs at
+// most six on the wire (JSON's \uXXXX for a control character), so 64 KiB of
+// body plus a title cannot exceed 384 KiB however it is written.
+const publishPRBodyLimit = 512 << 10
+
 func (s *Server) handlePublishTaskPR(w http.ResponseWriter, r *http.Request) {
 	if s.GitHub == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "github unavailable"})
@@ -42,7 +52,7 @@ func (s *Server) handlePublishTaskPR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req publishPRRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, publishPRBodyLimit)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
