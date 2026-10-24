@@ -150,6 +150,7 @@ func TestPRPublishRefusesWordsItCannotCarry(t *testing.T) {
 	long := strings.Repeat("x", worker.MaxPRBody+1)
 	for name, params := range map[string]worker.PRPublishParams{
 		"a title with a newline in it": {Path: repo, Title: "two\nlines", Body: "b"},
+		"a title of nothing":           {Path: repo, Title: "  ", Body: "b"},
 		"a body past the bound":        {Path: repo, Title: "t", Body: long},
 	} {
 		if reason := gitRefusal(t, worker.QueryPRPublish, params, r, conn); reason == "" {

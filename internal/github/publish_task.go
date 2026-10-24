@@ -21,16 +21,6 @@ import (
 // Nothing here is reachable from a read. The read routes answer from the cache
 // and never ask anybody anything, which is the rule the whole panel is built on.
 
-// ErrPublishNotHere is a task whose checkout this daemon holds rather than
-// another machine's.
-//
-// Publishing here would be this Hub pushing the operator's own directory, on the
-// machine they are sitting at, and that is a decision nobody has made. The route
-// exists because a phone cannot reach the machine holding the work; a phone that
-// can already reach this daemon can reach the directory itself.
-var ErrPublishNotHere = fmt.Errorf(
-	"this session runs on this machine, and this Hub publishes only the checkouts of the machines it is paired with")
-
 // PublishReport is what a publish did, in the shape the console reads.
 //
 // It is an answer for every ending, including "no": a publish that did not

@@ -186,7 +186,7 @@ func TestPublishingATaskThatRunsHereIsRefused(t *testing.T) {
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("publish of a local task: %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "publishes only the checkouts") {
+	if !strings.Contains(rec.Body.String(), "only writes in the checkouts") {
 		t.Errorf("error = %s, want the reason", rec.Body.String())
 	}
 	if len(push.requests()) != 0 {
@@ -265,6 +265,13 @@ func TestPublishingRefusesWordsThatCannotTravel(t *testing.T) {
 	rec := client.post(fmt.Sprintf(publishingPath, task.ID), publishBody("two\nlines", "b"))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("a title with a newline: %d %s", rec.Code, rec.Body.String())
+	}
+	// An empty title is refused for a different reason than a title with a
+	// newline in it — `gh pr create` would open an editor, and the machine has
+	// none — and it is refused here so the person types one.
+	rec = client.post(fmt.Sprintf(publishingPath, task.ID), publishBody("   ", "b"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("a title of nothing: %d %s", rec.Code, rec.Body.String())
 	}
 	rec = client.post(fmt.Sprintf(publishingPath, task.ID),
 		publishBody("t", strings.Repeat("x", worker.MaxPRBody+1)))

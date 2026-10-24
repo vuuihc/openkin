@@ -371,6 +371,10 @@ func (s *Server) Handler() http.Handler {
 			// phone is a full client of the machine it is paired with, and this
 			// is that machine pushing a branch it holds. See the handler.
 			r.With(holderOnly).Post("/pr/publish", s.handlePublishTaskPR)
+			// The way out of a publish refused on the default branch, and the
+			// only other route that moves a checkout: it starts Kin's own branch
+			// for this task on the machine holding it. See the handler.
+			r.With(holderOnly).Post("/branch", s.handleCreateTaskBranch)
 			r.Get("/source/tree", s.handleListSourceTree)
 			r.Get("/source/file", s.handleReadSourceFile)
 			r.Get("/source/changes", s.handleListSourceChanges)

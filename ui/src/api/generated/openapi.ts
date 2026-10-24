@@ -798,6 +798,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/pr/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Push this session's branch and open its pull request, on the machine that holds the checkout. The Hub pushes nothing itself: it carries the words and records the answer, and that machine — with its own git, its own credentials, its own GitHub CLI — decides. It refuses a checkout that is not a GitHub repository, one on a detached HEAD, one on the repository's default branch, and one with uncommitted work, naming the files in the last case; only the default branch is a refusal with a way out (createTaskBranch).
+         *     A session whose checkout this daemon holds is refused with 409 rather than served: a phone that can already reach this Hub can reach the directory, and pushing the operator's own checkout from a phone is a decision nobody has made. */
+        post: operations["publishTaskPullRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/branch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Start this task's own branch (kin/task/<id>/g1) in the session's checkout, on the machine that holds it, and switch to it. It is the way out of a publish refused on the default branch, and it exists for nothing else: the branch is named by the Hub so that a phone cannot scatter one task's work across names it invented. Uncommitted work comes along, which is the point — it is what a person is publishing. */
+        post: operations["createTaskBranch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evals/suites": {
         parameters: {
             query?: never;
@@ -1617,6 +1652,21 @@ export interface components {
             gh: components["schemas"]["GHStatus"];
             /** @description One sentence explaining a degraded read, or empty. */
             notice?: string;
+        };
+        /** @description What one publish did. Every field below the task is what the machine said, including when it said no: blocked names why nothing was pushed, in the machine's vocabulary, and the console acts on default_branch — the one refusal with a way out — while reading the rest as reason. */
+        PublishReport: {
+            task_id: string;
+            /** @description Canonical github.com/owner/name, as the machine's checkout reports it. */
+            repo?: string;
+            branch?: string;
+            /** @description The branch is on the remote. Can be true with no pull request: a push that landed and a gh that then failed is exactly that. */
+            pushed?: boolean;
+            number?: number;
+            url?: string;
+            /** @enum {string} */
+            blocked?: "not_a_checkout" | "no_github_remote" | "detached_head" | "default_branch" | "uncommitted_changes" | "no_gh";
+            /** @description The machine's own sentence, shown to the person as it stands. */
+            reason?: string;
         };
     };
     responses: never;
@@ -3101,6 +3151,132 @@ export interface operations {
             };
             /** @description GitHub integration is not configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    publishTaskPullRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description One line. A control character in it is a 400. */
+                    title?: string;
+                    body?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What the publish did, including a refusal: a blocked publish is an outcome of a question the caller asked, so it is answered rather than failed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishReport"];
+                };
+            };
+            /** @description The words cannot travel, or the machine refused the push. Both are the same answer because both are the same kind of news: nothing was published, and the reason is in the body. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller is neither the node's holder nor a device paired to it */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This session runs on this daemon, so there is no other machine to ask */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine published something the Hub could not write down */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description GitHub integration is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createTaskBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the checkout is now */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        cwd?: string;
+                        /** @description The branch the checkout is on, read back after the switch. */
+                        current?: string;
+                    };
+                };
+            };
+            /** @description The machine refused, in its own words — a branch of that name already exists, or the directory is not a checkout */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller is neither the node's holder nor a device paired to it */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This session runs on this daemon, so there is no other machine to ask */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

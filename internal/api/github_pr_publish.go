@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
@@ -58,9 +57,9 @@ func (s *Server) handlePublishTaskPR(w http.ResponseWriter, r *http.Request) {
 
 	// A task whose checkout is here is refused rather than served: pushing the
 	// operator's own directory from a phone is a different decision from pushing
-	// one on a machine the phone cannot otherwise reach. See ErrPublishNotHere.
+	// one on a machine the phone cannot otherwise reach. See errSessionRunsHere.
 	if s.Engine == nil || !s.Engine.RunsElsewhere(t) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": github.ErrPublishNotHere.Error()})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": errSessionRunsHere.Error()})
 		return
 	}
 	// The machine resolves this path against its own roots, and the same

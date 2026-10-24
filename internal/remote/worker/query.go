@@ -691,9 +691,16 @@ func (p PRPublishParams) Validate() error {
 // that can still fix it without a push, and the machine, because the asker is
 // another party on this channel and the words become an argument to a program.
 func ValidatePRWords(title, body string) error {
+	title = strings.TrimSpace(title)
+	// A title is required, and not because of a rule: `gh pr create` with no
+	// title opens an editor, and a machine running a question from a phone has
+	// no editor to open. Refusing here is the difference between "this needs a
+	// title" and a gh that hangs or dies with a sentence about a terminal.
+	if title == "" {
+		return errors.New("a publish needs a title for its pull request")
+	}
 	// A title is one line, and GitHub collapses a newline in one when it arrives,
 	// so a title that has one is a drafting mistake from the asking side.
-	title = strings.TrimSpace(title)
 	if err := optional("title", title, MaxPRTitle); err != nil {
 		return err
 	}

@@ -21,6 +21,18 @@ func worktreeBranch(taskID string, generation int) string {
 	return "kin/task/" + strings.ToLower(taskID) + "/g" + fmt.Sprint(generation)
 }
 
+// TaskBranch is the branch Kin gives a task's work when nothing else has been
+// decided: the name a session that never opened a generation worktree publishes
+// onto.
+//
+// It is exported because the Hub names that branch rather than the caller — see
+// the publish sheet's one-tap escape from a default branch. Two spellings of
+// this name, one on each side of the wire, would put a task's work on two
+// branches that look equally right.
+func TaskBranch(taskID string) string {
+	return worktreeBranch(taskID, 1)
+}
+
 // worktreePath returns stateDir/worktrees/<taskID> after validating taskID.
 func (m *Manager) worktreePath(taskID string, generation int) (string, error) {
 	if !taskIDPattern.MatchString(taskID) {
