@@ -1261,10 +1261,12 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           repo={task.workspace_repo ?? undefined}
           branch={task.workspace_branch ?? undefined}
           draft={publishDraft}
-          // A publish corrects the row on the Hub — the branch is on the remote
-          // now and the repository it landed in is recorded — so the page reads
-          // it again rather than going on drawing where the session started.
-          onPublished={() => void liveResources.refreshTask(task.id, true)}
+          // Both answers that change the Hub's row — a publish, and the escape
+          // that moves the checkout — land here, so the row under this page is
+          // read again. The row is what the sheet opens with and what the
+          // repository chip draws; the branch strip beside it asks the machine
+          // on its own and is not this.
+          onRowChanged={() => void liveResources.refreshTask(task.id, true)}
           onClose={() => setOverlay(null)}
         />
       )}

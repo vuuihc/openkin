@@ -7,7 +7,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { shortRepo } from "../../lib/prObservation";
-import { blockedHeadline } from "../../lib/publishBlocked";
+import { blockedHeadline, isSessionRunsHere } from "../../lib/publishBlocked";
 import type { PublishDraft } from "../../lib/publishDraft";
 import { IconAlert, IconExternal, IconPullRequest, IconSend, IconSpinner, IconX } from "../icons";
 
@@ -25,8 +25,16 @@ type Props = {
   /** The agent's last answer, as the opening draft. Both boxes stay editable. */
   draft: PublishDraft;
   onClose?: () => void;
-  /** A publish that landed, so the page can redraw what it knows. */
-  onPublished?: (report: PublishReport) => void;
+  /**
+   * The Hub's row for this task has changed, so the page should read it again.
+   *
+   * Two of this sheet's answers change it: a publish (which records the branch
+   * on the remote and the repository it landed in) and the escape below (which
+   * moves the checkout and moves the row with it). The row is what this sheet
+   * opens with — 仓库 and 分支, before anything has been asked — so without this
+   * a reopened sheet goes back to naming the branch the session started on.
+   */
+  onRowChanged?: () => void;
 };
 
 /**
@@ -54,7 +62,7 @@ export default function PublishPanel({
   branch,
   draft,
   onClose,
-  onPublished,
+  onRowChanged,
 }: Props) {
   const tr = useT();
   const [title, setTitle] = useState(draft.title);
@@ -89,9 +97,10 @@ export default function PublishPanel({
       if (err instanceof ApiError) {
         // The daemon's own sentences for these are accurate and short; the two
         // that are not are the ones a person can be staring at without knowing
-        // what to do next.
+        // what to do next. 409 is both kinds at once, so it is told apart by the
+        // code the Hub puts on the one this console has a line for.
         if (err.status === 503) return tr("publish.unavailable");
-        if (err.status === 409) return tr("publish.notHere");
+        if (isSessionRunsHere(err)) return tr("publish.notHere");
         return err.message;
       }
       return err instanceof Error ? err.message : String(err);
@@ -110,7 +119,7 @@ export default function PublishPanel({
         // published or refused: it read the directory, the row remembers.
         if (answer.branch) setSeenBranch(answer.branch);
         if (answer.pushed) {
-          onPublished?.(answer);
+          onRowChanged?.();
         }
       } catch (err) {
         setReport(null);
@@ -119,7 +128,7 @@ export default function PublishPanel({
         setBusy(false);
       }
     },
-    [taskId, describe, onPublished],
+    [taskId, describe, onRowChanged],
   );
 
   /**
@@ -138,13 +147,17 @@ export default function PublishPanel({
       const answer = await createTaskBranch(taskId);
       const current = answer.current ?? "";
       if (current) setSeenBranch(current);
+      // The checkout moved, and the Hub moved its row with it. Read again even
+      // if the publish below pushes too: that one reads again as well, and two
+      // reads of one row a second apart cost less than a chip that lies.
+      onRowChanged?.();
       await publish({ title, body });
     } catch (err) {
       setError(describe(err));
     } finally {
       setEscaping(false);
     }
-  }, [taskId, title, body, publish, describe]);
+  }, [taskId, title, body, publish, describe, onRowChanged]);;
 
   const blocked = report?.blocked ?? "";
   const headline = blockedHeadline(blocked);
