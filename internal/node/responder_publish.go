@@ -55,16 +55,15 @@ func (r *Responder) branchCreate(ctx context.Context, asked worker.GitBranchCrea
 	}
 	// Read back rather than echo, for the reason a switch does it: the branch a
 	// directory is on is a fact about the directory, and the person who tapped
-	// the button is about to see it named.
+	// the button is about to see it named. A read that fails answers with no
+	// branch rather than with the one that was asked for: the branch was made, but
+	// where the checkout ended up is exactly what this machine could not find out,
+	// and the Hub writes its row from this answer.
 	status, err := git.ListBranches(ctx, path)
 	if err != nil {
-		return worker.GitBranchCreateResult{Cwd: path, Current: branch}, nil
+		return worker.GitBranchCreateResult{Cwd: path}, nil
 	}
-	current := status.Current
-	if current == "" {
-		current = branch
-	}
-	return worker.GitBranchCreateResult{Cwd: status.Cwd, Current: current}, nil
+	return worker.GitBranchCreateResult{Cwd: status.Cwd, Current: status.Current}, nil
 }
 
 // publishPR pushes one of this machine's branches and opens its pull request.
