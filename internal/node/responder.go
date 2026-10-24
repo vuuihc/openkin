@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/vuuihc/openkin/internal/remote/worker"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // Responder answers questions the Hub asks about this machine.
@@ -32,11 +33,21 @@ type Responder struct {
 	// Roots is the directories this machine works in, as `kin` was configured.
 	// No roots means nowhere: an empty declaration must not read as "anywhere".
 	Roots []string
+	// CheckoutRoot is where this machine keeps the repositories it fetches for
+	// a console that cannot reach them itself. Empty means it does not fetch any,
+	// and the two repo questions are refused.
+	//
+	// It is expected to be one of Roots — the daemon adds it to the machine's
+	// declaration, because a checkout is only useful as a working directory, and
+	// a working directory outside the roots is one the Executor refuses. That is
+	// enforced rather than assumed: see repoPrepare.
+	CheckoutRoot string
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
-	mu   sync.Mutex
-	send WriteFunc
+	mu       sync.Mutex
+	send     WriteFunc
+	checkout *workspace.Checkouts
 }
 
 // localQueryID is the id given to an answer that is never sent anywhere.
@@ -137,9 +148,98 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, listed)
+	case worker.QueryRepoBranches:
+		var asked worker.RepoBranchesParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		found, err := r.repoBranches(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, found)
+	case worker.QueryRepoPrepare:
+		var asked worker.RepoPrepareParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		prepared, err := r.repoPrepare(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, prepared)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}
+}
+
+// repoBranches answers what branches one repository has.
+//
+// It does not need the repository to be here, and that is the point: a person
+// choosing a branch has not paid for a clone yet, and the branches a remote
+// offers are knowable without one.
+func (r *Responder) repoBranches(ctx context.Context, asked worker.RepoBranchesParams) (worker.RepoBranchesResult, error) {
+	checkouts, err := r.checkouts()
+	if err != nil {
+		return worker.RepoBranchesResult{}, err
+	}
+	found, err := checkouts.RemoteBranches(ctx, asked.Repo)
+	if err != nil {
+		return worker.RepoBranchesResult{}, err
+	}
+	result := worker.RepoBranchesResult{Repo: found.Repo, DefaultBranch: found.DefaultBranch}
+	// The bound is applied where the answer is built rather than where the remote
+	// is read: how many branches a repository has is not this machine's to
+	// decide, but how many of them fit in one answer is.
+	if len(found.Branches) > worker.MaxBranches {
+		found.Branches = found.Branches[:worker.MaxBranches]
+		result.Truncated = true
+	}
+	result.Branches = found.Branches
+	return result, nil
+}
+
+// repoPrepare makes one repository available on this machine and says where.
+//
+// The path it returns is the only path in this protocol that a later dispatch
+// will be handed as a working directory, so it is checked the way a dispatched
+// cwd is checked — against the roots this machine declared. Where the checkout
+// goes is decided by the machine (see workspace.Checkouts), and this is the
+// machine confirming that what it decided is somewhere it works.
+func (r *Responder) repoPrepare(ctx context.Context, asked worker.RepoPrepareParams) (worker.RepoPrepareResult, error) {
+	checkouts, err := r.checkouts()
+	if err != nil {
+		return worker.RepoPrepareResult{}, err
+	}
+	prepared, err := checkouts.EnsureCheckout(ctx, asked.Repo, asked.Branch)
+	if err != nil {
+		return worker.RepoPrepareResult{}, err
+	}
+	real, err := resolvePath(prepared.Path)
+	if err != nil {
+		return worker.RepoPrepareResult{}, fmt.Errorf("there is no %s on this machine", prepared.Path)
+	}
+	if !withinRoots(real, rootSet(r.Roots).resolved()) {
+		return worker.RepoPrepareResult{}, outsideRoots(prepared.Path)
+	}
+	return worker.RepoPrepareResult{
+		Path:   prepared.Path,
+		Branch: prepared.Branch,
+		Cloned: prepared.Cloned,
+	}, nil
+}
+
+// checkouts is where this machine fetches into, or the reason it does not.
+func (r *Responder) checkouts() (*workspace.Checkouts, error) {
+	if strings.TrimSpace(r.CheckoutRoot) == "" {
+		return nil, errors.New("this machine has nowhere to fetch a repository into")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.checkout == nil {
+		r.checkout = workspace.NewCheckouts(r.CheckoutRoot)
+	}
+	return r.checkout, nil
 }
 
 // listDirs answers what directories are inside a path on this machine.

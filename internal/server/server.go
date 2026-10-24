@@ -92,6 +92,10 @@ type ServeFlags struct {
 	// NodeRoots are extra directories this machine will run dispatched work in,
 	// on top of the projects it already has.
 	NodeRoots []string
+	// CheckoutRoot is where this machine keeps the repositories it fetches for a
+	// console that cannot reach them itself. Empty means the default under the
+	// state directory, and "off" means it fetches none.
+	CheckoutRoot string
 	// AllowYOLO lets a dispatched turn run with the agent's permission system
 	// switched off. Off unless the operator of this machine says otherwise.
 	AllowYOLO bool
@@ -116,6 +120,8 @@ func ParseServeFlags(args []string) (ServeFlags, error) {
 	fs.StringVar(&f.NodeToken, "token", "", "device token for --hub; defaults to ~/.kin/node-token")
 	var roots stringList
 	fs.Var(&roots, "root", "an extra directory to run dispatched work in (repeatable, comma-separated)")
+	fs.StringVar(&f.CheckoutRoot, "checkout-root", "",
+		"where to keep repositories fetched for a remote console (default <state dir>/checkouts, \"off\" to fetch none)")
 	fs.BoolVar(&f.AllowYOLO, "allow-yolo", false, "let turns dispatched from --hub run with agent permissions bypassed")
 	if err := fs.Parse(args); err != nil {
 		return f, err
@@ -519,7 +525,17 @@ func ServeWith(version string, flags ServeFlags) error {
 	// boundary is — the executor that runs dispatched work in one of them, the
 	// answers this machine gives about its own filesystem, and the hello that
 	// tells a Hub which of them it may ask for.
-	machineRoots := nodeRoots(ctx, st, flags.NodeRoots)
+	//
+	// The checkout root joins that list, and that is deliberate: a checkout is
+	// only useful as a working directory, so a machine that fetches repositories
+	// for a phone is a machine that runs work in them. It is one list rather than
+	// a second one because a directory the console can pick is a directory the
+	// executor must accept, and two lists are how those drift apart.
+	checkoutRoot, err := resolveCheckoutRoot(stateDir, flags.CheckoutRoot)
+	if err != nil {
+		return err
+	}
+	machineRoots := nodeRoots(ctx, st, append([]string{checkoutRoot}, flags.NodeRoots...))
 	nodeQueries = node.NewQueries()
 
 	srvAPI := &api.Server{
@@ -603,7 +619,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		// it. The answer comes from the same code that answers a Hub, with the
 		// same list of directories the executor works in, so a directory this
 		// console offers is a directory this machine will actually run in.
-		LocalMachine: &node.Responder{Roots: machineRoots, Warn: warnToStderr},
+		LocalMachine: &node.Responder{Roots: machineRoots, CheckoutRoot: checkoutRoot, Warn: warnToStderr},
 		NodeFrames:   node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
 		Browser:      browser,
 		Eval:         evalRunner,

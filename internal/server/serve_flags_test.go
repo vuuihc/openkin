@@ -1,6 +1,7 @@
 package server
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -130,5 +131,39 @@ func TestParseServeFlagsRejectsUnknownRole(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "node") {
 		t.Fatalf("error should name the rejected role: %v", err)
+	}
+}
+
+// Where this machine keeps the repositories it fetches is a boundary, so the
+// three ways of naming it are decided in one place rather than three.
+func TestResolveCheckoutRoot(t *testing.T) {
+	stateDir := filepath.Join(string(filepath.Separator), "state", "kin")
+	for _, tc := range []struct {
+		name     string
+		declared string
+		want     string
+	}{
+		{name: "unset is under the state directory", declared: "", want: filepath.Join(stateDir, "checkouts")},
+		{name: "unset and padded is the same", declared: "  ", want: filepath.Join(stateDir, "checkouts")},
+		{name: "off means it fetches nothing", declared: "off", want: ""},
+		{name: "off in any case", declared: "OFF", want: ""},
+		{name: "a path is taken as given", declared: stateDir + "/clones", want: stateDir + "/clones"},
+		{name: "a relative path is made absolute", declared: "clones", want: "REPLACED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveCheckoutRoot(stateDir, tc.declared)
+			if err != nil {
+				t.Fatalf("resolveCheckoutRoot(%q): %v", tc.declared, err)
+			}
+			if tc.want == "REPLACED" {
+				if !filepath.IsAbs(got) {
+					t.Fatalf("resolveCheckoutRoot(%q) = %q, want an absolute path", tc.declared, got)
+				}
+				return
+			}
+			if got != tc.want {
+				t.Fatalf("resolveCheckoutRoot(%q) = %q, want %q", tc.declared, got, tc.want)
+			}
+		})
 	}
 }

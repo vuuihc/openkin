@@ -38,7 +38,15 @@ func machinesServer(t *testing.T) (*Server, string, *node.Connections) {
 // questions about a machine whose working directories are the ones given.
 func startResponder(t *testing.T, hubURL, deviceToken string, roots ...string) {
 	t.Helper()
-	responder := &node.Responder{Roots: roots, Warn: func(format string, args ...any) { t.Logf("node: "+format, args...) }}
+	runResponder(t, hubURL, deviceToken, &node.Responder{Roots: roots})
+}
+
+// runResponder is startResponder for a machine that needs more of itself
+// configured than its roots — a checkout root, say, which is what makes it a
+// machine a phone can start a session on rather than only browse.
+func runResponder(t *testing.T, hubURL, deviceToken string, responder *node.Responder) {
+	t.Helper()
+	responder.Warn = func(format string, args ...any) { t.Logf("node: "+format, args...) }
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go func() {
@@ -206,19 +214,35 @@ func TestMachineDirsRefuseARelativePath(t *testing.T) {
 // business reading the holder's directory names.
 func TestMachineDirsAreNotForGuests(t *testing.T) {
 	s, _, _ := machinesServer(t)
-	s.Auth.SetSessionLookup(func(_ context.Context, token string) (remote.Principal, bool) {
-		if token != "guest-session" {
-			return remote.Principal{}, false
-		}
-		return remote.Principal{Kind: remote.PrincipalUser, UserID: "user-2", Role: store.RoleMember}, true
-	})
+	guestSession(t, s)
 	req := httptest.NewRequest(http.MethodGet, "/api/machines/self/dirs", nil)
-	req.AddCookie(&http.Cookie{Name: remote.SessionCookieName, Value: "guest-session"})
+	req.AddCookie(guestCookie())
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status %d, want forbidden: %s", rec.Code, rec.Body.String())
 	}
+}
+
+// guestSessionToken is the session cookie guestSession answers to.
+const guestSessionToken = "guest-session"
+
+// guestSession makes the server read one session cookie as a member account: an
+// account on somebody else's Hub, which runs its own tasks and is not the party
+// that holds this machine.
+func guestSession(t *testing.T, s *Server) {
+	t.Helper()
+	s.Auth.SetSessionLookup(func(_ context.Context, token string) (remote.Principal, bool) {
+		if token != guestSessionToken {
+			return remote.Principal{}, false
+		}
+		return remote.Principal{Kind: remote.PrincipalUser, UserID: "user-2", Role: store.RoleMember}, true
+	})
+}
+
+// guestCookie is that session as a request would carry it.
+func guestCookie() *http.Cookie {
+	return &http.Cookie{Name: remote.SessionCookieName, Value: guestSessionToken}
 }
 
 // awaitConnected waits for the Hub to have a live channel to the machine.

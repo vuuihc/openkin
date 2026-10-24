@@ -55,7 +55,7 @@ func TestResolveRepoReadsTheTwoFormsAPersonTypes(t *testing.T) {
 			name:      "an https remote",
 			raw:       "https://github.com/owner/repo.git",
 			canonical: "github.com/owner/repo",
-			cloneURL:  "https://github.com/owner/repo",
+			cloneURL:  "https://github.com/owner/repo.git",
 		},
 		{
 			name:      "an scp remote keeps its transport",
@@ -64,16 +64,16 @@ func TestResolveRepoReadsTheTwoFormsAPersonTypes(t *testing.T) {
 			cloneURL:  "git@github.com:owner/repo.git",
 		},
 		{
-			name:      "an ssh remote keeps its transport",
+			name:      "an ssh remote keeps its username",
 			raw:       "ssh://git@github.com/owner/repo.git",
 			canonical: "github.com/owner/repo",
-			cloneURL:  "ssh://github.com/owner/repo",
+			cloneURL:  "ssh://git@github.com/owner/repo.git",
 		},
 		{
 			name:      "another host is another repository",
 			raw:       "https://git.example.com/team/repo.git",
 			canonical: "git.example.com/team/repo",
-			cloneURL:  "https://git.example.com/team/repo",
+			cloneURL:  "https://git.example.com/team/repo.git",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,23 +93,60 @@ func TestResolveRepoReadsTheTwoFormsAPersonTypes(t *testing.T) {
 
 // A URL can carry a token, and every string this package hands to git comes back
 // in git's own error messages — which travel to the Hub and onto a phone. So the
-// clone URL is rebuilt from the canonical form rather than passed through.
-func TestResolveRepoNeverHandsGitACredential(t *testing.T) {
-	for _, raw := range []string{
-		"https://ghp_secretvalue@github.com/owner/repo.git",
-		"https://user:ghp_secretvalue@github.com/owner/repo.git",
-		"ssh://git@github.com/owner/repo.git",
+// credential comes off, and nothing else does: the path is what the remote's
+// server expects, and `git@` on an ssh remote is a username it needs.
+func TestResolveRepoDropsTheCredentialAndNothingElse(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		raw      string
+		cloneURL string
+	}{
+		{
+			name:     "a token as the username",
+			raw:      "https://ghp_secretvalue@github.com/owner/repo.git",
+			cloneURL: "https://github.com/owner/repo.git",
+		},
+		{
+			name:     "a token as the password",
+			raw:      "https://someone:ghp_secretvalue@github.com/owner/repo.git",
+			cloneURL: "https://github.com/owner/repo.git",
+		},
+		{
+			name:     "a token on another host, keeping its port",
+			raw:      "https://ghp_secretvalue@git.example.com:8443/team/repo.git",
+			cloneURL: "https://git.example.com:8443/team/repo.git",
+		},
+		{
+			name:     "an ssh username is not a credential",
+			raw:      "ssh://git@github.com/owner/repo.git",
+			cloneURL: "ssh://git@github.com/owner/repo.git",
+		},
+		{
+			name:     "an ssh password is",
+			raw:      "ssh://git:hunter2@github.com/owner/repo.git",
+			cloneURL: "ssh://git@github.com/owner/repo.git",
+		},
+		{
+			name:     "an scp remote has nowhere to put one",
+			raw:      "git@github.com:owner/repo.git",
+			cloneURL: "git@github.com:owner/repo.git",
+		},
 	} {
-		got, err := ResolveRepo(raw)
-		if err != nil {
-			t.Fatalf("ResolveRepo(%q): %v", raw, err)
-		}
-		if strings.Contains(got.CloneURL, "ghp_secretvalue") || strings.Contains(got.CloneURL, "@") {
-			t.Fatalf("ResolveRepo(%q).CloneURL = %q kept a credential", raw, got.CloneURL)
-		}
-		if strings.Contains(got.Canonical, "ghp_secretvalue") || strings.Contains(got.Canonical, "@") {
-			t.Fatalf("ResolveRepo(%q).Canonical = %q kept a credential", raw, got.Canonical)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveRepo(tc.raw)
+			if err != nil {
+				t.Fatalf("ResolveRepo(%q): %v", tc.raw, err)
+			}
+			if got.CloneURL != tc.cloneURL {
+				t.Fatalf("ResolveRepo(%q).CloneURL = %q, want %q", tc.raw, got.CloneURL, tc.cloneURL)
+			}
+			if strings.Contains(got.CloneURL, "ghp_secretvalue") || strings.Contains(got.CloneURL, "hunter2") {
+				t.Fatalf("ResolveRepo(%q).CloneURL = %q kept a credential", tc.raw, got.CloneURL)
+			}
+			if strings.Contains(got.Canonical, "ghp_secretvalue") || strings.Contains(got.Canonical, "@") {
+				t.Fatalf("ResolveRepo(%q).Canonical = %q kept a credential", tc.raw, got.Canonical)
+			}
+		})
 	}
 }
 

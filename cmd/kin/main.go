@@ -231,6 +231,8 @@ Serve flags:
   --hub URL             run turns for this Hub as well (makes this a Node)
   --token TOKEN         device token for --hub; defaults to ~/.kin/node-token
   --root PATH           an extra directory to run dispatched work in (repeatable)
+  --checkout-root PATH  where to keep repositories fetched for a remote console
+                        (default <state dir>/checkouts; "off" to fetch none)
   --allow-yolo          let turns dispatched from --hub bypass agent permissions
 
 Environment:

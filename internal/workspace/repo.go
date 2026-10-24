@@ -344,7 +344,7 @@ func ResolveRepo(raw string) (Repo, error) {
 	if err != nil {
 		return Repo{}, fmt.Errorf("%w — name it as owner/repo, or give the full remote URL", err)
 	}
-	return Repo{Canonical: canonical, CloneURL: credentialFreeCloneURL(raw, canonical)}, nil
+	return Repo{Canonical: canonical, CloneURL: credentialFreeCloneURL(raw)}, nil
 }
 
 // allowedRemote refuses a name that is a transport rather than a repository.
@@ -400,24 +400,49 @@ func isGitHubShorthand(raw string) bool {
 	return found && owner != "" && repo != "" && !strings.Contains(repo, "/")
 }
 
-// credentialFreeCloneURL keeps the transport a person chose and drops anything
-// that could be a secret.
+// credentialFreeCloneURL keeps the transport a person chose, and drops only the
+// part of it that is a credential.
 //
-// An scp-like remote has no field a password could live in — the credential is
-// the key on this machine — so it is passed through as written. A URL can carry
-// userinfo, and a token pasted there would otherwise be handed to git, printed
-// in git's own error messages, and carried back to the Hub as the machine's
-// answer to a question. CanonicalRemote has already dropped it; this rebuilds
-// the URL from that, so the two agree about which repository this is.
-func credentialFreeCloneURL(raw, canonical string) string {
+// A token pasted into a URL would otherwise be handed to git, printed in git's
+// own error messages, and carried back to the Hub as the machine's answer to a
+// question — so it is removed here rather than trusted not to leak. What is not
+// removed is everything else: the path is what the remote's server expects, and
+// a `.git` suffix is part of it (a canonical name strips one; an ssh server does
+// not accept the shortened form), and `git@` in an ssh remote is a username the
+// server needs, not a secret.
+//
+// Over http the username *is* the credential — there is no other thing a
+// username could be there, and a GitHub token goes in that position — so the
+// whole userinfo comes off and the machine's own credential helper is what
+// authenticates. That is the arrangement the checkout root is for: the machine
+// fetches with the credentials it already has.
+func credentialFreeCloneURL(raw string) string {
 	scheme, rest, found := strings.Cut(raw, "://")
-	if !found {
+	if !found || rest == "" || scheme == "" {
 		return raw
 	}
-	if rest == "" || scheme == "" {
-		return raw
+	authority, path, hasPath := strings.Cut(rest, "/")
+	if userinfo, host, ok := strings.Cut(authority, "@"); ok {
+		keep := userinfo
+		switch strings.ToLower(scheme) {
+		case "http", "https":
+			keep = ""
+		default:
+			// Not a secret either way, except for a password after the colon.
+			if name, _, hasPassword := strings.Cut(userinfo, ":"); hasPassword {
+				keep = name
+			}
+		}
+		if keep == "" {
+			authority = host
+		} else {
+			authority = keep + "@" + host
+		}
 	}
-	return scheme + "://" + canonical
+	if !hasPath {
+		return scheme + "://" + authority
+	}
+	return scheme + "://" + authority + "/" + path
 }
 
 // parseLsRemote reads `git ls-remote --symref` output.

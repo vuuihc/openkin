@@ -301,6 +301,19 @@ func (s *Server) Handler() http.Handler {
 		// before it can start anything. Holder-only: a guest on someone's Hub
 		// runs its own tasks and has no business reading the holder's paths.
 		r.With(holderOnly).Get("/api/machines/{device}/dirs", s.handleMachineDirs)
+		// Starting a session on a repository the machine does not have yet, which
+		// is the one thing a phone cannot do by browsing: it names a repository,
+		// and the machine fetches it and says where it put it.
+		//
+		// Holder-only rather than operatorOnly, which is the same call the rest of
+		// this block makes and not an oversight about writing: a paired phone is
+		// enrolled by the holder and is a full client of the machine it was paired
+		// to, which is the whole point of having one. The write is bounded on the
+		// machine's side — the destination is derived there, inside its own
+		// checkout root, and a directory that is not exactly that repository is
+		// refused rather than replaced.
+		r.With(holderOnly).Get("/api/machines/{device}/repo/branches", s.handleMachineRepoBranches)
+		r.With(holderOnly).Post("/api/machines/{device}/repo/prepare", s.handleMachineRepoPrepare)
 		r.With(operatorOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)

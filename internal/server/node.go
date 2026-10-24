@@ -186,6 +186,34 @@ func nodeRoots(ctx context.Context, st *store.Store, extra []string) []string {
 	return roots
 }
 
+// resolveCheckoutRoot reads where this machine keeps the repositories it fetches
+// for a console that cannot reach them itself.
+//
+// The default sits under the state directory because that is the one directory
+// this daemon is already entitled to write in. It is a directory of clones and
+// nothing else — every path under it is derived from a repository's canonical
+// name — so it is somewhere the boundary can be widened to without widening it
+// to anything a person keeps by hand.
+//
+// Turning it off is not a narrower version of the same thing: a machine that
+// fetches nothing is a machine whose console can only pick from what is already
+// on it, which for a phone is the difference between starting a session and
+// browsing one.
+func resolveCheckoutRoot(stateDir, declared string) (string, error) {
+	declared = strings.TrimSpace(declared)
+	if strings.EqualFold(declared, "off") {
+		return "", nil
+	}
+	if declared == "" {
+		return filepath.Join(stateDir, "checkouts"), nil
+	}
+	abs, err := filepath.Abs(declared)
+	if err != nil {
+		return "", fmt.Errorf("--checkout-root %s: %w", declared, err)
+	}
+	return abs, nil
+}
+
 // nodeIdentity is the id this Node presents. The Hub keys the device on the
 // credential, not on this, so it only has to be stable and readable in logs.
 func nodeIdentity() string {
