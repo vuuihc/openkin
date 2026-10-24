@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 38
+const schemaVersion = 39
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -566,7 +566,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -833,6 +833,40 @@ CREATE TABLE IF NOT EXISTS pr_observations (
 );
 CREATE INDEX IF NOT EXISTS idx_pr_observations_task ON pr_observations(task_id);
 CREATE INDEX IF NOT EXISTS idx_pr_observations_open ON pr_observations(state, attempted_at);
+`
+
+// migrationPendingPrompts adds the per-task queue of messages sent while a task
+// was still running.
+//
+// A queue row is not a chat message. The user-visible trail is the event stream,
+// written when the message is accepted; this row is the restart-safe delivery
+// index, the same division of labour task_limit_waits uses. It exists because
+// the sender is usually a phone that then goes into a pocket: "your message will
+// arrive at the next turn boundary" is a promise only a durable row can keep,
+// and an in-memory slot cannot keep it across a daemon restart.
+//
+// A table rather than a JSON column on tasks because of how the queue is used:
+// appended at the tail, read and removed at the head, and never rewritten as a
+// whole. `id` is the order -- AUTOINCREMENT so a removed id is never handed out
+// again, which keeps "the message I sent second is still behind the first" true
+// without a separate position column.
+//
+// `model` and `permission_mode` are nullable on purpose. For both, "absent" and
+// "the empty string" are different instructions (leave the task's setting alone
+// vs. clear it), and the follow-up request they came from distinguishes them the
+// same way.
+const migrationPendingPrompts = `
+CREATE TABLE IF NOT EXISTS task_pending_prompts (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id         TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  prompt          TEXT NOT NULL,
+  agent           TEXT NOT NULL DEFAULT '',
+  model           TEXT,
+  permission_mode TEXT,
+  queued_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_pending_prompts_queue
+ON task_pending_prompts(task_id, id);
 `
 
 // Migration 009 adds nullable execution attribution columns to approvals.
@@ -2260,6 +2294,25 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 038: %w", err)
 		}
 		v = 38
+	}
+
+	if v == 38 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 039: %w", err)
+		}
+		if _, err := tx.Exec(migrationPendingPrompts); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 039 pending prompts: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 39`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 039: %w", err)
+		}
+		v = 39
 	}
 
 	// Every path out of here has to reach the same shape, so the assertion runs

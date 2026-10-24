@@ -1,0 +1,161 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// PendingPrompt is a message the user sent while the task was still running,
+// waiting for the next turn boundary.
+//
+// It is durable rather than in-memory because the sender is usually a phone
+// that has since been locked: the promise made when the message is accepted is
+// "this will be delivered", and a slot in a map cannot keep that promise across
+// a daemon restart. The user-visible copy of the message is the event written
+// at accept time; this row is the delivery index, and the two are written in
+// that order so a crash between them loses a delivery, never a message the user
+// can see and wait forever on.
+type PendingPrompt struct {
+	ID     int64  `json:"id"`
+	TaskID string `json:"task_id"`
+	Prompt string `json:"prompt"`
+	Agent  string `json:"agent,omitempty"`
+	// Model and PermissionMode are nil when the sender said nothing, which is a
+	// different instruction from an empty string (clear the setting). The same
+	// distinction exists in the request these were built from.
+	Model          *string `json:"model,omitempty"`
+	PermissionMode *string `json:"permission_mode,omitempty"`
+	QueuedAt       int64   `json:"queued_at"`
+}
+
+const pendingPromptColumns = `
+	id, task_id, prompt, agent, model, permission_mode, queued_at`
+
+func scanPendingPrompt(scanner interface {
+	Scan(dest ...any) error
+}) (PendingPrompt, error) {
+	var p PendingPrompt
+	var model, mode sql.NullString
+	if err := scanner.Scan(
+		&p.ID, &p.TaskID, &p.Prompt, &p.Agent, &model, &mode, &p.QueuedAt,
+	); err != nil {
+		return PendingPrompt{}, err
+	}
+	p.Model = nullableStringPtr(model)
+	p.PermissionMode = nullableStringPtr(mode)
+	return p, nil
+}
+
+// AppendPendingPrompt adds a message to the tail of a task's queue and returns
+// it with its assigned id.
+func (s *Store) AppendPendingPrompt(ctx context.Context, p PendingPrompt) (PendingPrompt, error) {
+	if strings.TrimSpace(p.TaskID) == "" {
+		return PendingPrompt{}, fmt.Errorf("pending prompt task_id is required")
+	}
+	if strings.TrimSpace(p.Prompt) == "" {
+		return PendingPrompt{}, fmt.Errorf("pending prompt text is required")
+	}
+	if p.QueuedAt <= 0 {
+		p.QueuedAt = time.Now().UnixMilli()
+	}
+	var model, mode any
+	if p.Model != nil {
+		model = *p.Model
+	}
+	if p.PermissionMode != nil {
+		mode = *p.PermissionMode
+	}
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO task_pending_prompts (
+			task_id, prompt, agent, model, permission_mode, queued_at
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		p.TaskID, p.Prompt, p.Agent, model, mode, p.QueuedAt)
+	if err != nil {
+		return PendingPrompt{}, fmt.Errorf("append pending prompt: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return PendingPrompt{}, fmt.Errorf("append pending prompt id: %w", err)
+	}
+	p.ID = id
+	return p, nil
+}
+
+// ListPendingPrompts returns a task's queued messages in the order they were
+// sent, oldest first. An empty queue is an empty slice and no error.
+func (s *Store) ListPendingPrompts(ctx context.Context, taskID string) ([]PendingPrompt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+pendingPromptColumns+`
+		FROM task_pending_prompts WHERE task_id = ? ORDER BY id ASC`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list pending prompts: %w", err)
+	}
+	defer rows.Close()
+	var out []PendingPrompt
+	for rows.Next() {
+		p, err := scanPendingPrompt(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan pending prompt: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending prompts: %w", err)
+	}
+	return out, nil
+}
+
+// PopPendingPrompt removes and returns the oldest queued message for a task.
+// The bool is false when the queue is empty, which is a normal outcome (two
+// turn boundaries can race for the same last message) rather than an error.
+//
+// Select-then-delete in one transaction, so two drains cannot take the same row
+// and the second one gets the next message instead of a duplicate.
+func (s *Store) PopPendingPrompt(ctx context.Context, taskID string) (PendingPrompt, bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return PendingPrompt{}, false, fmt.Errorf("begin pop pending prompt: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	p, err := scanPendingPrompt(tx.QueryRowContext(ctx, `SELECT `+pendingPromptColumns+`
+		FROM task_pending_prompts WHERE task_id = ? ORDER BY id ASC LIMIT 1`, taskID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return PendingPrompt{}, false, nil
+	}
+	if err != nil {
+		return PendingPrompt{}, false, fmt.Errorf("read pending prompt head: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM task_pending_prompts WHERE id = ?`, p.ID); err != nil {
+		return PendingPrompt{}, false, fmt.Errorf("pop pending prompt: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return PendingPrompt{}, false, fmt.Errorf("commit pop pending prompt: %w", err)
+	}
+	return p, true, nil
+}
+
+// ClearPendingPrompts drops a task's whole queue and reports how many messages
+// were discarded, so a caller can say so instead of dropping them silently.
+func (s *Store) ClearPendingPrompts(ctx context.Context, taskID string) (int, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM task_pending_prompts WHERE task_id = ?`, taskID)
+	if err != nil {
+		return 0, fmt.Errorf("clear pending prompts: %w", err)
+	}
+	changed, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("clear pending prompts count: %w", err)
+	}
+	return int(changed), nil
+}
+
+func nullableStringPtr(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+	s := v.String
+	return &s
+}
