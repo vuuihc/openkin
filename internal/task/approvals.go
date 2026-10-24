@@ -1199,6 +1199,13 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 		// prepare — the same rule Create follows for a dispatched task.
 		applyWorkspaceMetadata(&dst, sharedWorkspace(src.Cwd))
 		dst.WorkspacePolicy = string(store.WorkspacePolicyShared)
+		// Where the work sits travels with the fork, as the device does. It is
+		// what the panels draw before anybody asks the machine — the repository
+		// chip, the pull-request header — and the machine's own answer is what
+		// corrects it later. Dropping it would leave every fork of a remote
+		// session with nothing to draw and no branch for the panel's first read
+		// to be about, which is not a state the person can act on from a phone.
+		dst.WorkspaceRepo, dst.WorkspaceBranch = src.WorkspaceRepo, src.WorkspaceBranch
 	}
 
 	preparedFork := false

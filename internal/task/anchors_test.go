@@ -417,6 +417,51 @@ func TestForkKeepsTheWorkspaceIdentity(t *testing.T) {
 	}
 }
 
+// Where the work is travels with the fork, as the device and the anchor do.
+//
+// The pair is what the console draws before anybody asks the machine: the
+// repository chip, and the branch the pull-request panel's first read is about.
+// A fork that dropped it would start with nothing to draw and no branch, so the
+// panel would sit on "not checked yet" with nothing to act on — and the fix is
+// not to ask harder, it is not to lose what the source already knew.
+func TestForkKeepsWhereTheWorkIs(t *testing.T) {
+	local := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, local)
+	ctx := context.Background()
+	remoteAgent := &specRecorder{}
+	e.SetRemoteRunner("hub-machine", func(store.Task, string) (adapter.Adapter, error) {
+		return remoteAgent, nil
+	})
+	deviceRow(t, st, "laptop")
+
+	src, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/code/app", Prompt: "start here",
+		ExecutingDeviceID: "laptop",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, src.ID, StatusSucceeded, 5*time.Second)
+
+	// What the create path writes when that machine reports its checkout
+	// (internal/api's recordWhereTheWorkIs).
+	repo, branch := "github.com/owner/app", "kin/task/7/g1"
+	if err := st.UpdateTask(ctx, src.ID, store.TaskPatch{
+		WorkspaceRepo: &repo, WorkspaceBranch: &branch,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	forked, err := e.Fork(ctx, src.ID, ForkRequest{Prompt: "and now this"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forked.WorkspaceRepo != repo || forked.WorkspaceBranch != branch {
+		t.Fatalf("fork records %q/%q, want the source's %q/%q",
+			forked.WorkspaceRepo, forked.WorkspaceBranch, repo, branch)
+	}
+}
+
 // A remote turn with no portable identity runs at the path the task was created
 // with, checked against the machine's own roots and nothing else. That is the
 // weaker of the two checks, and a transcript that looked exactly like a resolved
