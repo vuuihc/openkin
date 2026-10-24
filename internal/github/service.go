@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -58,11 +60,43 @@ const ghReprobeInterval = 5 * time.Minute
 
 // Target is the pair this package observes: a branch of a repository, on behalf
 // of a task.
+//
+// For a task that runs on another machine, the branch is not known here at all
+// until that machine says which one it is on — the row records where the session
+// started, which is not where the work necessarily stayed. Device and Dir are
+// what such a task is observed through: the machine, and the checkout on it.
 type Target struct {
 	TaskID string
 	Repo   Repo
 	Branch string
+	// Device names the machine holding the checkout, or is empty when this
+	// daemon holds it.
+	Device string
+	// Dir is that checkout's directory on that machine. Unused for a local
+	// target, whose repository and branch are already resolved.
+	Dir string
 }
+
+// Machines is the Hub's own view of the paired machines, as this package needs
+// it. It is an interface because the Hub is the only thing that has one, and
+// this package must still be testable without a channel to a real one.
+type Machines interface {
+	// RunsElsewhere reports whether a task's turns run on another machine.
+	RunsElsewhere(t store.Task) bool
+	// RemoteWorkspaceCwd resolves where a task's work sits on that machine, and
+	// reports false when it cannot be resolved there.
+	RemoteWorkspaceCwd(ctx context.Context, t store.Task) (string, bool, error)
+	// Ask puts one question to one machine and decodes its answer.
+	Ask(ctx context.Context, device, method string, params, out any) error
+}
+
+// remoteObserveTimeout bounds one question about another machine's pull request.
+//
+// It has to be generous: the answer is a read of GitHub made by that machine,
+// through its own CLI, which is a process launch and up to three requests. What
+// it must not be is absent — a machine that accepts the question and then goes
+// quiet would otherwise hold a person's refresh open until they gave up on it.
+const remoteObserveTimeout = 45 * time.Second
 
 // GHStatus describes whether the preferred credential source is usable, so the
 // console can explain an anonymous read instead of silently degrading.
@@ -92,6 +126,10 @@ type Service struct {
 	// anon is the credential-free reader. Held as the interface so tests can
 	// substitute a transport and exercise the whole observe path offline.
 	anon apiRunner
+	// machines is how a task that runs elsewhere is observed: the Hub asks the
+	// machine holding the checkout. Nil means every task is this machine's, which
+	// is what a daemon with no Hub role is.
+	machines Machines
 
 	// now is injectable so tests do not depend on wall-clock timing.
 	now func() time.Time
@@ -128,6 +166,10 @@ func NewService(st *store.Store) *Service {
 
 // SetClock replaces the time source. Tests only.
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+// SetMachines gives the service the Hub's paired machines. A daemon that runs
+// every task itself never calls this, and never asks anybody anything.
+func (s *Service) SetMachines(m Machines) { s.machines = m }
 
 // ---------------------------------------------------------------------------
 // Credential selection
@@ -340,6 +382,20 @@ func (s *Service) Observe(ctx context.Context, t Target) (store.PRObservation, e
 type observeKey struct {
 	repo, branch string
 	maySpend     bool
+	// device and dir identify a question about another machine's checkout. Such a
+	// question is about that directory and nothing else: the repository and branch
+	// are part of its answer, so they cannot also be part of what makes it unique,
+	// and the caller's budget does not enter into it — that machine's own
+	// credentials make the read, and its own address pays for it.
+	device, dir string
+}
+
+// observeKeyFor is the identity of the question one target asks.
+func observeKeyFor(t Target, maySpendAnonymous bool) observeKey {
+	if t.Device != "" {
+		return observeKey{device: t.Device, dir: t.Dir}
+	}
+	return observeKey{repo: t.Repo.Canonical(), branch: t.Branch, maySpend: maySpendAnonymous}
 }
 
 // inflight is a question being asked right now. The caller who asks it publishes
@@ -362,7 +418,7 @@ type inflight struct {
 // questions that legitimately differ here, a tap and the background pass, are the
 // pair the store's write ordering exists to keep straight.
 func (s *Service) observe(ctx context.Context, t Target, maySpendAnonymous bool) (store.PRObservation, error) {
-	key := observeKey{repo: t.Repo.Canonical(), branch: t.Branch, maySpend: maySpendAnonymous}
+	key := observeKeyFor(t, maySpendAnonymous)
 	call, leader := s.claimObserve(key)
 	if !leader {
 		// The wait is on this caller's context: a client that has gone away does
@@ -409,23 +465,17 @@ func (s *Service) claimObserve(key observeKey) (*inflight, bool) {
 // observeNow does what observe promises, with the time of the question passed in
 // so that every row this attempt writes carries it.
 func (s *Service) observeNow(ctx context.Context, t Target, maySpendAnonymous bool, askedAt time.Time) (store.PRObservation, error) {
+	// A task whose work is on another machine is asked about there. Nothing below
+	// this line would be about the right checkout: this daemon may hold its own
+	// copy of the same repository at the same path, and its own credentials may
+	// see a different set of repositories.
+	if t.Device != "" {
+		return s.observeOnMachine(ctx, t, askedAt)
+	}
 	key := t.Repo.Canonical()
 	result, err := s.query(ctx, t.Repo, t.Branch, maySpendAnonymous)
 	if err != nil {
-		// A skipped attempt is not a failure. Recording one would write a
-		// sentence onto the row that says the query failed when the truth is
-		// that it was never made, and the next read would show it to the user.
-		if !errors.Is(err, errBudgetSpent) {
-			if recErr := s.store.RecordPRFailure(ctx, key, t.Branch, t.TaskID, err.Error(), askedAt); recErr != nil {
-				return store.PRObservation{}, recErr
-			}
-		}
-		cached, _, getErr := s.store.GetPRObservation(ctx, key, t.Branch)
-		if getErr != nil {
-			return store.PRObservation{}, getErr
-		}
-		cached.Repo, cached.HeadBranch, cached.TaskID = key, t.Branch, t.TaskID
-		return cached, err
+		return s.failedAttempt(ctx, key, t.Branch, t.TaskID, err, askedAt)
 	}
 	if err := s.record(ctx, t, result, askedAt); err != nil {
 		return store.PRObservation{}, err
@@ -435,6 +485,130 @@ func (s *Service) observeNow(ctx context.Context, t Target, maySpendAnonymous bo
 		return store.PRObservation{}, err
 	}
 	return obs, nil
+}
+
+// failedAttempt writes one failed attempt onto the row it belongs to and returns
+// the best answer still known: the previous successful one, carrying the reason
+// this attempt failed. The console renders that pair — the card, and the
+// sentence under it — which is why the cached row is returned even though the
+// call failed.
+//
+// A skipped attempt is not a failure. Recording one would write a sentence onto
+// the row that says the query failed when the truth is that it was never made,
+// and the next read would show it to the user.
+//
+// Nothing to write on is a different case again, and the reason travels as the
+// error instead: a task that has never had an answer has no row, and inventing
+// one would key a pull request to a branch nobody named.
+func (s *Service) failedAttempt(ctx context.Context, repo, branch, taskID string, cause error, askedAt time.Time) (store.PRObservation, error) {
+	if errors.Is(cause, errBudgetSpent) || repo == "" || branch == "" {
+		return store.PRObservation{}, cause
+	}
+	if err := s.store.RecordPRFailure(ctx, repo, branch, taskID, cause.Error(), askedAt); err != nil {
+		return store.PRObservation{}, err
+	}
+	cached, _, err := s.store.GetPRObservation(ctx, repo, branch)
+	if err != nil {
+		return store.PRObservation{}, err
+	}
+	cached.Repo, cached.HeadBranch, cached.TaskID = repo, branch, taskID
+	return cached, cause
+}
+
+// observeOnMachine asks the machine holding a task's checkout what pull request
+// its branch has, and writes the answer down here.
+//
+// The Hub keeps the row: it is the thing that serves both screens, and the
+// machine's answer is about a moment, not a state it stores. What the machine
+// decides is everything the answer is made of — which repository, which branch,
+// and what the pull request is — because that is the machine with the checkout,
+// the credentials, and the network.
+//
+// The Hub's anonymous budget does not apply. That budget exists to stop this
+// process spending a quota nobody is watching; the read here is made with the
+// other machine's credentials against the other machine's address, and what
+// keeps it rare is the cadence the Hub asks at — the floor and the batch size of
+// the background pass, which are the same ones it applies to its own reads.
+func (s *Service) observeOnMachine(ctx context.Context, t Target, askedAt time.Time) (store.PRObservation, error) {
+	if s.machines == nil {
+		return store.PRObservation{}, errors.New("no machines are paired with this daemon")
+	}
+	if t.Dir == "" {
+		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID,
+			fmt.Errorf("%s did not say which directory to read", t.Device), askedAt)
+	}
+	askCtx, cancel := context.WithTimeout(ctx, remoteObserveTimeout)
+	defer cancel()
+	var answer worker.PRObserveResult
+	err := s.machines.Ask(askCtx, t.Device, worker.QueryPRObserve, worker.PRObserveParams{Path: t.Dir}, &answer)
+	if err == nil && !answer.Observed {
+		err = errors.New(strings.TrimSpace(answer.Reason))
+	}
+	if err != nil {
+		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID, err, askedAt)
+	}
+
+	// What the machine said, checked rather than trusted: the answer is a wire
+	// value, and a Hub that keyed a row on it unchecked would file another
+	// repository's pull request under this task.
+	repo, ok := ParseCanonical(answer.Repo)
+	if !ok {
+		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID,
+			fmt.Errorf("%s answered about %q, which is not a repository this Hub can read", t.Device, answer.Repo), askedAt)
+	}
+	if strings.TrimSpace(answer.Branch) == "" {
+		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID,
+			fmt.Errorf("%s answered about %s with no branch", t.Device, repo.Canonical()), askedAt)
+	}
+	observed := Target{TaskID: t.TaskID, Repo: repo, Branch: answer.Branch}
+	res := LookupResult{Source: answer.Source}
+	if answer.Number > 0 {
+		number := answer.Number
+		res.PR = &PullRequest{
+			Number:     &number,
+			URL:        answer.URL,
+			Title:      answer.Title,
+			State:      answer.State,
+			IsDraft:    answer.Draft,
+			BaseBranch: answer.BaseBranch,
+			HeadOID:    answer.HeadOID,
+			CI:         CIStatus{State: answer.CIState},
+		}
+		if answer.CISummary != "" {
+			if err := json.Unmarshal([]byte(answer.CISummary), &res.PR.CI); err != nil {
+				// The counts are secondary to the pull request itself, and a
+				// summary this Hub cannot read is a summary it does not have.
+				res.PR.CI = CIStatus{State: answer.CIState}
+			}
+		}
+	}
+	if err := s.record(ctx, observed, res, askedAt); err != nil {
+		return store.PRObservation{}, err
+	}
+	s.noteWhereTheWorkMoved(ctx, t, repo, answer.Branch)
+	obs, _, err := s.store.GetPRObservation(ctx, repo.Canonical(), answer.Branch)
+	if err != nil {
+		return store.PRObservation{}, err
+	}
+	return obs, nil
+}
+
+// noteWhereTheWorkMoved writes the machine's own answer back onto the task row.
+//
+// The row is what the panel draws before anyone asks the machine anything, so a
+// session that has switched branches since it started would otherwise keep a
+// header about the branch it used to be on, beside a card about the branch it is
+// on now. Best effort: the observation is written and is the answer that
+// matters, and a row that could not be corrected is a header that lags.
+func (s *Service) noteWhereTheWorkMoved(ctx context.Context, t Target, repo Repo, branch string) {
+	if t.TaskID == "" || (t.Repo.Canonical() == repo.Canonical() && t.Branch == branch) {
+		return
+	}
+	recorded, moved := repo.Canonical(), branch
+	_ = s.store.UpdateTask(ctx, t.TaskID, store.TaskPatch{
+		WorkspaceRepo:   &recorded,
+		WorkspaceBranch: &moved,
+	})
 }
 
 // record turns one successful answer into a row.
@@ -487,6 +661,19 @@ func (s *Service) record(ctx context.Context, t Target, res LookupResult, askedA
 // about it (see recordWhereTheWorkIs). That is a read of the task row: no git,
 // no question to any machine, no network.
 func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, bool, error) {
+	// The task first, because whether it runs here decides which of the two
+	// answers below is the right one: a task whose turns run on another machine
+	// keeps its work there, and this daemon's own checkouts say nothing about it.
+	if s.machines != nil {
+		t, err := s.store.GetTask(ctx, taskID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return Target{}, false, fmt.Errorf("task %s: %w", taskID, err)
+		}
+		if err == nil && s.machines.RunsElsewhere(t) {
+			return s.targetOnMachine(ctx, t)
+		}
+	}
+
 	gen, err := s.store.GetCurrentWorkspace(ctx, taskID)
 	if errors.Is(err, store.ErrNotFound) {
 		return s.targetRecordedOnTask(ctx, taskID)
@@ -509,6 +696,36 @@ func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, boo
 		return Target{}, false, err
 	}
 	return Target{TaskID: taskID, Repo: repo, Branch: gen.WorkspaceBranch}, true, nil
+}
+
+// targetOnMachine names the checkout a task's work is in on the machine that
+// runs it.
+//
+// The repository and branch come from the task row, where they were recorded
+// when the session started (see recordWhereTheWorkIs). They are what the panel
+// draws before anyone asks the machine anything, and they are allowed to be
+// missing or stale: the machine is asked afresh whenever an observation is
+// actually made, and its answer is what the observation is keyed on.
+//
+// Resolving the directory can fail — the anchor may be gone, or the machine may
+// have reported no roots — and that is a machine that cannot be asked, not a
+// task with no repository: the target still exists, and the failure is what the
+// observation attempt will report.
+func (s *Service) targetOnMachine(ctx context.Context, t store.Task) (Target, bool, error) {
+	device := strings.TrimSpace(t.ExecutingDeviceID)
+	if device == "" {
+		return Target{}, false, nil
+	}
+	target := Target{TaskID: t.ID, Device: device, Dir: t.EffectiveCwd()}
+	if t.WorkspaceRepo != "" && t.WorkspaceBranch != "" {
+		if repo, ok := ParseCanonical(t.WorkspaceRepo); ok {
+			target.Repo, target.Branch = repo, t.WorkspaceBranch
+		}
+	}
+	if cwd, remote, err := s.machines.RemoteWorkspaceCwd(ctx, t); err == nil && remote && strings.TrimSpace(cwd) != "" {
+		target.Dir = cwd
+	}
+	return target, true, nil
 }
 
 // targetRecordedOnTask reads the repository and branch a task was recorded on.
@@ -575,8 +792,6 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 		return snap, err
 	}
 	if ok {
-		snap.Repo = target.Repo.Canonical()
-		snap.Branch = target.Branch
 		if force {
 			// A failed query is not the notice's to report. The attempt wrote its
 			// reason on the row, and the row is where the console prints it —
@@ -591,7 +806,22 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 			if obs, err := s.Observe(ctx, target); err != nil && obs.Repo == "" {
 				return snap, err
 			}
+			// Asked afresh, because the answer may be about a different branch
+			// than the row remembered: a checkout that has moved since the
+			// session started is exactly what the machine is asked about, and
+			// the header has to name the branch the card below it is about.
+			if again, ok, err := s.TargetForTask(ctx, taskID); err == nil && ok {
+				target = again
+			}
 		}
+		// A target on another machine may have no recorded repository yet — a
+		// session that started while that machine was away has one, but its
+		// answer is the machine's to give. Reporting the empty one as a
+		// canonical repository would print "github.com//" over the panel.
+		if target.Repo.Owner != "" {
+			snap.Repo = target.Repo.Canonical()
+		}
+		snap.Branch = target.Branch
 	}
 
 	observations, err := s.store.ListPRObservationsByTask(ctx, taskID)
@@ -695,9 +925,6 @@ func (s *Service) Reconcile(ctx context.Context, limit int) (int, error) {
 		if ctx.Err() != nil {
 			return refreshed, ctx.Err()
 		}
-		if s.anonymousBackoffRemaining() > 0 && s.nextReadIsAnonymous(obs.Source) {
-			continue
-		}
 		if !s.due(obs, now) {
 			continue
 		}
@@ -705,7 +932,23 @@ func (s *Service) Reconcile(ctx context.Context, limit int) (int, error) {
 		if !ok {
 			continue
 		}
-		if _, err := s.observe(ctx, Target{TaskID: obs.TaskID, Repo: repo, Branch: obs.HeadBranch}, true); err != nil {
+		target, err := s.passTarget(ctx, obs, repo)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		// The two gates below are this daemon's own spending rules, and they are
+		// about this daemon's reads. A row that is refreshed by asking another
+		// machine spends nothing here: what that read costs is paid on that
+		// machine, and the cadence above is what keeps it rare.
+		if target.Device == "" {
+			if s.anonymousBackoffRemaining() > 0 && s.nextReadIsAnonymous(obs.Source) {
+				continue
+			}
+		}
+		if _, err := s.observe(ctx, target, true); err != nil {
 			// A row the budget skipped is not a failure and is not the pass's
 			// first error; it is the pass working as designed.
 			if errors.Is(err, errBudgetSpent) {
@@ -719,6 +962,43 @@ func (s *Service) Reconcile(ctx context.Context, limit int) (int, error) {
 		refreshed++
 	}
 	return refreshed, firstErr
+}
+
+// passTarget is the target one cached row should be refreshed through.
+//
+// A row remembers the repository and branch it was answered about, which is
+// enough to refresh it here. For a task that runs on another machine it is not:
+// the read has to be made there, so the task is read to find out, and the row's
+// own pair stays as the fallback for when that machine cannot be reached — the
+// failure is then written onto the row it belongs to, which is the card the
+// person is looking at.
+func (s *Service) passTarget(ctx context.Context, obs store.PRObservation, repo Repo) (Target, error) {
+	target := Target{TaskID: obs.TaskID, Repo: repo, Branch: obs.HeadBranch}
+	if s.machines == nil || obs.TaskID == "" {
+		return target, nil
+	}
+	t, err := s.store.GetTask(ctx, obs.TaskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return target, nil
+	}
+	if err != nil {
+		return Target{}, fmt.Errorf("task %s: %w", obs.TaskID, err)
+	}
+	if !s.machines.RunsElsewhere(t) {
+		return target, nil
+	}
+	machine, ok, err := s.targetOnMachine(ctx, t)
+	if err != nil {
+		return Target{}, err
+	}
+	if !ok {
+		return target, nil
+	}
+	// The row's pair, not the task's: this row is about that branch, and the
+	// machine is asked about the checkout rather than about the pair — so the
+	// repository and branch here are only what a failure gets written against.
+	machine.Repo, machine.Branch = repo, obs.HeadBranch
+	return machine, nil
 }
 
 // due reports whether a row is worth querying now.

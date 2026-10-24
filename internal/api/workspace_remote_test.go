@@ -34,6 +34,17 @@ import (
 // workspace manager is built on, the same wiring `kin serve` uses.
 func remoteWorkspaceHub(t *testing.T, roots ...string) (*Server, http.Handler, string, string) {
 	t.Helper()
+	return hubWithMachine(t, nil, roots...)
+}
+
+// hubWithMachine is remoteWorkspaceHub with the machine's own seams left to the
+// caller.
+//
+// A test about what the Hub does with an answer has to be able to say what the
+// answer is: the alternative is reaching a network, and a test that reads GitHub
+// for real cannot assert anything about what the Hub did with the reply.
+func hubWithMachine(t *testing.T, setup func(*node.Responder), roots ...string) (*Server, http.Handler, string, string) {
+	t.Helper()
 	s, master, conns := machinesServer(t)
 	h := s.Handler()
 	hub := httptest.NewServer(h)
@@ -42,6 +53,9 @@ func remoteWorkspaceHub(t *testing.T, roots ...string) (*Server, http.Handler, s
 	deviceToken, deviceID := pairDevice(t, h, master)
 	responder := &node.Responder{Roots: roots}
 	responder.Workspace = workspace.NewManager(roots[0])
+	if setup != nil {
+		setup(responder)
+	}
 	runResponder(t, hub.URL, deviceToken, responder)
 	awaitConnected(t, conns, deviceID)
 	return s, h, master, deviceID

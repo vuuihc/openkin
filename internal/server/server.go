@@ -724,6 +724,11 @@ func ServeWith(version string, flags ServeFlags) error {
 			RedirectURI: daemonURL + "/api/cloudflare/oauth/callback",
 		},
 	}
+	// Pull-request state for a session that runs on another machine is read by
+	// that machine — its credentials, its checkout — so the service needs the
+	// Hub's own view of the paired machines to ask one. Bound here because this
+	// is where both exist.
+	srvAPI.BindGitHubMachines()
 	srvAPI.ConfigureRelay = func(c context.Context, rawURL string) (api.RelayStatus, error) {
 		status, err := relayRuntime.Configure(c, rawURL)
 		if err != nil {

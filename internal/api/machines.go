@@ -12,6 +12,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/remote/worker"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // The console on a phone picks a machine, and everything picked after that —
@@ -139,6 +140,43 @@ func (s *Server) askDeviceResult(w http.ResponseWriter, ctx context.Context, dev
 		return false
 	}
 	return true
+}
+
+// hubMachines is the Hub's own paired machines, as the pull-request service
+// needs them.
+//
+// The service drives reads that are about a machine — where a task's work sits,
+// and what the machine holding it can see — and it has to do that through the
+// same three steps every other route uses: is this task's machine another one,
+// where is its checkout there, and ask it. Handing it the Server instead would
+// give one package a second way to reach the same channel.
+type hubMachines struct{ s *Server }
+
+func (m hubMachines) RunsElsewhere(t store.Task) bool {
+	return m.s.Engine != nil && m.s.Engine.RunsElsewhere(t)
+}
+
+func (m hubMachines) RemoteWorkspaceCwd(ctx context.Context, t store.Task) (string, bool, error) {
+	if m.s.Engine == nil {
+		return "", false, nil
+	}
+	return m.s.Engine.RemoteWorkspaceCwd(ctx, t)
+}
+
+func (m hubMachines) Ask(ctx context.Context, device, method string, params, out any) error {
+	return m.s.askDeviceQuietly(ctx, device, method, params, out)
+}
+
+// BindGitHubMachines lets the pull-request service observe sessions that run on
+// another machine, by asking the machine that holds the checkout.
+//
+// Called by the composition root once both are built. A server that never calls
+// it — a daemon with no engine, or a test — reads every task as its own, which
+// is what it is.
+func (s *Server) BindGitHubMachines() {
+	if s.GitHub != nil {
+		s.GitHub.SetMachines(hubMachines{s})
+	}
 }
 
 // askDeviceQuietly is askDeviceResult for a caller with no response to write:
