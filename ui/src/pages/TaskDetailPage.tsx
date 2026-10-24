@@ -1224,6 +1224,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         <PullRequestPanel
           taskId={task.id}
           active={active}
+          // The panel reads this daemon's cache for the task's branch, and the
+          // task's checkout is on `machine` when that is set. Passing it is what
+          // keeps an empty answer reading as "not here" instead of "nowhere".
+          elsewhere={machine}
           onClose={() => setOverlay(null)}
         />
       )}

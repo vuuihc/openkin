@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  absentRepoLabel,
   ciLabel,
   headerLabel,
   leadObservation,
@@ -8,6 +9,7 @@ import {
   parseCISummary,
   shortRepo,
   stateLabel,
+  unobservedLabel,
   type CISummary,
 } from "./prObservation";
 import type { PullRequestObservation } from "../api/client";
@@ -277,5 +279,46 @@ describe("headerLabel", () => {
   it("does not repeat the host", () => {
     expect(shortRepo("github.com/owner/repo")).toBe("owner/repo");
     expect(shortRepo("garbage")).toBe("garbage");
+  });
+});
+
+describe("absentRepoLabel", () => {
+  it("claims the task is in no repository only for a checkout read here", () => {
+    // The claim is about a checkout this daemon can read. With none to read it
+    // is the machine holding the task that would have to make it.
+    expect(absentRepoLabel(tr, null)).toBe("pr.noRepo");
+  });
+
+  it("names the machine holding the checkout instead", () => {
+    expect(absentRepoLabel(tr, { text: "studio", known: true })).toBe(
+      "pr.repoElsewhere(studio)",
+    );
+  });
+
+  it("names a machine this console cannot place, by its id", () => {
+    // A revoked machine, a device list that failed to load, or one that is
+    // still loading. The id is what the person has to go on, and it beats
+    // naming this machine by omission — so the label says where the name came
+    // from rather than that the machine is gone.
+    expect(absentRepoLabel(tr, { text: "node-7", known: false })).toBe(
+      "pr.repoElsewhereUnknown(node-7)",
+    );
+  });
+});
+
+describe("unobservedLabel", () => {
+  it("promises an answer for a checkout this daemon can read", () => {
+    expect(unobservedLabel(tr, null)).toBe("pr.notChecked");
+  });
+
+  it("gives the reason instead, when the answer is not coming from here", () => {
+    // "Not checked yet" reads as a wait, and for another machine's checkout
+    // there is nothing to wait for: no read of this daemon's reaches it.
+    expect(unobservedLabel(tr, { text: "studio", known: true })).toBe(
+      "pr.checkoutElsewhere(studio)",
+    );
+    expect(unobservedLabel(tr, { text: "node-7", known: false })).toBe(
+      "pr.checkoutElsewhere(node-7)",
+    );
   });
 });

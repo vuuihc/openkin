@@ -9,6 +9,7 @@ import {
 import { useT } from "../../i18n/react";
 import { formatRelativeTime } from "../../lib/relativeTime";
 import {
+  absentRepoLabel,
   ciLabel,
   headerLabel,
   leadObservation,
@@ -16,6 +17,8 @@ import {
   otherPullRequests,
   parseCISummary,
   stateLabel,
+  unobservedLabel,
+  type Elsewhere,
 } from "../../lib/prObservation";
 import {
   IconAlert,
@@ -35,6 +38,12 @@ type Props = {
    */
   active?: boolean;
   onClose?: () => void;
+  /**
+   * The machine this task runs on, when that is not the machine showing the
+   * page. See absentRepoLabel: without it this panel answers "no pull request"
+   * about a checkout it has never been able to read.
+   */
+  elsewhere?: Elsewhere;
 };
 
 /**
@@ -53,6 +62,7 @@ export default function PullRequestPanel({
   taskId,
   active = true,
   onClose,
+  elsewhere = null,
 }: Props) {
   const tr = useT();
   const [snapshot, setSnapshot] = useState<TaskPullRequestSnapshot | null>(
@@ -221,23 +231,32 @@ export default function PullRequestPanel({
             {tr("pr.title")}
           </div>
           <div className="truncate font-mono text-[11px] text-kin-muted">
-            {headerLabel(snapshot, lead) || tr("pr.noRepo")}
+            {headerLabel(snapshot, lead) || absentRepoLabel(tr, elsewhere)}
           </div>
         </div>
-        <button
-          type="button"
-          className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={() => void onRefresh()}
-          disabled={busy}
-          title={tr("pr.refreshHint")}
-        >
-          {busy ? (
-            <IconSpinner size={13} strokeWidth={2} />
-          ) : (
-            <IconRefresh size={13} />
-          )}
-          <span className="hidden sm:inline">{tr("pr.refresh")}</span>
-        </button>
+        {/*
+          No refresh for a checkout this daemon cannot read. The read resolves
+          the task's directory here and returns this task's cached rows; with the
+          directory on another machine there is nothing to resolve and nothing to
+          query, so the button would spend a tap to redraw the same sentence. The
+          next action for that task is on the machine named beside it.
+        */}
+        {!elsewhere && (
+          <button
+            type="button"
+            className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void onRefresh()}
+            disabled={busy}
+            title={tr("pr.refreshHint")}
+          >
+            {busy ? (
+              <IconSpinner size={13} strokeWidth={2} />
+            ) : (
+              <IconRefresh size={13} />
+            )}
+            <span className="hidden sm:inline">{tr("pr.refresh")}</span>
+          </button>
+        )}
         {onClose && (
           <button
             type="button"
@@ -281,7 +300,7 @@ export default function PullRequestPanel({
               <Checking />
             ) : (
               <p className="text-[12.5px] text-kin-muted">
-                {tr("pr.notChecked")}
+                {unobservedLabel(tr, elsewhere)}
               </p>
             )
           ) : (

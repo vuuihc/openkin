@@ -140,9 +140,11 @@ const zh = {
     offlineHint: "{name} 当前离线，无法派发过去。",
     noRoots: "{name} 没有声明工作目录 — 请填一个它上面真实存在的路径。",
     noAgents: "{name} 上没有可用的 agent。",
-    listUnavailable: "读不到机器列表（需要 Hub 所有者权限），只能在本机运行。",
+    listUnavailable: "读不到机器列表，只能在本机运行。",
     runsOn: "运行于 {name}",
-    runsOnUnknown: "运行于 {name}（已不可见）",
+    // 不写「已不可见」：id 不在*这个控制台*的机器列表里，列表还没读回来时也是这个样子。
+    // 具体原因见 machine.goneHint。
+    runsOnUnknown: "运行于 {name}（不在机器列表里）",
   },
   composer: {
     placeholder: "跟 Kin 说…",
@@ -586,6 +588,9 @@ const zh = {
   pr: {
     title: "Pull Request",
     noRepo: "此任务不在 GitHub 仓库中",
+    repoElsewhere: "此任务的检出目录在 {name} 上",
+    repoElsewhereUnknown: "此任务的检出目录在 {name} 上（不在机器列表里）",
+    checkoutElsewhere: "此 Hub 只读自己的检出目录，而此任务的检出目录在 {name} 上。",
     refresh: "刷新",
     refreshHint: "立即查询 GitHub（会计入速率限额）",
     unavailable: "此节点未配置 GitHub 集成",
@@ -1122,7 +1127,7 @@ const zh = {
     newWithProfile: "新建 {profile}",
     closePanel: "关闭终端面板",
     runsOn: "这个任务在 {name} 上执行；终端是本机的 shell，不会进入那台机器上的目录。",
-    runsOnUnknown: "这个任务在 {name} 上执行（该机器已不可见）；终端是本机的 shell，不会进入那台机器上的目录。",
+    runsOnUnknown: "这个任务在 {name} 上执行（不在机器列表里）；终端是本机的 shell，不会进入那台机器上的目录。",
     closeSession: "关闭此会话",
     chooseFolder: "选择文件夹",
     noProfiles: "未找到支持的 shell",

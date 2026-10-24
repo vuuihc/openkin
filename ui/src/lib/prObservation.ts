@@ -161,6 +161,44 @@ export function headerLabel(
   return branch ? `${short} · ${branch}` : short;
 }
 
+/** The machine a task runs on, when that is not the machine showing the page. */
+export type Elsewhere = { text: string; known: boolean } | null;
+
+/**
+ * What the header says where the repository and branch would go.
+ *
+ * `headerLabel` names them when there is something to name, and its fallback is
+ * a claim: "this task is not in a GitHub repository". Only the machine holding
+ * the checkout can make that claim. Reading a task's pull-request state resolves
+ * the task's directory on the daemon answering the console, so for a task that
+ * runs elsewhere the empty answer means "not on this machine" — and the sentence
+ * a person reads decides whether they go and look at the other machine or
+ * conclude there is nothing to look at.
+ *
+ * The branch the work is on is not lost by saying so: it is on the other
+ * machine, where the person can see it.
+ */
+export function absentRepoLabel(tr: Translate, elsewhere: Elsewhere): string {
+  if (!elsewhere) return tr("pr.noRepo");
+  return elsewhere.known
+    ? tr("pr.repoElsewhere", { name: elsewhere.text })
+    : tr("pr.repoElsewhereUnknown", { name: elsewhere.text });
+}
+
+/**
+ * What the body says where a pull request would go, before one has been read.
+ *
+ * "This branch has not been checked yet" is a promise of an answer to come, and
+ * for a task whose checkout is on another machine no answer is coming: this
+ * daemon has no path to that directory. The useful sentence is the reason, not
+ * the wait.
+ */
+export function unobservedLabel(tr: Translate, elsewhere: Elsewhere): string {
+  return elsewhere
+    ? tr("pr.checkoutElsewhere", { name: elsewhere.text })
+    : tr("pr.notChecked");
+}
+
 /** How the pull request reads: draft first, because it is the actionable part. */
 export function stateLabel(
   tr: Translate,

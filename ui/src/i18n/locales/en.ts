@@ -149,9 +149,12 @@ const en: MessageTree = {
     noRoots: "{name} declared no working directories — type a path that exists on it.",
     noAgents: "No usable agent on {name}.",
     listUnavailable:
-      "The machine list could not be read (it needs Hub owner access), so only this machine can run work.",
+      "The machine list could not be read, so only this machine can run work.",
     runsOn: "runs on {name}",
-    runsOnUnknown: "runs on {name} (no longer visible)",
+    // Not "no longer visible": the id is missing from *this console's* machine
+    // list, which is also what a list that has not loaded yet looks like. See
+    // machine.goneHint for the reasons.
+    runsOnUnknown: "runs on {name} (not in the machine list)",
   },
   composer: {
     placeholder: "Message Kin…",
@@ -595,6 +598,10 @@ const en: MessageTree = {
   pr: {
     title: "Pull request",
     noRepo: "This task is not in a GitHub repository",
+    repoElsewhere: "This task's checkout is on {name}",
+    repoElsewhereUnknown: "This task's checkout is on {name} (not in the machine list)",
+    checkoutElsewhere:
+      "This hub reads pull requests from its own checkouts, and this task's is on {name}.",
     refresh: "Refresh",
     refreshHint: "Query GitHub now (counts against the rate limit)",
     unavailable: "GitHub integration is not configured on this node",
@@ -1138,7 +1145,7 @@ const en: MessageTree = {
     newWithProfile: "New {profile}",
     closePanel: "Close terminal panel",
     runsOn: "This task runs on {name}. The terminal is a shell on this machine and does not open that machine's directory.",
-    runsOnUnknown: "This task runs on {name} (no longer visible). The terminal is a shell on this machine and does not open that machine's directory.",
+    runsOnUnknown: "This task runs on {name} (not in the machine list). The terminal is a shell on this machine and does not open that machine's directory.",
     closeSession: "Close this session",
     chooseFolder: "Choose folder",
     noProfiles: "No supported shells found",
