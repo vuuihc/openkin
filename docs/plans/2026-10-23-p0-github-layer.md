@@ -612,3 +612,60 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 - 不装 git credential helper、不改用户 git config。
 - 不让 PR 成为会话状态机的一部分——它是**旁挂的观测**，PR 查不到不该影响会话能否运行。
 - P0 不做 merge / close / review 提交等其它写动词，只做 push + create。
+
+---
+
+## 12. 审计出来的缺陷清单（2026-10-24，已核实、未修）
+
+一轮针对 P0a 已落地代码的审计（多个独立 agent 分头找，**每一条都由我重读代码核实过**，
+不是转述）。本轮**没有**可用的独立评审：环境里的 sub-agent 全部走 Codex 网关，而那个网关
+配额已耗尽（429）——所以这份清单是我自己的核对结果，核实方式逐条写在下面。
+
+顺序按"是否影响手机 dogfood"排。
+
+### 12.1 会让手机看到**错答案**的
+
+| # | 症状 | 证据 | 归属 |
+|---|---|---|---|
+| A | 跑在**节点**上的会话，PR 面板要么空、要么显示**本机同名路径**那个仓库的 PR | `internal/github` 只用本机路径解析仓库（`service.go:385` → `RepoForDir` → `DeriveAnchor`），全文不引用 `WorkspaceAnchorID` / `ExecutingDeviceID` / workspace anchors；而 task engine 有一条相反的守卫：`TestRemoteTaskTakesNoContextFromThisMachinesDirectories`（"a remote task takes no context from this machine's directories"）。**未证实是"空"还是"错仓库"**——取决于远端任务在 Hub 上到底有没有 generation 行，P0-入口 开工前先验这一条 | P0-入口 |
+| B | 同时有 Actions check runs 和旧的 commit status 时，只看 check runs，外部 CI 的失败被漏掉，面板说"全部通过" | `client.go:279-294`：`len(runs.CheckRuns) > 0` 就 `return`，永远不读 `/status`；而它自己的注释说 status "still carries results from integrations that never adopted checks" | 本层 |
+
+### 12.2 会让节点**多花配额**的
+
+| # | 症状 | 证据 | 归属 |
+|---|---|---|---|
+| C | 读失败的 open 行**每个 tick 重查**：25 行 × 60s = ~1500 次/小时，而匿名配额是 60/小时 | `Reconcile` 用 `Fresh(now, floor)`（`service.go:540`），`Fresh` **只看 `ObservedAt`**（`store/pr_observations.go:66`）；失败只动 `AttemptedAt`。**这是我在 `ba47063` 里删 `dueForRefresh` 时丢的规则**——被删的代码原文：「a refresh that just failed must not be immediately retried by the next view」 | 我 |
+| D | 同一目标没有并发去重：手机和桌面各点一次 = 两次查询 | `inFlight` 也在 `ba47063` 被删；`Observe` 无 per-target 串行化 | 我 |
+| E | gh 失败后**回落匿名读不领小时预算** | 预算只在 `Reconcile` 前置领（`service.go:551`）；`query` 里 gh 失败后的匿名分支（`service.go:288`）不领 | 本层 |
+| F | 删掉的任务，它的 PR 行**永远留在巡检集合里**继续查 | `pr_observations.task_id TEXT NOT NULL` 无 FK（`migrate.go:816`）；`DeleteTask` 的子表清单里没有它（`store.go:691-702`）；`ListOpenPRObservations` 不 join tasks（`pr_observations.go:218`） | 本层 |
+
+### 12.3 会显示错/重复一句话的
+
+| # | 症状 | 证据 | 归属 |
+|---|---|---|---|
+| G | 强制刷新失败时，同一句话在面板上出现**两次**（顶部 notice + 卡片里行上的 last_error） | `SnapshotForTask` 的 force 分支写 `snap.Notice = err.Error()`（`service.go:429`），而 `Observe` 刚把同一个字符串写进行上的 `last_error`（`service.go:309`）。这直接违反 §8.2 和 `Snapshot.Notice` 的注释。`TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice` 只跑 `force=false`，钉不住 | 我 |
+| H | 顺序错乱：旧答案可以覆盖新答案（先发的查询看到 open，后发的看到 merged，先发的后落地 → 退回 open） | `Observe` = query → record，时间戳在写时取，且 `RecordPRObservation` 无条件 upsert（`pr_observations.go:113-135`）；§8.1 里"慢的过期读不能覆盖用户点的那次刷新"目前只由 UI 的 seq 守住，服务端没有 | 我（D 的同一族） |
+
+### 12.4 gh 进程处理
+
+| # | 症状 | 证据 | 归属 |
+|---|---|---|---|
+| I | stderr 超过 8193 字节的**成功** gh 调用被报成失败查询 | `gh.go:198-207` 的 `limitWriter.Write` 跨 cap 的那一块 `return n, err` 且 `n < len(p)`，`os/exec` 的 `io.Copy` 因此得 `ErrShortWrite`。`internal/workspace/git.go:191-209` 有正确写法（"Pretend we accepted the rest so the child is not broken by a short write"）。现有测试只填满 cap 再写一次，走的是丢弃分支 | 本层 |
+| J | `gh` 子进程用 `exec.CommandContext` 但没设 `WaitDelay`，后代进程可让 goroutine 在 30s 超时后继续挂着 | `gh.go:109-116`；`internal/workspace/git.go:104` 设了 | 本层 |
+
+### 12.5 面板（手机电池）
+
+| # | 症状 | 证据 | 归属 |
+|---|---|---|---|
+| K | 隐藏的面板仍然每秒重渲染 | `PullRequestPanel.tsx:107-110` 无条件 1s `setInterval`；`TaskDetailPage.tsx:1221` 只看 `prOpen` 不看 active，`TaskSessionHost` 保活最多 8 个 | 我（砍循环时只说对了"不再查询"，没说全"不再动"） |
+| L | `filesOpen` / `prOpen` 两个布尔表示互斥状态；`onOpenWorkspacePath`（`TaskDetailPage.tsx:747`）只设 filesOpen，切任务的 reset（:201）也只重置 filesOpen | 三个入口各自记得配对，第四个就会忘 | 本层 |
+
+### 12.6 未核实（agent 报的，我没读到证据，先不采信）
+
+- `internal/mcp` 的 `Holder` 与 `Scope.All` 是同一个判定的两份拷贝。
+- `internal/task/bus.go` 每条事件同步查一次 `TaskOwner`。
+- `leadObservation` 的规则在 Go 与 TS 各写一份（两侧注释都写明是"同一条规则的另一半"，
+  属于自觉重复；但仓库在 `task_scope.go` 里对同类重复的判词是"a rule copied into two
+  packages is a rule that drifts"，所以值得再看一眼）。
+
+修的时候按 12.1 → 12.2 → 12.3 → 12.4 → 12.5 的顺序，每条都要一个能红的测试。
