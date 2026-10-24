@@ -126,6 +126,42 @@ export function cwdSuggestions(machine: Machine | undefined, localDirs: string[]
 }
 
 /**
+ * Whether a device id names a machine other than the one serving this console.
+ *
+ * An empty id and the literal "self" both mean here — the API accepts either for
+ * the same thing, and a form that only knows "some machine" should not have to
+ * know which kind it has.
+ */
+export function isRemoteDevice(device: string | undefined): boolean {
+  const id = (device ?? "").trim();
+  return id !== "" && id !== "self";
+}
+
+/**
+ * How a person chooses a working directory on one machine.
+ *
+ * The native folder dialog reads the filesystem this console is running on, so
+ * it can only answer about this machine — and only when the console is the
+ * desktop app. Everything else browses: a browser, a phone, and any form aimed
+ * at another machine, where the directories are on that machine and the only
+ * party that can answer is that machine.
+ */
+export function cwdPickerMode(desktop: boolean, device: string | undefined): "native" | "browse" {
+  return desktop && !isRemoteDevice(device) ? "native" : "browse";
+}
+
+/**
+ * A device id as the machine endpoints name it.
+ *
+ * The server reads an empty id and "self" as the same machine, so this only has
+ * to pick one of them; it picks the literal, because it survives being put in a
+ * path without becoming a double slash.
+ */
+export function machineRef(device: string | undefined): string {
+  return isRemoteDevice(device) ? encodeURIComponent(device!.trim()) : "self";
+}
+
+/**
  * Switching machines keeps whatever the user typed, and replaces a directory
  * that was only ever a suggestion from the previous machine — a path suggestion
  * carried across machines is exactly the quiet mistake this feature exists to

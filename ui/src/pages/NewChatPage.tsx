@@ -544,6 +544,7 @@ export default function NewChatPage() {
             locked={false}
             compact
             suggestions={cwdDirs}
+            device={machine && !machine.isSelf ? machine.id : undefined}
             onChange={(v) => {
               setCwd(v);
               setDraftCwd(v);

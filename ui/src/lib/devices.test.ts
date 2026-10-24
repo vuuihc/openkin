@@ -4,11 +4,13 @@ import {
   canRunTasks,
   catalogFor,
   cwdAfterMachineChange,
+  cwdPickerMode,
   cwdSuggestions,
   defaultAgentOn,
   findMachine,
   machineLabelFor,
   machineList,
+  machineRef,
   remoteMachine,
 } from "./devices";
 
@@ -242,5 +244,34 @@ describe("catalogFor", () => {
         model_list_status: "unavailable",
       },
     ]);
+  });
+});
+
+describe("cwdPickerMode", () => {
+  it("uses the native dialog only where a native filesystem is the right answer", () => {
+    // The rule the cwd control turns on: the native dialog reads the filesystem
+    // this console is running on, so it can only ever answer about this machine.
+    expect(cwdPickerMode(true, undefined)).toBe("native");
+    expect(cwdPickerMode(true, "")).toBe("native");
+    expect(cwdPickerMode(true, "self")).toBe("native");
+    // A phone or a browser has no such dialog to open.
+    expect(cwdPickerMode(false, undefined)).toBe("browse");
+    // And a form aimed at another machine must ask that machine, even from the
+    // desktop app — the directories are on that machine, not this one.
+    expect(cwdPickerMode(true, "device-abc")).toBe("browse");
+  });
+});
+
+describe("machineRef", () => {
+  it("names this machine the way the machine endpoints do", () => {
+    // An empty id and "self" are one machine; picking the literal keeps the id
+    // out of a path where it would read as a double slash.
+    expect(machineRef(undefined)).toBe("self");
+    expect(machineRef("")).toBe("self");
+    expect(machineRef("  ")).toBe("self");
+    expect(machineRef("self")).toBe("self");
+    expect(machineRef("device-abc")).toBe("device-abc");
+    // A device id is somebody else's string and ends up in a path.
+    expect(machineRef("device/../abc")).toBe("device%2F..%2Fabc");
   });
 });

@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { recentCwds } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { cwdPickerMode } from "../../lib/devices";
 import { isKinDesktop, pickDirectory } from "../../lib/desktop";
 import { projectLabel, shortPath } from "../../lib/paths";
 import { useAppStore } from "../../store/appStore";
+import MachineBrowser from "./MachineBrowser";
 
 function sameDirs(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((dir, i) => dir === b[i]);
@@ -24,12 +26,25 @@ type Props = {
    * passes that machine's own roots.
    */
   suggestions?: string[];
+  /**
+   * The machine this directory is on. Empty or "self" is the daemon serving this
+   * console.
+   *
+   * It decides which of the two ways of choosing a directory is offered, and the
+   * rule is not "desktop or not" but "can this console see that filesystem or
+   * not". The native dialog reads the filesystem the console is running on, so
+   * it can only answer for this machine; for any other machine the question goes
+   * to that machine instead, and the answer is what it says its own directories
+   * are.
+   */
+  device?: string;
 };
 
 /**
  * Working-directory control under the composer (Claude/Codex-style).
- * - Electron: native macOS/Windows/Linux folder dialog via window.kinDesktop
- * - Browser: manual path + recent cwds (web cannot expose absolute paths)
+ * - Electron on this machine: native macOS/Windows/Linux folder dialog
+ * - Anywhere else (browser, phone, another machine): browse that machine's own
+ *   directories, with a manual path as the way out for anyone who knows it
  */
 export default function CwdPicker({
   cwd,
@@ -38,14 +53,19 @@ export default function CwdPicker({
   compact,
   className,
   suggestions,
+  device,
 }: Props) {
   const tr = useT();
   const [editing, setEditing] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const [dirs, setDirs] = useState<string[]>([]);
   const [draft, setDraft] = useState(cwd);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const desktop = isKinDesktop();
+  // A native dialog answers about this machine's filesystem and no other, so a
+  // form aimed at a remote machine browses even on the desktop.
+  const native = cwdPickerMode(desktop, device) === "native";
 
   useEffect(() => {
     setDraft(cwd);
@@ -138,7 +158,7 @@ export default function CwdPicker({
           }}
           onBlur={() => commit(draft)}
           placeholder={
-            desktop
+            native
               ? "/Users/… or use Browse"
               : processPlaceholder()
           }
@@ -149,11 +169,23 @@ export default function CwdPicker({
             <option key={d} value={d} />
           ))}
         </datalist>
-        {desktop && (
+        {native ? (
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => void openNativePicker()}
+            className="flex-none text-[11.5px] font-medium text-kin-blue px-1.5 py-1"
+          >
+            {tr("cwd.browseEllipsis")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setEditing(false);
+              setBrowsing(true);
+            }}
             className="flex-none text-[11.5px] font-medium text-kin-blue px-1.5 py-1"
           >
             {tr("cwd.browseEllipsis")}
@@ -171,12 +203,27 @@ export default function CwdPicker({
         className,
       ].join(" ")}
     >
+      {browsing && (
+        <MachineBrowser
+          device={device}
+          initialPath={cwd}
+          onClose={() => setBrowsing(false)}
+          onTypePath={() => {
+            setBrowsing(false);
+            setEditing(true);
+          }}
+          onPick={(path) => {
+            setBrowsing(false);
+            onChange(path);
+          }}
+        />
+      )}
       <button
         type="button"
         disabled={busy}
         onClick={() => {
-          if (desktop) void openNativePicker();
-          else setEditing(true);
+          if (native) void openNativePicker();
+          else setBrowsing(true);
         }}
         className={[
           "min-w-0 flex items-center text-left rounded-md hover:text-kin-secondary hover:bg-[var(--kin-fill)] transition-colors disabled:opacity-50",
@@ -185,7 +232,7 @@ export default function CwdPicker({
         title={
           cwd
             ? tr("cwd.workingDir", { path: cwd })
-            : desktop
+            : native
               ? tr("cwd.browseForFolder")
               : tr("cwd.setCwd")
         }
@@ -197,13 +244,13 @@ export default function CwdPicker({
           </span>
         ) : (
           <span className="text-kin-orange">
-            {desktop ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
+            {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
           </span>
         )}
       </button>
       {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
 
-      {desktop ? (
+      {native ? (
         <>
           <button
             type="button"
@@ -223,13 +270,23 @@ export default function CwdPicker({
           </button>
         </>
       ) : (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="flex-none text-[11px] text-kin-blue opacity-80"
-        >
-          {tr("cwd.change")}
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => setBrowsing(true)}
+            className="flex-none text-[11px] font-medium text-kin-blue hover:underline"
+          >
+            {tr("cwd.browse")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="flex-none text-[11px] text-kin-muted hover:text-kin-secondary"
+            title={tr("cwd.typePath")}
+          >
+            {tr("cwd.edit")}
+          </button>
+        </>
       )}
 
       {dirs.length > 0 && !cwd && (

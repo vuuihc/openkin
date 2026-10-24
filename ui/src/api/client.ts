@@ -1,4 +1,5 @@
 import { gateFor } from "../lib/accountGate";
+import { machineRef } from "../lib/devices";
 import { useAppStore } from "../store/appStore";
 import { t } from "../i18n";
 import {
@@ -1431,6 +1432,86 @@ export function decideApproval(
 
 export function recentCwds(): Promise<string[]> {
   return apiFetch<string[]>("/api/recent-cwds");
+}
+
+/** One directory listing on one machine. */
+export type MachineDirs = {
+  path: string;
+  /** What "up" means from here. Absent at a root: the boundary, not an error. */
+  parent?: string;
+  /** Where that machine works. It travels with every answer. */
+  roots?: string[];
+  /** The directories inside `path`, by name. Never files. */
+  entries?: string[];
+  /** The list stopped at the machine's own cap. */
+  truncated?: boolean;
+};
+
+/**
+ * What is inside a directory on one machine.
+ *
+ * An empty `path` is not a directory: it is the question "where may I look at
+ * all", answered with that machine's own roots. Which is why this is the call a
+ * browser makes first — it needs somewhere to start before it can descend.
+ */
+export function machineDirs(device: string | undefined, path: string): Promise<MachineDirs> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  return apiFetch<MachineDirs>(`/api/machines/${machineRef(device)}/dirs${query}`);
+}
+
+/** The branches one repository has, as one machine sees them. */
+export type MachineRepoBranches = {
+  /** The repository as that machine canonicalised it — ask the next question in
+   * these words, not in the words that were typed. */
+  repo: string;
+  /** Where a session starts when nobody picks a branch. */
+  default_branch?: string;
+  branches?: string[];
+  truncated?: boolean;
+};
+
+/**
+ * What branches a repository has, without that machine having to clone it.
+ *
+ * The repository is named and not located: the machine decides what the name
+ * means on itself, which remote to reach, and with whose credentials.
+ */
+export function machineRepoBranches(
+  device: string | undefined,
+  repo: string,
+): Promise<MachineRepoBranches> {
+  return apiFetch<MachineRepoBranches>(
+    `/api/machines/${machineRef(device)}/repo/branches?repo=${encodeURIComponent(repo)}`,
+  );
+}
+
+/** Where one machine put a repository it fetched. */
+export type PreparedRepo = {
+  /** An absolute path inside that machine's roots, ready to be a cwd. */
+  path: string;
+  /** What is checked out there, which is not always what was asked for. */
+  branch?: string;
+  /** This call is what fetched it, as opposed to finding it already there. */
+  cloned?: boolean;
+};
+
+/**
+ * Ask one machine to make a repository available on itself.
+ *
+ * There is no path in the request and a path in the answer, deliberately: where
+ * the checkout goes is the machine's decision, because a Hub that could name the
+ * destination could write anywhere under a root.
+ */
+export function prepareMachineRepo(
+  device: string | undefined,
+  repo: string,
+  branch?: string,
+): Promise<PreparedRepo> {
+  return apiFetch<PreparedRepo>(`/api/machines/${machineRef(device)}/repo/prepare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo, branch: branch ?? "" }),
+  });
 }
 
 export type GitBranch = {
