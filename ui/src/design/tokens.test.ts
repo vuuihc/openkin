@@ -1178,16 +1178,42 @@ describe("design tokens", () => {
         (token) => theme.boxShadow[ELEVATION_CLASS[token].replace(/^shadow-/, "")] === undefined,
       );
       expect(offLadder).toEqual([]);
+      // And the map is only half of it: the sample has to *wear* the class. A
+      // guard that stopped at the map stayed green when the interpolation was
+      // deleted from `DesignSystemPage.tsx` — which is the same shape as the
+      // defect it was written for, one layer down (a token declared, presented,
+      // measured, and drawn by nothing). The page is read as source, so the
+      // template's `${…}` is part of the segment the scan sees.
+      const page = readFileSync(join(UI, "src/pages/DesignSystemPage.tsx"), "utf8");
+      const wears = strings(page).filter((s) => s.includes("bg-kin-elevated"));
+      expect({
+        wears: wears.length > 0,
+        raises: wears.some((s) => s.includes("ELEVATION_CLASS")),
+      }).toEqual({ wears: true, raises: true });
     });
 
-    it("never draws a hairline on a surface it also raises", () => {
+    it("never draws a hairline on a static surface it also raises", () => {
       // S5's rule, in the one form a text scan can decide: two surfaces at
       // different levels are separated by the ladder and the drop, and a line
-      // belongs to a boundary *inside* a level. Every floating element is the
-      // place both appear, and the line is the one that goes — a menu drawn with
-      // a 40px blur and a 1px edge is a box drawn twice. A status edge is not
-      // this case: `border-kin-blue/30` on a selected pill is a state, and the
-      // rule leaves it alone.
+      // belongs to a boundary *inside* a level — so a surface already raised by
+      // a step does not need one drawn as well, and a menu drawn with a 40px
+      // blur and a 1px edge is a box drawn twice.
+      //
+      // What the case this replaced got wrong, and the reason for the word
+      // *static*: a drop is not a level. `--kin-panel` is `--kin-bg` in the
+      // light scheme (255 255 255, both L* 100), so a popover on a chat surface
+      // has nothing to be separated *by* — and `e2`'s geometry (`0 8px 24px
+      // -12px`) throws its drop below the element, painting no edge along the
+      // top or the sides. Two of those lost their line to the first version of
+      // this rule and were invisible in the light scheme until review found
+      // them. So a *floating* element keeps its own edge, exactly as an input
+      // keeps its own: it is the object's outline, not a level boundary. The
+      // exemption is positional because the defect is, and a positioned class
+      // is the one signal a class list carries about it.
+      //
+      // A status edge is neither case: `border-kin-blue/30` on a selected pill
+      // is a state, and the rule leaves it alone.
+      //
       // Assembled from the ladder: a guard that fails on its own source is a
       // guard nobody keeps, and this file is inside the tree being searched.
       const elevation = new RegExp(
@@ -1195,10 +1221,17 @@ describe("design tokens", () => {
       );
       const hairline =
         /border(?:-[trblxy])?(?:-kin-hairline(?:-strong)?|-\[var\(--kin-hairline(?:-strong)?\)\])/;
+      const floats = /(?<![\w-])(?:absolute|fixed|sticky|z-\d+|z-\[)/;
       const both: string[] = [];
       for (const file of sourceFiles()) {
-        for (const segment of strings(readFileSync(file, "utf8"))) {
-          if (elevation.test(segment) && hairline.test(segment)) {
+        const source = readFileSync(file, "utf8");
+        // `strings()` reads quoted runs, and an `@apply` list in CSS is
+        // unquoted — so the one file that composes a class list in the
+        // stylesheet was a hole in a scan that believed it covered `.css`.
+        const segments = strings(source);
+        for (const [, applied] of source.matchAll(/@apply\s+([^;]+);/g)) segments.push(applied);
+        for (const segment of segments) {
+          if (elevation.test(segment) && hairline.test(segment) && !floats.test(segment)) {
             both.push(`${relative(UI, file)}: ${segment.trim().slice(0, 80)}`);
           }
         }

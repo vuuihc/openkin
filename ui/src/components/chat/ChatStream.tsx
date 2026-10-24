@@ -625,7 +625,14 @@ function ProgressCard({
         </span>
       </button>
       {!collapsed && (
-        <div className="bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
+        // `divide-y` separates the rows from each other, and this line separates
+        // the first of them from the summary above — the two faces are the same
+        // level, so the rule draws it. The tint below is not a level: at 30%
+        // over the card's own `--kin-fill` it composites to the card's value in
+        // the light scheme (245,245,245 on 245,245,245) and to one 8-bit step in
+        // the dark one, which is why removing this border left the header and
+        // the first step running together in both.
+        <div className="border-t border-[var(--kin-hairline)] bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
           {steps.map((step, idx) =>
             step.kind === "tool" ? (
               <ToolStepRow

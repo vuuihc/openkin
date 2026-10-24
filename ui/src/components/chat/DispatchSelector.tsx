@@ -242,7 +242,7 @@ export function DispatchSelector({
             ran off the screen — and the sheet's own `overflow` swallowed the
             overflow, so nothing reported it.
           */
-          className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-2 z-50 rounded-lg bg-kin-panel p-3 shadow-e2 w-[min(20rem,calc(100vw-2rem))] sm:w-auto sm:min-w-[240px] sm:max-w-[320px]"
+          className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-e2 w-[min(20rem,calc(100vw-2rem))] sm:w-auto sm:min-w-[240px] sm:max-w-[320px]"
         >
           <div className="text-body leading-4 space-y-2">
             {/* Mode toggle */}
