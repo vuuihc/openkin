@@ -59,7 +59,7 @@ func (s *Server) handlePublishTaskPR(w http.ResponseWriter, r *http.Request) {
 	// operator's own directory from a phone is a different decision from pushing
 	// one on a machine the phone cannot otherwise reach. See errSessionRunsHere.
 	if s.Engine == nil || !s.Engine.RunsElsewhere(t) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": errSessionRunsHere.Error()})
+		writeSessionRunsHere(w)
 		return
 	}
 	// The machine resolves this path against its own roots, and the same

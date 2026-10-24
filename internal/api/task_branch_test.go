@@ -121,6 +121,13 @@ func TestCreatingATaskBranchForASessionThatRunsHereIsRefused(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "only writes in the checkouts") {
 		t.Errorf("error = %s, want the reason", rec.Body.String())
 	}
+	// The console tells this conflict apart from the other 409 these routes
+	// answer with (a workspace it cannot place) by this code, and draws a
+	// sentence of its own for it. Losing the code would make it print "this
+	// session runs on this machine" at somebody whose session runs elsewhere.
+	if !strings.Contains(rec.Body.String(), `"code":"session_runs_here"`) {
+		t.Errorf("body = %s, want the code the console keys on", rec.Body.String())
+	}
 	if len(made.branches()) != 0 {
 		t.Fatal("a machine was asked to move a branch for a session that runs here")
 	}

@@ -1083,7 +1083,12 @@ paths:
         "404":
           description: No such task
         "409":
-          description: This session runs on this daemon, so there is no other machine to ask
+          description: >-
+            This session runs on this daemon, so there is no other machine to
+            ask, or the workspace it runs in is on that machine and this Hub
+            cannot place it. The body carries a code — "session_runs_here" for
+            the first — because the console draws its own sentence for that one
+            and must not draw it for the other.
         "502":
           description: The machine published something the Hub could not write down
         "503":
@@ -1124,7 +1129,12 @@ paths:
         "404":
           description: No such task
         "409":
-          description: This session runs on this daemon, so there is no other machine to ask
+          description: >-
+            This session runs on this daemon, so there is no other machine to
+            ask, or the workspace it runs in is on that machine and this Hub
+            cannot place it. The body carries a code — "session_runs_here" for
+            the first — because the console draws its own sentence for that one
+            and must not draw it for the other.
   /api/evals/suites:
     get:
       operationId: listEvalSuites

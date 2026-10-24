@@ -3207,7 +3207,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description This session runs on this daemon, so there is no other machine to ask */
+            /** @description This session runs on this daemon, so there is no other machine to ask, or the workspace it runs in is on that machine and this Hub cannot place it. The body carries a code — "session_runs_here" for the first — because the console draws its own sentence for that one and must not draw it for the other. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3275,7 +3275,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description This session runs on this daemon, so there is no other machine to ask */
+            /** @description This session runs on this daemon, so there is no other machine to ask, or the workspace it runs in is on that machine and this Hub cannot place it. The body carries a code — "session_runs_here" for the first — because the console draws its own sentence for that one and must not draw it for the other. */
             409: {
                 headers: {
                     [name: string]: unknown;

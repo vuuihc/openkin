@@ -36,6 +36,23 @@ import (
 var errSessionRunsHere = errors.New(
 	"this session runs on this machine, and this Hub only writes in the checkouts of the machines it is paired with")
 
+// errSessionRunsHereCode is the machine-readable half of that sentence.
+//
+// Both routes that can answer it can also answer 409 for a different reason — a
+// workspace on that machine this Hub cannot place (remoteWorkspacePath) — and the
+// console has a translated line for exactly one of the two. Without this code it
+// would print "this session runs on this machine" at somebody whose session runs
+// on another machine, which is the one thing that line must never say.
+const errSessionRunsHereCode = "session_runs_here"
+
+// writeSessionRunsHere answers a write the Hub will not do for this session.
+func writeSessionRunsHere(w http.ResponseWriter) {
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": errSessionRunsHere.Error(),
+		"code":  errSessionRunsHereCode,
+	})
+}
+
 type createTaskBranchResponse = worker.GitBranchCreateResult
 
 func (s *Server) handleCreateTaskBranch(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +61,7 @@ func (s *Server) handleCreateTaskBranch(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if s.Engine == nil || !s.Engine.RunsElsewhere(t) {
-		writeJSON(w, http.StatusConflict, map[string]string{"error": errSessionRunsHere.Error()})
+		writeSessionRunsHere(w)
 		return
 	}
 	dir, ok := s.remoteWorkspacePath(w, r, t)

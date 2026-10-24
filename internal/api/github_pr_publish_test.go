@@ -189,6 +189,9 @@ func TestPublishingATaskThatRunsHereIsRefused(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "only writes in the checkouts") {
 		t.Errorf("error = %s, want the reason", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"code":"session_runs_here"`) {
+		t.Errorf("body = %s, want the code the console keys on", rec.Body.String())
+	}
 	if len(push.requests()) != 0 {
 		t.Fatal("a machine was asked to push for a task that runs here")
 	}

@@ -32,3 +32,24 @@ export function blockedHeadline(code: string): string {
   // thing to put in front of a person than the sentence underneath it.
   return line === path ? "" : line;
 }
+
+/** The code the Hub puts on a write it will not do for a session running here. */
+const SESSION_RUNS_HERE = "session_runs_here";
+
+/**
+ * Is this the conflict that has a line of its own?
+ *
+ * Both publish routes can answer 409 twice over: for a session running on the
+ * daemon the console is talking to, and for a workspace on that machine the Hub
+ * cannot place. Only the first may be drawn as "there is nothing to publish from
+ * here" — telling somebody their session runs on this machine when it runs on
+ * another is worse than repeating the daemon's own sentence at them.
+ */
+export function isSessionRunsHere(err: {
+  status: number;
+  body?: unknown;
+}): boolean {
+  if (err.status !== 409) return false;
+  const code = (err.body as { code?: unknown } | undefined)?.code;
+  return code === SESSION_RUNS_HERE;
+}
