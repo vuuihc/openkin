@@ -1368,8 +1368,15 @@ const en: MessageTree = {
     groupFocus: "Focus ring",
     noteFocus:
       "Drawn on every surface a focused control sits on, at the width most of the real styles use. WCAG 1.4.11 asks a non-text indicator for 3:1, and the two themes cannot share one blue: deep enough to pass on the dark backdrop means too bright on the light page.",
-    groupStatus: "Status and brand",
-    noteStatus: "These are fills: white or near-black text sits on top of them.",
+    groupFills: "Fills: status and agent marks",
+    noteFills:
+      "Pigments, not ink: the same value in both themes, because a red button is red in the dark and in the light — with one exception, the user's own bubble, which is a step deeper in the light theme so that white on it is not the darkest pair in the console. The agent marks are somebody else's identity and are not ours to re-tint by theme.",
+    groupStatusInk: "Status ink",
+    noteStatusInk:
+      "The text and glyphs that carry a status on a surface, which is the tier the light theme never had: the fill red is 3.41:1 on white. Each one is drawn here on every surface it is used on.",
+    groupOnFill: "Text on a fill",
+    noteOnFill:
+      "Each fill takes exactly one of these two, assigned in design/colors.ts and measured in tokens.test.ts — and drawn here on every fill it was assigned to, so the decision is visible rather than buried.",
     groupType: "Type ladder",
     noteType:
       "Seven roles, each shown at its own size. The size is binding; the weight and ink are what the role should look like, aligned by review.",

@@ -329,7 +329,12 @@ export default function Sidebar({
   const panel = (
     <aside className="w-sidebar max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
       <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-strong font-semibold shadow-e1">
+        {/* The mark, flat: the accent fill every primary action already uses.
+            There were two different gradients for this same "K" in the tree —
+            this one and the chat avatar's — which is two brand palettes, not
+            one. The gradient also could not carry white initials at 4.5:1 at
+            both of its ends. */}
+        <div className="w-7 h-7 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
           K
         </div>
         <span className="text-strong font-semibold tracking-tight">{tr("app.name")}</span>
@@ -349,7 +354,7 @@ export default function Sidebar({
             {sortMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-border bg-kin-elevated shadow-e3 py-1"
+                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-hairline bg-kin-elevated shadow-e3 py-1"
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setSortMenuOpen(false);
                 }}
@@ -409,7 +414,7 @@ export default function Sidebar({
           <div
             role="menu"
             aria-label={tr("nav.importAgentSessions")}
-            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg border border-kin-border bg-kin-elevated shadow-e3 py-1"
+            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg border border-kin-hairline bg-kin-elevated shadow-e3 py-1"
           >
             <button
               type="button"
@@ -422,7 +427,7 @@ export default function Sidebar({
             >
               {tr("nav.importAllAgents")}
             </button>
-            <div className="my-1 border-t border-kin-border" />
+            <div className="my-1 border-t border-kin-hairline" />
             {sessionProviders.length > 0 ? (
               sessionProviders.map((provider) => (
                 <button
@@ -459,7 +464,7 @@ export default function Sidebar({
           className={[
             "w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-strong font-medium border transition-colors",
             draftActive
-              ? "border-kin-blue/40 bg-kin-blue-soft text-kin-text"
+              ? "border-kin-blue/40 bg-kin-blue/15 text-kin-text"
               : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
           ].join(" ")}
         >
@@ -500,14 +505,14 @@ export default function Sidebar({
           className={[
             "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9",
             pendingCount > 0
-              ? "border border-kin-blue/40 bg-kin-blue-soft text-kin-text"
+              ? "border border-kin-blue/40 bg-kin-blue/15 text-kin-text"
               : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
           ].join(" ")}
         >
           <IconInbox size={15} />
           <span>{tr("nav.inbox")}</span>
           {pendingCount > 0 && (
-            <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-[#1a1a1c] text-caption font-bold inline-flex items-center justify-center tabular-nums">
+            <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-kin-on-status text-caption font-bold inline-flex items-center justify-center tabular-nums">
               {pendingCount > 99 ? "99+" : pendingCount}
             </span>
           )}
@@ -548,7 +553,7 @@ export default function Sidebar({
         )}
 
         {archivedGroups.length > 0 && (
-          <div className="pt-1 border-t border-kin-border">
+          <div className="pt-1 border-t border-kin-hairline">
             <button
               type="button"
               onClick={() => setArchivedOpen((o) => !o)}
@@ -591,7 +596,7 @@ export default function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-kin-border px-2 py-2 space-y-2">
+      <div className="border-t border-kin-hairline px-2 py-2 space-y-2">
         {sidebarNavSections().map((section) => (
           <div key={section.id} className="space-y-0.5">
             <div className="px-2 pt-1 text-micro font-semibold uppercase tracking-label text-kin-muted">
@@ -609,7 +614,7 @@ export default function Sidebar({
                 {sidebarNavIcon(item.id)}
                 <span className="flex-1">{tr(item.labelKey)}</span>
                 {item.id === "routines" && routineUnreadCount > 0 && (
-                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-micro font-semibold text-white flex items-center justify-center tabular-nums">
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-micro font-semibold text-kin-on-brand flex items-center justify-center tabular-nums">
                     {routineUnreadCount > 99 ? "99+" : routineUnreadCount}
                   </span>
                 )}
@@ -810,7 +815,7 @@ function ProjectBlock({
           />
         </button>
         {g.pinned && mode === "active" && (
-          <IconPin size={11} className="flex-none text-kin-blue opacity-90" />
+          <IconPin size={11} className="flex-none text-kin-blue-ink opacity-90" />
         )}
         <span className="truncate flex-1 min-w-0" title={g.cwd}>
           {g.label}
@@ -848,7 +853,7 @@ function ProjectBlock({
             className={[
               "touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center transition-opacity",
               g.pinned
-                ? "text-kin-blue opacity-100"
+                ? "text-kin-blue-ink opacity-100"
                 : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100",
             ].join(" ")}
           >
@@ -931,7 +936,7 @@ function ProjectBlock({
                   className={[
                     "flex-1 min-w-0 truncate rounded-lg border px-2 text-body",
                     g.pinned
-                      ? "border-kin-blue/40 bg-kin-blue-soft text-kin-blue"
+                      ? "border-kin-blue/40 bg-kin-blue/15 text-kin-blue-ink"
                       : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary",
                   ].join(" ")}
                 >
@@ -1027,12 +1032,12 @@ function ExternalSessionRow({
 
 function externalSessionRowClass(availability: AgentSessionAvailability): string {
   if (availability === "linked") {
-    return "border-kin-blue/25 bg-kin-blue-soft/20 text-kin-text hover:bg-kin-blue-soft/30";
+    return "border-kin-blue/25 bg-kin-blue/10 text-kin-text hover:bg-kin-blue/15";
   }
   if (availability === "resumable") {
     return "border-kin-green/25 bg-kin-green/10 text-kin-text hover:bg-kin-green/15";
   }
-  return "border-kin-border border-dashed bg-[var(--kin-fill)]/50 text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text";
+  return "border-kin-hairline border-dashed bg-[var(--kin-fill)] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text";
 }
 
 function externalSessionRailClass(availability: AgentSessionAvailability): string {
@@ -1042,9 +1047,9 @@ function externalSessionRailClass(availability: AgentSessionAvailability): strin
 }
 
 function externalSessionBadgeClass(availability: AgentSessionAvailability): string {
-  if (availability === "linked") return "border-kin-blue/30 text-kin-blue";
-  if (availability === "resumable") return "border-kin-green/30 text-kin-green";
-  return "border-kin-border text-kin-muted";
+  if (availability === "linked") return "border-kin-blue/30 text-kin-blue-ink";
+  if (availability === "resumable") return "border-kin-green/30 text-kin-green-ink";
+  return "border-kin-hairline text-kin-muted";
 }
 
 function ProjectSessionRows({
@@ -1128,7 +1133,7 @@ function ProjectSessionRows({
                   e.stopPropagation();
                   onDeleteSession(task);
                 }}
-                className="touch-hide flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-[#ff8a80] hover:bg-[rgba(255,69,58,.12)] opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
+                className="touch-hide flex-none w-[22px] h-[22px] mr-1 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-red-ink hover:bg-kin-red/10 opacity-0 group-hover/session:opacity-100 focus:opacity-100 transition-opacity"
               >
                 <IconTrash size={12} />
               </button>

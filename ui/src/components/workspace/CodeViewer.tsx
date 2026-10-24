@@ -216,14 +216,14 @@ export default function CodeViewer({
           {path}
         </span>
         {useDiff && (
-          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-blue">
+          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-blue-ink">
             {t("workspace.viewer.diff")}
           </span>
         )}
         <div className="ml-auto flex items-center gap-2 shrink-0">
           {useDiff && (
             <div
-              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
+              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-0.5"
               role="group"
               aria-label={t("workspace.viewer.diffLayout")}
             >
@@ -235,7 +235,7 @@ export default function CodeViewer({
                 className={[
                   "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   diffLayout === "inline"
-                    ? "bg-kin-blue/20 text-kin-blue"
+                    ? "bg-kin-blue/15 text-kin-blue-ink"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
                 ].join(" ")}
               >
@@ -249,7 +249,7 @@ export default function CodeViewer({
                 className={[
                   "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   diffLayout === "sideBySide"
-                    ? "bg-kin-blue/20 text-kin-blue"
+                    ? "bg-kin-blue/15 text-kin-blue-ink"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
                 ].join(" ")}
               >
@@ -259,7 +259,7 @@ export default function CodeViewer({
           )}
           {useDiff && (
             <div
-              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
+              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-0.5"
               role="group"
               aria-label={t("workspace.viewer.diffNav")}
             >
@@ -286,7 +286,7 @@ export default function CodeViewer({
           )}
           {isMd && !useDiff && file && (
             <div
-              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 p-0.5"
+              className="flex items-center gap-0.5 rounded-md border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-0.5"
               role="group"
               aria-label={t("workspace.viewer.mdView")}
             >
@@ -298,7 +298,7 @@ export default function CodeViewer({
                 className={[
                   "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   mdView === "preview"
-                    ? "bg-kin-blue/20 text-kin-blue"
+                    ? "bg-kin-blue/15 text-kin-blue-ink"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
                 ].join(" ")}
               >
@@ -312,7 +312,7 @@ export default function CodeViewer({
                 className={[
                   "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   mdView === "code"
-                    ? "bg-kin-blue/20 text-kin-blue"
+                    ? "bg-kin-blue/15 text-kin-blue-ink"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
                 ].join(" ")}
               >
@@ -354,7 +354,7 @@ export default function CodeViewer({
           )}
           {editable && file?.truncated && !useDiff && (
             <span
-              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-orange"
+              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-orange-ink"
               title={t("workspace.viewer.readOnlyTruncated")}
             >
               {t("workspace.viewer.readOnlyTruncated")}
@@ -363,12 +363,12 @@ export default function CodeViewer({
           {canEdit && (
             <>
               {saveState === "error" && saveError && (
-                <span className="text-kin-red" title={saveError}>
+                <span className="text-kin-red-ink" title={saveError}>
                   {t("workspace.viewer.saveFailed")}
                 </span>
               )}
               {saveState === "saved" && !dirty && (
-                <span className="text-kin-green">{t("workspace.viewer.saved")}</span>
+                <span className="text-kin-green-ink">{t("workspace.viewer.saved")}</span>
               )}
               <button
                 type="button"
@@ -393,12 +393,16 @@ export default function CodeViewer({
           </div>
         )}
         {showError && !showEditor && (
-          <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-red px-6 text-center">
+          <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-red-ink px-6 text-center">
             {error}
           </div>
         )}
+        {/* A status fill takes the status foreground, and it is solid: white on
+            the dark red is 3.0:1, near-black is 5.1:1, and the old 90% alpha
+            pulled the fill toward the backdrop until even that was 4.3:1 — an
+            error toast is the wrong place to be translucent. */}
         {showError && showEditor && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-kin-red/90 px-3 py-1 text-body text-white shadow-e2">
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-kin-red px-3 py-1 text-body text-kin-on-status shadow-e2">
             {error}
           </div>
         )}

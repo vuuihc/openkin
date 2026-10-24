@@ -1,52 +1,24 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n/react";
+import {
+  FILL_INK,
+  PRESENTED_TOKENS,
+  SURFACE_TOKENS,
+  TOKEN_GROUPS,
+  cssValue,
+} from "../design/colors";
 import { ROLE_PREVIEW, TYPE_ROLES } from "../design/type";
 
 /**
- * Every named token, grouped by the ladder it belongs to.
+ * Every named token, drawn as the thing it is.
  *
- * This list is the page's content *and* the test's expectation: `tokens.test.ts`
- * reads `theme.css`, compares the two sets, and fails in both directions — a
- * token declared but never presented here (a token nobody renders is a token
- * nobody would notice breaking), and a name here that the stylesheet no longer
- * defines.
+ * The inventory lives in `design/colors.ts` rather than here, because
+ * `tokens.test.ts` reads the same list and compares it against `theme.css` in
+ * both directions — a token declared but never presented here (a token nobody
+ * renders is a token nobody would notice breaking), and a name that the
+ * stylesheet no longer defines. A pairing that only the page knew about would
+ * be a pairing the test could not hold.
  */
-export const TOKEN_GROUPS = [
-  {
-    labelKey: "design.groupSurfaces",
-    noteKey: "design.noteSurfaces",
-    tokens: [
-      "--kin-page",
-      "--kin-sidebar",
-      "--kin-bg",
-      "--kin-inspector",
-      "--kin-elevated",
-      "--kin-panel",
-    ],
-  },
-  {
-    labelKey: "design.groupInk",
-    noteKey: "design.noteInk",
-    tokens: ["--kin-text", "--kin-secondary", "--kin-muted"],
-  },
-  {
-    labelKey: "design.groupLines",
-    noteKey: "design.noteLines",
-    tokens: ["--kin-hairline", "--kin-hairline-strong", "--kin-fill", "--kin-fill-strong"],
-  },
-  {
-    labelKey: "design.groupFocus",
-    noteKey: "design.noteFocus",
-    tokens: ["--kin-focus-ring"],
-  },
-  {
-    labelKey: "design.groupStatus",
-    noteKey: "design.noteStatus",
-    tokens: ["--kin-warning", "--kin-bubble-user", "--kin-bubble-user-fg"],
-  },
-] as const;
-
-export const PRESENTED_TOKENS: string[] = TOKEN_GROUPS.flatMap((g) => [...g.tokens]);
 
 /** The value as the browser resolved it — the file is the source, not a copy. */
 function useResolvedValues(names: readonly string[]): Record<string, string> {
@@ -73,11 +45,47 @@ function Swatch({ name, value }: { name: string; value: string }) {
     <div className="flex items-center gap-3 rounded-lg border border-[var(--kin-hairline)] p-2">
       <div
         className="h-9 w-9 flex-none rounded-md border border-[var(--kin-hairline)]"
-        style={{ background: `var(${name})` }}
+        style={{ background: cssValue(name) }}
       />
       <div className="min-w-0">
         <div className="truncate text-body font-semibold text-kin-text">{name}</div>
+        {/* A triplet resolves to three numbers, and showing them is the point:
+            it is why the name carries the suffix. */}
         <div className="truncate font-mono text-caption text-kin-muted">{value || "—"}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A fill with the foreground it was assigned, at the size a label is actually
+ * drawn. The pairing is the thing being shown: which of the two near-white /
+ * near-black inks a pigment takes is a decision, and a chip alone would hide it.
+ */
+function FillSample({
+  name,
+  value,
+  ink,
+  inkValue,
+}: {
+  name: string;
+  value: string;
+  ink: string;
+  inkValue: string;
+}) {
+  return (
+    <div
+      className="rounded-lg border border-[var(--kin-hairline)] p-3"
+      style={{ background: cssValue(name) }}
+    >
+      <div className="text-body font-semibold" style={{ color: cssValue(ink) }}>
+        {ink} on {name}
+      </div>
+      <div className="mt-1 text-caption" style={{ color: cssValue(ink) }}>
+        The quick brown fox jumps over the lazy dog — 0123456789
+      </div>
+      <div className="mt-1 font-mono text-micro" style={{ color: cssValue(ink) }}>
+        {name} {value || "—"} · {ink} {inkValue || "—"}
       </div>
     </div>
   );
@@ -87,12 +95,12 @@ function InkSample({ name, value, ink }: { name: string; value: string; ink: str
   return (
     <div
       className="rounded-lg border border-[var(--kin-hairline)] p-3"
-      style={{ background: `var(${ink})` }}
+      style={{ background: cssValue(ink) }}
     >
-      <div className="text-body font-semibold" style={{ color: `var(${name})` }}>
+      <div className="text-body font-semibold" style={{ color: cssValue(name) }}>
         {name} on {ink}
       </div>
-      <div className="mt-1 text-caption" style={{ color: `var(${name})` }}>
+      <div className="mt-1 text-caption" style={{ color: cssValue(name) }}>
         The quick brown fox jumps over the lazy dog — 0123456789
       </div>
       <div className="mt-1 font-mono text-micro text-kin-muted">{value || "—"}</div>
@@ -100,20 +108,22 @@ function InkSample({ name, value, ink }: { name: string; value: string; ink: str
   );
 }
 
-/** The surfaces an ink step is actually drawn on, so the sample is the real pair. */
-const INK_BACKDROPS = ["--kin-bg", "--kin-elevated", "--kin-panel", "--kin-sidebar"] as const;
-
 /**
- * The ring is measured one surface further out. `--kin-page` is the window
- * backdrop that `AppShell` paints on its root, and `<main>` inside it paints
- * nothing — so a page that does not paint its own surface (most of them: the
- * agents search field, the session detail page, the provider settings fields)
- * has its focused controls sitting directly on `--kin-page`. It is also the
- * surface that decided the light value. Ink does not get this one: no label is
- * drawn on the backdrop, and showing one there would be a pair that does not
- * exist.
+ * The surfaces an ink step is actually drawn on, so the sample is the real pair.
+ *
+ * Read from `design/colors.ts` rather than listed again here: the guard measures
+ * the same list, and a second copy is how the page and the test come to disagree.
+ *
+ * All six, `--kin-page` included. It is the window backdrop `AppShell` paints on
+ * its root, and `<main>` inside paints nothing — so a page that does not paint
+ * its own surface (most of them: the agents search field, the session detail
+ * page, the provider settings fields) draws its captions *and* its focused
+ * controls straight on the backdrop. A status chip drawn there measured 4.41:1
+ * in the light scheme, which is what moved the `muted` step and the backdrop
+ * itself; before that the page was measured for the ring alone, on the theory
+ * that no label is drawn on it. A theory the screen disagreed with.
  */
-const FOCUS_BACKDROPS = ["--kin-page", ...INK_BACKDROPS] as const;
+const BACKDROPS = SURFACE_TOKENS;
 
 /**
  * A colour chip would not answer the question this token exists to answer, so
@@ -122,7 +132,7 @@ const FOCUS_BACKDROPS = ["--kin-page", ...INK_BACKDROPS] as const;
  */
 function FocusSample({ name, value, ink }: { name: string; value: string; ink: string }) {
   return (
-    <div className="rounded-lg p-3" style={{ background: `var(${ink})` }}>
+    <div className="rounded-lg p-3" style={{ background: cssValue(ink) }}>
       <div className="min-h-9 rounded-md px-3 py-2 text-body text-kin-text ring-1 ring-kin-focus-ring">
         {name}
       </div>
@@ -178,33 +188,54 @@ export default function DesignSystemPage() {
 
         <div className="mt-6 space-y-6">
           {TOKEN_GROUPS.map((group) => {
-            // Two groups are drawn on the surfaces they appear on rather than
-            // as colour chips: ink is measured against them, and the focus ring
-            // is only a ring when there is something behind it.
-            const Sample =
-              group.labelKey === "design.groupInk"
-                ? InkSample
-                : group.labelKey === "design.groupFocus"
-                  ? FocusSample
-                  : null;
-            const backdrops =
-              group.labelKey === "design.groupFocus" ? FOCUS_BACKDROPS : INK_BACKDROPS;
+            // Every group is drawn as the thing it is, not as a chip. Ink is
+            // measured against the surfaces it is drawn on, the focus ring is
+            // only a ring when there is something behind it, and a fill is only
+            // a fill once the foreground it was assigned is on it — so those
+            // three are rendered, and the rest are chips.
+            const pairs =
+              group.kind === "on-fill"
+                ? group.tokens.flatMap((ink) =>
+                    FILL_INK.filter((p) => p.ink === ink).map((p) => ({ ...p, ink })),
+                  )
+                : [];
             return (
               <section key={group.labelKey}>
                 <h2 className="text-strong font-semibold text-kin-text">{tr(group.labelKey)}</h2>
                 <p className="mb-3 mt-1 text-body text-kin-muted">{tr(group.noteKey)}</p>
-                {Sample ? (
+                {group.kind === "ink" || group.kind === "focus" ? (
                   <div className="grid gap-3 sm:grid-cols-2">
                     {group.tokens.flatMap((name) =>
-                      backdrops.map((ink) => (
-                        <Sample
-                          key={`${name}@${ink}`}
-                          name={name}
-                          value={values[name] ?? ""}
-                          ink={ink}
-                        />
-                      )),
+                      BACKDROPS.map((ink) =>
+                        group.kind === "focus" ? (
+                          <FocusSample
+                            key={`${name}@${ink}`}
+                            name={name}
+                            value={values[name] ?? ""}
+                            ink={ink}
+                          />
+                        ) : (
+                          <InkSample
+                            key={`${name}@${ink}`}
+                            name={name}
+                            value={values[name] ?? ""}
+                            ink={ink}
+                          />
+                        ),
+                      ),
                     )}
+                  </div>
+                ) : group.kind === "on-fill" ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {pairs.map((pair) => (
+                      <FillSample
+                        key={pair.fill}
+                        name={pair.fill}
+                        value={values[pair.fill] ?? ""}
+                        ink={pair.ink}
+                        inkValue={values[pair.ink] ?? ""}
+                      />
+                    ))}
                   </div>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2">

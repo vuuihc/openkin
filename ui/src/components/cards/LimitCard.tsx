@@ -88,18 +88,18 @@ export default function LimitCard({
       className={[
         "rounded-xl animate-slideIn overflow-hidden",
         focused
-          ? "border-2 border-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,.25)]"
-          : "border border-[rgba(251,191,36,.55)] shadow-[0_8px_24px_rgba(251,191,36,.12)]",
-        "bg-gradient-to-b from-[rgba(251,191,36,.12)] to-[rgba(251,191,36,.03)]",
+          ? "border-2 border-kin-orange ring ring-kin-orange/25"
+          : "border border-kin-orange/55 shadow-e2",
+        "bg-gradient-to-b from-kin-orange/10 to-kin-orange/5",
       ].join(" ")}
       data-testid="limit-card"
     >
       <div className="px-3.5 py-3.5">
         <div className="flex items-center gap-2">
-          <IconAlert size={15} className="text-amber-400 flex-none" />
-          <span className="text-body font-semibold text-amber-100">{title}</span>
+          <IconAlert size={15} className="text-kin-orange-ink flex-none" />
+          <span className="text-body font-semibold text-kin-orange-ink">{title}</span>
           {hit.window ? (
-            <span className="ml-auto rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-caption text-amber-100">
+            <span className="ml-auto rounded-full border border-kin-orange/40 bg-kin-orange/10 px-2 py-0.5 text-caption text-kin-orange-ink">
               {hit.window}
             </span>
           ) : null}
@@ -134,7 +134,7 @@ export default function LimitCard({
                 type="button"
                 disabled={Boolean(busy)}
                 onClick={onContinue}
-                className="rounded-lg bg-amber-500/90 px-3 py-1.5 text-body font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-50"
+                className="rounded-lg bg-kin-orange/90 px-3 py-1.5 text-body font-medium text-kin-on-status hover:bg-kin-orange disabled:opacity-50"
               >
                 {busy === "continue"
                   ? tr("limit.working")
@@ -147,7 +147,7 @@ export default function LimitCard({
                 type="button"
                 disabled={Boolean(busy)}
                 onClick={onWait}
-                className="rounded-lg bg-amber-500/90 px-3 py-1.5 text-body font-medium text-zinc-950 hover:bg-amber-400 disabled:opacity-50"
+                className="rounded-lg bg-kin-orange/90 px-3 py-1.5 text-body font-medium text-kin-on-status hover:bg-kin-orange disabled:opacity-50"
               >
                 {busy === "wait" ? tr("limit.working") : tr("limit.wait")}
               </button>
@@ -158,7 +158,7 @@ export default function LimitCard({
                 type="button"
                 disabled={Boolean(busy)}
                 onClick={onContinue}
-                className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-body text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
+                className="rounded-lg border border-kin-orange/40 bg-kin-orange/10 px-3 py-1.5 text-body text-kin-orange-ink hover:bg-kin-orange/15 disabled:opacity-50"
               >
                 {busy === "continue" ? tr("limit.working") : tr("limit.continueNow")}
               </button>
@@ -170,7 +170,7 @@ export default function LimitCard({
                 type="button"
                 disabled={Boolean(busy)}
                 onClick={() => onSwitch(a.id)}
-                className="rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-panel)] px-3 py-1.5 text-body text-kin-secondary hover:text-kin-primary disabled:opacity-50"
+                className="rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-3 py-1.5 text-body text-kin-secondary hover:text-kin-orange-ink disabled:opacity-50"
               >
                 {busy === `switch:${a.id}`
                   ? tr("limit.working")

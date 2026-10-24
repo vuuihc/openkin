@@ -137,8 +137,8 @@ export function ProviderSettingsSection({
                   className={[
                     "rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center gap-3",
                     isActive
-                      ? "border-kin-blue bg-kin-blue-soft/40"
-                      : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40",
+                      ? "border-kin-blue/60 bg-kin-blue/15"
+                      : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]",
                   ].join(" ")}
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
@@ -147,7 +147,7 @@ export function ProviderSettingsSection({
                         {providerDisplayName(provider)}
                       </span>
                       {isActive ? (
-                        <span className="text-micro font-semibold uppercase tracking-label text-kin-blue">
+                        <span className="text-micro font-semibold uppercase tracking-label text-kin-blue-ink">
                           {tr("settings.provider.activeBadge")}
                         </span>
                       ) : null}
@@ -179,7 +179,7 @@ export function ProviderSettingsSection({
                       type="button"
                       disabled={providerBusy}
                       onClick={() => onDeleteProvider(provider.id)}
-                      className="kin-btn-secondary text-body min-h-9 text-kin-red disabled:opacity-50"
+                      className="kin-btn-secondary text-body min-h-9 text-kin-red-ink disabled:opacity-50"
                     >
                       {tr("settings.provider.delete")}
                     </button>
@@ -261,7 +261,7 @@ export function ProviderSettingsSection({
                   type="button"
                   disabled={providerModelLoading}
                   onClick={onFetchProviderModels}
-                  className="text-caption text-kin-blue hover:underline disabled:opacity-50 shrink-0"
+                  className="text-caption text-kin-blue-ink hover:underline disabled:opacity-50 shrink-0"
                 >
                   {providerModelLoading
                     ? tr("settings.provider.modelsFetching")
@@ -282,7 +282,7 @@ export function ProviderSettingsSection({
                 ))}
               </datalist>
               {providerModelError ? (
-                <span className="block text-caption text-kin-red">{providerModelError}</span>
+                <span className="block text-caption text-kin-red-ink">{providerModelError}</span>
               ) : null}
               {providerModelOptions.length > 0 ? (
                 <select
@@ -326,7 +326,7 @@ export function ProviderSettingsSection({
               <button
                 type="button"
                 onClick={onToggleRouting}
-                className="flex items-center gap-1 text-body leading-4 font-medium text-kin-secondary hover:text-kin-blue"
+                className="flex items-center gap-1 text-body leading-4 font-medium text-kin-secondary hover:text-kin-blue-ink"
               >
                 <span className={`transition-transform ${showRouting ? "rotate-90" : ""}`}>▸</span>
                 {tr("settings.routing.heading")}
@@ -361,7 +361,7 @@ export function ProviderSettingsSection({
                             { id: "", tier: "balanced", cost_label: "unknown" },
                           ])
                         }
-                        className="text-caption text-kin-blue hover:underline"
+                        className="text-caption text-kin-blue-ink hover:underline"
                       >
                         {tr("settings.routing.addModel")}
                       </button>
@@ -382,7 +382,7 @@ export function ProviderSettingsSection({
                                 providerModels.filter((_, modelIndex) => modelIndex !== index),
                               )
                             }
-                            className="text-micro text-kin-red hover:underline"
+                            className="text-micro text-kin-red-ink hover:underline"
                           >
                             {tr("settings.provider.removeModel")}
                           </button>
@@ -476,7 +476,7 @@ export function ProviderSettingsSection({
           {agentList.some((agent) => !agent.available) ? (
             <Link
               to="/agents"
-              className="inline-flex min-h-11 items-center text-caption text-kin-blue hover:underline sm:min-h-0 sm:mt-1"
+              className="inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline sm:min-h-0 sm:mt-1"
             >
               {tr("agents.manageLink")}
             </Link>

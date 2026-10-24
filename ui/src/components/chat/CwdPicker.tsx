@@ -170,7 +170,7 @@ export default function CwdPicker({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => void openNativePicker()}
-            className="flex-none text-caption font-medium text-kin-blue px-1.5 py-1"
+            className="flex-none text-caption font-medium text-kin-blue-ink px-1.5 py-1"
           >
             {tr("cwd.browseEllipsis")}
           </button>
@@ -182,7 +182,7 @@ export default function CwdPicker({
               setEditing(false);
               setBrowsing(true);
             }}
-            className="flex-none text-caption font-medium text-kin-blue px-1.5 py-1"
+            className="flex-none text-caption font-medium text-kin-blue-ink px-1.5 py-1"
           >
             {tr("cwd.browseEllipsis")}
           </button>
@@ -237,7 +237,7 @@ export default function CwdPicker({
         {cwd ? (
           <span className="font-medium text-kin-secondary">{projectLabel(cwd)}</span>
         ) : (
-          <span className="text-kin-orange">
+          <span className="text-kin-orange-ink">
             {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
           </span>
         )}
@@ -250,7 +250,7 @@ export default function CwdPicker({
             type="button"
             disabled={busy}
             onClick={() => void openNativePicker()}
-            className="flex-none text-caption font-medium text-kin-blue hover:underline disabled:opacity-50"
+            className="flex-none text-caption font-medium text-kin-blue-ink hover:underline disabled:opacity-50"
           >
             {busy ? "…" : tr("cwd.browse")}
           </button>
@@ -268,7 +268,7 @@ export default function CwdPicker({
           <button
             type="button"
             onClick={() => setBrowsing(true)}
-            className="flex-none text-caption font-medium text-kin-blue hover:underline"
+            className="flex-none text-caption font-medium text-kin-blue-ink hover:underline"
           >
             {tr("cwd.browse")}
           </button>
@@ -393,7 +393,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
                 event.stopPropagation();
                 void copy();
               }}
-              className="flex-none text-caption font-medium text-kin-blue hover:underline"
+              className="flex-none text-caption font-medium text-kin-blue-ink hover:underline"
             >
               {tr("cwd.copy")}
             </button>

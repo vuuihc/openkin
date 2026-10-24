@@ -68,27 +68,30 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
     <div
       className={[
         "rounded-xl animate-slideIn overflow-hidden",
+        // Armed (the number keys are wired to this card) reads as the same
+        // solid edge its siblings `LimitCard` and `ApprovalCard` use — a 40%
+        // border here was *fainter* than the 55% on an unarmed card.
         focused
-          ? "border-2 border-indigo-400 shadow-[0_0_0_3px_rgba(99,102,241,.25)]"
-          : "border border-[rgba(99,102,241,.55)] shadow-[0_8px_24px_rgba(99,102,241,.12)]",
-        "bg-gradient-to-b from-[rgba(99,102,241,.12)] to-[rgba(99,102,241,.03)]",
+          ? "border-2 border-kin-orange ring ring-kin-orange/25"
+          : "border border-kin-orange/55 shadow-e2",
+        "bg-gradient-to-b from-kin-orange/10 to-kin-orange/5",
       ].join(" ")}
       data-testid="user-question-card"
     >
       <div className="px-3.5 py-3.5">
         <div className="flex items-center gap-2">
-          <IconAlert size={15} className="text-indigo-400 flex-none" />
-          <span className="text-body font-semibold text-indigo-200">
+          <IconAlert size={15} className="text-kin-orange-ink flex-none" />
+          <span className="text-body font-semibold text-kin-orange-ink">
             {tr("question.cardTitle")}
           </span>
           {payload.header ? (
-            <span className="ml-auto rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-caption text-indigo-200">
+            <span className="ml-auto rounded-full border border-kin-orange/40 bg-kin-orange/10 px-2 py-0.5 text-caption text-kin-orange-ink">
               {payload.header}
             </span>
           ) : null}
         </div>
 
-        <p className="mt-2.5 text-strong leading-ui text-kin-primary">
+        <p className="mt-2.5 text-strong leading-ui text-kin-orange-ink">
           {payload.question || tr("question.fallback")}
         </p>
 
@@ -104,13 +107,13 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
                   className={[
                     "w-full rounded-lg border px-3 py-2 text-left transition-colors",
                     on
-                      ? "border-indigo-400 bg-indigo-500/20 text-indigo-50"
-                      : "border-[var(--kin-hairline)] bg-black/20 text-kin-secondary hover:border-indigo-400/50 hover:text-kin-primary",
+                      ? "border-kin-orange bg-kin-orange/15 text-kin-orange-ink"
+                      : "border-[var(--kin-hairline)] bg-kin-fill text-kin-secondary hover:border-kin-orange/50 hover:text-kin-orange-ink",
                     busy ? "opacity-60 cursor-not-allowed" : "",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-2">
-                    <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded border border-indigo-400/40 text-caption text-indigo-200">
+                    <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded border border-kin-orange/40 text-caption text-kin-orange-ink">
                       {idx + 1}
                     </span>
                     <span className="min-w-0">
@@ -142,7 +145,9 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
               }
             }}
             placeholder={tr("question.otherPlaceholder")}
-            className="w-full rounded-lg border border-[var(--kin-hairline)] bg-black/25 px-3 py-2 text-strong text-kin-primary placeholder:text-kin-muted focus:border-indigo-400 focus:outline-none"
+            // The typed answer is the user's own words, not the card's status
+            // message — orange ink is for what the card is *saying*.
+            className="w-full rounded-lg border border-[var(--kin-hairline)] bg-kin-fill px-3 py-2 text-strong text-kin-text placeholder:text-kin-muted focus:border-kin-orange/50 focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"
           />
         </div>
 
@@ -154,8 +159,8 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
             className={[
               "rounded-lg px-3.5 py-1.5 text-body font-semibold transition-colors",
               canSubmit
-                ? "bg-indigo-500 text-white hover:bg-indigo-400"
-                : "bg-indigo-500/30 text-indigo-200/60 cursor-not-allowed",
+                ? "bg-kin-orange text-kin-on-status hover:brightness-110"
+                : "bg-kin-orange/15 text-kin-orange-ink/60 cursor-not-allowed",
             ].join(" ")}
           >
             {busy ? tr("question.submitting") : tr("question.submit")}

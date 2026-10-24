@@ -29,13 +29,13 @@ export default function WorkerTimeline({ steps }: WorkerTimelineProps) {
   return (
     <section
       aria-label={tr("task.workerTimeline")}
-      className="mx-auto mb-5 w-full max-w-[760px] rounded-lg border border-[var(--kin-hairline)] bg-[rgba(255,255,255,.025)] px-3 py-3"
+      className="mx-auto mb-5 w-full max-w-[760px] rounded-lg border border-[var(--kin-hairline)] bg-kin-fill px-3 py-3"
     >
       <div className="mb-2 flex items-center justify-between">
         <h2 className="text-body font-semibold text-[var(--kin-text)]">
           {tr("task.workerTimeline")}
         </h2>
-        <span className="text-caption text-[var(--kin-muted)]">
+        <span className="text-caption text-kin-muted">
           {tr("task.workerStepCount", { n: steps.length })}
         </span>
       </div>
@@ -43,26 +43,26 @@ export default function WorkerTimeline({ steps }: WorkerTimelineProps) {
         {steps.map((step) => (
           <li
             key={`${step.execution_id}-${step.step_index}`}
-            className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-body hover:bg-[rgba(255,255,255,.04)]"
+            className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-body hover:bg-kin-fill"
           >
-            <span className="text-center font-mono text-caption text-[var(--kin-muted)]">
+            <span className="text-center font-mono text-caption text-kin-muted">
               {step.step_index + 1}
             </span>
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="truncate font-medium text-[var(--kin-text)]">{step.agent}</span>
-                <span className="shrink-0 text-micro uppercase tracking-label text-[var(--kin-muted)]">
+                <span className="shrink-0 text-micro uppercase tracking-label text-kin-muted">
                   {step.access === "write"
                     ? tr("task.workerAccessWrite")
                     : tr("task.workerAccessRead")}
                 </span>
               </div>
-              <div className="truncate text-caption text-[var(--kin-muted)]">
+              <div className="truncate text-caption text-kin-muted">
                 {step.role}
                 {step.result_summary ? ` · ${step.result_summary}` : ""}
               </div>
             </div>
-            <span className="shrink-0 text-caption text-[var(--kin-muted)]">
+            <span className="shrink-0 text-caption text-kin-muted">
               {tr(statusKey(step.status))}
             </span>
           </li>

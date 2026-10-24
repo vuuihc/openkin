@@ -80,10 +80,10 @@ export default function MermaidBlock({
           .filter(Boolean)
           .join(" ")}
       >
-        <div className="mb-2 text-caption font-semibold uppercase tracking-label text-kin-red">
+        <div className="mb-2 text-caption font-semibold uppercase tracking-label text-kin-red-ink">
           Mermaid
         </div>
-        <p className="mb-2 text-body text-kin-red">{error}</p>
+        <p className="mb-2 text-body text-kin-red-ink">{error}</p>
         <pre className="whitespace-pre-wrap text-body font-mono text-kin-secondary">{code}</pre>
       </div>
     );

@@ -137,7 +137,7 @@ export default function ApprovalsPage() {
 
         {!loading && error && (
           <div
-            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
+            className="mt-6 rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink"
             role="alert"
           >
             {error}

@@ -339,7 +339,7 @@ function AgentTurn({
                   className={[
                     "group/msg space-y-1 rounded-lg",
                     selectionMode && selectedKeys.has(item.key)
-                      ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2"
+                      ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2"
                       : "",
                   ].join(" ")}
                 >
@@ -364,7 +364,7 @@ function AgentTurn({
                             disabled={actionsBusy}
                             title={tr("task.retryTitle")}
                             onClick={() => onRetry?.(item.seq!)}
-                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
                           >
                             {tr("task.retry")}
                           </button>
@@ -373,7 +373,7 @@ function AgentTurn({
                             disabled={actionsBusy}
                             title={tr("task.forkTitle")}
                             onClick={() => onFork?.(item.seq!)}
-                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
                           >
                             {tr("task.fork")}
                           </button>
@@ -386,7 +386,7 @@ function AgentTurn({
                             title={tr("chat.message.copyTitle")}
                             aria-label={tr("chat.message.copyTitle")}
                             onClick={() => onCopyMessage(item.text)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
                           >
                             <IconCopy size={13} />
                             {tr("chat.message.copy")}
@@ -396,7 +396,7 @@ function AgentTurn({
                             title={tr("chat.message.shareTitle")}
                             aria-label={tr("chat.message.shareTitle")}
                             onClick={() => onShareMessage(item.key)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
                           >
                             <IconShare size={13} />
                             {tr("chat.message.share")}
@@ -409,7 +409,7 @@ function AgentTurn({
                           disabled={actionsBusy}
                           title={tr("task.saveArtifactTitle")}
                           onClick={() => onSaveArtifact?.(item.text)}
-                          className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                          className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
                         >
                           {tr("task.saveArtifact")}
                         </button>
@@ -433,7 +433,7 @@ function AgentTurn({
               return (
                 <div
                   key={item.key}
-                  className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-strong text-kin-red"
+                  className="rounded-xl border border-kin-red/30 bg-kin-red/10 px-3.5 py-2.5 text-strong text-kin-red-ink"
                 >
                   {item.message}
                 </div>
@@ -457,7 +457,7 @@ function StandaloneRow({ item }: { item: Extract<ChatItem, { kind: "error" | "me
   const tr = useT();
   if (item.kind === "error") {
     return (
-      <div className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-strong text-kin-red">
+      <div className="rounded-xl border border-kin-red/30 bg-kin-red/10 px-3.5 py-2.5 text-strong text-kin-red-ink">
         {friendlyErrorLabel(item.message, tr)}
       </div>
     );
@@ -561,10 +561,13 @@ function ProgressCard({
   const failed = status.state === "failed";
   const partialFailed = status.state === "partial_failed";
   const statusTone =
+    // 15% is the ceiling for a status tint that carries ink — the card's own
+    // step rows are `text-kin-muted`, and at 30% that caption measured 3.8:1 in
+    // the light scheme. See `tokens.test.ts`, "certifies every ink on a tint".
     status.state === "running"
-      ? "border-kin-blue/25 bg-kin-blue-soft/30"
+      ? "border-kin-blue/25 bg-kin-blue/15"
       : failed || partialFailed
-        ? "border-kin-red/25 bg-[rgba(255,69,58,.05)]"
+        ? "border-kin-red/25 bg-kin-red/5"
         : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]";
 
   const badgeLabel =
@@ -578,9 +581,9 @@ function ProgressCard({
 
   const badgeTone =
     status.state === "running"
-      ? "bg-kin-blue/15 text-kin-blue"
+      ? "bg-kin-blue/15 text-kin-blue-ink"
       : failed || partialFailed
-        ? "bg-kin-red/15 text-kin-red"
+        ? "bg-kin-red/15 text-kin-red-ink"
         : "bg-[var(--kin-fill-strong)] text-kin-muted";
 
   return (
@@ -589,7 +592,7 @@ function ProgressCard({
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="flex items-center gap-2 w-full px-3 py-2 text-body text-left cursor-pointer hover:bg-[var(--kin-fill-strong)]/30 transition-colors"
+        className="flex items-center gap-2 w-full px-3 py-2 text-body text-left cursor-pointer hover:bg-[var(--kin-fill-strong)] transition-colors"
       >
         <span
           className={[
@@ -622,7 +625,7 @@ function ProgressCard({
         </span>
       </button>
       {!collapsed && (
-        <div className="border-t border-[var(--kin-hairline)] bg-[var(--kin-elevated)]/30 divide-y divide-[var(--kin-hairline)]">
+        <div className="border-t border-[var(--kin-hairline)] bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
           {steps.map((step, idx) =>
             step.kind === "tool" ? (
               <ToolStepRow
@@ -646,8 +649,11 @@ function ProgressCard({
 function NoteStepRow({ note, index }: { note: NoteStep; index: number }) {
   const tr = useT();
   const statusDot =
+    // A status dot is a pigment, and the failure branch has to be one: the
+    // neutral `--kin-fill-strong` wash this used to carry measured 1.4:1
+    // against the card it sits in, and it was the row's only failure signal.
     note.status === "error"
-      ? "bg-zinc-500"
+      ? "bg-kin-red"
       : note.status === "running"
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
@@ -684,7 +690,7 @@ function ToolStepRow({
 
   const statusDot =
     tool.status === "error"
-      ? "bg-zinc-500"
+      ? "bg-kin-red"
       : tool.status === "running"
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
@@ -703,9 +709,7 @@ function ToolStepRow({
         onClick={() => hasDetail && onToggle()}
         className={[
           "w-full flex items-start gap-2 px-3 py-1.5 text-left",
-          hasDetail
-            ? "cursor-pointer hover:bg-black/[.03] dark:hover:bg-white/[.03]"
-            : "cursor-default",
+          hasDetail ? "cursor-pointer  hover:bg-kin-fill" : "cursor-default",
         ].join(" ")}
         aria-expanded={open}
       >
@@ -723,7 +727,7 @@ function ToolStepRow({
         {filePath && onOpenPath && (
           <button
             type="button"
-            className="flex-none max-w-[40%] truncate font-mono text-caption text-kin-blue hover:underline pt-0.5"
+            className="flex-none max-w-[40%] truncate font-mono text-caption text-kin-blue-ink hover:underline pt-0.5"
             title={filePath}
             onClick={(e) => {
               e.stopPropagation();
@@ -745,7 +749,7 @@ function ToolStepRow({
             <button
               type="button"
               onClick={() => onOpenPath(filePath)}
-              className="text-caption text-kin-blue hover:underline font-mono"
+              className="text-caption text-kin-blue-ink hover:underline font-mono"
               title={filePath}
             >
               {tr("workspace.openFile")} · {shortPath(filePath, 48)}
@@ -829,7 +833,7 @@ function MessageRow({
           // min-w-0: let this row shrink inside the chat column so max-w on
           // the bubble can actually constrain long unbroken paths/URLs.
           "flex min-w-0 w-full justify-end gap-2.5 items-start rounded-lg",
-          selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2" : "",
+          selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2" : "",
         ].join(" ")}
       >
         <div className="min-w-0 max-w-[85%] sm:max-w-[78%] flex flex-col items-end gap-1">
@@ -845,7 +849,10 @@ function MessageRow({
             className="max-w-full min-w-0 px-3.5 py-2.5 rounded-2xl rounded-br-md text-strong sm:text-subtitle leading-prose whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{
               background: "var(--kin-bubble-user)",
-              color: "var(--kin-bubble-user-fg)",
+              // The user's bubble is a brand fill, so it takes the brand
+              // foreground. `--kin-bubble-user-fg` used to be a token of its
+              // own holding the same value — one fill, one foreground.
+              color: "var(--kin-on-brand)",
             }}
           >
             {text}
@@ -901,7 +908,7 @@ function ShareSelectionBar({
   const disabled = count === 0;
   return (
     <div
-      className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-kin-blue/30 bg-[var(--kin-elevated)]/95 px-3 py-2 shadow-e1 backdrop-blur"
+      className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-kin-blue/30 bg-kin-elevated/95 px-3 py-2 shadow-e1 backdrop-blur"
       role="region"
       aria-label={tr("chat.message.selection")}
     >
@@ -912,7 +919,7 @@ function ShareSelectionBar({
         type="button"
         onClick={onCopy}
         disabled={disabled}
-        className="inline-flex min-h-8 items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-white hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-8 items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-kin-on-brand hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <IconCopy size={14} />
         {tr("chat.message.copyText")}

@@ -374,7 +374,7 @@ export default function Composer({
                 onMouseEnter={() => setMentionIndex(i)}
                 onClick={() => insertMention(a.id)}
               >
-                <span className="font-mono text-kin-blue font-semibold">@{a.id}</span>
+                <span className="font-mono text-kin-blue-ink font-semibold">@{a.id}</span>
                 <span className="text-kin-secondary">
                   {agentDisplayName(a.id)}
                   {hostAgentId && a.id === hostAgentId
@@ -425,6 +425,10 @@ export default function Composer({
                     onClick={() => removeAttachment(a.id)}
                     data-touch-mini
                     className={
+                      // `text-white` on a black scrim, not `-on-brand`: the
+                      // backdrop is the user's own image, not a token fill, and
+                      // white-over-scrim is the one pairing that survives an
+                      // arbitrary photograph in either scheme.
                       image
                         ? "touch-mini absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                         : "touch-mini ml-1 w-4 h-4 rounded-full bg-black/40 text-white flex items-center justify-center opacity-70 hover:opacity-100 shrink-0"
@@ -543,7 +547,7 @@ export default function Composer({
                 type="button"
                 onClick={() => void onStop()}
                 disabled={stopping || busy}
-                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-[rgba(255,69,58,.16)] text-[#ff8a80] flex items-center justify-center disabled:opacity-40 border border-[rgba(255,69,58,.35)]"
+                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-red/15 text-kin-red-ink flex items-center justify-center disabled:opacity-40 border border-kin-red/35"
                 aria-label={tr("composer.stop")}
                 title={tr("composer.stop")}
               >
@@ -559,7 +563,7 @@ export default function Composer({
                   uploading ||
                   (!value.trim() && attachments.length === 0)
                 }
-                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
+                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
                 aria-label={busy ? tr("composer.sending") : tr("composer.send")}
               >
                 {busy ? (
@@ -573,7 +577,7 @@ export default function Composer({
               <button
                 type="submit"
                 disabled={disabled || busy || stopping}
-                className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
+                className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
                 aria-label={tr("composer.sendGuide")}
                 title={tr("composer.sendGuide")}
               >

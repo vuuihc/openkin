@@ -47,19 +47,19 @@ export default function ApprovalCard({
       className={[
         "rounded-xl animate-slideIn overflow-hidden",
         focused
-          ? "border-2 border-kin-blue shadow-[0_0_0_3px_rgba(10,132,255,.2)]"
-          : "border border-[rgba(255,159,10,.55)] shadow-e2",
-        "bg-gradient-to-b from-[rgba(255,159,10,.1)] to-[rgba(255,159,10,.03)]",
+          ? "border-2 border-kin-blue ring ring-kin-blue/20"
+          : "border border-kin-orange/55 shadow-e2",
+        "bg-gradient-to-b from-kin-orange/10 to-kin-orange/5",
       ].join(" ")}
     >
       <div className="px-3.5 py-3.5">
         <div className="flex items-center gap-2">
-          <IconAlert size={15} className="text-kin-orange flex-none" />
-          <span className="text-strong font-semibold text-[#ffb340]">
+          <IconAlert size={15} className="text-kin-orange-ink flex-none" />
+          <span className="text-strong font-semibold text-kin-orange-ink">
             {tr("approval.cardTitle")}
           </span>
           {focused && (
-            <span className="text-micro font-semibold uppercase tracking-label text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5">
+            <span className="text-micro font-semibold uppercase tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5">
               {tr("approval.focused")}
             </span>
           )}
@@ -77,7 +77,7 @@ export default function ApprovalCard({
             <button
               type="button"
               onClick={() => onOpenPath?.(filePath)}
-              className="font-mono text-kin-blue truncate hover:underline text-left"
+              className="font-mono text-kin-blue-ink truncate hover:underline text-left"
               title={filePath}
             >
               {shortPath(filePath, 48)}
@@ -96,9 +96,9 @@ export default function ApprovalCard({
                 key={i}
                 className={
                   line.type === "add"
-                    ? "px-2.5 py-0.5 bg-[rgba(48,209,88,.1)] text-[#5be584]"
+                    ? "px-2.5 py-0.5 bg-kin-green/10 text-kin-green-ink"
                     : line.type === "del"
-                      ? "px-2.5 py-0.5 bg-[rgba(255,69,58,.1)] text-[#ff8a80]"
+                      ? "px-2.5 py-0.5 bg-kin-red/10 text-kin-red-ink"
                       : "px-2.5 py-0.5 text-kin-secondary"
                 }
               >

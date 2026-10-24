@@ -263,7 +263,7 @@ export default function ChangedFilesBar({
     <div
       className={[
         "flex-none border-b border-[var(--kin-hairline)]",
-        "bg-[var(--kin-elevated)]/60",
+        "bg-kin-elevated/60",
         className ?? "",
       ].join(" ")}
     >
@@ -316,9 +316,9 @@ function DeltaInline({ additions, deletions }: { additions: number; deletions: n
   }
   return (
     <span>
-      {additions > 0 && <span className="text-[#8de4a0]">+{additions}</span>}
+      {additions > 0 && <span className="text-kin-green-ink">+{additions}</span>}
       {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
-      {deletions > 0 && <span className="text-[#ffb4ad]">−{deletions}</span>}
+      {deletions > 0 && <span className="text-kin-red-ink">−{deletions}</span>}
     </span>
   );
 }

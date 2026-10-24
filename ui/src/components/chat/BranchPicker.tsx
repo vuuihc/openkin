@@ -296,7 +296,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
             ? "gap-1 px-1.5 py-0.5 text-caption font-medium transition-colors"
             : "gap-1.5 px-2 py-0.5 text-caption font-medium transition-colors",
           "hover:border-kin-blue/40 hover:text-kin-secondary",
-          open ? "border-kin-blue/50 text-kin-blue" : "text-kin-secondary",
+          open ? "border-kin-blue/50 text-kin-blue-ink" : "text-kin-secondary",
           busy ? "opacity-60" : "",
         ].join(" ")}
         title={
@@ -332,7 +332,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
           className={[
             "fixed z-50 flex flex-col",
             "rounded-xl border border-[var(--kin-hairline-strong)]",
-            "bg-[var(--kin-elevated)] shadow-e2 overflow-hidden",
+            "bg-kin-elevated shadow-e2 overflow-hidden",
           ].join(" ")}
           role="listbox"
           aria-label={tr("branch.listLabel")}
@@ -347,7 +347,9 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
               className={[
                 "w-full rounded-md border border-[var(--kin-hairline)]",
                 "bg-[var(--kin-fill)] px-2 py-1 text-body font-mono",
-                "text-kin-primary placeholder:text-kin-muted outline-none",
+                // Typed text is text, not a warning: `-orange-ink` here put the
+                // filter in the same hue as the dirty-branch notice below it.
+                "text-kin-text placeholder:text-kin-muted outline-none",
                 "focus:border-kin-blue/50",
               ].join(" ")}
               disabled={locked || busy}
@@ -371,7 +373,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
                         "w-full flex items-center gap-2 px-3 py-1.5 text-left text-body",
                         "font-mono transition-colors",
                         active
-                          ? "bg-kin-blue-soft text-kin-blue"
+                          ? "bg-kin-blue/15 text-kin-blue-ink"
                           : "text-kin-secondary hover:bg-[var(--kin-fill)]",
                         locked || busy ? "cursor-default opacity-80" : "cursor-pointer",
                       ].join(" ")}
@@ -392,7 +394,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
             </div>
           )}
           {!locked && status.dirty && (
-            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-caption text-kin-orange">
+            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-caption text-kin-orange-ink">
               {tr("branch.dirty")}
             </div>
           )}

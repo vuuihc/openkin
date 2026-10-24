@@ -273,7 +273,7 @@ export default function ProjectDetailPage() {
             <IconBack size={14} />
             {tr("projects.back")}
           </button>
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-strong text-red-300">
+          <div className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink">
             {error || tr("projects.notFound")}
           </div>
         </div>
@@ -308,7 +308,7 @@ export default function ProjectDetailPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
-                className="rounded-lg border border-kin-border bg-transparent px-2 py-1.5 text-body text-kin-text"
+                className="rounded-lg border border-kin-hairline bg-transparent px-2 py-1.5 text-body text-kin-text"
                 value={project.mode}
                 onChange={(e) => void onModeChange(e.target.value as ProjectMode)}
               >
@@ -320,7 +320,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={continuing}
-                className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
                 onClick={() => void onLaunchRecipe("cover.update")}
                 title={tr("projects.summarizeHint")}
               >
@@ -329,7 +329,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={continuing}
-                className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
                 onClick={() => void onLaunchRecipe("focus.continue")}
                 title={tr("projects.continueHint")}
               >
@@ -338,7 +338,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={continuing}
-                className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
                 onClick={() => void onLaunchRecipe("project.memory.tidy")}
                 title={tr("projects.memoryTidyHint")}
               >
@@ -346,7 +346,7 @@ export default function ProjectDetailPage() {
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
+                className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
                 onClick={() => setShowRoutineModal(true)}
               >
                 {tr("routines.create")}
@@ -359,7 +359,7 @@ export default function ProjectDetailPage() {
               {!editing ? (
                 <button
                   type="button"
-                  className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
+                  className="rounded-lg border border-kin-hairline px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
                   onClick={() => {
                     setDraft(markdown);
                     setEditing(true);
@@ -372,7 +372,7 @@ export default function ProjectDetailPage() {
                   <button
                     type="button"
                     disabled={saving}
-                    className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
+                    className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
                     onClick={() => void onSave()}
                   >
                     {tr("projects.saveOnePager")}
@@ -396,14 +396,14 @@ export default function ProjectDetailPage() {
             <ProjectSummaryCard project={project} summary={summary} />
           </section>
 
-          <section className="mb-4 rounded-xl border border-kin-border bg-kin-panel p-4 space-y-3">
+          <section className="mb-4 rounded-xl border border-kin-hairline bg-kin-panel p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-body font-medium uppercase tracking-label text-kin-secondary">
                 {tr("projects.pulse")}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  className="rounded-lg border border-kin-border bg-transparent px-2 py-1 text-body text-kin-text"
+                  className="rounded-lg border border-kin-hairline bg-transparent px-2 py-1 text-body text-kin-text"
                   value={windowDays}
                   onChange={(e) => setWindowDays(Number(e.target.value) || 90)}
                 >
@@ -414,7 +414,7 @@ export default function ProjectDetailPage() {
                 <button
                   type="button"
                   disabled={refreshing}
-                  className="rounded-lg border border-kin-border px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                  className="rounded-lg border border-kin-hairline px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
                   onClick={() => void onRefreshPulse()}
                 >
                   {refreshing ? tr("projects.refreshing") : tr("projects.refreshPulse")}
@@ -461,13 +461,13 @@ export default function ProjectDetailPage() {
           </section>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-            <section className="rounded-xl border border-kin-border bg-kin-panel p-4 min-h-80">
+            <section className="rounded-xl border border-kin-hairline bg-kin-panel p-4 min-h-80">
               <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                 {tr("projects.onePager")}
               </div>
               {editing ? (
                 <textarea
-                  className="min-h-[480px] w-full resize-y rounded-lg border border-kin-border bg-transparent p-3 font-mono text-body leading-prose text-kin-text"
+                  className="min-h-[480px] w-full resize-y rounded-lg border border-kin-hairline bg-transparent p-3 font-mono text-body leading-prose text-kin-text"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                 />
@@ -479,7 +479,7 @@ export default function ProjectDetailPage() {
             </section>
 
             <aside className="space-y-3">
-              <section className="rounded-xl border border-kin-border bg-kin-panel p-3">
+              <section className="rounded-xl border border-kin-hairline bg-kin-panel p-3">
                 <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                   {tr("projects.relatedArtifacts")}
                 </div>
@@ -533,7 +533,7 @@ export default function ProjectDetailPage() {
                 className="mt-1 w-full resize-y rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
-            <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 px-3 py-2.5">
+            <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
               <RoutineScheduleFields
                 intervalSecs={routineInterval}
                 onIntervalChange={setRoutineInterval}
@@ -553,7 +553,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={creatingRoutine || !routinePrompt.trim()}
-                className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
                 onClick={() => void onCreateRoutine()}
               >
                 {tr("routines.submitCreate")}

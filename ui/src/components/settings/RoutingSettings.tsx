@@ -247,11 +247,11 @@ export function RoutingDefaultsSection() {
           {busy ? tr("settings.saving") : tr("settings.routing.save")}
         </button>
         {saved && (
-          <span className="text-body leading-4 text-kin-green">
+          <span className="text-body leading-4 text-kin-green-ink">
             {tr("settings.notify.savedShort")}
           </span>
         )}
-        {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
+        {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
       </div>
     </section>
   );
@@ -380,7 +380,7 @@ export function RoutingProfilesSection() {
           {profiles.map((p) => (
             <li
               key={p.id}
-              className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 p-3 flex flex-col sm:flex-row sm:items-center gap-3"
+              className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-3 flex flex-col sm:flex-row sm:items-center gap-3"
             >
               <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -389,7 +389,7 @@ export function RoutingProfilesSection() {
                     <span className="text-micro font-mono text-kin-muted">{p.alias}</span>
                   )}
                   <span
-                    className={`text-micro font-semibold uppercase tracking-label ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}
+                    className={`text-micro font-semibold uppercase tracking-label ${p.enabled ? "text-kin-green-ink" : "text-kin-muted"}`}
                   >
                     {p.enabled ? "enabled" : "disabled"}
                   </span>
@@ -410,7 +410,7 @@ export function RoutingProfilesSection() {
                 <button
                   type="button"
                   onClick={() => deleteProfile(p.id)}
-                  className="kin-btn-secondary text-body min-h-9 text-kin-red"
+                  className="kin-btn-secondary text-body min-h-9 text-kin-red-ink"
                 >
                   {tr("settings.provider.delete")}
                 </button>
@@ -516,8 +516,8 @@ export function RoutingProfilesSection() {
                     onClick={() => addPhase(phase)}
                     className={`text-micro px-1.5 py-0.5 rounded border min-h-6 ${
                       editing.phases[phase]
-                        ? "border-kin-green bg-kin-green/10 text-kin-green cursor-default"
-                        : "border-[var(--kin-hairline)] text-kin-muted hover:text-kin-blue hover:border-kin-blue"
+                        ? "border-kin-green bg-kin-green/10 text-kin-green-ink cursor-default"
+                        : "border-[var(--kin-hairline)] text-kin-muted hover:text-kin-blue-ink hover:border-kin-blue"
                     }`}
                   >
                     {phase}
@@ -537,7 +537,7 @@ export function RoutingProfilesSection() {
                   <button
                     type="button"
                     onClick={() => removePhase(phase)}
-                    className="text-micro text-kin-red hover:underline"
+                    className="text-micro text-kin-red-ink hover:underline"
                   >
                     remove
                   </button>
@@ -648,7 +648,7 @@ export function RoutingProfilesSection() {
       )}
 
       <div className="flex items-center gap-3">
-        {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
+        {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
       </div>
     </section>
   );

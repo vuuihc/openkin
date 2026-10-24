@@ -100,8 +100,8 @@ export default function ArtifactDetailPage() {
   if (error || !artifact) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-strong text-kin-red">{error || tr("artifacts.notFound")}</p>
-        <Link to="/artifacts" className="text-strong text-kin-blue hover:underline">
+        <p className="text-strong text-kin-red-ink">{error || tr("artifacts.notFound")}</p>
+        <Link to="/artifacts" className="text-strong text-kin-blue-ink hover:underline">
           {tr("artifacts.backToLibrary")}
         </Link>
       </div>
@@ -128,7 +128,7 @@ export default function ArtifactDetailPage() {
                 {" · "}
                 <Link
                   to={`/tasks/${artifact.source_task_id}`}
-                  className="text-kin-blue hover:underline"
+                  className="text-kin-blue-ink hover:underline"
                 >
                   {artifact.source_task_title || tr("artifacts.backToTask")}
                 </Link>
@@ -150,6 +150,10 @@ export default function ArtifactDetailPage() {
 
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
         {artifact.kind === "html" ? (
+          // White is the document canvas the artifact was written against —
+          // an HTML artifact has no idea what scheme it is being shown in and
+          // most of them assume a white page. Same boundary as the terminal's
+          // ANSI palette: content that brings its own colours.
           <iframe
             title={artifact.title}
             sandbox=""

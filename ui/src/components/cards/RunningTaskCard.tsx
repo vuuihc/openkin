@@ -49,7 +49,7 @@ export default function RunningTaskCard({
           <span className="text-strong font-semibold text-kin-text truncate">
             {task.title || displayUserPrompt(task.prompt || "")}
           </span>
-          <span className="text-caption font-semibold tracking-label text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5 flex-none">
+          <span className="text-caption font-semibold tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5 flex-none">
             {task.agent}
           </span>
           <span className="ml-auto text-body text-kin-muted tabular-nums flex-none whitespace-nowrap">

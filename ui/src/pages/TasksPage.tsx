@@ -93,7 +93,7 @@ export default function TasksPage() {
               className={[
                 "px-3 py-1.5 rounded-lg text-strong font-medium min-h-9",
                 filter === k
-                  ? "bg-kin-blue text-white"
+                  ? "bg-kin-blue text-kin-on-brand"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",
               ].join(" ")}
             >
@@ -111,7 +111,7 @@ export default function TasksPage() {
 
         {error && (
           <div
-            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
+            className="mt-6 rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink"
             role="alert"
           >
             {error}
@@ -152,7 +152,7 @@ export default function TasksPage() {
                     <td className="px-3 py-3">
                       <Link
                         to={`/tasks/${t.id}`}
-                        className="font-medium text-kin-text hover:text-kin-blue"
+                        className="font-medium text-kin-text hover:text-kin-blue-ink"
                       >
                         {t.title || displayUserPrompt(t.prompt || "")}
                       </Link>
@@ -171,7 +171,7 @@ export default function TasksPage() {
                       <button
                         type="button"
                         onClick={() => void handleDelete(t)}
-                        className="text-body text-kin-muted hover:text-[#ff8a80]"
+                        className="text-body text-kin-muted hover:text-kin-red-ink"
                       >
                         {tr("tasks.delete")}
                       </button>
@@ -190,11 +190,11 @@ export default function TasksPage() {
 function StatusChip({ status }: { status: string }) {
   const color =
     status === "waiting_approval"
-      ? "text-kin-orange bg-kin-orange-soft"
+      ? "text-kin-orange-ink bg-kin-orange/15"
       : status === "running" || status === "queued"
-        ? "text-kin-blue bg-kin-blue-soft"
+        ? "text-kin-blue-ink bg-kin-blue/15"
         : status === "succeeded"
-          ? "text-kin-green bg-[rgba(48,209,88,.12)]"
+          ? "text-kin-green-ink bg-kin-green/10"
           : "text-kin-secondary bg-[var(--kin-fill)]";
   const label =
     status === "waiting_approval"

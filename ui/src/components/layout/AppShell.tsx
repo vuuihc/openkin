@@ -427,7 +427,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               <button
                 type="button"
                 onClick={closeDraft}
-                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue"
+                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue-ink"
                 aria-label={tr("app.close")}
               >
                 <svg
@@ -446,7 +446,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue"
+                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue-ink"
                 aria-label={tr("app.openMenu")}
               >
                 <svg
@@ -470,7 +470,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               <button
                 type="button"
                 onClick={openNewChat}
-                className="ml-auto min-w-[44px] min-h-11 flex items-center justify-center text-kin-blue"
+                className="ml-auto min-w-[44px] min-h-11 flex items-center justify-center text-kin-blue-ink"
                 aria-label={tr("nav.newChat")}
               >
                 <svg
@@ -515,7 +515,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         */}
         {wsStatus !== "connected" && (
           <div
-            className="flex-none bg-[rgba(255,159,10,.12)] border-b border-[rgba(255,159,10,.25)] text-kin-orange text-body text-center px-3 py-1.5"
+            className="flex-none bg-kin-orange/10 border-b border-kin-orange/25 text-kin-orange-ink text-body text-center px-3 py-1.5"
             role="status"
           >
             {tr("app.reconnecting")}

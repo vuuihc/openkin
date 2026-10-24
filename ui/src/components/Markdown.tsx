@@ -104,7 +104,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
                 </thead>
                 <tbody>
                   {b.rows.map((row, ri) => (
-                    <tr key={ri} className="odd:bg-transparent even:bg-[var(--kin-fill)]/40">
+                    <tr key={ri} className="odd:bg-transparent even:bg-[var(--kin-fill)]">
                       {row.map((cell, ci) => (
                         <td
                           key={ci}
@@ -298,7 +298,7 @@ function inline(s: string): ReactNode[] {
               href={href}
               target={href.startsWith("http") ? "_blank" : undefined}
               rel={href.startsWith("http") ? "noreferrer noopener" : undefined}
-              className="text-kin-blue underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
+              className="text-kin-blue-ink underline decoration-kin-blue/40 underline-offset-2 hover:decoration-kin-blue"
             >
               {lm[1]}
             </a>,
@@ -319,7 +319,7 @@ function inline(s: string): ReactNode[] {
       parts.push(
         <code
           key={key++}
-          className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue"
+          className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue-ink"
         >
           {tok.slice(1, -1)}
         </code>,

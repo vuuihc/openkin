@@ -1,23 +1,20 @@
 import type { Config } from "tailwindcss";
 import { FONT_SIZE } from "./src/design/type.ts";
 /**
- * Kin design tokens — the *scale* ladders only.
+ * Kin design tokens — the *scale* ladders, and the names that reach the colour
+ * tokens in `src/design/theme.css`.
  *
- * Semantic colours are written in `src/design/theme.css` and referenced here by
- * name, so the pair — `bg-kin-panel` in dark vs light — comes from the
- * variable, not from a second definition here. What literal colours remain are
- * the status and brand set (`#0A84FF`, `#FF9F0A`, `#30D158`, `#FF453A`) and the
- * black alphas inside the elevation shadows; the status ones are the dark-mode
- * values and do not switch, which is why every one of them fails 4.5:1 on a
- * light page. They move to variables — as RGB channel triplets, so
- * `border-kin-red/40` keeps working — with the rest of the status work.
+ * Every colour here is a reference: the values, both schemes of them, are in
+ * that one file. The names are spelled out rather than derived, because the
+ * guard in `tokens.test.ts` fails on a `var(--kin-*)` this file uses and
+ * `theme.css` does not define, and a computed name would slip past it.
  *
  * The scale ladders are *assigned* rather than extended, and that is the whole
- * mechanism: a leftover default name emits no CSS at all, so the guards in
- * `tokens.test.ts` can be a plain search instead of an allow-list. Font sizes
- * come from `src/design/type.ts`, the same array the `/design` gallery renders;
- * tracking, leading and elevation are written out here, one line per step, for
- * the same reason.
+ * mechanism: a leftover default name emits no CSS at all, so the guards can be
+ * a plain search instead of an allow-list. Font sizes come from
+ * `src/design/type.ts`, the same array the `/design` gallery renders; tracking,
+ * leading, elevation and the colour palette are written out here, one line per
+ * step, for the same reason.
  *
  * Two ladders are the exception, each for its own reason. Radius is Tailwind's
  * own scale, not ours — S3's rule was no new numbers and no new names, so the
@@ -68,53 +65,78 @@ export default {
     // over either backdrop, and nothing here is a colour a theme owns.
     // Assigned, so `shadow-sm`/`md`/`lg`/`xl`/`2xl`/`inner`/`none` stop
     // resolving; the guard in `tokens.test.ts` reads that as "search and fail".
+    //
+    // A *status* glow is not a level: three cards used to cast a coloured
+    // halo (`0 0 0 3px rgba(status, .25)`, `0 8px 24px rgba(status, .12)`),
+    // which is a second way to say what the card's border and its ink already
+    // say. The halo became a ring on the status fill and the glow became `e2`.
     boxShadow: {
       e1: "0 1px 2px rgba(0, 0, 0, 0.24)",
       e2: "0 8px 24px -12px rgba(0, 0, 0, 0.45)",
       e3: "0 40px 90px -20px rgba(0, 0, 0, 0.7)",
     },
-    extend: {
-      colors: {
-        kin: {
-          bg: "var(--kin-bg)",
-          elevated: "var(--kin-elevated)",
-          // Solid floating surface (modals/cards). Never leave undefined — missing token = transparent.
-          panel: "var(--kin-panel)",
-          sidebar: "var(--kin-sidebar)",
-          inspector: "var(--kin-inspector)",
-          hairline: "var(--kin-hairline)",
-          "hairline-strong": "var(--kin-hairline-strong)",
-          // Structural dividers (sidebar/main, section splits). Soft hairline, not default gray.
-          border: "var(--kin-hairline)",
-          text: "var(--kin-text)",
-          secondary: "var(--kin-secondary)",
-          muted: "var(--kin-muted)",
-          // Alias used by primary action buttons across project/routines pages.
-          accent: "#0A84FF",
-          blue: "#0A84FF",
-          "blue-soft": "rgba(10, 132, 255, 0.14)",
-          orange: "#FF9F0A",
-          "orange-soft": "rgba(255, 159, 10, 0.12)",
-          green: "#30D158",
-          red: "#FF453A",
-          warning: "var(--kin-warning)",
-          // The keyboard focus ring, one token for all 16 of them — 11 spelled
-          // `ring-kin-blue/*` and 5 spelled `ring-accent`, which is the same
-          // brand blue in both themes. Two values per theme, because one blue
-          // cannot clear 3:1 on both backdrops.
-          "focus-ring": "var(--kin-focus-ring)",
-        },
-        // Keep legacy aliases so unmigrated bits don't break mid-refactor.
-        surface: {
-          DEFAULT: "var(--kin-bg)",
-          raised: "var(--kin-elevated)",
-          border: "var(--kin-hairline-strong)",
-        },
-        accent: {
-          DEFAULT: "#0A84FF",
-          muted: "#409CFF",
-        },
+    // Assigned, not extended: Tailwind's own palette is off, so `text-zinc-400`
+    // — which the tree used 132 times, and which does not switch with the
+    // scheme — emits nothing. This is the same mechanism as the ladders above,
+    // and it is what lets the guard be a plain search for a class that produces
+    // no CSS rather than an allow-list of names.
+    colors: {
+      transparent: "transparent",
+      current: "currentColor",
+      inherit: "inherit",
+      black: "#000000",
+      white: "#ffffff",
+      kin: {
+        bg: "var(--kin-bg)",
+        // The two floating surfaces and the middle ink step are channel
+        // triplets, because the tree draws them at an alpha (`bg-kin-elevated/60`
+        // for the sticky headers, `text-kin-muted/50` for a disabled label).
+        // Tailwind can only do that to `rgb(var(--x) / <alpha-value>)`; written
+        // as `var(--x)`, the `/NN` is silently dropped and the class emits
+        // nothing at all.
+        elevated: "rgb(var(--kin-elevated-rgb) / <alpha-value>)",
+        // Solid floating surface (modals/cards). Never leave undefined — missing token = transparent.
+        panel: "rgb(var(--kin-panel-rgb) / <alpha-value>)",
+        sidebar: "var(--kin-sidebar)",
+        inspector: "var(--kin-inspector)",
+        hairline: "var(--kin-hairline)",
+        "hairline-strong": "var(--kin-hairline-strong)",
+        fill: "var(--kin-fill)",
+        "fill-strong": "var(--kin-fill-strong)",
+        text: "var(--kin-text)",
+        secondary: "var(--kin-secondary)",
+        muted: "rgb(var(--kin-muted-rgb) / <alpha-value>)",
+        // The keyboard focus ring, one token for all of them — 11 sites spelled
+        // `ring-kin-blue/*`, 5 spelled `ring-accent`, 5 spelled
+        // `outline-kin-blue`. Two values per scheme, because one blue cannot
+        // clear 3:1 on both backdrops.
+        "focus-ring": "var(--kin-focus-ring)",
+        // Status, two tiers per family. `-ink` is text drawn on a surface and
+        // is what the light scheme never had; the bare name is the fill (a bar,
+        // a chip, a border, a button), the same value in both schemes.
+        blue: "rgb(var(--kin-blue-rgb) / <alpha-value>)",
+        "blue-ink": "rgb(var(--kin-blue-ink-rgb) / <alpha-value>)",
+        orange: "rgb(var(--kin-orange-rgb) / <alpha-value>)",
+        "orange-ink": "rgb(var(--kin-orange-ink-rgb) / <alpha-value>)",
+        green: "rgb(var(--kin-green-rgb) / <alpha-value>)",
+        "green-ink": "rgb(var(--kin-green-ink-rgb) / <alpha-value>)",
+        red: "rgb(var(--kin-red-rgb) / <alpha-value>)",
+        "red-ink": "rgb(var(--kin-red-ink-rgb) / <alpha-value>)",
+        // Text *on* a solid fill. Two values, chosen per fill by measurement.
+        "on-status": "var(--kin-on-status)",
+        "on-brand": "var(--kin-on-brand)",
+        "bubble-user": "var(--kin-bubble-user)",
+        // The agents' own marks: third-party identity, the same in both schemes.
+        "agent-claude": "var(--kin-agent-claude)",
+        "agent-codex": "var(--kin-agent-codex)",
+        "agent-droid": "var(--kin-agent-droid)",
+        "agent-workbuddy": "var(--kin-agent-workbuddy)",
+        "agent-trae": "var(--kin-agent-trae)",
+        "agent-doubao": "var(--kin-agent-doubao)",
+        "agent-zcode": "var(--kin-agent-zcode)",
       },
+    },
+    extend: {
       fontFamily: {
         sans: [
           "-apple-system",

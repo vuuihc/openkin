@@ -84,7 +84,7 @@ export default function WorkspaceGenerationPicker({
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-elevated)] shadow-e2 py-1">
+        <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-lg border border-[var(--kin-hairline)] bg-kin-elevated shadow-e2 py-1">
           {/* Source / current project */}
           <button
             type="button"
@@ -143,17 +143,17 @@ function stateBadgeClass(state: string): string {
   switch (state) {
     case "active":
     case "ready":
-      return "bg-kin-blue/20 text-kin-blue";
+      return "bg-kin-blue/15 text-kin-blue-ink";
     case "integrated":
     case "released":
-      return "bg-kin-green/20 text-kin-green";
+      return "bg-kin-green/15 text-kin-green-ink";
     case "merge_blocked":
     case "finalize_blocked":
-      return "bg-kin-orange/20 text-kin-orange";
+      return "bg-kin-orange/15 text-kin-orange-ink";
     case "orphaned":
-      return "bg-kin-red/20 text-kin-red";
+      return "bg-kin-red/15 text-kin-red-ink";
     default:
-      return "bg-kin-muted/20 text-kin-muted";
+      return "bg-kin-muted/15 text-kin-muted";
   }
 }
 

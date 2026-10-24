@@ -63,7 +63,7 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
                   "w-full flex items-start gap-2 px-2.5 py-1.5 text-left transition-colors",
                   active
                     ? "bg-kin-blue/15 text-kin-text"
-                    : "text-kin-secondary hover:bg-black/[.04] dark:hover:bg-white/[.04] hover:text-kin-text",
+                    : "text-kin-secondary  hover:bg-kin-fill hover:text-kin-text",
                 ].join(" ")}
               >
                 <span
@@ -100,13 +100,16 @@ function normalizeKey(p: string): string {
 }
 
 function actionDot(action: ChangedFile["action"]): string {
+  // The fill tier, like every other status dot in the console: an `-ink` value
+  // is a *foreground* — dark in the light scheme, where a dot wants the
+  // status family's own pigment.
   switch (action) {
     case "write":
-      return "bg-[#8de4a0]";
+      return "bg-kin-green";
     case "edit":
-      return "bg-[#7cbcff]";
+      return "bg-kin-blue";
     case "delete":
-      return "bg-[#ffb4ad]";
+      return "bg-kin-red";
     default:
       return "bg-kin-muted";
   }
@@ -134,9 +137,9 @@ function DeltaInline({ additions, deletions }: { additions: number; deletions: n
   }
   return (
     <span>
-      {additions > 0 && <span className="text-[#8de4a0]">+{additions}</span>}
+      {additions > 0 && <span className="text-kin-green-ink">+{additions}</span>}
       {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
-      {deletions > 0 && <span className="text-[#ffb4ad]">−{deletions}</span>}
+      {deletions > 0 && <span className="text-kin-red-ink">−{deletions}</span>}
     </span>
   );
 }

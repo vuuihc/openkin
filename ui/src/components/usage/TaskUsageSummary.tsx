@@ -208,7 +208,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           aria-expanded={open}
           aria-controls={detailsID}
           onClick={() => setOpen((value) => !value)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)]/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
         >
           <span className="text-caption font-semibold uppercase tracking-label text-kin-muted shrink-0">
             {tr("usage.taskSummary")}

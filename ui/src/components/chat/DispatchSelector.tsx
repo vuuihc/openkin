@@ -221,7 +221,7 @@ export function DispatchSelector({
         aria-controls={open ? popoverId : undefined}
         className={`text-caption font-medium px-2 py-1 rounded min-h-7 border truncate max-w-[220px] ${
           open
-            ? "border-kin-blue bg-kin-blue/10 text-kin-blue"
+            ? "border-kin-blue bg-kin-blue/10 text-kin-blue-ink"
             : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
         }`}
         title={summary}
@@ -253,7 +253,7 @@ export function DispatchSelector({
                 onClick={() => onChange({ mode: "auto" })}
                 className={`px-2 py-1 rounded text-caption font-medium min-h-7 ${
                   mode === "auto"
-                    ? "bg-kin-blue text-white"
+                    ? "bg-kin-blue text-kin-on-brand"
                     : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
                 }`}
               >
@@ -265,7 +265,7 @@ export function DispatchSelector({
                 onClick={() => onChange({ mode: "manual" })}
                 className={`px-2 py-1 rounded text-caption font-medium min-h-7 ${
                   mode === "manual"
-                    ? "bg-kin-blue text-white"
+                    ? "bg-kin-blue text-kin-on-brand"
                     : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
                 }`}
               >
@@ -367,7 +367,7 @@ export function DispatchSelector({
                     ))}
                   </select>
                 ) : value.provider ? (
-                  <div className="text-body leading-4 text-kin-warning px-1">
+                  <div className="text-body leading-4 text-kin-orange-ink px-1">
                     {tr("dispatch.noModels")}
                   </div>
                 ) : null}
@@ -380,20 +380,20 @@ export function DispatchSelector({
               <button
                 type="button"
                 onClick={() => setShowPreview((v) => !v)}
-                className="text-micro text-kin-blue hover:underline"
+                className="text-micro text-kin-blue-ink hover:underline"
               >
                 {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
               </button>
             ) : null}
 
             {showPreview && (
-              <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]/40">
+              <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]">
                 {loading && (
                   <span className="text-micro text-kin-muted">{tr("dispatch.loadingPreview")}</span>
                 )}
-                {error && <span className="text-micro text-kin-red">{error}</span>}
+                {error && <span className="text-micro text-kin-red-ink">{error}</span>}
                 {preview?.blocked && (
-                  <span className="text-micro text-kin-red block">
+                  <span className="text-micro text-kin-red-ink block">
                     {preview.blocked_reason || tr("settings.routing.blocked")}
                   </span>
                 )}
@@ -403,7 +403,7 @@ export function DispatchSelector({
                       {p.phase}
                     </span>
                     <span
-                      className={`${p.status === "resolved" ? "text-kin-green" : p.status === "blocked" ? "text-kin-red" : "text-kin-muted"}`}
+                      className={`${p.status === "resolved" ? "text-kin-green-ink" : p.status === "blocked" ? "text-kin-red-ink" : "text-kin-muted"}`}
                     >
                       {p.status === "resolved"
                         ? `${p.agent} · ${p.provider} · ${p.model}`

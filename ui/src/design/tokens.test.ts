@@ -1,25 +1,44 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import postcss from "postcss";
+import tailwindcss from "tailwindcss";
 import resolveConfig from "tailwindcss/resolveConfig";
 import { describe, expect, it } from "vitest";
 import config from "../../tailwind.config.ts";
-import { PRESENTED_TOKENS } from "../pages/DesignSystemPage";
+import {
+  FILL_INK,
+  FILL_TOKENS,
+  ON_FILL_INKS,
+  PRESENTED_TOKENS,
+  SURFACE_TOKENS,
+  TINTED_FILLS,
+  TINT_CEILING,
+  TINT_SOLID,
+  TOKEN_GROUPS,
+  isTriplet,
+} from "./colors";
 import { ROLE_PREVIEW, TYPE_ROLES, WEIGHT_CLASS } from "./type";
 
 /**
  * The design layer's own consistency: the colour tokens and the type ladder.
  *
  * Everything here is a property of two files and the code between them, so it
- * needs no browser: `design/theme.css` declares, `design/type.ts` names the
- * sizes, components reference, and these tests are the only thing that has ever
- * compared them. Before them, four references pointed at names that were never
- * defined and nothing noticed — a panel width built from `--kin-ws-sidebar`
- * silently became `auto`, and a checkbox's accent built from `--kin-blue` did
- * nothing at all.
+ * needs no browser — except one case, which runs the real build over the real
+ * tree to prove that every colour class in it produces CSS. `design/theme.css`
+ * declares, `design/colors.ts` names the pairings, components reference, and
+ * these tests are the only thing that has ever compared them. Before them, four
+ * references pointed at names that were never defined and nothing noticed — a
+ * panel width built from `--kin-ws-sidebar` silently became `auto`, and a
+ * checkbox's accent built from `--kin-blue` did nothing at all.
  *
  * (This comment names tokens without the `var(` in front of them on purpose:
- * the reference scan reads this file too, and a mention in prose is not a use.)
+ * the reference scan reads this file too, raw, and a mention in prose is not a
+ * use. Class names are the other way round — the scanners drop comments before
+ * they read anything — so a class spelled out in a comment here is inert, and
+ * the ones this file must not *see* can be named in the reasoning. The rule to
+ * keep is the first one: prose may name a token, but only a call site may write
+ * `var(`.)
  */
 
 const UI = fileURLToPath(new URL("../..", import.meta.url));
@@ -70,37 +89,93 @@ function sourceFiles(): string[] {
   return out;
 }
 
-/** The `:root` blocks of the token layer, in file order (dark, then light). */
-function schemeBlocks(): { scheme: "dark" | "light"; tokens: Record<string, string> }[] {
+/**
+ * The `--kin-*` blocks of the token layer, in file order.
+ *
+ * Three blocks, two schemes. The first is the shared one — the agents' identity
+ * marks, the same in both — and it is selected by `:root` *and* the light
+ * selectors together, so it cannot be classified by looking for the word
+ * "light": a selector that names both schemes is neither. Reading it as light
+ * would have been the whole bug, and quietly: the dark scheme would lose seven
+ * tokens and the "same names in both schemes" case below would report them as
+ * light-only.
+ */
+function schemeBlocks(): {
+  scheme: "shared" | "dark" | "light";
+  tokens: Record<string, string>;
+  /** Names this block declares more than once — the later one wins, silently. */
+  duplicates: string[];
+}[] {
   const css = readFileSync(join(UI, "src/design/theme.css"), "utf8").replace(
     /\/\*[\s\S]*?\*\//g,
     "",
   );
-  const blocks: { scheme: "dark" | "light"; tokens: Record<string, string> }[] = [];
+  const blocks: {
+    scheme: "shared" | "dark" | "light";
+    tokens: Record<string, string>;
+    duplicates: string[];
+  }[] = [];
   for (const [, selector, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const tokens: Record<string, string> = {};
+    const duplicates: string[] = [];
     for (const [, name, value] of body.matchAll(/(--kin-[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
+      if (name in tokens) duplicates.push(name);
       tokens[name] = value.trim();
     }
     if (Object.keys(tokens).length === 0) continue;
-    blocks.push({ scheme: selector.includes("light") ? "light" : "dark", tokens });
+    const parts = selector.split(",").map((s) => s.trim());
+    const light = parts.some((s) => s.includes("light"));
+    // The dark block is also `:root`, so the bare selector alone says nothing:
+    // a block is shared when it names the light scheme *and* the root element,
+    // which is exactly the pair the shared block is written with.
+    const shared = light && parts.some((s) => s === ":root");
+    blocks.push({ scheme: shared ? "shared" : light ? "light" : "dark", tokens, duplicates });
   }
   return blocks;
 }
 
 const BLOCKS = schemeBlocks();
-const DARK = BLOCKS.find((b) => b.scheme === "dark")?.tokens ?? {};
-const LIGHT = BLOCKS.find((b) => b.scheme === "light")?.tokens ?? {};
+const SHARED = BLOCKS.find((b) => b.scheme === "shared")?.tokens ?? {};
+/** Each scheme as the browser resolves it: the shared block, then its own. */
+const DARK = { ...SHARED, ...(BLOCKS.find((b) => b.scheme === "dark")?.tokens ?? {}) };
+const LIGHT = { ...SHARED, ...(BLOCKS.find((b) => b.scheme === "light")?.tokens ?? {}) };
+const SCHEMES = [
+  ["dark", DARK],
+  ["light", LIGHT],
+] as const;
 
 type RGB = [number, number, number];
 
-function rgb(value: string, where: string): RGB {
+function hexRgb(value: string, where: string): RGB {
   const hex = /^#([0-9a-f]{6})$/i.exec(value.trim());
   if (!hex) {
     throw new Error(`${where} is ${value}, and this check needs an opaque #rrggbb to measure`);
   }
   const n = parseInt(hex[1], 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * A token as three channels, parsed by what its name says it is.
+ *
+ * The suffix decides, not a guess at the value: that is the contract the whole
+ * token layer rests on, and a token whose spelling and value disagree should
+ * fail loudly here rather than be quietly coerced.
+ */
+function colour(tokens: Record<string, string>, name: string, scheme: string): RGB {
+  const value = tokens[name];
+  if (value === undefined) throw new Error(`${scheme} ${name} is not declared`);
+  if (!isTriplet(name)) return hexRgb(value, `${scheme} ${name}`);
+  const parts = value.split(/\s+/);
+  if (parts.length !== 3 || parts.some((p) => !/^\d{1,3}$/.test(p) || Number(p) > 255)) {
+    throw new Error(`${scheme} ${name} is ${value}, and a triplet is three channels 0-255`);
+  }
+  return [Number(parts[0]), Number(parts[1]), Number(parts[2])] as RGB;
+}
+
+/** `top` drawn at `alpha` over `bottom` — a tint, which is what most fills are. */
+function over(top: RGB, bottom: RGB, alpha: number): RGB {
+  return top.map((c, i) => Math.round(c * alpha + bottom[i] * (1 - alpha))) as RGB;
 }
 
 function channel(c: number): number {
@@ -125,8 +200,8 @@ function lightness(colour: RGB): number {
 }
 
 describe("design tokens", () => {
-  it("has one dark block and one light block, and no others", () => {
-    expect(BLOCKS.map((b) => b.scheme)).toEqual(["dark", "light"]);
+  it("has one shared block and one block per scheme, and no others", () => {
+    expect(BLOCKS.map((b) => b.scheme)).toEqual(["shared", "dark", "light"]);
   });
 
   it("declares the same names in both schemes", () => {
@@ -136,6 +211,105 @@ describe("design tokens", () => {
     // falls back to nothing (transparent) or keeps the other scheme's value.
     expect(light.filter((n) => !dark.includes(n))).toEqual([]);
     expect(dark.filter((n) => !light.includes(n))).toEqual([]);
+  });
+
+  it("declares no token twice inside one block", () => {
+    // The loser of a duplicate is invisible: the name is declared, the guard
+    // above sees one name in each scheme, and the value that renders is
+    // whichever was written last. It is a plausible edit — the shared block sits
+    // in the same file and is folded into both schemes, so a token moved out of
+    // a scheme block and left behind is exactly this.
+    expect(BLOCKS.flatMap((b) => b.duplicates.map((n) => `${b.scheme}: ${n}`))).toEqual([]);
+  });
+
+  it("declares a shared token in the shared block only", () => {
+    // The shared block is folded into both schemes, so a name in it *and* in a
+    // scheme block is two writers for one value and a silent precedence rule.
+    const shared = Object.keys(SHARED);
+    expect(shared.filter((n) => n in (BLOCKS[1]?.tokens ?? {}) || n in (BLOCKS[2]?.tokens ?? {}))) //
+      .toEqual([]);
+    expect(shared.length).toBeGreaterThan(0);
+  });
+
+  it("writes every channel triplet as three channels, and nothing else as one", () => {
+    // The suffix is a contract both ways. A triplet written without it cannot
+    // take an opacity modifier — the `/NN` compiles to nothing at all, which is
+    // how 43 backgrounds and text colours in this console came to render as
+    // white space — and a colour written *with* it is three numbers where a
+    // colour was expected, so it renders as nothing either. Both directions fail
+    // here instead.
+    for (const [scheme, tokens] of SCHEMES) {
+      for (const [name, value] of Object.entries(tokens)) {
+        const threeNumbers = /^\d{1,3} \d{1,3} \d{1,3}$/.test(value.trim());
+        expect({ scheme, name, suffixMatchesValue: isTriplet(name) === threeNumbers }).toEqual({
+          scheme,
+          name,
+          suffixMatchesValue: true,
+        });
+        if (isTriplet(name)) colour(tokens, name, scheme); // throws if out of range
+      }
+    }
+  });
+
+  it("wraps a triplet in rgb() wherever it is written by hand", () => {
+    // A triplet name on its own inside `var( … )` is `44 44 46` where the
+    // browser wanted a colour: the declaration is dropped and the property keeps its inherited
+    // value, so the element is the wrong colour rather than visibly broken.
+    // Tailwind's own mapping does this correctly; this is about the stylesheet
+    // and the few `style={{ … }}` call sites.
+    const bad: string[] = [];
+    for (const file of [...sourceFiles(), join(UI, "tailwind.config.ts")]) {
+      const source = readFileSync(file, "utf8");
+      for (const [match] of source.matchAll(/(?<!rgb\()var\(--kin-[a-z0-9-]+-rgb\)/g)) {
+        bad.push(`${relative(UI, file)}: ${match}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("pairs the config's alpha-value wrapper with the theme's triplet", () => {
+    // The wrapper and the suffix are one decision written in two files, and both
+    // directions fail silently: `<alpha-value>` on a `var(--x)` that is a plain
+    // colour makes the `/NN` form emit no CSS at all, and `var(--x)` on a
+    // triplet throws the modifier away. `theme.colors.kin` is the only place the
+    // wrapper is written, so it is read rather than trusted.
+    const kin = (theme as unknown as { colors: Record<string, Record<string, string>> }).colors.kin;
+    const wrong: string[] = [];
+    const wrapped = new Set<string>();
+    for (const [name, value] of Object.entries(kin)) {
+      const variable = /var\((--kin-[a-z0-9-]+)\)/.exec(value)?.[1];
+      if (variable === undefined || !(variable in DARK)) {
+        wrong.push(`${name}: ${value}`);
+        continue;
+      }
+      if (value.includes("<alpha-value>")) {
+        wrapped.add(variable);
+        if (!isTriplet(variable)) wrong.push(`${name}: ${value}`);
+      } else if (isTriplet(variable)) {
+        wrong.push(`${name}: ${value}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+    // The same defect from the other side: a triplet in the theme that no class
+    // reaches with an alpha. `text-kin-muted/50` is a real call site, and it
+    // compiles to nothing when the config declares `muted` with a plain `var()`
+    // instead of the wrapper.
+    const triplets = Object.keys(DARK).filter(isTriplet);
+    expect(triplets.filter((n) => !wrapped.has(n))).toEqual([]);
+    expect(triplets.length).toBeGreaterThan(8);
+
+    // And the third direction — `rgb()` around a token that is already a colour.
+    // `rgb(#1a1a1c)` parses in a modern browser, so it renders rather than
+    // failing, which is why it needs a guard instead of a bug report.
+    const wrappedColour: string[] = [];
+    for (const file of [...sourceFiles(), join(UI, "tailwind.config.ts")]) {
+      for (const [match, name] of readFileSync(file, "utf8").matchAll(
+        /rgb\(var\((--kin-[a-z0-9-]+)\)/g,
+      )) {
+        if (!isTriplet(name)) wrappedColour.push(`${relative(UI, file)}: ${match}`);
+      }
+    }
+    expect(wrappedColour).toEqual([]);
   });
 
   it("resolves every var(--kin-*) the code references", () => {
@@ -160,46 +334,150 @@ describe("design tokens", () => {
     expect(new Set(PRESENTED_TOKENS).size).toBe(PRESENTED_TOKENS.length);
   });
 
+  it("gives every fill exactly one foreground, and that pairing is legible", () => {
+    // A fill is a pigment: it does not switch with the scheme, so it cannot
+    // choose its own text, and the choice is a decision rather than a
+    // measurement — `design/colors.ts` assigns it, and this is where the
+    // assignment is checked. Totality is the point: a fill added without a
+    // decision fails here rather than shipping with whatever text was nearby.
+    const paired = FILL_INK.map((p) => p.fill).sort();
+    expect(paired).toEqual([...FILL_TOKENS].sort());
+    expect(new Set(paired).size).toBe(paired.length);
+    for (const { fill, ink, min } of FILL_INK) {
+      expect({ fill, inkIsAForeground: (ON_FILL_INKS as readonly string[]).includes(ink) }).toEqual(
+        {
+          fill,
+          inkIsAForeground: true,
+        },
+      );
+      // 4.5:1 unless the pair is a recorded deferral, and then 3:1 — the
+      // threshold for a UI component, which is what a button label is at worst.
+      const floor = min ?? 4.5;
+      for (const [scheme, tokens] of SCHEMES) {
+        // The fill is scheme-independent by design; the foreground is not, so
+        // the pair is measured twice — in the scheme whose foreground it is.
+        const ratio = contrast(colour(tokens, ink, scheme), colour(tokens, fill, scheme));
+        expect({ scheme, fill, ink, atLeast: ratio >= floor }).toEqual({
+          scheme,
+          fill,
+          ink,
+          atLeast: true,
+        });
+      }
+    }
+  });
+
+  it("measures the surfaces where they are declared", () => {
+    for (const [, tokens] of SCHEMES) {
+      expect(SURFACE_TOKENS.filter((n) => tokens[n] === undefined)).toEqual([]);
+    }
+    // The group the page draws and the list the cases below measure are the same
+    // list, so a surface cannot be added to one and left out of the other.
+    expect(
+      TOKEN_GROUPS.filter((g) => g.surfaces)
+        .flatMap((g) => [...g.tokens])
+        .sort(),
+    ).toEqual([...SURFACE_TOKENS].sort());
+    // One list serves both jobs, which is the decision worth holding: `--kin-page`
+    // is a surface ink is *drawn* on, because `AppShell` paints it on the root and
+    // the `<main>` inside paints nothing — so most pages draw their captions on
+    // the backdrop, and a status chip doing exactly that is what moved the light
+    // `muted` step and the backdrop with it. Drop it from the list and the ink
+    // cases stop measuring it while the page keeps painting it.
+    expect(SURFACE_TOKENS).toContain("--kin-page");
+  });
+
   it("keeps every surface far enough from --kin-bg to be seen without a border", () => {
-    for (const [scheme, tokens] of [
-      ["dark", DARK],
-      ["light", LIGHT],
-    ] as const) {
-      const base = lightness(rgb(tokens["--kin-bg"], `${scheme} --kin-bg`));
+    for (const [scheme, tokens] of SCHEMES) {
+      const base = lightness(colour(tokens, "--kin-bg", scheme));
       // `panel` is exempt: a sheet is separated from what is behind it by its
       // scrim, not by its own lightness, and in light mode it is deliberately
       // the same white as the content it covers.
-      for (const name of ["--kin-page", "--kin-sidebar", "--kin-inspector", "--kin-elevated"]) {
-        const delta = Math.abs(lightness(rgb(tokens[name], `${scheme} ${name}`)) - base);
+      for (const name of ["--kin-page", "--kin-sidebar", "--kin-inspector", "--kin-elevated-rgb"]) {
+        const delta = Math.abs(lightness(colour(tokens, name, scheme)) - base);
         expect({ scheme, name, atLeast2L: delta >= 2 }).toEqual({ scheme, name, atLeast2L: true });
       }
     }
   });
 
   it("keeps every ink step above 4.5:1 on the surfaces it is drawn on", () => {
-    for (const [scheme, tokens] of [
-      ["dark", DARK],
-      ["light", LIGHT],
-    ] as const) {
-      for (const ink of ["--kin-text", "--kin-secondary", "--kin-muted"]) {
-        for (const surface of [
-          "--kin-bg",
-          "--kin-elevated",
-          "--kin-panel",
-          "--kin-sidebar",
-          // The workspace panel is a real ink surface (`index.css` paints it),
-          // and `theme.css` even quotes its number for the ring. It passes for
-          // ink today; it is here so that tuning a value cannot regress it
-          // unseen.
-          "--kin-inspector",
-        ]) {
-          const ratio = contrast(rgb(tokens[ink], ink), rgb(tokens[surface], surface));
-          expect({ scheme, ink, surface, passes: ratio >= 4.5 }).toEqual({
+    for (const [scheme, tokens] of SCHEMES) {
+      for (const name of TOKEN_GROUPS.filter((g) => g.kind === "ink").flatMap((g) => [
+        ...g.tokens,
+      ])) {
+        for (const surface of SURFACE_TOKENS) {
+          const ratio = contrast(colour(tokens, name, scheme), colour(tokens, surface, scheme));
+          expect({ scheme, ink: name, surface, passes: ratio >= 4.5 }).toEqual({
             scheme,
-            ink,
+            ink: name,
             surface,
             passes: true,
           });
+        }
+        // …and on its own fill at the tint ceiling. A status `-ink` is a *step*
+        // of its fill's family, so the pair it has to survive is itself.
+        if (!/-ink-rgb$/.test(name)) continue;
+        const fill = `${name.replace(/-ink-rgb$/, "")}-rgb`;
+        for (const surface of ["--kin-bg", "--kin-elevated-rgb"]) {
+          const ratio = contrast(
+            colour(tokens, name, scheme),
+            over(colour(tokens, fill, scheme), colour(tokens, surface, scheme), TINT_CEILING / 100),
+          );
+          expect({
+            scheme,
+            ink: name,
+            on: `${TINT_CEILING}% over ${surface}`,
+            passes: ratio >= 4.5,
+          }).toEqual({
+            scheme,
+            ink: name,
+            on: `${TINT_CEILING}% over ${surface}`,
+            passes: true,
+          });
+        }
+      }
+    }
+  });
+
+  it("certifies every ink a status tint carries, and the ceiling is where muted stops", () => {
+    // A tint is a composite, so the ceiling is a property of the whole ladder:
+    // it has to be the strongest tint at which *every* ink drawn on one still
+    // clears 4.5:1. `--kin-muted` is the weakest of them and the one that sets
+    // it — it passes over `--kin-bg` and fails over `--kin-elevated-rgb` at
+    // this strength, which is why a muted caption on a tint is certified over
+    // `bg` alone. The other two clear both surfaces with room, which is what
+    // lets a tinted card sit on a panel.
+    for (const [scheme, tokens] of SCHEMES) {
+      for (const fill of TINTED_FILLS) {
+        const pigment = colour(tokens, `--${fill}-rgb`, scheme);
+        // Every surface, not just the two a tinted card is most often drawn on:
+        // the ceiling is a property of the whole ladder, so the surface that
+        // makes it fail decides it. `--kin-page` is in the list for the reason
+        // above — a tinted chip on a page that paints nothing sits on it.
+        const tints: readonly [string, RGB][] = SURFACE_TOKENS.map((surface) => [
+          surface,
+          over(pigment, colour(tokens, surface, scheme), TINT_CEILING / 100),
+        ]);
+        const drawn: readonly [string, readonly [string, RGB][]][] = [
+          ["--kin-text", tints],
+          ["--kin-secondary", tints],
+          ["--kin-muted-rgb", tints.filter(([s]) => s === "--kin-bg")],
+        ];
+        for (const [ink, surfaces] of drawn) {
+          for (const [surface, tint] of surfaces) {
+            const ratio = contrast(colour(tokens, ink, scheme), tint);
+            expect({
+              scheme,
+              ink,
+              on: `${fill} at the ceiling over ${surface}`,
+              passes: ratio >= 4.5,
+            }).toEqual({
+              scheme,
+              ink,
+              on: `${fill} at the ceiling over ${surface}`,
+              passes: true,
+            });
+          }
         }
       }
     }
@@ -259,36 +537,30 @@ describe("design tokens", () => {
       expect(classes).toContain(`text-${role.role}`);
       expect(classes).toContain(WEIGHT_CLASS[role.weight]);
       expect(classes).toContain(`text-kin-${role.ink}`);
-      expect(DARK[`--kin-${role.ink}`]).toBeDefined();
+      // The role names a *Tailwind* colour, not a token: `muted` is a channel
+      // triplet, so the token behind it is spelled differently. What has to hold
+      // is that the name resolves, and that every name in the config resolves to
+      // a token is the dangling-reference case above.
+      expect((theme.colors.kin as unknown as Record<string, string>)[role.ink]).toBeDefined();
     }
   });
 
   it("keeps the focus ring measurable on every surface a control is focused on", () => {
     // WCAG 1.4.11: a non-text indicator needs 3:1. What the 16 sites carried
-    // before was brand blue — 11 of them at 40–50% alpha, which managed 1.7:1
-    // on the surface a focused control actually sits on, and 5 opaque, which is
-    // 2.57:1 on the light page. So the old ring got two things wrong: alpha,
+    // before was brand blue — 11 of them at 40–50% alpha, which managed
+    // 1.49–2.13:1 across the surfaces a focused control actually sits on, and 5
+    // opaque, which is 2.77:1 on the light page. So the old ring got two things wrong: alpha,
     // and one blue for two themes. `rgb()` refusing a non-opaque value is part
     // of the guard, not a limitation of it.
     //
     // `--kin-page` is in the list because it is the worst case, not because a
     // control usually sits there: the mobile tab bar and the sheet scrims are
     // drawn on it, and it is what forced the light value below brand blue.
-    for (const [scheme, tokens] of [
-      ["dark", DARK],
-      ["light", LIGHT],
-    ] as const) {
-      for (const surface of [
-        "--kin-page",
-        "--kin-bg",
-        "--kin-elevated",
-        "--kin-panel",
-        "--kin-sidebar",
-        "--kin-inspector",
-      ]) {
+    for (const [scheme, tokens] of SCHEMES) {
+      for (const surface of SURFACE_TOKENS) {
         const ratio = contrast(
-          rgb(tokens["--kin-focus-ring"], `${scheme} --kin-focus-ring`),
-          rgb(tokens[surface], `${scheme} ${surface}`),
+          colour(tokens, "--kin-focus-ring", scheme),
+          colour(tokens, surface, scheme),
         );
         expect({ scheme, surface, atLeast3: ratio >= 3 }).toEqual({
           scheme,
@@ -303,7 +575,7 @@ describe("design tokens", () => {
     // The contrast case above only ever measures `--kin-focus-ring`, so an
     // indicator spelled with some *other* colour passes it and still ships:
     // `accent` is a fixed brand blue — the same #0A84FF in both themes — and
-    // 2.57:1 on the light page, well under 3:1. Five sites did exactly that,
+    // 2.77:1 on the light page, well under 3:1. Five sites did exactly that,
     // and nothing in the tree said so, because an indicator that renders is an
     // indicator nobody checks.
     //
@@ -491,6 +763,400 @@ describe("design tokens", () => {
         }
       }
       expect(bad).toEqual([]);
+    });
+  });
+
+  /**
+   * The one case in this file that runs the real build.
+   *
+   * Every other guard here compares names, and names were never the problem: a
+   * colour class that the config cannot resolve, or that carries an opacity
+   * modifier on a value that cannot take one, is *deleted* rather than reported.
+   * Tailwind's content scan finds nothing to generate, the class attribute keeps
+   * its word, and the element renders with no background, no border, or the
+   * inherited text colour. Forty-three sites shipped that way — `bg-kin-red/8`
+   * and its neighbours on an opacity scale that has no step 8, and a family of
+   * 40%-alpha fills built on an arbitrary value, where a `/NN` can never work.
+   * None of them looked wrong in the source; that is the whole difficulty.
+   *
+   * So this compiles the tree through the same pipeline `npm run build` uses and
+   * asks whether each colour class in it produced a rule. The candidate list is
+   * read out of string literals only, because prose names the failures this
+   * guards against, and a guard that fails on its own comments is a guard nobody
+   * keeps. Test files are outside it for the same reason — they do not render.
+   */
+  describe("colour classes", () => {
+    const AXES = [
+      "bg",
+      "text",
+      "border",
+      "border-t",
+      "border-r",
+      "border-b",
+      "border-l",
+      "border-x",
+      "border-y",
+      "border-s",
+      "border-e",
+      "from",
+      "to",
+      "via",
+      "ring",
+      "ring-offset",
+      "fill",
+      "stroke",
+      "placeholder",
+      "decoration",
+      "divide",
+      "outline",
+      "accent",
+      "caret",
+    ].sort((a, b) => b.length - a.length);
+
+    /**
+     * The value part has to name a colour. Without this the scan also reads
+     * `border-box` out of an inlined stylesheet and every other property name
+     * that shares a prefix with an axis; non-colour ladders are S3's, and they
+     * are guarded by name one describe block up.
+     */
+    const COLOUR = new RegExp(
+      "^(?:" +
+        [
+          "kin-[a-z0-9-]+",
+          "(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-[0-9]{2,3})?",
+          "white",
+          "black",
+          "current",
+          "transparent",
+          "inherit",
+          "\\[.*\\]",
+        ].join("|") +
+        ")$",
+    );
+
+    /**
+     * The quoted runs in one file, with the comments taken out first.
+     *
+     * This replaced `split(/["'`]/).filter((_, i) => i % 2 === 1)` — "the odd
+     * pieces are the strings" — which is cheap and quietly wrong: a single
+     * apostrophe in a comment or in JSX copy (`don't`) flips the parity for the
+     * rest of the file, and every class list after it is read as code and
+     * skipped. Two of the six `bg-kin-blue text-kin-on-brand` buttons in
+     * `Sidebar.tsx` were invisible to every case in this file for exactly that
+     * reason, and nothing said so.
+     *
+     * Removing the comments first is what makes the parity trick unnecessary,
+     * and the asymmetry is deliberate: a stray apostrophe now *joins* two
+     * regions instead of dropping one, so the failure mode is a class name read
+     * out of code rather than a class list nobody looked at. The first fails
+     * loudly and names the file; the second is how the guard above came to have
+     * a hole in it.
+     */
+    function strings(source: string): string[] {
+      const found: string[] = [];
+      let i = 0;
+      while (i < source.length) {
+        const c = source[i];
+        if (c === "/" && source[i + 1] === "/") {
+          while (i < source.length && source[i] !== "\n") i++;
+          continue;
+        }
+        if (c === "/" && source[i + 1] === "*") {
+          i += 2;
+          while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
+          i += 2;
+          continue;
+        }
+        if (c === '"' || c === "'" || c === "`") {
+          i++;
+          const start = i;
+          while (i < source.length && source[i] !== c) {
+            if (source[i] === "\\") i++;
+            i++;
+          }
+          found.push(source.slice(start, i));
+          i++;
+          continue;
+        }
+        i++;
+      }
+      return found;
+    }
+
+    /**
+     * The colour classes in one file, variant prefixes included. The scan inside
+     * a quoted run is a walk rather than a pattern, because a value can be
+     * bracketed and brackets nest — `bg-[rgb(var(--kin-red-rgb))]` is one class,
+     * and a pattern that stops at the first `]` reads it as something else.
+     */
+    function candidates(source: string): string[] {
+      return strings(source).flatMap(classesIn);
+    }
+
+    /**
+     * The colour classes in one class list — a single quoted piece of source
+     * with the quotes already off. The class list a tint and its own text share
+     * is exactly this, which is why the walk is reachable on its own.
+     */
+    function classesIn(segment: string): string[] {
+      return walk(segment);
+    }
+
+    /** The walk the two entry points share. */
+    function walk(segment: string): string[] {
+      const found: string[] = [];
+      let i = 0;
+      while (i < segment.length) {
+        const axis = AXES.find(
+          (a) => segment.startsWith(`${a}-`, i) && (i === 0 || !/[\w-]/.test(segment[i - 1])),
+        );
+        if (axis === undefined) {
+          i++;
+          continue;
+        }
+        let j = i + axis.length + 1;
+        let value: string | null = null;
+        if (segment[j] === "[") {
+          let depth = 0;
+          let k = j;
+          while (k < segment.length) {
+            if (segment[k] === "[") depth++;
+            else if (segment[k] === "]" && --depth === 0) break;
+            k++;
+          }
+          if (k >= segment.length) {
+            i++;
+            continue;
+          }
+          value = segment.slice(j, k + 1);
+          j = k + 1;
+        } else {
+          const word = /^[a-z0-9-]+/.exec(segment.slice(j));
+          if (word) {
+            value = word[0];
+            j += word[0].length;
+          }
+        }
+        if (value === null || !COLOUR.test(value)) {
+          i++;
+          continue;
+        }
+        const alpha = /^\/(?:\[[^\]]+\]|[0-9.]+)/.exec(segment.slice(j));
+        if (alpha) j += alpha[0].length;
+        // A variant prefix is part of the selector Tailwind generates, so it
+        // is part of the class name: `hover:bg-kin-red` is not `bg-kin-red`.
+        let start = i;
+        while (start > 0) {
+          const prefix = /([a-z-]+:)$/.exec(segment.slice(0, start));
+          if (
+            !prefix ||
+            (start > prefix[1].length && /[\w-]/.test(segment[start - prefix[1].length - 1]))
+          ) {
+            break;
+          }
+          start -= prefix[1].length;
+        }
+        found.push(segment.slice(start, i) + axis + "-" + value + (alpha?.[0] ?? ""));
+        i = j;
+      }
+      return found;
+    }
+
+    /**
+     * The selector Tailwind writes for a class name.
+     *
+     * Everything outside the word set is escaped with a backslash — except the
+     * comma, which `tailwindcss/lib/util/escapeClassName` runs through
+     * `postcss-selector-parser` and then rewrites as the hex escape `\2c `
+     * (the space is part of it). So `bg-[rgba(255,69,58,.08)]` is written
+     * `.bg-\[rgba\(255\2c 69\2c 58\2c \.08\)\]`. The first version of
+     * `defines` spelled the comma `\,` and reported eight live classes in this
+     * tree as missing, which is how the difference was found.
+     */
+    function selector(name: string): string {
+      return "." + name.replace(/[^A-Za-z0-9_-]/g, (c) => (c === "," ? "\\2c " : `\\${c}`));
+    }
+
+    /**
+     * Whether the built sheet defines this class.
+     *
+     * `css.includes(selector(name))` is a substring test, and the two ways it
+     * passes something that is not there are both real: `.bg-kin-blue\/15`
+     * contains `.bg-kin-blue`, and `.bg-kin-blue-ink` contains it too. So the
+     * name has to be bounded by something that is not part of a class name.
+     *
+     * `\` counts as part of one rather than as a boundary: that is how Tailwind
+     * writes the `/` of an opacity modifier, so an escape after the name means
+     * the class name continues. A `.` in front of the name already rules out a
+     * variant suffix — `hover:bg-kin-blue` is written `.hover\:bg-kin-blue:hover`,
+     * and the escaped colon is not a dot.
+     */
+    function defines(css: string, name: string): boolean {
+      const escaped = selector(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(?<![\\w\\\\-])${escaped}(?![\\w\\\\-])`).test(css);
+    }
+
+    it("generates CSS for every colour class in the tree", async () => {
+      // The same file set Tailwind's `content` globs describe, built here as
+      // absolute paths so the case does not depend on the working directory —
+      // and without the tests, which do not render. `index.html` is in it
+      // because `content` scans it: the shell paints `bg-kin-bg text-kin-text`
+      // on `<body>` before any script runs, and that pair was outside every
+      // guard while the filter named four extensions Tailwind does not care
+      // about.
+      const rendered = sourceFiles().filter(
+        (f) => /\.(ts|tsx|js|jsx|html)$/.test(f) && !/\.test\./.test(f),
+      );
+      expect(rendered.length).toBeGreaterThan(100);
+      const { css } = await postcss([
+        tailwindcss({ ...config, content: rendered } as never),
+      ]).process("@tailwind utilities;", { from: join(UI, "src/design/theme.css") });
+
+      const bad: string[] = [];
+      let total = 0;
+      for (const file of rendered) {
+        for (const name of candidates(readFileSync(file, "utf8"))) {
+          total++;
+          if (!defines(css, name)) bad.push(`${relative(UI, file)}: ${name}`);
+        }
+      }
+      // A scan that found nothing would pass whatever the tree contained.
+      // 2022 of them today, up from 1420 before the scanner below replaced the
+      // quote-parity trick — the difference is class lists that were being read
+      // as code and skipped.
+      expect(total).toBeGreaterThan(1800);
+      expect([...new Set(bad)].sort()).toEqual([]);
+    });
+
+    it("keeps a status tint that carries ink inside the ceiling", () => {
+      // A tint is a composite, so the ceiling is where the inks drawn on one
+      // were measured — `design/colors.ts` holds the number and the reasoning.
+      // Above it a status colour is a solid rather than a wash, so a class list
+      // may hold one or the other and nothing in between: that band is where a
+      // 40% "selected" row was found putting its own `-ink` at 4.41:1.
+      //
+      // Nesting is invisible to a text scan. This reads the class list of one
+      // element, which is where a tint and its own text sit; a tint on a parent
+      // whose ink is in a child is covered by the measurement above instead.
+      const family = TINTED_FILLS.join("|");
+      const wash = new RegExp(`^(?:[a-z-]+:)*(?:bg|from|to|via)-(?:${family})/([0-9]+)$`);
+      // The alpha is part of the class and therefore part of the regex. Without
+      // it, an ink spelled with one — `text-kin-orange-ink/60` is real, on a
+      // disabled submit — is not recognised as an ink at all, and a 60% wash
+      // beside it goes unreported. The wash is what has a ceiling; an ink's own
+      // alpha is the dimming a disabled control is allowed.
+      const ink = new RegExp(
+        `^(?:[a-z-]+:)*(?:text|placeholder)-(?:kin-(?:text|secondary|muted)|(?:${family})(?:-ink)?)(?:/(?:\\[[^\\]]+\\]|[0-9.]+))?$`,
+      );
+      const outside: string[] = [];
+      for (const file of sourceFiles()) {
+        for (const segment of strings(readFileSync(file, "utf8"))) {
+          const classes = classesIn(segment);
+          if (!classes.some((c) => ink.test(c))) continue;
+          for (const name of classes) {
+            const alpha = Number(wash.exec(name)?.[1]);
+            if (alpha > TINT_CEILING && alpha < TINT_SOLID) {
+              outside.push(`${relative(UI, file)}: ${name}`);
+            }
+          }
+        }
+      }
+      expect(outside).toEqual([]);
+    });
+
+    it("never paints an ink as a background", () => {
+      // Two tiers, two jobs: an `-ink` is a foreground that steps with the
+      // scheme so text stays readable, a fill is the pigment that does not. A
+      // dot painted with the ink is dark in the light scheme and pale in the
+      // dark one — the opposite of the status family it is drawing.
+      const ink = new RegExp(`^(?:[a-z-]+:)*bg-(?:${TINTED_FILLS.join("|")})-ink$`);
+      const wrong: string[] = [];
+      for (const file of sourceFiles()) {
+        for (const name of candidates(readFileSync(file, "utf8"))) {
+          if (ink.test(name)) wrong.push(`${relative(UI, file)}: ${name}`);
+        }
+      }
+      expect(wrong).toEqual([]);
+    });
+
+    it("puts the assigned foreground on every fill that carries one", () => {
+      // A fill is a pigment that does not switch with the scheme, so it cannot
+      // pick its own text — the pairs are assigned in `design/colors.ts` and
+      // measured one describe block up. This is the other half: the call sites
+      // have to use the assignment. Both classes exist and both render, so
+      // near-white on the orange fill — 2.06:1 — is invisible to every other
+      // case in this file.
+      //
+      // Only a fill that already carries one of the two foregrounds is checked.
+      // Most solid fills in the tree are a dot, a bar or a border with no text on
+      // them at all, and demanding one would be a rule the design does not have.
+      //
+      // The class list is the quoted run, as in the tint case above: that is one
+      // `className`, and a fill and its own text are in the same one. A run the
+      // scanner paired wrongly can hold two elements' classes, so this errs
+      // towards reporting a pair that is not there — loudly, and with the file
+      // named, which is the direction a guard should fail in.
+      // The status fills are triplets, so the class name drops `-rgb` as well as
+      // the `--kin-` prefix: `--kin-blue-rgb` is the class `bg-kin-blue`.
+      const assigned = new Map(
+        FILL_INK.map((p) => [
+          p.fill.replace(/^--kin-/, "").replace(/-rgb$/, ""),
+          p.ink.replace(/^--kin-/, ""),
+        ]),
+      );
+      const solid = new RegExp(`^(?:[a-z-]+:)*bg-kin-(${[...assigned.keys()].join("|")})$`);
+      const foreground = /^(?:[a-z-]+:)*text-kin-on-(?:status|brand)$/;
+      const wrong: string[] = [];
+      let pairs = 0;
+      for (const file of sourceFiles()) {
+        for (const segment of strings(readFileSync(file, "utf8"))) {
+          const classes = classesIn(segment);
+          for (const name of classes) {
+            const family = solid.exec(name)?.[1];
+            if (family === undefined) continue;
+            const expected = `text-kin-${assigned.get(family)}`;
+            for (const other of classes) {
+              if (!foreground.test(other)) continue;
+              pairs++;
+              if (other.replace(/^[a-z-]+:/, "") !== expected) {
+                wrong.push(`${relative(UI, file)}: ${name} + ${other}`);
+              }
+            }
+          }
+        }
+      }
+      expect(wrong).toEqual([]);
+      // The tree has 40 of these today; a scan that stopped finding them would
+      // pass whatever the call sites did next.
+      expect(pairs).toBeGreaterThan(32);
+    });
+
+    it("writes the theme-color meta from the token, not from a literal", () => {
+      // The colour a phone paints its own chrome with. `content` takes no
+      // `var()`, so this is the one place a colour could escape the token layer;
+      // it is checked as text because jsdom resolves no custom property out of a
+      // stylesheet, and asserted against the *dark* page because that is what
+      // the static HTML is read with, before any script runs.
+      const html = readFileSync(join(UI, "index.html"), "utf8");
+      const metas = [...html.matchAll(/<meta name="theme-color" content="([^"]+)"/g)];
+      expect(metas.map(([, value]) => value)).toEqual([DARK["--kin-page"]]);
+      // Comments go first: a call written in a comment is not a call, and the
+      // mutation that proves this case works is exactly that.
+      const theme = readFileSync(join(UI, "src/lib/theme.ts"), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^[ \t]*\/\/.*$/gm, "");
+      const apply = /export function applyTheme\b[\s\S]*?\n}/.exec(theme)?.[0] ?? "";
+      const setAttribute = apply.indexOf('setAttribute("data-theme"');
+      const applyColor = apply.indexOf("applyThemeColor()");
+      // The order is the point, not the presence: the meta is read back out of
+      // the computed style, so a call above the attribute write would publish
+      // the *previous* scheme's backdrop — and the value it publishes is the
+      // phone's own chrome, which is the one surface that has no other chance to
+      // be right.
+      expect({ wroteScheme: setAttribute >= 0, thenRead: applyColor > setAttribute }).toEqual({
+        wroteScheme: true,
+        thenRead: true,
+      });
     });
   });
 });

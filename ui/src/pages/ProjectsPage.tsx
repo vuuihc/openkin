@@ -106,7 +106,7 @@ export default function ProjectsPage() {
         </div>
         <button
           type="button"
-          className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white hover:opacity-90"
+          className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand hover:opacity-90"
           onClick={() => setCreating((v) => !v)}
         >
           {tr("projects.create")}
@@ -114,7 +114,7 @@ export default function ProjectsPage() {
       </div>
 
       {creating && (
-        <div className="mb-5 rounded-xl border border-kin-border bg-kin-panel p-4 space-y-3">
+        <div className="mb-5 rounded-xl border border-kin-hairline bg-kin-panel p-4 space-y-3">
           <div className="text-strong font-medium text-kin-text">{tr("projects.createTitle")}</div>
           <p className="text-body text-kin-secondary">{tr("projects.createFromCwdHint")}</p>
           <div>
@@ -124,7 +124,7 @@ export default function ProjectsPage() {
           <label className="block text-body text-kin-secondary">
             {tr("projects.mode")}
             <select
-              className="mt-1 w-full rounded-lg border border-kin-border bg-transparent px-3 py-2 text-strong text-kin-text"
+              className="mt-1 w-full rounded-lg border border-kin-hairline bg-transparent px-3 py-2 text-strong text-kin-text"
               value={mode}
               onChange={(e) => setMode(e.target.value as ProjectMode)}
             >
@@ -138,7 +138,7 @@ export default function ProjectsPage() {
             <button
               type="button"
               disabled={busy || !cwd.trim()}
-              className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
               onClick={() => void onOpenOrCreate()}
             >
               {tr("projects.openOrCreate")}
@@ -159,13 +159,13 @@ export default function ProjectsPage() {
       )}
 
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-strong text-red-300">
+        <div className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-strong text-kin-red-ink">
           {error}
         </div>
       )}
 
       {items && items.length === 0 && !error && (
-        <div className="rounded-xl border border-dashed border-kin-border px-4 py-10 text-center text-strong text-kin-secondary">
+        <div className="rounded-xl border border-dashed border-kin-hairline px-4 py-10 text-center text-strong text-kin-secondary">
           {tr("projects.empty")}
         </div>
       )}
@@ -176,7 +176,7 @@ export default function ProjectsPage() {
             <li key={p.id}>
               <Link
                 to={`/projects/${p.id}`}
-                className="block rounded-xl border border-kin-border bg-kin-panel px-4 py-3 hover:border-kin-accent/40 transition-colors"
+                className="block rounded-xl border border-kin-hairline bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>

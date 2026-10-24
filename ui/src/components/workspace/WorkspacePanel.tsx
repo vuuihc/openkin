@@ -515,7 +515,7 @@ export default function WorkspacePanel({
       {/* Dual pane: sidebar (list/tree) | resizer | viewer. Always side-by-side on md+. */}
       <div ref={panesRef} className="flex-1 min-h-0 flex flex-col md:flex-row">
         <aside
-          className="flex flex-col min-h-0 border-b border-[var(--kin-hairline)] h-[40%] max-h-[46%] w-full md:h-auto md:max-h-none md:w-[var(--ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]/40"
+          className="flex flex-col min-h-0 border-b border-[var(--kin-hairline)] h-[40%] max-h-[46%] w-full md:h-auto md:max-h-none md:w-[var(--ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]"
           style={
             {
               // Not a `--kin-*` token: this one is a per-element measurement the
@@ -586,7 +586,7 @@ export default function WorkspacePanel({
           aria-valuemin={MIN_SIDEBAR_WIDTH}
           aria-valuemax={MAX_SIDEBAR_WIDTH}
           tabIndex={0}
-          className="hidden md:block flex-none w-1.5 cursor-col-resize border-r border-[var(--kin-hairline)] hover:bg-[var(--kin-fill-strong)] active:bg-kin-blue/30 transition-colors"
+          className="hidden md:block flex-none w-1.5 cursor-col-resize border-r border-[var(--kin-hairline)] hover:bg-[var(--kin-fill-strong)] active:bg-kin-blue/15 transition-colors"
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.preventDefault();
@@ -743,7 +743,7 @@ function TabButton({
         disabled ? "opacity-40 cursor-not-allowed" : "",
         active
           ? "bg-kin-elevated text-kin-text shadow-e1 border border-[var(--kin-hairline)]"
-          : "text-kin-muted hover:text-kin-secondary hover:bg-black/[.03] dark:hover:bg-white/[.04]",
+          : "text-kin-muted hover:text-kin-secondary  hover:bg-kin-fill",
       ].join(" ")}
     >
       {label}

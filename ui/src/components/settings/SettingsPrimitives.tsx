@@ -111,7 +111,7 @@ export function SettingsLayout({
                   "min-h-11 shrink-0 rounded-lg px-3 text-strong font-medium outline-none transition sm:min-h-10",
                   "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
                   selected
-                    ? "bg-kin-blue text-white"
+                    ? "bg-kin-blue text-kin-on-brand"
                     : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
                 )}
               >
@@ -211,10 +211,10 @@ export function StatusPill({
     <span
       className={classes(
         "inline-flex shrink-0 items-center rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-label",
-        tone === "success" && "bg-kin-green/15 text-kin-green",
-        tone === "warning" && "bg-kin-warning/15 text-kin-warning",
-        tone === "danger" && "bg-kin-red/15 text-kin-red",
-        tone === "info" && "bg-kin-blue-soft text-kin-blue",
+        tone === "success" && "bg-kin-green/15 text-kin-green-ink",
+        tone === "warning" && "bg-kin-orange/15 text-kin-orange-ink",
+        tone === "danger" && "bg-kin-red/15 text-kin-red-ink",
+        tone === "info" && "bg-kin-blue/15 text-kin-blue-ink",
         tone === "neutral" && "bg-[var(--kin-fill)] text-kin-muted",
       )}
     >
@@ -235,9 +235,9 @@ export function Callout({
       role={tone === "danger" ? "alert" : "status"}
       className={classes(
         "rounded-lg border px-3 py-2 text-body leading-prose",
-        tone === "info" && "border-kin-blue/30 bg-kin-blue-soft/40 text-kin-secondary",
+        tone === "info" && "border-kin-blue/30 bg-kin-blue/15 text-kin-secondary",
         tone === "warning" && "border-kin-orange/30 bg-kin-orange/10 text-kin-secondary",
-        tone === "danger" && "border-kin-red/30 bg-kin-red/10 text-kin-red",
+        tone === "danger" && "border-kin-red/30 bg-kin-red/10 text-kin-red-ink",
       )}
     >
       {children}
@@ -261,8 +261,8 @@ export function SettingsState({
       className={classes(
         "rounded-lg border px-3 py-4 text-strong leading-5",
         state === "error"
-          ? "border-kin-red/30 bg-kin-red/10 text-kin-red"
-          : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 text-kin-secondary",
+          ? "border-kin-red/30 bg-kin-red/10 text-kin-red-ink"
+          : "border-[var(--kin-hairline)] bg-[var(--kin-fill)] text-kin-secondary",
       )}
     >
       <div className="font-medium">{title}</div>
@@ -287,7 +287,7 @@ export function ActionButton({
       {...props}
       className={classes(
         variant === "primary" ? "kin-btn-primary" : "kin-btn-secondary",
-        variant === "danger" && "text-kin-red",
+        variant === "danger" && "text-kin-red-ink",
         "disabled:opacity-50",
         className,
       )}
@@ -297,26 +297,3 @@ export function ActionButton({
   );
 }
 
-export function IconButton({
-  label,
-  className,
-  children,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      {...props}
-      className={classes(
-        "inline-flex min-h-9 min-w-[36px] items-center justify-center rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring disabled:opacity-50",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  );
-}

@@ -1,12 +1,12 @@
 /** Shared skeleton building blocks for loading states (no layout jump). */
 
 export function SkeletonLine({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-zinc-800/80 ${className}`} aria-hidden />;
+  return <div className={`animate-pulse rounded-md bg-kin-fill-strong ${className}`} aria-hidden />;
 }
 
 export function SkeletonCard({ lines = 2 }: { lines?: number }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-raised px-4 py-3 space-y-2">
+    <div className="rounded-xl border border-kin-hairline-strong bg-kin-elevated px-4 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <SkeletonLine className="h-4 w-2/3" />
         <SkeletonLine className="h-5 w-16 shrink-0" />
@@ -36,9 +36,9 @@ export function ApprovalListSkeleton({ count = 2 }: { count?: number }) {
       {Array.from({ length: count }).map((_, i) => (
         <li
           key={i}
-          className="rounded-2xl border border-surface-border bg-surface-raised overflow-hidden"
+          className="rounded-2xl border border-kin-hairline-strong bg-kin-elevated overflow-hidden"
         >
-          <div className="border-b border-surface-border px-4 py-3 space-y-2">
+          <div className="border-b border-kin-hairline-strong px-4 py-3 space-y-2">
             <SkeletonLine className="h-3 w-24" />
             <SkeletonLine className="h-5 w-40" />
           </div>
@@ -59,7 +59,7 @@ export function ApprovalListSkeleton({ count = 2 }: { count?: number }) {
 export function PageHeaderSkeleton({ title }: { title: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <h1 className="text-hero leading-7 font-semibold text-zinc-50">{title}</h1>
+      <h1 className="text-hero leading-7 font-semibold text-kin-text">{title}</h1>
       <SkeletonLine className="h-9 w-24" />
     </div>
   );
@@ -70,7 +70,7 @@ export function SlowConnectHint({ show }: { show: boolean }) {
   if (!show) return null;
   return (
     <p
-      className="text-body leading-4 text-amber-400/90 rounded-lg border border-amber-900/40 bg-amber-950/30 px-3 py-2"
+      className="text-body leading-4 text-kin-orange-ink/90 rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2"
       role="status"
     >
       Still connecting — your link may be slow.

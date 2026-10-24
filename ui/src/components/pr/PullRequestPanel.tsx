@@ -272,7 +272,7 @@ export default function PullRequestPanel({
             would lose the number and link the user opened this panel to find.
           */}
           {error && (
-            <p className="flex items-start gap-1.5 text-body text-kin-red">
+            <p className="flex items-start gap-1.5 text-body text-kin-red-ink">
               <IconAlert size={13} className="mt-0.5 flex-none" />
               <span>{error}</span>
             </p>
@@ -314,7 +314,7 @@ export default function PullRequestPanel({
                         href={o.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex min-h-11 min-w-[44px] flex-none items-center gap-1 text-kin-blue hover:underline sm:min-h-0 sm:min-w-0"
+                        className="flex min-h-11 min-w-[44px] flex-none items-center gap-1 text-kin-blue-ink hover:underline sm:min-h-0 sm:min-w-0"
                       >
                         <IconExternal size={12} />
                       </a>
@@ -361,7 +361,7 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
   const ci = parseCISummary(lead.ci_summary);
 
   return (
-    <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5">
+    <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
       {lead.observed_at === undefined ? (
         busy ? (
           <Checking />
@@ -402,13 +402,13 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
           {lead.ci_state && lead.ci_state !== "none" && (
             <div className="mt-2 flex items-start gap-1.5 text-caption">
               {lead.ci_state === "success" ? (
-                <IconCheck size={12} className="mt-0.5 flex-none text-kin-green" />
+                <IconCheck size={12} className="mt-0.5 flex-none text-kin-green-ink" />
               ) : lead.ci_state === "failure" ? (
-                <IconAlert size={12} className="mt-0.5 flex-none text-kin-red" />
+                <IconAlert size={12} className="mt-0.5 flex-none text-kin-red-ink" />
               ) : (
                 <IconSpinner size={12} className="mt-0.5 flex-none" />
               )}
-              <span className={lead.ci_state === "failure" ? "text-kin-red" : "text-kin-muted"}>
+              <span className={lead.ci_state === "failure" ? "text-kin-red-ink" : "text-kin-muted"}>
                 {ciLabel(tr, lead.ci_state, ci)}
               </span>
             </div>
@@ -431,7 +431,7 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
           </span>
         ) : null}
         {lead.last_error ? (
-          <div className="mt-0.5 text-kin-red">
+          <div className="mt-0.5 text-kin-red-ink">
             {tr("pr.lastAttemptFailed", { reason: lead.last_error })}
           </div>
         ) : null}
@@ -443,10 +443,10 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
 function stateColor(state: string | undefined): string {
   switch (state) {
     case "merged":
-      return "text-kin-purple";
+      return "text-kin-blue-ink";
     case "closed":
       return "text-kin-muted";
     default:
-      return "text-kin-green";
+      return "text-kin-green-ink";
   }
 }

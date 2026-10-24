@@ -299,7 +299,7 @@ export default function RoutinesPage() {
                 "rounded-lg px-3 py-1.5 text-body font-medium",
                 showCreate
                   ? "border border-[var(--kin-hairline)] text-kin-secondary"
-                  : "bg-kin-accent text-white",
+                  : "bg-kin-blue text-kin-on-brand",
               ].join(" ")}
             >
               {showCreate ? tr("routines.cancel") : tr("routines.createEntry")}
@@ -315,7 +315,7 @@ export default function RoutinesPage() {
         </div>
 
         {showCreate && (
-          <section className="mt-5 rounded-2xl border border-kin-blue/30 bg-kin-blue/[0.04] p-4">
+          <section className="mt-5 rounded-2xl border border-kin-blue/30 bg-kin-blue/5 p-4">
             <div className="text-strong font-medium text-kin-text">
               {tr("routines.createPanelTitle")}
             </div>
@@ -373,7 +373,7 @@ export default function RoutinesPage() {
               <CwdPicker className="w-full" cwd={cwd} locked={false} onChange={setCwd} />
             </div>
 
-            <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 px-3 py-2.5">
+            <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
               <RoutineScheduleFields
                 intervalSecs={intervalSecs}
                 onIntervalChange={setIntervalSecs}
@@ -394,7 +394,7 @@ export default function RoutinesPage() {
               <button
                 type="button"
                 disabled={creating || !prompt.trim() || !cwd.trim()}
-                className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
                 onClick={() => void onCreate()}
               >
                 {tr("routines.createAndOpen")}
@@ -411,7 +411,7 @@ export default function RoutinesPage() {
         )}
 
         {!loading && error && (
-          <div className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]">
+          <div className="mt-6 rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink">
             {error}
           </div>
         )}
@@ -433,7 +433,7 @@ export default function RoutinesPage() {
                   {!showCreate && (
                     <button
                       type="button"
-                      className="mt-4 rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white"
+                      className="mt-4 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand"
                       onClick={() => setShowCreate(true)}
                     >
                       {tr("routines.createEntry")}
@@ -441,7 +441,7 @@ export default function RoutinesPage() {
                   )}
                 </div>
               ) : (
-                <div className="max-h-[min(360px,42vh)] overflow-y-auto kin-scroll rounded-2xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/30 p-2.5 sm:p-3">
+                <div className="max-h-[min(360px,42vh)] overflow-y-auto kin-scroll rounded-2xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-2.5 sm:p-3">
                   {noteworthy.length > 0 && (
                     <ul className="space-y-2.5">
                       {noteworthy.map((run) => (
@@ -504,7 +504,7 @@ export default function RoutinesPage() {
                             <span
                               className={
                                 r.enabled
-                                  ? "rounded-full bg-emerald-500/15 px-2 py-0.5 text-caption font-medium text-emerald-400"
+                                  ? "rounded-full bg-kin-green/15 px-2 py-0.5 text-caption font-medium text-kin-green-ink"
                                   : "rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-caption text-kin-muted"
                               }
                             >
@@ -526,7 +526,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onRunNow(r)}
-                            className="rounded-lg bg-kin-accent px-2.5 py-1 text-body font-medium text-white disabled:opacity-50"
+                            className="rounded-lg bg-kin-blue px-2.5 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50"
                           >
                             {tr("routines.runNow")}
                           </button>
@@ -542,7 +542,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onDelete(r)}
-                            className="rounded-lg px-2.5 py-1 text-body text-kin-red/90 disabled:opacity-50"
+                            className="rounded-lg px-2.5 py-1 text-body text-kin-red-ink/90 disabled:opacity-50"
                           >
                             {tr("routines.delete")}
                           </button>
@@ -604,7 +604,7 @@ function RunCard({
               {run.title || run.id.slice(0, 8)}
             </Link>
             {run.routine_noteworthy && (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-caption font-medium text-amber-300">
+              <span className="rounded-full bg-kin-orange/15 px-2 py-0.5 text-caption font-medium text-kin-orange-ink">
                 {tr("routines.noteworthy")}
               </span>
             )}
@@ -622,7 +622,7 @@ function RunCard({
           <button
             type="button"
             onClick={() => onMarkRead(run.id)}
-            className="shrink-0 text-body text-kin-blue hover:underline"
+            className="shrink-0 text-body text-kin-blue-ink hover:underline"
           >
             {tr("routines.markRead")}
           </button>

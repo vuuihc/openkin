@@ -57,35 +57,30 @@ const toneClasses: Record<
 > = {
   running: {
     dotClass: "bg-kin-blue",
-    iconClass: "text-kin-blue",
-    containerClass:
-      "border border-kin-blue/40 bg-gradient-to-b from-[rgba(10,132,255,.07)] to-[rgba(10,132,255,.02)]",
+    iconClass: "text-kin-blue-ink",
+    containerClass: "border border-kin-blue/40 bg-gradient-to-b from-kin-blue/5 to-kin-blue/5",
     selectedClass:
-      "border border-kin-blue/50 bg-gradient-to-b from-[rgba(10,132,255,.1)] to-[rgba(10,132,255,.02)] shadow-e2",
+      "border border-kin-blue/50 bg-gradient-to-b from-kin-blue/10 to-kin-blue/5 shadow-e2",
   },
   approval: {
     dotClass: "bg-kin-orange",
-    iconClass: "text-kin-orange",
+    iconClass: "text-kin-orange-ink",
     containerClass:
-      "border border-[rgba(255,159,10,.55)] bg-gradient-to-b from-[rgba(255,159,10,.1)] to-[rgba(255,159,10,.03)] shadow-e2",
+      "border border-kin-orange/55 bg-gradient-to-b from-kin-orange/10 to-kin-orange/5 shadow-e2",
     selectedClass:
-      "border border-[rgba(255,159,10,.7)] bg-gradient-to-b from-[rgba(255,159,10,.14)] to-[rgba(255,159,10,.04)] shadow-e2",
+      "border border-kin-orange/70 bg-gradient-to-b from-kin-orange/15 to-kin-orange/5 shadow-e2",
   },
   completed: {
     dotClass: "bg-kin-green",
-    iconClass: "text-kin-green",
-    containerClass:
-      "border border-kin-green/30 bg-gradient-to-b from-[rgba(48,209,88,.08)] to-[rgba(48,209,88,.02)]",
-    selectedClass:
-      "border border-kin-green/45 bg-gradient-to-b from-[rgba(48,209,88,.12)] to-[rgba(48,209,88,.03)]",
+    iconClass: "text-kin-green-ink",
+    containerClass: "border border-kin-green/30 bg-gradient-to-b from-kin-green/10 to-kin-green/5",
+    selectedClass: "border border-kin-green/45 bg-gradient-to-b from-kin-green/15 to-kin-green/5",
   },
   failed: {
     dotClass: "bg-kin-red",
-    iconClass: "text-kin-red",
-    containerClass:
-      "border border-kin-red/35 bg-gradient-to-b from-[rgba(255,69,58,.08)] to-[rgba(255,69,58,.02)]",
-    selectedClass:
-      "border border-kin-red/50 bg-gradient-to-b from-[rgba(255,69,58,.12)] to-[rgba(255,69,58,.03)]",
+    iconClass: "text-kin-red-ink",
+    containerClass: "border border-kin-red/35 bg-gradient-to-b from-kin-red/10 to-kin-red/5",
+    selectedClass: "border border-kin-red/50 bg-gradient-to-b from-kin-red/15 to-kin-red/5",
   },
   canceled: {
     dotClass: "bg-kin-muted",

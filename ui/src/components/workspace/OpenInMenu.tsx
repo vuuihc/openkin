@@ -102,7 +102,7 @@ export default function OpenInMenu({ root, relativePath }: Props) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1 z-30 min-w-[168px] max-w-[240px] rounded-lg border border-kin-border bg-kin-elevated shadow-e3 py-1"
+          className="absolute right-0 top-full mt-1 z-30 min-w-[168px] max-w-[240px] rounded-lg border border-kin-hairline bg-kin-elevated shadow-e3 py-1"
         >
           {apps === null && (
             <div className="px-3 py-2 text-body text-kin-muted">
@@ -125,7 +125,7 @@ export default function OpenInMenu({ root, relativePath }: Props) {
             </button>
           ))}
           {error && (
-            <div className="px-3 py-1.5 text-caption text-kin-red border-t border-[var(--kin-hairline)]">
+            <div className="px-3 py-1.5 text-caption text-kin-red-ink border-t border-[var(--kin-hairline)]">
               {error}
             </div>
           )}

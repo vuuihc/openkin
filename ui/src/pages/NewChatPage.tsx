@@ -491,7 +491,7 @@ export default function NewChatPage() {
             className={[
               "inline-flex items-center justify-center rounded-full border w-[26px] h-[26px] flex-none transition-colors disabled:opacity-50",
               asRoutine
-                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-blue"
+                ? "border-kin-blue/50 bg-kin-blue/15 text-kin-blue-ink"
                 : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
             ].join(" ")}
           >
@@ -599,7 +599,7 @@ export default function NewChatPage() {
           <button
             type="button"
             onClick={refreshMachines}
-            className="text-caption text-kin-blue hover:underline"
+            className="text-caption text-kin-blue-ink hover:underline"
           >
             {tr("machine.refresh")}
           </button>
@@ -633,7 +633,7 @@ export default function NewChatPage() {
           <div className="mt-1 flex sm:mt-3">
             <button
               type="button"
-              className="min-h-11 px-3 text-body text-kin-blue hover:underline sm:min-h-0 sm:px-0"
+              className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
               onClick={() => navigate("/agents")}
             >
               {tr("agents.manageLink")}
@@ -646,13 +646,13 @@ export default function NewChatPage() {
 
         <div className="mt-8 w-full max-w-xl space-y-3">
           {remote ? (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-strong text-kin-secondary">
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
               {machine && machine.roots.length > 0
                 ? tr("machine.rootsHint", { name: machineLabel, path: machine.roots[0] })
                 : tr("machine.noRoots", { name: machineLabel })}
             </div>
           ) : !cwd.trim() ? (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-strong text-kin-secondary">
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
               {tr("newChat.noCwdHint")}
             </div>
           ) : projectLookupState === "loading" ? (
@@ -660,13 +660,13 @@ export default function NewChatPage() {
               {tr("newChat.projectSummaryLoading")}
             </div>
           ) : projectLookupState === "error" ? (
-            <div className="w-full rounded-2xl border border-red-500/30 bg-kin-panel px-4 py-3 text-left">
-              <p className="text-body text-red-500/90">
+            <div className="w-full rounded-2xl border border-kin-red/30 bg-kin-panel px-4 py-3 text-left">
+              <p className="text-body text-kin-red-ink">
                 {projectLookupError || tr("newChat.projectSummaryError")}
               </p>
               <button
                 type="button"
-                className="mt-2 text-body text-kin-accent hover:underline"
+                className="mt-2 text-body text-kin-blue-ink hover:underline"
                 onClick={() => setProjectLookupKey((k) => k + 1)}
               >
                 {tr("common.retry")}
@@ -675,7 +675,7 @@ export default function NewChatPage() {
           ) : project ? (
             <ProjectSummaryCard project={project} summary={projectSummary} />
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-strong text-kin-secondary">
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
               {tr("newChat.onePagerNoProject", {
                 project: projectLabel(cwd),
               })}
@@ -718,7 +718,7 @@ export default function NewChatPage() {
             {controlGroups.map((group) => (
               <div
                 key={group.id}
-                className="flex min-w-0 flex-col gap-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
+                className="flex min-w-0 flex-col gap-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
               >
                 <div className="text-micro font-semibold uppercase tracking-label text-kin-muted sm:w-[5.25rem] sm:flex-none">
                   {tr(group.labelKey)}
@@ -770,7 +770,7 @@ export default function NewChatPage() {
           </button>
           {asRoutine && (
             <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
-              <div className="mb-2 text-caption font-medium text-kin-blue">
+              <div className="mb-2 text-caption font-medium text-kin-blue-ink">
                 {tr("routines.routineModeOn")}
               </div>
               <RoutineScheduleFields
@@ -819,7 +819,7 @@ export default function NewChatPage() {
               {controlGroups.map((group) => (
                 <div
                   key={group.id}
-                  className="flex min-w-0 flex-col gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-3 py-2.5"
+                  className="flex min-w-0 flex-col gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5"
                 >
                   <div className="text-micro font-semibold uppercase tracking-label text-kin-muted">
                     {tr(group.labelKey)}
@@ -840,7 +840,7 @@ export default function NewChatPage() {
             <button
               type="button"
               onClick={() => setControlsOpen(false)}
-              className="mt-3 min-h-12 w-full rounded-xl bg-kin-blue text-subtitle font-semibold text-white"
+              className="mt-3 min-h-12 w-full rounded-xl bg-kin-blue text-subtitle font-semibold text-kin-on-brand"
             >
               {tr("newChat.controlsDone")}
             </button>

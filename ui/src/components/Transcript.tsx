@@ -25,7 +25,7 @@ export default function Transcript({ events }: Props) {
 
   if (rows.length === 0) {
     return (
-      <p className="text-strong leading-5 text-zinc-500" role="status">
+      <p className="text-strong leading-5 text-kin-muted" role="status">
         Waiting for events…
       </p>
     );
@@ -67,7 +67,7 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-kin-red"
+                className="rounded-xl border border-kin-red/30 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink"
               >
                 {friendlyErrorLabel(row.message, tr)}
               </div>
@@ -76,7 +76,7 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-kin-green/30 bg-[rgba(48,209,88,.08)] px-4 py-3 text-body leading-4 text-kin-secondary"
+                className="rounded-xl border border-kin-green/30 bg-kin-green/10 px-4 py-3 text-body leading-4 text-kin-secondary"
               >
                 Result · cost{" "}
                 {typeof row.payload.cost_usd === "number" ? `$${row.payload.cost_usd}` : "—"}
@@ -84,7 +84,7 @@ export default function Transcript({ events }: Props) {
             );
           case "meta":
             return (
-              <p key={row.key} className="text-body leading-4 text-zinc-500">
+              <p key={row.key} className="text-body leading-4 text-kin-muted">
                 {row.label}
               </p>
             );
@@ -92,14 +92,14 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-strong leading-5"
+                className="rounded-xl border border-kin-orange/30 bg-kin-orange/10 px-4 py-3 text-strong leading-5"
               >
-                <span className="text-amber-300 font-medium">Approval requested</span>
-                <span className="text-zinc-400">
+                <span className="text-kin-orange-ink font-medium">Approval requested</span>
+                <span className="text-kin-muted">
                   {" "}
                   · {row.tool || "tool"}
                   {row.approvalId ? (
-                    <span className="font-mono text-body leading-4 text-zinc-500">
+                    <span className="font-mono text-body leading-4 text-kin-muted">
                       {" "}
                       · {row.approvalId.slice(0, 10)}…
                     </span>
@@ -110,8 +110,8 @@ export default function Transcript({ events }: Props) {
           case "approval_dec": {
             const ok = row.decision === "approved";
             const cls = ok
-              ? "border-emerald-900/50 bg-emerald-950/30 text-emerald-300"
-              : "border-red-900/50 bg-red-950/30 text-red-300";
+              ? "border-kin-green/30 bg-kin-green/10 text-kin-green-ink"
+              : "border-kin-red/30 bg-kin-red/10 text-kin-red-ink";
             return (
               <div
                 key={row.key}
@@ -121,7 +121,7 @@ export default function Transcript({ events }: Props) {
                   {row.decision === "expired" ? "Approval expired" : ok ? "Approved" : "Denied"}
                 </span>
                 {row.via ? (
-                  <span className="text-zinc-500 text-body leading-4"> · via {row.via}</span>
+                  <span className="text-kin-muted text-body leading-4"> · via {row.via}</span>
                 ) : null}
               </div>
             );
@@ -135,17 +135,17 @@ export default function Transcript({ events }: Props) {
 function ToolBlock({ name, input }: { name: string; input: unknown }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-xl border border-surface-border bg-black/20">
+    <div className="rounded-xl border border-kin-hairline-strong bg-black/20">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-strong leading-5"
       >
-        <span className="font-mono text-accent-muted">tool · {name || "unknown"}</span>
-        <span className="text-body leading-4 text-zinc-500">{open ? "Hide" : "Show"}</span>
+        <span className="font-mono text-kin-blue-ink">tool · {name || "unknown"}</span>
+        <span className="text-body leading-4 text-kin-muted">{open ? "Hide" : "Show"}</span>
       </button>
       {open && (
-        <pre className="overflow-x-auto border-t border-surface-border p-3 text-body leading-4 font-mono text-zinc-300">
+        <pre className="overflow-x-auto border-t border-kin-hairline-strong p-3 text-body leading-4 font-mono text-kin-secondary">
           {JSON.stringify(input, null, 2)}
         </pre>
       )}

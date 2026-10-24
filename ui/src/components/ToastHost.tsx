@@ -15,10 +15,12 @@ export default function ToastHost() {
         <div
           key={t.id}
           className={[
-            // Solid opaque surfaces only — opacity modifiers on CSS vars often paint transparent.
+            // Solid opaque surfaces only — a toast floats over whatever is
+            // scrolling behind it, so a tint has no fixed backdrop to be
+            // measured against. The tone is carried by the border and the ink.
             "pointer-events-auto w-full max-w-md rounded-xl border px-4 py-3 text-strong leading-5 shadow-e3 flex items-start justify-between gap-3",
             t.tone === "error"
-              ? "border-kin-red/50 bg-[#3a1214] text-[#ffd7d5]"
+              ? "border-kin-red/50 bg-kin-elevated text-kin-red-ink"
               : "border-kin-hairline-strong bg-kin-elevated text-kin-text",
           ].join(" ")}
           role="status"

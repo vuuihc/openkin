@@ -294,7 +294,7 @@ export default function CommandPalette({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[600px] rounded-2xl overflow-hidden border border-[var(--kin-hairline-strong)] bg-[rgba(44,44,48,.92)] backdrop-blur-[50px] shadow-e3">
+      <div className="w-full max-w-[600px] rounded-2xl overflow-hidden border border-[var(--kin-hairline-strong)] bg-kin-panel/90 backdrop-blur-[50px] shadow-e3">
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--kin-hairline)]">
           <IconSearch size={18} className="text-kin-muted flex-none" />
           <input
@@ -411,16 +411,17 @@ function PaletteRow({
       onClick={onClick}
       className={[
         "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-strong",
-        active ? "bg-kin-blue text-white" : "text-kin-text hover:bg-[var(--kin-fill)]",
+        active ? "bg-kin-blue text-kin-on-brand" : "text-kin-text hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
-      <span className={active ? "text-white" : "text-kin-muted"}>{icon}</span>
+      <span className={active ? "text-kin-on-brand" : "text-kin-muted"}>{icon}</span>
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {hint && (
         <span
-          className={["text-caption flex-none", active ? "text-white/70" : "text-kin-muted"].join(
-            " ",
-          )}
+          className={[
+            "text-caption flex-none",
+            active ? "text-kin-on-brand opacity-70" : "text-kin-muted",
+          ].join(" ")}
         >
           {active ? `↵ ${t("palette.open")}` : hint}
         </span>

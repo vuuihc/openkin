@@ -364,7 +364,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
               <span className="text-strong text-kin-secondary">{tr("terminal.noSessions")}</span>
               <button
                 type="button"
-                className="rounded-md bg-kin-blue px-3 py-1.5 text-body text-white transition-all hover:brightness-110"
+                className="rounded-md bg-kin-blue px-3 py-1.5 text-body text-kin-on-brand transition-all hover:brightness-110"
                 onClick={async () => {
                   try {
                     const chosen = await pickDirectory();
@@ -385,7 +385,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
         </div>
 
         {(createError || closeError) && (
-          <div className="flex-none border-t border-kin-orange/25 bg-kin-orange/10 px-3 py-2 text-body text-kin-orange">
+          <div className="flex-none border-t border-kin-orange/25 bg-kin-orange/10 px-3 py-2 text-body text-kin-orange-ink">
             {createError || closeError}
           </div>
         )}

@@ -119,8 +119,8 @@ export function LocalAgentSettingsSection({
                     className={[
                       "px-1.5 py-0.5 rounded border text-micro",
                       supported
-                        ? "border-kin-border text-kin-muted"
-                        : "border-kin-orange/40 text-kin-orange",
+                        ? "border-kin-hairline text-kin-muted"
+                        : "border-kin-orange/40 text-kin-orange-ink",
                     ].join(" ")}
                   >
                     {supported
@@ -201,7 +201,7 @@ export function LocalAgentSettingsSection({
           </select>
           <span className="text-caption text-kin-muted">{tr("settings.localAgents.policy")}</span>
           <div
-            className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2 text-caption text-kin-muted"
+            className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-caption text-kin-muted"
             role="status"
           >
             <span className="font-medium text-kin-secondary">

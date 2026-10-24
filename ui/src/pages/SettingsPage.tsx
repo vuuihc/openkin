@@ -757,7 +757,7 @@ export default function SettingsPage() {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
         <h1 className="hidden text-hero font-semibold md:block">{tr("settings.title")}</h1>
-        <p className="text-strong leading-5 text-kin-red mt-3" role="alert">
+        <p className="text-strong leading-5 text-kin-red-ink mt-3" role="alert">
           {error}
         </p>
       </div>
@@ -871,7 +871,7 @@ export default function SettingsPage() {
     >
       {error ? (
         <p
-          className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red"
+          className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red-ink"
           role="alert"
         >
           {error}
@@ -951,7 +951,7 @@ export default function SettingsPage() {
                 className={[
                   "px-3 py-2 rounded-lg text-strong font-medium min-h-11 sm:min-h-10 border",
                   theme === value
-                    ? "border-kin-blue bg-kin-blue-soft text-kin-blue"
+                    ? "border-kin-blue bg-kin-blue/15 text-kin-blue-ink"
                     : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
                 ].join(" ")}
               >
@@ -979,18 +979,18 @@ export default function SettingsPage() {
               className={[
                 "shrink-0 rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-label",
                 relayState === "connected"
-                  ? "bg-kin-green/15 text-kin-green"
+                  ? "bg-kin-green/15 text-kin-green-ink"
                   : relayState === "connecting"
-                    ? "bg-kin-warning/15 text-kin-warning"
+                    ? "bg-kin-orange/15 text-kin-orange-ink"
                     : relayState === "disabled"
                       ? "bg-[var(--kin-fill)] text-kin-muted"
-                      : "bg-kin-red/15 text-kin-red",
+                      : "bg-kin-red/15 text-kin-red-ink",
               ].join(" ")}
             >
               {tr(`settings.relay.state.${relayState}` as "settings.relay.state.disabled")}
             </span>
           </div>
-          <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 p-3 space-y-3">
+          <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-3 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="space-y-1">
                 <p className="text-body leading-4 font-medium text-kin-secondary">
@@ -1022,7 +1022,7 @@ export default function SettingsPage() {
               </button>
             </div>
             {settings["cloudflare.relay_last_error"] ? (
-              <p className="text-body leading-4 text-kin-red" role="alert">
+              <p className="text-body leading-4 text-kin-red-ink" role="alert">
                 {settings["cloudflare.relay_last_error"]}
               </p>
             ) : null}
@@ -1202,7 +1202,7 @@ export default function SettingsPage() {
               </p>
             ) : null}
             {settings["cloudflare.relay_custom_domain_url"] ? (
-              <p className="break-all font-mono text-caption text-kin-green">
+              <p className="break-all font-mono text-caption text-kin-green-ink">
                 {settings["cloudflare.relay_custom_domain_url"]}
               </p>
             ) : null}
@@ -1224,7 +1224,7 @@ export default function SettingsPage() {
             </span>
           </label>
           {settings["relay.last_error"] ? (
-            <p className="text-body leading-4 text-kin-red" role="alert">
+            <p className="text-body leading-4 text-kin-red-ink" role="alert">
               {settings["relay.last_error"]}
             </p>
           ) : null}
@@ -1250,6 +1250,10 @@ export default function SettingsPage() {
           </div>
           {settings["relay.pairing_url"] ? (
             <div className="flex flex-col sm:flex-row gap-4 items-start border-t border-[var(--kin-hairline)] pt-4">
+              {/* White, and not a token: this is the QR's quiet zone. A scanner
+                  needs the light margin the code was rendered against, so the
+                  one square on this page that must not follow the theme is the
+                  one a camera reads. */}
               <div className="rounded-lg bg-white p-3 shrink-0">
                 <QRCodeSVG value={settings["relay.pairing_url"]} size={160} level="M" />
               </div>
@@ -1263,7 +1267,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => void copy(settings["relay.pairing_url"])}
-                  className="min-h-10 text-body leading-4 text-kin-blue hover:underline"
+                  className="min-h-10 text-body leading-4 text-kin-blue-ink hover:underline"
                 >
                   {tr("settings.connection.copyUrl")}
                 </button>
@@ -1279,11 +1283,12 @@ export default function SettingsPage() {
           </h2>
           <div className="flex flex-col sm:flex-row gap-4 items-start">
             {connectURL ? (
+              // Same quiet zone as the pairing code above.
               <div className="rounded-lg bg-white p-3 shrink-0">
                 <QRCodeSVG value={connectURL} size={160} level="M" />
               </div>
             ) : (
-              <div className="h-40 w-40 rounded-lg border border-dashed border-surface-border flex items-center justify-center text-body leading-4 text-zinc-500">
+              <div className="h-40 w-40 rounded-lg border border-dashed border-kin-hairline-strong flex items-center justify-center text-body leading-4 text-kin-muted">
                 {tr("settings.connection.noUrl")}
               </div>
             )}
@@ -1292,7 +1297,9 @@ export default function SettingsPage() {
                 <div className="text-body leading-4 text-kin-muted">
                   {tr("settings.connection.networkMode")}
                 </div>
-                <div className="mt-0.5 font-mono text-strong leading-5 text-kin-blue">{mode}</div>
+                <div className="mt-0.5 font-mono text-strong leading-5 text-kin-blue-ink">
+                  {mode}
+                </div>
               </div>
               {connectURL && (
                 <div>
@@ -1305,7 +1312,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => void copy(connectURL)}
-                    className="mt-1 min-h-11 text-body leading-4 text-kin-blue hover:underline"
+                    className="mt-1 min-h-11 text-body leading-4 text-kin-blue-ink hover:underline"
                   >
                     {tr("settings.connection.copyUrl")}
                   </button>
@@ -1323,14 +1330,14 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={() => setReveal((v) => !v)}
-                      className="min-h-11 text-body leading-4 text-kin-blue hover:underline"
+                      className="min-h-11 text-body leading-4 text-kin-blue-ink hover:underline"
                     >
                       {reveal ? tr("settings.hide") : tr("settings.reveal")}
                     </button>
                     <button
                       type="button"
                       onClick={() => void copy(token)}
-                      className="min-h-11 text-body leading-4 text-kin-blue hover:underline"
+                      className="min-h-11 text-body leading-4 text-kin-blue-ink hover:underline"
                     >
                       {tr("settings.connection.copy")}
                     </button>
@@ -1438,11 +1445,11 @@ export default function SettingsPage() {
               {testing ? tr("settings.notify.sending") : tr("settings.notify.sendTest")}
             </button>
             {saved && (
-              <span className="text-body leading-4 text-kin-green">
+              <span className="text-body leading-4 text-kin-green-ink">
                 {tr("settings.notify.savedShort")}
               </span>
             )}
-            {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
+            {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
           </div>
         </section>
       </SettingsTabPanel>
@@ -1458,7 +1465,7 @@ export default function SettingsPage() {
               href="https://github.com/BerriAI/litellm"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-11 items-center text-caption text-kin-blue hover:underline shrink-0 sm:min-h-0"
+              className="inline-flex min-h-11 items-center text-caption text-kin-blue-ink hover:underline shrink-0 sm:min-h-0"
               title={tr("settings.price.sourceHint")}
             >
               {tr("settings.price.sourceName")} ↗
@@ -1472,7 +1479,7 @@ export default function SettingsPage() {
               href="https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
               target="_blank"
               rel="noreferrer"
-              className="text-kin-blue hover:underline py-2"
+              className="text-kin-blue-ink hover:underline py-2"
             >
               {tr("settings.price.sourceName")}
             </a>
@@ -1557,7 +1564,7 @@ export default function SettingsPage() {
             >
               {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
             </button>
-            {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
+            {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
           </div>
         </section>
       </SettingsTabPanel>

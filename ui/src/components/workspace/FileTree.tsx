@@ -129,7 +129,7 @@ export default function FileTree({
         <div className="px-2 py-1.5 text-body text-kin-muted">{t("workspace.tree.loading")}</div>
       )}
       {rootState?.error && (
-        <div className="mx-2 my-1 rounded-lg border border-[rgba(255,69,58,.25)] bg-[rgba(255,69,58,.08)] px-2.5 py-2 text-body text-[#ffb4ad]">
+        <div className="mx-2 my-1 rounded-lg border border-kin-red/25 bg-kin-red/10 px-2.5 py-2 text-body text-kin-red-ink">
           {rootState.error}
         </div>
       )}
@@ -193,8 +193,12 @@ function renderEntries({
           }}
           className={[
             "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-body transition-colors",
+            // A selected row is a *tint*, not a fill — white on it was legible
+            // only because the dark sidebar happens to be black. The tint is
+            // the affordance and the ink only steps up from secondary to the
+            // tree's own primary ink, so it stays readable on the tint.
             isSelected
-              ? "bg-kin-blue/20 text-white"
+              ? "bg-kin-blue/15 text-kin-text"
               : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
           ].join(" ")}
           style={{ paddingLeft: 8 + depth * 14 }}
@@ -231,7 +235,7 @@ function renderEntries({
             )}
             {dirState?.error && (
               <div
-                className="px-2 py-1 text-caption text-[#ffb4ad]"
+                className="px-2 py-1 text-caption text-kin-red-ink"
                 style={{ paddingLeft: 36 + depth * 14 }}
               >
                 {dirState.error}

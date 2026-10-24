@@ -104,7 +104,7 @@ export default function MachineBrowser({
         className={[
           "relative flex flex-col w-full sm:max-w-md max-h-[80vh] outline-none",
           "rounded-t-2xl sm:rounded-2xl border border-[var(--kin-hairline-strong)]",
-          "bg-[var(--kin-elevated)] shadow-e3 overflow-hidden",
+          "bg-kin-elevated shadow-e3 overflow-hidden",
         ].join(" ")}
       >
         <div className="flex-none flex items-center gap-1 border-b border-[var(--kin-hairline)] px-2 pt-2">
@@ -117,7 +117,7 @@ export default function MachineBrowser({
               className={[
                 "rounded-t-lg px-3 py-1.5 text-body font-medium transition-colors",
                 tab === id
-                  ? "text-kin-blue border-b-2 border-kin-blue"
+                  ? "text-kin-blue-ink border-b-2 border-kin-blue"
                   : "text-kin-muted border-b-2 border-transparent hover:text-kin-secondary",
               ].join(" ")}
             >
@@ -142,7 +142,7 @@ export default function MachineBrowser({
             <button
               type="button"
               onClick={onTypePath}
-              className="text-caption font-medium text-kin-blue hover:underline"
+              className="text-caption font-medium text-kin-blue-ink hover:underline"
             >
               {tr("browse.typePath")}
             </button>
@@ -237,7 +237,7 @@ function FolderTab({
       <ul className="flex-1 min-h-0 overflow-y-auto py-1">
         {loading && <li className="px-3 py-2 text-body text-kin-muted">{tr("browse.loading")}</li>}
         {!loading && error && (
-          <li className="px-3 py-2 text-body text-kin-orange">
+          <li className="px-3 py-2 text-body text-kin-orange-ink">
             <div>{tr("browse.loadFailed")}</div>
             {/* The machine's own words, kept rather than replaced: a directory
                 this console cannot read may be gone, may be a file, may be
@@ -313,7 +313,7 @@ function FolderTab({
           onClick={() => onPick(path)}
           className={[
             "w-full rounded-lg px-3 py-2 text-strong font-medium transition-colors",
-            "bg-kin-blue text-white disabled:opacity-40",
+            "bg-kin-blue text-kin-on-brand disabled:opacity-40",
           ].join(" ")}
         >
           {tr("browse.use")}
@@ -418,7 +418,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
               type="button"
               disabled={busy || !named}
               onClick={() => void find()}
-              className="flex-none text-body font-medium text-kin-blue disabled:opacity-40"
+              className="flex-none text-body font-medium text-kin-blue-ink disabled:opacity-40"
             >
               {finding ? tr("browse.finding") : tr("browse.findBranches")}
             </button>
@@ -455,7 +455,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
           </div>
         )}
 
-        {error && <div className="text-body text-kin-orange">{error}</div>}
+        {error && <div className="text-body text-kin-orange-ink">{error}</div>}
       </div>
 
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
@@ -463,7 +463,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
           type="button"
           disabled={busy || !named}
           onClick={() => void fetchIt()}
-          className="w-full rounded-lg px-3 py-2 text-strong font-medium bg-kin-blue text-white disabled:opacity-40"
+          className="w-full rounded-lg px-3 py-2 text-strong font-medium bg-kin-blue text-kin-on-brand disabled:opacity-40"
         >
           {fetching ? tr("browse.fetching") : tr("browse.fetch")}
         </button>
@@ -491,7 +491,7 @@ function Row({
       onClick={onClick}
       className={[
         "w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
-        current ? "bg-kin-blue-soft text-kin-blue" : "hover:bg-[var(--kin-fill)]",
+        current ? "bg-kin-blue/15 text-kin-blue-ink" : "hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
       {folder && <FolderIcon />}

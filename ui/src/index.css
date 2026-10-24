@@ -121,14 +121,14 @@ body {
 /* Thin scrollbar matching design mockups */
 .kin-scroll {
   scrollbar-width: thin;
-  scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+  scrollbar-color: rgb(var(--kin-muted-rgb) / 0.35) transparent;
 }
 .kin-scroll::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 .kin-scroll::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.35);
+  background: rgb(var(--kin-muted-rgb) / 0.35);
   border-radius: 4px;
 }
 .kin-scroll::-webkit-scrollbar-track {
@@ -138,7 +138,7 @@ body {
 /* Running card progress dash */
 .kin-dash {
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(10, 132, 255, 0.5), transparent);
+  background: linear-gradient(90deg, transparent, rgb(var(--kin-blue-rgb) / 0.5), transparent);
   background-size: 200% 100%;
   animation: dashmove 1.6s linear infinite;
 }
@@ -148,7 +148,7 @@ body {
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: var(--kin-muted);
+  background: rgb(var(--kin-muted-rgb));
   display: inline-block;
   animation: kin-dot-bounce 1.1s ease-in-out infinite;
 }
@@ -175,17 +175,35 @@ body {
   .kin-hairline {
     border-color: var(--kin-hairline);
   }
+  /* Buttons, and the focus answer for a *filled* control. An outline rather
+     than a ring, because a ring is drawn inside the element's own box: on
+     `.kin-btn-primary` the fill *is* `--kin-blue`, and in the dark scheme the
+     ring token is the same blue, so the ring would be invisible against it. The
+     outline sits 2px outside the fill, on whatever surface the button was
+     placed on — which is what the ring token is certified against (the six
+     opaque surfaces), not the fill. */
+  .kin-btn:focus-visible,
+  .kin-btn-primary:focus-visible,
+  .kin-btn-secondary:focus-visible,
+  .kin-btn-approve:focus-visible,
+  .kin-btn-deny:focus-visible {
+    outline: 2px solid var(--kin-focus-ring);
+    outline-offset: 2px;
+  }
   .kin-btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-strong font-semibold transition-colors min-h-11 sm:min-h-0;
   }
+  /* `brightness-110`, not a lighter blue: an opacity modifier on the fill would
+     darken the button by letting the surface through, which is the opposite of
+     what a hover wants. It is also the idiom `kin-btn-approve` already used. */
   .kin-btn-primary {
-    @apply kin-btn bg-kin-blue text-white hover:bg-accent-muted;
+    @apply kin-btn bg-kin-blue text-kin-on-brand hover:brightness-110;
   }
   .kin-btn-secondary {
     @apply kin-btn border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)];
   }
   .kin-btn-approve {
-    @apply kin-btn bg-kin-orange text-[#1a1a1c] hover:brightness-110;
+    @apply kin-btn bg-kin-orange text-kin-on-status hover:brightness-110;
   }
   .kin-btn-deny {
     @apply kin-btn border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text;

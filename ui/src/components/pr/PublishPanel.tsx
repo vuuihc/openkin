@@ -211,7 +211,7 @@ export default function PublishPanel({
       <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 py-3">
         <div className="mx-auto max-w-conversation space-y-3">
           {/* What is about to happen, before it happens. */}
-          <dl className="space-y-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5 text-body">
+          <dl className="space-y-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5 text-body">
             <Row label={tr("publish.repoLabel")} value={repo ? shortRepo(repo) : ""} full={repo} />
             <Row label={tr("publish.branchLabel")} value={shownBranch} mono />
           </dl>
@@ -253,7 +253,7 @@ export default function PublishPanel({
 
           {/* The answer, drawn where the question was asked. */}
           {report?.pushed && (
-            <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5">
+            <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
               {report.number ? (
                 <a
                   href={report.url}
@@ -261,7 +261,7 @@ export default function PublishPanel({
                   rel="noreferrer"
                   className="flex items-center gap-1.5 text-strong font-medium text-kin-text hover:underline"
                 >
-                  <IconPullRequest size={14} className="flex-none text-kin-green" />
+                  <IconPullRequest size={14} className="flex-none text-kin-green-ink" />
                   <span>{tr("publish.published", { number: report.number })}</span>
                   <IconExternal size={11} className="flex-none" />
                 </a>
@@ -270,7 +270,7 @@ export default function PublishPanel({
                 // would send the person looking for a pull request that is not
                 // there; the branch really is on the remote, and that is what
                 // this line claims.
-                <p className="flex items-start gap-1.5 text-body text-kin-orange">
+                <p className="flex items-start gap-1.5 text-body text-kin-orange-ink">
                   <IconAlert size={13} className="mt-0.5 flex-none" />
                   <span>{tr("publish.pushedNoPR")}</span>
                 </p>
@@ -280,10 +280,10 @@ export default function PublishPanel({
           )}
 
           {blocked && (
-            <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5">
+            <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5">
               {headline && (
                 <p className="flex items-start gap-1.5 text-body text-kin-text">
-                  <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange" />
+                  <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange-ink" />
                   <span>{headline}</span>
                 </p>
               )}
@@ -300,7 +300,9 @@ export default function PublishPanel({
                     : "flex items-start gap-1.5 text-body text-kin-text"
                 }
               >
-                {!headline && <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange" />}
+                {!headline && (
+                  <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange-ink" />
+                )}
                 <span>
                   {headline ? `${tr("publish.said")} ` : ""}
                   {report?.reason || tr("publish.blocked", { code: blocked })}
@@ -321,7 +323,7 @@ export default function PublishPanel({
           )}
 
           {error && (
-            <p className="flex items-start gap-1.5 text-body text-kin-red">
+            <p className="flex items-start gap-1.5 text-body text-kin-red-ink">
               <IconAlert size={13} className="mt-0.5 flex-none" />
               <span>{error}</span>
             </p>

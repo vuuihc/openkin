@@ -36,10 +36,10 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6 bg-kin-bg">
           <div
-            className="max-w-md w-full rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 space-y-3"
+            className="max-w-md w-full rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 space-y-3"
             role="alert"
           >
-            <div className="text-strong leading-5 font-semibold text-[#ff8a80]">
+            <div className="text-strong leading-5 font-semibold text-kin-red-ink">
               {t("task.loadFailed")}
             </div>
             <p className="text-strong text-kin-secondary break-words">{message}</p>

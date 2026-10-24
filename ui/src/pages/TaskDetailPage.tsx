@@ -761,11 +761,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   if (error && !task) {
     return (
       <div className="flex-1 p-6 space-y-3">
-        <Link to="/" className="text-strong leading-5 text-kin-blue">
+        <Link to="/" className="text-strong leading-5 text-kin-blue-ink">
           {tr("task.home")}
         </Link>
         <div
-          className="rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
+          className="rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink"
           role="alert"
         >
           {error}
@@ -777,7 +777,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   if (!task) {
     return (
       <div className="flex-1 p-6 space-y-3">
-        <Link to="/" className="text-strong leading-5 text-kin-blue">
+        <Link to="/" className="text-strong leading-5 text-kin-blue-ink">
           {tr("task.home")}
         </Link>
         <div
@@ -840,7 +840,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             type="button"
             onClick={goBack}
             aria-label={tr("app.back")}
-            className="md:hidden mr-2 text-kin-blue min-w-[44px] min-h-11 -ml-2 flex items-center justify-center"
+            className="md:hidden mr-2 text-kin-blue-ink min-w-[44px] min-h-11 -ml-2 flex items-center justify-center"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <IconBack size={18} strokeWidth={2} />
@@ -901,7 +901,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={() => void onDelete()}
               disabled={deleting}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-[#ff8a80] hover:border-[rgba(255,69,58,.35)] disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
               title={tr("task.deleteSession")}
               aria-label={tr("task.deleteSession")}
             >
@@ -919,14 +919,14 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             )}
             {!terminal && (
               <>
-                <span className="text-kin-blue tabular-nums">
+                <span className="text-kin-blue-ink tabular-nums">
                   {degraded ? tr("task.reconnect") : tr("task.running")}
                 </span>
                 <button
                   type="button"
                   onClick={() => void onStop()}
                   disabled={stopping}
-                  className="text-body font-semibold text-[#ff8a80] hover:text-[#ffb4ad] disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-[rgba(255,69,58,.3)] bg-[rgba(255,69,58,.08)]"
+                  className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
                 >
                   {stopping ? tr("task.stopping") : tr("composer.stop")}
                 </button>
@@ -937,7 +937,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
         {error && (
           <div
-            className="flex-none border-b border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-2 text-body text-[#ff8a80]"
+            className="flex-none border-b border-kin-red/30 bg-kin-red/10 px-4 py-2 text-body text-kin-red-ink"
             role="alert"
           >
             {error}
@@ -1136,7 +1136,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
       {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
       <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/95 backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
+        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
         aria-label={tr("task.sessionRail")}
       >
         <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />

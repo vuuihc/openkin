@@ -161,8 +161,8 @@ export default function AgentSessionDetailPage() {
   if (error || !session) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-strong text-kin-red">{error || tr("agentSession.notFound")}</p>
-        <Link to="/new" className="text-strong text-kin-blue hover:underline">
+        <p className="text-strong text-kin-red-ink">{error || tr("agentSession.notFound")}</p>
+        <Link to="/new" className="text-strong text-kin-blue-ink hover:underline">
           {tr("agentSession.backToChat")}
         </Link>
       </div>
@@ -213,10 +213,10 @@ export default function AgentSessionDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-1.5 max-w-[45%]">
-          <span className="px-1.5 py-0.5 rounded border border-kin-border text-micro text-kin-muted">
+          <span className="px-1.5 py-0.5 rounded border border-kin-hairline text-micro text-kin-muted">
             {session.status}
           </span>
-          <span className="px-1.5 py-0.5 rounded border border-kin-border text-micro text-kin-muted">
+          <span className="px-1.5 py-0.5 rounded border border-kin-hairline text-micro text-kin-muted">
             {session.linked
               ? tr("agentSession.connected")
               : canContinue
@@ -246,7 +246,7 @@ export default function AgentSessionDetailPage() {
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll py-5">
         {historyError && (
           <div className="max-w-conversation mx-auto px-4 sm:px-7">
-            <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-strong text-kin-orange">
+            <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-strong text-kin-orange-ink">
               {historyError}
             </div>
           </div>

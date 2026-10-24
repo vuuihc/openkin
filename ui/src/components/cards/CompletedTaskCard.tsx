@@ -44,7 +44,10 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
 
   return (
     <div className="flex gap-2.5 items-start">
-      <div className="w-[26px] h-[26px] flex-none rounded-lg bg-gradient-to-b from-[#3a3a3e] to-[#2a2a2e] flex items-center justify-center">
+      {/* A raised tile, not a gradient: the two greys it interpolated were the
+          dark scheme's `elevated` and `bg`, so in the light scheme it was a
+          black square. One fill token says the same thing in both. */}
+      <div className="w-[26px] h-[26px] flex-none rounded-lg bg-kin-fill-strong flex items-center justify-center">
         <IconStar size={14} className={statusView.iconClass} />
       </div>
       <div className="flex-1 min-w-0">

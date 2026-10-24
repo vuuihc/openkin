@@ -54,12 +54,12 @@ export default function ProjectSummaryCard({
         <p className="mt-3 text-body text-kin-muted">{tr("newChat.projectSummaryLoading")}</p>
       ) : error ? (
         <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-body text-red-500/90">{error}</p>
+          <p className="text-body text-kin-red-ink">{error}</p>
           {onRetry && (
             <button
               type="button"
               onClick={onRetry}
-              className="text-body text-kin-accent hover:underline"
+              className="text-body text-kin-blue-ink hover:underline"
             >
               {tr("common.retry")}
             </button>

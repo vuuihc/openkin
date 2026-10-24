@@ -159,7 +159,7 @@ export default function SessionsPage() {
                 }
                 className="flex w-full min-h-16 items-start gap-2.5 border-b border-[var(--kin-hairline)] px-4 py-2.5 text-left active:bg-[var(--kin-fill)]"
               >
-                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-lg bg-kin-blue-soft text-subtitle font-bold text-[#6cb2ff]">
+                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-lg bg-kin-blue/15 text-subtitle font-bold text-kin-blue-ink">
                   {initial(agentDisplayName(row.task?.agent ?? row.session!.agent_id))}
                 </span>
 
@@ -208,13 +208,13 @@ function StatusPill({ status }: { status: string }) {
   const view = taskCardStatusView(status);
   const tone =
     view.tone === "approval"
-      ? "bg-kin-orange-soft text-kin-orange"
+      ? "bg-kin-orange/15 text-kin-orange-ink"
       : view.tone === "completed"
-        ? "bg-[rgba(48,209,88,.13)] text-kin-green"
+        ? "bg-kin-green/15 text-kin-green-ink"
         : view.tone === "failed"
-          ? "bg-[rgba(255,69,58,.12)] text-kin-red"
+          ? "bg-kin-red/15 text-kin-red-ink"
           : view.tone === "running"
-            ? "bg-kin-blue-soft text-[#6cb2ff]"
+            ? "bg-kin-blue/15 text-kin-blue-ink"
             : "bg-[var(--kin-fill)] text-kin-muted";
   return (
     <span

@@ -119,7 +119,7 @@ export default function ArtifactsPage() {
               className={[
                 "px-3 py-1.5 rounded-lg text-strong font-medium min-h-9",
                 filter === k
-                  ? "bg-kin-blue text-white"
+                  ? "bg-kin-blue text-kin-on-brand"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",
               ].join(" ")}
             >
@@ -128,7 +128,7 @@ export default function ArtifactsPage() {
           ))}
         </div>
 
-        {error && <p className="mt-4 text-strong text-kin-red">{error}</p>}
+        {error && <p className="mt-4 text-strong text-kin-red-ink">{error}</p>}
         {items === null && !error && (
           <div className="mt-6">{slow ? <SlowConnectHint show /> : <TaskListSkeleton />}</div>
         )}
@@ -175,7 +175,7 @@ export default function ArtifactsPage() {
                           <Link
                             to={`/tasks/${a.source_task_id}`}
                             onClick={(e) => e.stopPropagation()}
-                            className="text-kin-blue hover:underline truncate max-w-[220px]"
+                            className="text-kin-blue-ink hover:underline truncate max-w-[220px]"
                           >
                             {a.source_task_title || tr("artifacts.sourceTask")}
                           </Link>

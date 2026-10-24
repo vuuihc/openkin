@@ -1,36 +1,97 @@
 /*
   Kin design tokens — every colour value the console uses is written here.
 
-  Two blocks, one per scheme, and only two. There used to be four: the two
-  `@media (prefers-color-scheme: …)` blocks that matched
-  `html[data-theme="system"]` were dead, because `applyTheme()` always sets the
-  resolved class (`light` / `dark`) alongside the attribute, and `html.light`
-  already matched. Resolving "system" in JS — which it did anyway, to keep the
-  class in step with the attribute — is what lets the duplication go.
+  Three blocks: one per scheme, plus one for the values that are deliberately
+  the same in both (the agents' identity marks — see the note above them). The
+  per-scheme pair used to be four: the two `@media (prefers-color-scheme: …)`
+  blocks that matched `html[data-theme="system"]` were dead, because
+  `applyTheme()` always sets the resolved class (`light` / `dark`) alongside the
+  attribute, and `html.light` already matched. Resolving "system" in JS — which
+  it did anyway, to keep the class in step with the attribute — is what lets the
+  duplication go.
 
   Invariants, all held by `tokens.test.ts`:
 
-  - both blocks declare the same set of names;
+  - both schemes resolve to the same set of names, counting the shared block
+    into each, and no name is declared twice within a scheme;
   - every `var(--kin-*)` referenced anywhere in `src/` or in the Tailwind
     config resolves here (four did not, before this file existed);
   - every token is presented on the `/design` gallery page, so a token nobody
     renders is a test failure rather than a discovery;
   - each of `page` / `sidebar` / `inspector` / `elevated` is at least 2 L* from
-    `bg`, and each ink step clears 4.5:1 on the five surfaces it is drawn on
-    (`bg`, `elevated`, `panel`, `sidebar`, `inspector`);
-  - the focus ring clears 3:1 on `page`, `bg`, `elevated`, `panel`, `sidebar`
-    and `inspector`, and is opaque. Those six are the *opaque* surfaces: a ring
-    drawn inside a translucent fill (`--kin-fill-strong` over `elevated` is
-    2.79:1 in dark) is outside what the token is certified for, and nothing
-    measures it — see §7 of the P1 plan;
-  - no component writes a colour literal: the console's colours are the names
-    below, plus the status and brand set still in `tailwind.config.ts` (see the
-    note there — those move here as RGB channel triplets with the status work).
+    `bg`, and every ink step clears 4.5:1 on all six surfaces it is drawn on
+    (`page`, `bg`, `elevated`, `panel`, `sidebar`, `inspector`). `page` is in
+    that list because `AppShell` paints it on the root and the `<main>` inside
+    paints nothing: a page that does not paint its own surface — most of them —
+    draws its captions straight on the backdrop;
+  - the focus ring clears 3:1 on the same six, and is opaque. They are the
+    *opaque* surfaces: a ring drawn inside a translucent fill
+    (`--kin-fill-strong` over `elevated` is 2.79:1 in dark) is outside what the
+    token is certified for, and nothing measures it — see §7 of the P1 plan;
+  - every status `-ink` clears 4.5:1 on all six surfaces, and — with
+    `--kin-text` and `--kin-secondary` — on its own fill at the 15% tint
+    ceiling over any of them. That ceiling lives in `design/colors.ts` and is
+    enforced on the call sites; above it a status colour is a solid (70%+), not
+    a wash. It is set by `--kin-muted`, which clears 4.5:1 on the six surfaces
+    but not on a tint of any strength: on a 15% tint over `elevated` it measures
+    3.63:1 in the dark scheme. So muted is a surface ink — a caption on a tint
+    is the one pairing the palette cannot certify, and raising the step far
+    enough for it (≈#b4b4b9 in dark) would leave it indistinguishable from
+    `secondary`. That is the muted step's own review, and P2's;
+  - no component writes a colour literal: every colour the console paints is a
+    name below, reached through `tailwind.config.ts`. Three boundaries are known
+    and outside this file: `components/terminal/terminalTheme.ts` (an ANSI
+    palette handed to xterm, which cannot read CSS variables and is a spec
+    rather than a design decision), `components/project/Heatmap.tsx` (five
+    literal greens on a fixed activity scale), and `components/chat/shareExport.ts`
+    (an inline light-theme stylesheet for a shared transcript — its own
+    document, with no tokens in it). S6's lint is what brings those in;
 
   The Tailwind side (`tailwind.config.ts`) holds the *scale* ladders — type,
   leading, tracking, elevation, radius (Tailwind's own six-step subset), and the
   layout widths — and references these names.
+
+  Two spellings, and the difference is load-bearing. A token written as a plain
+  colour (`#2c2c2e`, `rgba(…)`) can only be used whole; one written as a channel
+  triplet (`44 44 46`) can take an opacity modifier, because Tailwind compiles
+  `bg-kin-elevated/60` to `rgb(var(--kin-elevated-rgb) / 0.6)`. A triplet used
+  whole needs an `rgb()` wrapper at the call site, and a `/NN` applied to a plain
+  colour emits **no CSS at all** — which is how 43 backgrounds and text colours
+  in this console came to render as nothing (the class-compiles case in
+  `tokens.test.ts`, run against the tree as it was before this file existed,
+  lists them; it also found five dead names — a `kin-primary` and a
+  `kin-purple` that were never tokens).
 */
+
+/*
+  Identity marks for the agents themselves — the third-party half of the colour
+  set, and the one group that is deliberately the same in both schemes. These
+  identify somebody else's product, so they are not ours to re-tint by scheme;
+  an agent that changed colour when the lights went off would be a worse mark
+  than a slightly off-brand one. Kept in this file rather than the Tailwind
+  config because "every colour the console paints is written here" is the
+  invariant worth keeping; kept in their own block because a value that is
+  scheme-independent is a different kind of thing from a surface or an ink.
+
+  Each fill is drawn with whichever of `--kin-on-status` / `--kin-on-brand`
+  clears 4.5:1 on it. Two were close enough to need a decision rather than a
+  measurement: the Doubao blue moved 3% (#2678ff -> #2f7dff) so that near-black
+  clears it, and the Kin mark is not here at all — it is the accent fill.
+
+  `tokens.test.ts` reads this block into *both* schemes, and fails if a name in
+  it is also declared per-scheme (two writers, one value).
+*/
+:root,
+html.light,
+html[data-theme="light"] {
+  --kin-agent-claude: #d97757; /* with on-status, 5.57:1 */
+  --kin-agent-codex: #10a37f; /* with on-status, 5.43:1 */
+  --kin-agent-droid: #2f6fed; /* with on-brand, 4.55:1 */
+  --kin-agent-workbuddy: #6f5bd3; /* with on-brand, 5.11:1 */
+  --kin-agent-trae: #f05a47; /* with on-status, 5.18:1 */
+  --kin-agent-doubao: #2f7dff; /* with on-status, 4.55:1 */
+  --kin-agent-zcode: #202124; /* with on-brand, 16.10:1 */
+}
 
 :root {
   color-scheme: dark;
@@ -38,23 +99,29 @@
   /* Surfaces, from the window backdrop inward. Adjacent steps in this list are
      the ones that meet on screen: page|sidebar, sidebar|bg, bg|inspector.
      `elevated` and `panel` are the same value in this scheme by design; they
-     diverge in light, where a card and a sheet need different greys. */
+     diverge in light, where a card and a sheet need different greys.
+
+     `elevated` and `panel` are triplets, not colours: they are the two surfaces
+     the console floats *over* something (a sticky header at 60%, a palette at
+     92%), so they are the two that take an opacity modifier. The other four are
+     only ever painted whole and stay readable as colours. */
   --kin-page: #0e0e10; /* L* 4.0 — the window backdrop, body background */
   --kin-sidebar: #141416; /* L* 6.4 */
   --kin-bg: #1a1a1c; /* L* 9.3 — the main content surface and chat */
   --kin-inspector: #222226; /* L* 13.4 */
-  --kin-elevated: #2c2c2e; /* L* 18.1 — cards, popovers, the active tab */
-  --kin-panel: #2c2c2e; /* L* 18.1 — sheets and modals */
+  --kin-elevated-rgb: 44 44 46; /* L* 18.1 — cards, popovers, the active tab */
+  --kin-panel-rgb: 44 44 46; /* L* 18.1 — sheets and modals */
 
   /* Ink, three steps. Contrast on --kin-bg / --kin-elevated: text 16.0/12.8,
      secondary 10.3/8.3, muted 6.1/4.9. `muted` is the step that carries
      timestamps and labels, and it used to be #6e6e73 — 3.4:1 on this
      background, below AA at the 11–13px it is actually used at. `tertiary`
      was a fourth step 2.1 L* from this one; it is gone, and its callers point
-     here. */
+     here. `muted` is a triplet because it is also drawn at 50% (a disabled
+     label, a placeholder that must not compete). */
   --kin-text: #f5f5f7;
   --kin-secondary: #c7c7cc;
-  --kin-muted: #98989d;
+  --kin-muted-rgb: 152 152 157;
 
   /* Lines and fills. A hairline is a boundary *inside* a surface; between two
      surfaces the ladder above is what separates them. */
@@ -66,21 +133,48 @@
   /* The keyboard focus ring. Not a hairline: WCAG 1.4.11 asks a non-text
      indicator for 3:1, and the indicator these 21 sites replaced — 11 rings at
      `--kin-blue`/40–50% alpha, 5 rings and 5 outlines at the opaque brand blue —
-     managed 1.9:1 at best on the surface a focused control sits on. It is
+     managed 1.49–2.13:1 across the surfaces a focused control sits on — never
+     the 3:1 the indicator needs. It is
      opaque, and the value is the worst case that decided it: on --kin-elevated,
      the lightest surface a focused control sits on, brand blue reaches 3.82:1.
      Translucency does not survive the same test — this blue at 70% is 2.55:1
      there, less than the alpha would suggest, because the ring lightens with the
      surface behind it. The light block needs a different blue entirely: brand
-     blue is 2.57:1 fully opaque on --kin-page, so no alpha of it can pass. */
+     blue is 2.77:1 fully opaque on --kin-page, so no alpha of it can pass. */
   --kin-focus-ring: #0a84ff;
 
-  /* Status and brand. These are fills: they carry white or near-black text on
-     top of them. The ink variants that clear AA on a page are a separate set,
-     added with the rest of the status work. */
-  --kin-warning: #ff9f0a; /* 8.5:1 on --kin-bg */
+  /* Status, two tiers per family, both as channel triplets.
+
+     `-rgb` is the *fill*: a bar, a chip, a border, a button. It is the same
+     value in both schemes, because a fill is pigment rather than ink — a red
+     button is red in the dark and in the light. It carries `--kin-on-status`
+     or `--kin-on-brand` on top.
+
+     `-ink-rgb` is *text and glyphs drawn on a surface*. This is the tier the
+     light scheme needs and never had: #ff453a is 3.41:1 on white and #ff9f0a is
+     2.1:1, which is what "error", "diff" and "warning" text looked like there.
+     Each value below clears 4.5:1 on all six surfaces *and* on its own fill at
+     the 15% tint ceiling over `bg` and over `elevated`; the tightest pair in
+     this scheme is the red ink at the ceiling over elevated, at 5.19:1. */
+  --kin-blue-rgb: 10 132 255;
+  --kin-blue-ink-rgb: 108 178 255; /* 6.27:1 worst case, on --kin-elevated */
+  --kin-orange-rgb: 255 159 10;
+  --kin-orange-ink-rgb: 255 179 64; /* 7.81:1 */
+  --kin-green-rgb: 48 209 88;
+  --kin-green-ink-rgb: 141 228 160; /* 9.12:1 */
+  --kin-red-rgb: 255 69 58;
+  --kin-red-ink-rgb: 255 138 128; /* 6.10:1 */
+
+  /* Text on a *solid* status or brand fill. Two values, not one per family,
+     because the fills are the same in both schemes and each fill takes exactly
+     one of them: white on the orange fill is 2.06:1, and near-black on the blue
+     fill is 4.76:1 against white's 3.65:1 — every family was measured and
+     assigned. Both are plain colours: nothing draws them at an alpha. */
+  --kin-on-status: #1a1a1c;
+  --kin-on-brand: #ffffff;
+  /* The user's own chat bubble: the brand blue, one step deeper in the light
+     scheme so that white on it is not the darkest pair in the console. */
   --kin-bubble-user: #0a84ff;
-  --kin-bubble-user-fg: #ffffff;
 }
 
 html.light,
@@ -89,35 +183,53 @@ html[data-theme="light"] {
 
   /* Light inverts which end of the ladder is "away": the page is the grey and
      the content sits on it in white. Each step is still at least 2 L* from
-     --kin-bg, which is what makes a card readable without a border. */
-  --kin-page: #d8d8dc; /* L* 86.4 */
+     --kin-bg, which is what makes a card readable without a border.
+     The backdrop is also a surface ink is *drawn* on — pages do not paint one —
+     so it is measured like the rest, and it was 2.2 L* darker until a status
+     chip on it measured 4.41:1. */
+  --kin-page: #e0e0e5; /* L* 89.3 */
   --kin-sidebar: #ececf0; /* L* 93.5 */
   --kin-bg: #ffffff; /* L* 100 */
   --kin-inspector: #ebebf0; /* L* 93.2 */
-  --kin-elevated: #f4f4f6; /* L* 96.2 */
-  --kin-panel: #ffffff; /* L* 100 — a sheet is separated by its scrim */
+  --kin-elevated-rgb: 244 244 246; /* L* 96.2 */
+  --kin-panel-rgb: 255 255 255; /* L* 100 — a sheet is separated by its scrim */
 
-  /* 17.0/15.5, 11.3/10.3, 5.5/5.0 on --kin-bg / --kin-elevated, and 4.6 on the
+  /* 17.0/15.5, 11.4/10.3, 6.6/6.1 on --kin-bg / --kin-elevated, and 5.6 on the
      sidebar. The dark steps would be 1.0–2.2:1 here, which is why these
-     cannot be shared with the block above. The one surface `muted` does not
-     clear AA on is --kin-page (3.8:1) — that is the backdrop cards sit on,
-     not a place labels are drawn, and darkening it further would cost the
-     step its distance from `secondary`. */
+     cannot be shared with the block above. `muted` is the step that sets the
+     light backdrop: at the old 105 105 110 it was 3.84:1 on `--kin-page`, which
+     most pages draw their captions on because `<main>` paints nothing, and
+     darkening it was cheaper than lifting the backdrop out of its own range. */
   --kin-text: #1c1c1e;
   --kin-secondary: #3a3a3c;
-  --kin-muted: #69696e;
+  --kin-muted-rgb: 92 92 97;
 
   --kin-hairline: rgba(0, 0, 0, 0.09);
   --kin-hairline-strong: rgba(0, 0, 0, 0.16);
   --kin-fill: rgba(0, 0, 0, 0.04);
   --kin-fill-strong: rgba(0, 0, 0, 0.08);
 
-  /* 3.39:1 on --kin-page, the worst of the surfaces a focused control sits on;
+  /* 3.66:1 on --kin-page, the worst of the surfaces a focused control sits on;
      4.05:1 or better on the rest. A deeper blue than the dark theme's, because
      this one has to clear 3:1 on white. */
   --kin-focus-ring: #0b6fe0;
 
-  --kin-warning: #b45309; /* 5.0:1 on --kin-bg */
+  /* The fills do not switch (see the block above); the inks do, and this is the
+     half of the pair that never existed. #ff453a is 3.41:1 on white and #ff9f0a
+     is 2.1:1 — these values are 5.1–5.7:1 on all six surfaces and 5.57:1 or
+     better on their own fill at the 15% tint ceiling. `--kin-blue-ink` is the
+     one the plan got wrong: it proposed #0b5fcc, which is 4.19:1 on
+     --kin-page, the surface `AppShell` paints and most pages do not cover. */
+  --kin-blue-rgb: 10 132 255;
+  --kin-blue-ink-rgb: 10 82 180; /* 5.54:1 worst case, on --kin-page */
+  --kin-orange-rgb: 255 159 10;
+  --kin-orange-ink-rgb: 125 68 0; /* 5.47:1 */
+  --kin-green-rgb: 48 209 88;
+  --kin-green-ink-rgb: 16 92 39; /* 5.72:1 */
+  --kin-red-rgb: 255 69 58;
+  --kin-red-ink-rgb: 165 31 24; /* 5.26:1 */
+
+  --kin-on-status: #1a1a1c;
+  --kin-on-brand: #ffffff;
   --kin-bubble-user: #007aff;
-  --kin-bubble-user-fg: #ffffff;
 }

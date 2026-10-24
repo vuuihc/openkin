@@ -45,7 +45,7 @@ export default function PermissionModePicker({
         className={[
           "max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
           "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
-          mode === "yolo" ? "text-[#ffb340]" : "text-kin-secondary",
+          mode === "yolo" ? "text-kin-orange-ink" : "text-kin-secondary",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
         ].join(" ")}
         value={mode}
@@ -88,8 +88,8 @@ export default function PermissionModePicker({
                 "px-2 py-0.5 rounded-md text-caption font-medium transition-colors",
                 active
                   ? yolo
-                    ? "bg-[rgba(255,159,10,.18)] text-[#ffb340]"
-                    : "bg-kin-blue-soft text-kin-blue"
+                    ? "bg-kin-orange/15 text-kin-orange-ink"
+                    : "bg-kin-blue/15 text-kin-blue-ink"
                   : "text-kin-muted hover:text-kin-secondary hover:bg-[var(--kin-fill)]",
                 readOnly ? "cursor-default" : "cursor-pointer",
               ].join(" ")}

@@ -62,7 +62,7 @@ export default function TerminalTabs({
 
   return (
     <div
-      className="flex items-center gap-0 overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)]/30"
+      className="flex items-center gap-0 overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)]"
       role="tablist"
       aria-label={tr("terminal.title")}
     >
@@ -81,7 +81,7 @@ export default function TerminalTabs({
               transition-colors
               ${
                 isActive
-                  ? "bg-[var(--kin-elevated)] text-kin-text"
+                  ? "bg-kin-elevated text-kin-text"
                   : "bg-[var(--kin-bg)] text-kin-secondary hover:bg-[var(--kin-fill)]"
               }
             `}
@@ -107,7 +107,9 @@ export default function TerminalTabs({
               ) : session.connectionStatus === "connecting" ? (
                 <span className="text-caption text-kin-muted">{tr("terminal.connecting")}</span>
               ) : session.connectionStatus === "disconnected" ? (
-                <span className="text-caption text-kin-orange">{tr("terminal.disconnected")}</span>
+                <span className="text-caption text-kin-orange-ink">
+                  {tr("terminal.disconnected")}
+                </span>
               ) : null}
             </button>
 

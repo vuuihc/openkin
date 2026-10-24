@@ -452,7 +452,7 @@ export default function AgentsPage() {
 
         {error && (
           <div
-            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
+            className="mt-6 rounded-xl border border-kin-red/40 bg-kin-red/10 px-4 py-3 text-strong leading-5 text-kin-red-ink"
             role="alert"
           >
             {error}
@@ -519,7 +519,7 @@ export default function AgentsPage() {
         {agents !== null && (
           <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated">
             <table className="w-full min-w-[980px] text-left text-strong">
-              <thead className="bg-[var(--kin-fill)]/60 text-caption uppercase tracking-label text-kin-muted">
+              <thead className="bg-[var(--kin-fill)] text-caption uppercase tracking-label text-kin-muted">
                 <tr>
                   <SortTh colKey="name">{tr("agents.colName")}</SortTh>
                   <SortTh colKey="status">{tr("agents.colStatus")}</SortTh>
@@ -571,15 +571,15 @@ export default function AgentsPage() {
                       : (spendProgress?.status ?? tokensProgress?.status ?? "ok");
                   const limitColorClass =
                     limitColor === "over"
-                      ? "text-kin-red"
+                      ? "text-kin-red-ink"
                       : limitColor === "warn"
-                        ? "text-kin-warning"
+                        ? "text-kin-orange-ink"
                         : "text-kin-muted";
                   const barBgClass =
                     limitColor === "over"
                       ? "bg-kin-red"
                       : limitColor === "warn"
-                        ? "bg-kin-warning"
+                        ? "bg-kin-orange"
                         : "bg-kin-blue/70";
                   const kindBadge =
                     state === "native"
@@ -590,12 +590,12 @@ export default function AgentsPage() {
                   const cacheHit =
                     usage && usage.cacheEligible > 0 ? usage.cacheRead / usage.cacheEligible : null;
                   return (
-                    <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]/30">
+                    <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]">
                       <td className="px-3 py-3 min-w-[160px]">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-medium text-kin-text">{a.name}</span>
                           {a.default ? (
-                            <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-micro font-semibold text-kin-blue">
+                            <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-micro font-semibold text-kin-blue-ink">
                               {tr("agents.isDefault")}
                             </span>
                           ) : null}
@@ -699,7 +699,7 @@ export default function AgentsPage() {
                           {a.available && !a.default ? (
                             <button
                               type="button"
-                              className="text-body text-kin-blue hover:underline"
+                              className="text-body text-kin-blue-ink hover:underline"
                               onClick={() => void onSetDefault(a.id)}
                             >
                               {tr("agents.setDefault")}
@@ -708,7 +708,7 @@ export default function AgentsPage() {
                           {!a.installed && a.install_url ? (
                             <button
                               type="button"
-                              className="text-body text-kin-blue hover:underline"
+                              className="text-body text-kin-blue-ink hover:underline"
                               title={tr("agentCatalog.installHint")}
                               onClick={() => openInstallURL(a.install_url)}
                             >
@@ -720,7 +720,7 @@ export default function AgentsPage() {
                               {!a.installed ? (
                                 <button
                                   type="button"
-                                  className="text-body text-kin-blue hover:underline"
+                                  className="text-body text-kin-blue-ink hover:underline"
                                   title={tr("agents.askInstallHint")}
                                   onClick={() => askDefaultAgentToInstall(a, m.install_cmd!)}
                                 >

@@ -75,11 +75,11 @@ export default function TrayPage() {
   const connected = wsStatus === "connected";
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col bg-[rgba(40,40,44,.92)] backdrop-blur-[40px] text-kin-text select-none overflow-hidden">
+    <div className="h-[100dvh] w-full flex flex-col bg-kin-panel/90 backdrop-blur-[40px] text-kin-text select-none overflow-hidden">
       {/* Header */}
       <div className="flex items-center px-4 pt-3.5 pb-2.5 flex-none">
-        <div className="w-[22px] h-[22px] rounded-md bg-gradient-to-br from-[#5e5ce6] to-[#3a3a8c] flex items-center justify-center mr-2">
-          <IconKin size={12} className="text-white" />
+        <div className="w-[22px] h-[22px] rounded-md bg-kin-blue flex items-center justify-center mr-2">
+          <IconKin size={12} className="text-kin-on-brand" />
         </div>
         <span className="text-strong font-semibold">Kin</span>
         <span className="ml-auto text-caption text-kin-muted inline-flex items-center gap-1.5">
@@ -97,7 +97,7 @@ export default function TrayPage() {
         {/* Needs you */}
         {approvals.length > 0 && (
           <>
-            <div className="text-caption font-semibold uppercase tracking-label text-kin-orange px-1 pt-2 pb-1.5">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-orange-ink px-1 pt-2 pb-1.5">
               Needs you · {approvals.length}
             </div>
             <div className="space-y-2">
@@ -114,10 +114,10 @@ export default function TrayPage() {
                 return (
                   <div
                     key={a.id}
-                    className="rounded-xl border border-[rgba(255,159,10,.5)] bg-gradient-to-b from-[rgba(255,159,10,.12)] to-[rgba(255,159,10,.03)] p-3"
+                    className="rounded-xl border border-kin-orange/50 bg-gradient-to-b from-kin-orange/10 to-kin-orange/5 p-3"
                   >
                     <div className="flex items-center gap-1.5 text-body">
-                      <IconFile size={14} className="text-kin-orange flex-none" />
+                      <IconFile size={14} className="text-kin-orange-ink flex-none" />
                       <span className="font-semibold">{toolName}</span>
                       <span className="ml-auto text-caption text-kin-muted">
                         {a.task_agent || ""}
@@ -138,7 +138,7 @@ export default function TrayPage() {
                         type="button"
                         disabled={!!busy[a.id]}
                         onClick={() => void onDecide(a.id, "approved")}
-                        className="flex-1 py-1.5 rounded-lg bg-kin-orange text-[#1a1a1c] text-body font-semibold disabled:opacity-50"
+                        className="flex-1 py-1.5 rounded-lg bg-kin-orange text-kin-on-status text-body font-semibold disabled:opacity-50"
                       >
                         {busy[a.id] === "approved" ? "…" : "Approve"}
                       </button>
@@ -230,7 +230,7 @@ export default function TrayPage() {
         <button
           type="button"
           onClick={() => openMain("/")}
-          className="flex-1 py-2 rounded-lg bg-kin-blue text-white text-strong font-semibold"
+          className="flex-1 py-2 rounded-lg bg-kin-blue text-kin-on-brand text-strong font-semibold"
         >
           Open Kin
         </button>

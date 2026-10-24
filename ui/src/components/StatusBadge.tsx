@@ -1,11 +1,11 @@
 const STYLES: Record<string, string> = {
-  queued: "bg-zinc-800 text-zinc-300 border-zinc-600",
-  running: "bg-sky-950 text-sky-300 border-sky-700",
-  waiting_approval: "bg-amber-950 text-amber-300 border-amber-700",
-  waiting_input: "bg-indigo-950 text-indigo-300 border-indigo-700",
-  succeeded: "bg-emerald-950 text-emerald-300 border-emerald-700",
-  failed: "bg-red-950 text-red-300 border-red-800",
-  canceled: "bg-zinc-800 text-zinc-400 border-zinc-600",
+  queued: "bg-kin-fill-strong text-kin-secondary border-kin-hairline-strong",
+  running: "bg-kin-blue/15 text-kin-blue-ink border-kin-blue/30",
+  waiting_approval: "bg-kin-orange/15 text-kin-orange-ink border-kin-orange/30",
+  waiting_input: "bg-kin-orange/15 text-kin-orange-ink border-kin-orange/30",
+  succeeded: "bg-kin-green/15 text-kin-green-ink border-kin-green/30",
+  failed: "bg-kin-red/15 text-kin-red-ink border-kin-red/30",
+  canceled: "bg-kin-fill-strong text-kin-muted border-kin-hairline-strong",
 };
 
 export default function StatusBadge({ status }: { status: string }) {
@@ -15,7 +15,7 @@ export default function StatusBadge({ status }: { status: string }) {
       className={`inline-flex items-center rounded-md border px-2 py-0.5 text-body leading-4 font-medium capitalize ${cls}`}
     >
       {status === "running" && (
-        <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />
+        <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-kin-blue" />
       )}
       {status.replace(/_/g, " ")}
     </span>

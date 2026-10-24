@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f1115" />
+    <!-- The colour the browser paints its own chrome with. Written by
+         `applyTheme()` from `--kin-page`, because `content` takes no `var()` and
+         a hand-written hex here would be the one colour outside the token
+         layer. This value is what a browser that has not run the app yet sees. -->
+    <meta name="theme-color" content="#0e0e10" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -13,7 +17,7 @@
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>Kin</title>
   </head>
-  <body class="bg-surface text-zinc-100 antialiased">
+  <body class="bg-kin-bg text-kin-text antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
