@@ -727,6 +727,13 @@ paths:
   /api/tasks/{taskId}/prompt:
     post:
       operationId: followUpTask
+      description: |
+        Send a prompt to a task.
+
+        A task that is still working accepts the prompt into its queue and
+        delivers it at the next turn boundary, oldest first; nothing in flight
+        is cancelled. Set `interrupt: true` to cut the running turn short and
+        deliver next instead, which costs the work in flight.
       parameters:
         - $ref: "#/components/parameters/TaskId"
       requestBody:
@@ -742,6 +749,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Task"
+  /api/tasks/{taskId}/prompts:
+    get:
+      operationId: listQueuedPrompts
+      description: |
+        Prompts accepted for this task that are still waiting for a turn,
+        oldest first. An empty list means every message the user has sent has
+        been answered. Items carry the `user_seq` of the message event that was
+        written when the prompt was accepted, which is what a client marks as
+        waiting for an answer.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Queued prompts, oldest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/QueuedPrompt"
+        "404":
+          description: Task not found
   /api/tasks/{taskId}/cancel:
     post:
       operationId: cancelTask
@@ -1948,6 +1977,34 @@ components:
           type: string
         permission_mode:
           type: string
+        interrupt:
+          type: boolean
+          description: |
+            Cut the running turn short and deliver this prompt next, instead of
+            waiting for the turn to end. Opt-in: it discards the work in flight,
+            and on that path pending approvals are denied and pending questions
+            are answered on the user's behalf so the process can exit.
+    QueuedPrompt:
+      type: object
+      required: [id, prompt, queued_at]
+      properties:
+        id:
+          type: integer
+        prompt:
+          type: string
+        agent:
+          type: string
+        model:
+          type: string
+        permission_mode:
+          type: string
+        user_seq:
+          type: integer
+          description: |
+            Seq of the message event written when this prompt was accepted. Zero
+            when that write failed, in which case the delivery writes it.
+        queued_at:
+          type: integer
     ReplayRequest:
       type: object
       required: [mode]

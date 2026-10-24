@@ -546,7 +546,36 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** @description Send a prompt to a task.
+         *
+         *     A task that is still working accepts the prompt into its queue and
+         *     delivers it at the next turn boundary, oldest first; nothing in flight
+         *     is cancelled. Set `interrupt: true` to cut the running turn short and
+         *     deliver next instead, which costs the work in flight.
+         *      */
         post: operations["followUpTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tasks/{taskId}/prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Prompts accepted for this task that are still waiting for a turn,
+         *     oldest first. An empty list means every message the user has sent has
+         *     been answered. Items carry the `user_seq` of the message event that was
+         *     written when the prompt was accepted, which is what a client marks as
+         *     waiting for an answer.
+         *      */
+        get: operations["listQueuedPrompts"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1288,6 +1317,24 @@ export interface components {
             agent?: string;
             model?: string;
             permission_mode?: string;
+            /** @description Cut the running turn short and deliver this prompt next, instead of
+             *     waiting for the turn to end. Opt-in: it discards the work in flight,
+             *     and on that path pending approvals are denied and pending questions
+             *     are answered on the user's behalf so the process can exit.
+             *      */
+            interrupt?: boolean;
+        };
+        QueuedPrompt: {
+            id: number;
+            prompt: string;
+            agent?: string;
+            model?: string;
+            permission_mode?: string;
+            /** @description Seq of the message event written when this prompt was accepted. Zero
+             *     when that write failed, in which case the delivery writes it.
+             *      */
+            user_seq?: number;
+            queued_at: number;
         };
         ReplayRequest: {
             /** @enum {string} */
@@ -2744,6 +2791,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Task"];
                 };
+            };
+        };
+    };
+    listQueuedPrompts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Queued prompts, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedPrompt"][];
+                };
+            };
+            /** @description Task not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
