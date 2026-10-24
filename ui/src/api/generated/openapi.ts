@@ -3170,8 +3170,9 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description One line. A control character in it is a 400. */
+                    /** @description One line, and required: `gh pr create` opens an editor without one, and the machine has none. At most 256 characters, counted the way GitHub counts them, so a title written in Chinese is not refused for its length in bytes. A control character in it is a 400. */
                     title?: string;
+                    /** @description Markdown, at most 64 KiB. Newlines are its substance and are not refused. */
                     body?: string;
                 };
             };

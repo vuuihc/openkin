@@ -1059,9 +1059,17 @@ paths:
               properties:
                 title:
                   type: string
-                  description: One line. A control character in it is a 400.
+                  description: >-
+                    One line, and required: `gh pr create` opens an editor
+                    without one, and the machine has none. At most 256
+                    characters, counted the way GitHub counts them, so a title
+                    written in Chinese is not refused for its length in bytes.
+                    A control character in it is a 400.
                 body:
                   type: string
+                  description: >-
+                    Markdown, at most 64 KiB. Newlines are its substance and are
+                    not refused.
       responses:
         "200":
           description: >-
