@@ -253,11 +253,13 @@ func defaultBranchSentence(name string, recorded bool) string {
 
 // forgeProbeTimeout bounds the one question this guard asks the forge.
 //
-// Short on purpose. A guard that cannot get an answer falls back rather than
-// failing (see forgeDefaultBranch), so waiting longer buys nothing — and the
-// publish this probe is part of still has a push and a `gh pr create` to do
-// inside the same budget the Hub is waiting on.
-const forgeProbeTimeout = 10 * time.Second
+// The longest the guard can afford to be wrong is the reason for the number, and
+// the direction it errs in is why it is not shorter: a probe that gives up is
+// silence, and silence here is a push that goes ahead. So this is the gh call's
+// own timeout, which is what the question would have had before it had one of its
+// own — the cost lands only on a checkout sitting on a branch that is neither
+// `main` nor `master`, where the question is the only thing that can answer.
+const forgeProbeTimeout = 30 * time.Second
 
 // apiRepo mirrors the one field this package reads from GitHub's repository
 // payload. The REST payload rather than `gh repo view --json`, for the reason the
@@ -291,10 +293,11 @@ func forgeDefaultBranch(ctx context.Context, gh ghRunner, repo Repo) string {
 		return ""
 	}
 	name := strings.TrimSpace(payload.DefaultBranch)
-	// A branch name is one word and a ref may hold no control character; anything
-	// else is an answer this cannot compare, and returning it would put it in a
-	// sentence about somebody's checkout.
-	if name == "" || strings.ContainsAny(name, " \t\r\n") {
+	// An answer with nothing in it is the same as no answer. Nothing more is
+	// checked here: the one caller compares this against the checkout's branch, and
+	// a git ref can hold no space, tab or newline — so a name carrying one could
+	// never match, and a guard against it would be a guard against nothing.
+	if name == "" {
 		return ""
 	}
 	return name

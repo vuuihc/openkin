@@ -2,11 +2,13 @@ package github
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -205,14 +207,20 @@ func TestPublishRefusesTheDefaultBranchTheForgeNames(t *testing.T) {
 	}
 }
 
-// A machine whose gh cannot answer for the repository is still refused on the two
-// names every repository with a trunk has, because the direction to err in is
-// refusing a push that might have been wanted.
-func TestPublishFallsBackToTheTwoNamesWhenTheForgeWillNotSay(t *testing.T) {
+// The one case where the forge is the only thing that can answer, and it cannot:
+// a branch that is neither `main` nor `master`, in a checkout that recorded no
+// default branch of its own, with a gh that fails — the ordinary way that happens
+// is no credentials for a private repository, or no network.
+//
+// Silence is not a refusal here, and this test is where that decision is on the
+// record rather than implied: the push goes ahead. The alternative — refusing
+// every branch nobody can vouch for — would refuse the ordinary feature branch on
+// every machine whose gh is not logged in, which is a much larger harm than the
+// one it would prevent, and the guards that need no network still stand in front
+// of it (`main`, `master`, uncommitted work, the boundary).
+func TestPublishPushesANameOnlyTheForgeCouldHaveRefused(t *testing.T) {
 	f := newPublishFixture(t)
-	gitIn(t, f.dir, "checkout", "-q", "main")
-	// gh failing is the ordinary way this happens: no credentials for a private
-	// repository, or no network.
+	gitIn(t, f.dir, "checkout", "-q", "-b", "trunk")
 	gh := fakeGH(t, "#!/bin/sh\necho 'gh: Not Found (HTTP 404)' >&2\nexit 1\n")
 
 	out, err := publishWith(context.Background(), f.manager, gh, PublishRequest{
@@ -221,11 +229,12 @@ func TestPublishFallsBackToTheTwoNamesWhenTheForgeWillNotSay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Blocked != PublishBlockedDefault {
-		t.Fatalf("blocked = %q (%s), want main refused anyway", out.Blocked, out.Reason)
+	if out.Blocked != "" {
+		t.Fatalf("blocked = %q (%s), want the push to go ahead when the forge has no answer",
+			out.Blocked, out.Reason)
 	}
-	if f.remoteHas(t, "main") != "" {
-		t.Fatal("main was pushed")
+	if f.remoteHas(t, "trunk") == "" {
+		t.Fatal("trunk was not pushed, and no guard here could have known it was the trunk")
 	}
 }
 
@@ -395,5 +404,44 @@ func writeFileIn(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// answeringGH is a gh that answers in this process, so that a test can look at
+// the context the question was asked with rather than at what a script printed.
+type answeringGH func(ctx context.Context, args ...string) ([]byte, error)
+
+func (f answeringGH) Run(ctx context.Context, args ...string) ([]byte, error) {
+	return f(ctx, args...)
+}
+
+// The probe is the one question this package asks whose silence is a push, so it
+// is asked with a deadline of its own — and that deadline is the gh call's, not
+// something shorter, because giving up early here means pushing a branch the guard
+// could not clear. Both halves are checked in one pass: the fake reads the
+// deadline off the context it was handed, which is the only way to see a timeout
+// without waiting one out.
+func TestTheForgeProbeAsksWithItsOwnDeadline(t *testing.T) {
+	var left time.Duration
+	gh := answeringGH(func(ctx context.Context, args ...string) ([]byte, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			return nil, errors.New("the forge was asked without a deadline")
+		}
+		left = time.Until(deadline)
+		return []byte(`{"default_branch":"trunk"}`), nil
+	})
+
+	name := forgeDefaultBranch(context.Background(), gh, Repo{Owner: "owner", Name: "app"})
+	if name != "trunk" {
+		t.Fatalf("the probe read %q from an answer that names trunk", name)
+	}
+	if left <= 0 || left > forgeProbeTimeout {
+		t.Fatalf("the probe had %s left, want a deadline of at most its own %s", left, forgeProbeTimeout)
+	}
+	if forgeProbeTimeout > ghTimeout {
+		t.Fatalf("the probe waits %s where the gh call inside it waits %s: silence"+
+			" here is a push, so the guard must not be the first to give up",
+			forgeProbeTimeout, ghTimeout)
 	}
 }
