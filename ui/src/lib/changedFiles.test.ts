@@ -6,6 +6,7 @@ import {
   extractChangedFiles,
   extractFileDiff,
   lineDeltaFromTool,
+  sourceChangesFor,
   summarizeChangedFiles,
 } from "./changedFiles";
 
@@ -184,6 +185,25 @@ describe("changedFilesFromDiff", () => {
     expect(files[0].workspaceId).toBeUndefined();
     expect(files[0].generation).toBeUndefined();
     expect(files[0].status).toBe("modified");
+  });
+});
+
+describe("sourceChangesFor", () => {
+  const answer = { taskId: "t2", files: [], truncated: true };
+
+  it("returns the answer that names this task", () => {
+    expect(sourceChangesFor(answer, "t2")).toBe(answer);
+  });
+
+  // The window between switching tasks and the next answer landing is where a
+  // previous task's truncation notice would otherwise be drawn over a list that
+  // is not truncated.
+  it("refuses an answer that names another task", () => {
+    expect(sourceChangesFor(answer, "t1")).toBeNull();
+  });
+
+  it("has nothing to return before the first answer", () => {
+    expect(sourceChangesFor(null, "t1")).toBeNull();
   });
 });
 
