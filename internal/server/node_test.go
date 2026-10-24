@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -222,6 +223,47 @@ func TestNodeRootsComeFromThisMachinesProjects(t *testing.T) {
 	// "anywhere".
 	if got := nodeRoots(ctx, nil, nil); len(got) != 0 {
 		t.Fatalf("roots with nothing declared = %v", got)
+	}
+}
+
+// A machine has to be able to answer about every directory it tells its Hub it
+// works in.
+//
+// The checkout root is the one root the daemon makes for itself, which is what
+// makes it the one that can be announced before it is there: a fresh machine
+// declares no projects, so this root is the entire list, and a console offers
+// what the hello advertises. Left uncreated it is not a harmless placeholder but
+// a suggestion that answers "there is no such directory on this machine" the
+// moment someone takes it — which, on a newly paired phone, is the first thing
+// anyone does.
+func TestTheMachineCanListEveryRootItAdvertises(t *testing.T) {
+	stateDir := t.TempDir()
+	// The list and the checkout root, built exactly the way serve builds them.
+	checkoutRoot, roots, err := workRoots(context.Background(), nil, stateDir, ServeFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 1 || roots[0] != checkoutRoot {
+		t.Fatalf("a fresh machine advertises %v, want only its checkout root %s", roots, checkoutRoot)
+	}
+	if _, err := os.Stat(checkoutRoot); err != nil {
+		t.Fatalf("this machine advertises %s but it is not there: %v", checkoutRoot, err)
+	}
+	asked, err := json.Marshal(worker.ListDirsParams{Path: roots[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer := (&node.Responder{Roots: roots}).Ask(context.Background(), worker.QueryListDirs, asked)
+	if answer.Error != "" {
+		t.Fatalf("this machine advertises %s but cannot list it: %s", roots[0], answer.Error)
+	}
+	// A machine that fetches nothing has no root of its own to make.
+	off, roots, err := workRoots(context.Background(), nil, stateDir, ServeFlags{CheckoutRoot: "off"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if off != "" || len(roots) != 0 {
+		t.Fatalf("--checkout-root off = %q with roots %v, want nothing", off, roots)
 	}
 }
 

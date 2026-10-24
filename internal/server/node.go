@@ -214,6 +214,66 @@ func resolveCheckoutRoot(stateDir, declared string) (string, error) {
 	return abs, nil
 }
 
+// ensureCheckoutRoot makes the checkout directory exist before this machine
+// announces it.
+//
+// What the hello advertises is what a console offers: those roots are the list a
+// phone picks from, and the first of them is the example the working-directory
+// field shows. A root announced before it is there is therefore not a harmless
+// placeholder — it is a suggestion that answers "there is no such directory on
+// this machine" the moment someone takes it, which on a freshly paired machine
+// is the phone's first action. Fetching creates this directory anyway (see
+// workspace.Checkouts.ready); this only moves that act to the moment the machine
+// starts claiming it works there.
+//
+// The other roots cannot be treated this way. A project or a --root can name a
+// volume that is not mounted yet, and creating a directory there would invent a
+// project rather than report one; those keep the unresolved-root warning.
+//
+// An empty root is a machine that fetches nothing, and nothing here is fatal: a
+// checkout root this machine cannot reach is a reason to refuse fetches, not a
+// reason to refuse to serve.
+func ensureCheckoutRoot(root string) error {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("cannot use %s as the checkout directory: %w", root, err)
+	}
+	return nil
+}
+
+// workRoots answers where this machine works: the checkout root, the projects it
+// holds, and anything the operator added by hand.
+//
+// Resolving the checkout root and making it real are one step because they are
+// one claim. The list returned here is what the hello advertises and what a
+// console offers, so a directory in it that this machine cannot answer about is
+// a promise made at startup, and the caller has no way to tell that the two
+// halves have to happen in this order.
+//
+// One failure is deliberately not one of those: a checkout root that cannot be
+// created is warned about and announced anyway. The usual reason it cannot be
+// created is a volume that is not mounted yet, and a path that will exist is a
+// path work may go to — so the machine still offers it and the refusal belongs
+// to whoever tries to use it before the volume is there, which is the executor
+// (UnresolvedRoots reports the same directory for exactly that). What this
+// function will not do is announce a root that merely has not been made yet on a
+// machine that *could* make it: that is the ordinary case, and it is the phone's
+// first suggestion.
+func workRoots(ctx context.Context, st *store.Store, stateDir string, flags ServeFlags) (string, []string, error) {
+	checkoutRoot, err := resolveCheckoutRoot(stateDir, flags.CheckoutRoot)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := ensureCheckoutRoot(checkoutRoot); err != nil {
+		// Not fatal: the machine still serves. UnresolvedRoots reports the same
+		// directory again for the role that has to refuse work in it.
+		warnToStderr("%v", err)
+	}
+	return checkoutRoot, nodeRoots(ctx, st, append([]string{checkoutRoot}, flags.NodeRoots...)), nil
+}
+
 // nodeIdentity is the id this Node presents. The Hub keys the device on the
 // credential, not on this, so it only has to be stable and readable in logs.
 func nodeIdentity() string {

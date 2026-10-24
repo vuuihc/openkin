@@ -531,11 +531,10 @@ func ServeWith(version string, flags ServeFlags) error {
 	// for a phone is a machine that runs work in them. It is one list rather than
 	// a second one because a directory the console can pick is a directory the
 	// executor must accept, and two lists are how those drift apart.
-	checkoutRoot, err := resolveCheckoutRoot(stateDir, flags.CheckoutRoot)
+	checkoutRoot, machineRoots, err := workRoots(ctx, st, stateDir, flags)
 	if err != nil {
 		return err
 	}
-	machineRoots := nodeRoots(ctx, st, append([]string{checkoutRoot}, flags.NodeRoots...))
 	nodeQueries = node.NewQueries()
 
 	srvAPI := &api.Server{
@@ -901,6 +900,13 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 	}
 	fmt.Printf("  token file: %s\n", tokenPath)
+	if checkoutRoot != "" {
+		// The one root nobody chose. It joins this machine's roots, so it is a
+		// directory work may be sent to and a directory a console offers; an
+		// operator who wants that boundary narrower has to be able to see it was
+		// widened, and how to narrow it.
+		fmt.Printf("  checkout root: %s (--checkout-root off fetches nothing)\n", checkoutRoot)
+	}
 
 	if accounts != nil {
 		printBootstrapState(context.Background(), accounts)
