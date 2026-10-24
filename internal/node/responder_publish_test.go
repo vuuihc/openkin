@@ -229,6 +229,12 @@ func TestGitBranchCreateWithoutAWorkspaceManager(t *testing.T) {
 // answers with no branch rather than with the one that was asked for: the Hub
 // writes its task row from this answer, and a row naming a branch nobody read is
 // the one thing the read-back exists to prevent.
+//
+// The failure is staged the way a real one arrives: `git branch` succeeds, and the
+// directory is not a checkout by the time it is read. ListBranches answers that
+// with a reason rather than an error, so this pins the path a machine actually
+// takes — the answer carries nothing — and not the responder's `err != nil` arm,
+// which is reached only if the directory disappears between the two calls.
 func TestGitBranchCreateAnswersWithNoBranchWhenItCannotReadItBack(t *testing.T) {
 	root := t.TempDir()
 	repo := gitRepo(t, filepath.Join(root, "checkout"))

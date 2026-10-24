@@ -162,22 +162,25 @@ func (c TurnCancel) Validate() error {
 	return nil
 }
 
-// bounded checks a required identifier.
+// bounded checks a required identifier, in bytes: an identifier's limit is the
+// wire's, and a byte is what the wire counts. The message says bytes for the same
+// reason `optional` does — see the note there, and `chars` below for the fields
+// whose bound is their reader's rather than the frame's.
 func bounded(field, value string, limit int) error {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return fmt.Errorf("%s is required", field)
 	}
 	if len(trimmed) > limit {
-		return fmt.Errorf("%s exceeds %d characters", field, limit)
+		return fmt.Errorf("%s exceeds %d bytes", field, limit)
 	}
 	return nil
 }
 
 // optional checks a field that may be absent but not oversized, in bytes: what it
 // bounds are things the wire carries, and a byte is what the wire counts. The
-// message says bytes for that reason — a body of 22,000 Chinese characters is
-// refused for being 64 KiB, not for being 65,536 characters, and a message that
+// message says bytes for that reason — a body of 11,000 Chinese characters is
+// refused for being 32 KiB, not for being 32,768 characters, and a message that
 // said the second would send the person looking for a limit they had not reached.
 func optional(field, value string, limit int) error {
 	if len(value) > limit {
