@@ -140,3 +140,57 @@ func TestPromptInterruptFlagChangesWhatTheAPIDoes(t *testing.T) {
 		t.Fatalf("status = %s, want the interrupted task re-queued with the new prompt", got.Status)
 	}
 }
+
+// A client renders "nothing is waiting" from this response, so an empty queue has
+// to be an empty list rather than null: null is what a type-checking client reads
+// as "the field is missing", and the waiting markers it would clear then stay up.
+func TestQueuedPromptsAPIAnswersAnEmptyQueueWithAnEmptyList(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	task := insertRunningTask(t, s, "api-queued-empty")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/prompts", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	if got := strings.TrimSpace(rr.Body.String()); got != "[]" {
+		t.Fatalf("empty queue answered with %s, want []", got)
+	}
+}
+
+// The zero anchor is part of the contract: a queued message whose user event failed
+// to write reports 0 so the sender can still find the row, and a client that reads
+// a missing key as "no anchor field" would drop it instead.
+func TestQueuedPromptsAPIAlwaysCarriesTheAnchorField(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	task := insertRunningTask(t, s, "api-queued-anchor")
+
+	if _, err := s.Store.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "no anchor", QueuedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/prompts", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var raw []map[string]json.RawMessage
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 1 {
+		t.Fatalf("entries = %+v, want the one queued message", raw)
+	}
+	if _, ok := raw[0]["user_seq"]; !ok {
+		t.Fatalf("user_seq is absent from %s, want it present as 0", rr.Body.String())
+	}
+}

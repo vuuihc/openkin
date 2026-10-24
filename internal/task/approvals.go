@@ -410,6 +410,10 @@ type pendingFollowUp struct {
 	fromAgent string
 	// interrupted marks that the previous turn was cut short.
 	interrupted bool
+	// userSeq is the message event this follow-up answers, captured when the
+	// interrupt was accepted. Zero means the event write failed, so delivery
+	// writes it then.
+	userSeq int
 }
 
 // FollowUp re-queues a terminal task for a new prompt (spec §6 M2).
@@ -508,6 +512,10 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 // waiting. ok is false when nothing was waiting, which is a normal outcome at a
 // turn boundary (two boundaries can race for the same last message).
 //
+// err is the outcome that matters and callers must test it first: when it is
+// non-nil the attempt failed -- possibly on the very read of the queue, in which
+// case ok is false too and means nothing about whether a message was waiting.
+//
 // The message is taken off the queue before it is applied, so a failure here
 // means the prompt is gone from the queue and the caller owes the user an
 // error event naming it: it was visible in the chat, and it will not be
@@ -534,9 +542,8 @@ func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string) (store.Task
 // to be delivered by the turn this one starts (or by the next restart).
 func (e *Engine) deliverQueuedAfterRestart(ctx context.Context, id string) {
 	t, ok, err := e.deliverQueuedPrompt(ctx, id)
-	if !ok {
-		return
-	}
+	// err first: a queue that could not be read is not an empty queue, and
+	// reporting it as one leaves the message with no deliverer and no trace.
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{
 			"message": "queued prompt could not be delivered after the restart: " + err.Error(),
@@ -544,6 +551,9 @@ func (e *Engine) deliverQueuedAfterRestart(ctx context.Context, id string) {
 		if ev, appendErr := e.store.AppendEvent(ctx, id, "error", payload); appendErr == nil {
 			e.bus.PublishEvent(ev)
 		}
+		return
+	}
+	if !ok {
 		return
 	}
 	e.bus.PublishTask(t)
@@ -620,6 +630,17 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 
 	// Surface the user guide immediately so the chat is not locked waiting for process death.
 	userSeq := e.appendUserGuideEvent(ctx, id, t, req, true /*interrupted*/)
+	// The anchor travels with the struct instead of being re-derived at delivery
+	// time. A message the user sends while this interrupt winds down is queued and
+	// writes a *newer* user event, so "the newest user message" stops meaning "the
+	// message being applied" -- and a turn anchored past its own prompt restores to
+	// the wrong point.
+	e.mu.Lock()
+	if pf, ok := e.pendingFollowUp[id]; ok {
+		pf.userSeq = userSeq
+		e.pendingFollowUp[id] = pf
+	}
+	e.mu.Unlock()
 
 	if h != nil {
 		_ = h.Cancel()
@@ -665,11 +686,11 @@ func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pending
 		return store.Task{}, err
 	}
 	// Re-queue directly (StatusQueued). Avoid a canceled → queued flash when possible.
-	// The user guide event was already appended at interrupt time, so the newest
-	// user message in the stream is this one -- looked up here rather than carried
-	// on the struct, which is as precise as this path has ever been.
-	userSeq := e.latestUserMessageSeq(ctx, id)
-	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, userSeq)
+	// The user guide event was already appended at interrupt time, and its seq was
+	// captured then rather than looked up here: a queued message sent while the
+	// interrupt wound down would otherwise be the newest user message and steal the
+	// checkpoint anchor.
+	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, pf.userSeq)
 }
 
 // applyFollowUpPrepared patches the task prompt/agent and re-queues it.
@@ -1090,6 +1111,21 @@ func (e *Engine) publishCompletedRetry(
 		e.bus.PublishEvent(*result.WorkspaceEvent)
 	}
 	e.bus.PublishEvent(result.UserEvent)
+
+	// A queued message whose own user event this retry deleted cannot be delivered:
+	// there would be nothing in the transcript for the agent to answer. Reported
+	// after the rewind so it lands in the transcript the user is looking at.
+	if result.ClearedQueuedPrompts > 0 {
+		payload, _ := json.Marshal(map[string]any{
+			"message": fmt.Sprintf(
+				"%d queued prompt(s) discarded: retrying from this turn removed the message they were waiting on",
+				result.ClearedQueuedPrompts),
+			"count": result.ClearedQueuedPrompts,
+		})
+		if ev, err := e.store.AppendEvent(resumeCtx, t.ID, "error", payload); err == nil {
+			e.bus.PublishEvent(ev)
+		}
+	}
 
 	if captureFiles {
 		e.captureCheckpoint(resumeCtx, t, result.UserEvent.Seq)

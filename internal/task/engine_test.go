@@ -856,22 +856,25 @@ func TestPriceTableUsesCodexDefaultWhenModelMissing(t *testing.T) {
 }
 
 type fakeWorkspaceRuntime struct {
-	mu                      sync.Mutex
-	prepares                []prepareCall
-	cleanups                []string
-	captures                []captureCall
-	restores                []restoreCall
-	treeRestores            []restoreCall
-	prepareForks            []prepareForkCall
-	prepare                 func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
-	resolveSource           func(ctx context.Context, cwd string) (workspace.SourceMetadata, error)
-	capture                 func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
-	restore                 func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
-	prepareFork             func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
-	failPrep                error
-	failCapture             error
-	failRestore             error
-	failFork                error
+	mu            sync.Mutex
+	prepares      []prepareCall
+	cleanups      []string
+	captures      []captureCall
+	restores      []restoreCall
+	treeRestores  []restoreCall
+	prepareForks  []prepareForkCall
+	prepare       func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
+	resolveSource func(ctx context.Context, cwd string) (workspace.SourceMetadata, error)
+	capture       func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
+	restore       func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
+	prepareFork   func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
+	failPrep      error
+	failCapture   error
+	failRestore   error
+	failFork      error
+	// failInspectFinalizable makes the finalize attempt fail, which is how a run
+	// ends with the workspace still unmerged.
+	failInspectFinalizable  error
 	currentBranch           string
 	failBranch              error
 	detached                bool
@@ -1092,6 +1095,9 @@ func (f *fakeWorkspaceRuntime) CapturePrepared(ctx context.Context, meta workspa
 }
 
 func (f *fakeWorkspaceRuntime) InspectFinalizable(ctx context.Context, meta workspace.Metadata) (workspace.FinalizeInspection, error) {
+	if f.failInspectFinalizable != nil {
+		return workspace.FinalizeInspection{}, f.failInspectFinalizable
+	}
 	if f.finalizeStarted != nil {
 		f.finalizeOnce.Do(func() { close(f.finalizeStarted) })
 	}

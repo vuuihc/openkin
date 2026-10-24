@@ -744,16 +744,23 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 	// A prompt queued during this turn is delivered now, the same way the adapter
 	// loop delivers one: an orchestrated turn ends just as much at a turn boundary.
 	if workspaceErr == nil {
-		if _, ok, err := e.deliverQueuedPrompt(ctx, id); ok {
-			if err != nil {
-				e.emitError(ctx, id, executionID, "queued prompt could not be delivered: "+err.Error())
-				_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
-			} else {
-				e.clearActiveRun(id, executionID)
-			}
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
+			// err before ok: a failed attempt is not an empty queue (see
+			// deliverQueuedPrompt), and this is the only place that would say so.
+			e.emitError(ctx, id, executionID, "queued prompt could not be delivered: "+err.Error())
+			_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+			e.pump()
+			return
+		} else if ok {
+			e.clearActiveRun(id, executionID)
 			e.pump()
 			return
 		}
+	} else if pending, perr := e.store.ListPendingPrompts(ctx, id); perr == nil && len(pending) > 0 {
+		// Nothing will deliver these: the run ends here and the workspace is
+		// mid-flight. Cancel reports its own drops; this drop needs its own report.
+		e.emitError(ctx, id, executionID, fmt.Sprintf(
+			"%d queued prompt(s) not delivered: workspace finalization failed", len(pending)))
 	}
 	final := StatusSucceeded
 	if failed || e.hasCriticalPersistFailure(id) {

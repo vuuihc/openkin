@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/store"
+	"github.com/vuuihc/openkin/internal/workspace"
 )
 
 // A prompt sent to a task that is still working waits its turn.
@@ -243,6 +245,364 @@ func TestAQueuedPromptOutlivesARestart(t *testing.T) {
 	}
 	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 0 {
 		t.Fatalf("queue after recovery = %+v (err %v), want empty", left, err)
+	}
+}
+
+// A queue that cannot be read is not an empty queue. The distinction decides
+// whether a message the user can see is reported as undeliverable or silently
+// stops existing, so the failure has to reach the transcript.
+func TestAQueueThatCannotBeReadIsReportedNotTreatedAsEmpty(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		},
+		runFor: 400 * time.Millisecond,
+	}
+	e, st := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e.FollowUp(ctx, task.ID, "answer this"); err != nil {
+		t.Fatal(err)
+	}
+	// The queue becomes unreadable before the turn boundary reaches it. Dropping the
+	// table is the cheapest way to produce the read failure every delivery path has
+	// to survive; the boundary cannot tell this apart from a busy or closed database.
+	if _, err := st.DB().ExecContext(ctx, `DROP TABLE task_pending_prompts`); err != nil {
+		t.Fatal(err)
+	}
+
+	waitStatus(t, e, task.ID, StatusFailed, 5*time.Second)
+	evs, err := e.Events(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told bool
+	for _, ev := range evs {
+		if ev.Type == "error" && strings.Contains(string(ev.Payload), "could not be delivered") {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("a failed delivery was not reported: the message stopped existing silently")
+	}
+}
+
+// A run that ends with the workspace unmerged delivers nothing, and says so: the
+// messages stay queued for whatever the user does next (a prompt, a retry), but
+// nothing should look like it is still on its way.
+func TestAWorkspaceFailureReportsThePromptsItCouldNotDeliver(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		},
+		runFor: 400 * time.Millisecond,
+	}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{failInspectFinalizable: errors.New("worktree is dirty")}
+	e.SetWorkspaceRuntime(rt)
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "start", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e.FollowUp(ctx, task.ID, "also update the changelog"); err != nil {
+		t.Fatal(err)
+	}
+	// The turn asks to finalize while the message is still queued behind it, so the
+	// boundary that would have delivered it is the one whose finalization fails.
+	ws, err := st.GetCurrentWorkspace(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.CompleteWorkspace(ctx, WorkspaceIntentRequest{
+		TaskID: task.ID, ExecutionID: ws.RequestedExecutionID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = waitStatus(t, e, task.ID, StatusFailed, 5*time.Second)
+	evs, err := e.Events(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told bool
+	for _, ev := range evs {
+		if ev.Type == "error" && strings.Contains(string(ev.Payload), "not delivered") {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("the queue was stranded by a workspace failure without being reported")
+	}
+	// Stranded, not discarded: the message is still the user's to have answered, and
+	// the next prompt this task accepts delivers from the head.
+	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 1 {
+		t.Fatalf("queue after the workspace failure = %+v (err %v), want the message kept", left, err)
+	}
+}
+
+// A retry rewinds the transcript. A queued message whose own user event the rewind
+// deletes has nothing left to be answered against, so it goes -- reported, the way
+// cancel reports its drops.
+func TestRetryDropsQueuedPromptsWhoseMessageItDeleted(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	// The state a failed finalization (or a failed start) leaves behind: a message
+	// that was accepted, written to the transcript, and never answered.
+	payload, _ := json.Marshal(map[string]any{
+		"role": "user", "content": []map[string]string{{"type": "text", "text": "never answered"}},
+		"partial": false, "agent": "user", "speaker": "user", "source": "follow_up",
+	})
+	ev, err := st.AppendEvent(ctx, task.ID, "message", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "never answered", UserSeq: ev.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retrying from the first turn deletes that message along with everything after it.
+	firstSeq := firstUserSeq(t, st, task.ID)
+	if _, err := e.Retry(ctx, task.ID, RetryRequest{FromSeq: firstSeq}); err != nil {
+		t.Fatal(err)
+	}
+
+	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 0 {
+		t.Fatalf("queue after the retry = %+v (err %v), want the orphaned message gone", left, err)
+	}
+	evs, err := e.Events(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told bool
+	for _, ev := range evs {
+		if ev.Type == "error" && strings.Contains(string(ev.Payload), "queued prompt(s) discarded") {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("the retry dropped a queued message without saying so")
+	}
+}
+
+// The delivery of a queued message is a normal turn: it resumes the session, it
+// does not pretend the previous turn was interrupted, it answers the message
+// exactly once, and it anchors its checkpoint at that message rather than at
+// whatever happens to be newest.
+func TestADeliveredPromptIsAnsweredOnceAndAnchoredAtItsOwnMessage(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		},
+		runFor: 80 * time.Millisecond,
+	}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "alpha", WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e.FollowUp(ctx, task.ID, "beta"); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := st.ListPendingPrompts(ctx, task.ID)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queue = %+v (err %v), want the message just sent", queued, err)
+	}
+	target := queued[0].UserSeq
+	specs := waitForStarts(t, ad, 2, 5*time.Second)
+
+	// The delivered turn continues the same session. Saying "interrupted" instead
+	// would make it re-read context it does not need and drop the session it can
+	// resume -- which is the whole reason the queue is not the interrupt path.
+	if specs[1].SessionRef == "" {
+		t.Fatalf("delivered turn did not resume the session: %+v", specs[1])
+	}
+	if strings.Contains(specs[1].Prompt, "interrupted") {
+		t.Fatalf("delivered turn was told it interrupted the user: %q", specs[1].Prompt)
+	}
+	if strings.Contains(specs[1].Prompt, "beta") == false {
+		t.Fatalf("delivered turn was not asked the queued message: %q", specs[1].Prompt)
+	}
+
+	// One visible message, not two: the delivery must not write the user event again.
+	evs, err := e.Events(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copies := 0
+	for _, ev := range evs {
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		_ = json.Unmarshal(ev.Payload, &m)
+		if m["role"] != "user" && m["speaker"] != "user" {
+			continue
+		}
+		if strings.Contains(string(ev.Payload), "beta") {
+			copies++
+		}
+	}
+	if copies != 1 {
+		t.Fatalf("the queued message appears %d times in the transcript, want once", copies)
+	}
+
+	// And the checkpoint the delivery captured belongs to that message.
+	rt.mu.Lock()
+	captures := append([]captureCall(nil), rt.captures...)
+	rt.mu.Unlock()
+	var anchored bool
+	for _, c := range captures {
+		if c.EventSeq == target {
+			anchored = true
+		}
+	}
+	if !anchored {
+		t.Fatalf("no checkpoint anchored at the delivered message (seq %d): captures = %+v", target, captures)
+	}
+}
+
+// An interrupt is anchored at the message it answers, not at the newest one. A
+// message the user sends while the interrupt winds down is queued and writes a
+// newer user event, and a turn that claims a newer message than the one it is
+// answering restores to the wrong point.
+func TestAnInterruptIsAnchoredAtItsOwnMessageNotTheNewest(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	rt := &fakeWorkspaceRuntime{}
+	e.SetWorkspaceRuntime(rt)
+
+	task, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "the one being interrupted into",
+		WorkspaceMode: workspace.ModeWorktree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+	interruptedSeq := firstUserSeq(t, st, task.ID)
+
+	// The newer message: sent while the interrupt was still winding down, so it waits
+	// in the queue and its event is the newest user message in the stream.
+	payload, _ := json.Marshal(map[string]any{
+		"role": "user", "content": []map[string]string{{"type": "text", "text": "sent while winding down"}},
+		"partial": false, "agent": "user", "speaker": "user", "source": "follow_up",
+	})
+	newer, err := st.AppendEvent(ctx, task.ID, "message", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "sent while winding down", UserSeq: newer.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.applyPendingFollowUp(ctx, task.ID, pendingFollowUp{
+		req:         FollowUpRequest{Prompt: "stop and do this instead"},
+		fromAgent:   "claude-code",
+		interrupted: true,
+		userSeq:     interruptedSeq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rt.mu.Lock()
+	captures := append([]captureCall(nil), rt.captures...)
+	rt.mu.Unlock()
+	var atOwn, atNewer bool
+	for _, c := range captures {
+		if c.EventSeq == interruptedSeq {
+			atOwn = true
+		}
+		if c.EventSeq == newer.Seq {
+			atNewer = true
+		}
+	}
+	if !atOwn {
+		t.Fatalf("interrupt anchored nowhere near its own message (seq %d): captures = %+v", interruptedSeq, captures)
+	}
+	if atNewer {
+		t.Fatalf("interrupt anchored at a message queued after it (seq %d): captures = %+v", newer.Seq, captures)
+	}
+}
+
+// A task waiting on a user question is not failed by recovery, so its queue needs a
+// deliverer that does not come from the orphan list. Without one the message waits
+// for a turn boundary that only the answer would produce.
+func TestAQueuedPromptOnAWaitingTaskOutlivesARestart(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+
+	holding := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		},
+		runFor: 30 * time.Second,
+	}
+	e1 := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": holding}, NewBus(), 2)
+	task, err := e1.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e1, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e1.RequestUserQuestion(ctx, CreateUserQuestionRequest{
+		TaskID: task.ID, Question: "Which file?",
+		Options: []UserQuestionOption{{Label: "A"}, {Label: "B"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e1, task.ID, StatusWaitingInput, 2*time.Second)
+	if _, err := e1.FollowUp(ctx, task.ID, "here is more context"); err != nil {
+		t.Fatal(err)
+	}
+	e1.Close() // the process dies while the question is still open
+
+	answering := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s2"}`)},
+		},
+		runFor: 10 * time.Millisecond,
+	}
+	e2 := NewEngineFromAdapters(st, map[string]adapter.Adapter{"claude-code": answering}, NewBus(), 2)
+	defer e2.Close()
+	if err := e2.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	specs := waitForStarts(t, answering, 1, 5*time.Second)
+	if !strings.Contains(specs[0].Prompt, "here is more context") {
+		t.Fatalf("after recovery the agent was asked for %q, want the queued message", specs[0].Prompt)
 	}
 }
 

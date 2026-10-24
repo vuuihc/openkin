@@ -326,3 +326,46 @@ func TestFreshInstallHasTheQueueTable(t *testing.T) {
 		t.Fatalf("a fresh install has no usable queue: %v", err)
 	}
 }
+
+// Recovery asks the queue which tasks need a deliverer, because status cannot
+// answer it: a task waiting on a user question keeps its status across a restart.
+func TestTasksWithPendingPromptsFindsEveryQueue(t *testing.T) {
+	ctx := context.Background()
+	s := openQueueStore(t)
+	insertQueueTask(t, s, "task-one")
+	insertQueueTask(t, s, "task-two")
+	insertQueueTask(t, s, "task-idle")
+
+	for _, id := range []string{"task-one", "task-two"} {
+		if _, err := s.AppendPendingPrompt(ctx, PendingPrompt{TaskID: id, Prompt: "waiting"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.TasksWithPendingPrompts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, id := range got {
+		seen[id] = true
+	}
+	if len(got) != 2 || !seen["task-one"] || !seen["task-two"] {
+		t.Fatalf("tasks with a queue = %v, want exactly the two with messages", got)
+	}
+	if seen["task-idle"] {
+		t.Fatalf("a task with no queue was listed: %v", got)
+	}
+
+	// Draining the queue takes the task off the list: this is the answer that
+	// decides whether recovery starts a run, so a stale entry starts an empty one.
+	if _, _, err := s.PopPendingPrompt(ctx, "task-one"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.TasksWithPendingPrompts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "task-two" {
+		t.Fatalf("after draining one queue = %v, want only the task still waiting", got)
+	}
+}

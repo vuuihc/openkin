@@ -569,11 +569,28 @@ func (e *Engine) Recover(ctx context.Context) error {
 	// Re-arm Wait timers for failed tasks left in limit waiting state.
 	e.recoverLimitWaits(ctx)
 
-	// A prompt queued while a task was running outlives the restart, and nothing
-	// else will ever deliver it: the turn it was waiting for died with the process
-	// and the task is terminal now. Delivered after the workspace and timer
-	// recovery above, because delivering one starts a run.
+	// A prompt queued while a task was busy outlives the restart, and nothing else
+	// will ever deliver it: the turn it was waiting for died with the process.
+	// Delivered after the workspace and timer recovery above, because delivering
+	// one starts a run.
+	//
+	// The queue itself decides which tasks need this, not the orphan list: a task
+	// waiting on a user question is not failed by recovery, so a message queued on
+	// it would have no deliverer at all. Each task is delivered to once -- a second
+	// attempt would take the next message and start a second run.
+	queued, err := e.store.TasksWithPendingPrompts(ctx)
+	if err != nil {
+		return fmt.Errorf("list tasks with pending prompts: %w", err)
+	}
+	delivered := make(map[string]bool, len(ids))
 	for _, id := range ids {
+		delivered[id] = true
+		e.deliverQueuedAfterRestart(ctx, id)
+	}
+	for _, id := range queued {
+		if delivered[id] {
+			continue
+		}
 		e.deliverQueuedAfterRestart(ctx, id)
 	}
 	e.pump()
@@ -2606,21 +2623,40 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	// to finalize -- the same reason an interrupted follow-up is skipped -- because
 	// the task is about to finish and the message should not be handed to an agent
 	// whose files are mid-flight.
-	if workspaceErr == nil {
-		if _, ok, err := e.deliverQueuedPrompt(ctx, id); ok {
-			if err != nil {
-				payload, _ := json.Marshal(map[string]string{
-					"message": "queued prompt could not be delivered: " + err.Error(),
-				})
-				if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
-					e.bus.PublishEvent(ev)
-				}
-				_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
-			} else {
-				e.clearActiveRun(id, exec.ID)
+	// wasCanceled is checked here as well as below: a cancel that lands between the
+	// pop and the apply would otherwise re-queue a task the user just stopped, after
+	// telling them the queued prompts went with it.
+	if workspaceErr == nil && !wasCanceled {
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
+			// err before ok: a failed attempt is not an empty queue, and treating it
+			// as one is how a message the user can see stops being delivered without
+			// anything saying so.
+			payload, _ := json.Marshal(map[string]string{
+				"message": "queued prompt could not be delivered: " + err.Error(),
+			})
+			if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
+				e.bus.PublishEvent(ev)
 			}
+			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
 			e.pump()
 			return
+		} else if ok {
+			e.clearActiveRun(id, exec.ID)
+			e.pump()
+			return
+		}
+	} else if workspaceErr != nil && !wasCanceled {
+		// The run ends here and the workspace is mid-flight, so nothing will deliver
+		// these -- and cancel is not the reason, so cancel's count report does not
+		// cover it. Say it out loud instead of leaving the queue looking alive.
+		if pending, perr := e.store.ListPendingPrompts(ctx, id); perr == nil && len(pending) > 0 {
+			payload, _ := json.Marshal(map[string]any{
+				"message": fmt.Sprintf("%d queued prompt(s) not delivered: workspace finalization failed", len(pending)),
+				"count":   len(pending),
+			})
+			if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
+				e.bus.PublishEvent(ev)
+			}
 		}
 	}
 

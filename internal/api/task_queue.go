@@ -22,7 +22,7 @@ type queuedPromptEntry struct {
 	Agent          string  `json:"agent,omitempty"`
 	Model          *string `json:"model,omitempty"`
 	PermissionMode *string `json:"permission_mode,omitempty"`
-	UserSeq        int     `json:"user_seq,omitempty"`
+	UserSeq        int     `json:"user_seq"`
 	QueuedAt       int64   `json:"queued_at"`
 }
 

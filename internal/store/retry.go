@@ -27,6 +27,9 @@ type RetryMutationResult struct {
 	Task           Task
 	UserEvent      Event
 	WorkspaceEvent *Event
+	// ClearedQueuedPrompts counts queued prompts dropped because this retry deleted
+	// the user message they were anchored to.
+	ClearedQueuedPrompts int
 }
 
 // RetryRestoreIntent is the write-ahead record and durable resume marker for a retry.
@@ -358,6 +361,19 @@ func applyRetryMutationTx(
 		`DELETE FROM events WHERE task_id = ? AND seq >= ?`, m.TaskID, m.FromSeq); err != nil {
 		return RetryMutationResult{}, err
 	}
+	// A queued prompt whose own user message this retry just deleted has lost the
+	// only thing that ties it to the conversation: delivering it later would ask the
+	// agent to answer a message that is not in the transcript, anchored to a seq
+	// that no longer exists. Rows anchored before the retry point keep their event
+	// and stay queued; rows with no anchor at all (user_seq = 0, the event write
+	// failed when the message was accepted) write a fresh one on delivery.
+	cleared, err := tx.ExecContext(ctx,
+		`DELETE FROM task_pending_prompts WHERE task_id = ? AND user_seq >= ?`,
+		m.TaskID, m.FromSeq)
+	if err != nil {
+		return RetryMutationResult{}, err
+	}
+	clearedQueued, _ := cleared.RowsAffected()
 	if m.DeleteCheckpoints {
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM task_checkpoints WHERE task_id = ? AND event_seq >= ?`,
@@ -483,7 +499,10 @@ func applyRetryMutationTx(
 		TaskID: m.TaskID, EventEpoch: task.EventEpoch, Seq: seq,
 		TS: now, Type: "message", Payload: m.UserPayload,
 	}
-	return RetryMutationResult{Task: task, UserEvent: userEvent, WorkspaceEvent: workspaceEvent}, nil
+	return RetryMutationResult{
+		Task: task, UserEvent: userEvent, WorkspaceEvent: workspaceEvent,
+		ClearedQueuedPrompts: int(clearedQueued),
+	}, nil
 }
 
 const retryIntentColumns = `

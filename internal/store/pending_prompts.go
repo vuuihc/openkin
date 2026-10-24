@@ -58,6 +58,33 @@ func scanPendingPrompt(scanner interface {
 	return p, nil
 }
 
+// TasksWithPendingPrompts lists every task that has a message waiting, in no
+// particular order.
+//
+// Recovery is why this exists: after a restart the set of tasks needing a
+// deliverer cannot be derived from task status, because a queue is accepted for
+// statuses a restart does not fail (a task waiting on a user question keeps its
+// status, and its queue with it). Ask the queue which tasks need delivering and
+// the answer cannot go stale as statuses change.
+func (s *Store) TasksWithPendingPrompts(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT task_id FROM task_pending_prompts`)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks with pending prompts: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // AppendPendingPrompt adds a message to the tail of a task's queue and returns
 // it with its assigned id.
 func (s *Store) AppendPendingPrompt(ctx context.Context, p PendingPrompt) (PendingPrompt, error) {
