@@ -153,6 +153,27 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
   },
 ];
 
+/**
+ * The elevation steps as the class each token is worn through.
+ *
+ * The gallery cannot draw an elevation token directly, and this is not a
+ * stylistic choice: the token is a *colour*, and `box-shadow` needs geometry as
+ * well, so a declaration carrying only that colour is invalid and renders as
+ * `none`. The first version of the sample did exactly that and drew nothing in
+ * either scheme — a token that was declared, presented, measured, and drawn by
+ * nothing, which no case in `tokens.test.ts` could have noticed.
+ *
+ * So the pairing lives here, beside the group, and the names are written out
+ * rather than assembled at runtime: Tailwind reads this file as text, so a name
+ * built from a variable would produce no CSS at all — the same failure one
+ * layer down.
+ */
+export const ELEVATION_CLASS: Record<string, string> = {
+  "--kin-shadow-1": "shadow-e1",
+  "--kin-shadow-2": "shadow-e2",
+  "--kin-shadow-3": "shadow-e3",
+};
+
 export const PRESENTED_TOKENS: string[] = TOKEN_GROUPS.flatMap((g) => [...g.tokens]);
 
 /** Every token that is a pigment, gathered from the groups that say so. */

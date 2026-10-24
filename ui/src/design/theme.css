@@ -117,11 +117,12 @@ html[data-theme="light"] {
 
   /* Elevation. The offsets and blurs live in the Tailwind scale, because they
      are a function of the level; what is a function of the scheme is how dark a
-     drop has to be to register at all. These were one pair of black values
-     for both schemes until S5 — 70% black under a light modal is a bruise, and
-     the light scheme's are matched to these by measurement rather than taste:
-     each alpha below composites over `--kin-bg` to the same L* drop as its
-     counterpart here (3.0 / 5.3 / 7.1), which lands at 0.03 / 0.06 / 0.08. */
+     drop has to be to register at all. One pair of black values served both
+     schemes until S5, and 70% black under a light modal is a bruise. The light
+     alphas are derived from these by measurement: each alpha below drops
+     `--kin-bg` by 2.99 / 5.35 / 7.15 L*, and the light block's are the closest
+     two-decimal values to dropping the white backdrop by the same amount —
+     2.77 / 5.20 / 6.95, so no level is more than 0.22 L* out. */
   --kin-shadow-1: rgba(0, 0, 0, 0.24);
   --kin-shadow-2: rgba(0, 0, 0, 0.45);
   --kin-shadow-3: rgba(0, 0, 0, 0.7);

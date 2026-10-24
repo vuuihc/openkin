@@ -7,6 +7,7 @@ import resolveConfig from "tailwindcss/resolveConfig";
 import { describe, expect, it } from "vitest";
 import config from "../../tailwind.config.ts";
 import {
+  ELEVATION_CLASS,
   FILL_INK,
   FILL_TOKENS,
   ON_FILL_INKS,
@@ -465,15 +466,19 @@ describe("design tokens", () => {
 
   it("darkens each scheme's backdrop by the same amount at every elevation level", () => {
     // The light alphas are not taste: each is the value that drops its own
-    // backdrop by the L* its dark counterpart drops. Two schemes, one drop.
+    // backdrop by the L* its dark counterpart drops — 2.99 / 5.35 / 7.15
+    // against 2.77 / 5.20 / 6.95, the residual being the two decimals a token
+    // is written in. A third of an L* is what "the same" is allowed to mean,
+    // which is close enough to the rounding that one step of alpha in either
+    // direction goes red — see the red-verification in the plan.
     for (const name of SHADOW_LEVELS) {
       const drops = SCHEMES.map(([scheme, tokens]) => {
         const bg = colour(tokens, "--kin-bg", scheme);
         return lightness(bg) - lightness(over([0, 0, 0], bg, shadowAlpha(tokens, name, scheme)));
       });
-      expect({ name, within1L: Math.abs(drops[0] - drops[1]) < 1 }).toEqual({
+      expect({ name, sameDrop: Math.abs(drops[0] - drops[1]) < 0.3 }).toEqual({
         name,
-        within1L: true,
+        sameDrop: true,
       });
     }
   });
@@ -1155,6 +1160,24 @@ describe("design tokens", () => {
         }
       }
       expect(wrong).toEqual([]);
+    });
+
+    it("wears every elevation token as a class the ladder declares", () => {
+      // A token is a colour and a `box-shadow` needs geometry too, so the
+      // gallery cannot draw the token itself — the first version of that sample
+      // set the colour alone and rendered `none` in both schemes, which is a
+      // token that is declared, presented, measured, and drawn by nothing. The
+      // pairing therefore lives in `ELEVATION_CLASS` beside the group, and this
+      // holds it against the ladder in both directions.
+      const tokens = TOKEN_GROUPS.filter((g) => g.kind === "elevation").flatMap((g) => [
+        ...g.tokens,
+      ]);
+      expect(tokens.length).toBeGreaterThan(0);
+      expect(Object.keys(ELEVATION_CLASS).sort()).toEqual([...tokens].sort());
+      const offLadder = tokens.filter(
+        (token) => theme.boxShadow[ELEVATION_CLASS[token].replace(/^shadow-/, "")] === undefined,
+      );
+      expect(offLadder).toEqual([]);
     });
 
     it("never draws a hairline on a surface it also raises", () => {

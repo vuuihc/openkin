@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n/react";
 import {
+  ELEVATION_CLASS,
   FILL_INK,
   PRESENTED_TOKENS,
   SURFACE_TOKENS,
@@ -146,16 +147,14 @@ function FocusSample({ name, value, ink }: { name: string; value: string; ink: s
 /**
  * An elevation step only reads as one once something is raised off something
  * else, so the sample is the raised surface with the drop under it. The chip is
- * `--kin-elevated` because that is what floats in this console; the frame is the
- * gallery's own, and the value shown is the colour the drop is drawn in.
+ * `--kin-elevated` because that is what floats in this console, and it wears the
+ * *class* rather than the token — the token is a colour and a `box-shadow` needs
+ * geometry, so setting it directly renders `none`; see `ELEVATION_CLASS`.
  */
 function ElevationSample({ name, value }: { name: string; value: string }) {
   return (
     <div className="rounded-lg border border-[var(--kin-hairline)] p-4">
-      <div
-        className="h-14 rounded-md"
-        style={{ background: cssValue("--kin-elevated-rgb"), boxShadow: cssValue(name) }}
-      />
+      <div className={`h-14 rounded-md bg-kin-elevated ${ELEVATION_CLASS[name] ?? ""}`} />
       {/* Two lines, not `name · value`: a black `rgba()` is long enough that
           the alpha — the whole point of the pair — was the part `truncate` cut
           off, and the alpha is what the two schemes are compared on. */}
