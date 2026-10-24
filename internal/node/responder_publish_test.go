@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -221,5 +222,38 @@ func TestGitBranchCreateWithoutAWorkspaceManager(t *testing.T) {
 		worker.GitBranchCreateParams{Path: repo, Branch: "kin/task/t1/g1"}, r, conn)
 	if !strings.Contains(reason, "no git") {
 		t.Fatalf("refusal = %q, want it to name the missing git", reason)
+	}
+}
+
+// The branch was made and this machine could not read the directory back. It
+// answers with no branch rather than with the one that was asked for: the Hub
+// writes its task row from this answer, and a row naming a branch nobody read is
+// the one thing the read-back exists to prevent.
+func TestGitBranchCreateAnswersWithNoBranchWhenItCannotReadItBack(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "checkout"))
+	r, conn := repoOn(t, root)
+	r.CreateBranch = func(ctx context.Context, git *workspace.Manager, dir, branch string) error {
+		if err := git.CreateBranch(ctx, dir, branch); err != nil {
+			return err
+		}
+		// The branch is real and the directory stops being a checkout: the branch
+		// half succeeded and the reading half is what failed, which is the only
+		// way this ending happens.
+		return os.RemoveAll(filepath.Join(dir, ".git"))
+	}
+
+	result := put(t, r, conn, worker.QueryGitBranchCreate, worker.GitBranchCreateParams{
+		Path: repo, Branch: "kin/task/t1/g1",
+	})
+	if result.Error != "" {
+		t.Fatalf("creating a branch was refused: %s", result.Error)
+	}
+	var found worker.GitBranchCreateResult
+	if err := result.Into(&found); err != nil {
+		t.Fatal(err)
+	}
+	if found.Current != "" {
+		t.Fatalf("current = %q, want no branch rather than the one that was asked for", found.Current)
 	}
 }

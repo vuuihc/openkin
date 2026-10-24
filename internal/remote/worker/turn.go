@@ -174,10 +174,14 @@ func bounded(field, value string, limit int) error {
 	return nil
 }
 
-// optional checks a field that may be absent but not oversized.
+// optional checks a field that may be absent but not oversized, in bytes: what it
+// bounds are things the wire carries, and a byte is what the wire counts. The
+// message says bytes for that reason — a body of 22,000 Chinese characters is
+// refused for being 64 KiB, not for being 65,536 characters, and a message that
+// said the second would send the person looking for a limit they had not reached.
 func optional(field, value string, limit int) error {
 	if len(value) > limit {
-		return fmt.Errorf("%s exceeds %d characters", field, limit)
+		return fmt.Errorf("%s exceeds %d bytes", field, limit)
 	}
 	return nil
 }
