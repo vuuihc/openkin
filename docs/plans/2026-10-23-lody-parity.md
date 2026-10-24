@@ -410,7 +410,7 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 | 层 | 判断 | 依据 |
 |---|---|---|
 | Go 核心（store / task / adapter / auth / hub / node / workspace） | **形状正确，复用 + 加固** | 单写者 Hub + 追加日志 + 游标，正是 append-only 会话的正确形状；45 包全绿、真机 dogfood 过 |
-| **控制台表现层** | **形状不对，重做** | 89 个手写变量 + 边框分离 + 单页无标签，撑不起 §4 的屏幕地图；质量也是最弱处（§2.3 / §2.4） |
+| **控制台表现层** | **形状不对，重做** | 76 行手写变量（19 token 抄四遍）+ 三套颜色词汇 + 边框分离 + 单页无标签，撑不起 §4 的屏幕地图；质量也是最弱处（§2.3 / §2.4） |
 | 控制台数据层（`liveResources` / `transcriptProjection`） | **形状正确，复用 + 补测试** | 「游标是真相、实时只是加速器」是对的；`transcriptProjection` 有 1,939 行测试 |
 | `tasks.session_ref` 单列原生 id | **形状不对，换掉** | 原生 session id 是设备本地的，单列全局存储本身就错；换成 `(device_id, agent_id, external_ref)`（P4） |
 | 桌面壳 | 形状正确，**补齐**（测试 / CI / 签名） | 2,784 行真实工程，只是没有网 |
@@ -465,10 +465,16 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 
 ### P1 — 设计系统重建
 
+> **分步与形状**：见 `2026-10-24-p1-design-system.md`。实测把三处估计改了：
+> 手写变量是 **76 行**（19 token × 4 个主题块）而不是 89；颜色其实是**三套词汇并存**
+> （CSS 变量 19 个 / className 裸值 42 个 / Tailwind 默认调色板 131 处），后两套不随明暗切换；
+> 表面阶梯本身是对的（亮色每个槽位与 base 差 6.5–13.6 L\*），问题是同一套值抄了四遍、
+> 带两组同义词，且没有任何检查。
+
 | | |
 |---|---|
 | 交付 | 令牌层（间距阶梯 / 由基准推导的字号阶梯 / elevation ladder / 语义色）；「无边框」表面分离；token gallery + 缺口测试；ESLint + Prettier 接入 CI |
-| 验收 | **删掉 `ui/src/index.css` 里全部 89 个手写变量**，控制台视觉不回退；gallery 测试能报出未被呈现的 token |
+| 验收 | **删掉 `ui/src/index.css` 里全部 76 个手写变量**（每个 token 只写一次），控制台视觉不回退；gallery 测试能报出未被呈现的 token |
 | 依赖 | 无 |
 | 大小 | M |
 | 开工前已量到的现状 | 字号是 18 个任意值（`text-[11px]`…`text-[13.5px]`，含 11/11.5/12/12.5/13/13.5 这种差 1px 的相邻档，违反 §4.2 第 5 条）；`index.css` 里 19 个颜色 token 在四个主题块（dark / light / system→light / system→dark）里手抄了四遍，共 76 行；status 色（`blue`/`orange`/`green`/`red`）写死在 `tailwind.config.js` 里，不随明暗切换；`ChatStream.tsx:1030` 的 `accent-[var(--kin-blue)]` 引用了**从未定义**的 token（`kin-blue` 是 Tailwind 颜色，不是 CSS 变量）——正是缺口测试该抓的那类 |
