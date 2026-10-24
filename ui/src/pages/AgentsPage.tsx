@@ -416,7 +416,7 @@ export default function AgentsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="kin-btn-secondary min-h-[40px] px-3 text-strong"
+              className="kin-btn-secondary min-h-10 px-3 text-strong"
               disabled={rechecking || smoking}
               onClick={() => void onRecheck()}
             >
@@ -424,7 +424,7 @@ export default function AgentsPage() {
             </button>
             <button
               type="button"
-              className="kin-btn-secondary min-h-[40px] px-3 text-strong"
+              className="kin-btn-secondary min-h-10 px-3 text-strong"
               disabled={smoking || rechecking}
               title={tr("agents.smokeHint")}
               onClick={() => void onSmoke()}
@@ -434,7 +434,7 @@ export default function AgentsPage() {
             <select
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="kin-input w-auto min-h-[40px]"
+              className="kin-input w-auto min-h-10"
             >
               <option value={7}>{tr("usage.thisWeek")}</option>
               <option value={30}>{tr("usage.days30")}</option>
@@ -478,7 +478,7 @@ export default function AgentsPage() {
                   key={c.label}
                   className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
                 >
-                  <div className="text-caption text-kin-muted font-semibold uppercase tracking-wide">
+                  <div className="text-caption text-kin-muted font-semibold uppercase tracking-label">
                     {c.label}
                   </div>
                   <div className="mt-1 text-hero font-semibold tabular-nums tracking-tight">
@@ -489,7 +489,7 @@ export default function AgentsPage() {
             </div>
 
             <div>
-              <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
+              <div className="text-caption font-semibold uppercase tracking-label text-kin-muted mb-3">
                 {tr("usage.dailySpend")}
               </div>
               <div className="flex items-stretch gap-1.5 h-28">
@@ -519,7 +519,7 @@ export default function AgentsPage() {
         {agents !== null && (
           <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated">
             <table className="w-full min-w-[980px] text-left text-strong">
-              <thead className="bg-[var(--kin-fill)]/60 text-caption uppercase tracking-wide text-kin-muted">
+              <thead className="bg-[var(--kin-fill)]/60 text-caption uppercase tracking-label text-kin-muted">
                 <tr>
                   <SortTh colKey="name">{tr("agents.colName")}</SortTh>
                   <SortTh colKey="status">{tr("agents.colStatus")}</SortTh>

@@ -91,7 +91,7 @@ export default function TasksPage() {
               type="button"
               onClick={() => setFilter(k)}
               className={[
-                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-[36px]",
+                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-9",
                 filter === k
                   ? "bg-kin-blue text-white"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -127,7 +127,7 @@ export default function TasksPage() {
         {resource.loaded && filtered.length > 0 && (
           <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--kin-hairline)]">
             <table className="w-full text-left text-strong">
-              <thead className="text-caption uppercase tracking-wide text-kin-muted border-b border-[var(--kin-hairline)]">
+              <thead className="text-caption uppercase tracking-label text-kin-muted border-b border-[var(--kin-hairline)]">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">{tr("tasks.colTask")}</th>
                   <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">

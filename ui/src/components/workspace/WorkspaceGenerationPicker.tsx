@@ -67,7 +67,7 @@ export default function WorkspaceGenerationPicker({
         {selected && (
           <span
             className={[
-              "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-wide",
+              "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-label",
               stateBadgeClass(selected.state),
             ].join(" ")}
           >
@@ -84,7 +84,7 @@ export default function WorkspaceGenerationPicker({
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-elevated)] shadow-lg py-1">
+        <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-elevated)] shadow-e2 py-1">
           {/* Source / current project */}
           <button
             type="button"
@@ -100,7 +100,7 @@ export default function WorkspaceGenerationPicker({
             ].join(" ")}
           >
             <span className="flex-1 truncate">{t("workspace.generation.source")}</span>
-            <span className="flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-wide bg-kin-muted/20 text-kin-muted">
+            <span className="flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-label bg-kin-muted/20 text-kin-muted">
               {t("workspace.generation.readOnly")}
             </span>
           </button>
@@ -125,7 +125,7 @@ export default function WorkspaceGenerationPicker({
               </span>
               <span
                 className={[
-                  "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-wide",
+                  "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-label",
                   stateBadgeClass(gen.state),
                 ].join(" ")}
               >

@@ -192,7 +192,7 @@ export default function ChatStream({
   const loadingStandalone = showLoading && !loadingInsideAgent;
 
   return (
-    <div className="max-w-[720px] w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4">
+    <div className="max-w-conversation w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4">
       {sharing && (
         <ShareSelectionBar
           count={selectedMessages.length}
@@ -307,7 +307,7 @@ function AgentTurn({
   return (
     <div className="flex gap-2.5 items-start">
       <div
-        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-caption font-bold ${meta.className}`}
+        className={`w-[28px] h-[28px] flex-none rounded-lg flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={agentIdentityTitle(meta.label, model)}
       >
         {meta.initials}
@@ -477,7 +477,7 @@ function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
       aria-label={tr("chat.thinking")}
     >
       <div
-        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-caption font-bold ${meta.className}`}
+        className={`w-[28px] h-[28px] flex-none rounded-lg flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={agentIdentityTitle(meta.label, model)}
       >
         {meta.initials}
@@ -495,11 +495,11 @@ function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
 
 function AgentIdentity({ name, model }: { name: string; model?: string }) {
   return (
-    <span className="flex min-w-0 max-w-[70%] flex-col leading-none">
-      <span className="truncate text-body font-semibold leading-[14px] text-kin-text">{name}</span>
+    <span className="flex min-w-0 max-w-[70%] flex-col leading-flush">
+      <span className="truncate text-body font-semibold leading-4 text-kin-text">{name}</span>
       {model && (
         <span
-          className="mt-0.5 truncate font-mono text-micro font-normal leading-[12px] text-kin-muted/80"
+          className="mt-0.5 truncate font-mono text-micro font-normal leading-3 text-kin-muted/80"
           title={model}
         >
           {model}
@@ -593,7 +593,7 @@ function ProgressCard({
       >
         <span
           className={[
-            "flex-none text-micro font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded",
+            "flex-none text-micro font-semibold uppercase tracking-label px-1.5 py-0.5 rounded",
             badgeTone,
           ].join(" ")}
         >
@@ -753,7 +753,7 @@ function ToolStepRow({
           )}
           {tool.input != null && (
             <div>
-              <div className="text-micro font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
+              <div className="text-micro font-semibold uppercase tracking-label text-kin-muted mb-0.5">
                 {tr("chat.progress.input")}
               </div>
               <pre className="overflow-x-auto max-h-28 text-caption font-mono text-kin-secondary whitespace-pre-wrap break-all rounded-md bg-[var(--kin-fill)] px-2 py-1.5">
@@ -763,7 +763,7 @@ function ToolStepRow({
           )}
           {tool.output?.trim() && (
             <div>
-              <div className="text-micro font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
+              <div className="text-micro font-semibold uppercase tracking-label text-kin-muted mb-0.5">
                 {tr("chat.progress.output")}
               </div>
               <pre className="overflow-x-auto max-h-36 text-caption font-mono text-kin-secondary whitespace-pre-wrap break-all rounded-md bg-[var(--kin-fill)] px-2 py-1.5">
@@ -790,7 +790,7 @@ function formatToolJson(input: unknown): string {
 function MessageBody({ text, partial }: { text: string; partial?: boolean }) {
   const body = text ?? "";
   return (
-    <div className="text-strong sm:text-subtitle leading-relaxed text-kin-text">
+    <div className="text-strong sm:text-subtitle leading-prose text-kin-text">
       <Markdown text={body} />
       {partial && !body.trim() && <ThinkingDots />}
       {partial && body.trim() && (
@@ -842,7 +842,7 @@ function MessageRow({
           )}
           <div className="text-caption font-medium text-kin-muted px-1">{meta.label}</div>
           <div
-            className="max-w-full min-w-0 px-3.5 py-2.5 rounded-[18px] rounded-br-[5px] text-strong sm:text-subtitle leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+            className="max-w-full min-w-0 px-3.5 py-2.5 rounded-2xl rounded-br-md text-strong sm:text-subtitle leading-prose whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{
               background: "var(--kin-bubble-user)",
               color: "var(--kin-bubble-user-fg)",
@@ -865,7 +865,7 @@ function MessageRow({
   return (
     <div className="flex gap-2.5 items-start">
       <div
-        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-caption font-bold ${meta.className}`}
+        className={`w-[28px] h-[28px] flex-none rounded-lg flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={meta.label}
       >
         {meta.initials}
@@ -901,7 +901,7 @@ function ShareSelectionBar({
   const disabled = count === 0;
   return (
     <div
-      className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-kin-blue/30 bg-[var(--kin-elevated)]/95 px-3 py-2 shadow-sm backdrop-blur"
+      className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-kin-blue/30 bg-[var(--kin-elevated)]/95 px-3 py-2 shadow-e1 backdrop-blur"
       role="region"
       aria-label={tr("chat.message.selection")}
     >
@@ -912,7 +912,7 @@ function ShareSelectionBar({
         type="button"
         onClick={onCopy}
         disabled={disabled}
-        className="inline-flex min-h-[32px] items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-white hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-8 items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-white hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <IconCopy size={14} />
         {tr("chat.message.copyText")}
@@ -921,7 +921,7 @@ function ShareSelectionBar({
         type="button"
         onClick={onDownload}
         disabled={disabled}
-        className="inline-flex min-h-[32px] items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-body font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-8 items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-body font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         <IconDownload size={14} />
         {tr("chat.message.downloadHTML")}
@@ -929,7 +929,7 @@ function ShareSelectionBar({
       <button
         type="button"
         onClick={onCancel}
-        className="min-h-[32px] rounded-md px-2 py-1 text-body font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+        className="min-h-8 rounded-md px-2 py-1 text-body font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
       >
         {tr("chat.message.cancel")}
       </button>

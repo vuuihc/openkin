@@ -44,7 +44,7 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
 
   return (
     <div className="flex gap-2.5 items-start">
-      <div className="w-[26px] h-[26px] flex-none rounded-[7px] bg-gradient-to-b from-[#3a3a3e] to-[#2a2a2e] flex items-center justify-center">
+      <div className="w-[26px] h-[26px] flex-none rounded-lg bg-gradient-to-b from-[#3a3a3e] to-[#2a2a2e] flex items-center justify-center">
         <IconStar size={14} className={statusView.iconClass} />
       </div>
       <div className="flex-1 min-w-0">
@@ -53,7 +53,7 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
           type="button"
           onClick={onClick}
           className={[
-            "w-full text-left rounded-[10px] px-3 py-2.5 hover:bg-[var(--kin-fill)]",
+            "w-full text-left rounded-lg px-3 py-2.5 hover:bg-[var(--kin-fill)]",
             statusView.containerClass,
           ].join(" ")}
         >

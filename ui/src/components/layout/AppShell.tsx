@@ -422,12 +422,12 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           */
           <div className="md:hidden flex-none pt-safe" />
         ) : (
-          <div className="md:hidden flex items-center gap-2 px-3 min-h-[48px] pt-safe border-b border-[var(--kin-hairline)] flex-none">
+          <div className="md:hidden flex items-center gap-2 px-3 min-h-12 pt-safe border-b border-[var(--kin-hairline)] flex-none">
             {draftActive ? (
               <button
                 type="button"
                 onClick={closeDraft}
-                className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
+                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue"
                 aria-label={tr("app.close")}
               >
                 <svg
@@ -446,7 +446,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
+                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue"
                 aria-label={tr("app.openMenu")}
               >
                 <svg
@@ -470,7 +470,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               <button
                 type="button"
                 onClick={openNewChat}
-                className="ml-auto min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-blue"
+                className="ml-auto min-w-[44px] min-h-11 flex items-center justify-center text-kin-blue"
                 aria-label={tr("nav.newChat")}
               >
                 <svg
@@ -489,7 +489,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-muted`}
+              className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-11 flex items-center justify-center text-kin-muted`}
               aria-label={tr("app.commandPalette")}
             >
               <svg

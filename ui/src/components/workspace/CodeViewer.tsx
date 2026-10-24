@@ -216,7 +216,7 @@ export default function CodeViewer({
           {path}
         </span>
         {useDiff && (
-          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-kin-blue">
+          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-blue">
             {t("workspace.viewer.diff")}
           </span>
         )}
@@ -268,7 +268,7 @@ export default function CodeViewer({
                 onClick={() => goToHunk("previous")}
                 title={t("workspace.viewer.prevHunk")}
                 aria-label={t("workspace.viewer.prevHunk")}
-                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
               >
                 {/* Chevron points right by default; rotate for up/down. */}
                 <IconChevron size={13} className="-rotate-90" />
@@ -278,7 +278,7 @@ export default function CodeViewer({
                 onClick={() => goToHunk("next")}
                 title={t("workspace.viewer.nextHunk")}
                 aria-label={t("workspace.viewer.nextHunk")}
-                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+                className="p-1 rounded text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
               >
                 <IconChevron size={13} className="rotate-90" />
               </button>
@@ -354,7 +354,7 @@ export default function CodeViewer({
           )}
           {editable && file?.truncated && !useDiff && (
             <span
-              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-kin-orange"
+              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-label text-kin-orange"
               title={t("workspace.viewer.readOnlyTruncated")}
             >
               {t("workspace.viewer.readOnlyTruncated")}
@@ -398,7 +398,7 @@ export default function CodeViewer({
           </div>
         )}
         {showError && showEditor && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-kin-red/90 px-3 py-1 text-body text-white shadow">
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-kin-red/90 px-3 py-1 text-body text-white shadow-e2">
             {error}
           </div>
         )}

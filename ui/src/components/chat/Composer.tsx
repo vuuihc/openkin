@@ -338,8 +338,8 @@ export default function Composer({
   return (
     <form onSubmit={submit} className="relative">
       {menu === "slash" && (
-        <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-card overflow-hidden z-20">
-          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-wide text-kin-muted">
+        <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-e2 overflow-hidden z-20">
+          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("composer.slashActions")}
           </div>
           <div className="px-3 py-2.5 text-strong text-kin-secondary">
@@ -349,11 +349,11 @@ export default function Composer({
       )}
       {menu === "mention" && mentionMatches.length > 0 && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-card overflow-hidden z-20"
+          className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-e2 overflow-hidden z-20"
           role="listbox"
           aria-label={tr("composer.mentionTitle")}
         >
-          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-wide text-kin-muted flex items-center justify-between">
+          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-label text-kin-muted flex items-center justify-between">
             <span>{tr("composer.mentionTitle")}</span>
             <span className="normal-case tracking-normal font-normal text-caption">
               ↑↓ {tr("composer.mentionNav")} · ↵ {tr("composer.mentionSelect")}
@@ -390,7 +390,7 @@ export default function Composer({
 
       <div
         className={[
-          "rounded-[13px] border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] focus-within:border-kin-blue/40 transition-[padding] duration-150",
+          "rounded-xl border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] focus-within:border-kin-blue/40 transition-[padding] duration-150",
           expanded ? "px-3 py-2.5" : "px-2.5 py-1.5",
         ].join(" ")}
       >
@@ -488,9 +488,7 @@ export default function Composer({
             placeholder={resolvedPlaceholder}
             className={[
               "kin-scroll resize-none bg-transparent text-strong text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
-              expanded
-                ? "w-full min-h-[44px] leading-[1.45]"
-                : "flex-1 min-w-0 min-h-[28px] leading-[1.35]",
+              expanded ? "w-full min-h-11 leading-ui" : "flex-1 min-w-0 min-h-7 leading-ui",
             ].join(" ")}
           />
           <div

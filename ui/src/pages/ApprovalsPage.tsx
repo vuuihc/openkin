@@ -161,7 +161,7 @@ export default function ApprovalsPage() {
 
         {!loading && items.length > 0 && (
           <div className="mt-6">
-            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-muted mb-3">
               {tr("inbox.approvalsSection")}
             </div>
             <ul className="space-y-3.5">
@@ -182,7 +182,7 @@ export default function ApprovalsPage() {
 
         {!loading && questions.length > 0 && (
           <div className="mt-8">
-            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-muted mb-3">
               {tr("inbox.questionsSection")}
             </div>
             <ul className="space-y-3.5">
@@ -201,7 +201,7 @@ export default function ApprovalsPage() {
 
         {!loading && running.length > 0 && (
           <div className="mt-10">
-            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-muted mb-3">
               {tr("inbox.running")}
             </div>
             <ul className="space-y-2.5">

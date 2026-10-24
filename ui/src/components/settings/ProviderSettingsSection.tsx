@@ -106,10 +106,10 @@ export function ProviderSettingsSection({
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1 min-w-0">
-            <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+            <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
               {tr("settings.provider.heading")}
             </h2>
-            <p className="text-body text-kin-secondary leading-relaxed">
+            <p className="text-body text-kin-secondary leading-prose">
               {tr("settings.provider.descA")}
               <code className="text-caption px-1 rounded bg-[var(--kin-fill)]">kin</code>
               {tr("settings.provider.descB")}
@@ -147,7 +147,7 @@ export function ProviderSettingsSection({
                         {providerDisplayName(provider)}
                       </span>
                       {isActive ? (
-                        <span className="text-micro font-semibold uppercase tracking-wide text-kin-blue">
+                        <span className="text-micro font-semibold uppercase tracking-label text-kin-blue">
                           {tr("settings.provider.activeBadge")}
                         </span>
                       ) : null}
@@ -162,7 +162,7 @@ export function ProviderSettingsSection({
                         type="button"
                         disabled={providerBusy}
                         onClick={() => onActivateProvider(provider.id)}
-                        className="kin-btn-secondary text-body min-h-[36px] disabled:opacity-50"
+                        className="kin-btn-secondary text-body min-h-9 disabled:opacity-50"
                       >
                         {tr("settings.provider.use")}
                       </button>
@@ -171,7 +171,7 @@ export function ProviderSettingsSection({
                       type="button"
                       disabled={providerBusy}
                       onClick={() => onEditProvider(provider)}
-                      className="kin-btn-secondary text-body min-h-[36px] disabled:opacity-50"
+                      className="kin-btn-secondary text-body min-h-9 disabled:opacity-50"
                     >
                       {tr("settings.provider.edit")}
                     </button>
@@ -179,7 +179,7 @@ export function ProviderSettingsSection({
                       type="button"
                       disabled={providerBusy}
                       onClick={() => onDeleteProvider(provider.id)}
-                      className="kin-btn-secondary text-body min-h-[36px] text-kin-red disabled:opacity-50"
+                      className="kin-btn-secondary text-body min-h-9 text-kin-red disabled:opacity-50"
                     >
                       {tr("settings.provider.delete")}
                     </button>
@@ -204,7 +204,7 @@ export function ProviderSettingsSection({
                 value={providerName}
                 onChange={(event) => onProviderNameChange(event.target.value)}
                 placeholder={tr("settings.provider.namePlaceholder")}
-                className="kin-input min-h-[44px]"
+                className="kin-input min-h-11"
               />
             </label>
             <label className="block space-y-1">
@@ -216,7 +216,7 @@ export function ProviderSettingsSection({
                 value={providerBaseUrl}
                 onChange={(event) => onProviderBaseUrlChange(event.target.value)}
                 placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
-                className="kin-input min-h-[44px] font-mono text-body leading-4"
+                className="kin-input min-h-11 font-mono text-body leading-4"
                 autoComplete="off"
               />
               <span className="text-caption text-kin-muted">
@@ -237,7 +237,7 @@ export function ProviderSettingsSection({
                     onProviderApiKeyChange(event.target.value);
                     onProviderApiKeyDirty(true);
                   }}
-                  className="kin-input min-h-[44px] font-mono text-body leading-4 flex-1"
+                  className="kin-input min-h-11 font-mono text-body leading-4 flex-1"
                   autoComplete="off"
                 />
                 <button
@@ -274,7 +274,7 @@ export function ProviderSettingsSection({
                 value={providerModel}
                 onChange={(event) => onProviderModelChange(event.target.value)}
                 placeholder="gpt-4.1-mini · grok-3 · llama3.2"
-                className="kin-input min-h-[44px] font-mono text-body leading-4"
+                className="kin-input min-h-11 font-mono text-body leading-4"
               />
               <datalist id="provider-model-options">
                 {providerModelOptions.map((model) => (
@@ -290,7 +290,7 @@ export function ProviderSettingsSection({
                   onChange={(event) => {
                     if (event.target.value) onProviderModelChange(event.target.value);
                   }}
-                  className="kin-input min-h-[40px] text-body leading-4 mt-1"
+                  className="kin-input min-h-10 text-body leading-4 mt-1"
                 >
                   <option value="">
                     {tr("settings.provider.modelsPick").replace(
@@ -341,7 +341,7 @@ export function ProviderSettingsSection({
                       type="text"
                       value={providerSupportsAgents}
                       onChange={(event) => onProviderSupportsAgentsChange(event.target.value)}
-                      className="kin-input min-h-[40px] font-mono text-body leading-4"
+                      className="kin-input min-h-10 font-mono text-body leading-4"
                       placeholder="claude-code, kin, codex"
                     />
                     <span className="text-micro text-kin-muted">
@@ -391,14 +391,14 @@ export function ProviderSettingsSection({
                           type="text"
                           value={model.id}
                           onChange={(event) => updateModel(index, { id: event.target.value })}
-                          className="kin-input min-h-[32px] text-body leading-4 font-mono"
+                          className="kin-input min-h-8 text-body leading-4 font-mono"
                           placeholder="claude-sonnet-4-20250514"
                         />
                         <div className="flex gap-2">
                           <select
                             value={model.tier}
                             onChange={(event) => updateModel(index, { tier: event.target.value })}
-                            className="kin-input min-h-[32px] text-body leading-4 flex-1"
+                            className="kin-input min-h-8 text-body leading-4 flex-1"
                           >
                             <option value="smart">{tr("settings.provider.tierSmart")}</option>
                             <option value="balanced">{tr("settings.provider.tierBalanced")}</option>
@@ -410,7 +410,7 @@ export function ProviderSettingsSection({
                             onChange={(event) =>
                               updateModel(index, { cost_label: event.target.value })
                             }
-                            className="kin-input min-h-[32px] text-body leading-4 flex-1"
+                            className="kin-input min-h-8 text-body leading-4 flex-1"
                           >
                             <option value="paid">{tr("settings.provider.costPaid")}</option>
                             <option value="company">{tr("settings.provider.costCompany")}</option>
@@ -452,7 +452,7 @@ export function ProviderSettingsSection({
           <select
             value={agentDefault}
             onChange={(event) => onAgentDefaultChange(event.target.value)}
-            className="kin-input min-h-[44px]"
+            className="kin-input min-h-11"
           >
             <option value="">{tr("settings.provider.autoOption")}</option>
             {sortAgentCatalog(runnableAgents(agentList)).map((agent) => {
@@ -476,7 +476,7 @@ export function ProviderSettingsSection({
           {agentList.some((agent) => !agent.available) ? (
             <Link
               to="/agents"
-              className="inline-flex min-h-[44px] items-center text-caption text-kin-blue hover:underline sm:min-h-0 sm:mt-1"
+              className="inline-flex min-h-11 items-center text-caption text-kin-blue hover:underline sm:min-h-0 sm:mt-1"
             >
               {tr("agents.manageLink")}
             </Link>

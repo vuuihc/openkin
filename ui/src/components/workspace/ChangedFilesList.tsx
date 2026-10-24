@@ -74,10 +74,10 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
                 />
                 <IconFile size={13} className="mt-0.5 flex-none opacity-80" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-body leading-snug">
+                  <span className="block truncate font-mono text-body leading-ui">
                     {shortPath(f.path, 36)}
                   </span>
-                  <span className="mt-0.5 flex items-center gap-1.5 text-micro uppercase tracking-wide opacity-70">
+                  <span className="mt-0.5 flex items-center gap-1.5 text-micro uppercase tracking-label opacity-70">
                     <span>{actionLabel(f.action, t)}</span>
                     {(f.additions != null || f.deletions != null) && (
                       <span className="normal-case tabular-nums tracking-normal">

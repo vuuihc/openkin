@@ -97,7 +97,7 @@ export default function TrayPage() {
         {/* Needs you */}
         {approvals.length > 0 && (
           <>
-            <div className="text-caption font-semibold uppercase tracking-wide text-kin-orange px-1 pt-2 pb-1.5">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-orange px-1 pt-2 pb-1.5">
               Needs you · {approvals.length}
             </div>
             <div className="space-y-2">
@@ -159,7 +159,7 @@ export default function TrayPage() {
         )}
 
         {/* Running */}
-        <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-1 pt-4 pb-1.5">
+        <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-1 pt-4 pb-1.5">
           Running · {running.length}
         </div>
         {running.length === 0 ? (
@@ -201,7 +201,7 @@ export default function TrayPage() {
         {/* Done today */}
         {doneToday.length > 0 && (
           <>
-            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-1 pt-4 pb-1.5">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-1 pt-4 pb-1.5">
               Done today
             </div>
             <div className="space-y-0.5">
@@ -210,7 +210,7 @@ export default function TrayPage() {
                   key={t.id}
                   type="button"
                   onClick={() => openMain(`/tasks/${t.id}`)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-body text-kin-secondary hover:bg-[var(--kin-fill)] text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-body text-kin-secondary hover:bg-[var(--kin-fill)] text-left"
                 >
                   <span className="truncate flex-1">
                     {t.title || displayUserPrompt(t.prompt || "")}

@@ -749,7 +749,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         <div className="h-11 flex-none border-b border-[var(--kin-hairline)] px-5 flex items-center">
           <SkeletonLine className="h-4 w-40" />
         </div>
-        <div className="flex-1 p-6 space-y-3 max-w-[720px] mx-auto w-full">
+        <div className="flex-1 p-6 space-y-3 max-w-conversation mx-auto w-full">
           <SkeletonLine className="h-16 w-3/4 ml-auto rounded-2xl" />
           <SkeletonLine className="h-12 w-2/3 rounded-xl" />
           <SlowConnectHint show={slow} />
@@ -833,14 +833,14 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           lost — no control is hidden on the small screen.
         */}
         <div
-          className="min-h-[44px] flex-none flex flex-wrap items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
+          className="min-h-11 flex-none flex flex-wrap items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
           style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
           <button
             type="button"
             onClick={goBack}
             aria-label={tr("app.back")}
-            className="md:hidden mr-2 text-kin-blue min-w-[44px] min-h-[44px] -ml-2 flex items-center justify-center"
+            className="md:hidden mr-2 text-kin-blue min-w-[44px] min-h-11 -ml-2 flex items-center justify-center"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <IconBack size={18} strokeWidth={2} />
@@ -859,7 +859,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               title={tr("newChat.hostAgent", { name: hostAgentName })}
             >
               <span
-                className={`w-4 h-4 rounded-[5px] inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
+                className={`w-4 h-4 rounded-md inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
               >
                 {hostAgentAvatar.initials}
               </span>
@@ -1037,7 +1037,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         </div>
 
         <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
-          <div className="max-w-[720px] mx-auto space-y-1.5">
+          <div className="max-w-conversation mx-auto space-y-1.5">
             <Composer
               key={task.id}
               agents={agents}
@@ -1089,7 +1089,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 // arbitrarily long: it shrinks to a readable floor and its path
                 // tag truncates inside that, rather than the row overflowing on
                 // a desktop window or the chip collapsing on a phone.
-                className="min-w-[6rem] max-w-[min(40%,18rem)]"
+                className="min-w-[6rem] max-w-inspector"
                 cwd={task.cwd}
                 locked
                 compact
@@ -1136,7 +1136,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
       {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
       <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/95 backdrop-blur-md shadow-lg px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
+        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/95 backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
         aria-label={tr("task.sessionRail")}
       >
         <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />

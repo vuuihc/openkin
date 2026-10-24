@@ -67,7 +67,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
   return (
     <div
       className={[
-        "rounded-[12px] animate-slideIn overflow-hidden",
+        "rounded-xl animate-slideIn overflow-hidden",
         focused
           ? "border-2 border-indigo-400 shadow-[0_0_0_3px_rgba(99,102,241,.25)]"
           : "border border-[rgba(99,102,241,.55)] shadow-[0_8px_24px_rgba(99,102,241,.12)]",
@@ -88,7 +88,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           ) : null}
         </div>
 
-        <p className="mt-2.5 text-strong leading-snug text-kin-primary">
+        <p className="mt-2.5 text-strong leading-ui text-kin-primary">
           {payload.question || tr("question.fallback")}
         </p>
 

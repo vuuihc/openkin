@@ -50,7 +50,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <div className="text-caption font-medium uppercase tracking-wide text-kin-secondary">
+        <div className="text-caption font-medium uppercase tracking-label text-kin-secondary">
           {title}
         </div>
         <div className="text-caption text-kin-muted tabular-nums">
@@ -72,7 +72,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
               <div
                 key={d.date}
                 title={`${d.date}: ${d.count}`}
-                className="rounded-[2px]"
+                className="rounded-sm"
                 style={{
                   width: 10,
                   height: 10,
@@ -89,7 +89,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
         {COLORS_DARK.map((c, i) => (
           <span
             key={i}
-            className="inline-block rounded-[2px]"
+            className="inline-block rounded-sm"
             style={{ width: 10, height: 10, background: c }}
           />
         ))}

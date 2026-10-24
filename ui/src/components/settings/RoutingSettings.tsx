@@ -79,7 +79,7 @@ export function RoutingDefaultsSection() {
 
   return (
     <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-      <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+      <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
         {tr("settings.routing.heading")}
       </h2>
       <p className="text-body leading-4 text-kin-muted">{tr("settings.routing.desc")}</p>
@@ -110,7 +110,7 @@ export function RoutingDefaultsSection() {
             <select
               value={defaultTeam}
               onChange={(e) => setDefaultTeam(e.target.value)}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             >
               <option value="">{tr("settings.routing.defaultTeamPlaceholder")}</option>
               {(options?.teams ?? []).map((t) => (
@@ -128,7 +128,7 @@ export function RoutingDefaultsSection() {
             <select
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             >
               <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
               <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
@@ -150,7 +150,7 @@ export function RoutingDefaultsSection() {
                   value === "light" || value === "medium" || value === "heavy" ? value : "",
                 );
               }}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             >
               <option value="">{tr("settings.routing.qualityFloorAdaptive")}</option>
               <option value="light">{tr("settings.routing.qualityFloorLight")}</option>
@@ -199,7 +199,7 @@ export function RoutingDefaultsSection() {
               max={10}
               value={maxAttempts}
               onChange={(e) => setMaxAttempts(Number(e.target.value))}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             />
           </label>
 
@@ -210,7 +210,7 @@ export function RoutingDefaultsSection() {
             <select
               value={terminalPolicy}
               onChange={(e) => setTerminalPolicy(e.target.value)}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             >
               <option value="wait">{tr("settings.routing.wait")}</option>
               <option value="ask">{tr("settings.routing.ask")}</option>
@@ -357,10 +357,10 @@ export function RoutingProfilesSection() {
     <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1 min-w-0">
-          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.routing.profiles")}
           </h2>
-          <p className="text-body text-kin-secondary leading-relaxed">
+          <p className="text-body text-kin-secondary leading-prose">
             {tr("settings.routing.profilesDesc")}
           </p>
         </div>
@@ -389,7 +389,7 @@ export function RoutingProfilesSection() {
                     <span className="text-micro font-mono text-kin-muted">{p.alias}</span>
                   )}
                   <span
-                    className={`text-micro font-semibold uppercase tracking-wide ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}
+                    className={`text-micro font-semibold uppercase tracking-label ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}
                   >
                     {p.enabled ? "enabled" : "disabled"}
                   </span>
@@ -403,14 +403,14 @@ export function RoutingProfilesSection() {
                 <button
                   type="button"
                   onClick={() => editProfile(p)}
-                  className="kin-btn-secondary text-body min-h-[36px]"
+                  className="kin-btn-secondary text-body min-h-9"
                 >
                   {tr("settings.provider.edit")}
                 </button>
                 <button
                   type="button"
                   onClick={() => deleteProfile(p.id)}
-                  className="kin-btn-secondary text-body min-h-[36px] text-kin-red"
+                  className="kin-btn-secondary text-body min-h-9 text-kin-red"
                 >
                   {tr("settings.provider.delete")}
                 </button>
@@ -434,7 +434,7 @@ export function RoutingProfilesSection() {
               type="text"
               value={editing.id}
               onChange={(e) => setEditing({ ...editing, id: e.target.value })}
-              className="kin-input min-h-[44px] font-mono text-body leading-4"
+              className="kin-input min-h-11 font-mono text-body leading-4"
               disabled={!isNew}
               placeholder={isNew ? slugFromName(editing.name) || "auto-generated" : ""}
             />
@@ -460,7 +460,7 @@ export function RoutingProfilesSection() {
                   id: isNew && !editing.id ? slugFromName(name) : editing.id,
                 });
               }}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             />
           </label>
           <label className="block space-y-1">
@@ -471,7 +471,7 @@ export function RoutingProfilesSection() {
               type="text"
               value={editing.alias || ""}
               onChange={(e) => setEditing({ ...editing, alias: e.target.value })}
-              className="kin-input min-h-[44px] font-mono text-body leading-4"
+              className="kin-input min-h-11 font-mono text-body leading-4"
               placeholder="A"
             />
             <span className="text-caption text-kin-muted">{tr("settings.routing.aliasHint")}</span>
@@ -493,7 +493,7 @@ export function RoutingProfilesSection() {
             <select
               value={editing.default_objective || "balanced"}
               onChange={(e) => setEditing({ ...editing, default_objective: e.target.value })}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             >
               <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
               <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
@@ -514,7 +514,7 @@ export function RoutingProfilesSection() {
                     type="button"
                     disabled={!!editing.phases[phase]}
                     onClick={() => addPhase(phase)}
-                    className={`text-micro px-1.5 py-0.5 rounded border min-h-[22px] ${
+                    className={`text-micro px-1.5 py-0.5 rounded border min-h-6 ${
                       editing.phases[phase]
                         ? "border-kin-green bg-kin-green/10 text-kin-green cursor-default"
                         : "border-[var(--kin-hairline)] text-kin-muted hover:text-kin-blue hover:border-kin-blue"
@@ -548,7 +548,7 @@ export function RoutingProfilesSection() {
                     type="text"
                     value={pp.agent}
                     onChange={(e) => updatePhase(phase, "agent", e.target.value)}
-                    className="kin-input min-h-[36px] text-body leading-4 font-mono"
+                    className="kin-input min-h-9 text-body leading-4 font-mono"
                     placeholder="claude-code"
                   />
                 </label>
@@ -557,7 +557,7 @@ export function RoutingProfilesSection() {
                   <select
                     value={pp.tier || "balanced"}
                     onChange={(e) => updatePhase(phase, "tier", e.target.value)}
-                    className="kin-input min-h-[36px] text-body leading-4"
+                    className="kin-input min-h-9 text-body leading-4"
                   >
                     <option value="smart">smart</option>
                     <option value="balanced">balanced</option>
@@ -581,7 +581,7 @@ export function RoutingProfilesSection() {
                           .filter(Boolean),
                       )
                     }
-                    className="kin-input min-h-[36px] text-body leading-4 font-mono"
+                    className="kin-input min-h-9 text-body leading-4 font-mono"
                     placeholder="provider-1, provider-2"
                   />
                 </label>
@@ -602,7 +602,7 @@ export function RoutingProfilesSection() {
                           .filter(Boolean),
                       )
                     }
-                    className="kin-input min-h-[36px] text-body leading-4 font-mono"
+                    className="kin-input min-h-9 text-body leading-4 font-mono"
                     placeholder="next_provider_same_tier"
                   />
                 </label>

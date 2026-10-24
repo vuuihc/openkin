@@ -126,7 +126,7 @@ export default function SessionsPage() {
       {!loading && groups.length === 0 && (
         <div className="px-6 py-16 text-center">
           <p className="text-subtitle font-medium text-kin-text">{tr("sessions.empty")}</p>
-          <p className="mt-1.5 text-strong leading-relaxed text-kin-muted">
+          <p className="mt-1.5 text-strong leading-prose text-kin-muted">
             {tr("sessions.emptyHint")}
           </p>
         </div>
@@ -157,14 +157,14 @@ export default function SessionsPage() {
                       : `/agent-sessions/${encodeURIComponent(row.session!.id)}`,
                   )
                 }
-                className="flex w-full min-h-[62px] items-start gap-2.5 border-b border-[var(--kin-hairline)] px-4 py-2.5 text-left active:bg-[var(--kin-fill)]"
+                className="flex w-full min-h-16 items-start gap-2.5 border-b border-[var(--kin-hairline)] px-4 py-2.5 text-left active:bg-[var(--kin-fill)]"
               >
-                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] bg-kin-blue-soft text-subtitle font-bold text-[#6cb2ff]">
+                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-lg bg-kin-blue-soft text-subtitle font-bold text-[#6cb2ff]">
                   {initial(agentDisplayName(row.task?.agent ?? row.session!.agent_id))}
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 text-subtitle font-medium leading-[1.32]">
+                  <span className="line-clamp-2 text-subtitle font-medium leading-ui">
                     {row.task
                       ? row.task.title.trim() ||
                         displayUserPrompt(row.task.prompt) ||
@@ -182,7 +182,7 @@ export default function SessionsPage() {
                   {row.task ? (
                     <StatusPill status={row.task.status} />
                   ) : (
-                    <span className="inline-flex h-5 items-center rounded-[10px] bg-[var(--kin-fill)] px-2 text-caption font-semibold text-kin-muted">
+                    <span className="inline-flex h-5 items-center rounded-lg bg-[var(--kin-fill)] px-2 text-caption font-semibold text-kin-muted">
                       {agentDisplayName(row.session!.agent_id)}
                     </span>
                   )}
@@ -218,7 +218,7 @@ function StatusPill({ status }: { status: string }) {
             : "bg-[var(--kin-fill)] text-kin-muted";
   return (
     <span
-      className={`inline-flex h-5 items-center rounded-[10px] px-2 text-caption font-semibold ${tone}`}
+      className={`inline-flex h-5 items-center rounded-lg px-2 text-caption font-semibold ${tone}`}
     >
       {tr(view.labelKey)}
     </span>

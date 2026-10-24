@@ -47,7 +47,7 @@ export function AccountSection() {
               window.location.assign("/");
             });
           }}
-          className="min-h-[44px] rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-strong font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-60 sm:min-h-[40px]"
+          className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-strong font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-60 sm:min-h-10"
         >
           {busy ? tr("settings.account.signingOut") : tr("settings.account.signOut")}
         </button>

@@ -178,11 +178,11 @@ export default function ChangedFilesBar({
             type="button"
             onClick={() => openDiffPanel()}
             title={t("workspace.changed.expand")}
-            className="flex-1 min-w-0 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+            className="flex-1 min-w-0 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <IconChevron size={12} className="flex-none text-kin-muted rotate-90" />
-              <span className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+              <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
                 {t("workspace.changed.cardTitle")}
               </span>
             </div>
@@ -272,7 +272,7 @@ export default function ChangedFilesBar({
           type="button"
           onClick={() => openDiffPanel()}
           title={t("workspace.changed.expand")}
-          className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+          className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
         >
           <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
           <span className="flex-none text-body font-semibold text-kin-text">

@@ -35,6 +35,11 @@ export const TOKEN_GROUPS = [
     tokens: ["--kin-hairline", "--kin-hairline-strong", "--kin-fill", "--kin-fill-strong"],
   },
   {
+    labelKey: "design.groupFocus",
+    noteKey: "design.noteFocus",
+    tokens: ["--kin-focus-ring"],
+  },
+  {
     labelKey: "design.groupStatus",
     noteKey: "design.noteStatus",
     tokens: ["--kin-warning", "--kin-bubble-user", "--kin-bubble-user-fg"],
@@ -99,6 +104,36 @@ function InkSample({ name, value, ink }: { name: string; value: string; ink: str
 const INK_BACKDROPS = ["--kin-bg", "--kin-elevated", "--kin-panel", "--kin-sidebar"] as const;
 
 /**
+ * The ring is measured one surface further out. `--kin-page` is the window
+ * backdrop that `AppShell` paints on its root, and `<main>` inside it paints
+ * nothing — so a page that does not paint its own surface (most of them: the
+ * agents search field, the session detail page, the provider settings fields)
+ * has its focused controls sitting directly on `--kin-page`. It is also the
+ * surface that decided the light value. Ink does not get this one: no label is
+ * drawn on the backdrop, and showing one there would be a pair that does not
+ * exist.
+ */
+const FOCUS_BACKDROPS = ["--kin-page", ...INK_BACKDROPS] as const;
+
+/**
+ * A colour chip would not answer the question this token exists to answer, so
+ * the ring is drawn — at `ring-1`, the width 14 of the 16 real styles use, on
+ * each surface a focused control actually sits on.
+ */
+function FocusSample({ name, value, ink }: { name: string; value: string; ink: string }) {
+  return (
+    <div className="rounded-lg p-3" style={{ background: `var(${ink})` }}>
+      <div className="min-h-9 rounded-md px-3 py-2 text-body text-kin-text ring-1 ring-kin-focus-ring">
+        {name}
+      </div>
+      <div className="mt-2 font-mono text-caption text-kin-muted">
+        {ink} · {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The type ladder, rendered from the same array `tailwind.config.ts` assigns to
  * `theme.fontSize` — so a role that exists is a role that is shown here.
  */
@@ -139,35 +174,48 @@ export default function DesignSystemPage() {
     <div className="h-full overflow-y-auto kin-scroll px-5 py-6">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-hero font-bold text-kin-text">{tr("design.title")}</h1>
-        <p className="mt-2 text-strong leading-relaxed text-kin-muted">{tr("design.lede")}</p>
+        <p className="mt-2 text-strong leading-prose text-kin-muted">{tr("design.lede")}</p>
 
         <div className="mt-6 space-y-6">
-          {TOKEN_GROUPS.map((group) => (
-            <section key={group.labelKey}>
-              <h2 className="text-strong font-semibold text-kin-text">{tr(group.labelKey)}</h2>
-              <p className="mb-3 mt-1 text-body text-kin-muted">{tr(group.noteKey)}</p>
-              {group.labelKey === "design.groupInk" ? (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {group.tokens.flatMap((name) =>
-                    INK_BACKDROPS.map((ink) => (
-                      <InkSample
-                        key={`${name}@${ink}`}
-                        name={name}
-                        value={values[name] ?? ""}
-                        ink={ink}
-                      />
-                    )),
-                  )}
-                </div>
-              ) : (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {group.tokens.map((name) => (
-                    <Swatch key={name} name={name} value={values[name] ?? ""} />
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
+          {TOKEN_GROUPS.map((group) => {
+            // Two groups are drawn on the surfaces they appear on rather than
+            // as colour chips: ink is measured against them, and the focus ring
+            // is only a ring when there is something behind it.
+            const Sample =
+              group.labelKey === "design.groupInk"
+                ? InkSample
+                : group.labelKey === "design.groupFocus"
+                  ? FocusSample
+                  : null;
+            const backdrops =
+              group.labelKey === "design.groupFocus" ? FOCUS_BACKDROPS : INK_BACKDROPS;
+            return (
+              <section key={group.labelKey}>
+                <h2 className="text-strong font-semibold text-kin-text">{tr(group.labelKey)}</h2>
+                <p className="mb-3 mt-1 text-body text-kin-muted">{tr(group.noteKey)}</p>
+                {Sample ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {group.tokens.flatMap((name) =>
+                      backdrops.map((ink) => (
+                        <Sample
+                          key={`${name}@${ink}`}
+                          name={name}
+                          value={values[name] ?? ""}
+                          ink={ink}
+                        />
+                      )),
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {group.tokens.map((name) => (
+                      <Swatch key={name} name={name} value={values[name] ?? ""} />
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
 
           <section>
             <h2 className="text-strong font-semibold text-kin-text">{tr("design.groupType")}</h2>

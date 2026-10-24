@@ -33,7 +33,7 @@ export default function MachinePicker({
     <select
       className={[
         "max-w-[10.5rem] truncate rounded-lg border bg-transparent px-1.5 py-0.5 text-caption font-medium",
-        "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
+        "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
         offline
           ? "border-[rgba(255,159,10,.4)] text-[#ffb340]"
           : "border-[var(--kin-hairline-strong)] text-kin-secondary",

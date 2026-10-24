@@ -48,7 +48,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
     }
     return (
       <div
-        className={["mx-auto max-w-[720px] px-4 sm:px-7 pt-2", className ?? ""].join(" ")}
+        className={["mx-auto max-w-conversation px-4 sm:px-7 pt-2", className ?? ""].join(" ")}
         aria-label={tr("usage.loading")}
       >
         <div className="h-8 animate-pulse rounded-lg bg-[var(--kin-fill)]" />
@@ -117,7 +117,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           dense={isCard}
         />
       </dl>
-      <p className="text-caption leading-snug text-kin-muted" role="status">
+      <p className="text-caption leading-ui text-kin-muted" role="status">
         {statusText}
       </p>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-caption">
@@ -149,7 +149,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--kin-hairline)]">
           <div className="min-w-0">
-            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+            <div className="text-caption font-semibold uppercase tracking-label text-kin-muted">
               {tr("usage.taskSummary")}
             </div>
             <div className="mt-0.5 truncate text-body tabular-nums text-kin-secondary">
@@ -158,7 +158,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
               <span>{spend}</span>
               {costBadge ? (
                 <span
-                  className="ml-1 text-micro font-semibold uppercase tracking-wide text-kin-muted"
+                  className="ml-1 text-micro font-semibold uppercase tracking-label text-kin-muted"
                   title={costBadge.title}
                 >
                   ({costBadge.label})
@@ -199,7 +199,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
 
   return (
     <section
-      className={["mx-auto max-w-[720px] px-4 sm:px-7 pt-2", className ?? ""].join(" ")}
+      className={["mx-auto max-w-conversation px-4 sm:px-7 pt-2", className ?? ""].join(" ")}
       aria-label={tr("usage.taskSummary")}
     >
       <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden">
@@ -208,9 +208,9 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           aria-expanded={open}
           aria-controls={detailsID}
           onClick={() => setOpen((value) => !value)}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)]/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
+          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)]/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-focus-ring"
         >
-          <span className="text-caption font-semibold uppercase tracking-wide text-kin-muted shrink-0">
+          <span className="text-caption font-semibold uppercase tracking-label text-kin-muted shrink-0">
             {tr("usage.taskSummary")}
           </span>
           <span className="flex-1 min-w-0 truncate text-body tabular-nums text-kin-secondary">
@@ -219,7 +219,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
             <span>{spend}</span>
             {costBadge ? (
               <span
-                className="ml-1 align-middle text-micro font-semibold uppercase tracking-wide text-kin-muted"
+                className="ml-1 align-middle text-micro font-semibold uppercase tracking-label text-kin-muted"
                 title={costBadge.title}
               >
                 ({costBadge.label})
@@ -268,7 +268,7 @@ function Metric({
       ].join(" ")}
       title={title}
     >
-      <dt className="text-micro font-semibold uppercase tracking-wide text-kin-muted">{label}</dt>
+      <dt className="text-micro font-semibold uppercase tracking-label text-kin-muted">{label}</dt>
       <dd
         className={[
           "mt-0.5 truncate font-semibold tabular-nums",

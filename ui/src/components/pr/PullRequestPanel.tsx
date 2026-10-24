@@ -258,7 +258,7 @@ export default function PullRequestPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 py-3">
-        <div className="mx-auto max-w-[720px] space-y-2">
+        <div className="mx-auto max-w-conversation space-y-2">
           {snapshot?.notice && (
             <p className="flex items-start gap-1.5 text-caption text-kin-muted">
               <IconAlert size={12} className="mt-0.5 flex-none" />
@@ -314,7 +314,7 @@ export default function PullRequestPanel({
                         href={o.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex min-h-[44px] min-w-[44px] flex-none items-center gap-1 text-kin-blue hover:underline sm:min-h-0 sm:min-w-0"
+                        className="flex min-h-11 min-w-[44px] flex-none items-center gap-1 text-kin-blue hover:underline sm:min-h-0 sm:min-w-0"
                       >
                         <IconExternal size={12} />
                       </a>

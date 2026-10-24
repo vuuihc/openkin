@@ -301,7 +301,7 @@ export default function ProjectDetailPage() {
             <div>
               <h1 className="text-title leading-7 font-semibold text-kin-text">{project.name}</h1>
               {project.roots?.[0] && (
-                <div className="mt-1 text-body text-kin-secondary truncate max-w-[min(100%,420px)]">
+                <div className="mt-1 text-body text-kin-secondary truncate max-w-sheet">
                   {project.roots[0]}
                 </div>
               )}
@@ -398,7 +398,7 @@ export default function ProjectDetailPage() {
 
           <section className="mb-4 rounded-xl border border-kin-border bg-kin-panel p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-body font-medium uppercase tracking-wide text-kin-secondary">
+              <div className="text-body font-medium uppercase tracking-label text-kin-secondary">
                 {tr("projects.pulse")}
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -461,18 +461,18 @@ export default function ProjectDetailPage() {
           </section>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-            <section className="rounded-xl border border-kin-border bg-kin-panel p-4 min-h-[320px]">
-              <div className="mb-2 text-body font-medium uppercase tracking-wide text-kin-secondary">
+            <section className="rounded-xl border border-kin-border bg-kin-panel p-4 min-h-80">
+              <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                 {tr("projects.onePager")}
               </div>
               {editing ? (
                 <textarea
-                  className="min-h-[480px] w-full resize-y rounded-lg border border-kin-border bg-transparent p-3 font-mono text-body leading-relaxed text-kin-text"
+                  className="min-h-[480px] w-full resize-y rounded-lg border border-kin-border bg-transparent p-3 font-mono text-body leading-prose text-kin-text"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                 />
               ) : (
-                <div className="prose-kin text-strong leading-relaxed">
+                <div className="prose-kin text-strong leading-prose">
                   <Markdown text={markdown} />
                 </div>
               )}
@@ -480,7 +480,7 @@ export default function ProjectDetailPage() {
 
             <aside className="space-y-3">
               <section className="rounded-xl border border-kin-border bg-kin-panel p-3">
-                <div className="mb-2 text-body font-medium uppercase tracking-wide text-kin-secondary">
+                <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                   {tr("projects.relatedArtifacts")}
                 </div>
                 {artifacts.length === 0 ? (
@@ -510,7 +510,7 @@ export default function ProjectDetailPage() {
 
       {showRoutineModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-kin-hairline-strong bg-kin-elevated p-5 shadow-window">
+          <div className="w-full max-w-md rounded-2xl border border-kin-hairline-strong bg-kin-elevated p-5 shadow-e3">
             <h2 className="text-subtitle font-semibold text-kin-text">
               {tr("routines.createTitle")}
             </h2>

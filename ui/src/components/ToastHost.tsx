@@ -16,7 +16,7 @@ export default function ToastHost() {
           key={t.id}
           className={[
             // Solid opaque surfaces only — opacity modifiers on CSS vars often paint transparent.
-            "pointer-events-auto w-full max-w-md rounded-xl border px-4 py-3 text-strong leading-5 shadow-window flex items-start justify-between gap-3",
+            "pointer-events-auto w-full max-w-md rounded-xl border px-4 py-3 text-strong leading-5 shadow-e3 flex items-start justify-between gap-3",
             t.tone === "error"
               ? "border-kin-red/50 bg-[#3a1214] text-[#ffd7d5]"
               : "border-kin-hairline-strong bg-kin-elevated text-kin-text",
@@ -27,7 +27,7 @@ export default function ToastHost() {
           <button
             type="button"
             onClick={() => dismiss(t.id)}
-            className="shrink-0 min-h-[44px] min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-kin-muted hover:text-kin-text"
+            className="shrink-0 min-h-11 min-w-[44px] -my-2 -mr-2 flex items-center justify-center text-kin-muted hover:text-kin-text"
             aria-label="Dismiss"
           >
             ×

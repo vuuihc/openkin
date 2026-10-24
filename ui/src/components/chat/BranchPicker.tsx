@@ -332,7 +332,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
           className={[
             "fixed z-50 flex flex-col",
             "rounded-xl border border-[var(--kin-hairline-strong)]",
-            "bg-[var(--kin-elevated)] shadow-lg overflow-hidden",
+            "bg-[var(--kin-elevated)] shadow-e2 overflow-hidden",
           ].join(" ")}
           role="listbox"
           aria-label={tr("branch.listLabel")}

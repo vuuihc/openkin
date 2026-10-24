@@ -44,3 +44,51 @@ describe("type ladder through Tailwind", () => {
     expect(css.replace(/\/\*[\s\S]*?\*\//g, "").trim()).toBe("");
   });
 });
+
+/**
+ * The rest of the ladders, through the same pipeline and for the same reason:
+ * nothing else in the repo compiles a class name, so a step that stops
+ * resolving is invisible until someone looks at the screen and wonders why the
+ * section labels are loose. Each row is a class the tree uses and a fragment of
+ * the declaration the browser has to end up with.
+ */
+describe("scale ladders through Tailwind", () => {
+  const STEPS: [string, string][] = [
+    ["tracking-label", "letter-spacing: 0.06em"],
+    ["leading-prose", "line-height: 1.625"],
+    ["leading-flush", "line-height: 1"],
+    ["leading-4", "line-height: 1rem"],
+    ["shadow-e1", "0 1px 2px rgba(0, 0, 0, 0.24)"],
+    ["shadow-e3", "0 40px 90px -20px rgba(0, 0, 0, 0.7)"],
+    ["min-h-11", "min-height: 2.75rem"],
+    ["w-sidebar", "width: 248px"],
+    ["max-w-conversation", "max-width: 720px"],
+    ["max-w-sheet", "max-width: min(100%, 420px)"],
+    ["max-w-inspector", "max-width: min(40%, 18rem)"],
+    // Not a scale step, but the two lines whose failure is an accessibility
+    // failure: a token name that stopped resolving would emit no ring — or no
+    // outline — at all, and nothing on screen would say so.
+    ["ring-kin-focus-ring", "--tw-ring-color: var(--kin-focus-ring)"],
+    ["outline-kin-focus-ring", "outline-color: var(--kin-focus-ring)"],
+  ];
+
+  it("emits every step at the value the ladder declares", async () => {
+    const css = await utilities(STEPS.map(([name]) => name).join(" "));
+    for (const [name, declaration] of STEPS) {
+      expect({ name, emitted: css.includes(declaration) }).toEqual({ name, emitted: true });
+    }
+  });
+
+  it("no longer emits the names the ladders replaced", async () => {
+    const removed = [
+      ["wide", "wider", "widest"].map((n) => "tracking-" + n),
+      ["tight", "normal", "relaxed", "snug", "loose"].map((n) => "leading-" + n),
+      ["sm", "md", "lg", "xl", "2xl", "inner", "none"].map((n) => "shadow-" + n),
+      // The bare DEFAULT step, split so this line does not name it.
+      ["shad" + "ow"],
+      ["card", "pill"].map((n) => "rounded-" + n),
+    ].flat();
+    const css = await utilities(removed.join(" "));
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, "").trim()).toBe("");
+  });
+});

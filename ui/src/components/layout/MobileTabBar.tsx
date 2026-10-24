@@ -76,7 +76,7 @@ export default function MobileTabBar({ pendingCount }: Props) {
           key={tab.to}
           to={tab.to}
           className={({ isActive }) =>
-            `relative flex-1 min-h-[50px] flex flex-col items-center justify-center gap-0.5 text-micro transition-colors ${
+            `relative flex-1 min-h-12 flex flex-col items-center justify-center gap-0.5 text-micro transition-colors ${
               isActive ? "text-kin-blue" : "text-kin-muted"
             }`
           }

@@ -97,14 +97,14 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
           <h1 className="text-hero leading-7 font-semibold text-zinc-50">
             {mode === "claim" ? tr("account.claimTitle") : tr("account.loginTitle")}
           </h1>
-          <p className="text-strong text-zinc-400 leading-relaxed">
+          <p className="text-strong text-zinc-400 leading-prose">
             {mode === "claim" ? tr("account.claimBlurb") : tr("account.loginBlurb")}
           </p>
         </div>
 
         <form
           onSubmit={onSubmit}
-          className="rounded-2xl border border-surface-border bg-surface-raised p-5 space-y-4 shadow-xl shadow-black/30"
+          className="rounded-2xl border border-surface-border bg-surface-raised p-5 space-y-4 shadow-e3"
         >
           {mode === "claim" && (
             <label className="block space-y-1.5">
@@ -121,7 +121,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
                 value={code}
                 onChange={(e) => setCode(formatClaimCode(e.target.value))}
                 placeholder={tr("account.codePlaceholder")}
-                className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-subtitle leading-6 tracking-[0.2em] text-zinc-100 placeholder:tracking-normal placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+                className="w-full min-h-11 rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-subtitle leading-6 tracking-label text-zinc-100 placeholder:tracking-normal placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"
               />
             </label>
           )}
@@ -141,7 +141,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder={tr("account.emailPlaceholder")}
-              className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full min-h-11 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"
             />
           </label>
 
@@ -156,7 +156,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder={mode === "claim" ? tr("account.newPasswordPlaceholder") : "••••••••"}
-              className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full min-h-11 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"
             />
             {mode === "claim" && (
               <span className="block text-body leading-4 text-zinc-500">
@@ -176,7 +176,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder={tr("account.namePlaceholder")}
-                className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+                className="w-full min-h-11 rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"
               />
             </label>
           )}
@@ -190,7 +190,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
           <button
             type="submit"
             disabled={busy}
-            className="w-full min-h-[48px] rounded-xl bg-accent px-4 py-3 text-strong leading-5 font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition disabled:opacity-60"
+            className="w-full min-h-12 rounded-xl bg-accent px-4 py-3 text-strong leading-5 font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition disabled:opacity-60"
           >
             {busy
               ? tr("account.working")
@@ -214,7 +214,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
         </form>
 
         {mode === "claim" && (
-          <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-body text-zinc-500 space-y-2 leading-relaxed">
+          <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-body text-zinc-500 space-y-2 leading-prose">
             <p className="font-medium text-zinc-400">{tr("account.whereTitle")}</p>
             <p>{tr("account.whereBody")}</p>
             <code className="block rounded-lg bg-surface px-2 py-1.5 text-zinc-300">
@@ -239,7 +239,7 @@ function OIDCButton({
     <button
       type="button"
       onClick={() => startOIDC(provider, window.location.pathname)}
-      className="w-full min-h-[48px] rounded-xl border border-surface-border bg-surface px-4 py-3 text-strong leading-5 font-medium text-zinc-100 hover:bg-surface-raised active:scale-[0.99] transition"
+      className="w-full min-h-12 rounded-xl border border-surface-border bg-surface px-4 py-3 text-strong leading-5 font-medium text-zinc-100 hover:bg-surface-raised active:scale-[0.99] transition"
     >
       {label("account.continueWith", { provider: provider.label })}
     </button>

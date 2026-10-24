@@ -45,10 +45,10 @@ export default function ApprovalCard({
   return (
     <div
       className={[
-        "rounded-[12px] animate-slideIn overflow-hidden",
+        "rounded-xl animate-slideIn overflow-hidden",
         focused
           ? "border-2 border-kin-blue shadow-[0_0_0_3px_rgba(10,132,255,.2)]"
-          : "border border-[rgba(255,159,10,.55)] shadow-card-amber",
+          : "border border-[rgba(255,159,10,.55)] shadow-e2",
         "bg-gradient-to-b from-[rgba(255,159,10,.1)] to-[rgba(255,159,10,.03)]",
       ].join(" ")}
     >
@@ -59,7 +59,7 @@ export default function ApprovalCard({
             {tr("approval.cardTitle")}
           </span>
           {focused && (
-            <span className="text-micro font-semibold uppercase tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5">
+            <span className="text-micro font-semibold uppercase tracking-label text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5">
               {tr("approval.focused")}
             </span>
           )}
@@ -90,7 +90,7 @@ export default function ApprovalCard({
         </div>
 
         {previewLines && previewLines.length > 0 && (
-          <div className="mt-2.5 rounded-lg overflow-hidden border border-[var(--kin-hairline)] font-mono text-caption leading-relaxed">
+          <div className="mt-2.5 rounded-lg overflow-hidden border border-[var(--kin-hairline)] font-mono text-caption leading-prose">
             {previewLines.map((line, i) => (
               <div
                 key={i}

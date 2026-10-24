@@ -68,7 +68,7 @@ export default function ModelPicker({
           compact
             ? "bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary"
             : "bg-transparent px-2 py-1 text-caption font-medium text-kin-secondary",
-          "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
+          "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
         ].join(" ")}
         value={custom || currentIsCustom ? "__custom__" : current}
@@ -98,7 +98,7 @@ export default function ModelPicker({
         <input
           className={[
             compact ? "w-28 px-1.5 py-0.5 text-caption" : "w-44 px-2 py-1 text-caption",
-            "rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
+            "rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
           ].join(" ")}
           value={current}
           placeholder={tr("modelPicker.customPlaceholder")}

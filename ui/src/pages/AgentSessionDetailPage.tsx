@@ -36,7 +36,7 @@ function AgentAvatar({ agentID, small = false }: { agentID: string; small?: bool
     <span
       className={[
         "inline-flex flex-none items-center justify-center font-semibold",
-        small ? "h-5 w-5 rounded-[6px] text-micro" : "h-7 w-7 rounded-[8px] text-caption",
+        small ? "h-5 w-5 rounded-md text-micro" : "h-7 w-7 rounded-lg text-caption",
         meta.className,
       ].join(" ")}
       role="img"
@@ -245,7 +245,7 @@ export default function AgentSessionDetailPage() {
 
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll py-5">
         {historyError && (
-          <div className="max-w-[720px] mx-auto px-4 sm:px-7">
+          <div className="max-w-conversation mx-auto px-4 sm:px-7">
             <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-strong text-kin-orange">
               {historyError}
             </div>
@@ -262,7 +262,7 @@ export default function AgentSessionDetailPage() {
           hostSpeaker={session.agent_id}
         />
         {historyLoading && (
-          <div className="max-w-[720px] mx-auto px-4 sm:px-7 space-y-2 py-2" role="status">
+          <div className="max-w-conversation mx-auto px-4 sm:px-7 space-y-2 py-2" role="status">
             <SkeletonLine className="h-20 w-full" />
             <SkeletonLine className="h-16 w-5/6" />
           </div>
@@ -282,7 +282,7 @@ export default function AgentSessionDetailPage() {
 
       {canContinue && (
         <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
-          <div className="max-w-[720px] mx-auto space-y-1.5">
+          <div className="max-w-conversation mx-auto space-y-1.5">
             <Composer
               key={session.id}
               busy={attachBusy}
@@ -292,7 +292,7 @@ export default function AgentSessionDetailPage() {
             />
             <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
               <CwdPicker
-                className="min-w-0 max-w-[min(40%,18rem)]"
+                className="min-w-0 max-w-inspector"
                 cwd={session.cwd}
                 locked
                 compact

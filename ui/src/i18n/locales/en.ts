@@ -1365,6 +1365,9 @@ const en: MessageTree = {
     groupLines: "Lines and fills",
     noteLines:
       "A hairline is a boundary inside a surface; between two surfaces the ladder above separates them.",
+    groupFocus: "Focus ring",
+    noteFocus:
+      "Drawn on every surface a focused control sits on, at the width most of the real styles use. WCAG 1.4.11 asks a non-text indicator for 3:1, and the two themes cannot share one blue: deep enough to pass on the dark backdrop means too bright on the light page.",
     groupStatus: "Status and brand",
     noteStatus: "These are fills: white or near-black text sits on top of them.",
     groupType: "Type ladder",

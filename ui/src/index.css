@@ -176,7 +176,7 @@ body {
     border-color: var(--kin-hairline);
   }
   .kin-btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-strong font-semibold transition-colors min-h-[44px] sm:min-h-0;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-strong font-semibold transition-colors min-h-11 sm:min-h-0;
   }
   .kin-btn-primary {
     @apply kin-btn bg-kin-blue text-white hover:bg-accent-muted;
@@ -191,10 +191,10 @@ body {
     @apply kin-btn border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text;
   }
   .kin-input {
-    @apply w-full rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-3 py-2 text-strong leading-5 text-kin-text placeholder:text-kin-muted outline-none focus:border-kin-blue/50 focus:ring-1 focus:ring-kin-blue/30;
+    @apply w-full rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-3 py-2 text-strong leading-5 text-kin-text placeholder:text-kin-muted outline-none focus:border-kin-blue/50 focus:ring-1 focus:ring-kin-focus-ring;
   }
   .kin-section-label {
-    @apply px-2 pt-3.5 pb-1 text-caption font-semibold uppercase tracking-[0.06em] text-kin-muted;
+    @apply px-2 pt-3.5 pb-1 text-caption font-semibold uppercase tracking-label text-kin-muted;
   }
   /* Layout surfaces */
   .kin-surface-chat {

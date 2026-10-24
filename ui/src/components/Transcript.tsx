@@ -45,7 +45,7 @@ export default function Transcript({ events }: Props) {
                     : "border-[var(--kin-hairline)] bg-kin-elevated"
                 }`}
               >
-                <div className="mb-1 text-micro uppercase tracking-wide text-kin-muted">
+                <div className="mb-1 text-micro uppercase tracking-label text-kin-muted">
                   {row.role}
                   {row.partial ? " · streaming" : ""}
                 </div>

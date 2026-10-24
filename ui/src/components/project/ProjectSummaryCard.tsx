@@ -28,13 +28,13 @@ export default function ProjectSummaryCard({
   return (
     <div
       className={[
-        "w-full max-w-xl rounded-2xl border border-[var(--kin-hairline)] bg-kin-panel/80 px-4 py-3 text-left shadow-sm",
+        "w-full max-w-xl rounded-2xl border border-[var(--kin-hairline)] bg-kin-panel/80 px-4 py-3 text-left shadow-e1",
         className,
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-caption font-medium uppercase tracking-wide text-kin-secondary">
+          <div className="text-caption font-medium uppercase tracking-label text-kin-secondary">
             {tr("newChat.projectSummaryLabel")}
           </div>
           <div className="mt-0.5 truncate text-strong font-semibold text-kin-text">{name}</div>
@@ -68,7 +68,7 @@ export default function ProjectSummaryCard({
       ) : empty ? (
         <p className="mt-3 text-body text-kin-secondary">{tr("newChat.projectSummaryEmpty")}</p>
       ) : (
-        <div className="mt-3 space-y-2 text-body leading-relaxed">
+        <div className="mt-3 space-y-2 text-body leading-prose">
           {summary?.north_star ? (
             <div>
               <div className="text-caption font-medium text-kin-muted">

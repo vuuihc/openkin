@@ -41,12 +41,12 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
             K
           </div>
           <h1 className="text-hero leading-7 font-semibold text-zinc-50">{title}</h1>
-          <p className="text-strong text-zinc-400 leading-relaxed">{blurb}</p>
+          <p className="text-strong text-zinc-400 leading-prose">{blurb}</p>
         </div>
 
         <form
           onSubmit={onSubmit}
-          className="rounded-2xl border border-surface-border bg-surface-raised p-5 space-y-4 shadow-xl shadow-black/30"
+          className="rounded-2xl border border-surface-border bg-surface-raised p-5 space-y-4 shadow-e3"
         >
           <label className="block space-y-1.5">
             <span className="text-body leading-4 font-medium text-zinc-400">
@@ -63,7 +63,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
                 setError(null);
               }}
               placeholder={tr("connect.pasteToken")}
-              className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full min-h-11 rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-kin-focus-ring"
             />
           </label>
 
@@ -75,13 +75,13 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
 
           <button
             type="submit"
-            className="w-full min-h-[48px] rounded-xl bg-accent px-4 py-3 text-strong leading-5 font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition"
+            className="w-full min-h-12 rounded-xl bg-accent px-4 py-3 text-strong leading-5 font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition"
           >
             {tr("connect.connect")}
           </button>
         </form>
 
-        <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-body text-zinc-500 space-y-2 leading-relaxed">
+        <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-body text-zinc-500 space-y-2 leading-prose">
           <p className="font-medium text-zinc-400">{tr("connect.whereTitle")}</p>
           <ul className="list-disc pl-4 space-y-1">
             <li>

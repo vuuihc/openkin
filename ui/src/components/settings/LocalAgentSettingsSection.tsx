@@ -79,10 +79,10 @@ export function LocalAgentSettingsSection({
         <div>
           <div className="flex items-start gap-3">
             <div className="flex-1">
-              <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+              <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
                 {tr("settings.localAgents.heading")}
               </h2>
-              <p className="mt-1 text-body text-kin-muted leading-relaxed">
+              <p className="mt-1 text-body text-kin-muted leading-prose">
                 {tr("settings.localAgents.desc")}
               </p>
             </div>
@@ -90,7 +90,7 @@ export function LocalAgentSettingsSection({
               type="button"
               disabled={refreshingAgentCatalog}
               onClick={onRefreshAgentCatalog}
-              className="kin-btn-secondary text-caption min-h-[32px] disabled:opacity-50"
+              className="kin-btn-secondary text-caption min-h-8 disabled:opacity-50"
             >
               {refreshingAgentCatalog
                 ? tr("settings.localAgents.refreshing")
@@ -168,7 +168,7 @@ export function LocalAgentSettingsSection({
                         type="button"
                         disabled={importingSessions}
                         onClick={() => onImportProviderSessions(agent.id)}
-                        className="kin-btn-secondary px-2 py-1 text-micro min-h-[26px] disabled:opacity-50"
+                        className="kin-btn-secondary px-2 py-1 text-micro min-h-7 disabled:opacity-50"
                       >
                         {tr("settings.localAgents.importProvider")}
                       </button>
@@ -193,7 +193,7 @@ export function LocalAgentSettingsSection({
             onChange={(event) =>
               onAutoImportModeChange(event.target.value as "prompt" | "enabled" | "disabled")
             }
-            className="kin-input min-h-[44px]"
+            className="kin-input min-h-11"
           >
             <option value="prompt">{tr("settings.localAgents.modePrompt")}</option>
             <option value="enabled">{tr("settings.localAgents.modeEnabled")}</option>

@@ -419,7 +419,7 @@ export default function RoutinesPage() {
         {!loading && !error && (
           <>
             <section className="mt-8">
-              <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-kin-muted">
+              <div className="mb-3 text-caption font-semibold uppercase tracking-label text-kin-muted">
                 {tr("routines.feedSection")}
               </div>
               {noteworthy.length === 0 && silent.length === 0 ? (
@@ -475,7 +475,7 @@ export default function RoutinesPage() {
 
             <section className="mt-10">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+                <div className="text-caption font-semibold uppercase tracking-label text-kin-muted">
                   {tr("routines.listSection")}
                 </div>
                 <input
@@ -483,7 +483,7 @@ export default function RoutinesPage() {
                   onChange={(e) => setRoutineQuery(e.target.value)}
                   placeholder={tr("routines.searchPlaceholder")}
                   aria-label={tr("routines.searchPlaceholder")}
-                  className="min-h-[34px] w-full max-w-[260px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40"
+                  className="min-h-9 w-full max-w-[260px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40"
                 />
               </div>
               {routines.length === 0 ? (

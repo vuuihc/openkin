@@ -104,7 +104,7 @@ export default function MachineBrowser({
         className={[
           "relative flex flex-col w-full sm:max-w-md max-h-[80vh] outline-none",
           "rounded-t-2xl sm:rounded-2xl border border-[var(--kin-hairline-strong)]",
-          "bg-[var(--kin-elevated)] shadow-xl overflow-hidden",
+          "bg-[var(--kin-elevated)] shadow-e3 overflow-hidden",
         ].join(" ")}
       >
         <div className="flex-none flex items-center gap-1 border-b border-[var(--kin-hairline)] px-2 pt-2">

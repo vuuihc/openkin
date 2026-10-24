@@ -949,7 +949,7 @@ export default function SettingsPage() {
                   applyTheme(value);
                 }}
                 className={[
-                  "px-3 py-2 rounded-lg text-strong font-medium min-h-[44px] sm:min-h-[40px] border",
+                  "px-3 py-2 rounded-lg text-strong font-medium min-h-11 sm:min-h-10 border",
                   theme === value
                     ? "border-kin-blue bg-kin-blue-soft text-kin-blue"
                     : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -968,16 +968,16 @@ export default function SettingsPage() {
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+              <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
                 {tr("settings.relay.heading")}
               </h2>
-              <p className="text-body text-kin-secondary leading-relaxed">
+              <p className="text-body text-kin-secondary leading-prose">
                 {tr("settings.relay.desc")}
               </p>
             </div>
             <span
               className={[
-                "shrink-0 rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-wide",
+                "shrink-0 rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-label",
                 relayState === "connected"
                   ? "bg-kin-green/15 text-kin-green"
                   : relayState === "connecting"
@@ -996,7 +996,7 @@ export default function SettingsPage() {
                 <p className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.cloudflareTitle")}
                 </p>
-                <p className="text-caption text-kin-muted leading-relaxed">
+                <p className="text-caption text-kin-muted leading-prose">
                   {settings["cloudflare.authenticated"]
                     ? tr("settings.relay.cloudflareConnected", {
                         account:
@@ -1013,7 +1013,7 @@ export default function SettingsPage() {
                 onClick={() => void connectCloudflare()}
                 className={[
                   relayPrimary === "connect-cloudflare" ? "kin-btn-primary" : "kin-btn-secondary",
-                  "min-h-[40px] disabled:opacity-50",
+                  "min-h-10 disabled:opacity-50",
                 ].join(" ")}
               >
                 {settings["cloudflare.authenticated"]
@@ -1047,7 +1047,7 @@ export default function SettingsPage() {
                     cloudflareDeploying ||
                     cloudflareBindingDomain
                   }
-                  className="kin-input min-h-[44px]"
+                  className="kin-input min-h-11"
                 >
                   <option value="">
                     {settings["cloudflare.authenticated"]
@@ -1070,7 +1070,7 @@ export default function SettingsPage() {
                   value={cloudflareScriptName}
                   onChange={(e) => setCloudflareScriptName(e.target.value)}
                   disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                  className="kin-input min-h-[44px] font-mono text-body leading-4"
+                  className="kin-input min-h-11 font-mono text-body leading-4"
                   autoComplete="off"
                 />
               </label>
@@ -1097,7 +1097,7 @@ export default function SettingsPage() {
                       cloudflareDeploying ||
                       cloudflareBindingDomain
                     }
-                    className="kin-input min-h-[44px]"
+                    className="kin-input min-h-11"
                   >
                     <option value="">
                       {settings["cloudflare.authenticated"]
@@ -1124,7 +1124,7 @@ export default function SettingsPage() {
                     }}
                     disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
                     placeholder={tr("settings.relay.customDomainPlaceholder")}
-                    className="kin-input min-h-[44px] font-mono text-body leading-4"
+                    className="kin-input min-h-11 font-mono text-body leading-4"
                     autoComplete="off"
                   />
                 </label>
@@ -1142,7 +1142,7 @@ export default function SettingsPage() {
                 onClick={() => void refreshCloudflareAccounts()}
                 className={[
                   relayPrimary === "refresh-accounts" ? "kin-btn-primary" : "kin-btn-secondary",
-                  "min-h-[40px] disabled:opacity-50",
+                  "min-h-10 disabled:opacity-50",
                 ].join(" ")}
               >
                 {tr("settings.relay.refreshAccounts")}
@@ -1159,7 +1159,7 @@ export default function SettingsPage() {
                 onClick={() => void deployRelayWorker()}
                 className={[
                   relayPrimary === "deploy-worker" ? "kin-btn-primary" : "kin-btn-secondary",
-                  "min-h-[40px] disabled:opacity-50",
+                  "min-h-10 disabled:opacity-50",
                 ].join(" ")}
               >
                 {cloudflareDeploying
@@ -1182,7 +1182,7 @@ export default function SettingsPage() {
                   onClick={() => void bindRelayCustomDomain()}
                   className={[
                     relayPrimary === "bind-domain" ? "kin-btn-primary" : "kin-btn-secondary",
-                    "min-h-[40px] disabled:opacity-50",
+                    "min-h-10 disabled:opacity-50",
                   ].join(" ")}
                 >
                   {cloudflareBindingDomain
@@ -1192,7 +1192,7 @@ export default function SettingsPage() {
               ) : null}
             </div>
             {!hasCloudflareWorker && settings["cloudflare.authenticated"] ? (
-              <p className="text-caption text-kin-muted leading-relaxed">
+              <p className="text-caption text-kin-muted leading-prose">
                 {tr("settings.relay.deployFirst")}
               </p>
             ) : null}
@@ -1216,7 +1216,7 @@ export default function SettingsPage() {
               value={relayURL}
               onChange={(e) => setRelayURL(e.target.value)}
               placeholder="https://kin-relay.example.workers.dev"
-              className="kin-input min-h-[44px] font-mono text-body leading-4"
+              className="kin-input min-h-11 font-mono text-body leading-4"
               autoComplete="url"
             />
             <span className="text-caption text-kin-muted">
@@ -1233,7 +1233,7 @@ export default function SettingsPage() {
               type="button"
               disabled={relayBusy}
               onClick={() => void saveRelay()}
-              className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+              className="kin-btn-secondary min-h-10 disabled:opacity-50"
             >
               {relayBusy ? tr("settings.saving") : tr("settings.relay.save")}
             </button>
@@ -1242,7 +1242,7 @@ export default function SettingsPage() {
                 type="button"
                 disabled={relayBusy}
                 onClick={() => void refreshPairing()}
-                className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
+                className="kin-btn-secondary min-h-10 disabled:opacity-50"
               >
                 {tr("settings.relay.refreshPairing")}
               </button>
@@ -1263,7 +1263,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => void copy(settings["relay.pairing_url"])}
-                  className="min-h-[40px] text-body leading-4 text-kin-blue hover:underline"
+                  className="min-h-10 text-body leading-4 text-kin-blue hover:underline"
                 >
                   {tr("settings.connection.copyUrl")}
                 </button>
@@ -1274,7 +1274,7 @@ export default function SettingsPage() {
 
         {/* Connection */}
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.connection.heading")}
           </h2>
           <div className="flex flex-col sm:flex-row gap-4 items-start">
@@ -1305,7 +1305,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => void copy(connectURL)}
-                    className="mt-1 min-h-[44px] text-body leading-4 text-kin-blue hover:underline"
+                    className="mt-1 min-h-11 text-body leading-4 text-kin-blue hover:underline"
                   >
                     {tr("settings.connection.copyUrl")}
                   </button>
@@ -1323,14 +1323,14 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={() => setReveal((v) => !v)}
-                      className="min-h-[44px] text-body leading-4 text-kin-blue hover:underline"
+                      className="min-h-11 text-body leading-4 text-kin-blue hover:underline"
                     >
                       {reveal ? tr("settings.hide") : tr("settings.reveal")}
                     </button>
                     <button
                       type="button"
                       onClick={() => void copy(token)}
-                      className="min-h-[44px] text-body leading-4 text-kin-blue hover:underline"
+                      className="min-h-11 text-body leading-4 text-kin-blue hover:underline"
                     >
                       {tr("settings.connection.copy")}
                     </button>
@@ -1345,7 +1345,7 @@ export default function SettingsPage() {
                 // A Hub answers this endpoint without a token on purpose: the
                 // browser got in with an account, and handing it the daemon's own
                 // credential would outlive the session it came from.
-                <p className="text-body text-kin-muted leading-relaxed">
+                <p className="text-body text-kin-muted leading-prose">
                   {tr("settings.connection.accountSession")}
                 </p>
               )}
@@ -1357,7 +1357,7 @@ export default function SettingsPage() {
       {/* Notifications */}
       <SettingsTabPanel id="notifications" active={activeTab === "notifications"}>
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.notify.heading")}
           </h2>
           <p className="text-body leading-4 text-kin-muted">
@@ -1374,7 +1374,7 @@ export default function SettingsPage() {
               value={bark}
               onChange={(e) => setBark(e.target.value)}
               placeholder="https://api.day.app/DEVICE_KEY"
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             />
           </label>
           <label className="block space-y-1">
@@ -1386,7 +1386,7 @@ export default function SettingsPage() {
               value={ntfy}
               onChange={(e) => setNtfy(e.target.value)}
               placeholder="my-kin-topic or https://ntfy.sh/my-kin-topic"
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             />
           </label>
           <label className="block space-y-1">
@@ -1398,7 +1398,7 @@ export default function SettingsPage() {
               value={baseURL}
               onChange={(e) => setBaseURL(e.target.value)}
               placeholder="http://192.168.x.x:7777"
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             />
             <span className="text-body leading-4 text-kin-muted">
               {tr("settings.notify.uiBaseUrlHint")}
@@ -1414,7 +1414,7 @@ export default function SettingsPage() {
               step={60}
               value={quotaWaitNotifySecs}
               onChange={(e) => setQuotaWaitNotifySecs(e.target.value)}
-              className="kin-input min-h-[44px]"
+              className="kin-input min-h-11"
             />
             <span className="text-body leading-4 text-kin-muted">
               {tr("settings.notify.quotaWaitAfterHint")}
@@ -1451,20 +1451,20 @@ export default function SettingsPage() {
       <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
-            <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+            <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
               {tr("settings.price.heading")}
             </h2>
             <a
               href="https://github.com/BerriAI/litellm"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-[44px] items-center text-caption text-kin-blue hover:underline shrink-0 sm:min-h-0"
+              className="inline-flex min-h-11 items-center text-caption text-kin-blue hover:underline shrink-0 sm:min-h-0"
               title={tr("settings.price.sourceHint")}
             >
               {tr("settings.price.sourceName")} ↗
             </a>
           </div>
-          <p className="text-body text-kin-muted leading-relaxed">
+          <p className="text-body text-kin-muted leading-prose">
             {tr("settings.price.descA")}
             <code className="text-kin-secondary">total_cost_usd</code>
             {tr("settings.price.descB")}
@@ -1489,7 +1489,7 @@ export default function SettingsPage() {
             onChange={(e) => setPriceTable(e.target.value)}
             rows={10}
             spellCheck={false}
-            className="kin-input font-mono text-body leading-4 resize-y min-h-[160px]"
+            className="kin-input font-mono text-body leading-4 resize-y min-h-40"
           />
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -1534,7 +1534,7 @@ export default function SettingsPage() {
 
         {/* Agent usage limits */}
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.agentLimits.heading")}
           </h2>
           <p className="text-body leading-4 text-kin-muted">
@@ -1546,7 +1546,7 @@ export default function SettingsPage() {
             onChange={(e) => setAgentLimitsText(e.target.value)}
             rows={6}
             spellCheck={false}
-            className="kin-input font-mono text-body leading-4 resize-y min-h-[100px]"
+            className="kin-input font-mono text-body leading-4 resize-y min-h-24"
           />
           <div className="flex items-center gap-3">
             <button
@@ -1565,7 +1565,7 @@ export default function SettingsPage() {
       {/* Rate-limit policy */}
       <SettingsTabPanel id="routing" active={activeTab === "routing"}>
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.limitPolicy.heading")}
           </h2>
           <p className="text-body leading-4 text-kin-muted">{tr("settings.limitPolicy.desc")}</p>

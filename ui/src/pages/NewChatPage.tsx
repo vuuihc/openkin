@@ -613,7 +613,7 @@ export default function NewChatPage() {
         ].join(" ")}
       >
         <div
-          className={`w-8 h-8 rounded-[9px] flex items-center justify-center mb-4 text-body font-semibold ${mainAgentAvatar.className}`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center mb-4 text-body font-semibold ${mainAgentAvatar.className}`}
           aria-label={mainAgentAvatar.label}
         >
           {mainAgentAvatar.initials}
@@ -633,7 +633,7 @@ export default function NewChatPage() {
           <div className="mt-1 flex sm:mt-3">
             <button
               type="button"
-              className="min-h-[44px] px-3 text-body text-kin-blue hover:underline sm:min-h-0 sm:px-0"
+              className="min-h-11 px-3 text-body text-kin-blue hover:underline sm:min-h-0 sm:px-0"
               onClick={() => navigate("/agents")}
             >
               {tr("agents.manageLink")}
@@ -685,7 +685,7 @@ export default function NewChatPage() {
       </div>
 
       <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
-        <div className="max-w-[720px] mx-auto space-y-1.5">
+        <div className="max-w-conversation mx-auto space-y-1.5">
           {hints.length > 0 && (
             // Desktop only: a line of @-mention hints is reference material, and
             // on the phone it was the widest thing on the screen.
@@ -718,9 +718,9 @@ export default function NewChatPage() {
             {controlGroups.map((group) => (
               <div
                 key={group.id}
-                className="flex min-w-0 flex-col gap-1 rounded-[8px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
+                className="flex min-w-0 flex-col gap-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
               >
-                <div className="text-micro font-semibold uppercase tracking-[0.08em] text-kin-muted sm:w-[5.25rem] sm:flex-none">
+                <div className="text-micro font-semibold uppercase tracking-label text-kin-muted sm:w-[5.25rem] sm:flex-none">
                   {tr(group.labelKey)}
                 </div>
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -737,7 +737,7 @@ export default function NewChatPage() {
             onClick={() => setControlsOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={controlsOpen}
-            className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-strong text-kin-muted"
+            className="sm:hidden flex w-full min-h-11 items-center gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-strong text-kin-muted"
           >
             <svg
               width="15"
@@ -810,7 +810,7 @@ export default function NewChatPage() {
               half inside the home-indicator strip. `max()` keeps the 16px
               design gutter wherever there is no inset.
             */
-            className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-[20px] border-t border-[var(--kin-hairline-strong)] bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-2xl border-t border-[var(--kin-hairline-strong)] bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
           >
             <div className="mx-auto mb-3.5 h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]" />
             <div className="text-subtitle font-semibold">{tr("newChat.controlsTitle")}</div>
@@ -819,9 +819,9 @@ export default function NewChatPage() {
               {controlGroups.map((group) => (
                 <div
                   key={group.id}
-                  className="flex min-w-0 flex-col gap-2 rounded-[12px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-3 py-2.5"
+                  className="flex min-w-0 flex-col gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-3 py-2.5"
                 >
-                  <div className="text-micro font-semibold uppercase tracking-[0.08em] text-kin-muted">
+                  <div className="text-micro font-semibold uppercase tracking-label text-kin-muted">
                     {tr(group.labelKey)}
                   </div>
                   {/* The pickers are built for a mouse: 17–28px chips. Inside a
@@ -831,7 +831,7 @@ export default function NewChatPage() {
                       so a fixed h-[26px] chip still grows.
                       Note this floor is unconditional: `data-touch-mini` opts
                       out of the app-wide `.touch-lg` rule, not out of this one. */}
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 [&_button]:min-h-[44px] [&_button]:min-w-[44px] [&_select]:min-h-[44px] [&_select]:min-w-[44px] [&_[role=button]]:min-h-[44px]">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 [&_button]:min-h-11 [&_button]:min-w-[44px] [&_select]:min-h-11 [&_select]:min-w-[44px] [&_[role=button]]:min-h-11">
                     {group.controls.map(renderControl)}
                   </div>
                 </div>
@@ -840,7 +840,7 @@ export default function NewChatPage() {
             <button
               type="button"
               onClick={() => setControlsOpen(false)}
-              className="mt-3 min-h-[48px] w-full rounded-[12px] bg-kin-blue text-subtitle font-semibold text-white"
+              className="mt-3 min-h-12 w-full rounded-xl bg-kin-blue text-subtitle font-semibold text-white"
             >
               {tr("newChat.controlsDone")}
             </button>

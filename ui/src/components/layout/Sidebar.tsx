@@ -96,7 +96,7 @@ function normCwd(cwd: string): string {
 }
 
 const footLink =
-  "flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-[40px]";
+  "flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-10";
 
 function readSidebarDisclosure(key: string): boolean {
   try {
@@ -327,9 +327,9 @@ export default function Sidebar({
   };
 
   const panel = (
-    <aside className="w-[248px] max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
+    <aside className="w-sidebar max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
       <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-strong font-semibold shadow-sm">
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-strong font-semibold shadow-e1">
           K
         </div>
         <span className="text-strong font-semibold tracking-tight">{tr("app.name")}</span>
@@ -349,7 +349,7 @@ export default function Sidebar({
             {sortMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
+                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-border bg-kin-elevated shadow-e3 py-1"
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setSortMenuOpen(false);
                 }}
@@ -392,7 +392,7 @@ export default function Sidebar({
           aria-haspopup="menu"
           aria-expanded={importMenuOpen}
           onClick={() => setImportMenuOpen((open) => !open)}
-          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-[8px] text-body text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-lg text-body text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
         >
           <IconDownload size={14} />
           <span className="flex-1 text-left">
@@ -409,7 +409,7 @@ export default function Sidebar({
           <div
             role="menu"
             aria-label={tr("nav.importAgentSessions")}
-            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
+            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg border border-kin-border bg-kin-elevated shadow-e3 py-1"
           >
             <button
               type="button"
@@ -457,7 +457,7 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2.5 h-9 rounded-[8px] text-strong font-medium border transition-colors",
+            "w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-strong font-medium border transition-colors",
             draftActive
               ? "border-kin-blue/40 bg-kin-blue-soft text-kin-text"
               : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -480,7 +480,7 @@ export default function Sidebar({
             onChange={(e) => onSearchQueryChange?.(e.target.value)}
             placeholder={tr("nav.searchSessions")}
             aria-label={tr("nav.searchSessions")}
-            className="w-full h-[32px] pl-8 pr-2 rounded-[8px] bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body text-kin-text placeholder:text-kin-muted outline-none transition-colors"
+            className="w-full h-[32px] pl-8 pr-2 rounded-lg bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body text-kin-text placeholder:text-kin-muted outline-none transition-colors"
           />
         </label>
         {searchQuery.trim() && (
@@ -498,7 +498,7 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-strong min-h-[34px]",
+            "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9",
             pendingCount > 0
               ? "border border-kin-blue/40 bg-kin-blue-soft text-kin-text"
               : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -514,7 +514,7 @@ export default function Sidebar({
         </button>
 
         {groups.length === 0 && archivedGroups.length === 0 && (
-          <div className="px-2 py-4 text-body text-kin-muted leading-relaxed">
+          <div className="px-2 py-4 text-body text-kin-muted leading-prose">
             {searchQuery.trim()
               ? tr("nav.searchEmpty", { query: searchQuery.trim() })
               : tr("nav.emptyHint")}
@@ -594,7 +594,7 @@ export default function Sidebar({
       <div className="border-t border-kin-border px-2 py-2 space-y-2">
         {sidebarNavSections().map((section) => (
           <div key={section.id} className="space-y-0.5">
-            <div className="px-2 pt-1 text-micro font-semibold uppercase tracking-[0.08em] text-kin-muted">
+            <div className="px-2 pt-1 text-micro font-semibold uppercase tracking-label text-kin-muted">
               {tr(section.labelKey)}
             </div>
             {section.items.map((item) => (
@@ -651,7 +651,7 @@ export default function Sidebar({
               padding on the panel, the inset strips showed the scrim instead of
               the sidebar.
             */
-            className="relative z-10 h-full shadow-window bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+            className="relative z-10 h-full shadow-e3 bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           >
             {panel}
           </div>
@@ -983,7 +983,7 @@ function ExternalSessionRow({
         onCloseMobile();
       }}
       className={[
-        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-[7px] border text-left text-body min-h-[36px] transition-colors",
+        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg border text-left text-body min-h-9 transition-colors",
         externalSessionRowClass(availability),
       ].join(" ")}
       aria-label={`${label}, ${availabilityLabel}, ${sessionTitle}`}
@@ -997,7 +997,7 @@ function ExternalSessionRow({
       />
       <span
         className={[
-          "inline-flex h-5 w-5 items-center justify-center rounded-[6px] text-micro font-semibold",
+          "inline-flex h-5 w-5 items-center justify-center rounded-md text-micro font-semibold",
           avatar.className,
         ].join(" ")}
         role="img"
@@ -1094,7 +1094,7 @@ function ProjectSessionRows({
           <div
             key={task.id}
             className={[
-              "group/session flex items-center gap-0.5 rounded-[7px] min-h-[34px]",
+              "group/session flex items-center gap-0.5 rounded-lg min-h-9",
               active
                 ? "bg-[var(--kin-fill-strong)] text-kin-text"
                 : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -1187,7 +1187,7 @@ function DraftRow({
       type="button"
       onClick={onClick}
       className={[
-        "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-strong min-h-[34px] text-left",
+        "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9 text-left",
         active
           ? "bg-[var(--kin-fill-strong)] text-kin-text"
           : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",

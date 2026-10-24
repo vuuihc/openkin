@@ -742,7 +742,7 @@ function TabButton({
         "flex-1 min-w-0 truncate rounded-md px-2 py-1 text-caption font-medium transition-colors",
         disabled ? "opacity-40 cursor-not-allowed" : "",
         active
-          ? "bg-kin-elevated text-kin-text shadow-sm border border-[var(--kin-hairline)]"
+          ? "bg-kin-elevated text-kin-text shadow-e1 border border-[var(--kin-hairline)]"
           : "text-kin-muted hover:text-kin-secondary hover:bg-black/[.03] dark:hover:bg-white/[.04]",
       ].join(" ")}
     >

@@ -294,7 +294,7 @@ export default function CommandPalette({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[600px] rounded-2xl overflow-hidden border border-[var(--kin-hairline-strong)] bg-[rgba(44,44,48,.92)] backdrop-blur-[50px] shadow-[0_40px_100px_-20px_rgba(0,0,0,.8)]">
+      <div className="w-full max-w-[600px] rounded-2xl overflow-hidden border border-[var(--kin-hairline-strong)] bg-[rgba(44,44,48,.92)] backdrop-blur-[50px] shadow-e3">
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--kin-hairline)]">
           <IconSearch size={18} className="text-kin-muted flex-none" />
           <input
@@ -318,7 +318,7 @@ export default function CommandPalette({
 
           {actionItems.length > 0 && (
             <>
-              <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-2.5 pt-2 pb-1">
+              <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-2.5 pt-2 pb-1">
                 {tr("palette.actions")}
               </div>
               {actionItems.map((item) => {
@@ -353,7 +353,7 @@ export default function CommandPalette({
 
           {taskItems.length > 0 && (
             <>
-              <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-2.5 pt-3 pb-1">
+              <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-2.5 pt-3 pb-1">
                 {tr("palette.chats")}
               </div>
               {taskItems.map((item) => {
@@ -410,7 +410,7 @@ function PaletteRow({
       onMouseEnter={onHover}
       onClick={onClick}
       className={[
-        "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-strong",
+        "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-strong",
         active ? "bg-kin-blue text-white" : "text-kin-text hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >

@@ -117,7 +117,7 @@ export default function ArtifactsPage() {
               type="button"
               onClick={() => setFilter(k)}
               className={[
-                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-[36px]",
+                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-9",
                 filter === k
                   ? "bg-kin-blue text-white"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",

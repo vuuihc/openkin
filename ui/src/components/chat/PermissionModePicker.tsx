@@ -44,7 +44,7 @@ export default function PermissionModePicker({
       <select
         className={[
           "max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
-          "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
+          "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
           mode === "yolo" ? "text-[#ffb340]" : "text-kin-secondary",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
         ].join(" ")}

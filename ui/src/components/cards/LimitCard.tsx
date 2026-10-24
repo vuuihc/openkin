@@ -86,7 +86,7 @@ export default function LimitCard({
   return (
     <div
       className={[
-        "rounded-[12px] animate-slideIn overflow-hidden",
+        "rounded-xl animate-slideIn overflow-hidden",
         focused
           ? "border-2 border-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,.25)]"
           : "border border-[rgba(251,191,36,.55)] shadow-[0_8px_24px_rgba(251,191,36,.12)]",
@@ -105,7 +105,7 @@ export default function LimitCard({
           ) : null}
         </div>
 
-        <p className="mt-2 text-strong leading-relaxed text-kin-secondary">
+        <p className="mt-2 text-strong leading-prose text-kin-secondary">
           {hit.message || tr("limit.defaultMessage")}
         </p>
         <p className="mt-1 text-body text-kin-muted">{resetLabel}</p>

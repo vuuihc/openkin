@@ -16,13 +16,20 @@
   - every token is presented on the `/design` gallery page, so a token nobody
     renders is a test failure rather than a discovery;
   - each of `page` / `sidebar` / `inspector` / `elevated` is at least 2 L* from
-    `bg`, and each ink step clears 4.5:1 on the four surfaces it is drawn on
-    (`bg`, `elevated`, `panel`, `sidebar`);
-  - neither this file nor the config keeps a colour literal in a component.
+    `bg`, and each ink step clears 4.5:1 on the five surfaces it is drawn on
+    (`bg`, `elevated`, `panel`, `sidebar`, `inspector`);
+  - the focus ring clears 3:1 on `page`, `bg`, `elevated`, `panel`, `sidebar`
+    and `inspector`, and is opaque. Those six are the *opaque* surfaces: a ring
+    drawn inside a translucent fill (`--kin-fill-strong` over `elevated` is
+    2.79:1 in dark) is outside what the token is certified for, and nothing
+    measures it — see §7 of the P1 plan;
+  - no component writes a colour literal: the console's colours are the names
+    below, plus the status and brand set still in `tailwind.config.ts` (see the
+    note there — those move here as RGB channel triplets with the status work).
 
-  The Tailwind side (`tailwind.config.js`) holds the *scale* ladders — type,
-  radius, elevation, control heights — and references these names. It must not
-  contain a colour value; the test rejects literals in both places.
+  The Tailwind side (`tailwind.config.ts`) holds the *scale* ladders — type,
+  leading, tracking, elevation, radius (Tailwind's own six-step subset), and the
+  layout widths — and references these names.
 */
 
 :root {
@@ -55,6 +62,18 @@
   --kin-hairline-strong: rgba(255, 255, 255, 0.14);
   --kin-fill: rgba(255, 255, 255, 0.06);
   --kin-fill-strong: rgba(255, 255, 255, 0.1);
+
+  /* The keyboard focus ring. Not a hairline: WCAG 1.4.11 asks a non-text
+     indicator for 3:1, and the indicator these 21 sites replaced — 11 rings at
+     `--kin-blue`/40–50% alpha, 5 rings and 5 outlines at the opaque brand blue —
+     managed 1.9:1 at best on the surface a focused control sits on. It is
+     opaque, and the value is the worst case that decided it: on --kin-elevated,
+     the lightest surface a focused control sits on, brand blue reaches 3.82:1.
+     Translucency does not survive the same test — this blue at 70% is 2.55:1
+     there, less than the alpha would suggest, because the ring lightens with the
+     surface behind it. The light block needs a different blue entirely: brand
+     blue is 2.57:1 fully opaque on --kin-page, so no alpha of it can pass. */
+  --kin-focus-ring: #0a84ff;
 
   /* Status and brand. These are fills: they carry white or near-black text on
      top of them. The ink variants that clear AA on a page are a separate set,
@@ -92,6 +111,11 @@ html[data-theme="light"] {
   --kin-hairline-strong: rgba(0, 0, 0, 0.16);
   --kin-fill: rgba(0, 0, 0, 0.04);
   --kin-fill-strong: rgba(0, 0, 0, 0.08);
+
+  /* 3.39:1 on --kin-page, the worst of the surfaces a focused control sits on;
+     4.05:1 or better on the rest. A deeper blue than the dark theme's, because
+     this one has to clear 3:1 on white. */
+  --kin-focus-ring: #0b6fe0;
 
   --kin-warning: #b45309; /* 5.0:1 on --kin-bg */
   --kin-bubble-user: #007aff;

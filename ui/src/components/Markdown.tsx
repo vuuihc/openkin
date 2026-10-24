@@ -12,7 +12,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
   return (
     <div
       className={[
-        "kin-md space-y-2.5 text-strong sm:text-subtitle text-kin-text leading-relaxed break-words",
+        "kin-md space-y-2.5 text-strong sm:text-subtitle text-kin-text leading-prose break-words",
         className,
       ]
         .filter(Boolean)
@@ -29,7 +29,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
               className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-3 text-body font-mono text-kin-secondary"
             >
               {b.lang ? (
-                <div className="mb-1.5 text-micro font-semibold uppercase tracking-wide text-kin-muted">
+                <div className="mb-1.5 text-micro font-semibold uppercase tracking-label text-kin-muted">
                   {b.lang}
                 </div>
               ) : null}

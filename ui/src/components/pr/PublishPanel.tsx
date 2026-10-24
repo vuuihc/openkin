@@ -209,7 +209,7 @@ export default function PublishPanel({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 py-3">
-        <div className="mx-auto max-w-[720px] space-y-3">
+        <div className="mx-auto max-w-conversation space-y-3">
           {/* What is about to happen, before it happens. */}
           <dl className="space-y-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5 text-body">
             <Row label={tr("publish.repoLabel")} value={repo ? shortRepo(repo) : ""} full={repo} />
@@ -247,7 +247,7 @@ export default function PublishPanel({
               placeholder={tr("publish.bodyPlaceholder")}
               disabled={working}
               rows={10}
-              className="w-full resize-y rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 font-mono text-body leading-relaxed text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
+              className="w-full resize-y rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 font-mono text-body leading-prose text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
             />
           </label>
 
@@ -296,7 +296,7 @@ export default function PublishPanel({
               <p
                 className={
                   headline
-                    ? "mt-1 text-caption leading-relaxed text-kin-muted"
+                    ? "mt-1 text-caption leading-prose text-kin-muted"
                     : "flex items-start gap-1.5 text-body text-kin-text"
                 }
               >

@@ -129,7 +129,7 @@ export default function CwdPicker({
         <span className="font-medium text-kin-secondary shrink-0">{projectLabel(cwd)}</span>
         {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
         {!compact && (
-          <span className="ml-auto text-caption uppercase tracking-wide opacity-70">
+          <span className="ml-auto text-caption uppercase tracking-label opacity-70">
             {tr("cwd.locked")}
           </span>
         )}
@@ -351,7 +351,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
   return (
     <span
       ref={anchorRef}
-      className="relative min-w-0 flex-1 truncate rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-blue/50"
+      className="relative min-w-0 flex-1 truncate rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-kin-focus-ring"
       role="button"
       tabIndex={0}
       aria-label={`${tr("cwd.workingDir", { path: cwd })}. ${tr("cwd.copy")}`}
@@ -377,7 +377,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
       {rect &&
         createPortal(
           <span
-            className="fixed z-50 flex max-w-[340px] items-center gap-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-2 py-1 shadow-lg"
+            className="fixed z-50 flex max-w-[340px] items-center gap-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-2 py-1 shadow-e2"
             style={{ left: rect.left, bottom: rect.bottom }}
             onMouseEnter={cancelHide}
             onMouseLeave={scheduleHide}

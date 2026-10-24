@@ -61,15 +61,15 @@ const toneClasses: Record<
     containerClass:
       "border border-kin-blue/40 bg-gradient-to-b from-[rgba(10,132,255,.07)] to-[rgba(10,132,255,.02)]",
     selectedClass:
-      "border border-kin-blue/50 bg-gradient-to-b from-[rgba(10,132,255,.1)] to-[rgba(10,132,255,.02)] shadow-card-blue",
+      "border border-kin-blue/50 bg-gradient-to-b from-[rgba(10,132,255,.1)] to-[rgba(10,132,255,.02)] shadow-e2",
   },
   approval: {
     dotClass: "bg-kin-orange",
     iconClass: "text-kin-orange",
     containerClass:
-      "border border-[rgba(255,159,10,.55)] bg-gradient-to-b from-[rgba(255,159,10,.1)] to-[rgba(255,159,10,.03)] shadow-card-amber",
+      "border border-[rgba(255,159,10,.55)] bg-gradient-to-b from-[rgba(255,159,10,.1)] to-[rgba(255,159,10,.03)] shadow-e2",
     selectedClass:
-      "border border-[rgba(255,159,10,.7)] bg-gradient-to-b from-[rgba(255,159,10,.14)] to-[rgba(255,159,10,.04)] shadow-card-amber",
+      "border border-[rgba(255,159,10,.7)] bg-gradient-to-b from-[rgba(255,159,10,.14)] to-[rgba(255,159,10,.04)] shadow-e2",
   },
   completed: {
     dotClass: "bg-kin-green",

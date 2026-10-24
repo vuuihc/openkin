@@ -75,7 +75,7 @@ export default function RoutineScheduleFields({
       className={compact ? "flex flex-wrap items-end gap-x-3 gap-y-2" : "grid gap-3 sm:grid-cols-2"}
     >
       <label className="block min-w-[8rem]">
-        <span className="text-caption font-medium uppercase tracking-wide text-kin-muted">
+        <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
           {tr("routines.intervalLabel")}
         </span>
         <select
@@ -97,7 +97,7 @@ export default function RoutineScheduleFields({
       </label>
 
       <label className="block min-w-[12rem] flex-1">
-        <span className="text-caption font-medium uppercase tracking-wide text-kin-muted">
+        <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
           {tr("routines.firstRunLabel")}
         </span>
         <input
