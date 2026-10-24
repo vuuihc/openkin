@@ -12,11 +12,10 @@ import {
   ciLabel,
   headerLabel,
   leadObservation,
+  observedBranch,
   otherPullRequests,
   parseCISummary,
-  pollDecision,
   stateLabel,
-  type PollDecision,
 } from "../../lib/prObservation";
 import {
   IconAlert,
@@ -33,26 +32,13 @@ type Props = {
   onClose?: () => void;
 };
 
-/** How often, and how many times, to follow a query the daemon is running. */
-const POLL_INTERVAL_MS = 1500;
-const MAX_POLLS = 12;
-/**
- * Ceiling on one read, so an attempt always ends.
- *
- * The read itself is a local cache lookup, but the transport can be a relay to
- * a machine somewhere else. Without a ceiling, a request that never answers
- * would hold the loop open — and with it the disabled button that reports the
- * panel is still following — for as long as the tab lives.
- */
-const POLL_READ_TIMEOUT_MS = 15_000;
-
 /**
  * Pull-request state for a task's branch, read-only.
  *
- * Everything here is a cached observation, so the panel's job is to be honest
- * about its age: a number with no "last seen" would read as live, and a failed
- * read that blanked the card would lose the pull request the user is looking
- * for. The one action that spends rate limit is the explicit refresh.
+ * Reading is a cache lookup, so the panel's job is to be honest about the age of
+ * what it shows: a number with no "last seen" would read as live, and a failed
+ * read that blanked the card would lose the pull request the user came here to
+ * find. The one action that spends rate limit is the explicit refresh.
  *
  * `snapshot.gh` is deliberately not rendered. The user-facing part of a
  * degraded read is the sentence in `notice`; which binary was missing is an
@@ -66,7 +52,6 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [polls, setPolls] = useState(0);
 
   const describe = useCallback(
     (err: unknown) => {
@@ -82,11 +67,10 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
     [tr],
   );
 
-  // Which read is allowed to publish. Two can be in flight — the panel's first
-  // read and a refresh the user asked for while it was still running — and the
-  // answer to the older one is not the newer state. Without this, the slower of
-  // the two wins, and a refresh that just fetched a pull request can be erased
-  // by the read that started before it.
+  // Which read is allowed to publish. The panel's first read and a refresh the
+  // user asked for while it was still running can both be in flight, and the
+  // answer to the older one is not the newer state: without this, a refresh that
+  // just fetched a pull request can be erased by the read that started before it.
   const latest = useRef(0);
 
   const load = useCallback(
@@ -102,10 +86,9 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
         if (signal?.aborted || !mine()) return;
         setError(describe(err));
       } finally {
-        // Clearing this is about the panel's first paint rather than about this
-        // read: whichever read answered first has already published, and a
-        // superseded one that kept the flag would leave a spinner under an
-        // error nobody can dismiss.
+        // The panel's first paint is what this flag is about, not whether this
+        // particular read won: a read superseded by the refresh still settles
+        // the question of whether there is anything to wait for.
         if (!signal?.aborted) setLoading(false);
       }
     },
@@ -120,60 +103,12 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
   }, [load]);
 
   // The age is computed while rendering, so a panel left open would go on
-  // saying "just now" about an observation that is hours old — and once the
-  // poll loop settles, nothing else on this screen renders again.
+  // saying "just now" about an observation that is hours old.
   const [, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
-
-  const refreshing = snapshot?.refreshing === true;
-  const following = pollDecision(refreshing, polls, MAX_POLLS);
-
-  // Follow the query the daemon started behind the response, so that "no pull
-  // request yet" is not mistaken for an answer. The attempt is counted rather
-  // than the success: a failed poll changes no snapshot, and a loop re-armed by
-  // the snapshot would stop there — spinner turning, button disabled, and the
-  // answer the daemon was still fetching unreachable without closing the panel.
-  //
-  // The two inputs are read here rather than the `following` derived from them,
-  // and that is the point. `following` holds the same value across every
-  // attempt, so an effect keyed on it fires one timer and then goes quiet for
-  // the rest of the budget, and the dependency that would have re-armed the
-  // loop looks — to anyone reading the dependency list — like something left
-  // over. Reading the inputs keeps the dependencies honest by construction.
-  // `pollDecision` is the same rule, stated once for the render below.
-  useEffect(() => {
-    if (!refreshing) {
-      setPolls(0);
-      return;
-    }
-    if (polls >= MAX_POLLS) return;
-    let cancelled = false;
-    let controller: AbortController | null = null;
-    const timer = setTimeout(async () => {
-      // The next attempt is booked when this one ends, not when it starts.
-      // Booking on the start let reads slower than the interval overlap, and
-      // then an older answer could land on top of a newer one.
-      controller = new AbortController();
-      const abort = setTimeout(() => controller?.abort(), POLL_READ_TIMEOUT_MS);
-      try {
-        // `load` reports failure through state and does not reject, so this
-        // counts the attempt rather than the answer — a failed poll still
-        // books the next one.
-        await load(controller.signal);
-      } finally {
-        clearTimeout(abort);
-      }
-      if (!cancelled) setPolls((n) => n + 1);
-    }, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      controller?.abort();
-    };
-  }, [refreshing, polls, load]);
 
   // Escape closes, as it does for the console's other overlays.
   useEffect(() => {
@@ -185,42 +120,76 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const onRefresh = useCallback(async () => {
-    // Supersedes any read in flight, including the panel's first one.
-    const seq = ++latest.current;
-    setBusy(true);
-    try {
-      const next = await refreshTaskPullRequest(taskId);
-      if (seq !== latest.current) return;
-      // Landing, this is the newest answer there is, so the reads that raced it
-      // are moot: they were answered from the cache this replaced, and letting
-      // one publish afterwards would put the older card back and throw away
-      // what the user just spent rate limit on. The button's disabled state
-      // keeps a poll read from starting during a refresh; this keeps the rule
-      // with the writer rather than with an attribute a later change can drop.
-      latest.current += 1;
-      setSnapshot(next);
-      setError(null);
-    } catch (err) {
-      if (seq !== latest.current) return;
-      // Same on the way out: a read that raced a failed refresh would clear the
-      // sentence explaining why there is nothing new to show.
-      latest.current += 1;
-      setError(describe(err));
-    } finally {
-      // Whoever started this refresh ends it. Keyed on the sequence number
-      // instead, a read that superseded it would leave the button disabled with
-      // no request behind it.
-      setBusy(false);
+  // Options rather than a positional flag: this is handed to `onClick`
+  // elsewhere, and a stray event object must not be able to mean "implicit" and
+  // silence the answer the user is waiting for.
+  const onRefresh = useCallback(
+    async (options?: { implicit?: boolean }) => {
+      const implicit = options?.implicit === true;
+      // Supersedes any read in flight, including the panel's first one.
+      const seq = ++latest.current;
+      setBusy(true);
+      try {
+        const next = await refreshTaskPullRequest(taskId);
+        if (seq !== latest.current) return;
+        // Landing, this is the newest answer there is, so the reads that raced
+        // it are moot: they were answered from the cache this replaced, and
+        // letting one publish afterwards would put the older card back and
+        // throw away what the user just spent rate limit on.
+        latest.current += 1;
+        setSnapshot(next);
+        setError(null);
+      } catch (err) {
+        if (seq !== latest.current) return;
+        // Same on the way out: a read that raced a failed refresh would clear
+        // the sentence explaining why there is nothing new to show.
+        latest.current += 1;
+        // An ask the user did not make reports nothing to the user. Querying is
+        // operator-only, so on a paired phone the one this panel fires on open
+        // is refused outright — and a red line saying "only the owner can query
+        // GitHub" on a screen nobody asked anything of is noise they cannot act
+        // on. A failed attempt is not hidden by this: it is written to the
+        // branch's own row, and the row's `last_error` is where this panel reads
+        // it from on the next look.
+        if (!implicit) setError(describe(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [taskId, describe],
+  );
+
+  // A branch nobody has ever looked at gets one query, asked once per open.
+  //
+  // Nothing else would ask it. Reading is a cache lookup, and the daemon's
+  // background pass only walks pull requests that already exist — a branch with
+  // no pull request has nothing that changes on its own. So without this, a
+  // first look at every unpublished branch would sit on "not checked yet" until
+  // the user found the refresh button, which is precisely the moment they are
+  // asking the question. One request for a branch that has no row of its own;
+  // an answer that does exist, however old, is shown as it is, with its age.
+  //
+  // "Nothing to show" is asked of `observedBranch`, not of the row being
+  // rendered: a task whose workspace moved to a new generation still renders the
+  // previous branch's pull request, and that is not an answer about the branch
+  // on screen.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!snapshot || asked.current) return;
+    // No branch means no GitHub repository behind this task, which the daemon
+    // answers without querying anything. Returning here rather than marking the
+    // question asked keeps it open for a workspace that arrives later.
+    if (!snapshot.branch) return;
+    asked.current = true;
+    if (!observedBranch(snapshot.observations, snapshot.branch)) {
+      // Implicit: whatever this refresh has to say about itself, it says to the
+      // row, not to the user (see `onRefresh`).
+      void onRefresh({ implicit: true });
     }
-  }, [taskId, describe]);
+  }, [snapshot, onRefresh]);
 
   const lead = leadObservation(snapshot?.observations, snapshot?.branch);
   const others = otherPullRequests(snapshot?.observations, lead);
-  // While the panel is following, the button would only start a second query
-  // for the same branch. Once the budget is spent the panel has stopped
-  // following, so the user can ask again by hand.
-  const followingNow = following === "poll";
 
   return (
     <div
@@ -243,10 +212,10 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
           type="button"
           className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => void onRefresh()}
-          disabled={busy || followingNow}
+          disabled={busy}
           title={tr("pr.refreshHint")}
         >
-          {busy || followingNow ? (
+          {busy ? (
             <IconSpinner size={13} strokeWidth={2} />
           ) : (
             <IconRefresh size={13} />
@@ -290,12 +259,17 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
           {!snapshot ? (
             loading ? <Loading /> : null
           ) : !lead ? (
-            // A first look at a branch reaches here with no rows at all, which
-            // is the case the daemon's refreshing flag exists for: saying "not
-            // checked yet" while a query is in flight reads as an answer.
-            <Checking following={following} fallback={tr("pr.notChecked")} />
+            // Asking is what this branch needs, and while that request is out
+            // "not checked yet" would read as a settled answer.
+            busy ? (
+              <Checking />
+            ) : (
+              <p className="text-[12.5px] text-kin-muted">
+                {tr("pr.notChecked")}
+              </p>
+            )
           ) : (
-            <ObservationCard lead={lead} following={following} />
+            <ObservationCard lead={lead} busy={busy} />
           )}
 
           {others.length > 0 && (
@@ -337,35 +311,17 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
 }
 
 /**
- * The line that stands in for an answer while the daemon is still querying, and
- * the one that admits the panel has stopped waiting for it.
+ * The line that stands in for an answer while a query is running.
  *
- * `fallback` is what to say when nothing is in flight. It is a parameter rather
- * than a sibling because "not checked yet" reads as a settled answer, and it
- * must not be shown while a query is running: a first look at an unpublished
- * branch is precisely when the daemon's refreshing flag earns its keep.
+ * It exists so that "not checked yet" is not shown while the question is still
+ * open, which reads as a settled answer.
  */
-function Checking({
-  following,
-  fallback,
-}: {
-  following: PollDecision;
-  fallback?: string;
-}) {
+function Checking() {
   const tr = useT();
-  if (following === "idle") {
-    return fallback ? (
-      <p className="text-[12.5px] text-kin-muted">{fallback}</p>
-    ) : null;
-  }
   return (
     <p className="flex items-start gap-1.5 text-[12.5px] text-kin-muted">
-      {following === "poll" && (
-        <IconSpinner size={13} className="mt-0.5 flex-none" />
-      )}
-      <span>
-        {following === "poll" ? tr("pr.checking") : tr("pr.checkingSlow")}
-      </span>
+      <IconSpinner size={13} className="mt-0.5 flex-none" />
+      <span>{tr("pr.checking")}</span>
     </p>
   );
 }
@@ -382,10 +338,10 @@ function Loading() {
 
 function ObservationCard({
   lead,
-  following,
+  busy,
 }: {
   lead: PullRequestObservation;
-  following: PollDecision;
+  busy: boolean;
 }) {
   const tr = useT();
   const ci = parseCISummary(lead.ci_summary);
@@ -393,7 +349,11 @@ function ObservationCard({
   return (
     <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5">
       {lead.observed_at === undefined ? (
-        <Checking following={following} fallback={tr("pr.neverChecked")} />
+        busy ? (
+          <Checking />
+        ) : (
+          <p className="text-[12.5px] text-kin-muted">{tr("pr.neverChecked")}</p>
+        )
       ) : lead.number === undefined ? (
         <p className="text-[12.5px] text-kin-muted">{tr("pr.none")}</p>
       ) : (
@@ -471,16 +431,6 @@ function ObservationCard({
             {tr("pr.lastAttemptFailed", { reason: lead.last_error })}
           </div>
         ) : null}
-        {/* A row with an observation has a card that reads as settled — a
-            number, or "no pull request for this branch yet" — so the only place
-            left to say the daemon is still working, or has stopped and given up
-            the budget, is here. Guarded on `following` as well as the row, so
-            that a settled card keeps the footer it had. */}
-        {lead.observed_at !== undefined && following !== "idle" && (
-          <div className="mt-0.5">
-            <Checking following={following} />
-          </div>
-        )}
       </div>
     </div>
   );

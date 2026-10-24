@@ -61,13 +61,12 @@ func TestTaskPRRouteStates(t *testing.T) {
 	}
 	var snap struct {
 		Observations []json.RawMessage `json:"observations"`
-		Refreshing   bool              `json:"refreshing"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &snap); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(snap.Observations) != 0 || snap.Refreshing {
-		t.Fatalf("snapshot = %+v, want an empty, settled one", snap)
+	if len(snap.Observations) != 0 {
+		t.Fatalf("snapshot = %+v, want an empty one", snap)
 	}
 
 	// A store that cannot be read is not "no pull request": it is a failure,

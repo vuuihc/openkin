@@ -593,7 +593,6 @@ const zh = {
     close: "关闭 Pull Request 面板",
     loading: "正在加载",
     checking: "正在查询该分支…",
-    checkingSlow: "后台仍在查询；可以再次刷新",
     notChecked: "尚未查询此分支。",
     neverChecked: "尚未成功查询过此分支。",
     none: "该分支还没有 Pull Request。",

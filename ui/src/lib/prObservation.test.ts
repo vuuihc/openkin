@@ -3,9 +3,9 @@ import {
   ciLabel,
   headerLabel,
   leadObservation,
+  observedBranch,
   otherPullRequests,
   parseCISummary,
-  pollDecision,
   shortRepo,
   stateLabel,
   type CISummary,
@@ -132,6 +132,40 @@ describe("leadObservation", () => {
   });
 });
 
+describe("observedBranch", () => {
+  it("finds this branch's row", () => {
+    const rows = [
+      obs({ head_branch: "kin/task/1/g1", observed_at: 500 }),
+      obs({ head_branch: "kin/task/1/g2", observed_at: 100 }),
+    ];
+    expect(observedBranch(rows, "kin/task/1/g2")?.head_branch).toBe(
+      "kin/task/1/g2",
+    );
+  });
+
+  it("does not count another generation's row as this branch's", () => {
+    // The panel still renders the g1 pull request — that fallback is for
+    // showing. Asking GitHub is decided here, and g2 has never been asked
+    // about, so it must not be mistaken for already answered.
+    const rows = [obs({ head_branch: "kin/task/1/g1", observed_at: 500 })];
+    expect(observedBranch(rows, "kin/task/1/g2")).toBeUndefined();
+    expect(leadObservation(rows, "kin/task/1/g2")).not.toBeNull();
+  });
+
+  it("counts a row that was attempted and failed", () => {
+    // This branch has been asked about; the answer was an error, and the card
+    // says so. Asking again on every open is what the only-once rule prevents.
+    const rows = [obs({ head_branch: "kin/task/1/g2", last_error: "404" })];
+    expect(observedBranch(rows, "kin/task/1/g2")?.last_error).toBe("404");
+  });
+
+  it("has nothing to match without rows or a branch", () => {
+    expect(observedBranch(undefined, "b")).toBeUndefined();
+    expect(observedBranch([obs({ head_branch: "b" })], undefined)).toBeUndefined();
+    expect(observedBranch([], "b")).toBeUndefined();
+  });
+});
+
 describe("otherPullRequests", () => {
   it("lists earlier generations that have a pull request", () => {
     const lead = obs({ head_branch: "kin/task/1/g2", number: 42 });
@@ -214,25 +248,6 @@ describe("ciLabel", () => {
     expect(ciLabel(tr, "pending", ci({ total: 5, passed: 3 }))).toBe(
       "pr.ciPendingCount(5|3)",
     );
-  });
-});
-
-describe("pollDecision", () => {
-  it("stops when nothing is in flight", () => {
-    expect(pollDecision(false, 0, 12)).toBe("idle");
-    expect(pollDecision(false, 11, 12)).toBe("idle");
-  });
-
-  it("keeps following inside the budget", () => {
-    expect(pollDecision(true, 0, 12)).toBe("poll");
-    expect(pollDecision(true, 11, 12)).toBe("poll");
-  });
-
-  it("hands the decision back once the budget is spent", () => {
-    // Not "idle": the query really is still out there, and saying otherwise
-    // would let the card claim the branch has no pull request.
-    expect(pollDecision(true, 12, 12)).toBe("exhausted");
-    expect(pollDecision(true, 99, 12)).toBe("exhausted");
   });
 });
 

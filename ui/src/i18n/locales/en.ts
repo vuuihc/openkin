@@ -602,7 +602,6 @@ const en: MessageTree = {
     close: "Close the pull request panel",
     loading: "Loading",
     checking: "Checking this branch…",
-    checkingSlow: "Still checking in the background; refresh to ask again",
     notChecked: "This branch has not been checked yet.",
     neverChecked: "This branch has never been checked successfully.",
     none: "No pull request for this branch yet.",

@@ -25,14 +25,6 @@ const (
 	authenticatedFloor = 3 * time.Minute
 	// anonymousFloor is the same for a credential-free read.
 	anonymousFloor = 20 * time.Minute
-	// failureFloor is how long a pair whose read has never succeeded is left
-	// alone. It exists because such a pair has no observation time at all and
-	// never will: a private repository answers 404 to an anonymous reader no
-	// matter how often it is asked. A floor keyed only on the observation would
-	// therefore put a fresh query behind every view of it — one request per view,
-	// which is what exhausts the shared quota — so the attempt time is the clock
-	// that applies.
-	failureFloor = 5 * time.Minute
 )
 
 // anonymousBudgetPerHour caps how many anonymous lookups the background pass may
@@ -64,11 +56,6 @@ const anonymousRateLimitBackoff = 15 * time.Minute
 // and cannot restart the daemon to make Kin see it.
 const ghReprobeInterval = 5 * time.Minute
 
-// refreshTimeout bounds one detached refresh. It is longer than the gh client's
-// own timeout so the client is the thing that gives up first, with a better
-// error than a bare context deadline.
-const refreshTimeout = 2 * time.Minute
-
 // Target is the pair this package observes: a branch of a repository, on behalf
 // of a task.
 type Target struct {
@@ -91,11 +78,6 @@ type Snapshot struct {
 	Repo         string                `json:"repo,omitempty"`
 	Branch       string                `json:"branch,omitempty"`
 	GH           GHStatus              `json:"gh"`
-	// Refreshing says a query is in flight for this branch, so the console can
-	// show that the answer below may be about to change. Without it, a first
-	// look at an unpublished branch would render "no pull request" while the
-	// question was still open — asserting something not yet checked.
-	Refreshing bool `json:"refreshing"`
 	// Notice explains a degraded read in one sentence, or is empty. It is about
 	// the read, never about a row: a failed attempt is reported by that row's
 	// own last_error, next to the data it explains, and copying it here printed
@@ -120,7 +102,6 @@ type Service struct {
 	ghRetryAfter time.Time
 	ghBroken     time.Time
 	ghReason     string
-	inFlight     map[string]struct{}
 
 	// anonLimitedUntil is when the anonymous reader may be tried again after the
 	// quota ran out, and the two fields below are the background pass's hourly
@@ -373,100 +354,6 @@ func (s *Service) record(ctx context.Context, t Target, res LookupResult) error 
 	return s.store.RecordPRObservation(ctx, obs)
 }
 
-// EnsureFresh serves the cache, and when it is stale starts a refresh *behind*
-// the request rather than inside it.
-//
-// Reading pull-request state costs two or three `gh` invocations, and a single
-// one measures around three seconds on a normal connection — so doing it inline
-// would make opening a panel take the better part of ten seconds. The read path
-// is therefore a cache read, and fetching belongs to the reconciler, which is
-// what the design asks for: one bounded background pass, not a query per view.
-func (s *Service) EnsureFresh(ctx context.Context, t Target) (store.PRObservation, error) {
-	cached, ok, err := s.store.GetPRObservation(ctx, t.Repo.Canonical(), t.Branch)
-	if err != nil {
-		return store.PRObservation{}, err
-	}
-	if ok && !s.dueForRefresh(cached, s.now()) {
-		return cached, nil
-	}
-	s.refreshAsync(t)
-	if !ok {
-		// Never observed: return the identity so the caller can render "not
-		// known yet" rather than an error.
-		return store.PRObservation{Repo: t.Repo.Canonical(), HeadBranch: t.Branch, TaskID: t.TaskID}, nil
-	}
-	return cached, nil
-}
-
-// dueForRefresh reports whether a cached row is old enough to be worth another
-// query.
-//
-// It consults the attempt time as well as the observation time, because those
-// are different clocks and one of them can be permanently absent. A pair whose
-// every read has failed has no observation at all — that is the standing state
-// of a private repository read without a credential, and of a host with no
-// route to the forge — and gating only on the observation would start a query
-// per view for a question whose answer has not changed and cannot change until
-// the user does something. That is one request per view against a quota of sixty
-// an hour, shared.
-func (s *Service) dueForRefresh(o store.PRObservation, now time.Time) bool {
-	floor := s.floorFor(o.Source)
-	attemptAge := now.Sub(time.UnixMilli(o.AttemptedAt))
-	if o.ObservedAt == nil {
-		return attemptAge >= failureFloor
-	}
-	if now.Sub(time.UnixMilli(*o.ObservedAt)) < floor {
-		return false
-	}
-	// The answer has aged out, but the attempt clock still applies: a refresh
-	// that just failed must not be immediately retried by the next view.
-	return attemptAge >= floor
-}
-
-// refreshAsync starts a background query for one target, unless one is already
-// running for it.
-//
-// The in-flight set is what keeps a page that polls every few seconds from
-// stacking queries: the second and later requests join the first rather than
-// starting their own.
-func (s *Service) refreshAsync(t Target) {
-	key := t.Repo.Canonical() + "\x00" + t.Branch
-
-	s.mu.Lock()
-	if s.inFlight == nil {
-		s.inFlight = map[string]struct{}{}
-	}
-	if _, running := s.inFlight[key]; running {
-		s.mu.Unlock()
-		return
-	}
-	s.inFlight[key] = struct{}{}
-	s.mu.Unlock()
-
-	go func() {
-		defer func() {
-			s.mu.Lock()
-			delete(s.inFlight, key)
-			s.mu.Unlock()
-		}()
-		// Detached from the request that asked for it: a client navigating away
-		// must not cancel a query whose answer the next client will want. The
-		// gh client applies its own timeout.
-		ctx, cancel := context.WithTimeout(context.Background(), refreshTimeout)
-		defer cancel()
-		_, _ = s.Observe(ctx, t)
-	}()
-}
-
-// refreshing reports whether a background query is running for a target.
-func (s *Service) refreshing(t Target) bool {
-	key := t.Repo.Canonical() + "\x00" + t.Branch
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, running := s.inFlight[key]
-	return running
-}
-
 // ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
@@ -502,8 +389,25 @@ func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, boo
 	return Target{TaskID: taskID, Repo: repo, Branch: gen.WorkspaceBranch}, true, nil
 }
 
-// SnapshotForTask returns the cached observations for a task, refreshing the
-// current branch when asked to or when the cache is stale.
+// SnapshotForTask returns the cached observations for a task's current branch.
+//
+// Without force it does not query, write, or leave anything running: a branch
+// nobody has looked at yet comes back with a repo and a branch and no rows. That
+// is what lets the console ask this question on every open without spending rate
+// limit, and it is why the answer needs a freshness line — nothing here is live.
+// Freshness comes from two places, and neither is this call: Reconcile, the
+// bounded background pass, which is the design's answer for open pull requests
+// whose checks change while nobody is watching; and force, the one action the
+// user asks for by hand.
+//
+// "No query" is the claim, not "no work": resolving the task's repository reads
+// the workspace row and runs git against the checkout, and Status may re-probe
+// for a gh binary. Cheap, local, and bounded — but not free, so this is a call to
+// make once per screen rather than in a loop.
+//
+// force queries GitHub inline and waits, because the user asked for an answer
+// and is watching for it — returning the cached one instead would look like the
+// button did nothing.
 //
 // A task that is not on a GitHub repository, or has no workspace yet, gets an
 // empty snapshot rather than an error: having no pull request is the normal
@@ -518,30 +422,14 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 	if err != nil {
 		return snap, err
 	}
-	if !ok {
-		observations, err := s.store.ListPRObservationsByTask(ctx, taskID)
-		if err != nil {
-			return snap, err
+	if ok {
+		snap.Repo = target.Repo.Canonical()
+		snap.Branch = target.Branch
+		if force {
+			if _, err := s.Observe(ctx, target); err != nil {
+				snap.Notice = err.Error()
+			}
 		}
-		snap.Observations = observations
-		s.applyAnonymousNotice(&snap)
-		return snap, nil
-	}
-	snap.Repo = target.Repo.Canonical()
-	snap.Branch = target.Branch
-
-	if force {
-		// The explicit refresh waits: the user asked for an answer and is
-		// watching for it, and returning the stale one instead would look like
-		// the button did nothing.
-		if _, err := s.Observe(ctx, target); err != nil {
-			snap.Notice = err.Error()
-		}
-	} else {
-		if _, err := s.EnsureFresh(ctx, target); err != nil {
-			return snap, err
-		}
-		snap.Refreshing = s.refreshing(target)
 	}
 
 	observations, err := s.store.ListPRObservationsByTask(ctx, taskID)

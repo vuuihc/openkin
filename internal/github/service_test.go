@@ -67,121 +67,128 @@ func testTarget() Target {
 	}
 }
 
-// The read path must never wait on the network: a `gh` lookup costs seconds, and
-// a panel that blocks on it is unusable. The first look returns immediately with
-// "not known yet" and the query runs behind the request.
-func TestEnsureFreshDoesNotBlockOnTheNetwork(t *testing.T) {
-	release := make(chan struct{})
-	reader := &fakeRunner{
-		name: SourceAnonymous,
-		onCall: func(string) {
-			<-release
-		},
-		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
-	}
+// The read path is a cache read and nothing else.
+//
+// That is what lets the console ask this question on every open without spending
+// rate limit, and it is why the panel has to be honest about the age of what it
+// shows: nothing on this path is live. Freshness comes from two other places —
+// the background pass, and the explicit refresh, which is the one action that
+// queries.
+//
+// A branch whose every attempt has failed is the case that used to cost a query
+// per view: such a row has no observation time to age out, so any freshness rule
+// applied here would ask again and again for an answer that cannot change until
+// the user does something. Here it is structural: there is no query to make.
+// The two floors are the whole of the background pass's pacing, and no other
+// test pins them: Reconcile's tests only use rows far outside either window, so
+// the numbers themselves — and the fact that a login is meant to buy a shorter
+// one — could be changed to anything without a red test.
+func TestFloorForDistinguishesTheTwoCredentialSources(t *testing.T) {
+	reader := &fakeRunner{name: SourceAnonymous}
 	svc, _ := newTestService(t, reader)
-	target := testTarget()
 
-	start := time.Now()
-	obs, err := svc.EnsureFresh(context.Background(), target)
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("EnsureFresh: %v", err)
+	if got := svc.floorFor(SourceAnonymous); got != anonymousFloor {
+		t.Fatalf("anonymous floor = %v, want %v", got, anonymousFloor)
 	}
-	if elapsed > time.Second {
-		t.Fatalf("EnsureFresh blocked for %s", elapsed)
-	}
-	if obs.ObservedAt != nil {
-		t.Fatal("returned an observation that cannot exist yet")
-	}
-	if !svc.refreshing(target) {
-		t.Fatal("no refresh was started for a branch that has never been read")
+	// A row labelled gh while gh is unusable keeps the anonymous cadence: what
+	// the next attempt spends is decided by what is usable now, not by what
+	// happened to answer last time.
+	if got := svc.floorFor(SourceGH); got != anonymousFloor {
+		t.Fatalf("floor with no usable gh = %v, want the anonymous one (%v)", got, anonymousFloor)
 	}
 
-	// Let the background query finish and confirm it actually wrote.
-	close(release)
-	deadline := time.Now().Add(5 * time.Second)
-	for svc.refreshing(target) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	svc.mu.Lock()
+	svc.ghRetryAfter = time.Time{}
+	svc.ghClient = &GHClient{Bin: GHBinary{Path: "/nonexistent/gh"}}
+	svc.mu.Unlock()
+
+	if got := svc.floorFor(SourceGH); got != authenticatedFloor {
+		t.Fatalf("authenticated floor = %v, want %v", got, authenticatedFloor)
 	}
-	if svc.refreshing(target) {
-		t.Fatal("background refresh never finished")
+	if got := svc.floorFor(SourceAnonymous); got != anonymousFloor {
+		t.Fatalf("an anonymous row keeps the anonymous floor, got %v", got)
 	}
-	obs, err = svc.EnsureFresh(context.Background(), target)
-	if err != nil {
-		t.Fatalf("second EnsureFresh: %v", err)
-	}
-	if obs.ObservedAt == nil {
-		t.Fatal("the background refresh recorded nothing")
-	}
-	if obs.Number != nil {
-		t.Fatalf("number = %v, want nil for an empty answer", obs.Number)
-	}
-	if obs.Source != SourceAnonymous {
-		t.Fatalf("source = %q", obs.Source)
+	if authenticatedFloor >= anonymousFloor {
+		t.Fatalf("floors are %v and %v; the authenticated one has to be the shorter, "+
+			"or having a login buys nothing", authenticatedFloor, anonymousFloor)
 	}
 }
 
-// Repeated views while a query is in flight must join it, not start another.
-func TestConcurrentViewsShareOneRefresh(t *testing.T) {
-	release := make(chan struct{})
-	started := make(chan struct{}, 1)
-	var mu sync.Mutex
-	calls := 0
+func TestSnapshotReadPathNeverQueries(t *testing.T) {
 	reader := &fakeRunner{
-		name: SourceAnonymous,
-		onCall: func(string) {
-			mu.Lock()
-			calls++
-			mu.Unlock()
-			// Signal without waiting for a reader: the assertion below asks
-			// whether a query started, not how many did, and a blocked send
-			// would deadlock the very case it is meant to detect.
-			select {
-			case started <- struct{}{}:
-			default:
-			}
-			<-release
-		},
+		name:      SourceAnonymous,
 		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
 	}
-	svc, _ := newTestService(t, reader)
-	target := testTarget()
-
-	for i := 0; i < 5; i++ {
-		if _, err := svc.EnsureFresh(context.Background(), target); err != nil {
-			t.Fatalf("EnsureFresh %d: %v", i, err)
+	// Every query announces itself, because the regression this test guards
+	// against is asynchronous: the old read path started a goroutine and
+	// returned, so counting calls at this instant would have passed for a
+	// detached query that had simply not fired yet. A channel is also the only
+	// way to observe the fake's call list without racing it.
+	//
+	// The wait below is a window, and a window has an edge: a query that took
+	// longer than 250ms to reach the runner would slip past it. Nothing
+	// in-process is that slow — `apiGet` on the fake returns immediately — and
+	// what this is here to catch is a reinstated background query, not a real
+	// network call.
+	started := make(chan string, 8)
+	reader.onCall = func(path string) {
+		select {
+		case started <- path:
+		default:
 		}
 	}
+	svc, st := newTestService(t, reader)
+	ctx := context.Background()
+	const taskID = "01PRREADPATH00000000000001"
+	branch := seedTaskWithWorkspace(t, st, taskID)
 
-	// The query runs on a goroutine the views do not wait for, so counting here
-	// raced its first instruction and read zero. Wait for the query to actually
-	// be in flight — which is also the state the other four views were supposed
-	// to find and join.
+	// The branch has been looked at and the attempt failed: the worst case for a
+	// rule that decides whether to ask again.
+	if err := st.RecordPRFailure(ctx, "github.com/owner/repo", branch, taskID,
+		"404: not found or not visible"); err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 5; i++ {
+		snap, err := svc.SnapshotForTask(ctx, taskID, false)
+		if err != nil {
+			t.Fatalf("snapshot %d: %v", i, err)
+		}
+		if snap.Repo != "github.com/owner/repo" || snap.Branch != branch {
+			t.Fatalf("snapshot %d named %q/%q, want the task's repository and branch",
+				i, snap.Repo, snap.Branch)
+		}
+		if len(snap.Observations) != 1 || snap.Observations[0].LastError == "" {
+			t.Fatalf("snapshot %d = %+v, want the failed attempt on its row", i, snap.Observations)
+		}
+	}
+	// One observation point rather than two: the fake's call list is appended to
+	// without a lock, so reading its length here would be the same race this
+	// test's channel exists to avoid, and a second way of asking the question
+	// can disagree with the first.
+	select {
+	case path := <-started:
+		t.Fatalf("the read path started a query for %s", path)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	// The explicit refresh is the other half of the contract: it queries, and it
+	// waits, because the user asked for an answer and is watching for it.
+	snap, err := svc.SnapshotForTask(ctx, taskID, true)
+	if err != nil {
+		t.Fatalf("forced snapshot: %v", err)
+	}
 	select {
 	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("five views started no query at all")
+		// The signal is the assertion; the path it carried was checked above.
+	case <-time.After(time.Second):
+		t.Fatal("the forced refresh made no query")
 	}
-	close(release)
-
-	// Counting immediately raced the released queries. Wait for the in-flight
-	// set to drain instead: a goroutine leaves it only after a full query, so
-	// every query these views started has reached the reader by then — and a
-	// query that was going to start has started.
-	deadline := time.Now().Add(5 * time.Second)
-	for svc.refreshing(target) && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	if len(snap.Observations) != 1 || snap.Observations[0].ObservedAt == nil {
+		t.Fatalf("observations = %+v, want the answer this refresh fetched", snap.Observations)
 	}
-	if svc.refreshing(target) {
-		t.Fatal("background query never finished")
-	}
-
-	mu.Lock()
-	got := calls
-	mu.Unlock()
-	if got != 1 {
-		t.Fatalf("five views started %d queries, want 1", got)
+	if got := snap.Observations[0].LastError; got != "" {
+		t.Fatalf("last_error = %q, want it cleared by a successful attempt", got)
 	}
 }
 
@@ -321,122 +328,6 @@ func TestReconcileSkipsFreshAndNonOpenRows(t *testing.T) {
 	}
 	if len(reader.calls) != 0 {
 		t.Fatalf("made %d queries, want none: %v", len(reader.calls), reader.calls)
-	}
-}
-
-// The blocker this suite previously missed: a branch whose read always fails has
-// no observation time and never will, so a floor keyed on the observation alone
-// starts a query per view. That is one anonymous request per view against a
-// quota of sixty an hour, shared with everything else on the machine's address.
-func TestEnsureFreshDoesNotRequeriesAPermanentlyFailingBranch(t *testing.T) {
-	reader := &fakeRunner{
-		name: SourceAnonymous,
-		errs: map[string]error{
-			"/repos/owner/repo/pulls": errors.New("404: not found or not visible"),
-		},
-	}
-	svc, _ := newTestService(t, reader)
-	clock := newTestClock()
-	svc.SetClock(clock.Now)
-	ctx := context.Background()
-	target := testTarget()
-
-	// The first look has nothing cached, so it may query.
-	if _, err := svc.EnsureFresh(ctx, target); err != nil {
-		t.Fatalf("EnsureFresh: %v", err)
-	}
-	waitForRefresh(t, svc, target)
-	afterFirst := len(reader.calls)
-	if afterFirst == 0 {
-		t.Fatal("the first look made no query at all")
-	}
-	// Precondition: the row exists and has never been observed, which is the
-	// state a floor keyed on the observation cannot see.
-	cached, ok, err := svc.store.GetPRObservation(ctx, target.Repo.Canonical(), target.Branch)
-	if err != nil || !ok {
-		t.Fatalf("expected a row after a failed attempt: ok=%v err=%v", ok, err)
-	}
-	if cached.ObservedAt != nil {
-		t.Fatal("a failed attempt wrote an observation timestamp")
-	}
-
-	// Every view inside the failure floor must be served from the cache.
-	//
-	// The assertion is on `refreshing`, which refreshAsync sets synchronously
-	// under the mutex before returning, rather than on the reader's call count,
-	// which is written by the background goroutine and would be a race.
-	for i := 0; i < 20; i++ {
-		clock.Advance(10 * time.Second)
-		if _, err := svc.EnsureFresh(ctx, target); err != nil {
-			t.Fatalf("EnsureFresh %d: %v", i, err)
-		}
-		if svc.refreshing(target) {
-			t.Fatalf("view %d started a query for a permanently failing branch", i)
-		}
-	}
-	if got := len(reader.calls); got != afterFirst {
-		t.Fatalf("%d extra queries from 20 views of a permanently failing branch, want 0", got-afterFirst)
-	}
-
-	// Past the failure floor it is worth asking again: the reason may have been
-	// fixed.
-	clock.Advance(failureFloor)
-	if _, err := svc.EnsureFresh(ctx, target); err != nil {
-		t.Fatalf("EnsureFresh past the floor: %v", err)
-	}
-	waitForRefresh(t, svc, target)
-	if got := len(reader.calls); got <= afterFirst {
-		t.Fatalf("no query after the failure floor elapsed (%d calls)", got)
-	}
-}
-
-// An anonymous answer costs a shared quota, so it is held longer than one read
-// through the user's own credentials.
-func TestEnsureFreshHonoursTheAnonymousFloor(t *testing.T) {
-	reader := &fakeRunner{
-		name:      SourceAnonymous,
-		responses: map[string][]byte{"/repos/owner/repo/pulls": []byte(`[]`)},
-	}
-	svc, _ := newTestService(t, reader)
-	clock := newTestClock()
-	svc.SetClock(clock.Now)
-	ctx := context.Background()
-	target := testTarget()
-
-	if _, err := svc.EnsureFresh(ctx, target); err != nil {
-		t.Fatalf("EnsureFresh: %v", err)
-	}
-	waitForRefresh(t, svc, target)
-	baseline := len(reader.calls)
-	if baseline == 0 {
-		t.Fatal("no query was made")
-	}
-
-	// Six steps at the authenticated cadence, staying inside the anonymous
-	// floor. Were the authenticated floor being applied, each would be a query.
-	// Asserted on `refreshing` rather than the reader's call count, which the
-	// background goroutine writes.
-	for i := 0; i < 6; i++ {
-		clock.Advance(authenticatedFloor)
-		if _, err := svc.EnsureFresh(ctx, target); err != nil {
-			t.Fatalf("EnsureFresh %d: %v", i, err)
-		}
-		if svc.refreshing(target) {
-			t.Fatalf("step %d re-queried inside the anonymous floor", i)
-		}
-	}
-	if got := len(reader.calls); got != baseline {
-		t.Fatalf("%d extra queries inside the anonymous floor, want 0", got-baseline)
-	}
-
-	// Once the floor really has elapsed, the next look refreshes.
-	clock.Advance(anonymousFloor)
-	if _, err := svc.EnsureFresh(ctx, target); err != nil {
-		t.Fatalf("EnsureFresh past the floor: %v", err)
-	}
-	waitForRefresh(t, svc, target)
-	if got := len(reader.calls); got <= baseline {
-		t.Fatal("the anonymous floor never expired")
 	}
 }
 
@@ -624,19 +515,6 @@ func TestReconcileDoesNotSpendBudgetOnRowsItSkips(t *testing.T) {
 	}
 }
 
-// waitForRefresh blocks until any background query for a target has finished, so
-// assertions about query counts are not racing the goroutine.
-func waitForRefresh(t *testing.T, svc *Service, target Target) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for svc.refreshing(target) && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if svc.refreshing(target) {
-		t.Fatal("background refresh never finished")
-	}
-}
-
 func number(n int) *int { return &n }
 
 // A nil slice marshals to `null`, and the console types this field as an array.
@@ -705,37 +583,18 @@ func TestAnonymousNoticeFollowsTheLeadRowNotGHAvailability(t *testing.T) {
 func TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice(t *testing.T) {
 	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
 	ctx := context.Background()
+	branch := seedTaskWithWorkspace(t, st, "t1")
 
-	// RepoForDir reads the remote with real git, the same way the daemon does.
-	dir := initRepoWithOrigin(t, "git@github.com:owner/repo.git")
-	if err := st.InsertTask(ctx, store.Task{
-		ID: "t1", Title: "pr", Agent: "kin", Cwd: dir, Prompt: "pr",
-		Status: "running", CreatedAt: time.Now().UnixMilli(),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.InsertWorkspace(ctx, store.WorkspaceGeneration{
-		ID: "w1", TaskID: "t1", Generation: 1, State: "ready",
-		SourceRoot: dir, Scope: ".", WorkspaceBranch: "kin/task/t1/g1",
-		TargetBranch: "main",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetCurrentWorkspace(ctx, "t1", "w1"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Fresh, so no background query is started: the row below is the answer.
 	now := time.Now().UnixMilli()
 	if err := st.RecordPRObservation(ctx, store.PRObservation{
-		Repo: "github.com/owner/repo", HeadBranch: "kin/task/t1/g1", TaskID: "t1",
+		Repo: "github.com/owner/repo", HeadBranch: branch, TaskID: "t1",
 		Number: number(7), State: "open", Source: SourceGH, ObservedAt: &now,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// Then the branch query failed. A failure is recorded on its own path
 	// precisely so that it cannot erase the number it failed to refresh.
-	if err := st.RecordPRFailure(ctx, "github.com/owner/repo", "kin/task/t1/g1", "t1",
+	if err := st.RecordPRFailure(ctx, "github.com/owner/repo", branch, "t1",
 		"gh: not found or not visible"); err != nil {
 		t.Fatal(err)
 	}
@@ -754,6 +613,34 @@ func TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice(t *testing.T) {
 	if lead.LastError != "gh: not found or not visible" || lead.Number == nil || *lead.Number != 7 {
 		t.Fatalf("row = %+v, want the failure alongside the number it failed to refresh", lead)
 	}
+}
+
+// seedTaskWithWorkspace gives a task a current workspace generation on a
+// checkout whose origin names github.com/owner/repo, so TargetForTask resolves,
+// and returns the generation's branch.
+func seedTaskWithWorkspace(t *testing.T, st *store.Store, taskID string) string {
+	t.Helper()
+	ctx := context.Background()
+	// RepoForDir reads the remote with real git, the same way the daemon does.
+	dir := initRepoWithOrigin(t, "git@github.com:owner/repo.git")
+	if err := st.InsertTask(ctx, store.Task{
+		ID: taskID, Title: "pr", Agent: "kin", Cwd: dir, Prompt: "pr",
+		Status: "running", CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	branch := fmt.Sprintf("kin/task/%s/g1", taskID)
+	if err := st.InsertWorkspace(ctx, store.WorkspaceGeneration{
+		ID: taskID + "-w1", TaskID: taskID, Generation: 1, State: "ready",
+		SourceRoot: dir, Scope: ".", WorkspaceBranch: branch,
+		TargetBranch: "main",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetCurrentWorkspace(ctx, taskID, taskID+"-w1"); err != nil {
+		t.Fatal(err)
+	}
+	return branch
 }
 
 // initRepoWithOrigin makes a directory git will recognise as a checkout of the

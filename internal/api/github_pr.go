@@ -9,6 +9,10 @@ import (
 // handleTaskPR returns the pull-request state for a task's current workspace
 // branch.
 //
+// It reads the cache and nothing else: no query, no write, nothing left running,
+// safe to call as often as a screen renders. Freshness comes from the background
+// pass and from handleRefreshTaskPR, which is where spending rate limit lives.
+//
 // A task that is not on a GitHub repository, has no workspace yet, or whose
 // checkout has since been removed gets an empty snapshot with HTTP 200. Having
 // no pull request is the normal state of a session nobody has published, not an
@@ -30,7 +34,8 @@ func (s *Server) handleTaskPR(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, snapshot)
 }
 
-// handleRefreshTaskPR forces a query, bypassing the staleness floor.
+// handleRefreshTaskPR is the only route that queries GitHub, and it waits for
+// the answer.
 //
 // It is a separate route rather than a query parameter so that the one action
 // which spends rate limit is explicit in the route table and can be granted

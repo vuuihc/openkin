@@ -771,7 +771,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Cached pull-request state for the task's current workspace branch. A task that is not on a GitHub repository, has no workspace, or whose checkout is gone returns 200 with an empty observation list, because having no pull request is a normal state and not an error. */
+        /** @description Cached pull-request state for the task's current workspace branch. This is a cache read: it never queries GitHub, never waits on the network, and never writes, so it is safe to call as often as a screen renders. What it returns carries its own age; freshness comes from the background pass and from refreshing this task's pull request by hand. A task that is not on a GitHub repository, has no workspace, or whose checkout is gone returns 200 with an empty observation list, because having no pull request is a normal state and not an error. */
         get: operations["getTaskPullRequest"];
         put?: never;
         post?: never;
@@ -790,7 +790,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Query GitHub now, bypassing the staleness floor, and wait for the answer. Separate from the read so the one action that spends rate limit is its own route. */
+        /** @description Query GitHub now and wait for the answer. The only route that spends rate limit, and the only one that touches the network: it is separate from the read so that reading can be granted to every caller while querying stays with the node's operator. */
         post: operations["refreshTaskPullRequest"];
         delete?: never;
         options?: never;
@@ -1612,8 +1612,6 @@ export interface components {
             repo?: string;
             branch?: string;
             gh: components["schemas"]["GHStatus"];
-            /** @description A query is in flight for this branch. Without it a first look at an unpublished branch would render "no pull request" while the question was still open, asserting something not yet checked. */
-            refreshing: boolean;
             /** @description One sentence explaining a degraded read, or empty. */
             notice?: string;
         };

@@ -90,6 +90,23 @@ export function leadObservation(
 }
 
 /**
+ * This branch's own row, or nothing.
+ *
+ * Not the same question as `leadObservation`, which falls back to another
+ * branch's row so the card is never empty. The fallback is for showing; asking
+ * GitHub is decided on this. A task whose workspace moved from `g1` to `g2`
+ * shows the older generation's pull request — labelled with the branch it
+ * belongs to — while the branch on screen has still never been asked about.
+ */
+export function observedBranch(
+  observations: PullRequestObservation[] | undefined,
+  branch: string | undefined,
+): PullRequestObservation | undefined {
+  if (!observations || !branch) return undefined;
+  return observations.find((o) => o.head_branch === branch);
+}
+
+/**
  * Branches other than the lead's that have a pull request.
  *
  * A task gets a new branch per workspace generation, so an earlier generation
@@ -195,27 +212,4 @@ export function ciLabel(
     ...counts,
     passed: String(ci!.passed),
   });
-}
-
-export type PollDecision = "idle" | "poll" | "exhausted";
-
-/**
- * Whether to keep following a query the daemon is running in the background.
- *
- * This is a function rather than a counter inside an effect because of what a
- * failed poll does: the loop used to be re-armed by the *snapshot changing*, so
- * one failed read — which changes no snapshot — left the timer unfired, the
- * spinner turning, and the refresh button disabled, with the answer the daemon
- * was still fetching unreachable without closing the panel. Attempts are
- * counted instead of successes, so a failed one still books the next inside the
- * budget; when the budget is spent the panel says so and hands the decision
- * back to the user rather than looking busy forever.
- */
-export function pollDecision(
-  refreshing: boolean,
-  polls: number,
-  max: number,
-): PollDecision {
-  if (!refreshing) return "idle";
-  return polls >= max ? "exhausted" : "poll";
 }
