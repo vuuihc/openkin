@@ -201,7 +201,9 @@ func TestAnExpiryDoesNotOverwriteADecisionThatLandedFirst(t *testing.T) {
 func TestFollowUpRequiresTerminalSession(t *testing.T) {
 	ctx := context.Background()
 
-	// Running: interrupt then re-queue with the new guide prompt.
+	// Running: interrupt then re-queue with the new guide prompt. Cutting a live
+	// turn short is opt-in (interrupt: true) since a prompt sent to a busy task
+	// waits in its queue by default.
 	hang := &hangThenOKAdapter{}
 	e2, st := testEngine(t, 4, hang)
 	running, err := e2.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "x"})
@@ -209,7 +211,7 @@ func TestFollowUpRequiresTerminalSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = waitStatus(t, e2, running.ID, StatusRunning, 2*time.Second)
-	_, err = e2.FollowUp(ctx, running.ID, "more guidance")
+	_, err = e2.FollowUpWith(ctx, running.ID, FollowUpRequest{Prompt: "more guidance", Interrupt: true})
 	if err != nil {
 		t.Fatalf("running follow-up (interrupt) should be allowed, got %v", err)
 	}
@@ -265,7 +267,7 @@ func TestFollowUpInterruptRequeues(t *testing.T) {
 	}
 	_ = waitStatus(t, e, t1.ID, StatusRunning, 2*time.Second)
 
-	_, err = e.FollowUp(ctx, t1.ID, "stop and do Y instead")
+	_, err = e.FollowUpWith(ctx, t1.ID, FollowUpRequest{Prompt: "stop and do Y instead", Interrupt: true})
 	if err != nil {
 		t.Fatal(err)
 	}

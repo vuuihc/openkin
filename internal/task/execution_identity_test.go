@@ -109,7 +109,11 @@ func TestFollowUpCancelsEarlierWorkerWhileLaterStartIsBlocked(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("second worker Start did not block")
 	}
-	if _, err := e.FollowUp(ctx, task.ID, "continue with the new direction"); err != nil {
+	// The follow-up is an interrupt on purpose: this is the path that cancels what
+	// is in flight, and the assertion below is about exactly that.
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{
+		Prompt: "continue with the new direction", Interrupt: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	select {

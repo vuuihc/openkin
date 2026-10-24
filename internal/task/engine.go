@@ -91,11 +91,15 @@ type CreateRequest struct {
 // (same-agent resume uses the new model on the next adapter Start).
 // PermissionMode optional: when set, updates the task permission mode for this and
 // subsequent turns. Unlike a model switch it does not reset session continuity.
+// Interrupt optional: cut the running turn short and deliver this prompt next,
+// instead of waiting for the turn to end. It costs the work in flight, so it is
+// the caller's explicit choice and never a default.
 type FollowUpRequest struct {
 	Prompt         string  `json:"prompt"`
 	Agent          string  `json:"agent,omitempty"`
 	Model          *string `json:"model,omitempty"`
 	PermissionMode *string `json:"permission_mode,omitempty"`
+	Interrupt      bool    `json:"interrupt,omitempty"`
 }
 
 // Notifier is optional fire-and-forget push for approvals / task finish (M3).
@@ -564,6 +568,14 @@ func (e *Engine) Recover(ctx context.Context) error {
 
 	// Re-arm Wait timers for failed tasks left in limit waiting state.
 	e.recoverLimitWaits(ctx)
+
+	// A prompt queued while a task was running outlives the restart, and nothing
+	// else will ever deliver it: the turn it was waiting for died with the process
+	// and the task is terminal now. Delivered after the workspace and timer
+	// recovery above, because delivering one starts a run.
+	for _, id := range ids {
+		e.deliverQueuedAfterRestart(ctx, id)
+	}
 	e.pump()
 	return nil
 }
@@ -1704,6 +1716,19 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	e.mu.Unlock()
 	_ = e.store.MarkWorkerStepsTerminal(ctx, id, StatusCanceled, "task canceled", e.nowMilli())
 
+	// Queued prompts go with the task they were queued for. Cancel means stop, and
+	// a queue that outlived it would answer messages the user just walked away
+	// from -- the count is reported so the drop is not silent.
+	if n, err := e.store.ClearPendingPrompts(ctx, id); err == nil && n > 0 {
+		payload, _ := json.Marshal(map[string]any{
+			"message": fmt.Sprintf("%d queued prompt(s) discarded with the canceled task", n),
+			"count":   n,
+		})
+		if ev, appendErr := e.store.AppendEvent(ctx, id, "error", payload); appendErr == nil {
+			e.bus.PublishEvent(ev)
+		}
+	}
+
 	// Deny any pending approvals so MCP waiters unblock.
 	if pending, err := e.store.ListPendingForTask(ctx, id); err == nil {
 		for _, a := range pending {
@@ -2573,6 +2598,30 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		}
 		e.pump()
 		return
+	}
+
+	// A prompt queued during this turn is delivered now: the turn boundary is the
+	// promise made when it was accepted. One per turn, oldest first, so each gets
+	// an answer before the next is handed over. Skipped when the workspace failed
+	// to finalize -- the same reason an interrupted follow-up is skipped -- because
+	// the task is about to finish and the message should not be handed to an agent
+	// whose files are mid-flight.
+	if workspaceErr == nil {
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id); ok {
+			if err != nil {
+				payload, _ := json.Marshal(map[string]string{
+					"message": "queued prompt could not be delivered: " + err.Error(),
+				})
+				if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
+					e.bus.PublishEvent(ev)
+				}
+				_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+			} else {
+				e.clearActiveRun(id, exec.ID)
+			}
+			e.pump()
+			return
+		}
 	}
 
 	// Lazy promotion: if a read-only turn created a ready workspace, re-queue

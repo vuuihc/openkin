@@ -741,6 +741,20 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 		e.pump()
 		return
 	}
+	// A prompt queued during this turn is delivered now, the same way the adapter
+	// loop delivers one: an orchestrated turn ends just as much at a turn boundary.
+	if workspaceErr == nil {
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id); ok {
+			if err != nil {
+				e.emitError(ctx, id, executionID, "queued prompt could not be delivered: "+err.Error())
+				_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+			} else {
+				e.clearActiveRun(id, executionID)
+			}
+			e.pump()
+			return
+		}
+	}
 	final := StatusSucceeded
 	if failed || e.hasCriticalPersistFailure(id) {
 		final = StatusFailed

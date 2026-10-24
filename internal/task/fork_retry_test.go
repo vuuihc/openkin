@@ -555,7 +555,12 @@ func TestOrchestratedWorkspaceCompletionFinalizesBeforeFollowUp(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.FollowUp(ctx, task.ID, "continue after integration"); err != nil {
+	// An interrupt, because the worker is holding and nothing else will end the
+	// turn: the point of this test is that the follow-up waits for the workspace
+	// finalization rather than overtaking it.
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{
+		Prompt: "continue after integration", Interrupt: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)

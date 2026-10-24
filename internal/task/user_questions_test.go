@@ -252,7 +252,11 @@ func TestFollowUpInterruptResolvesUserQuestion(t *testing.T) {
 	}()
 	time.Sleep(30 * time.Millisecond)
 
-	if _, err := e.FollowUp(ctx, task.ID, "stop and do this instead"); err != nil {
+	// Interrupting is what answers a pending question on the user's behalf, so the
+	// test that asserts it has to ask for an interrupt.
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{
+		Prompt: "stop and do this instead", Interrupt: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	wg.Wait()

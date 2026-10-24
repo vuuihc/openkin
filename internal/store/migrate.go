@@ -855,6 +855,11 @@ CREATE INDEX IF NOT EXISTS idx_pr_observations_open ON pr_observations(state, at
 // "the empty string" are different instructions (leave the task's setting alone
 // vs. clear it), and the follow-up request they came from distinguishes them the
 // same way.
+//
+// `user_seq` is the "message" event written when the prompt was accepted, which
+// is what lets a reader say which visible messages have not been answered yet.
+// Zero is the honest value for "no event": the delivery path writes one rather
+// than treating a row with no visible message as a message.
 const migrationPendingPrompts = `
 CREATE TABLE IF NOT EXISTS task_pending_prompts (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -863,6 +868,7 @@ CREATE TABLE IF NOT EXISTS task_pending_prompts (
   agent           TEXT NOT NULL DEFAULT '',
   model           TEXT,
   permission_mode TEXT,
+  user_seq        INTEGER NOT NULL DEFAULT 0,
   queued_at       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_task_pending_prompts_queue

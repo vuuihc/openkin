@@ -413,17 +413,24 @@ type pendingFollowUp struct {
 }
 
 // FollowUp re-queues a terminal task for a new prompt (spec §6 M2).
-// When the task is still running / waiting_approval, the current turn is interrupted first
-// and the new prompt is applied once the process exits (steer / insert guide).
+// When the task is still running / waiting_approval, the prompt is queued and
+// delivered at the next turn boundary (see FollowUpWith for the interrupting
+// variant).
 func (e *Engine) FollowUp(ctx context.Context, id, prompt string) (store.Task, error) {
 	return e.FollowUpWith(ctx, id, FollowUpRequest{Prompt: prompt})
 }
 
-// FollowUpWith supports same-agent resume, cross-agent handoff, and interrupt-then-guide.
+// FollowUpWith supports same-agent resume, cross-agent handoff, and a follow-up
+// during a live turn.
 //
 //   - agent empty or same: resume via session_ref when present; otherwise inject recent transcript.
 //   - agent different: clear session_ref, switch task.agent, inject handoff context into prompt.
-//   - task running / waiting_approval: interrupt current session, then re-queue with the new prompt.
+//   - task running / waiting_approval / waiting_input / queued: hold the prompt in the
+//     task's queue and deliver it at the next turn boundary, oldest first. Nothing in
+//     flight is cancelled, no pending approval is denied, no pending question is
+//     answered on the user's behalf. Set req.Interrupt to cut the turn short instead
+//     and deliver next -- that path answers and denies the same way, on purpose,
+//     because the process it is talking to is about to die.
 func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpRequest) (store.Task, error) {
 	e.retryMu.Lock()
 	defer e.retryMu.Unlock()
@@ -445,13 +452,112 @@ func (e *Engine) FollowUpWith(ctx context.Context, id string, req FollowUpReques
 		return t, fmt.Errorf("%w: workspace finalization is in progress", ErrConflict)
 	}
 
+	// A task with nothing in flight is waiting for exactly this prompt, so it is
+	// delivered now. A task that is still working keeps it in its queue instead:
+	// the work in flight is the user's work, and cancelling it to make room for a
+	// message that was not urgent costs them more than the wait does.
 	switch t.Status {
 	case StatusSucceeded, StatusFailed, StatusCanceled:
-		return e.applyFollowUp(ctx, id, t, req, false /*interrupted*/)
+		return e.queuedFollowUp(ctx, id, t, req, true /*deliverNow*/)
 	case StatusRunning, StatusWaitingApproval, StatusWaitingInput, StatusQueued:
-		return e.interruptAndFollowUp(ctx, id, t, req)
+		if req.Interrupt {
+			return e.interruptAndFollowUp(ctx, id, t, req)
+		}
+		return e.queuedFollowUp(ctx, id, t, req, false /*deliverNow*/)
 	default:
 		return store.Task{}, fmt.Errorf("%w: task status %s cannot accept prompt", ErrConflict, t.Status)
+	}
+}
+
+// queuedFollowUp accepts a prompt for a task and records it as the newest message
+// waiting to be delivered. When deliverNow is set the task has no turn to wait
+// for, so the queue is drained immediately -- through the queue rather than
+// around it, so that a message still waiting from earlier keeps its place.
+//
+// The queue is the only way a prompt enters a busy task, which is what makes
+// ordering one rule instead of one rule per entry point: appended at the tail,
+// delivered from the head, one per turn.
+func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, req FollowUpRequest, deliverNow bool) (store.Task, error) {
+	// An agent that cannot be resolved is refused while the sender is still
+	// listening, rather than discovered at a turn boundary nobody is watching.
+	if req.Agent != "" && req.Agent != t.Agent && !e.HasAgent(req.Agent) {
+		return store.Task{}, fmt.Errorf("unknown or unavailable agent %q", req.Agent)
+	}
+	// The visible copy comes first: a message the user can see and then gets an
+	// error about is a message they can resend. The reverse -- a queue row with
+	// no message in the chat -- is a silent hole in the conversation.
+	userSeq := e.appendUserGuideEvent(ctx, id, t, req, false /*interrupted*/)
+	if _, err := e.store.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID:         id,
+		Prompt:         req.Prompt,
+		Agent:          req.Agent,
+		Model:          req.Model,
+		PermissionMode: req.PermissionMode,
+		UserSeq:        userSeq,
+	}); err != nil {
+		return store.Task{}, err
+	}
+	if !deliverNow {
+		return e.store.GetTask(ctx, id)
+	}
+	t2, _, err := e.deliverQueuedPrompt(ctx, id)
+	return t2, err
+}
+
+// deliverQueuedPrompt starts the turn that answers the oldest message a task has
+// waiting. ok is false when nothing was waiting, which is a normal outcome at a
+// turn boundary (two boundaries can race for the same last message).
+//
+// The message is taken off the queue before it is applied, so a failure here
+// means the prompt is gone from the queue and the caller owes the user an
+// error event naming it: it was visible in the chat, and it will not be
+// answered by anything else.
+func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string) (store.Task, bool, error) {
+	p, ok, err := e.store.PopPendingPrompt(ctx, id)
+	if err != nil || !ok {
+		return store.Task{}, false, err
+	}
+	t, err := e.store.GetTask(ctx, id)
+	if err != nil {
+		return store.Task{}, true, err
+	}
+	// interrupted=false on purpose: this message did not cut anything short, and
+	// telling the agent that its previous turn was interrupted by the user would
+	// make it re-read context it does not need and drop the session it can resume.
+	t2, err := e.applyFollowUpPrepared(ctx, id, t, followUpRequestFrom(p), false /*interrupted*/, p.UserSeq)
+	return t2, true, err
+}
+
+// deliverQueuedAfterRestart delivers the oldest prompt a task had waiting when
+// the daemon died. There is no run to attribute an error to at this point, so a
+// failure is reported as a task event; the rest of the queue stays where it is,
+// to be delivered by the turn this one starts (or by the next restart).
+func (e *Engine) deliverQueuedAfterRestart(ctx context.Context, id string) {
+	t, ok, err := e.deliverQueuedPrompt(ctx, id)
+	if !ok {
+		return
+	}
+	if err != nil {
+		payload, _ := json.Marshal(map[string]string{
+			"message": "queued prompt could not be delivered after the restart: " + err.Error(),
+		})
+		if ev, appendErr := e.store.AppendEvent(ctx, id, "error", payload); appendErr == nil {
+			e.bus.PublishEvent(ev)
+		}
+		return
+	}
+	e.bus.PublishTask(t)
+}
+
+// followUpRequestFrom rebuilds the request a queued message was accepted with.
+// The optional fields have to survive the round trip intact: nil means "leave the
+// task's setting alone", while a pointer to "" means "clear it".
+func followUpRequestFrom(p store.PendingPrompt) FollowUpRequest {
+	return FollowUpRequest{
+		Prompt:         p.Prompt,
+		Agent:          p.Agent,
+		Model:          p.Model,
+		PermissionMode: p.PermissionMode,
 	}
 }
 
@@ -487,9 +593,10 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 		if qid == id {
 			e.queue = append(e.queue[:i], e.queue[i+1:]...)
 			e.mu.Unlock()
-			// Still non-terminal; force a clean re-queue path via applyFollowUp.
-			// Mark as canceled-equivalent by finishing then applying, but simpler:
-			// applyFollowUp requires terminal — so finish as canceled then apply.
+			// Still non-terminal; force a clean re-queue path by finishing first.
+			// applyFollowUpPrepared expects a task with nothing in flight, so finish
+			// as canceled, then apply -- and let it write the user event, since
+			// nothing has been published for this prompt yet.
 			if _, err := e.finishQueued(ctx, id, StatusCanceled, nil, nil); err != nil {
 				return store.Task{}, err
 			}
@@ -497,7 +604,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 			if err != nil {
 				return store.Task{}, err
 			}
-			return e.applyFollowUp(ctx, id, t2, req, true /*interrupted*/)
+			return e.applyFollowUpPrepared(ctx, id, t2, req, true /*interrupted*/, 0 /*write the user event*/)
 		}
 	}
 
@@ -512,7 +619,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 	e.mu.Unlock()
 
 	// Surface the user guide immediately so the chat is not locked waiting for process death.
-	e.appendUserGuideEvent(ctx, id, t, req, true /*interrupted*/)
+	userSeq := e.appendUserGuideEvent(ctx, id, t, req, true /*interrupted*/)
 
 	if h != nil {
 		_ = h.Cancel()
@@ -536,8 +643,9 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 			if err != nil {
 				return store.Task{}, err
 			}
-			// User event already appended above — apply without duplicating.
-			return e.applyFollowUpPrepared(ctx, id, t2, pf.req, true /*interrupted*/, false /*emitUser*/)
+			// The user event was appended above, so the checkpoint anchors there
+			// rather than to whatever happens to be the newest user message.
+			return e.applyFollowUpPrepared(ctx, id, t2, pf.req, true /*interrupted*/, userSeq)
 		}
 	}
 
@@ -557,17 +665,22 @@ func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pending
 		return store.Task{}, err
 	}
 	// Re-queue directly (StatusQueued). Avoid a canceled → queued flash when possible.
-	// User guide event was already appended at interrupt time.
-	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, false /*emitUser*/)
+	// The user guide event was already appended at interrupt time, so the newest
+	// user message in the stream is this one -- looked up here rather than carried
+	// on the struct, which is as precise as this path has ever been.
+	userSeq := e.latestUserMessageSeq(ctx, id)
+	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, userSeq)
 }
 
-func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool) (store.Task, error) {
-	return e.applyFollowUpPrepared(ctx, id, t, req, interrupted, true /*emitUser*/)
-}
-
-// applyFollowUpPrepared patches the task prompt/agent and re-queues. When emitUser
-// is false the caller already published the user message (interrupt path).
-func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted, emitUser bool) (store.Task, error) {
+// applyFollowUpPrepared patches the task prompt/agent and re-queues it.
+//
+// userSeq is the seq of the user message event this delivery answers. Pass 0
+// when the event has not been written yet and this call should write it; pass
+// the existing seq when the message was already visible -- it was interrupted
+// into, or queued while the previous turn was still running. The distinction is
+// the checkpoint anchor: a turn that claims a newer message than the one it is
+// answering restores to the wrong point.
+func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool, userSeq int) (store.Task, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
@@ -718,11 +831,8 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	}
 	e.bus.PublishTask(t)
 
-	userSeq := 0
-	if emitUser {
+	if userSeq < 1 {
 		userSeq = e.appendUserGuideEvent(ctx, id, t, req, interrupted)
-	} else {
-		userSeq = e.latestUserMessageSeq(ctx, id)
 	}
 	if userSeq > 0 {
 		e.captureCheckpoint(ctx, t, userSeq)

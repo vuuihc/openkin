@@ -15,10 +15,14 @@ import (
 // It is durable rather than in-memory because the sender is usually a phone
 // that has since been locked: the promise made when the message is accepted is
 // "this will be delivered", and a slot in a map cannot keep that promise across
-// a daemon restart. The user-visible copy of the message is the event written
-// at accept time; this row is the delivery index, and the two are written in
-// that order so a crash between them loses a delivery, never a message the user
-// can see and wait forever on.
+// a daemon restart.
+//
+// UserSeq ties the row to the message the user can see. The event is written
+// first, at accept time, and this row follows it, so the queue can always be
+// read back as "these visible messages have not been answered yet" -- which is
+// also what the turn that finally answers one uses as its checkpoint anchor. A
+// failure between the two writes leaves a visible message the sender is told
+// about, never a queued message nobody can see.
 type PendingPrompt struct {
 	ID     int64  `json:"id"`
 	TaskID string `json:"task_id"`
@@ -29,11 +33,15 @@ type PendingPrompt struct {
 	// distinction exists in the request these were built from.
 	Model          *string `json:"model,omitempty"`
 	PermissionMode *string `json:"permission_mode,omitempty"`
-	QueuedAt       int64   `json:"queued_at"`
+	// UserSeq is the seq of the "message" event this row promises to deliver.
+	// Zero means the event was never written, and the delivery path writes it
+	// then, so a queue row is never a message that exists only in the queue.
+	UserSeq  int   `json:"user_seq,omitempty"`
+	QueuedAt int64 `json:"queued_at"`
 }
 
 const pendingPromptColumns = `
-	id, task_id, prompt, agent, model, permission_mode, queued_at`
+	id, task_id, prompt, agent, model, permission_mode, user_seq, queued_at`
 
 func scanPendingPrompt(scanner interface {
 	Scan(dest ...any) error
@@ -41,7 +49,7 @@ func scanPendingPrompt(scanner interface {
 	var p PendingPrompt
 	var model, mode sql.NullString
 	if err := scanner.Scan(
-		&p.ID, &p.TaskID, &p.Prompt, &p.Agent, &model, &mode, &p.QueuedAt,
+		&p.ID, &p.TaskID, &p.Prompt, &p.Agent, &model, &mode, &p.UserSeq, &p.QueuedAt,
 	); err != nil {
 		return PendingPrompt{}, err
 	}
@@ -71,9 +79,9 @@ func (s *Store) AppendPendingPrompt(ctx context.Context, p PendingPrompt) (Pendi
 	}
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO task_pending_prompts (
-			task_id, prompt, agent, model, permission_mode, queued_at
-		) VALUES (?, ?, ?, ?, ?, ?)`,
-		p.TaskID, p.Prompt, p.Agent, model, mode, p.QueuedAt)
+			task_id, prompt, agent, model, permission_mode, user_seq, queued_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.TaskID, p.Prompt, p.Agent, model, mode, p.UserSeq, p.QueuedAt)
 	if err != nil {
 		return PendingPrompt{}, fmt.Errorf("append pending prompt: %w", err)
 	}
