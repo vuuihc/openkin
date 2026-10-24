@@ -139,10 +139,19 @@ func TestPublishRefusesTheDefaultBranchAndPushesNothing(t *testing.T) {
 
 // A checkout whose remote was added by hand has no origin/HEAD to read, and
 // `main` is still a name that must not travel by button.
+//
+// Two more things are pinned here. The forge is not asked at all — the name is
+// answer enough, and a publish still has a push and a `gh pr create` to do inside
+// the budget the Hub is waiting on. And the sentence says what it went on: this
+// checkout never recorded a default branch, so a refusal claiming to know one
+// would be a sentence the repository can contradict.
 func TestPublishRefusesMainWhenTheDefaultBranchIsUnknown(t *testing.T) {
 	f := newPublishFixture(t)
 	gitIn(t, f.dir, "checkout", "-q", "main")
-	out, err := publishWith(context.Background(), f.manager, fakeGH(t, "#!/bin/sh\nexit 0\n"), PublishRequest{
+	argv := filepath.Join(t.TempDir(), "gh-argv")
+	gh := fakeGH(t, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> "+argv+"\nexit 0\n")
+
+	out, err := publishWith(context.Background(), f.manager, gh, PublishRequest{
 		Dir: f.dir, Title: "t", Body: "b",
 	})
 	if err != nil {
@@ -153,6 +162,15 @@ func TestPublishRefusesMainWhenTheDefaultBranchIsUnknown(t *testing.T) {
 	}
 	if f.remoteHas(t, "main") != "" {
 		t.Fatal("main was pushed")
+	}
+	if asked, err := os.ReadFile(argv); err == nil && len(asked) > 0 {
+		t.Fatalf("the forge was asked about a branch the name already answered for: %s", asked)
+	}
+	if strings.Contains(out.Reason, "repository's default branch") {
+		t.Fatalf("the refusal claims a default branch this checkout never recorded: %q", out.Reason)
+	}
+	if !strings.Contains(out.Reason, "records which branch") {
+		t.Fatalf("the refusal does not say what it went on: %q", out.Reason)
 	}
 }
 
@@ -177,6 +195,10 @@ func TestPublishRefusesTheDefaultBranchTheForgeNames(t *testing.T) {
 	}
 	if !strings.Contains(out.Reason, "trunk") {
 		t.Fatalf("reason = %q, want the branch named", out.Reason)
+	}
+	// This name came from the repository, so here the refusal may say what it is.
+	if !strings.Contains(out.Reason, "repository's default branch") {
+		t.Fatalf("reason = %q, want it to say the forge named this the default", out.Reason)
 	}
 	if f.remoteHas(t, "trunk") != "" {
 		t.Fatal("the forge's default branch was pushed")

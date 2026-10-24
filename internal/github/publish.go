@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -167,11 +168,9 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 		}
 		gh = GHClient{Bin: client}
 	}
-	if name := branchThisMachineWillNotPush(ctx, gh, repo, facts); name != "" {
+	if name, recorded := branchThisMachineWillNotPush(ctx, gh, repo, facts); name != "" {
 		out.Blocked = PublishBlockedDefault
-		out.Reason = fmt.Sprintf(
-			"this checkout is on %s, which is this repository's default branch, and Kin does not push that one on its own",
-			name)
+		out.Reason = defaultBranchSentence(name, recorded)
 		return out, nil
 	}
 
@@ -201,35 +200,64 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 }
 
 // branchThisMachineWillNotPush is the branch a publish refuses to push: the one
-// origin's HEAD names.
+// origin's HEAD names, or one of the names a default branch goes by.
+//
+// The second return says which of the two this is, because the sentences differ:
+// a name the repository itself recorded *is* the default branch, while `main` on a
+// checkout that recorded nothing is only a name that usually is.
 //
 // A checkout that recorded no origin/HEAD — one whose remote was added by hand,
 // which is the ordinary way a local repository gets one — is not evidence that the
 // repository has no default branch, so the forge is asked, once, and its answer
-// joins `main` and `master` in the set this refuses. Both halves are needed: the
-// forge names the repositories whose trunk is `trunk`, and the two names cover the
-// machine whose gh cannot answer — no credentials for a private repository, no
-// network — where the direction to err in is refusing a push that might have been
-// wanted. Pushing a repository's default branch by accident is the one outcome
-// here that asking again cannot undo.
-func branchThisMachineWillNotPush(ctx context.Context, gh ghRunner, repo Repo, facts workspace.GitFacts) string {
+// joins `main` and `master` in the set this refuses. The order is the cheap half
+// first, and it is also the half that keeps the budget: `main` and `master` cost
+// nothing to compare, and a checkout sitting on one is refused without spending a
+// network round trip that the push behind it would then have to wait for.
+func branchThisMachineWillNotPush(ctx context.Context, gh ghRunner, repo Repo, facts workspace.GitFacts) (string, bool) {
 	if facts.DefaultBranch != "" {
 		if facts.Branch == facts.DefaultBranch {
-			return facts.DefaultBranch
+			return facts.DefaultBranch, true
 		}
-		return ""
+		return "", false
 	}
-	names := []string{"main", "master"}
-	if name := forgeDefaultBranch(ctx, gh, repo); name != "" {
-		names = append(names, name)
-	}
-	for _, name := range names {
+	for _, name := range []string{"main", "master"} {
 		if facts.Branch == name {
-			return name
+			return name, false
 		}
 	}
-	return ""
+	// Only a branch that is neither of those is worth asking about: the forge is
+	// the only thing that can name a trunk called `trunk`.
+	if name := forgeDefaultBranch(ctx, gh, repo); name != "" && facts.Branch == name {
+		return name, true
+	}
+	return "", false
 }
+
+// defaultBranchSentence is why a publish stopped, in the two cases the guard
+// knows.
+//
+// The difference is not pedantry: the fallback refuses `master` in a repository
+// whose trunk is `trunk`, and calling that "this repository's default branch"
+// would be a sentence the checkout itself contradicts. What is true in both cases
+// is the rule — Kin does not push a default branch on its own — and that is what
+// the person needs to read to understand the way out the console offers.
+func defaultBranchSentence(name string, recorded bool) string {
+	if recorded {
+		return fmt.Sprintf(
+			"this checkout is on %s, which is this repository's default branch, and Kin does not push that one on its own", name)
+	}
+	return fmt.Sprintf(
+		"this checkout is on %s, which Kin does not push on its own: nothing in this checkout records which branch the repository calls its default, and %s is the name a default branch usually has",
+		name, name)
+}
+
+// forgeProbeTimeout bounds the one question this guard asks the forge.
+//
+// Short on purpose. A guard that cannot get an answer falls back rather than
+// failing (see forgeDefaultBranch), so waiting longer buys nothing — and the
+// publish this probe is part of still has a push and a `gh pr create` to do
+// inside the same budget the Hub is waiting on.
+const forgeProbeTimeout = 10 * time.Second
 
 // apiRepo mirrors the one field this package reads from GitHub's repository
 // payload. The REST payload rather than `gh repo view --json`, for the reason the
@@ -241,15 +269,19 @@ type apiRepo struct {
 
 // forgeDefaultBranch is the repository's default branch, as the forge answers it.
 //
-// It is asked only for a checkout that recorded no origin/HEAD of its own, and a
-// failure to answer — gh erroring, a repository gh cannot see, an answer that is
-// not the payload — is silence rather than a refusal of its own: this narrows a
-// guard that already has a fallback, and a publish that cannot learn the default
-// branch is still refused on `main` and `master`.
+// It is asked only for a checkout that recorded no origin/HEAD of its own and is
+// on neither of the two usual names, and a failure to answer — gh erroring, a
+// repository gh cannot see, an answer that is not the payload, the probe's own
+// timeout — is silence rather than a refusal of its own: this narrows a guard that
+// already has a fallback, and a publish that cannot learn the default branch is
+// still refused on `main` and `master`. The fallback says so in its own sentence,
+// which is where a person reading the refusal finds it.
 func forgeDefaultBranch(ctx context.Context, gh ghRunner, repo Repo) string {
 	if gh == nil {
 		return ""
 	}
+	ctx, cancel := context.WithTimeout(ctx, forgeProbeTimeout)
+	defer cancel()
 	out, err := gh.Run(ctx, "api", "--method", "GET", "repos/"+repo.String())
 	if err != nil {
 		return ""
