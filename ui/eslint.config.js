@@ -29,6 +29,11 @@ const colours = Object.keys(theme.colors.kin).sort();
 export default tseslint.config(
   { ignores: ["dist/**", "node_modules/**", "src/api/generated/**"] },
   {
+    // Scoped to `src/**`, and that scope is load-bearing: these rules read every
+    // string literal in a file they lint, and `eslint-rules/index.test.ts`
+    // spells invalid classes on purpose — 21 hits if this ever widens to all
+    // TypeScript. Those fixtures are the point of that file, so the answer is
+    // to keep it out here, not to teach the rules which strings are "real".
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,

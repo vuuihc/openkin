@@ -117,6 +117,20 @@ tester.run("no-undefined-token", kin.rules["no-undefined-token"], {
       options: [{ colours }],
       errors: [{ messageId: "undefined", data: { name: "border-t-kin-nope" } }],
     },
+    // The other two spellings of a class list, failing rather than passing:
+    // the valid cases above say "this one is read correctly", which is only
+    // half a claim — a rule that ignored the spelling entirely would pass them
+    // too, and that is exactly how the plain-attribute blind spot survived S6.
+    {
+      code: 'const C = () => <button className={"bg-kin-purple"} />;',
+      options: [{ colours }],
+      errors: [{ messageId: "undefined", data: { name: "bg-kin-purple" } }],
+    },
+    {
+      code: "const C = () => <button className={`bg-kin-nope`} />;",
+      options: [{ colours }],
+      errors: [{ messageId: "undefined", data: { name: "bg-kin-nope" } }],
+    },
   ],
 });
 
@@ -160,6 +174,15 @@ tester.run("no-arbitrary-literal", kin.rules["no-arbitrary-literal"], {
     },
     {
       code: 'const C = () => <div className="p-3 text-[13px]" />;',
+      errors: [{ messageId: "offLadder" }],
+    },
+    // Both other spellings, failing — see the note in the rule above.
+    {
+      code: 'const C = () => <div className={"p-3 text-[13px]"} />;',
+      errors: [{ messageId: "offLadder" }],
+    },
+    {
+      code: "const C = () => <div className={`p-3 text-[13px]`} />;",
       errors: [{ messageId: "offLadder" }],
     },
   ],
