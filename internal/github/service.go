@@ -323,6 +323,10 @@ func (s *Service) query(ctx context.Context, repo Repo, branch string, maySpendA
 // attempt leaves the previous successful answer in place, and the caller is
 // expected to render that answer alongside the error rather than instead of it.
 //
+// An error with an empty observation is the one case where the reason is not on a
+// row: the attempt could not be written down at all, which is a store that failed
+// rather than a query that did.
+//
 // This is the path a user's tap takes, so it is not charged against the
 // background pass's anonymous budget: that budget exists to stop the pass
 // spending without anyone watching, and a tap is someone watching.
@@ -539,8 +543,18 @@ func (s *Service) SnapshotForTask(ctx context.Context, taskID string, force bool
 		snap.Repo = target.Repo.Canonical()
 		snap.Branch = target.Branch
 		if force {
-			if _, err := s.Observe(ctx, target); err != nil {
-				snap.Notice = err.Error()
+			// A failed query is not the notice's to report. The attempt wrote its
+			// reason on the row, and the row is where the console prints it —
+			// next to the pull request it failed to refresh. Copying it here as
+			// well printed the same sentence twice on a phone, once as a banner
+			// and once under the card. See Snapshot.Notice.
+			//
+			// The exception is a failure that reached no row at all, which is a
+			// store that could not be written rather than a query that failed.
+			// Observe returns an empty observation exactly then, and there is
+			// nothing else left to carry that news.
+			if obs, err := s.Observe(ctx, target); err != nil && obs.Repo == "" {
+				return snap, err
 			}
 		}
 	}

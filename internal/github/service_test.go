@@ -909,6 +909,30 @@ func TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice(t *testing.T) {
 	}
 }
 
+// The forced path follows the same rule as the cached one: a tap that fails
+// writes its reason on the row, and the notice is not a second copy of it. The
+// tap is exactly when this matters — the user is watching, and the sentence they
+// were shown twice was the one explaining why nothing changed.
+func TestForcedRefreshKeepsItsFailureOnTheRowToo(t *testing.T) {
+	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	ctx := context.Background()
+	seedTaskWithWorkspace(t, st, "t1")
+
+	snap, err := svc.SnapshotForTask(ctx, "t1", true)
+	if err != nil {
+		t.Fatalf("SnapshotForTask: %v", err)
+	}
+	if snap.Notice != "" {
+		t.Fatalf("notice = %q, want the failure to stay on its row", snap.Notice)
+	}
+	if len(snap.Observations) != 1 {
+		t.Fatalf("got %d observations, want the one the failed attempt wrote", len(snap.Observations))
+	}
+	if snap.Observations[0].LastError == "" {
+		t.Fatal("the failed attempt reached no row, so the tap would have shown nothing")
+	}
+}
+
 // seedTaskWithWorkspace gives a task a current workspace generation on a
 // checkout whose origin names github.com/owner/repo, so TargetForTask resolves,
 // and returns the generation's branch.
