@@ -491,10 +491,7 @@ export default function RoutinesPage() {
               ) : (
                 <ul className="space-y-2.5">
                   {routines.map((r) => (
-                    <li
-                      key={r.id}
-                      className="rounded-2xl border border-[var(--kin-hairline)] bg-kin-panel/80 px-4 py-3"
-                    >
+                    <li key={r.id} className="rounded-2xl bg-kin-panel/80 px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
@@ -587,7 +584,7 @@ function RunCard({
         "rounded-2xl border px-4 py-3",
         run.routine_unread
           ? "border-kin-blue/40 bg-kin-blue/5"
-          : "border-[var(--kin-hairline)] bg-kin-panel/80",
+          : "border-transparent bg-kin-panel/80",
         quiet ? "opacity-90" : "",
       ].join(" ")}
     >

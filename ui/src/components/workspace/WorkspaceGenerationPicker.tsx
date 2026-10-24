@@ -84,7 +84,7 @@ export default function WorkspaceGenerationPicker({
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-lg border border-[var(--kin-hairline)] bg-kin-elevated shadow-e2 py-1">
+        <div className="absolute top-full left-0 mt-1 z-50 min-w-[200px] rounded-lg bg-kin-elevated shadow-e2 py-1">
           {/* Source / current project */}
           <button
             type="button"

@@ -396,7 +396,7 @@ export default function ProjectDetailPage() {
             <ProjectSummaryCard project={project} summary={summary} />
           </section>
 
-          <section className="mb-4 rounded-xl border border-kin-hairline bg-kin-panel p-4 space-y-3">
+          <section className="mb-4 rounded-xl bg-kin-panel p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-body font-medium uppercase tracking-label text-kin-secondary">
                 {tr("projects.pulse")}
@@ -461,7 +461,7 @@ export default function ProjectDetailPage() {
           </section>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-            <section className="rounded-xl border border-kin-hairline bg-kin-panel p-4 min-h-80">
+            <section className="rounded-xl bg-kin-panel p-4 min-h-80">
               <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                 {tr("projects.onePager")}
               </div>
@@ -479,7 +479,7 @@ export default function ProjectDetailPage() {
             </section>
 
             <aside className="space-y-3">
-              <section className="rounded-xl border border-kin-hairline bg-kin-panel p-3">
+              <section className="rounded-xl bg-kin-panel p-3">
                 <div className="mb-2 text-body font-medium uppercase tracking-label text-kin-secondary">
                   {tr("projects.relatedArtifacts")}
                 </div>
@@ -510,7 +510,7 @@ export default function ProjectDetailPage() {
 
       {showRoutineModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-kin-hairline-strong bg-kin-elevated p-5 shadow-e3">
+          <div className="w-full max-w-md rounded-2xl bg-kin-elevated p-5 shadow-e3">
             <h2 className="text-subtitle font-semibold text-kin-text">
               {tr("routines.createTitle")}
             </h2>

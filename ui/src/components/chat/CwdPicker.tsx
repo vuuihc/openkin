@@ -377,7 +377,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
       {rect &&
         createPortal(
           <span
-            className="fixed z-50 flex max-w-[340px] items-center gap-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-2 py-1 shadow-e2"
+            className="fixed z-50 flex max-w-[340px] items-center gap-1.5 rounded-lg bg-kin-panel px-2 py-1 shadow-e2"
             style={{ left: rect.left, bottom: rect.bottom }}
             onMouseEnter={cancelHide}
             onMouseLeave={scheduleHide}

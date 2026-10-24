@@ -1136,7 +1136,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
       {/* Session side rail — usage + diffs, floats over the chat instead of squeezing its width (Codex-style). */}
       <aside
-        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
+        className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl bg-[var(--kin-inspector)] backdrop-blur-md shadow-e2 px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
         aria-label={tr("task.sessionRail")}
       >
         <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />

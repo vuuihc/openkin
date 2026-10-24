@@ -32,10 +32,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
     if (isCard) {
       return (
         <div
-          className={[
-            "rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated p-3",
-            className ?? "",
-          ].join(" ")}
+          className={["rounded-xl bg-kin-elevated p-3", className ?? ""].join(" ")}
           aria-label={tr("usage.loading")}
         >
           <div className="h-4 w-20 animate-pulse rounded bg-[var(--kin-fill)]" />
@@ -141,10 +138,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
   if (isCard) {
     return (
       <section
-        className={[
-          "rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden",
-          className ?? "",
-        ].join(" ")}
+        className={["rounded-xl bg-kin-elevated overflow-hidden", className ?? ""].join(" ")}
         aria-label={tr("usage.taskSummary")}
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--kin-hairline)]">
@@ -202,7 +196,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
       className={["mx-auto max-w-conversation px-4 sm:px-7 pt-2", className ?? ""].join(" ")}
       aria-label={tr("usage.taskSummary")}
     >
-      <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden">
+      <div className="rounded-xl bg-kin-elevated overflow-hidden">
         <button
           type="button"
           aria-expanded={open}

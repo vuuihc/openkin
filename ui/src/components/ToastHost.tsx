@@ -21,7 +21,7 @@ export default function ToastHost() {
             "pointer-events-auto w-full max-w-md rounded-xl border px-4 py-3 text-strong leading-5 shadow-e3 flex items-start justify-between gap-3",
             t.tone === "error"
               ? "border-kin-red/50 bg-kin-elevated text-kin-red-ink"
-              : "border-kin-hairline-strong bg-kin-elevated text-kin-text",
+              : "border-transparent bg-kin-elevated text-kin-text",
           ].join(" ")}
           role="status"
         >

@@ -44,10 +44,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
           <p className="text-strong text-kin-muted leading-prose">{blurb}</p>
         </div>
 
-        <form
-          onSubmit={onSubmit}
-          className="rounded-2xl border border-kin-hairline-strong bg-kin-elevated p-5 space-y-4 shadow-e3"
-        >
+        <form onSubmit={onSubmit} className="rounded-2xl bg-kin-elevated p-5 space-y-4 shadow-e3">
           <label className="block space-y-1.5">
             <span className="text-body leading-4 font-medium text-kin-muted">
               {tr("connect.tokenLabel")}

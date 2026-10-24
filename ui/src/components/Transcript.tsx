@@ -42,7 +42,7 @@ export default function Transcript({ events }: Props) {
                 className={`rounded-xl border px-4 py-3 ${
                   row.role === "user"
                     ? "border-[var(--kin-hairline)] bg-[var(--kin-fill)]"
-                    : "border-[var(--kin-hairline)] bg-kin-elevated"
+                    : "border-transparent bg-kin-elevated"
                 }`}
               >
                 <div className="mb-1 text-micro uppercase tracking-label text-kin-muted">

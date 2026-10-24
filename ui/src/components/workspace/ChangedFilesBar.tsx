@@ -167,12 +167,7 @@ export default function ChangedFilesBar({
 
   if (isCard) {
     return (
-      <div
-        className={[
-          "rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated overflow-hidden",
-          className ?? "",
-        ].join(" ")}
-      >
+      <div className={["rounded-xl bg-kin-elevated overflow-hidden", className ?? ""].join(" ")}>
         <div className="flex items-start gap-2 px-3 py-2 border-b border-[var(--kin-hairline)]">
           <button
             type="button"
@@ -260,13 +255,7 @@ export default function ChangedFilesBar({
   }
 
   return (
-    <div
-      className={[
-        "flex-none border-b border-[var(--kin-hairline)]",
-        "bg-kin-elevated/60",
-        className ?? "",
-      ].join(" ")}
-    >
+    <div className={["flex-none", "bg-kin-elevated/60", className ?? ""].join(" ")}>
       <div className="px-4 sm:px-5 py-2 flex items-center gap-2 min-w-0">
         <button
           type="button"

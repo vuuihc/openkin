@@ -1079,6 +1079,32 @@ describe("design tokens", () => {
       expect(wrong).toEqual([]);
     });
 
+    it("never draws a hairline on a surface it also raises", () => {
+      // S5's rule, in the one form a text scan can decide: two surfaces at
+      // different levels are separated by the ladder and the drop, and a line
+      // belongs to a boundary *inside* a level. Every floating element is the
+      // place both appear, and the line is the one that goes — a menu drawn with
+      // a 40px blur and a 1px edge is a box drawn twice. A status edge is not
+      // this case: `border-kin-blue/30` on a selected pill is a state, and the
+      // rule leaves it alone.
+      // Assembled from the ladder: a guard that fails on its own source is a
+      // guard nobody keeps, and this file is inside the tree being searched.
+      const elevation = new RegExp(
+        `(?<![\\w-])shadow-(?:${Object.keys(theme.boxShadow).join("|")})(?![\\w-])`,
+      );
+      const hairline =
+        /border(?:-[trblxy])?(?:-kin-hairline(?:-strong)?|-\[var\(--kin-hairline(?:-strong)?\)\])/;
+      const both: string[] = [];
+      for (const file of sourceFiles()) {
+        for (const segment of strings(readFileSync(file, "utf8"))) {
+          if (elevation.test(segment) && hairline.test(segment)) {
+            both.push(`${relative(UI, file)}: ${segment.trim().slice(0, 80)}`);
+          }
+        }
+      }
+      expect(both).toEqual([]);
+    });
+
     it("puts the assigned foreground on every fill that carries one", () => {
       // A fill is a pigment that does not switch with the scheme, so it cannot
       // pick its own text — the pairs are assigned in `design/colors.ts` and

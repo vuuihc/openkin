@@ -89,7 +89,7 @@ export function SettingsLayout({
           role="tablist"
           aria-label={title}
           onKeyDown={onKeyDown}
-          className="flex max-w-full gap-2 overflow-x-auto rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/50 p-1 kin-scroll"
+          className="flex max-w-full gap-2 overflow-x-auto rounded-xl bg-kin-elevated/50 p-1 kin-scroll"
         >
           {tabs.map((tab) => {
             const selected = tab.id === activeTab;
@@ -161,7 +161,7 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+    <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
           <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
@@ -296,4 +296,3 @@ export function ActionButton({
     </button>
   );
 }
-

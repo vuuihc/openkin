@@ -625,7 +625,7 @@ function ProgressCard({
         </span>
       </button>
       {!collapsed && (
-        <div className="border-t border-[var(--kin-hairline)] bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
+        <div className="bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
           {steps.map((step, idx) =>
             step.kind === "tool" ? (
               <ToolStepRow

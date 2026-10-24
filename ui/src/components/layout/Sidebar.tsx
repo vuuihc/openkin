@@ -327,7 +327,7 @@ export default function Sidebar({
   };
 
   const panel = (
-    <aside className="w-sidebar max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
+    <aside className="w-sidebar max-w-[85vw] h-full flex flex-col bg-kin-sidebar shrink-0">
       <div className="px-3 pt-3 pb-2 flex items-center gap-2">
         {/* The mark, flat: the accent fill every primary action already uses.
             There were two different gradients for this same "K" in the tree —
@@ -354,7 +354,7 @@ export default function Sidebar({
             {sortMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg border border-kin-hairline bg-kin-elevated shadow-e3 py-1"
+                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg bg-kin-elevated shadow-e3 py-1"
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setSortMenuOpen(false);
                 }}
@@ -414,7 +414,7 @@ export default function Sidebar({
           <div
             role="menu"
             aria-label={tr("nav.importAgentSessions")}
-            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg border border-kin-hairline bg-kin-elevated shadow-e3 py-1"
+            className="absolute left-2.5 right-2.5 top-full mt-1 z-50 rounded-lg bg-kin-elevated shadow-e3 py-1"
           >
             <button
               type="button"

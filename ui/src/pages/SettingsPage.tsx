@@ -965,7 +965,7 @@ export default function SettingsPage() {
 
       {/* Remote Relay */}
       <SettingsTabPanel id="remote" active={activeTab === "remote"}>
-        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
               <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
@@ -1277,7 +1277,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Connection */}
-        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
           <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.connection.heading")}
           </h2>
@@ -1363,7 +1363,7 @@ export default function SettingsPage() {
 
       {/* Notifications */}
       <SettingsTabPanel id="notifications" active={activeTab === "notifications"}>
-        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
           <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.notify.heading")}
           </h2>
@@ -1456,7 +1456,7 @@ export default function SettingsPage() {
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}
       <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
-        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
               {tr("settings.price.heading")}
@@ -1540,7 +1540,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Agent usage limits */}
-        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
           <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.agentLimits.heading")}
           </h2>
@@ -1571,7 +1571,7 @@ export default function SettingsPage() {
 
       {/* Rate-limit policy */}
       <SettingsTabPanel id="routing" active={activeTab === "routing"}>
-        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+        <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
           <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("settings.limitPolicy.heading")}
           </h2>

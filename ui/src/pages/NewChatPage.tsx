@@ -810,7 +810,7 @@ export default function NewChatPage() {
               half inside the home-indicator strip. `max()` keeps the 16px
               design gutter wherever there is no inset.
             */
-            className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-2xl border-t border-[var(--kin-hairline-strong)] bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-2xl bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
           >
             <div className="mx-auto mb-3.5 h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]" />
             <div className="text-subtitle font-semibold">{tr("newChat.controlsTitle")}</div>

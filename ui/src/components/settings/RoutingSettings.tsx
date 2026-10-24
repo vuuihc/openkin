@@ -78,7 +78,7 @@ export function RoutingDefaultsSection() {
   };
 
   return (
-    <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+    <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
       <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
         {tr("settings.routing.heading")}
       </h2>
@@ -354,7 +354,7 @@ export function RoutingProfilesSection() {
   };
 
   return (
-    <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+    <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1 min-w-0">
           <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">

@@ -149,7 +149,7 @@ export default function ArtifactsPage() {
                       navigate(`/artifacts/${a.id}`);
                     }
                   }}
-                  className="w-full text-left rounded-xl border border-[var(--kin-hairline)] bg-kin-panel hover:bg-[var(--kin-fill)] px-3.5 py-3 flex items-start gap-3 cursor-pointer"
+                  className="w-full text-left rounded-xl bg-kin-panel hover:bg-[var(--kin-fill)] px-3.5 py-3 flex items-start gap-3 cursor-pointer"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">

@@ -6,7 +6,7 @@ export function SkeletonLine({ className = "" }: { className?: string }) {
 
 export function SkeletonCard({ lines = 2 }: { lines?: number }) {
   return (
-    <div className="rounded-xl border border-kin-hairline-strong bg-kin-elevated px-4 py-3 space-y-2">
+    <div className="rounded-xl bg-kin-elevated px-4 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <SkeletonLine className="h-4 w-2/3" />
         <SkeletonLine className="h-5 w-16 shrink-0" />
@@ -34,10 +34,7 @@ export function ApprovalListSkeleton({ count = 2 }: { count?: number }) {
   return (
     <ul className="space-y-4" role="status" aria-label="Loading approvals">
       {Array.from({ length: count }).map((_, i) => (
-        <li
-          key={i}
-          className="rounded-2xl border border-kin-hairline-strong bg-kin-elevated overflow-hidden"
-        >
+        <li key={i} className="rounded-2xl bg-kin-elevated overflow-hidden">
           <div className="border-b border-kin-hairline-strong px-4 py-3 space-y-2">
             <SkeletonLine className="h-3 w-24" />
             <SkeletonLine className="h-5 w-40" />

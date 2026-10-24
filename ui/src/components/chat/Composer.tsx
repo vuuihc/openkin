@@ -338,7 +338,7 @@ export default function Composer({
   return (
     <form onSubmit={submit} className="relative">
       {menu === "slash" && (
-        <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-e2 overflow-hidden z-20">
+        <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-kin-elevated shadow-e2 overflow-hidden z-20">
           <div className="px-3 py-2 text-caption font-semibold uppercase tracking-label text-kin-muted">
             {tr("composer.slashActions")}
           </div>
@@ -349,7 +349,7 @@ export default function Composer({
       )}
       {menu === "mention" && mentionMatches.length > 0 && (
         <div
-          className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-e2 overflow-hidden z-20"
+          className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-kin-elevated shadow-e2 overflow-hidden z-20"
           role="listbox"
           aria-label={tr("composer.mentionTitle")}
         >

@@ -103,7 +103,7 @@ export function ProviderSettingsSection({
 
   return (
     <SettingsTabPanel id="providers" active={active}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+      <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1 min-w-0">
             <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">

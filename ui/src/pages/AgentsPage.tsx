@@ -474,10 +474,7 @@ export default function AgentsPage() {
                 },
                 { label: tr("usage.tasks"), value: String(totals.tasks) },
               ].map((c) => (
-                <div
-                  key={c.label}
-                  className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
-                >
+                <div key={c.label} className="rounded-xl bg-kin-elevated px-4 py-3">
                   <div className="text-caption text-kin-muted font-semibold uppercase tracking-label">
                     {c.label}
                   </div>
@@ -517,7 +514,7 @@ export default function AgentsPage() {
         )}
 
         {agents !== null && (
-          <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated">
+          <div className="mt-6 overflow-x-auto rounded-xl bg-kin-elevated">
             <table className="w-full min-w-[980px] text-left text-strong">
               <thead className="bg-[var(--kin-fill)] text-caption uppercase tracking-label text-kin-muted">
                 <tr>

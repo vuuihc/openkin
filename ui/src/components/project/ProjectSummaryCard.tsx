@@ -28,7 +28,7 @@ export default function ProjectSummaryCard({
   return (
     <div
       className={[
-        "w-full max-w-xl rounded-2xl border border-[var(--kin-hairline)] bg-kin-panel/80 px-4 py-3 text-left shadow-e1",
+        "w-full max-w-xl rounded-2xl bg-kin-panel/80 px-4 py-3 text-left shadow-e1",
         className,
       ].join(" ")}
     >

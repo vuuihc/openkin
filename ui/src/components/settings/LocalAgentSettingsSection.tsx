@@ -75,7 +75,7 @@ export function LocalAgentSettingsSection({
 
   return (
     <SettingsTabPanel id="agents" active={active}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+      <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
         <div>
           <div className="flex items-start gap-3">
             <div className="flex-1">

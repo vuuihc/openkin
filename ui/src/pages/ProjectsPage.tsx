@@ -114,7 +114,7 @@ export default function ProjectsPage() {
       </div>
 
       {creating && (
-        <div className="mb-5 rounded-xl border border-kin-hairline bg-kin-panel p-4 space-y-3">
+        <div className="mb-5 rounded-xl bg-kin-panel p-4 space-y-3">
           <div className="text-strong font-medium text-kin-text">{tr("projects.createTitle")}</div>
           <p className="text-body text-kin-secondary">{tr("projects.createFromCwdHint")}</p>
           <div>
@@ -176,7 +176,7 @@ export default function ProjectsPage() {
             <li key={p.id}>
               <Link
                 to={`/projects/${p.id}`}
-                className="block rounded-xl border border-kin-hairline bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors"
+                className="block rounded-xl border border-transparent bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
