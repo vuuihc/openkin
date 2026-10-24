@@ -177,7 +177,11 @@ const (
 	// where the answer can still say which field it was. The body is counted in
 	// bytes, so a body of multi-byte text is bounded a little sooner than GitHub
 	// would bound it — which refuses a request that might have been accepted, and
-	// never accepts one that would have been refused.
+	// never accepts one that would have been refused. The title is counted in
+	// characters instead, because GitHub counts it that way and because 256
+	// characters is a title a person writing Chinese or Japanese reaches: a byte
+	// bound there would refuse the title, not the length. The frame cannot be
+	// overflowed by either: 256 characters of four-byte runes is a kilobyte.
 	MaxPRTitle = 256
 	MaxPRBody  = 64 << 10
 )
@@ -701,7 +705,7 @@ func ValidatePRWords(title, body string) error {
 	}
 	// A title is one line, and GitHub collapses a newline in one when it arrives,
 	// so a title that has one is a drafting mistake from the asking side.
-	if err := optional("title", title, MaxPRTitle); err != nil {
+	if err := chars("title", title, MaxPRTitle); err != nil {
 		return err
 	}
 	if strings.ContainsAny(title, "\x00\n\r") {
@@ -738,8 +742,10 @@ type PRPublishResult struct {
 	// Branch is the branch that was pushed.
 	Branch string `json:"branch,omitempty"`
 	// Number and URL are the pull request. Zero with no error means the branch is
-	// pushed and no pull request was opened — which this method does not do, and
-	// which a caller must not read as success.
+	// pushed and no pull request was opened — which is the ordinary ending when
+	// `gh pr create` fails after the push has already landed, so a caller must not
+	// read it as success and must not read it as nothing having happened either:
+	// Pushed is the half that says which of the two this is.
 	Number int    `json:"number,omitempty"`
 	URL    string `json:"url,omitempty"`
 	// HeadOID is the commit that was pushed, so the Hub can record what the pull

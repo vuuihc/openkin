@@ -165,3 +165,24 @@ func TestRepoQuestionsRefuseANameThatIsAnOption(t *testing.T) {
 		})
 	}
 }
+
+// A title is bounded the way GitHub bounds it — in characters — because the person
+// writing it may be writing Chinese or Japanese. 256 of those characters is 768
+// bytes, and a bound counted in bytes would refuse the title rather than the
+// length: a message about a limit nobody reached, in the language they wrote it in.
+func TestATitleIsBoundedInCharactersRatherThanBytes(t *testing.T) {
+	atBound := strings.Repeat("标", MaxPRTitle)
+	if err := ValidatePRWords(atBound, ""); err != nil {
+		t.Fatalf("a title of %d characters (%d bytes) was refused: %v",
+			MaxPRTitle, len(atBound), err)
+	}
+	if err := ValidatePRWords(atBound+"题", ""); err == nil {
+		t.Fatal("a title past the bound was accepted")
+	}
+	// The body keeps its byte bound, which the constant's comment says is a
+	// deliberate difference: a body is a message, and GitHub's own bound on one is
+	// large enough that a multi-byte body never reaches it in practice.
+	if err := ValidatePRWords("t", strings.Repeat("x", MaxPRBody+1)); err == nil {
+		t.Fatal("a body past the bound was accepted")
+	}
+}

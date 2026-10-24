@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Turn frames (ADR 0022 §6.1). A turn is one adapter run: the Hub decides that
@@ -176,6 +177,20 @@ func bounded(field, value string, limit int) error {
 // optional checks a field that may be absent but not oversized.
 func optional(field, value string, limit int) error {
 	if len(value) > limit {
+		return fmt.Errorf("%s exceeds %d characters", field, limit)
+	}
+	return nil
+}
+
+// chars checks a field that is prose rather than an identifier, so its bound is
+// counted the way its reader counts it.
+//
+// The difference is not academic: a title of 256 Chinese characters is 768 bytes
+// and is a title GitHub accepts, and a bound counted in bytes would refuse it —
+// telling somebody writing in their own language that their title is too long
+// when it is not.
+func chars(field, value string, limit int) error {
+	if utf8.RuneCountInString(value) > limit {
 		return fmt.Errorf("%s exceeds %d characters", field, limit)
 	}
 	return nil

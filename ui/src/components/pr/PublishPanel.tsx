@@ -139,6 +139,13 @@ export default function PublishPanel({
    * leave them one tap from where they were, and a button that pushed afterwards
    * without saying so would be a hidden write — the one thing this sheet exists
    * not to be.
+   *
+   * Which is also why it is enabled exactly when the publish below is: the second
+   * half of it is that publish, title and all. A branch that moved the checkout
+   * and then met a refusal about the title would be this sheet promising an
+   * outcome it could not deliver — and the machine's own guard is what makes the
+   * promise keepable, since a dirty checkout is refused for being dirty before
+   * anybody is offered this.
    */
   const escape = useCallback(async () => {
     setEscaping(true);
@@ -215,7 +222,10 @@ export default function PublishPanel({
               onChange={(e) => setTitle(e.target.value)}
               placeholder={tr("publish.titlePlaceholder")}
               disabled={working}
-              maxLength={200}
+              // GitHub's own bound, which the machine counts in characters rather
+              // than bytes — so this stops at what would be refused and not before
+              // it, and a title written in Chinese is not cut off at 85 of them.
+              maxLength={256}
               className="w-full rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 text-[13px] text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
             />
           </label>
@@ -296,15 +306,22 @@ export default function PublishPanel({
                 </span>
               </p>
               {blocked === "default_branch" && (
-                <button
-                  type="button"
-                  onClick={() => void escape()}
-                  disabled={working}
-                  className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-[12px] disabled:opacity-50"
-                >
-                  {escaping && <IconSpinner size={13} strokeWidth={2} />}
-                  {tr("publish.escape")}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void escape()}
+                    disabled={!canPublish}
+                    className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-[12px] disabled:opacity-50"
+                  >
+                    {escaping && <IconSpinner size={13} strokeWidth={2} />}
+                    {tr("publish.escape")}
+                  </button>
+                  {title.trim().length === 0 && (
+                    <span className="ml-2 text-[11.5px] text-kin-muted">
+                      {tr("publish.needsTitle")}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           )}
