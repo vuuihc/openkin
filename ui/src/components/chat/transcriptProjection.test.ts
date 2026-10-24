@@ -1232,6 +1232,56 @@ describe("transcriptProjection", () => {
     ]);
   });
 
+  // The subagent's tools are not the host's tools. They are on the stream, and the
+  // surface that shows them is fed from the same stream (see the plan's S1b
+  // decision); the host's chat column is not that surface. Rendering them here
+  // would credit the host with commands it never ran -- which is why the engine
+  // keeps worker events task-only instead of flipping them user-facing.
+  it("keeps a worker's tool calls out of the host's chat column", () => {
+    const items = buildChatItems(
+      [
+        ev(1, "tool_use", {
+          name: "Bash",
+          tool_name: "Bash",
+          input: { command: "pnpm build" },
+          summary: "Bash(pnpm build)",
+          status: "running",
+          speaker: "future-agent",
+          agent: "future-agent",
+          source: "future-agent",
+          execution_id: "exec-1",
+          execution_step: 1,
+          visibility: { user: false, task: true },
+        }),
+        ev(2, "tool_result", {
+          name: "Bash",
+          tool_name: "Bash",
+          output: "built",
+          ok: true,
+          status: "done",
+          speaker: "future-agent",
+          agent: "future-agent",
+          source: "future-agent",
+          execution_id: "exec-1",
+          execution_step: 1,
+          visibility: { user: false, task: true },
+        }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "host answer",
+          visibility: { user: true, task: true },
+        }),
+      ],
+      "kin",
+    );
+
+    expect(items).toMatchObject([
+      { kind: "message", speaker: "kin", text: "host answer" },
+    ]);
+    expect(JSON.stringify(items)).not.toContain("pnpm build");
+  });
+
   it("uses future-agent as host while a built-in worker stays in progress", () => {
     const items = buildChatItems(
       [

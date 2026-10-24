@@ -174,3 +174,39 @@ func TestEffectiveStepModel(t *testing.T) {
 		})
 	}
 }
+
+// No worker event claims a place in the host's chat column, whatever its type.
+//
+// Flipping these to user-facing is the tempting way to make a subagent panel
+// easier to build -- the console's chat projection reads exactly this bit -- and
+// it would print the subagent's commands as the host's own. The panel gets its
+// data from the same event stream instead (plan §3.6).
+func TestNoWorkerEventClaimsTheHostsChatColumn(t *testing.T) {
+	cases := []struct{ name, payload string }{
+		{"message", `{"role":"assistant","content":[{"type":"text","text":"hi"}],"partial":false}`},
+		{"tool_use", `{"name":"Bash","tool_name":"Bash","input":{"command":"ls"},"status":"running"}`},
+		{"tool_result", `{"name":"Bash","tool_name":"Bash","output":"ok","ok":true,"status":"done"}`},
+		{"raw_output", `{"text":"cli noise"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stampWorker(
+				json.RawMessage(tc.payload), "codex", "gpt-5.5-codex",
+				adapter.ExecutionRef{ID: "exec-1", Step: 2, Agent: "codex", Model: "gpt-5.5-codex"},
+			)
+			var payload map[string]any
+			if err := json.Unmarshal(got, &payload); err != nil {
+				t.Fatalf("unmarshal stamped payload: %v", err)
+			}
+			visibility, _ := payload["visibility"].(map[string]any)
+			if visibility["user"] != false || visibility["task"] != true {
+				t.Fatalf("visibility=%#v, want task-only: a worker event in the host's chat column reads as the host's own work",
+					visibility)
+			}
+			// The join key the panel needs has to survive whatever the payload was.
+			if payload["execution_id"] != "exec-1" || int(payload["execution_step"].(float64)) != 2 {
+				t.Fatalf("execution meta missing from %s: %#v", tc.name, payload)
+			}
+		})
+	}
+}
