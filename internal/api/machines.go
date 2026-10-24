@@ -141,6 +141,29 @@ func (s *Server) askDeviceResult(w http.ResponseWriter, ctx context.Context, dev
 	return true
 }
 
+// askDeviceQuietly is askDeviceResult for a caller with no response to write:
+// one question, one answer decoded into out, and a reason instead of a status
+// code when there is none.
+//
+// It exists for the asks that happen as part of something else — recording
+// where a new session's work sits, say — where the answer is bookkeeping rather
+// than the point of the request, and a machine that is away must not turn into
+// an error the person sees.
+func (s *Server) askDeviceQuietly(ctx context.Context, device, method string, params any, out any) error {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", method, err)
+	}
+	result, err := s.askMachine(ctx, device, method, raw)
+	if err != nil {
+		return err
+	}
+	if result.Error != "" {
+		return errors.New(result.Error)
+	}
+	return result.Into(out)
+}
+
 // localDevice reports whether a device name means the daemon answering this
 // request.
 //

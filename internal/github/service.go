@@ -481,10 +481,15 @@ func (s *Service) record(ctx context.Context, t Target, res LookupResult, askedA
 // The repository is derived from the generation's source root, which is the
 // checkout the worktree was cut from and therefore the one whose origin remote
 // names the repository.
+//
+// A task with no generation of its own — a session that runs on another machine,
+// where the checkout is that machine's — falls back to what that machine said
+// about it (see recordWhereTheWorkIs). That is a read of the task row: no git,
+// no question to any machine, no network.
 func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, bool, error) {
 	gen, err := s.store.GetCurrentWorkspace(ctx, taskID)
 	if errors.Is(err, store.ErrNotFound) {
-		return Target{}, false, nil
+		return s.targetRecordedOnTask(ctx, taskID)
 	}
 	if err != nil {
 		// A task with no workspace is ordinary; a database that cannot be read
@@ -504,6 +509,36 @@ func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, boo
 		return Target{}, false, err
 	}
 	return Target{TaskID: taskID, Repo: repo, Branch: gen.WorkspaceBranch}, true, nil
+}
+
+// targetRecordedOnTask reads the repository and branch a task was recorded on.
+//
+// The row is written when a remote session starts and refreshed when someone
+// asks for a refresh, and both of those are moments when a machine question is
+// already being asked. This is the read side of that, and it stays a cache read:
+// a panel that opened must not spend a machine round trip or a rate limit to
+// draw itself.
+//
+// A repository this Hub cannot name — not on github.com, or never recorded — is
+// answered as no target rather than guessed at: the lookup paths only speak
+// github.com, and a guess would show another repository's pull requests under
+// this task's name.
+func (s *Service) targetRecordedOnTask(ctx context.Context, taskID string) (Target, bool, error) {
+	t, err := s.store.GetTask(ctx, taskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return Target{}, false, nil
+	}
+	if err != nil {
+		return Target{}, false, fmt.Errorf("task %s: %w", taskID, err)
+	}
+	if t.WorkspaceRepo == "" || t.WorkspaceBranch == "" {
+		return Target{}, false, nil
+	}
+	repo, ok := ParseCanonical(t.WorkspaceRepo)
+	if !ok {
+		return Target{}, false, nil
+	}
+	return Target{TaskID: taskID, Repo: repo, Branch: t.WorkspaceBranch}, true, nil
 }
 
 // SnapshotForTask returns the cached observations for a task's current branch.

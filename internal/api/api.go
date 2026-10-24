@@ -939,6 +939,10 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	// A session on another machine: learn where its work sits in git while the
+	// person is still on this screen, so that every panel afterwards reads it
+	// from the row instead of asking the machine again.
+	t = s.recordWhereTheWorkIs(r.Context(), t)
 	writeJSON(w, http.StatusCreated, t)
 }
 

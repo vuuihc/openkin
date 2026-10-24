@@ -623,6 +623,74 @@ func TestTargetForTaskDistinguishesAbsenceFromFailure(t *testing.T) {
 	}
 }
 
+// A session that runs on another machine has no workspace generation here: its
+// checkout is that machine's, and the only thing the Hub knows about it is what
+// the machine said when the session started. The panel reads that.
+func TestTargetForTaskReadsWhatARemoteSessionWasRecordedOn(t *testing.T) {
+	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	ctx := context.Background()
+
+	if err := st.InsertTask(ctx, store.Task{
+		ID: "remote", Title: "over there", Agent: "claude-code", Cwd: "/work/app",
+		Prompt: "p", Status: "running", CreatedAt: store.NowMilli(),
+		ExecutingDeviceID: "node-1",
+		WorkspaceRepo:     "github.com/Owner/App", WorkspaceBranch: "kin/task/1/g1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	target, ok, err := svc.TargetForTask(ctx, "remote")
+	if err != nil {
+		t.Fatalf("TargetForTask: %v", err)
+	}
+	if !ok {
+		t.Fatal("a task recorded on a repository has no target")
+	}
+	// Folded to the key form: the row carries the machine's spelling of the
+	// remote, and two spellings of one repository must not occupy two rows.
+	if got := target.Repo.Canonical(); got != "github.com/owner/app" {
+		t.Errorf("repo = %q, want the canonical identity", got)
+	}
+	if target.Branch != "kin/task/1/g1" {
+		t.Errorf("branch = %q, want the branch the machine reported", target.Branch)
+	}
+}
+
+// Half an answer is not a target: a lookup is a repository *and* a branch.
+func TestTargetForTaskNeedsBothHalvesOfARecordedAnswer(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name         string
+		repo, branch string
+	}{
+		{"no branch", "github.com/owner/app", ""},
+		{"no repository", "", "kin/task/1/g1"},
+		// Recorded, and not something this Hub can look up: the read paths speak
+		// github.com only, and a guess would show another repository's pull
+		// requests under this task's name.
+		{"another host", "gitlab.com/owner/app", "kin/task/1/g1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+			if err := st.InsertTask(ctx, store.Task{
+				ID: "partial", Title: "over there", Agent: "claude-code", Cwd: "/work/app",
+				Prompt: "p", Status: "running", CreatedAt: store.NowMilli(),
+				ExecutingDeviceID: "node-1",
+				WorkspaceRepo:     tc.repo, WorkspaceBranch: tc.branch,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			target, ok, err := svc.TargetForTask(ctx, "partial")
+			if err != nil {
+				t.Fatalf("TargetForTask: %v", err)
+			}
+			if ok {
+				t.Fatalf("got a target from half an answer: %+v", target)
+			}
+		})
+	}
+}
+
 // A claim spent on a row that is then skipped is a claim unavailable to a row
 // that needed it. The budget is ten an hour, so ten wasted claims idle the
 // background pass for the rest of the hour and open-pull-request check state

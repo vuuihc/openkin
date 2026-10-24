@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -320,5 +321,75 @@ func TestSourceReadsForALocalTaskStillReadThisMachine(t *testing.T) {
 	}
 	if !entryNames(t, rec)["here.txt"] {
 		t.Errorf("entries = %s, want this machine's directory", rec.Body.String())
+	}
+}
+
+// Where a session's work sits in git, learned once at the moment the session
+// starts.
+//
+// The Hub cannot read another machine's checkout, so without this it has no way
+// to learn the repository and branch a remote session is on — and every panel
+// that wants them afterwards (the pull-request panel, the repository chip) is a
+// cache read that must not turn into a question of its own. So the question is
+// asked here, while the person is still on the screen that started the session,
+// and the answer is written on the row.
+func TestCreatingARemoteSessionRecordsWhereItsWorkIs(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "app")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initRepo(t, work)
+	gitRun(t, work, "remote", "add", "origin", "https://github.com/owner/app.git")
+
+	s, h, master, deviceID := remoteWorkspaceHub(t, root)
+
+	created := createTask(t, h, master, map[string]any{
+		"agent": "claude-code", "cwd": work, "prompt": "do the thing over there",
+		"executing_device_id": deviceID,
+	})
+	if created.WorkspaceRepo != "github.com/owner/app" {
+		t.Errorf("the create answer says repo = %q, want what the machine reported", created.WorkspaceRepo)
+	}
+	if created.WorkspaceBranch != "main" {
+		t.Errorf("the create answer says branch = %q, want the machine's checkout", created.WorkspaceBranch)
+	}
+
+	// The row is what every panel reads, and it has to say the same thing: the
+	// answer above is a convenience for the screen that just posted this.
+	stored, err := s.Store.GetTask(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.WorkspaceRepo != "github.com/owner/app" || stored.WorkspaceBranch != "main" {
+		t.Errorf("row = %q/%q, want the machine's answer", stored.WorkspaceRepo, stored.WorkspaceBranch)
+	}
+}
+
+// A machine that cannot answer does not stop the session from starting, and it
+// does not put a wrong answer on the row: unknown is rendered as nothing, which
+// is where a panel would have been without this feature at all.
+func TestCreatingARemoteSessionOnAMachineThatIsAwayStillStartsIt(t *testing.T) {
+	s, master, _ := machinesServer(t)
+	_, deviceID := pairDevice(t, s.Handler(), master)
+
+	created := createTask(t, s.Handler(), master, map[string]any{
+		"agent": "claude-code", "cwd": "/work/app", "prompt": "over there",
+		"executing_device_id": deviceID,
+	})
+	if created.WorkspaceRepo != "" || created.WorkspaceBranch != "" {
+		t.Errorf("answer = %q/%q, want nothing claimed about a machine nobody asked",
+			created.WorkspaceRepo, created.WorkspaceBranch)
+	}
+}
+
+// gitRun runs one git command, for the setups above.
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 }
