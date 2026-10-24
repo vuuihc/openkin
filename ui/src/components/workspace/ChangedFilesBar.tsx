@@ -118,14 +118,14 @@ export default function ChangedFilesBar({
     <div className="flex-none flex items-center gap-1.5 flex-wrap justify-end">
       {confirmDiscard ? (
         <>
-          <span className="hidden sm:inline text-[11px] text-kin-muted mr-0.5">
+          <span className="hidden sm:inline text-caption text-kin-muted mr-0.5">
             {t("workspace.changed.discardConfirmShort")}
           </span>
           <button
             type="button"
             disabled={actionsBusy}
             onClick={() => void handleDiscardAll()}
-            className="kin-btn-deny !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+            className="kin-btn-deny !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
           >
             {t("workspace.changed.discardConfirm")}
           </button>
@@ -133,7 +133,7 @@ export default function ChangedFilesBar({
             type="button"
             disabled={actionsBusy}
             onClick={() => setConfirmDiscard(false)}
-            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
           >
             {t("workspace.changed.discardCancel")}
           </button>
@@ -145,7 +145,7 @@ export default function ChangedFilesBar({
             disabled={actionsBusy}
             onClick={() => void handleDiscardAll()}
             title={t("workspace.changed.discardAllHint")}
-            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
           >
             <IconX size={12} className="opacity-80" />
             {t("workspace.changed.discardAll")}
@@ -155,7 +155,7 @@ export default function ChangedFilesBar({
             disabled={actionsBusy}
             onClick={() => void handleKeepAll()}
             title={t("workspace.changed.keepAllHint")}
-            className="kin-btn-primary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+            className="kin-btn-primary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
           >
             <IconCheck size={12} />
             {t("workspace.changed.keepAll")}
@@ -182,21 +182,21 @@ export default function ChangedFilesBar({
           >
             <div className="flex items-center gap-1.5 min-w-0">
               <IconChevron size={12} className="flex-none text-kin-muted rotate-90" />
-              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
+              <span className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
                 {t("workspace.changed.cardTitle")}
               </span>
             </div>
             <div className="mt-0.5 flex items-center gap-2 min-w-0 pl-[18px]">
-              <span className="text-[12.5px] font-semibold text-kin-text truncate">
+              <span className="text-body font-semibold text-kin-text truncate">
                 {t("workspace.changed.reviewTitle", { count: labelCount })}
               </span>
               {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
-                <span className="flex-none text-[12px] font-mono tabular-nums">
+                <span className="flex-none text-body font-mono tabular-nums">
                   <DeltaInline additions={stats.additions} deletions={stats.deletions} />
                 </span>
               )}
             </div>
-            <div className="mt-0.5 pl-[18px] text-[11px] text-kin-muted">
+            <div className="mt-0.5 pl-[18px] text-caption text-kin-muted">
               {t("workspace.changed.expand")}
             </div>
           </button>
@@ -225,17 +225,17 @@ export default function ChangedFilesBar({
                   title={f.path}
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[12px] font-medium text-kin-text">
+                    <span className="block truncate text-body font-medium text-kin-text">
                       {name}
                     </span>
                     {dir ? (
-                      <span className="block truncate text-[10.5px] font-mono text-kin-muted">
+                      <span className="block truncate text-caption font-mono text-kin-muted">
                         {dir}
                       </span>
                     ) : null}
                   </span>
                   {(f.additions != null || f.deletions != null) && (
-                    <span className="flex-none text-[11px] font-mono tabular-nums">
+                    <span className="flex-none text-caption font-mono tabular-nums">
                       <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
                     </span>
                   )}
@@ -244,7 +244,7 @@ export default function ChangedFilesBar({
             );
           })}
           {ordered.length > preview.length && (
-            <li className="px-3 py-1.5 text-[11px] text-kin-muted">
+            <li className="px-3 py-1.5 text-caption text-kin-muted">
               {t("workspace.changed.moreFiles", {
                 count: ordered.length - preview.length,
               })}
@@ -275,20 +275,20 @@ export default function ChangedFilesBar({
           className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
         >
           <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
-          <span className="flex-none text-[12px] font-semibold text-kin-text">
+          <span className="flex-none text-body font-semibold text-kin-text">
             {t("workspace.changed.reviewTitle", { count: labelCount })}
           </span>
           {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
-            <span className="flex-none text-[12px] font-mono tabular-nums">
+            <span className="flex-none text-body font-mono tabular-nums">
               <DeltaInline additions={stats.additions} deletions={stats.deletions} />
             </span>
           )}
           {stats.hasStats && stats.additions === 0 && stats.deletions === 0 && (
-            <span className="flex-none text-[11px] text-kin-muted">
+            <span className="flex-none text-caption text-kin-muted">
               {t("workspace.changed.noLineDelta")}
             </span>
           )}
-          <span className="hidden sm:inline flex-none text-[11px] text-kin-muted">
+          <span className="hidden sm:inline flex-none text-caption text-kin-muted">
             {t("workspace.changed.expand")}
           </span>
         </button>

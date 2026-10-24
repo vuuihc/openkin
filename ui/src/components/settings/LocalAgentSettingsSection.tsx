@@ -79,10 +79,10 @@ export function LocalAgentSettingsSection({
         <div>
           <div className="flex items-start gap-3">
             <div className="flex-1">
-              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+              <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
                 {tr("settings.localAgents.heading")}
               </h2>
-              <p className="mt-1 text-xs text-kin-muted leading-relaxed">
+              <p className="mt-1 text-body text-kin-muted leading-relaxed">
                 {tr("settings.localAgents.desc")}
               </p>
             </div>
@@ -90,7 +90,7 @@ export function LocalAgentSettingsSection({
               type="button"
               disabled={refreshingAgentCatalog}
               onClick={onRefreshAgentCatalog}
-              className="kin-btn-secondary text-[11px] min-h-[32px] disabled:opacity-50"
+              className="kin-btn-secondary text-caption min-h-[32px] disabled:opacity-50"
             >
               {refreshingAgentCatalog
                 ? tr("settings.localAgents.refreshing")
@@ -99,7 +99,7 @@ export function LocalAgentSettingsSection({
           </div>
         </div>
         <div className="space-y-1.5">
-          <div className="text-xs font-medium text-kin-secondary">
+          <div className="text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.localAgents.providersHeading")}
           </div>
           <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
@@ -117,7 +117,7 @@ export function LocalAgentSettingsSection({
                   <span
                     title={capability.evidence}
                     className={[
-                      "px-1.5 py-0.5 rounded border text-[10px]",
+                      "px-1.5 py-0.5 rounded border text-micro",
                       supported
                         ? "border-kin-border text-kin-muted"
                         : "border-kin-orange/40 text-kin-orange",
@@ -142,10 +142,8 @@ export function LocalAgentSettingsSection({
                     ].join(" ")}
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12.5px] text-kin-text truncate">
-                      {agent.name || agent.id}
-                    </div>
-                    <div className="text-[10.5px] text-kin-muted truncate">
+                    <div className="text-body text-kin-text truncate">{agent.name || agent.id}</div>
+                    <div className="text-caption text-kin-muted truncate">
                       {agent.id}
                       {" · "}
                       {statusText}
@@ -161,7 +159,7 @@ export function LocalAgentSettingsSection({
                     {capabilityBadge("session_attach", tr("settings.localAgents.attachCapability"))}
                     {capabilityBadge("resume", tr("settings.localAgents.resumeCapability"))}
                     {capabilities.size === 0 && (
-                      <span className="text-[10.5px] text-kin-muted">
+                      <span className="text-caption text-kin-muted">
                         {tr("settings.localAgents.noCapabilities")}
                       </span>
                     )}
@@ -170,7 +168,7 @@ export function LocalAgentSettingsSection({
                         type="button"
                         disabled={importingSessions}
                         onClick={() => onImportProviderSessions(agent.id)}
-                        className="kin-btn-secondary px-2 py-1 text-[10px] min-h-[26px] disabled:opacity-50"
+                        className="kin-btn-secondary px-2 py-1 text-micro min-h-[26px] disabled:opacity-50"
                       >
                         {tr("settings.localAgents.importProvider")}
                       </button>
@@ -180,14 +178,14 @@ export function LocalAgentSettingsSection({
               );
             })}
             {agentProviders.length === 0 && (
-              <div className="px-3 py-3 text-[11px] text-kin-muted">
+              <div className="px-3 py-3 text-caption text-kin-muted">
                 {tr("settings.localAgents.noProviders")}
               </div>
             )}
           </div>
         </div>
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-kin-secondary">
+          <span className="text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.localAgents.autoImport")}
           </span>
           <select
@@ -201,9 +199,9 @@ export function LocalAgentSettingsSection({
             <option value="enabled">{tr("settings.localAgents.modeEnabled")}</option>
             <option value="disabled">{tr("settings.localAgents.modeDisabled")}</option>
           </select>
-          <span className="text-[11px] text-kin-muted">{tr("settings.localAgents.policy")}</span>
+          <span className="text-caption text-kin-muted">{tr("settings.localAgents.policy")}</span>
           <div
-            className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2 text-[11px] text-kin-muted"
+            className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2 text-caption text-kin-muted"
             role="status"
           >
             <span className="font-medium text-kin-secondary">

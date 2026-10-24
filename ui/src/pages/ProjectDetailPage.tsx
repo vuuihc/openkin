@@ -260,7 +260,7 @@ export default function ProjectDetailPage() {
         <div className="mx-auto max-w-4xl px-4 py-6">
           <button
             type="button"
-            className="mb-4 inline-flex items-center gap-1 text-[13px] text-kin-secondary hover:text-kin-text"
+            className="mb-4 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
             onClick={() => {
               // `history.length` counts entries from other sites too, so on a
               // cold launch it says "there is somewhere to go back to" and
@@ -273,7 +273,7 @@ export default function ProjectDetailPage() {
             <IconBack size={14} />
             {tr("projects.back")}
           </button>
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-300">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-strong text-red-300">
             {error || tr("projects.notFound")}
           </div>
         </div>
@@ -287,7 +287,7 @@ export default function ProjectDetailPage() {
         <div className="mx-auto max-w-4xl px-4 py-6 pb-16">
           <button
             type="button"
-            className="mb-3 inline-flex items-center gap-1 text-[13px] text-kin-secondary hover:text-kin-text"
+            className="mb-3 inline-flex items-center gap-1 text-strong text-kin-secondary hover:text-kin-text"
             onClick={() => {
               if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
               else navigate("/projects");
@@ -299,16 +299,16 @@ export default function ProjectDetailPage() {
 
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h1 className="text-lg font-semibold text-kin-text">{project.name}</h1>
+              <h1 className="text-title leading-7 font-semibold text-kin-text">{project.name}</h1>
               {project.roots?.[0] && (
-                <div className="mt-1 text-[12px] text-kin-secondary truncate max-w-[min(100%,420px)]">
+                <div className="mt-1 text-body text-kin-secondary truncate max-w-[min(100%,420px)]">
                   {project.roots[0]}
                 </div>
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <select
-                className="rounded-lg border border-kin-border bg-transparent px-2 py-1.5 text-[12.5px] text-kin-text"
+                className="rounded-lg border border-kin-border bg-transparent px-2 py-1.5 text-body text-kin-text"
                 value={project.mode}
                 onChange={(e) => void onModeChange(e.target.value as ProjectMode)}
               >
@@ -320,7 +320,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={continuing}
-                className="rounded-lg border border-kin-border px-3 py-1.5 text-[13px] text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
                 onClick={() => void onLaunchRecipe("cover.update")}
                 title={tr("projects.summarizeHint")}
               >
@@ -329,7 +329,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={continuing}
-                className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
                 onClick={() => void onLaunchRecipe("focus.continue")}
                 title={tr("projects.continueHint")}
               >
@@ -338,7 +338,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={continuing}
-                className="rounded-lg border border-kin-border px-3 py-1.5 text-[13px] text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
                 onClick={() => void onLaunchRecipe("project.memory.tidy")}
                 title={tr("projects.memoryTidyHint")}
               >
@@ -346,20 +346,20 @@ export default function ProjectDetailPage() {
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-kin-border px-3 py-1.5 text-[13px] text-kin-text hover:bg-[var(--kin-fill-strong)]"
+                className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
                 onClick={() => setShowRoutineModal(true)}
               >
                 {tr("routines.create")}
               </button>
               {projectRoutines.length > 0 && (
-                <span className="text-[12px] text-kin-muted">
+                <span className="text-body text-kin-muted">
                   {tr("routines.projectCount", { count: projectRoutines.length })}
                 </span>
               )}
               {!editing ? (
                 <button
                   type="button"
-                  className="rounded-lg border border-kin-border px-3 py-1.5 text-[13px] text-kin-text hover:bg-[var(--kin-fill-strong)]"
+                  className="rounded-lg border border-kin-border px-3 py-1.5 text-strong text-kin-text hover:bg-[var(--kin-fill-strong)]"
                   onClick={() => {
                     setDraft(markdown);
                     setEditing(true);
@@ -372,14 +372,14 @@ export default function ProjectDetailPage() {
                   <button
                     type="button"
                     disabled={saving}
-                    className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+                    className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
                     onClick={() => void onSave()}
                   >
                     {tr("projects.saveOnePager")}
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg px-3 py-1.5 text-[13px] text-kin-secondary"
+                    className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
                     onClick={() => {
                       setDraft(markdown);
                       setEditing(false);
@@ -398,12 +398,12 @@ export default function ProjectDetailPage() {
 
           <section className="mb-4 rounded-xl border border-kin-border bg-kin-panel p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[12px] font-medium uppercase tracking-wide text-kin-secondary">
+              <div className="text-body font-medium uppercase tracking-wide text-kin-secondary">
                 {tr("projects.pulse")}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <select
-                  className="rounded-lg border border-kin-border bg-transparent px-2 py-1 text-[12px] text-kin-text"
+                  className="rounded-lg border border-kin-border bg-transparent px-2 py-1 text-body text-kin-text"
                   value={windowDays}
                   onChange={(e) => setWindowDays(Number(e.target.value) || 90)}
                 >
@@ -414,7 +414,7 @@ export default function ProjectDetailPage() {
                 <button
                   type="button"
                   disabled={refreshing}
-                  className="rounded-lg border border-kin-border px-2.5 py-1 text-[12.5px] text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
+                  className="rounded-lg border border-kin-border px-2.5 py-1 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
                   onClick={() => void onRefreshPulse()}
                 >
                   {refreshing ? tr("projects.refreshing") : tr("projects.refreshPulse")}
@@ -423,7 +423,7 @@ export default function ProjectDetailPage() {
             </div>
             {pulse ? (
               <>
-                <div className="flex flex-wrap gap-3 text-[12px] text-kin-secondary">
+                <div className="flex flex-wrap gap-3 text-body text-kin-secondary">
                   <span>
                     {tr("projects.sessionsInWindow")}:{" "}
                     <strong className="text-kin-text tabular-nums">{pulse.session_window}</strong>
@@ -446,7 +446,7 @@ export default function ProjectDetailPage() {
                   <Heatmap days={pulse.commit_heat} title={tr("projects.commitHeat")} />
                 </div>
                 {pulse.top_paths && pulse.top_paths.length > 0 && (
-                  <div className="text-[12px] text-kin-secondary">
+                  <div className="text-body text-kin-secondary">
                     <span className="text-kin-muted">{tr("projects.hotModules")}: </span>
                     {pulse.top_paths
                       .slice(0, 6)
@@ -456,23 +456,23 @@ export default function ProjectDetailPage() {
                 )}
               </>
             ) : (
-              <div className="text-[12.5px] text-kin-secondary">{tr("projects.pulseEmpty")}</div>
+              <div className="text-body text-kin-secondary">{tr("projects.pulseEmpty")}</div>
             )}
           </section>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
             <section className="rounded-xl border border-kin-border bg-kin-panel p-4 min-h-[320px]">
-              <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-kin-secondary">
+              <div className="mb-2 text-body font-medium uppercase tracking-wide text-kin-secondary">
                 {tr("projects.onePager")}
               </div>
               {editing ? (
                 <textarea
-                  className="min-h-[480px] w-full resize-y rounded-lg border border-kin-border bg-transparent p-3 font-mono text-[12.5px] leading-relaxed text-kin-text"
+                  className="min-h-[480px] w-full resize-y rounded-lg border border-kin-border bg-transparent p-3 font-mono text-body leading-relaxed text-kin-text"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                 />
               ) : (
-                <div className="prose-kin text-[13.5px] leading-relaxed">
+                <div className="prose-kin text-strong leading-relaxed">
                   <Markdown text={markdown} />
                 </div>
               )}
@@ -480,13 +480,11 @@ export default function ProjectDetailPage() {
 
             <aside className="space-y-3">
               <section className="rounded-xl border border-kin-border bg-kin-panel p-3">
-                <div className="mb-2 text-[12px] font-medium uppercase tracking-wide text-kin-secondary">
+                <div className="mb-2 text-body font-medium uppercase tracking-wide text-kin-secondary">
                   {tr("projects.relatedArtifacts")}
                 </div>
                 {artifacts.length === 0 ? (
-                  <div className="text-[12.5px] text-kin-secondary">
-                    {tr("projects.noArtifacts")}
-                  </div>
+                  <div className="text-body text-kin-secondary">{tr("projects.noArtifacts")}</div>
                 ) : (
                   <ul className="space-y-1.5">
                     {artifacts.map((a) => (
@@ -495,8 +493,8 @@ export default function ProjectDetailPage() {
                           to={`/artifacts/${a.id}`}
                           className="block rounded-lg px-2 py-1.5 hover:bg-[var(--kin-fill-strong)]"
                         >
-                          <div className="truncate text-[12.5px] text-kin-text">{a.title}</div>
-                          <div className="mt-0.5 text-[11px] text-kin-secondary">
+                          <div className="truncate text-body text-kin-text">{a.title}</div>
+                          <div className="mt-0.5 text-caption text-kin-secondary">
                             {a.kind} · {formatWhen(a.created_at)}
                           </div>
                         </Link>
@@ -513,26 +511,26 @@ export default function ProjectDetailPage() {
       {showRoutineModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-2xl border border-kin-hairline-strong bg-kin-elevated p-5 shadow-window">
-            <h2 className="text-[16px] font-semibold text-kin-text">
+            <h2 className="text-subtitle font-semibold text-kin-text">
               {tr("routines.createTitle")}
             </h2>
-            <label className="mt-4 block text-[12px] text-kin-secondary">
+            <label className="mt-4 block text-body text-kin-secondary">
               {tr("routines.titleLabel")}
               <input
                 value={routineTitle}
                 onChange={(e) => setRoutineTitle(e.target.value)}
                 placeholder={tr("routines.titlePlaceholder")}
-                className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[13px] text-kin-text outline-none focus:border-kin-blue/40"
+                className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
-            <label className="mt-3 block text-[12px] text-kin-secondary">
+            <label className="mt-3 block text-body text-kin-secondary">
               {tr("routines.promptLabel")}
               <textarea
                 value={routinePrompt}
                 onChange={(e) => setRoutinePrompt(e.target.value)}
                 placeholder={tr("routines.promptPlaceholder")}
                 rows={4}
-                className="mt-1 w-full resize-y rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[13px] text-kin-text outline-none focus:border-kin-blue/40"
+                className="mt-1 w-full resize-y rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
             <div className="mt-3 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/50 px-3 py-2.5">
@@ -547,7 +545,7 @@ export default function ProjectDetailPage() {
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-lg px-3 py-1.5 text-[13px] text-kin-secondary"
+                className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
                 onClick={() => setShowRoutineModal(false)}
               >
                 {tr("routines.cancel")}
@@ -555,7 +553,7 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 disabled={creatingRoutine || !routinePrompt.trim()}
-                className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
                 onClick={() => void onCreateRoutine()}
               >
                 {tr("routines.submitCreate")}

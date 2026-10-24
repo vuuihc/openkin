@@ -36,7 +36,7 @@ function AgentAvatar({ agentID, small = false }: { agentID: string; small?: bool
     <span
       className={[
         "inline-flex flex-none items-center justify-center font-semibold",
-        small ? "h-5 w-5 rounded-[6px] text-[9px]" : "h-7 w-7 rounded-[8px] text-[11px]",
+        small ? "h-5 w-5 rounded-[6px] text-micro" : "h-7 w-7 rounded-[8px] text-caption",
         meta.className,
       ].join(" ")}
       role="img"
@@ -161,8 +161,8 @@ export default function AgentSessionDetailPage() {
   if (error || !session) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-[14px] text-kin-red">{error || tr("agentSession.notFound")}</p>
-        <Link to="/new" className="text-[13px] text-kin-blue hover:underline">
+        <p className="text-strong text-kin-red">{error || tr("agentSession.notFound")}</p>
+        <Link to="/new" className="text-strong text-kin-blue hover:underline">
           {tr("agentSession.backToChat")}
         </Link>
       </div>
@@ -202,21 +202,21 @@ export default function AgentSessionDetailPage() {
         </button>
         <AgentAvatar agentID={session.agent_id} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-[15px] font-semibold truncate text-kin-text">{sessionTitle}</h1>
-          <p className="text-[11.5px] text-kin-muted truncate">
+          <h1 className="text-subtitle font-semibold truncate text-kin-text">{sessionTitle}</h1>
+          <p className="text-caption text-kin-muted truncate">
             {agentName}
             {session.project_label ? ` · ${session.project_label}` : ""}
             {session.cwd ? ` · ${session.cwd}` : ""}
           </p>
-          <p className="mt-1 text-[11px] text-kin-muted truncate">
+          <p className="mt-1 text-caption text-kin-muted truncate">
             {tr("agentSession.sourceId", { value: session.external_ref })}
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-1.5 max-w-[45%]">
-          <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">
+          <span className="px-1.5 py-0.5 rounded border border-kin-border text-micro text-kin-muted">
             {session.status}
           </span>
-          <span className="px-1.5 py-0.5 rounded border border-kin-border text-[10px] text-kin-muted">
+          <span className="px-1.5 py-0.5 rounded border border-kin-border text-micro text-kin-muted">
             {session.linked
               ? tr("agentSession.connected")
               : canContinue
@@ -226,7 +226,7 @@ export default function AgentSessionDetailPage() {
         </div>
       </header>
 
-      <div className="flex-none px-4 sm:px-6 py-3 border-b border-[var(--kin-hairline)] text-[11.5px] text-kin-muted flex flex-wrap gap-x-4 gap-y-1">
+      <div className="flex-none px-4 sm:px-6 py-3 border-b border-[var(--kin-hairline)] text-caption text-kin-muted flex flex-wrap gap-x-4 gap-y-1">
         <span>{tr("agentSession.created", { value: formatTimestamp(session.first_seen_at) })}</span>
         <span>{tr("agentSession.updated", { value: formatTimestamp(session.updated_at) })}</span>
         {session.content_digest ? (
@@ -238,7 +238,7 @@ export default function AgentSessionDetailPage() {
       </div>
 
       {missingContinueCwd && (
-        <div className="flex-none border-b border-[var(--kin-hairline)] px-4 sm:px-6 py-3 text-[12px] text-kin-muted">
+        <div className="flex-none border-b border-[var(--kin-hairline)] px-4 sm:px-6 py-3 text-body text-kin-muted">
           {tr("agentSession.continueUnavailable")}
         </div>
       )}
@@ -246,13 +246,13 @@ export default function AgentSessionDetailPage() {
       <div className="flex-1 min-h-0 overflow-y-auto kin-scroll py-5">
         {historyError && (
           <div className="max-w-[720px] mx-auto px-4 sm:px-7">
-            <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-[13px] text-kin-orange">
+            <div className="rounded-lg border border-kin-orange/30 bg-kin-orange/10 px-3 py-2 text-strong text-kin-orange">
               {historyError}
             </div>
           </div>
         )}
         {!historyError && !historyLoading && items.length === 0 && (
-          <p className="py-10 text-center text-[13px] text-kin-muted">
+          <p className="py-10 text-center text-strong text-kin-muted">
             {tr("agentSession.historyEmpty")}
           </p>
         )}

@@ -82,8 +82,8 @@ export function SettingsLayout({
           {/* The shell's header already names this screen on the phone, and the
               prototype gives every phone screen one nav bar — so the grid of
               tabs starts where the h1 was, not 30px lower. */}
-          <h1 className="hidden text-[22px] font-semibold tracking-tight md:block">{title}</h1>
-          <p className="text-sm text-kin-secondary">{subtitle}</p>
+          <h1 className="hidden text-hero font-semibold tracking-tight md:block">{title}</h1>
+          <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p>
         </div>
         <div
           role="tablist"
@@ -108,7 +108,7 @@ export function SettingsLayout({
                 title={tab.description}
                 onClick={() => onTabChange(tab.id)}
                 className={classes(
-                  "min-h-[44px] shrink-0 rounded-lg px-3 text-[13px] font-medium outline-none transition sm:min-h-[40px]",
+                  "min-h-[44px] shrink-0 rounded-lg px-3 text-strong font-medium outline-none transition sm:min-h-[40px]",
                   "focus-visible:ring-2 focus-visible:ring-kin-blue/50",
                   selected
                     ? "bg-kin-blue text-white"
@@ -164,11 +164,11 @@ export function SettingsSection({
     <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {title}
           </h2>
           {description ? (
-            <p className="text-[12px] leading-relaxed text-kin-secondary">{description}</p>
+            <p className="text-body leading-relaxed text-kin-secondary">{description}</p>
           ) : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
@@ -190,9 +190,9 @@ export function SettingsRow({
   return (
     <div className="grid gap-2 border-t border-[var(--kin-hairline)] pt-4 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] sm:gap-4">
       <div className="space-y-1">
-        <div className="text-xs font-medium text-kin-secondary">{label}</div>
+        <div className="text-body leading-4 font-medium text-kin-secondary">{label}</div>
         {description ? (
-          <div className="text-[11px] leading-relaxed text-kin-muted">{description}</div>
+          <div className="text-caption leading-relaxed text-kin-muted">{description}</div>
         ) : null}
       </div>
       <div className="min-w-0">{children}</div>
@@ -210,7 +210,7 @@ export function StatusPill({
   return (
     <span
       className={classes(
-        "inline-flex shrink-0 items-center rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+        "inline-flex shrink-0 items-center rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-wide",
         tone === "success" && "bg-kin-green/15 text-kin-green",
         tone === "warning" && "bg-kin-warning/15 text-kin-warning",
         tone === "danger" && "bg-kin-red/15 text-kin-red",
@@ -234,7 +234,7 @@ export function Callout({
     <div
       role={tone === "danger" ? "alert" : "status"}
       className={classes(
-        "rounded-lg border px-3 py-2 text-xs leading-relaxed",
+        "rounded-lg border px-3 py-2 text-body leading-relaxed",
         tone === "info" && "border-kin-blue/30 bg-kin-blue-soft/40 text-kin-secondary",
         tone === "warning" && "border-kin-orange/30 bg-kin-orange/10 text-kin-secondary",
         tone === "danger" && "border-kin-red/30 bg-kin-red/10 text-kin-red",
@@ -259,14 +259,16 @@ export function SettingsState({
       role={state === "error" ? "alert" : "status"}
       aria-busy={state === "loading"}
       className={classes(
-        "rounded-lg border px-3 py-4 text-sm",
+        "rounded-lg border px-3 py-4 text-strong leading-5",
         state === "error"
           ? "border-kin-red/30 bg-kin-red/10 text-kin-red"
           : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 text-kin-secondary",
       )}
     >
       <div className="font-medium">{title}</div>
-      {description ? <div className="mt-1 text-xs text-kin-muted">{description}</div> : null}
+      {description ? (
+        <div className="mt-1 text-body leading-4 text-kin-muted">{description}</div>
+      ) : null}
     </div>
   );
 }

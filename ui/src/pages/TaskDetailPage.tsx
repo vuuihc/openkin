@@ -761,11 +761,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   if (error && !task) {
     return (
       <div className="flex-1 p-6 space-y-3">
-        <Link to="/" className="text-sm text-kin-blue">
+        <Link to="/" className="text-strong leading-5 text-kin-blue">
           {tr("task.home")}
         </Link>
         <div
-          className="rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]"
+          className="rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
           role="alert"
         >
           {error}
@@ -777,11 +777,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   if (!task) {
     return (
       <div className="flex-1 p-6 space-y-3">
-        <Link to="/" className="text-sm text-kin-blue">
+        <Link to="/" className="text-strong leading-5 text-kin-blue">
           {tr("task.home")}
         </Link>
         <div
-          className="rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-3 text-sm text-kin-secondary"
+          className="rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-3 text-strong leading-5 text-kin-secondary"
           role="status"
         >
           {tr("task.loadFailed")}
@@ -846,12 +846,12 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             <IconBack size={18} strokeWidth={2} />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] font-semibold text-kin-text truncate">
+            <div className="text-strong font-semibold text-kin-text truncate">
               {task.title || displayUserPrompt(task.prompt || "")}
             </div>
           </div>
           <div
-            className="w-full justify-end md:ml-2 md:w-auto md:justify-start flex items-center gap-2 text-[12px] text-kin-muted flex-none"
+            className="w-full justify-end md:ml-2 md:w-auto md:justify-start flex items-center gap-2 text-body text-kin-muted flex-none"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <span
@@ -859,7 +859,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               title={tr("newChat.hostAgent", { name: hostAgentName })}
             >
               <span
-                className={`w-4 h-4 rounded-[5px] inline-flex items-center justify-center text-[8px] font-semibold ${hostAgentAvatar.className}`}
+                className={`w-4 h-4 rounded-[5px] inline-flex items-center justify-center text-micro font-semibold ${hostAgentAvatar.className}`}
               >
                 {hostAgentAvatar.initials}
               </span>
@@ -873,7 +873,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 setOverlay((open) => toggleOverlay(open, "files"));
               }}
               className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
                 filesOpen
                   ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
@@ -887,7 +887,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={togglePrPanel}
               className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
                 prOpen
                   ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
@@ -901,7 +901,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={() => void onDelete()}
               disabled={deleting}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-secondary hover:text-[#ff8a80] hover:border-[rgba(255,69,58,.35)] disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-[#ff8a80] hover:border-[rgba(255,69,58,.35)] disabled:opacity-40"
               title={tr("task.deleteSession")}
               aria-label={tr("task.deleteSession")}
             >
@@ -926,7 +926,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   type="button"
                   onClick={() => void onStop()}
                   disabled={stopping}
-                  className="text-[12px] font-semibold text-[#ff8a80] hover:text-[#ffb4ad] disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-[rgba(255,69,58,.3)] bg-[rgba(255,69,58,.08)]"
+                  className="text-body font-semibold text-[#ff8a80] hover:text-[#ffb4ad] disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-[rgba(255,69,58,.3)] bg-[rgba(255,69,58,.08)]"
                 >
                   {stopping ? tr("task.stopping") : tr("composer.stop")}
                 </button>
@@ -937,7 +937,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
         {error && (
           <div
-            className="flex-none border-b border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-2 text-[12px] text-[#ff8a80]"
+            className="flex-none border-b border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-2 text-body text-[#ff8a80]"
             role="alert"
           >
             {error}
@@ -1021,7 +1021,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   </div>
                 )}
                 {needsYou.length > 0 && (
-                  <p className="text-center text-[11.5px] text-kin-muted mt-2">
+                  <p className="text-center text-caption text-kin-muted mt-2">
                     <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
                     {tr("chat.approve")} ·{" "}
                     <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
@@ -1119,7 +1119,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   {/* Which machine the cwd above lives on. Without it the path in
                       this strip reads as a directory on the machine showing it. */}
                   <span
-                    className="flex-none inline-flex items-center gap-1 text-[11.5px] text-kin-secondary"
+                    className="flex-none inline-flex items-center gap-1 text-caption text-kin-secondary"
                     title={tr("machine.remoteHint", { name: machine.text })}
                   >
                     <IconMachine size={12} />

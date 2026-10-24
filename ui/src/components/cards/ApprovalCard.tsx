@@ -55,20 +55,20 @@ export default function ApprovalCard({
       <div className="px-3.5 py-3.5">
         <div className="flex items-center gap-2">
           <IconAlert size={15} className="text-kin-orange flex-none" />
-          <span className="text-[13.5px] font-semibold text-[#ffb340]">
+          <span className="text-strong font-semibold text-[#ffb340]">
             {tr("approval.cardTitle")}
           </span>
           {focused && (
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5">
+            <span className="text-micro font-semibold uppercase tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5">
               {tr("approval.focused")}
             </span>
           )}
-          <span className="ml-auto text-[11px] text-kin-muted truncate max-w-[45%]" title={attr}>
+          <span className="ml-auto text-caption text-kin-muted truncate max-w-[45%]" title={attr}>
             {attr}
           </span>
         </div>
 
-        <div className="mt-2.5 flex items-center gap-2 text-[12.5px] min-w-0">
+        <div className="mt-2.5 flex items-center gap-2 text-body min-w-0">
           <span className="inline-flex items-center gap-1.5 font-semibold text-kin-text flex-none">
             <IconFile size={13} />
             {toolName}
@@ -90,7 +90,7 @@ export default function ApprovalCard({
         </div>
 
         {previewLines && previewLines.length > 0 && (
-          <div className="mt-2.5 rounded-lg overflow-hidden border border-[var(--kin-hairline)] font-mono text-[11.5px] leading-relaxed">
+          <div className="mt-2.5 rounded-lg overflow-hidden border border-[var(--kin-hairline)] font-mono text-caption leading-relaxed">
             {previewLines.map((line, i) => (
               <div
                 key={i}
@@ -110,7 +110,7 @@ export default function ApprovalCard({
         )}
 
         {!previewLines && Object.keys(input).length > 0 && (
-          <pre className="mt-2.5 max-h-28 overflow-auto rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-2 text-[11px] font-mono text-kin-secondary">
+          <pre className="mt-2.5 max-h-28 overflow-auto rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-2 text-caption font-mono text-kin-secondary">
             {JSON.stringify(input, null, 2)}
           </pre>
         )}

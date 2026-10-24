@@ -462,9 +462,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               </button>
             )}
             {barIsHeading ? (
-              <h1 className="font-semibold text-[15px]">{mobileTitle}</h1>
+              <h1 className="font-semibold text-subtitle">{mobileTitle}</h1>
             ) : (
-              <span className="font-semibold text-[15px]">{mobileTitle}</span>
+              <span className="font-semibold text-subtitle">{mobileTitle}</span>
             )}
             {onSessionsTab && (
               <button
@@ -515,7 +515,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         */}
         {wsStatus !== "connected" && (
           <div
-            className="flex-none bg-[rgba(255,159,10,.12)] border-b border-[rgba(255,159,10,.25)] text-kin-orange text-[12px] text-center px-3 py-1.5"
+            className="flex-none bg-[rgba(255,159,10,.12)] border-b border-[rgba(255,159,10,.25)] text-kin-orange text-body text-center px-3 py-1.5"
             role="status"
           >
             {tr("app.reconnecting")}

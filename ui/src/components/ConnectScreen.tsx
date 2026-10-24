@@ -37,11 +37,11 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
     <div className="min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-surface-border bg-surface-raised text-2xl font-bold text-accent">
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-surface-border bg-surface-raised text-hero leading-8 font-bold text-accent">
             K
           </div>
-          <h1 className="text-xl font-semibold text-zinc-50">{title}</h1>
-          <p className="text-sm text-zinc-400 leading-relaxed">{blurb}</p>
+          <h1 className="text-hero leading-7 font-semibold text-zinc-50">{title}</h1>
+          <p className="text-strong text-zinc-400 leading-relaxed">{blurb}</p>
         </div>
 
         <form
@@ -49,7 +49,9 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
           className="rounded-2xl border border-surface-border bg-surface-raised p-5 space-y-4 shadow-xl shadow-black/30"
         >
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-400">{tr("connect.tokenLabel")}</span>
+            <span className="text-body leading-4 font-medium text-zinc-400">
+              {tr("connect.tokenLabel")}
+            </span>
             <input
               type="text"
               autoComplete="off"
@@ -61,25 +63,25 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
                 setError(null);
               }}
               placeholder={tr("connect.pasteToken")}
-              className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
+              className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 font-mono text-strong leading-5 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </label>
 
           {error && (
-            <p className="text-sm text-red-300" role="alert">
+            <p className="text-strong leading-5 text-red-300" role="alert">
               {error}
             </p>
           )}
 
           <button
             type="submit"
-            className="w-full min-h-[48px] rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition"
+            className="w-full min-h-[48px] rounded-xl bg-accent px-4 py-3 text-strong leading-5 font-semibold text-zinc-900 hover:bg-accent-muted active:scale-[0.99] transition"
           >
             {tr("connect.connect")}
           </button>
         </form>
 
-        <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-xs text-zinc-500 space-y-2 leading-relaxed">
+        <div className="rounded-xl border border-surface-border/80 bg-surface-raised/40 px-4 py-3 text-body text-zinc-500 space-y-2 leading-relaxed">
           <p className="font-medium text-zinc-400">{tr("connect.whereTitle")}</p>
           <ul className="list-disc pl-4 space-y-1">
             <li>

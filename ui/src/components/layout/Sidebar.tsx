@@ -96,7 +96,7 @@ function normCwd(cwd: string): string {
 }
 
 const footLink =
-  "flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-[40px]";
+  "flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-[40px]";
 
 function readSidebarDisclosure(key: string): boolean {
   try {
@@ -329,10 +329,10 @@ export default function Sidebar({
   const panel = (
     <aside className="w-[248px] max-w-[85vw] h-full flex flex-col bg-kin-sidebar border-r border-kin-hairline shrink-0">
       <div className="px-3 pt-3 pb-2 flex items-center gap-2">
-        <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-[13px] font-semibold shadow-sm">
+        <div className="w-7 h-7 rounded-[8px] bg-gradient-to-br from-[#5b8def] to-[#7aa2f7] flex items-center justify-center text-white text-strong font-semibold shadow-sm">
           K
         </div>
-        <span className="text-[14px] font-semibold tracking-tight">{tr("app.name")}</span>
+        <span className="text-strong font-semibold tracking-tight">{tr("app.name")}</span>
         <div className="ml-auto flex items-center gap-1">
           <div className="relative" ref={sortMenuRef}>
             <button
@@ -369,7 +369,7 @@ export default function Sidebar({
                       aria-checked={active}
                       onClick={() => pickSort(mode)}
                       className={[
-                        "w-full text-left px-3 py-1.5 text-[12.5px] transition-colors",
+                        "w-full text-left px-3 py-1.5 text-body transition-colors",
                         active
                           ? "text-kin-text bg-[var(--kin-fill-strong)]"
                           : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -392,7 +392,7 @@ export default function Sidebar({
           aria-haspopup="menu"
           aria-expanded={importMenuOpen}
           onClick={() => setImportMenuOpen((open) => !open)}
-          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-[8px] text-[12.5px] text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-[8px] text-body text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
         >
           <IconDownload size={14} />
           <span className="flex-1 text-left">
@@ -418,7 +418,7 @@ export default function Sidebar({
                 setImportMenuOpen(false);
                 onImportExternalSessions?.();
               }}
-              className="w-full text-left px-3 py-2 text-[12px] text-kin-text hover:bg-[var(--kin-fill-strong)]"
+              className="w-full text-left px-3 py-2 text-body text-kin-text hover:bg-[var(--kin-fill-strong)]"
             >
               {tr("nav.importAllAgents")}
             </button>
@@ -433,15 +433,15 @@ export default function Sidebar({
                     setImportMenuOpen(false);
                     onImportExternalSessions?.([provider.id]);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-[12px] text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-kin-blue" />
                   <span className="truncate">{provider.name || provider.id}</span>
-                  <span className="ml-auto text-[10px] text-kin-muted">{provider.id}</span>
+                  <span className="ml-auto text-micro text-kin-muted">{provider.id}</span>
                 </button>
               ))
             ) : (
-              <div className="px-3 py-2 text-[11px] text-kin-muted">
+              <div className="px-3 py-2 text-caption text-kin-muted">
                 {tr("nav.noSessionProviders")}
               </div>
             )}
@@ -457,7 +457,7 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2.5 h-9 rounded-[8px] text-[13px] font-medium border transition-colors",
+            "w-full flex items-center gap-2 px-2.5 h-9 rounded-[8px] text-strong font-medium border transition-colors",
             draftActive
               ? "border-kin-blue/40 bg-kin-blue-soft text-kin-text"
               : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -465,7 +465,7 @@ export default function Sidebar({
         >
           <IconPlus size={15} strokeWidth={1.9} />
           {tr("nav.newChat")}
-          <span className="ml-auto text-[11.5px] text-kin-muted font-medium hidden sm:inline">
+          <span className="ml-auto text-caption text-kin-muted font-medium hidden sm:inline">
             ⌘N
           </span>
         </button>
@@ -480,11 +480,11 @@ export default function Sidebar({
             onChange={(e) => onSearchQueryChange?.(e.target.value)}
             placeholder={tr("nav.searchSessions")}
             aria-label={tr("nav.searchSessions")}
-            className="w-full h-[32px] pl-8 pr-2 rounded-[8px] bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-[12.5px] text-kin-text placeholder:text-kin-muted outline-none transition-colors"
+            className="w-full h-[32px] pl-8 pr-2 rounded-[8px] bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body text-kin-text placeholder:text-kin-muted outline-none transition-colors"
           />
         </label>
         {searchQuery.trim() && (
-          <div className="mt-1 px-0.5 text-[11px] text-kin-muted">
+          <div className="mt-1 px-0.5 text-caption text-kin-muted">
             {searchLoading ? tr("common.loading") : tr("nav.searchHint")}
           </div>
         )}
@@ -498,7 +498,7 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-[13px] min-h-[34px]",
+            "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-strong min-h-[34px]",
             pendingCount > 0
               ? "border border-kin-blue/40 bg-kin-blue-soft text-kin-text"
               : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -507,14 +507,14 @@ export default function Sidebar({
           <IconInbox size={15} />
           <span>{tr("nav.inbox")}</span>
           {pendingCount > 0 && (
-            <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-[#1a1a1c] text-[11px] font-bold inline-flex items-center justify-center tabular-nums">
+            <span className="ml-auto min-w-[18px] h-[18px] px-1.5 rounded-full bg-kin-orange text-[#1a1a1c] text-caption font-bold inline-flex items-center justify-center tabular-nums">
               {pendingCount > 99 ? "99+" : pendingCount}
             </span>
           )}
         </button>
 
         {groups.length === 0 && archivedGroups.length === 0 && (
-          <div className="px-2 py-4 text-[12.5px] text-kin-muted leading-relaxed">
+          <div className="px-2 py-4 text-body text-kin-muted leading-relaxed">
             {searchQuery.trim()
               ? tr("nav.searchEmpty", { query: searchQuery.trim() })
               : tr("nav.emptyHint")}
@@ -559,12 +559,12 @@ export default function Sidebar({
               <span className="truncate flex-1 min-w-0 text-left">
                 {tr("nav.archivedProjects")}
               </span>
-              <span className="text-[11px] tabular-nums opacity-70">
+              <span className="text-caption tabular-nums opacity-70">
                 {archivedGroups.reduce((n, device) => n + device.projects.length, 0)}
               </span>
               <span
                 className={[
-                  "text-[10px] opacity-60 transition-transform",
+                  "text-micro opacity-60 transition-transform",
                   archivedOpen ? "rotate-90" : "",
                 ].join(" ")}
               >
@@ -594,7 +594,7 @@ export default function Sidebar({
       <div className="border-t border-kin-border px-2 py-2 space-y-2">
         {sidebarNavSections().map((section) => (
           <div key={section.id} className="space-y-0.5">
-            <div className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-kin-muted">
+            <div className="px-2 pt-1 text-micro font-semibold uppercase tracking-[0.08em] text-kin-muted">
               {tr(section.labelKey)}
             </div>
             {section.items.map((item) => (
@@ -609,12 +609,12 @@ export default function Sidebar({
                 {sidebarNavIcon(item.id)}
                 <span className="flex-1">{tr(item.labelKey)}</span>
                 {item.id === "routines" && routineUnreadCount > 0 && (
-                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-[10px] font-semibold text-white flex items-center justify-center tabular-nums">
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-kin-blue text-micro font-semibold text-white flex items-center justify-center tabular-nums">
                     {routineUnreadCount > 99 ? "99+" : routineUnreadCount}
                   </span>
                 )}
                 {item.id === "agents" && weekCost != null && weekCost > 0 && (
-                  <span className="text-[11px] text-kin-muted tabular-nums">
+                  <span className="text-caption text-kin-muted tabular-nums">
                     {formatCost(weekCost)}
                   </span>
                 )}
@@ -702,7 +702,7 @@ function DeviceSection({
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-[12px] font-medium text-kin-secondary hover:text-kin-text transition-colors"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-body font-medium text-kin-secondary hover:text-kin-text transition-colors"
       >
         <IconChevron
           size={11}
@@ -716,7 +716,7 @@ function DeviceSection({
           title={device.online ? tr("nav.machineOnline") : tr("nav.machineOffline")}
         />
         <span className="truncate flex-1 min-w-0">{label}</span>
-        <span className="tabular-nums text-[11px] opacity-70">{count}</span>
+        <span className="tabular-nums text-caption opacity-70">{count}</span>
       </button>
       {open && <div className="space-y-3 pl-1">{children}</div>}
     </div>
@@ -919,7 +919,7 @@ function ProjectBlock({
             <button
               type="button"
               onClick={() => void openCover()}
-              className="w-full truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-[12px] text-kin-secondary"
+              className="w-full truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-body text-kin-secondary"
             >
               {coverLabel}
             </button>
@@ -929,7 +929,7 @@ function ProjectBlock({
                   type="button"
                   onClick={onTogglePin}
                   className={[
-                    "flex-1 min-w-0 truncate rounded-lg border px-2 text-[12px]",
+                    "flex-1 min-w-0 truncate rounded-lg border px-2 text-body",
                     g.pinned
                       ? "border-kin-blue/40 bg-kin-blue-soft text-kin-blue"
                       : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary",
@@ -941,7 +941,7 @@ function ProjectBlock({
               <button
                 type="button"
                 onClick={onArchive}
-                className="flex-1 min-w-0 truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-[12px] text-kin-secondary"
+                className="flex-1 min-w-0 truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-body text-kin-secondary"
               >
                 {archiveLabel}
               </button>
@@ -983,7 +983,7 @@ function ExternalSessionRow({
         onCloseMobile();
       }}
       className={[
-        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-[7px] border text-left text-[12.5px] min-h-[36px] transition-colors",
+        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-[7px] border text-left text-body min-h-[36px] transition-colors",
         externalSessionRowClass(availability),
       ].join(" ")}
       aria-label={`${label}, ${availabilityLabel}, ${sessionTitle}`}
@@ -997,7 +997,7 @@ function ExternalSessionRow({
       />
       <span
         className={[
-          "inline-flex h-5 w-5 items-center justify-center rounded-[6px] text-[9px] font-semibold",
+          "inline-flex h-5 w-5 items-center justify-center rounded-[6px] text-micro font-semibold",
           avatar.className,
         ].join(" ")}
         role="img"
@@ -1015,7 +1015,7 @@ function ExternalSessionRow({
       <span className="truncate flex-1 min-w-0">{sessionTitle}</span>
       <span
         className={[
-          "shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium",
+          "shrink-0 rounded-md border px-1.5 py-0.5 text-micro font-medium",
           externalSessionBadgeClass(availability),
         ].join(" ")}
       >
@@ -1107,7 +1107,7 @@ function ProjectSessionRows({
                 if (isTerminal(task.status)) markSessionViewed(task.id);
                 onCloseMobile();
               }}
-              className="flex flex-1 items-center gap-2 px-2 py-1.5 text-[12.5px] min-w-0"
+              className="flex flex-1 items-center gap-2 px-2 py-1.5 text-body min-w-0"
             >
               <span
                 className={["w-1.5 h-1.5 rounded-full flex-none", dot ?? "bg-transparent"].join(
@@ -1187,7 +1187,7 @@ function DraftRow({
       type="button"
       onClick={onClick}
       className={[
-        "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-[13px] min-h-[34px] text-left",
+        "w-full flex items-center gap-2 px-2 py-1.5 rounded-[7px] text-strong min-h-[34px] text-left",
         active
           ? "bg-[var(--kin-fill-strong)] text-kin-text"
           : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",

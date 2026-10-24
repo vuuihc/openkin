@@ -1,4 +1,5 @@
-/** @type {import('tailwindcss').Config} */
+import type { Config } from "tailwindcss";
+import { FONT_SIZE } from "./src/design/type.ts";
 /**
  * Kin design tokens — the *scale* ladders only.
  *
@@ -6,6 +7,11 @@
  * this file must not contain a colour value (the tokens test rejects one), and
  * the semantic pair — `bg-kin-panel` in dark vs light — comes from the
  * variable, not from a second definition here.
+ *
+ * Font sizes come from `src/design/type.ts`, the same array the `/design`
+ * gallery renders. Assigned to `theme.fontSize` rather than extended, so the
+ * default names are gone: `text-sm` now emits nothing at all, which is what
+ * makes the leftover-size guard in `tokens.test.ts` meaningful.
  *
  * Status colours are still literals: `#0A84FF`, `#FF9F0A`, `#30D158` and
  * `#FF453A` are the dark-mode values and do not switch, which is why every one
@@ -17,6 +23,7 @@ export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   darkMode: "class",
   theme: {
+    fontSize: FONT_SIZE,
     extend: {
       colors: {
         kin: {
@@ -96,4 +103,4 @@ export default {
     },
   },
   plugins: [],
-};
+} satisfies Config;

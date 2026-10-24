@@ -41,7 +41,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
   const maxCount = data.reduce((m, d) => Math.max(m, d.count), 0);
   const total = data.reduce((s, d) => s + d.count, 0);
   if (data.length === 0) {
-    return <div className="text-[12px] text-kin-secondary">{title}: —</div>;
+    return <div className="text-body text-kin-secondary">{title}: —</div>;
   }
 
   // ~7 rows like GitHub weeks; columns = ceil(n/7)
@@ -50,10 +50,10 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <div className="text-[11.5px] font-medium uppercase tracking-wide text-kin-secondary">
+        <div className="text-caption font-medium uppercase tracking-wide text-kin-secondary">
           {title}
         </div>
-        <div className="text-[11px] text-kin-muted tabular-nums">
+        <div className="text-caption text-kin-muted tabular-nums">
           {total} · max {maxCount || 0}/day
         </div>
       </div>
@@ -84,7 +84,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
           })}
         </div>
       </div>
-      <div className="mt-1.5 flex items-center gap-1 text-[10px] text-kin-muted">
+      <div className="mt-1.5 flex items-center gap-1 text-micro text-kin-muted">
         <span>Less</span>
         {COLORS_DARK.map((c, i) => (
           <span

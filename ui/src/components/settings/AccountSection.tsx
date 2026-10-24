@@ -27,13 +27,13 @@ export function AccountSection() {
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
-          <p className="truncate text-[13px] text-kin-text">
+          <p className="truncate text-strong text-kin-text">
             {identity || tr("settings.account.unknownUser")}
           </p>
           {account.displayName && account.email ? (
-            <p className="truncate text-[12px] text-kin-muted">{account.email}</p>
+            <p className="truncate text-body text-kin-muted">{account.email}</p>
           ) : null}
-          <p className="text-[11px] text-kin-muted">{tr("settings.account.deviceCountNote")}</p>
+          <p className="text-caption text-kin-muted">{tr("settings.account.deviceCountNote")}</p>
         </div>
         <button
           type="button"
@@ -47,7 +47,7 @@ export function AccountSection() {
               window.location.assign("/");
             });
           }}
-          className="min-h-[44px] rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-[13px] font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-60 sm:min-h-[40px]"
+          className="min-h-[44px] rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-strong font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-60 sm:min-h-[40px]"
         >
           {busy ? tr("settings.account.signingOut") : tr("settings.account.signOut")}
         </button>

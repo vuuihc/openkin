@@ -46,7 +46,7 @@ export default function WorkspaceGenerationPicker({
 
   if (generations.length === 0) {
     return (
-      <span className={["text-[11px] text-kin-muted", loading ? "animate-pulse" : ""].join(" ")}>
+      <span className={["text-caption text-kin-muted", loading ? "animate-pulse" : ""].join(" ")}>
         {t("workspace.generation.source")}
       </span>
     );
@@ -61,13 +61,13 @@ export default function WorkspaceGenerationPicker({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[11.5px] font-medium text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+        className="flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-caption font-medium text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
       >
         <span className="truncate max-w-[160px]">{label}</span>
         {selected && (
           <span
             className={[
-              "flex-none rounded px-1 py-0 text-[9px] font-semibold uppercase tracking-wide",
+              "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-wide",
               stateBadgeClass(selected.state),
             ].join(" ")}
           >
@@ -93,14 +93,14 @@ export default function WorkspaceGenerationPicker({
               close();
             }}
             className={[
-              "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors",
+              "w-full flex items-center gap-2 px-3 py-1.5 text-left text-body transition-colors",
               selectedId === null
                 ? "bg-kin-blue/15 text-kin-text"
                 : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
             ].join(" ")}
           >
             <span className="flex-1 truncate">{t("workspace.generation.source")}</span>
-            <span className="flex-none rounded px-1 py-0 text-[9px] font-semibold uppercase tracking-wide bg-kin-muted/20 text-kin-muted">
+            <span className="flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-wide bg-kin-muted/20 text-kin-muted">
               {t("workspace.generation.readOnly")}
             </span>
           </button>
@@ -114,7 +114,7 @@ export default function WorkspaceGenerationPicker({
                 close();
               }}
               className={[
-                "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12px] transition-colors",
+                "w-full flex items-center gap-2 px-3 py-1.5 text-left text-body transition-colors",
                 selectedId === gen.id
                   ? "bg-kin-blue/15 text-kin-text"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -125,7 +125,7 @@ export default function WorkspaceGenerationPicker({
               </span>
               <span
                 className={[
-                  "flex-none rounded px-1 py-0 text-[9px] font-semibold uppercase tracking-wide",
+                  "flex-none rounded px-1 py-0 text-micro font-semibold uppercase tracking-wide",
                   stateBadgeClass(gen.state),
                 ].join(" ")}
               >

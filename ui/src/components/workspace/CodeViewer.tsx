@@ -182,7 +182,7 @@ export default function CodeViewer({
 
   if (!path) {
     return (
-      <div className="h-full flex items-center justify-center text-sm text-kin-muted px-6 text-center">
+      <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-muted px-6 text-center">
         {t("workspace.viewer.empty")}
       </div>
     );
@@ -211,12 +211,12 @@ export default function CodeViewer({
 
   return (
     <div className="h-full min-h-0 flex flex-col">
-      <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-[11.5px] text-kin-muted">
+      <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-caption text-kin-muted">
         <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
           {path}
         </span>
         {useDiff && (
-          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-kin-blue">
+          <span className="flex-none rounded bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-kin-blue">
             {t("workspace.viewer.diff")}
           </span>
         )}
@@ -233,7 +233,7 @@ export default function CodeViewer({
                 aria-pressed={diffLayout === "inline"}
                 title={t("workspace.viewer.diffInline")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   diffLayout === "inline"
                     ? "bg-kin-blue/20 text-kin-blue"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -247,7 +247,7 @@ export default function CodeViewer({
                 aria-pressed={diffLayout === "sideBySide"}
                 title={t("workspace.viewer.diffSideBySide")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   diffLayout === "sideBySide"
                     ? "bg-kin-blue/20 text-kin-blue"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -296,7 +296,7 @@ export default function CodeViewer({
                 aria-pressed={mdView === "preview"}
                 title={t("workspace.viewer.preview")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   mdView === "preview"
                     ? "bg-kin-blue/20 text-kin-blue"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -310,7 +310,7 @@ export default function CodeViewer({
                 aria-pressed={mdView === "code"}
                 title={t("workspace.viewer.code")}
                 className={[
-                  "px-1.5 py-0.5 rounded text-[10.5px] font-semibold transition-colors",
+                  "px-1.5 py-0.5 rounded text-caption font-semibold transition-colors",
                   mdView === "code"
                     ? "bg-kin-blue/20 text-kin-blue"
                     : "text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)]",
@@ -335,7 +335,7 @@ export default function CodeViewer({
                 disabled={actionsBusy}
                 onClick={() => onDiscard?.()}
                 title={t("workspace.changed.discardHint")}
-                className="kin-btn-secondary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
+                className="kin-btn-secondary !min-h-0 !py-1 !px-2 text-caption disabled:opacity-50"
               >
                 <IconX size={12} />
                 {t("workspace.changed.discard")}
@@ -345,7 +345,7 @@ export default function CodeViewer({
                 disabled={actionsBusy}
                 onClick={() => onKeep?.()}
                 title={t("workspace.changed.keepHint")}
-                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
+                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-caption disabled:opacity-50"
               >
                 <IconCheck size={12} />
                 {t("workspace.changed.keep")}
@@ -354,7 +354,7 @@ export default function CodeViewer({
           )}
           {editable && file?.truncated && !useDiff && (
             <span
-              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-kin-orange"
+              className="flex-none rounded bg-kin-orange/15 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide text-kin-orange"
               title={t("workspace.viewer.readOnlyTruncated")}
             >
               {t("workspace.viewer.readOnlyTruncated")}
@@ -375,7 +375,7 @@ export default function CodeViewer({
                 disabled={!dirty || saveState === "saving"}
                 onClick={() => void doSave()}
                 title={t("workspace.viewer.save")}
-                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
+                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-caption disabled:opacity-50"
               >
                 <IconCheck size={12} />
                 {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}
@@ -388,17 +388,17 @@ export default function CodeViewer({
 
       <div className="flex-1 min-h-0 relative">
         {showInitialLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-kin-secondary bg-[var(--kin-bg)]">
+          <div className="absolute inset-0 z-10 flex items-center justify-center text-strong leading-5 text-kin-secondary bg-[var(--kin-bg)]">
             {t("workspace.viewer.loading")}
           </div>
         )}
         {showError && !showEditor && (
-          <div className="h-full flex items-center justify-center text-sm text-kin-red px-6 text-center">
+          <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-red px-6 text-center">
             {error}
           </div>
         )}
         {showError && showEditor && (
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-kin-red/90 px-3 py-1 text-[12px] text-white shadow">
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 z-10 rounded-md bg-kin-red/90 px-3 py-1 text-body text-white shadow">
             {error}
           </div>
         )}
@@ -414,7 +414,7 @@ export default function CodeViewer({
               options={diffOptions}
               onMount={onDiffMount}
               loading={
-                <div className="h-full flex items-center justify-center text-sm text-kin-muted">
+                <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-muted">
                   {t("workspace.viewer.loading")}
                 </div>
               }
@@ -438,7 +438,7 @@ export default function CodeViewer({
               onMount={canEdit ? onEditorMount : undefined}
               options={canEdit ? { ...EDITOR_OPTIONS, readOnly: false } : EDITOR_OPTIONS}
               loading={
-                <div className="h-full flex items-center justify-center text-sm text-kin-muted">
+                <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-muted">
                   {t("workspace.viewer.loading")}
                 </div>
               }
@@ -452,7 +452,7 @@ export default function CodeViewer({
 
 function FallbackPre({ text }: { text: string }) {
   return (
-    <pre className="h-full overflow-auto kin-scroll p-4 text-[12px] font-mono text-kin-secondary whitespace-pre">
+    <pre className="h-full overflow-auto kin-scroll p-4 text-body font-mono text-kin-secondary whitespace-pre">
       {text}
     </pre>
   );

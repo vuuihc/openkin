@@ -117,10 +117,10 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           dense={isCard}
         />
       </dl>
-      <p className="text-[10.5px] leading-snug text-kin-muted" role="status">
+      <p className="text-caption leading-snug text-kin-muted" role="status">
         {statusText}
       </p>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-caption">
         <Detail
           label={tr("usage.cacheRead")}
           value={cacheTokensKnown ? formatTokenCount(usage.cache_read_tokens) : "—"}
@@ -149,16 +149,16 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
       >
         <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--kin-hairline)]">
           <div className="min-w-0">
-            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
+            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
               {tr("usage.taskSummary")}
             </div>
-            <div className="mt-0.5 truncate text-[12.5px] tabular-nums text-kin-secondary">
+            <div className="mt-0.5 truncate text-body tabular-nums text-kin-secondary">
               <span className="font-medium text-kin-text">{totalTokens}</span>
               <span className="text-kin-muted"> · </span>
               <span>{spend}</span>
               {costBadge ? (
                 <span
-                  className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-kin-muted"
+                  className="ml-1 text-micro font-semibold uppercase tracking-wide text-kin-muted"
                   title={costBadge.title}
                 >
                   ({costBadge.label})
@@ -171,13 +171,13 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
             aria-expanded={open}
             aria-controls={detailsID}
             onClick={() => setOpen((v) => !v)}
-            className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-secondary transition-colors"
+            className="shrink-0 rounded-md px-1.5 py-1 text-caption font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-secondary transition-colors"
           >
             {open ? tr("usage.hideDetails") : tr("usage.showDetails")}
           </button>
         </div>
         <div className="px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] tabular-nums text-kin-secondary">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption tabular-nums text-kin-secondary">
             {cacheHit && cacheHit !== "—" ? (
               <span>
                 {tr("usage.cacheHitRate")}:{" "}
@@ -210,16 +210,16 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           onClick={() => setOpen((value) => !value)}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-[var(--kin-fill)]/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
         >
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted shrink-0">
+          <span className="text-caption font-semibold uppercase tracking-wide text-kin-muted shrink-0">
             {tr("usage.taskSummary")}
           </span>
-          <span className="flex-1 min-w-0 truncate text-[12.5px] tabular-nums text-kin-secondary">
+          <span className="flex-1 min-w-0 truncate text-body tabular-nums text-kin-secondary">
             <span className="text-kin-text font-medium">{totalTokens}</span>
             <span className="text-kin-muted"> · </span>
             <span>{spend}</span>
             {costBadge ? (
               <span
-                className="ml-1 align-middle text-[10px] font-semibold uppercase tracking-wide text-kin-muted"
+                className="ml-1 align-middle text-micro font-semibold uppercase tracking-wide text-kin-muted"
                 title={costBadge.title}
               >
                 ({costBadge.label})
@@ -234,7 +234,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
               </>
             ) : null}
           </span>
-          <span className="shrink-0 text-[11.5px] font-medium text-kin-muted">
+          <span className="shrink-0 text-caption font-medium text-kin-muted">
             {open ? tr("usage.hideDetails") : tr("usage.showDetails")}
           </span>
         </button>
@@ -268,11 +268,11 @@ function Metric({
       ].join(" ")}
       title={title}
     >
-      <dt className="text-[10px] font-semibold uppercase tracking-wide text-kin-muted">{label}</dt>
+      <dt className="text-micro font-semibold uppercase tracking-wide text-kin-muted">{label}</dt>
       <dd
         className={[
           "mt-0.5 truncate font-semibold tabular-nums",
-          dense ? "text-[13px]" : "text-[15px]",
+          dense ? "text-strong" : "text-subtitle",
         ].join(" ")}
       >
         {value}

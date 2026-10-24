@@ -80,11 +80,11 @@ export default function MermaidBlock({
           .filter(Boolean)
           .join(" ")}
       >
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-kin-red">
+        <div className="mb-2 text-caption font-semibold uppercase tracking-wide text-kin-red">
           Mermaid
         </div>
-        <p className="mb-2 text-[12px] text-kin-red">{error}</p>
-        <pre className="whitespace-pre-wrap text-[12px] font-mono text-kin-secondary">{code}</pre>
+        <p className="mb-2 text-body text-kin-red">{error}</p>
+        <pre className="whitespace-pre-wrap text-body font-mono text-kin-secondary">{code}</pre>
       </div>
     );
   }
@@ -93,7 +93,7 @@ export default function MermaidBlock({
     return (
       <div
         className={[
-          "rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-6 text-center text-[12px] text-kin-muted",
+          "rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-6 text-center text-body text-kin-muted",
           className,
         ]
           .filter(Boolean)

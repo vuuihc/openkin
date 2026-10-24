@@ -12,7 +12,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
   return (
     <div
       className={[
-        "kin-md space-y-2.5 text-[14px] sm:text-[15px] text-kin-text leading-relaxed break-words",
+        "kin-md space-y-2.5 text-strong sm:text-subtitle text-kin-text leading-relaxed break-words",
         className,
       ]
         .filter(Boolean)
@@ -26,10 +26,10 @@ export default function Markdown({ text, className = "" }: { text: string; class
           return (
             <pre
               key={i}
-              className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-3 text-[12px] sm:text-[12.5px] font-mono text-kin-secondary"
+              className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-3 text-body font-mono text-kin-secondary"
             >
               {b.lang ? (
-                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-kin-muted">
+                <div className="mb-1.5 text-micro font-semibold uppercase tracking-wide text-kin-muted">
                   {b.lang}
                 </div>
               ) : null}
@@ -41,10 +41,10 @@ export default function Markdown({ text, className = "" }: { text: string; class
           const Tag = b.type;
           const size =
             b.type === "h1"
-              ? "text-[16px] sm:text-[17px] font-semibold mt-1"
+              ? "text-subtitle sm:text-title font-semibold mt-1"
               : b.type === "h2"
-                ? "text-[15px] sm:text-[16px] font-semibold mt-0.5"
-                : "text-[14px] sm:text-[15px] font-semibold";
+                ? "text-subtitle font-semibold mt-0.5"
+                : "text-strong sm:text-subtitle font-semibold";
           return (
             <Tag key={i} className={`${size} text-kin-text`}>
               {inline(b.value)}
@@ -89,7 +89,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
         if (b.type === "table") {
           return (
             <div key={i} className="overflow-x-auto rounded-lg border border-[var(--kin-hairline)]">
-              <table className="w-full min-w-[240px] border-collapse text-left text-[13px] sm:text-[13.5px]">
+              <table className="w-full min-w-[240px] border-collapse text-left text-strong">
                 <thead className="bg-[var(--kin-fill)]">
                   <tr>
                     {b.header.map((cell, j) => (
@@ -319,7 +319,7 @@ function inline(s: string): ReactNode[] {
       parts.push(
         <code
           key={key++}
-          className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-[12px] sm:text-[12.5px] font-mono text-kin-blue"
+          className="rounded bg-[var(--kin-fill-strong)] px-1 py-0.5 text-body font-mono text-kin-blue"
         >
           {tok.slice(1, -1)}
         </code>,

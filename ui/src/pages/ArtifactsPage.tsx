@@ -99,8 +99,8 @@ export default function ArtifactsPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-semibold tracking-tight">{tr("artifacts.title")}</h1>
-            <p className="text-[13px] text-kin-muted mt-0.5">{tr("artifacts.subtitle")}</p>
+            <h1 className="text-hero font-semibold tracking-tight">{tr("artifacts.title")}</h1>
+            <p className="text-strong text-kin-muted mt-0.5">{tr("artifacts.subtitle")}</p>
           </div>
         </div>
 
@@ -117,7 +117,7 @@ export default function ArtifactsPage() {
               type="button"
               onClick={() => setFilter(k)}
               className={[
-                "px-3 py-1.5 rounded-lg text-[13px] font-medium min-h-[36px]",
+                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-[36px]",
                 filter === k
                   ? "bg-kin-blue text-white"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -128,12 +128,12 @@ export default function ArtifactsPage() {
           ))}
         </div>
 
-        {error && <p className="mt-4 text-[13px] text-kin-red">{error}</p>}
+        {error && <p className="mt-4 text-strong text-kin-red">{error}</p>}
         {items === null && !error && (
           <div className="mt-6">{slow ? <SlowConnectHint show /> : <TaskListSkeleton />}</div>
         )}
         {items && visible.length === 0 && (
-          <p className="mt-10 text-center text-[14px] text-kin-muted">{tr("artifacts.empty")}</p>
+          <p className="mt-10 text-center text-strong text-kin-muted">{tr("artifacts.empty")}</p>
         )}
         {items && visible.length > 0 && (
           <ul className="mt-5 space-y-1.5">
@@ -153,19 +153,19 @@ export default function ArtifactsPage() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[14.5px] font-medium text-kin-text truncate">
+                      <span className="text-subtitle font-medium text-kin-text truncate">
                         {a.title}
                       </span>
-                      <span className="text-[11px] font-medium px-1.5 py-0.5 rounded-md bg-[var(--kin-fill-strong)] text-kin-secondary">
+                      <span className="text-caption font-medium px-1.5 py-0.5 rounded-md bg-[var(--kin-fill-strong)] text-kin-secondary">
                         {kindLabel(a.kind, tr)}
                       </span>
                       {a.status === "proposed" && (
-                        <span className="text-[11px] text-kin-muted">
+                        <span className="text-caption text-kin-muted">
                           {tr("artifacts.statusProposed")}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-kin-muted">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-body text-kin-muted">
                       <span>{formatWhen(a.created_at)}</span>
                       <span>·</span>
                       <span>{formatBytes(a.size)}</span>
@@ -188,7 +188,7 @@ export default function ArtifactsPage() {
                       type="button"
                       disabled={busyId === a.id}
                       onClick={(e) => void onArchive(a.id, e)}
-                      className="shrink-0 px-2.5 py-1 rounded-md text-[12px] font-medium text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-40"
+                      className="shrink-0 px-2.5 py-1 rounded-md text-body font-medium text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-40"
                     >
                       {tr("artifacts.archive")}
                     </button>

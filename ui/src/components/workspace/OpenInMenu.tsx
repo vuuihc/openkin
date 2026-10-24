@@ -90,7 +90,7 @@ export default function OpenInMenu({ root, relativePath }: Props) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={!absPath}
-        className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[11.5px] text-kin-secondary hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors disabled:opacity-40"
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-caption text-kin-secondary hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors disabled:opacity-40"
         title={t("workspace.openWith.title")}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -105,14 +105,12 @@ export default function OpenInMenu({ root, relativePath }: Props) {
           className="absolute right-0 top-full mt-1 z-30 min-w-[168px] max-w-[240px] rounded-lg border border-kin-border bg-kin-elevated shadow-window py-1"
         >
           {apps === null && (
-            <div className="px-3 py-2 text-[12px] text-kin-muted">
+            <div className="px-3 py-2 text-body text-kin-muted">
               {t("workspace.openWith.detecting")}
             </div>
           )}
           {apps && apps.length === 0 && (
-            <div className="px-3 py-2 text-[12px] text-kin-muted">
-              {t("workspace.openWith.none")}
-            </div>
+            <div className="px-3 py-2 text-body text-kin-muted">{t("workspace.openWith.none")}</div>
           )}
           {apps?.map((app) => (
             <button
@@ -121,13 +119,13 @@ export default function OpenInMenu({ root, relativePath }: Props) {
               role="menuitem"
               disabled={busy}
               onClick={() => void handleOpen(app)}
-              className="w-full text-left px-3 py-1.5 text-[12.5px] text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors disabled:opacity-50"
+              className="w-full text-left px-3 py-1.5 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors disabled:opacity-50"
             >
               {labelFor(app)}
             </button>
           ))}
           {error && (
-            <div className="px-3 py-1.5 text-[11px] text-kin-red border-t border-[var(--kin-hairline)]">
+            <div className="px-3 py-1.5 text-caption text-kin-red border-t border-[var(--kin-hairline)]">
               {error}
             </div>
           )}

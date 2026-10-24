@@ -246,15 +246,17 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
         <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
           <IconTerminal size={14} className="flex-none text-kin-muted" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[12px] font-semibold text-kin-text">
+            <div className="truncate text-body font-semibold text-kin-text">
               {tr("terminal.title")}
             </div>
             {effectiveCwd ? (
-              <div className="truncate font-mono text-[11px] text-kin-muted" title={effectiveCwd}>
+              <div className="truncate font-mono text-caption text-kin-muted" title={effectiveCwd}>
                 {projectLabel(effectiveCwd)} · {shortPath(effectiveCwd, 48)}
               </div>
             ) : (
-              <div className="truncate text-[11px] text-kin-muted">{tr("terminal.noSessions")}</div>
+              <div className="truncate text-caption text-kin-muted">
+                {tr("terminal.noSessions")}
+              </div>
             )}
           </div>
 
@@ -262,7 +264,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
             <div className="flex items-center overflow-hidden rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]">
               <button
                 type="button"
-                className="flex items-center gap-1 px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center gap-1 px-2 py-1 text-body text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => {
                   setMenuOpen(false);
                   void handleCreateSession(defaultCreateId);
@@ -316,7 +318,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
         </div>
 
         {notice ? (
-          <div className="flex-none border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-1.5 text-[11.5px] text-kin-secondary">
+          <div className="flex-none border-b border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-1.5 text-caption text-kin-secondary">
             {notice}
           </div>
         ) : null}
@@ -333,7 +335,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {loadingProfiles || loadingSessions ? (
             <div className="flex h-full items-center justify-center text-kin-muted">
-              <span className="text-[13px]">{tr("terminal.loading")}</span>
+              <span className="text-strong">{tr("terminal.loading")}</span>
             </div>
           ) : sessions.length > 0 ? (
             sessions.map((session) => {
@@ -355,14 +357,14 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
             })
           ) : profiles.length === 0 ? (
             <div className="flex h-full items-center justify-center text-kin-muted">
-              <span className="text-[13px]">{tr("terminal.noProfiles")}</span>
+              <span className="text-strong">{tr("terminal.noProfiles")}</span>
             </div>
           ) : !effectiveCwd ? (
             <div className="flex h-full flex-col items-center justify-center gap-3">
-              <span className="text-[13px] text-kin-secondary">{tr("terminal.noSessions")}</span>
+              <span className="text-strong text-kin-secondary">{tr("terminal.noSessions")}</span>
               <button
                 type="button"
-                className="rounded-md bg-kin-blue px-3 py-1.5 text-[12px] text-white transition-all hover:brightness-110"
+                className="rounded-md bg-kin-blue px-3 py-1.5 text-body text-white transition-all hover:brightness-110"
                 onClick={async () => {
                   try {
                     const chosen = await pickDirectory();
@@ -377,13 +379,13 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-kin-muted">
-              <span className="text-[13px]">{tr("terminal.noSessions")}</span>
+              <span className="text-strong">{tr("terminal.noSessions")}</span>
             </div>
           )}
         </div>
 
         {(createError || closeError) && (
-          <div className="flex-none border-t border-kin-orange/25 bg-kin-orange/10 px-3 py-2 text-[12px] text-kin-orange">
+          <div className="flex-none border-t border-kin-orange/25 bg-kin-orange/10 px-3 py-2 text-body text-kin-orange">
             {createError || closeError}
           </div>
         )}

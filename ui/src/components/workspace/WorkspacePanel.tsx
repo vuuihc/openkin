@@ -457,7 +457,7 @@ export default function WorkspacePanel({
         <IconPanel size={14} className="text-kin-muted flex-none" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-[12px] font-semibold text-kin-text truncate">
+            <span className="text-body font-semibold text-kin-text truncate">
               {tr("workspace.title")}
             </span>
             {onSelectWorkspace && (
@@ -469,7 +469,7 @@ export default function WorkspacePanel({
               />
             )}
           </div>
-          <div className="text-[11px] text-kin-muted font-mono truncate" title={cwd}>
+          <div className="text-caption text-kin-muted font-mono truncate" title={cwd}>
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
           </div>
         </div>
@@ -483,7 +483,7 @@ export default function WorkspacePanel({
             type="button"
             onClick={onPublish}
             title={tr("publish.hint")}
-            className="flex-none inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[11.5px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)]"
+            className="flex-none inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-caption text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)]"
           >
             <IconSend size={12} />
             {tr("publish.action")}
@@ -495,7 +495,7 @@ export default function WorkspacePanel({
             disabled={actionsBusy || !hasChanges}
             onClick={() => void onDiscardAll()}
             title={tr("workspace.changed.discardAllHint")}
-            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-[11.5px] disabled:opacity-50"
+            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
           >
             {tr("workspace.changed.discardAll")}
           </button>
@@ -553,7 +553,7 @@ export default function WorkspacePanel({
               // changes it will describe at once, and the rest of them are not
               // "no changes". It belongs to the changes tab, not to the panel:
               // the tree has its own answer and its own notice.
-              <div className="flex-none px-3 py-1.5 text-[11px] text-kin-muted border-b border-[var(--kin-hairline)]">
+              <div className="flex-none px-3 py-1.5 text-caption text-kin-muted border-b border-[var(--kin-hairline)]">
                 {tr("workspace.changed.truncated")}
               </div>
             )}
@@ -676,7 +676,7 @@ export default function WorkspacePanel({
             // the editor chunk off the wire for the common case of opening the
             // panel before picking a file — which is what the header's Files
             // button does.
-            <div className="h-full flex items-center justify-center text-sm text-kin-muted px-6 text-center">
+            <div className="h-full flex items-center justify-center text-strong leading-5 text-kin-muted px-6 text-center">
               {tr("workspace.viewer.empty")}
             </div>
           )}
@@ -694,7 +694,7 @@ function ViewerLoading() {
       // The chunk fetch is a real wait, and it replaced a node Monaco used to
       // render immediately; without this a screen reader gets silence.
       role="status"
-      className="flex flex-1 items-center justify-center gap-2 text-[13px] text-kin-muted"
+      className="flex flex-1 items-center justify-center gap-2 text-strong text-kin-muted"
     >
       <IconSpinner size={14} strokeWidth={2} />
       {t("workspace.viewer.loading")}
@@ -739,7 +739,7 @@ function TabButton({
       disabled={disabled}
       onClick={onClick}
       className={[
-        "flex-1 min-w-0 truncate rounded-md px-2 py-1 text-[11.5px] font-medium transition-colors",
+        "flex-1 min-w-0 truncate rounded-md px-2 py-1 text-caption font-medium transition-colors",
         disabled ? "opacity-40 cursor-not-allowed" : "",
         active
           ? "bg-kin-elevated text-kin-text shadow-sm border border-[var(--kin-hairline)]"

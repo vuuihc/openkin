@@ -115,7 +115,7 @@ export default function MachineBrowser({
               onClick={() => setTab(id)}
               aria-current={tab === id}
               className={[
-                "rounded-t-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors",
+                "rounded-t-lg px-3 py-1.5 text-body font-medium transition-colors",
                 tab === id
                   ? "text-kin-blue border-b-2 border-kin-blue"
                   : "text-kin-muted border-b-2 border-transparent hover:text-kin-secondary",
@@ -127,7 +127,7 @@ export default function MachineBrowser({
           <button
             type="button"
             onClick={onClose}
-            className="ml-auto flex-none px-2 py-1.5 text-[12px] text-kin-muted hover:text-kin-secondary"
+            className="ml-auto flex-none px-2 py-1.5 text-body text-kin-muted hover:text-kin-secondary"
           >
             {tr("browse.close")}
           </button>
@@ -142,7 +142,7 @@ export default function MachineBrowser({
             <button
               type="button"
               onClick={onTypePath}
-              className="text-[11.5px] font-medium text-kin-blue hover:underline"
+              className="text-caption font-medium text-kin-blue hover:underline"
             >
               {tr("browse.typePath")}
             </button>
@@ -227,7 +227,7 @@ function FolderTab({
     <>
       <div className="flex-none border-b border-[var(--kin-hairline)] px-3 py-2">
         <div
-          className="truncate font-mono text-[11.5px] text-kin-secondary"
+          className="truncate font-mono text-caption text-kin-secondary"
           title={path || undefined}
         >
           {path ? shortPath(path, 64) : tr("browse.roots")}
@@ -235,17 +235,15 @@ function FolderTab({
       </div>
 
       <ul className="flex-1 min-h-0 overflow-y-auto py-1">
-        {loading && (
-          <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.loading")}</li>
-        )}
+        {loading && <li className="px-3 py-2 text-body text-kin-muted">{tr("browse.loading")}</li>}
         {!loading && error && (
-          <li className="px-3 py-2 text-[12px] text-kin-orange">
+          <li className="px-3 py-2 text-body text-kin-orange">
             <div>{tr("browse.loadFailed")}</div>
             {/* The machine's own words, kept rather than replaced: a directory
                 this console cannot read may be gone, may be a file, may be
                 outside the roots that machine allows, or may be on a machine
                 that has since gone offline, and only the machine knows which. */}
-            <div className="mt-0.5 text-[11.5px] text-kin-muted">{error}</div>
+            <div className="mt-0.5 text-caption text-kin-muted">{error}</div>
           </li>
         )}
         {!loading && (
@@ -293,9 +291,9 @@ function FolderTab({
               roots,
               entries,
               failed: Boolean(error),
-            }) && <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.empty")}</li>}
+            }) && <li className="px-3 py-2 text-body text-kin-muted">{tr("browse.empty")}</li>}
             {!error && truncated && (
-              <li className="px-3 py-2 text-[11px] text-kin-muted">
+              <li className="px-3 py-2 text-caption text-kin-muted">
                 {tr("browse.truncated", { count: String(entries.length) })}
               </li>
             )}
@@ -314,7 +312,7 @@ function FolderTab({
           disabled={!folderPickable({ path, loading, failed: Boolean(error) })}
           onClick={() => onPick(path)}
           className={[
-            "w-full rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
+            "w-full rounded-lg px-3 py-2 text-strong font-medium transition-colors",
             "bg-kin-blue text-white disabled:opacity-40",
           ].join(" ")}
         >
@@ -392,7 +390,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
     <>
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <label className="text-[11.5px] text-kin-muted" htmlFor="kin-repo-name">
+          <label className="text-caption text-kin-muted" htmlFor="kin-repo-name">
             {tr("browse.repoHint")}
           </label>
           <div className="flex items-center gap-2">
@@ -412,7 +410,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
               spellCheck={false}
               className={[
                 "flex-1 min-w-0 rounded-md border border-[var(--kin-hairline-strong)]",
-                "bg-[var(--kin-fill)] px-2 py-1.5 text-[12.5px] font-mono",
+                "bg-[var(--kin-fill)] px-2 py-1.5 text-body font-mono",
                 "text-kin-text outline-none focus:border-kin-blue/50",
               ].join(" ")}
             />
@@ -420,7 +418,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
               type="button"
               disabled={busy || !named}
               onClick={() => void find()}
-              className="flex-none text-[12px] font-medium text-kin-blue disabled:opacity-40"
+              className="flex-none text-body font-medium text-kin-blue disabled:opacity-40"
             >
               {finding ? tr("browse.finding") : tr("browse.findBranches")}
             </button>
@@ -429,16 +427,16 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
 
         {found && (
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11.5px] text-kin-muted">{tr("browse.branch")}</span>
+            <span className="text-caption text-kin-muted">{tr("browse.branch")}</span>
             {(found.branches ?? []).length === 0 ? (
-              <span className="text-[12px] text-kin-muted">{tr("browse.noBranches")}</span>
+              <span className="text-body text-kin-muted">{tr("browse.noBranches")}</span>
             ) : (
               <select
                 value={branch}
                 onChange={(e) => setBranch(e.target.value)}
                 className={[
                   "w-full rounded-md border border-[var(--kin-hairline-strong)]",
-                  "bg-[var(--kin-fill)] px-2 py-1.5 text-[12.5px] font-mono",
+                  "bg-[var(--kin-fill)] px-2 py-1.5 text-body font-mono",
                   "text-kin-text outline-none focus:border-kin-blue/50",
                 ].join(" ")}
               >
@@ -450,14 +448,14 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
               </select>
             )}
             {found.truncated && (
-              <span className="text-[11px] text-kin-muted">
+              <span className="text-caption text-kin-muted">
                 {tr("browse.truncated", { count: String((found.branches ?? []).length) })}
               </span>
             )}
           </div>
         )}
 
-        {error && <div className="text-[12px] text-kin-orange">{error}</div>}
+        {error && <div className="text-body text-kin-orange">{error}</div>}
       </div>
 
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
@@ -465,7 +463,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
           type="button"
           disabled={busy || !named}
           onClick={() => void fetchIt()}
-          className="w-full rounded-lg px-3 py-2 text-[13px] font-medium bg-kin-blue text-white disabled:opacity-40"
+          className="w-full rounded-lg px-3 py-2 text-strong font-medium bg-kin-blue text-white disabled:opacity-40"
         >
           {fetching ? tr("browse.fetching") : tr("browse.fetch")}
         </button>
@@ -497,10 +495,10 @@ function Row({
       ].join(" ")}
     >
       {folder && <FolderIcon />}
-      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-kin-secondary">
+      <span className="min-w-0 flex-1 truncate font-mono text-body text-kin-secondary">
         {label}
       </span>
-      {hint && <span className="flex-none text-[10.5px] text-kin-muted">{hint}</span>}
+      {hint && <span className="flex-none text-caption text-kin-muted">{hint}</span>}
     </button>
   );
 }

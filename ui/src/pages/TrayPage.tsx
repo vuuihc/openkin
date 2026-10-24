@@ -81,8 +81,8 @@ export default function TrayPage() {
         <div className="w-[22px] h-[22px] rounded-md bg-gradient-to-br from-[#5e5ce6] to-[#3a3a8c] flex items-center justify-center mr-2">
           <IconKin size={12} className="text-white" />
         </div>
-        <span className="text-[14px] font-semibold">Kin</span>
-        <span className="ml-auto text-[11.5px] text-kin-muted inline-flex items-center gap-1.5">
+        <span className="text-strong font-semibold">Kin</span>
+        <span className="ml-auto text-caption text-kin-muted inline-flex items-center gap-1.5">
           <span
             className={[
               "w-1.5 h-1.5 rounded-full",
@@ -97,7 +97,7 @@ export default function TrayPage() {
         {/* Needs you */}
         {approvals.length > 0 && (
           <>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-orange px-1 pt-2 pb-1.5">
+            <div className="text-caption font-semibold uppercase tracking-wide text-kin-orange px-1 pt-2 pb-1.5">
               Needs you · {approvals.length}
             </div>
             <div className="space-y-2">
@@ -116,27 +116,29 @@ export default function TrayPage() {
                     key={a.id}
                     className="rounded-xl border border-[rgba(255,159,10,.5)] bg-gradient-to-b from-[rgba(255,159,10,.12)] to-[rgba(255,159,10,.03)] p-3"
                   >
-                    <div className="flex items-center gap-1.5 text-[12.5px]">
+                    <div className="flex items-center gap-1.5 text-body">
                       <IconFile size={14} className="text-kin-orange flex-none" />
                       <span className="font-semibold">{toolName}</span>
-                      <span className="ml-auto text-[10.5px] text-kin-muted">
+                      <span className="ml-auto text-caption text-kin-muted">
                         {a.task_agent || ""}
                       </span>
                     </div>
                     {path && (
-                      <div className="font-mono text-[11px] text-kin-secondary mt-1.5 truncate">
+                      <div className="font-mono text-caption text-kin-secondary mt-1.5 truncate">
                         {shortPath(path, 40)}
                       </div>
                     )}
                     {a.task_title && (
-                      <div className="text-[11px] text-kin-muted mt-1 truncate">{a.task_title}</div>
+                      <div className="text-caption text-kin-muted mt-1 truncate">
+                        {a.task_title}
+                      </div>
                     )}
                     <div className="flex gap-1.5 mt-2.5">
                       <button
                         type="button"
                         disabled={!!busy[a.id]}
                         onClick={() => void onDecide(a.id, "approved")}
-                        className="flex-1 py-1.5 rounded-lg bg-kin-orange text-[#1a1a1c] text-[12.5px] font-semibold disabled:opacity-50"
+                        className="flex-1 py-1.5 rounded-lg bg-kin-orange text-[#1a1a1c] text-body font-semibold disabled:opacity-50"
                       >
                         {busy[a.id] === "approved" ? "…" : "Approve"}
                       </button>
@@ -144,7 +146,7 @@ export default function TrayPage() {
                         type="button"
                         disabled={!!busy[a.id]}
                         onClick={() => void onDecide(a.id, "denied")}
-                        className="flex-1 py-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-[12.5px] font-semibold disabled:opacity-50"
+                        className="flex-1 py-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-body font-semibold disabled:opacity-50"
                       >
                         {busy[a.id] === "denied" ? "…" : "Deny"}
                       </button>
@@ -157,11 +159,11 @@ export default function TrayPage() {
         )}
 
         {/* Running */}
-        <div className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted px-1 pt-4 pb-1.5">
+        <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-1 pt-4 pb-1.5">
           Running · {running.length}
         </div>
         {running.length === 0 ? (
-          <p className="px-1 text-[12px] text-kin-muted">No active tasks</p>
+          <p className="px-1 text-body text-kin-muted">No active tasks</p>
         ) : (
           <div className="space-y-1.5">
             {running.map((t) => (
@@ -180,16 +182,16 @@ export default function TrayPage() {
                   ].join(" ")}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold truncate">
+                  <div className="text-strong font-semibold truncate">
                     {t.title || displayUserPrompt(t.prompt || "")}
                   </div>
-                  <div className="text-[11px] text-kin-muted mt-0.5">
+                  <div className="text-caption text-kin-muted mt-0.5">
                     {t.agent} · {t.status}
                   </div>
                 </div>
                 <div className="text-right tabular-nums flex-none">
-                  <div className="text-[12px] text-kin-secondary">{formatElapsed(t, now)}</div>
-                  <div className="text-[11px] text-kin-muted">{formatCost(t.cost_usd)}</div>
+                  <div className="text-body text-kin-secondary">{formatElapsed(t, now)}</div>
+                  <div className="text-caption text-kin-muted">{formatCost(t.cost_usd)}</div>
                 </div>
               </button>
             ))}
@@ -199,7 +201,7 @@ export default function TrayPage() {
         {/* Done today */}
         {doneToday.length > 0 && (
           <>
-            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted px-1 pt-4 pb-1.5">
+            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-1 pt-4 pb-1.5">
               Done today
             </div>
             <div className="space-y-0.5">
@@ -208,7 +210,7 @@ export default function TrayPage() {
                   key={t.id}
                   type="button"
                   onClick={() => openMain(`/tasks/${t.id}`)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)] text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-body text-kin-secondary hover:bg-[var(--kin-fill)] text-left"
                 >
                   <span className="truncate flex-1">
                     {t.title || displayUserPrompt(t.prompt || "")}
@@ -228,14 +230,14 @@ export default function TrayPage() {
         <button
           type="button"
           onClick={() => openMain("/")}
-          className="flex-1 py-2 rounded-lg bg-kin-blue text-white text-[13px] font-semibold"
+          className="flex-1 py-2 rounded-lg bg-kin-blue text-white text-strong font-semibold"
         >
           Open Kin
         </button>
         <button
           type="button"
           onClick={() => openMain("/new")}
-          className="flex-1 py-2 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-[13px] font-semibold"
+          className="flex-1 py-2 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-strong font-semibold"
         >
           New Chat
         </button>

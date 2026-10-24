@@ -219,7 +219,7 @@ export function DispatchSelector({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}
-        className={`text-[11px] font-medium px-2 py-1 rounded min-h-[28px] border truncate max-w-[220px] ${
+        className={`text-caption font-medium px-2 py-1 rounded min-h-[28px] border truncate max-w-[220px] ${
           open
             ? "border-kin-blue bg-kin-blue/10 text-kin-blue"
             : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
@@ -244,14 +244,14 @@ export function DispatchSelector({
           */
           className="absolute bottom-full right-0 sm:left-0 sm:right-auto mb-2 z-50 rounded-lg border border-[var(--kin-hairline)] bg-kin-panel p-3 shadow-lg w-[min(20rem,calc(100vw-2rem))] sm:w-auto sm:min-w-[240px] sm:max-w-[320px]"
         >
-          <div className="text-xs space-y-2">
+          <div className="text-body leading-4 space-y-2">
             {/* Mode toggle */}
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 disabled={disabled}
                 onClick={() => onChange({ mode: "auto" })}
-                className={`px-2 py-1 rounded text-[11px] font-medium min-h-[26px] ${
+                className={`px-2 py-1 rounded text-caption font-medium min-h-[26px] ${
                   mode === "auto"
                     ? "bg-kin-blue text-white"
                     : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
@@ -263,7 +263,7 @@ export function DispatchSelector({
                 type="button"
                 disabled={disabled}
                 onClick={() => onChange({ mode: "manual" })}
-                className={`px-2 py-1 rounded text-[11px] font-medium min-h-[26px] ${
+                className={`px-2 py-1 rounded text-caption font-medium min-h-[26px] ${
                   mode === "manual"
                     ? "bg-kin-blue text-white"
                     : "border border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]"
@@ -282,7 +282,7 @@ export function DispatchSelector({
                     onChange({ mode: "auto", team: e.target.value, objective: value.objective })
                   }
                   disabled={disabled}
-                  className="kin-input min-h-[32px] text-xs w-full"
+                  className="kin-input min-h-[32px] text-body leading-4 w-full"
                 >
                   <option value="">{tr("settings.routing.defaultTeamPlaceholder")}</option>
                   {enabledTeams.map((t) => (
@@ -297,7 +297,7 @@ export function DispatchSelector({
                     onChange({ mode: "auto", team: value.team, objective: e.target.value })
                   }
                   disabled={disabled}
-                  className="kin-input min-h-[32px] text-xs w-full"
+                  className="kin-input min-h-[32px] text-body leading-4 w-full"
                 >
                   <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
                   <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
@@ -315,7 +315,7 @@ export function DispatchSelector({
                   value={value.agent || ""}
                   onChange={(e) => onChange({ mode: "manual", agent: e.target.value })}
                   disabled={disabled}
-                  className="kin-input min-h-[32px] text-xs w-full"
+                  className="kin-input min-h-[32px] text-body leading-4 w-full"
                 >
                   <option value="">{tr("dispatch.agentPlaceholder")}</option>
                   {agents.map((a) => (
@@ -335,7 +335,7 @@ export function DispatchSelector({
                     })
                   }
                   disabled={disabled || !value.agent}
-                  className="kin-input min-h-[32px] text-xs w-full"
+                  className="kin-input min-h-[32px] text-body leading-4 w-full"
                 >
                   <option value="">{tr("dispatch.providerPlaceholder")}</option>
                   {compatibleProviders.map((p) => (
@@ -357,7 +357,7 @@ export function DispatchSelector({
                       })
                     }
                     disabled={disabled || !value.provider}
-                    className="kin-input min-h-[32px] text-xs w-full"
+                    className="kin-input min-h-[32px] text-body leading-4 w-full"
                   >
                     <option value="">{tr("dispatch.modelPlaceholder")}</option>
                     {providerModels.map((m: ModelSpec) => (
@@ -367,7 +367,9 @@ export function DispatchSelector({
                     ))}
                   </select>
                 ) : value.provider ? (
-                  <div className="text-xs text-kin-warning px-1">{tr("dispatch.noModels")}</div>
+                  <div className="text-body leading-4 text-kin-warning px-1">
+                    {tr("dispatch.noModels")}
+                  </div>
                 ) : null}
               </div>
             )}
@@ -378,7 +380,7 @@ export function DispatchSelector({
               <button
                 type="button"
                 onClick={() => setShowPreview((v) => !v)}
-                className="text-[10px] text-kin-blue hover:underline"
+                className="text-micro text-kin-blue hover:underline"
               >
                 {showPreview ? tr("dispatch.hidePreview") : tr("dispatch.showPreview")}
               </button>
@@ -387,18 +389,16 @@ export function DispatchSelector({
             {showPreview && (
               <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]/40">
                 {loading && (
-                  <span className="text-[10px] text-kin-muted">
-                    {tr("dispatch.loadingPreview")}
-                  </span>
+                  <span className="text-micro text-kin-muted">{tr("dispatch.loadingPreview")}</span>
                 )}
-                {error && <span className="text-[10px] text-kin-red">{error}</span>}
+                {error && <span className="text-micro text-kin-red">{error}</span>}
                 {preview?.blocked && (
-                  <span className="text-[10px] text-kin-red block">
+                  <span className="text-micro text-kin-red block">
                     {preview.blocked_reason || tr("settings.routing.blocked")}
                   </span>
                 )}
                 {preview?.phases.map((p) => (
-                  <div key={p.phase} className="flex items-center gap-2 text-[10px]">
+                  <div key={p.phase} className="flex items-center gap-2 text-micro">
                     <span className="font-mono font-semibold text-kin-secondary w-14">
                       {p.phase}
                     </span>

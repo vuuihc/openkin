@@ -39,20 +39,22 @@ export default class ErrorBoundary extends Component<Props, State> {
             className="max-w-md w-full rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 space-y-3"
             role="alert"
           >
-            <div className="text-sm font-semibold text-[#ff8a80]">{t("task.loadFailed")}</div>
-            <p className="text-[13px] text-kin-secondary break-words">{message}</p>
+            <div className="text-strong leading-5 font-semibold text-[#ff8a80]">
+              {t("task.loadFailed")}
+            </div>
+            <p className="text-strong text-kin-secondary break-words">{message}</p>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={this.reset}
-                className="rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-3 py-1.5 text-[13px] font-medium text-kin-text hover:bg-[var(--kin-fill-strong)]"
+                className="rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-3 py-1.5 text-strong font-medium text-kin-text hover:bg-[var(--kin-fill-strong)]"
               >
                 Retry
               </button>
               <button
                 type="button"
                 onClick={() => window.location.assign("/")}
-                className="rounded-lg border border-[var(--kin-hairline-strong)] px-3 py-1.5 text-[13px] font-medium text-kin-muted hover:text-kin-text"
+                className="rounded-lg border border-[var(--kin-hairline-strong)] px-3 py-1.5 text-strong font-medium text-kin-muted hover:text-kin-text"
               >
                 Home
               </button>

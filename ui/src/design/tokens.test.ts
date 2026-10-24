@@ -3,16 +3,18 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { PRESENTED_TOKENS } from "../pages/DesignSystemPage";
+import { ROLE_PREVIEW, TYPE_ROLES, WEIGHT_CLASS } from "./type";
 
 /**
- * The token layer's own consistency.
+ * The design layer's own consistency: the colour tokens and the type ladder.
  *
  * Everything here is a property of two files and the code between them, so it
- * needs no browser: `design/theme.css` declares, components reference, and
- * these tests are the only thing that has ever compared the two. Before them,
- * four references pointed at names that were never defined and nothing
- * noticed — a panel width built from `--kin-ws-sidebar` silently became `auto`,
- * and a checkbox's accent built from `--kin-blue` did nothing at all.
+ * needs no browser: `design/theme.css` declares, `design/type.ts` names the
+ * sizes, components reference, and these tests are the only thing that has ever
+ * compared them. Before them, four references pointed at names that were never
+ * defined and nothing noticed — a panel width built from `--kin-ws-sidebar`
+ * silently became `auto`, and a checkbox's accent built from `--kin-blue` did
+ * nothing at all.
  *
  * (This comment names tokens without the `var(` in front of them on purpose:
  * the reference scan reads this file too, and a mention in prose is not a use.)
@@ -105,7 +107,7 @@ describe("design tokens", () => {
   it("resolves every var(--kin-*) the code references", () => {
     const defined = new Set(Object.keys(DARK));
     const dangling: string[] = [];
-    const files = [...sourceFiles(), join(UI, "tailwind.config.js")];
+    const files = [...sourceFiles(), join(UI, "tailwind.config.ts")];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       for (const [, name] of source.matchAll(/var\((--kin-[a-z0-9-]+)/g)) {
@@ -156,6 +158,56 @@ describe("design tokens", () => {
           });
         }
       }
+    }
+  });
+
+  it("leaves no font size outside the type ladder", () => {
+    // `theme.fontSize` is assigned, not extended, so a leftover default name
+    // emits no CSS at all and the element silently inherits its parent's size.
+    const leftovers: string[] = [];
+    const old = /text-(?:\[[0-9.]+px\]|xs|sm|base|lg|xl|2xl|3xl|4xl)(?![\w-])/g;
+    for (const file of sourceFiles()) {
+      for (const [match] of readFileSync(file, "utf8").matchAll(old)) {
+        leftovers.push(`${relative(UI, file)}: ${match}`);
+      }
+    }
+    expect(leftovers).toEqual([]);
+  });
+
+  it("keeps every type role distinguishable from the others", () => {
+    const seen = new Map<string, string>();
+    for (const role of TYPE_ROLES) {
+      const key = `${role.px}/${role.weight}/${role.ink}`;
+      const clash = seen.get(key);
+      expect({ role: role.role, clashesWith: clash ?? null }).toEqual({
+        role: role.role,
+        clashesWith: null,
+      });
+      seen.set(key, role.role);
+    }
+    const ascending = [...TYPE_ROLES].sort((a, b) => a.px - b.px);
+    for (let i = 1; i < ascending.length; i++) {
+      const [lower, upper] = [ascending[i - 1], ascending[i]];
+      // One pixel apart is not a step: the role has to be told apart by weight
+      // or ink as well, or the two are the same role with a rounding error.
+      if (upper.px - lower.px !== 1) continue;
+      expect({
+        pair: `${lower.role}/${upper.role}`,
+        differs: lower.weight !== upper.weight || lower.ink !== upper.ink,
+      }).toEqual({ pair: `${lower.role}/${upper.role}`, differs: true });
+    }
+  });
+
+  it("previews every type role with the classes the role declares", () => {
+    expect(Object.keys(ROLE_PREVIEW).sort()).toEqual(TYPE_ROLES.map((r) => r.role).sort());
+    for (const role of TYPE_ROLES) {
+      const classes = ROLE_PREVIEW[role.role].split(/\s+/);
+      // Tailwind only sees class names that appear verbatim, so the preview
+      // cannot be assembled from the role; it is checked against it instead.
+      expect(classes).toContain(`text-${role.role}`);
+      expect(classes).toContain(WEIGHT_CLASS[role.weight]);
+      expect(classes).toContain(`text-kin-${role.ink}`);
+      expect(DARK[`--kin-${role.ink}`]).toBeDefined();
     }
   });
 });

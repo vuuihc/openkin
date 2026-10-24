@@ -79,10 +79,10 @@ export function RoutingDefaultsSection() {
 
   return (
     <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-      <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+      <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
         {tr("settings.routing.heading")}
       </h2>
-      <p className="text-xs text-kin-muted">{tr("settings.routing.desc")}</p>
+      <p className="text-body leading-4 text-kin-muted">{tr("settings.routing.desc")}</p>
 
       <label className="flex items-center gap-2 cursor-pointer">
         <input
@@ -92,10 +92,10 @@ export function RoutingDefaultsSection() {
           className="mt-1"
         />
         <span className="space-y-0.5">
-          <span className="block text-xs font-medium text-kin-secondary">
+          <span className="block text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.routing.enabled")}
           </span>
-          <span className="block text-[11px] text-kin-muted">
+          <span className="block text-caption text-kin-muted">
             {tr("settings.routing.enabledHint")}
           </span>
         </span>
@@ -104,7 +104,7 @@ export function RoutingDefaultsSection() {
       {enabled && (
         <>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.defaultTeam")}
             </span>
             <select
@@ -122,7 +122,7 @@ export function RoutingDefaultsSection() {
           </label>
 
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.objective")}
             </span>
             <select
@@ -139,7 +139,7 @@ export function RoutingDefaultsSection() {
           </label>
 
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.qualityFloor")}
             </span>
             <select
@@ -160,13 +160,16 @@ export function RoutingDefaultsSection() {
           </label>
 
           <fieldset className="space-y-2">
-            <legend className="text-xs font-medium text-kin-secondary">
+            <legend className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.forcePhases")}
             </legend>
-            <p className="text-[11px] text-kin-muted">{tr("settings.routing.forcePhasesHint")}</p>
+            <p className="text-caption text-kin-muted">{tr("settings.routing.forcePhasesHint")}</p>
             <div className="flex flex-wrap gap-4">
               {(["plan", "execute", "review"] as const).map((phase) => (
-                <label key={phase} className="flex items-center gap-2 text-xs text-kin-secondary">
+                <label
+                  key={phase}
+                  className="flex items-center gap-2 text-body leading-4 text-kin-secondary"
+                >
                   <input
                     type="checkbox"
                     checked={forcePhases.includes(phase)}
@@ -187,7 +190,7 @@ export function RoutingDefaultsSection() {
           </fieldset>
 
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.maxAttempts")}
             </span>
             <input
@@ -201,7 +204,7 @@ export function RoutingDefaultsSection() {
           </label>
 
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.terminalPolicy")}
             </span>
             <select
@@ -223,10 +226,10 @@ export function RoutingDefaultsSection() {
               className="mt-1"
             />
             <span className="space-y-0.5">
-              <span className="block text-xs font-medium text-kin-secondary">
+              <span className="block text-body leading-4 font-medium text-kin-secondary">
                 {tr("settings.routing.manualFallback")}
               </span>
-              <span className="block text-[11px] text-kin-muted">
+              <span className="block text-caption text-kin-muted">
                 {tr("settings.routing.manualFallbackHint")}
               </span>
             </span>
@@ -244,9 +247,11 @@ export function RoutingDefaultsSection() {
           {busy ? tr("settings.saving") : tr("settings.routing.save")}
         </button>
         {saved && (
-          <span className="text-xs text-kin-green">{tr("settings.notify.savedShort")}</span>
+          <span className="text-body leading-4 text-kin-green">
+            {tr("settings.notify.savedShort")}
+          </span>
         )}
-        {error && <span className="text-xs text-kin-red">{error}</span>}
+        {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
       </div>
     </section>
   );
@@ -352,10 +357,10 @@ export function RoutingProfilesSection() {
     <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1 min-w-0">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {tr("settings.routing.profiles")}
           </h2>
-          <p className="text-[12px] text-kin-secondary leading-relaxed">
+          <p className="text-body text-kin-secondary leading-relaxed">
             {tr("settings.routing.profilesDesc")}
           </p>
         </div>
@@ -369,7 +374,7 @@ export function RoutingProfilesSection() {
       </div>
 
       {profiles.length === 0 && !editing ? (
-        <p className="text-[13px] text-kin-muted">{tr("settings.routing.noTeams")}</p>
+        <p className="text-strong text-kin-muted">{tr("settings.routing.noTeams")}</p>
       ) : (
         <ul className="space-y-2">
           {profiles.map((p) => (
@@ -379,17 +384,17 @@ export function RoutingProfilesSection() {
             >
               <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[13px] font-medium truncate">{p.name}</span>
+                  <span className="text-strong font-medium truncate">{p.name}</span>
                   {p.alias && (
-                    <span className="text-[10px] font-mono text-kin-muted">{p.alias}</span>
+                    <span className="text-micro font-mono text-kin-muted">{p.alias}</span>
                   )}
                   <span
-                    className={`text-[10px] font-semibold uppercase tracking-wide ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}
+                    className={`text-micro font-semibold uppercase tracking-wide ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}
                   >
                     {p.enabled ? "enabled" : "disabled"}
                   </span>
                 </div>
-                <p className="text-[11px] text-kin-muted font-mono truncate">
+                <p className="text-caption text-kin-muted font-mono truncate">
                   {p.id} · {Object.keys(p.phases).length} phase(s) ·{" "}
                   {p.default_objective || "balanced"}
                 </p>
@@ -398,14 +403,14 @@ export function RoutingProfilesSection() {
                 <button
                   type="button"
                   onClick={() => editProfile(p)}
-                  className="kin-btn-secondary text-[12px] min-h-[36px]"
+                  className="kin-btn-secondary text-body min-h-[36px]"
                 >
                   {tr("settings.provider.edit")}
                 </button>
                 <button
                   type="button"
                   onClick={() => deleteProfile(p.id)}
-                  className="kin-btn-secondary text-[12px] min-h-[36px] text-kin-red"
+                  className="kin-btn-secondary text-body min-h-[36px] text-kin-red"
                 >
                   {tr("settings.provider.delete")}
                 </button>
@@ -418,29 +423,29 @@ export function RoutingProfilesSection() {
       {/* Editing form */}
       {editing && (
         <div className="rounded-lg border border-[var(--kin-hairline)] p-3 space-y-3 bg-kin-elevated">
-          <h3 className="text-[12px] font-semibold text-kin-secondary">
+          <h3 className="text-body font-semibold text-kin-secondary">
             {isNew ? "New profile" : "Edit profile"}
           </h3>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.profileId")}
             </span>
             <input
               type="text"
               value={editing.id}
               onChange={(e) => setEditing({ ...editing, id: e.target.value })}
-              className="kin-input min-h-[44px] font-mono text-xs"
+              className="kin-input min-h-[44px] font-mono text-body leading-4"
               disabled={!isNew}
               placeholder={isNew ? slugFromName(editing.name) || "auto-generated" : ""}
             />
             {isNew && (
-              <span className="text-[10px] text-kin-muted">
+              <span className="text-micro text-kin-muted">
                 ID will be auto-generated from the name if left empty
               </span>
             )}
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.profileName")}
             </span>
             <input
@@ -459,17 +464,17 @@ export function RoutingProfilesSection() {
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.alias")}
             </span>
             <input
               type="text"
               value={editing.alias || ""}
               onChange={(e) => setEditing({ ...editing, alias: e.target.value })}
-              className="kin-input min-h-[44px] font-mono text-xs"
+              className="kin-input min-h-[44px] font-mono text-body leading-4"
               placeholder="A"
             />
-            <span className="text-[11px] text-kin-muted">{tr("settings.routing.aliasHint")}</span>
+            <span className="text-caption text-kin-muted">{tr("settings.routing.aliasHint")}</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -477,12 +482,12 @@ export function RoutingProfilesSection() {
               checked={editing.enabled}
               onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
             />
-            <span className="text-xs text-kin-secondary">
+            <span className="text-body leading-4 text-kin-secondary">
               {tr("settings.routing.profileEnabled")}
             </span>
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.routing.defaultObjective")}
             </span>
             <select
@@ -501,7 +506,7 @@ export function RoutingProfilesSection() {
           {/* Phases */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-kin-secondary">Phases</span>
+              <span className="text-body leading-4 font-medium text-kin-secondary">Phases</span>
               <div className="flex gap-1">
                 {(["plan", "execute", "review", "chat"] as const).map((phase) => (
                   <button
@@ -509,7 +514,7 @@ export function RoutingProfilesSection() {
                     type="button"
                     disabled={!!editing.phases[phase]}
                     onClick={() => addPhase(phase)}
-                    className={`text-[10px] px-1.5 py-0.5 rounded border min-h-[22px] ${
+                    className={`text-micro px-1.5 py-0.5 rounded border min-h-[22px] ${
                       editing.phases[phase]
                         ? "border-kin-green bg-kin-green/10 text-kin-green cursor-default"
                         : "border-[var(--kin-hairline)] text-kin-muted hover:text-kin-blue hover:border-kin-blue"
@@ -526,33 +531,33 @@ export function RoutingProfilesSection() {
                 className="rounded border border-[var(--kin-hairline)] p-2 space-y-2"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-mono font-semibold text-kin-secondary">
+                  <span className="text-caption font-mono font-semibold text-kin-secondary">
                     {phase}
                   </span>
                   <button
                     type="button"
                     onClick={() => removePhase(phase)}
-                    className="text-[10px] text-kin-red hover:underline"
+                    className="text-micro text-kin-red hover:underline"
                   >
                     remove
                   </button>
                 </div>
                 <label className="block space-y-0.5">
-                  <span className="text-[10px] text-kin-muted">{tr("settings.routing.agent")}</span>
+                  <span className="text-micro text-kin-muted">{tr("settings.routing.agent")}</span>
                   <input
                     type="text"
                     value={pp.agent}
                     onChange={(e) => updatePhase(phase, "agent", e.target.value)}
-                    className="kin-input min-h-[36px] text-xs font-mono"
+                    className="kin-input min-h-[36px] text-body leading-4 font-mono"
                     placeholder="claude-code"
                   />
                 </label>
                 <label className="block space-y-0.5">
-                  <span className="text-[10px] text-kin-muted">{tr("settings.routing.tier")}</span>
+                  <span className="text-micro text-kin-muted">{tr("settings.routing.tier")}</span>
                   <select
                     value={pp.tier || "balanced"}
                     onChange={(e) => updatePhase(phase, "tier", e.target.value)}
-                    className="kin-input min-h-[36px] text-xs"
+                    className="kin-input min-h-[36px] text-body leading-4"
                   >
                     <option value="smart">smart</option>
                     <option value="balanced">balanced</option>
@@ -560,7 +565,7 @@ export function RoutingProfilesSection() {
                   </select>
                 </label>
                 <label className="block space-y-0.5">
-                  <span className="text-[10px] text-kin-muted">
+                  <span className="text-micro text-kin-muted">
                     {tr("settings.routing.providerPriority")}
                   </span>
                   <input
@@ -576,12 +581,12 @@ export function RoutingProfilesSection() {
                           .filter(Boolean),
                       )
                     }
-                    className="kin-input min-h-[36px] text-xs font-mono"
+                    className="kin-input min-h-[36px] text-body leading-4 font-mono"
                     placeholder="provider-1, provider-2"
                   />
                 </label>
                 <label className="block space-y-0.5">
-                  <span className="text-[10px] text-kin-muted">
+                  <span className="text-micro text-kin-muted">
                     {tr("settings.routing.fallback")}
                   </span>
                   <input
@@ -597,7 +602,7 @@ export function RoutingProfilesSection() {
                           .filter(Boolean),
                       )
                     }
-                    className="kin-input min-h-[36px] text-xs font-mono"
+                    className="kin-input min-h-[36px] text-body leading-4 font-mono"
                     placeholder="next_provider_same_tier"
                   />
                 </label>
@@ -643,7 +648,7 @@ export function RoutingProfilesSection() {
       )}
 
       <div className="flex items-center gap-3">
-        {error && <span className="text-xs text-kin-red">{error}</span>}
+        {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
       </div>
     </section>
   );

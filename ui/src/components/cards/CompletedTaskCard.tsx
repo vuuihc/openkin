@@ -34,10 +34,10 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
         ].join(" ")}
       >
         <StatusIcon size={14} className={`${statusView.iconClass} flex-none`} />
-        <span className="text-[13px] text-kin-text truncate flex-1">
+        <span className="text-strong text-kin-text truncate flex-1">
           {task.title || displayUserPrompt(task.prompt || "")}
         </span>
-        <span className="text-[11.5px] text-kin-muted tabular-nums flex-none">{meta}</span>
+        <span className="text-caption text-kin-muted tabular-nums flex-none">{meta}</span>
       </button>
     );
   }
@@ -48,7 +48,7 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
         <IconStar size={14} className={statusView.iconClass} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] text-kin-muted mb-2">{tr("task.historySection")}</div>
+        <div className="text-strong text-kin-muted mb-2">{tr("task.historySection")}</div>
         <button
           type="button"
           onClick={onClick}
@@ -59,15 +59,15 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
         >
           <div className="flex items-center gap-2 min-w-0">
             <StatusIcon size={15} className={`${statusView.iconClass} flex-none`} />
-            <span className="text-[13.5px] font-semibold text-kin-text truncate">
+            <span className="text-strong font-semibold text-kin-text truncate">
               {task.title || displayUserPrompt(task.prompt || "")}
             </span>
-            <span className="ml-auto text-[11.5px] text-kin-muted tabular-nums flex-none">
+            <span className="ml-auto text-caption text-kin-muted tabular-nums flex-none">
               {meta}
             </span>
           </div>
           {summary && (
-            <div className="mt-1.5 pl-[23px] text-[12.5px] text-kin-secondary">{summary}</div>
+            <div className="mt-1.5 pl-[23px] text-body text-kin-secondary">{summary}</div>
           )}
         </button>
       </div>

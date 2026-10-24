@@ -339,10 +339,10 @@ export default function Composer({
     <form onSubmit={submit} className="relative">
       {menu === "slash" && (
         <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-[var(--kin-hairline-strong)] bg-kin-elevated shadow-card overflow-hidden z-20">
-          <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {tr("composer.slashActions")}
           </div>
-          <div className="px-3 py-2.5 text-[13px] text-kin-secondary">
+          <div className="px-3 py-2.5 text-strong text-kin-secondary">
             {tr("composer.slashTip")}
           </div>
         </div>
@@ -353,9 +353,9 @@ export default function Composer({
           role="listbox"
           aria-label={tr("composer.mentionTitle")}
         >
-          <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-kin-muted flex items-center justify-between">
+          <div className="px-3 py-2 text-caption font-semibold uppercase tracking-wide text-kin-muted flex items-center justify-between">
             <span>{tr("composer.mentionTitle")}</span>
-            <span className="normal-case tracking-normal font-normal text-[10.5px]">
+            <span className="normal-case tracking-normal font-normal text-caption">
               ↑↓ {tr("composer.mentionNav")} · ↵ {tr("composer.mentionSelect")}
             </span>
           </div>
@@ -368,7 +368,7 @@ export default function Composer({
                 role="option"
                 aria-selected={active}
                 className={
-                  "w-full flex items-center gap-3 px-3 py-2.5 text-left text-[13px] " +
+                  "w-full flex items-center gap-3 px-3 py-2.5 text-left text-strong " +
                   (active ? "bg-kin-blue/15 text-kin-text" : "hover:bg-[var(--kin-fill-strong)]")
                 }
                 onMouseEnter={() => setMentionIndex(i)}
@@ -415,8 +415,8 @@ export default function Composer({
                     <>
                       <IconFile size={14} className="text-kin-muted shrink-0" />
                       <div className="min-w-0">
-                        <div className="text-[12px] text-kin-text truncate">{a.name}</div>
-                        <div className="text-[10.5px] text-kin-muted">{formatBytes(a.size)}</div>
+                        <div className="text-body text-kin-text truncate">{a.name}</div>
+                        <div className="text-caption text-kin-muted">{formatBytes(a.size)}</div>
                       </div>
                     </>
                   )}
@@ -487,7 +487,7 @@ export default function Composer({
             onBlur={() => setFocused(false)}
             placeholder={resolvedPlaceholder}
             className={[
-              "kin-scroll resize-none bg-transparent text-[14px] text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
+              "kin-scroll resize-none bg-transparent text-strong text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
               expanded
                 ? "w-full min-h-[44px] leading-[1.45]"
                 : "flex-1 min-w-0 min-h-[28px] leading-[1.35]",
@@ -516,11 +516,11 @@ export default function Composer({
               <IconImage size={expanded ? 15 : 14} />
             </button>
             {uploading && (
-              <span className="text-[11.5px] text-kin-muted">{tr("composer.uploading")}</span>
+              <span className="text-caption text-kin-muted">{tr("composer.uploading")}</span>
             )}
             <span
               className={[
-                "text-[11.5px] text-kin-muted items-center gap-1",
+                "text-caption text-kin-muted items-center gap-1",
                 expanded ? "inline-flex" : "hidden",
               ].join(" ")}
             >
@@ -531,7 +531,7 @@ export default function Composer({
             </span>
             <span
               className={[
-                "text-[11.5px] text-kin-muted items-center gap-1",
+                "text-caption text-kin-muted items-center gap-1",
                 expanded ? "hidden sm:inline-flex" : "hidden",
               ].join(" ")}
             >

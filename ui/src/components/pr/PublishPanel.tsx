@@ -186,10 +186,10 @@ export default function PublishPanel({
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconSend size={14} className="flex-none text-kin-muted" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-semibold text-kin-text">
+          <div className="truncate text-body font-semibold text-kin-text">
             {tr("publish.title")}
           </div>
-          <div className="truncate text-[11px] text-kin-muted" title={machine.text}>
+          <div className="truncate text-caption text-kin-muted" title={machine.text}>
             {machine.known
               ? tr("publish.on", { name: machine.text })
               : tr("publish.onUnknown", { name: machine.text })}
@@ -211,14 +211,14 @@ export default function PublishPanel({
       <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 py-3">
         <div className="mx-auto max-w-[720px] space-y-3">
           {/* What is about to happen, before it happens. */}
-          <dl className="space-y-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5 text-[12px]">
+          <dl className="space-y-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5 text-body">
             <Row label={tr("publish.repoLabel")} value={repo ? shortRepo(repo) : ""} full={repo} />
             <Row label={tr("publish.branchLabel")} value={shownBranch} mono />
           </dl>
-          <p className="text-[11.5px] text-kin-muted">{tr("publish.what")}</p>
+          <p className="text-caption text-kin-muted">{tr("publish.what")}</p>
 
           <label className="block">
-            <span className="mb-1 block text-[11px] font-medium text-kin-muted">
+            <span className="mb-1 block text-caption font-medium text-kin-muted">
               {tr("publish.titleLabel")}
             </span>
             <input
@@ -233,12 +233,12 @@ export default function PublishPanel({
               // (The box counts UTF-16 units, so a title of emoji stops at 128:
               // earlier than the wire would, and never later.)
               maxLength={MAX_TITLE_CHARS}
-              className="w-full rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 text-[13px] text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
+              className="w-full rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 text-strong text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
             />
           </label>
 
           <label className="block">
-            <span className="mb-1 block text-[11px] font-medium text-kin-muted">
+            <span className="mb-1 block text-caption font-medium text-kin-muted">
               {tr("publish.bodyLabel")}
             </span>
             <textarea
@@ -247,7 +247,7 @@ export default function PublishPanel({
               placeholder={tr("publish.bodyPlaceholder")}
               disabled={working}
               rows={10}
-              className="w-full resize-y rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 font-mono text-[12px] leading-relaxed text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
+              className="w-full resize-y rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 font-mono text-body leading-relaxed text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
             />
           </label>
 
@@ -259,7 +259,7 @@ export default function PublishPanel({
                   href={report.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 text-[13px] font-medium text-kin-text hover:underline"
+                  className="flex items-center gap-1.5 text-strong font-medium text-kin-text hover:underline"
                 >
                   <IconPullRequest size={14} className="flex-none text-kin-green" />
                   <span>{tr("publish.published", { number: report.number })}</span>
@@ -270,21 +270,19 @@ export default function PublishPanel({
                 // would send the person looking for a pull request that is not
                 // there; the branch really is on the remote, and that is what
                 // this line claims.
-                <p className="flex items-start gap-1.5 text-[12.5px] text-kin-orange">
+                <p className="flex items-start gap-1.5 text-body text-kin-orange">
                   <IconAlert size={13} className="mt-0.5 flex-none" />
                   <span>{tr("publish.pushedNoPR")}</span>
                 </p>
               )}
-              {report.reason && (
-                <p className="mt-1 text-[11.5px] text-kin-muted">{report.reason}</p>
-              )}
+              {report.reason && <p className="mt-1 text-caption text-kin-muted">{report.reason}</p>}
             </div>
           )}
 
           {blocked && (
             <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2.5">
               {headline && (
-                <p className="flex items-start gap-1.5 text-[12.5px] text-kin-text">
+                <p className="flex items-start gap-1.5 text-body text-kin-text">
                   <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange" />
                   <span>{headline}</span>
                 </p>
@@ -298,8 +296,8 @@ export default function PublishPanel({
               <p
                 className={
                   headline
-                    ? "mt-1 text-[11.5px] leading-relaxed text-kin-muted"
-                    : "flex items-start gap-1.5 text-[12.5px] text-kin-text"
+                    ? "mt-1 text-caption leading-relaxed text-kin-muted"
+                    : "flex items-start gap-1.5 text-body text-kin-text"
                 }
               >
                 {!headline && <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange" />}
@@ -313,7 +311,7 @@ export default function PublishPanel({
                   type="button"
                   onClick={() => void escape()}
                   disabled={!canPublish}
-                  className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-[12px] disabled:opacity-50"
+                  className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-body disabled:opacity-50"
                 >
                   {escaping && <IconSpinner size={13} strokeWidth={2} />}
                   {tr("publish.escape")}
@@ -323,7 +321,7 @@ export default function PublishPanel({
           )}
 
           {error && (
-            <p className="flex items-start gap-1.5 text-[12px] text-kin-red">
+            <p className="flex items-start gap-1.5 text-body text-kin-red">
               <IconAlert size={13} className="mt-0.5 flex-none" />
               <span>{error}</span>
             </p>
@@ -334,13 +332,13 @@ export default function PublishPanel({
               type="button"
               onClick={() => void publish({ title: title.trim(), body })}
               disabled={!canPublish}
-              className="kin-btn-primary !min-h-0 !py-1.5 !px-3.5 text-[12.5px] disabled:opacity-50"
+              className="kin-btn-primary !min-h-0 !py-1.5 !px-3.5 text-body disabled:opacity-50"
             >
               {busy && <IconSpinner size={13} strokeWidth={2} />}
               {busy ? tr("publish.publishing") : tr("publish.action")}
             </button>
             {wordsRefusal && (
-              <span className="text-[11.5px] text-kin-muted">{tr(wordsRefusal)}</span>
+              <span className="text-caption text-kin-muted">{tr(wordsRefusal)}</span>
             )}
           </div>
         </div>
@@ -370,11 +368,11 @@ function Row({
   const tr = useT();
   return (
     <div className="flex items-baseline gap-2">
-      <dt className="w-[68px] flex-none text-[11px] text-kin-muted">{label}</dt>
+      <dt className="w-[68px] flex-none text-caption text-kin-muted">{label}</dt>
       <dd
         className={[
           "min-w-0 flex-1 truncate text-kin-text",
-          mono ? "font-mono text-[11.5px]" : "",
+          mono ? "font-mono text-caption" : "",
         ].join(" ")}
         title={full || value}
       >

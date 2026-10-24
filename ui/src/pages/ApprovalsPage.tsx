@@ -116,13 +116,11 @@ export default function ApprovalsPage() {
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-[640px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* One nav bar per phone screen: the shell's header carries this title
-            there (and is a heading itself), so the page does not repeat it 28px
-            tall underneath. `md`, not `sm`: the shell header is `md:hidden`, so
-            between the two the title would be on screen twice. */}
-        <h1 className="hidden text-[28px] font-bold tracking-tight md:block md:text-[32px]">
-          {tr("inbox.title")}
-        </h1>
-        <p className="text-[13.5px] text-kin-muted mt-1">
+            there (and is a heading itself), so the page does not repeat it a
+            step larger underneath. `md`, not `sm`: the shell header is
+            `md:hidden`, so between the two the title would be on screen twice. */}
+        <h1 className="hidden text-hero font-bold tracking-tight md:block">{tr("inbox.title")}</h1>
+        <p className="text-strong text-kin-muted mt-1">
           {loading
             ? tr("inbox.loading")
             : items.length + questions.length === 0
@@ -139,7 +137,7 @@ export default function ApprovalsPage() {
 
         {!loading && error && (
           <div
-            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]"
+            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
             role="alert"
           >
             {error}
@@ -152,14 +150,18 @@ export default function ApprovalsPage() {
           questions.length === 0 &&
           running.length === 0 && (
             <div className="mt-10 rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-16 text-center">
-              <p className="text-base font-medium text-kin-text">{tr("inbox.allClear")}</p>
-              <p className="mt-1 text-sm text-kin-secondary">{tr("inbox.allClearHint")}</p>
+              <p className="text-subtitle leading-6 font-medium text-kin-text">
+                {tr("inbox.allClear")}
+              </p>
+              <p className="mt-1 text-strong leading-5 text-kin-secondary">
+                {tr("inbox.allClearHint")}
+              </p>
             </div>
           )}
 
         {!loading && items.length > 0 && (
           <div className="mt-6">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
               {tr("inbox.approvalsSection")}
             </div>
             <ul className="space-y-3.5">
@@ -180,7 +182,7 @@ export default function ApprovalsPage() {
 
         {!loading && questions.length > 0 && (
           <div className="mt-8">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
               {tr("inbox.questionsSection")}
             </div>
             <ul className="space-y-3.5">
@@ -199,7 +201,7 @@ export default function ApprovalsPage() {
 
         {!loading && running.length > 0 && (
           <div className="mt-10">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+            <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
               {tr("inbox.running")}
             </div>
             <ul className="space-y-2.5">

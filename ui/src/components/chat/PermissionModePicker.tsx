@@ -43,7 +43,7 @@ export default function PermissionModePicker({
     return (
       <select
         className={[
-          "max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-[11px] font-medium",
+          "max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
           "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
           mode === "yolo" ? "text-[#ffb340]" : "text-kin-secondary",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
@@ -65,7 +65,7 @@ export default function PermissionModePicker({
 
   return (
     <div className="flex items-center min-w-0 gap-2">
-      <span className="text-[11.5px] text-kin-muted flex-none">{tr("permission.label")}</span>
+      <span className="text-caption text-kin-muted flex-none">{tr("permission.label")}</span>
       <div
         className={[
           "inline-flex items-center rounded-lg border border-[var(--kin-hairline-strong)] p-0.5 gap-0.5",
@@ -85,7 +85,7 @@ export default function PermissionModePicker({
               disabled={readOnly}
               onClick={() => onChange(opt)}
               className={[
-                "px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors",
+                "px-2 py-0.5 rounded-md text-caption font-medium transition-colors",
                 active
                   ? yolo
                     ? "bg-[rgba(255,159,10,.18)] text-[#ffb340]"
@@ -102,7 +102,7 @@ export default function PermissionModePicker({
         })}
       </div>
       {locked && (
-        <span className="text-[11px] text-kin-muted truncate">
+        <span className="text-caption text-kin-muted truncate">
           {tr("permission.sessionLocked")}
         </span>
       )}

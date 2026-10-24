@@ -402,7 +402,7 @@ export default function AgentsPage() {
           }`}
         >
           {children}
-          <span className="tabular-nums text-[10px] w-3">{sortIndicator(colKey)}</span>
+          <span className="tabular-nums text-micro w-3">{sortIndicator(colKey)}</span>
         </button>
       </th>
     );
@@ -412,11 +412,11 @@ export default function AgentsPage() {
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-[22px] font-semibold tracking-tight">{tr("agents.title")}</h1>
+          <h1 className="text-hero font-semibold tracking-tight">{tr("agents.title")}</h1>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className="kin-btn-secondary min-h-[40px] px-3 text-[13px]"
+              className="kin-btn-secondary min-h-[40px] px-3 text-strong"
               disabled={rechecking || smoking}
               onClick={() => void onRecheck()}
             >
@@ -424,7 +424,7 @@ export default function AgentsPage() {
             </button>
             <button
               type="button"
-              className="kin-btn-secondary min-h-[40px] px-3 text-[13px]"
+              className="kin-btn-secondary min-h-[40px] px-3 text-strong"
               disabled={smoking || rechecking}
               title={tr("agents.smokeHint")}
               onClick={() => void onSmoke()}
@@ -452,7 +452,7 @@ export default function AgentsPage() {
 
         {error && (
           <div
-            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]"
+            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
             role="alert"
           >
             {error}
@@ -478,10 +478,10 @@ export default function AgentsPage() {
                   key={c.label}
                   className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated px-4 py-3"
                 >
-                  <div className="text-[11px] text-kin-muted font-semibold uppercase tracking-wide">
+                  <div className="text-caption text-kin-muted font-semibold uppercase tracking-wide">
                     {c.label}
                   </div>
-                  <div className="mt-1 text-[22px] font-semibold tabular-nums tracking-tight">
+                  <div className="mt-1 text-hero font-semibold tabular-nums tracking-tight">
                     {c.value}
                   </div>
                 </div>
@@ -489,12 +489,12 @@ export default function AgentsPage() {
             </div>
 
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted mb-3">
+              <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted mb-3">
                 {tr("usage.dailySpend")}
               </div>
               <div className="flex items-stretch gap-1.5 h-28">
                 {byDay.length === 0 && (
-                  <p className="text-sm text-kin-muted">{tr("usage.noData")}</p>
+                  <p className="text-strong leading-5 text-kin-muted">{tr("usage.noData")}</p>
                 )}
                 {byDay.map(([date, cost]) => (
                   <div key={date} className="flex-1 flex flex-col items-center gap-1 min-w-0">
@@ -506,7 +506,7 @@ export default function AgentsPage() {
                         title={`${date}: ${formatCost(cost)}`}
                       />
                     </div>
-                    <span className="text-[10px] text-kin-muted truncate w-full text-center">
+                    <span className="text-micro text-kin-muted truncate w-full text-center">
                       {date.slice(5)}
                     </span>
                   </div>
@@ -518,8 +518,8 @@ export default function AgentsPage() {
 
         {agents !== null && (
           <div className="mt-6 overflow-x-auto rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated">
-            <table className="w-full min-w-[980px] text-left text-[13px]">
-              <thead className="bg-[var(--kin-fill)]/60 text-[11px] uppercase tracking-wide text-kin-muted">
+            <table className="w-full min-w-[980px] text-left text-strong">
+              <thead className="bg-[var(--kin-fill)]/60 text-caption uppercase tracking-wide text-kin-muted">
                 <tr>
                   <SortTh colKey="name">{tr("agents.colName")}</SortTh>
                   <SortTh colKey="status">{tr("agents.colStatus")}</SortTh>
@@ -595,13 +595,13 @@ export default function AgentsPage() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-medium text-kin-text">{a.name}</span>
                           {a.default ? (
-                            <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-[10px] font-semibold text-kin-blue">
+                            <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-micro font-semibold text-kin-blue">
                               {tr("agents.isDefault")}
                             </span>
                           ) : null}
                           {kindBadge ? (
                             <span
-                              className="rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-[10px] font-semibold text-kin-secondary"
+                              className="rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-micro font-semibold text-kin-secondary"
                               title={
                                 state === "generic" ? tr("agentCatalog.genericHint") : undefined
                               }
@@ -611,7 +611,7 @@ export default function AgentsPage() {
                           ) : null}
                         </div>
                         {a.id !== a.name ? (
-                          <div className="mt-0.5 font-mono text-[11px] text-kin-muted">{a.id}</div>
+                          <div className="mt-0.5 font-mono text-caption text-kin-muted">{a.id}</div>
                         ) : null}
                       </td>
                       <td
@@ -653,7 +653,7 @@ export default function AgentsPage() {
                         <div className="flex flex-col gap-1">
                           {spendProgress && limitStatus?.limit_spend_usd != null ? (
                             <span
-                              className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}
+                              className={`flex items-center gap-1.5 text-caption ${limitColorClass}`}
                             >
                               <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
                                 <span
@@ -672,7 +672,7 @@ export default function AgentsPage() {
                           ) : null}
                           {tokensProgress && limitStatus?.limit_tokens != null ? (
                             <span
-                              className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}
+                              className={`flex items-center gap-1.5 text-caption ${limitColorClass}`}
                             >
                               <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
                                 <span
@@ -690,7 +690,7 @@ export default function AgentsPage() {
                             </span>
                           ) : null}
                           {!spendProgress && !tokensProgress ? (
-                            <span className="text-[11px] text-kin-muted">—</span>
+                            <span className="text-caption text-kin-muted">—</span>
                           ) : null}
                         </div>
                       </td>
@@ -699,7 +699,7 @@ export default function AgentsPage() {
                           {a.available && !a.default ? (
                             <button
                               type="button"
-                              className="text-[12px] text-kin-blue hover:underline"
+                              className="text-body text-kin-blue hover:underline"
                               onClick={() => void onSetDefault(a.id)}
                             >
                               {tr("agents.setDefault")}
@@ -708,7 +708,7 @@ export default function AgentsPage() {
                           {!a.installed && a.install_url ? (
                             <button
                               type="button"
-                              className="text-[12px] text-kin-blue hover:underline"
+                              className="text-body text-kin-blue hover:underline"
                               title={tr("agentCatalog.installHint")}
                               onClick={() => openInstallURL(a.install_url)}
                             >
@@ -720,7 +720,7 @@ export default function AgentsPage() {
                               {!a.installed ? (
                                 <button
                                   type="button"
-                                  className="text-[12px] text-kin-blue hover:underline"
+                                  className="text-body text-kin-blue hover:underline"
                                   title={tr("agents.askInstallHint")}
                                   onClick={() => askDefaultAgentToInstall(a, m.install_cmd!)}
                                 >
@@ -729,7 +729,7 @@ export default function AgentsPage() {
                               ) : null}
                               <button
                                 type="button"
-                                className="text-[12px] text-kin-secondary hover:underline"
+                                className="text-body text-kin-secondary hover:underline"
                                 onClick={() => void copyText(m.install_cmd!)}
                               >
                                 {tr("agents.copyInstall")}
@@ -739,7 +739,7 @@ export default function AgentsPage() {
                           {m?.update_cmd && a.installed ? (
                             <button
                               type="button"
-                              className="text-[12px] text-kin-secondary hover:underline"
+                              className="text-body text-kin-secondary hover:underline"
                               onClick={() => void copyText(m.update_cmd!)}
                             >
                               {tr("agents.copyUpdate")}
@@ -752,7 +752,7 @@ export default function AgentsPage() {
                 })}
                 {sortedCatalog.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="px-4 py-6 text-sm text-kin-muted">
+                    <td colSpan={13} className="px-4 py-6 text-strong leading-5 text-kin-muted">
                       {tr("usage.noAgentUsage")}
                     </td>
                   </tr>

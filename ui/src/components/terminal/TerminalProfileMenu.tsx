@@ -104,7 +104,7 @@ export default function TerminalProfileMenu({
             type="button"
             role="menuitem"
             className={[
-              "w-full text-left px-3 py-1.5 text-[12.5px] transition-colors",
+              "w-full text-left px-3 py-1.5 text-body transition-colors",
               focused
                 ? "text-kin-text bg-[var(--kin-fill-strong)]"
                 : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -117,7 +117,7 @@ export default function TerminalProfileMenu({
           >
             <span className="truncate">{profile.name}</span>
             {profile.default && (
-              <span className="ml-2 text-[11px] text-kin-muted">
+              <span className="ml-2 text-caption text-kin-muted">
                 {tr("terminal.defaultProfile")}
               </span>
             )}

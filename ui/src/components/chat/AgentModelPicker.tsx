@@ -48,7 +48,7 @@ export default function AgentModelPicker({
       <div className="inline-flex items-center min-w-0 rounded-lg border border-[var(--kin-hairline-strong)] overflow-hidden">
         {agents.length > 1 ? (
           <select
-            className="max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-[11px] font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-blue/40 disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
+            className="max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-blue/40 disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
             value={agentValue}
             disabled={disabled}
             aria-label={tr("newChat.hostPicker")}
@@ -63,7 +63,7 @@ export default function AgentModelPicker({
           </select>
         ) : (
           <span
-            className="max-w-[7.5rem] truncate px-1.5 py-0.5 text-[11px] font-medium text-kin-secondary"
+            className="max-w-[7.5rem] truncate px-1.5 py-0.5 text-caption font-medium text-kin-secondary"
             title={selected?.name}
           >
             {selected?.name}
@@ -71,7 +71,7 @@ export default function AgentModelPicker({
         )}
         {generic && (
           <span
-            className="flex-none pr-1.5 text-[10px] text-kin-muted"
+            className="flex-none pr-1.5 text-micro text-kin-muted"
             title={tr("agentCatalog.genericHint")}
           >
             {tr("agentCatalog.generic")}
@@ -79,7 +79,7 @@ export default function AgentModelPicker({
         )}
         <span className="w-px self-stretch bg-[var(--kin-hairline-strong)]" aria-hidden />
         <select
-          className="max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-[11px] font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-blue/40 disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
+          className="max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-blue/40 disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
           value={custom || currentIsCustom ? "__custom__" : currentModel}
           disabled={disabled}
           aria-label={tr("modelPicker.label")}
@@ -106,7 +106,7 @@ export default function AgentModelPicker({
       </div>
       {(custom || currentIsCustom) && (
         <input
-          className="w-28 px-1.5 py-0.5 text-[11px] rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-blue/40"
+          className="w-28 px-1.5 py-0.5 text-caption rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-blue/40"
           value={currentModel}
           disabled={disabled}
           placeholder={tr("modelPicker.customPlaceholder")}

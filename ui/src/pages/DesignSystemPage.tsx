@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n/react";
+import { ROLE_PREVIEW, TYPE_ROLES } from "../design/type";
 
 /**
  * Every named token, grouped by the ladder it belongs to.
@@ -70,8 +71,8 @@ function Swatch({ name, value }: { name: string; value: string }) {
         style={{ background: `var(${name})` }}
       />
       <div className="min-w-0">
-        <div className="truncate text-[12px] font-semibold text-kin-text">{name}</div>
-        <div className="truncate font-mono text-[11px] text-kin-muted">{value || "—"}</div>
+        <div className="truncate text-body font-semibold text-kin-text">{name}</div>
+        <div className="truncate font-mono text-caption text-kin-muted">{value || "—"}</div>
       </div>
     </div>
   );
@@ -83,13 +84,13 @@ function InkSample({ name, value, ink }: { name: string; value: string; ink: str
       className="rounded-lg border border-[var(--kin-hairline)] p-3"
       style={{ background: `var(${ink})` }}
     >
-      <div className="text-[12px] font-semibold" style={{ color: `var(${name})` }}>
+      <div className="text-body font-semibold" style={{ color: `var(${name})` }}>
         {name} on {ink}
       </div>
-      <div className="mt-1 text-[11px]" style={{ color: `var(${name})` }}>
+      <div className="mt-1 text-caption" style={{ color: `var(${name})` }}>
         The quick brown fox jumps over the lazy dog — 0123456789
       </div>
-      <div className="mt-1 font-mono text-[10px] text-kin-muted">{value || "—"}</div>
+      <div className="mt-1 font-mono text-micro text-kin-muted">{value || "—"}</div>
     </div>
   );
 }
@@ -97,21 +98,54 @@ function InkSample({ name, value, ink }: { name: string; value: string; ink: str
 /** The surfaces an ink step is actually drawn on, so the sample is the real pair. */
 const INK_BACKDROPS = ["--kin-bg", "--kin-elevated", "--kin-panel", "--kin-sidebar"] as const;
 
+/**
+ * The type ladder, rendered from the same array `tailwind.config.ts` assigns to
+ * `theme.fontSize` — so a role that exists is a role that is shown here.
+ */
+function TypeLadder() {
+  const tr = useT();
+  return (
+    <div className="space-y-2">
+      {TYPE_ROLES.map((role) => (
+        <div key={role.role} className="rounded-lg border border-[var(--kin-hairline)] px-3 py-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4">
+            <div className={ROLE_PREVIEW[role.role]}>
+              The quick brown fox jumps over the lazy dog
+            </div>
+            <div className="flex-none font-mono text-micro text-kin-muted">
+              text-{role.role} · {role.px}px · {role.weight} · {role.ink}
+            </div>
+          </div>
+          <div className="mt-1 font-mono text-micro text-kin-muted">
+            {tr("design.absorbed")}:{" "}
+            {role.absorbed
+              // A bare name is one of Tailwind's defaults; the ladder cannot
+              // spell one out with its prefix, so it says where the name is from.
+              .map((entry) =>
+                entry.endsWith("px") ? entry : tr("design.absorbedDefault", { name: entry }),
+              )
+              .join(" · ")}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DesignSystemPage() {
   const tr = useT();
   const values = useResolvedValues(PRESENTED_TOKENS);
-
   return (
     <div className="h-full overflow-y-auto kin-scroll px-5 py-6">
       <div className="mx-auto max-w-3xl">
-        <h1 className="text-[22px] font-bold text-kin-text">{tr("design.title")}</h1>
-        <p className="mt-2 text-[13px] leading-relaxed text-kin-muted">{tr("design.lede")}</p>
+        <h1 className="text-hero font-bold text-kin-text">{tr("design.title")}</h1>
+        <p className="mt-2 text-strong leading-relaxed text-kin-muted">{tr("design.lede")}</p>
 
         <div className="mt-6 space-y-6">
           {TOKEN_GROUPS.map((group) => (
             <section key={group.labelKey}>
-              <h2 className="text-[13px] font-semibold text-kin-text">{tr(group.labelKey)}</h2>
-              <p className="mb-3 mt-1 text-[12px] text-kin-muted">{tr(group.noteKey)}</p>
+              <h2 className="text-strong font-semibold text-kin-text">{tr(group.labelKey)}</h2>
+              <p className="mb-3 mt-1 text-body text-kin-muted">{tr(group.noteKey)}</p>
               {group.labelKey === "design.groupInk" ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {group.tokens.flatMap((name) =>
@@ -134,6 +168,12 @@ export default function DesignSystemPage() {
               )}
             </section>
           ))}
+
+          <section>
+            <h2 className="text-strong font-semibold text-kin-text">{tr("design.groupType")}</h2>
+            <p className="mb-3 mt-1 text-body text-kin-muted">{tr("design.noteType")}</p>
+            <TypeLadder />
+          </section>
         </div>
       </div>
     </div>

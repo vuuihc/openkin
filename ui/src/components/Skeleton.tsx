@@ -59,7 +59,7 @@ export function ApprovalListSkeleton({ count = 2 }: { count?: number }) {
 export function PageHeaderSkeleton({ title }: { title: string }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <h1 className="text-xl font-semibold text-zinc-50">{title}</h1>
+      <h1 className="text-hero leading-7 font-semibold text-zinc-50">{title}</h1>
       <SkeletonLine className="h-9 w-24" />
     </div>
   );
@@ -70,7 +70,7 @@ export function SlowConnectHint({ show }: { show: boolean }) {
   if (!show) return null;
   return (
     <p
-      className="text-xs text-amber-400/90 rounded-lg border border-amber-900/40 bg-amber-950/30 px-3 py-2"
+      className="text-body leading-4 text-amber-400/90 rounded-lg border border-amber-900/40 bg-amber-950/30 px-3 py-2"
       role="status"
     >
       Still connecting — your link may be slow.

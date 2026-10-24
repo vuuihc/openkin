@@ -286,17 +286,17 @@ export default function RoutinesPage() {
       <div className="mx-auto max-w-3xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-semibold tracking-tight text-kin-text">
+            <h1 className="text-hero font-semibold tracking-tight text-kin-text">
               {tr("routines.title")}
             </h1>
-            <p className="mt-1 text-[13px] text-kin-secondary">{tr("routines.subtitle")}</p>
+            <p className="mt-1 text-strong text-kin-secondary">{tr("routines.subtitle")}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => setShowCreate((v) => !v)}
               className={[
-                "rounded-lg px-3 py-1.5 text-[12.5px] font-medium",
+                "rounded-lg px-3 py-1.5 text-body font-medium",
                 showCreate
                   ? "border border-[var(--kin-hairline)] text-kin-secondary"
                   : "bg-kin-accent text-white",
@@ -307,7 +307,7 @@ export default function RoutinesPage() {
             <button
               type="button"
               onClick={() => void onMarkAllRead()}
-              className="rounded-lg border border-[var(--kin-hairline)] px-3 py-1.5 text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)]"
+              className="rounded-lg border border-[var(--kin-hairline)] px-3 py-1.5 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
             >
               {tr("routines.markAllRead")}
             </button>
@@ -316,25 +316,23 @@ export default function RoutinesPage() {
 
         {showCreate && (
           <section className="mt-5 rounded-2xl border border-kin-blue/30 bg-kin-blue/[0.04] p-4">
-            <div className="text-[14px] font-medium text-kin-text">
+            <div className="text-strong font-medium text-kin-text">
               {tr("routines.createPanelTitle")}
             </div>
-            <p className="mt-1 text-[12.5px] text-kin-secondary">
-              {tr("routines.createPanelHint")}
-            </p>
+            <p className="mt-1 text-body text-kin-secondary">{tr("routines.createPanelHint")}</p>
 
-            <label className="mt-4 block text-[12px] text-kin-secondary">
+            <label className="mt-4 block text-body text-kin-secondary">
               {tr("routines.titleLabel")}
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={tr("routines.titlePlaceholder")}
                 disabled={creating}
-                className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-[13px] text-kin-text outline-none focus:border-kin-blue/40"
+                className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
 
-            <label className="mt-3 block text-[12px] text-kin-secondary">
+            <label className="mt-3 block text-body text-kin-secondary">
               {tr("routines.promptLabel")}
               <textarea
                 value={prompt}
@@ -342,7 +340,7 @@ export default function RoutinesPage() {
                 placeholder={tr("routines.promptPlaceholder")}
                 rows={4}
                 disabled={creating}
-                className="mt-1 w-full resize-y rounded-xl border border-[var(--kin-hairline)] bg-kin-panel px-3 py-2.5 text-[13.5px] text-kin-text outline-none focus:border-kin-blue/40"
+                className="mt-1 w-full resize-y rounded-xl border border-[var(--kin-hairline)] bg-kin-panel px-3 py-2.5 text-strong text-kin-text outline-none focus:border-kin-blue/40"
               />
             </label>
 
@@ -353,13 +351,13 @@ export default function RoutinesPage() {
                 onChange={setPermissionMode}
               />
               {availableAgents.length > 0 && (
-                <label className="inline-flex items-center gap-2 text-[12px] text-kin-secondary">
+                <label className="inline-flex items-center gap-2 text-body text-kin-secondary">
                   <span className="text-kin-muted">agent</span>
                   <select
                     value={agentId}
                     disabled={creating}
                     onChange={(e) => setAgentId(e.target.value)}
-                    className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1 text-[12.5px] text-kin-text"
+                    className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-text"
                   >
                     {availableAgents.map((a) => (
                       <option key={a.id} value={a.id}>
@@ -388,7 +386,7 @@ export default function RoutinesPage() {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                className="rounded-lg px-3 py-1.5 text-[13px] text-kin-secondary"
+                className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
                 onClick={() => setShowCreate(false)}
               >
                 {tr("routines.cancel")}
@@ -396,7 +394,7 @@ export default function RoutinesPage() {
               <button
                 type="button"
                 disabled={creating || !prompt.trim() || !cwd.trim()}
-                className="rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+                className="rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white disabled:opacity-50"
                 onClick={() => void onCreate()}
               >
                 {tr("routines.createAndOpen")}
@@ -413,7 +411,7 @@ export default function RoutinesPage() {
         )}
 
         {!loading && error && (
-          <div className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]">
+          <div className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]">
             {error}
           </div>
         )}
@@ -421,17 +419,21 @@ export default function RoutinesPage() {
         {!loading && !error && (
           <>
             <section className="mt-8">
-              <div className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+              <div className="mb-3 text-caption font-semibold uppercase tracking-wide text-kin-muted">
                 {tr("routines.feedSection")}
               </div>
               {noteworthy.length === 0 && silent.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-12 text-center">
-                  <p className="text-base font-medium text-kin-text">{tr("routines.emptyFeed")}</p>
-                  <p className="mt-1 text-sm text-kin-secondary">{tr("routines.emptyFeedHint")}</p>
+                  <p className="text-subtitle leading-6 font-medium text-kin-text">
+                    {tr("routines.emptyFeed")}
+                  </p>
+                  <p className="mt-1 text-strong leading-5 text-kin-secondary">
+                    {tr("routines.emptyFeedHint")}
+                  </p>
                   {!showCreate && (
                     <button
                       type="button"
-                      className="mt-4 rounded-lg bg-kin-accent px-3 py-1.5 text-[13px] font-medium text-white"
+                      className="mt-4 rounded-lg bg-kin-accent px-3 py-1.5 text-strong font-medium text-white"
                       onClick={() => setShowCreate(true)}
                     >
                       {tr("routines.createEntry")}
@@ -451,7 +453,7 @@ export default function RoutinesPage() {
                     <div className={noteworthy.length > 0 ? "mt-3" : undefined}>
                       <button
                         type="button"
-                        className="text-[12.5px] text-kin-secondary hover:text-kin-text"
+                        className="text-body text-kin-secondary hover:text-kin-text"
                         onClick={() => setShowSilent((v) => !v)}
                       >
                         {showSilent
@@ -473,7 +475,7 @@ export default function RoutinesPage() {
 
             <section className="mt-10">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+                <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
                   {tr("routines.listSection")}
                 </div>
                 <input
@@ -481,11 +483,11 @@ export default function RoutinesPage() {
                   onChange={(e) => setRoutineQuery(e.target.value)}
                   placeholder={tr("routines.searchPlaceholder")}
                   aria-label={tr("routines.searchPlaceholder")}
-                  className="min-h-[34px] w-full max-w-[260px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-[12px] text-kin-text outline-none focus:border-kin-blue/40"
+                  className="min-h-[34px] w-full max-w-[260px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40"
                 />
               </div>
               {routines.length === 0 ? (
-                <p className="text-[13px] text-kin-secondary">{tr("routines.emptyList")}</p>
+                <p className="text-strong text-kin-secondary">{tr("routines.emptyList")}</p>
               ) : (
                 <ul className="space-y-2.5">
                   {routines.map((r) => (
@@ -496,23 +498,23 @@ export default function RoutinesPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="truncate text-[14px] font-medium text-kin-text">
+                            <span className="truncate text-strong font-medium text-kin-text">
                               {r.title || r.prompt.slice(0, 48)}
                             </span>
                             <span
                               className={
                                 r.enabled
-                                  ? "rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10.5px] font-medium text-emerald-400"
-                                  : "rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-[10.5px] text-kin-muted"
+                                  ? "rounded-full bg-emerald-500/15 px-2 py-0.5 text-caption font-medium text-emerald-400"
+                                  : "rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-caption text-kin-muted"
                               }
                             >
                               {r.enabled ? tr("routines.enabled") : tr("routines.paused")}
                             </span>
                           </div>
-                          <div className="mt-1 truncate text-[12px] text-kin-secondary">
+                          <div className="mt-1 truncate text-body text-kin-secondary">
                             {r.agent} · {formatInterval(r.interval_secs)} · {r.cwd}
                           </div>
-                          <div className="mt-0.5 text-[11.5px] text-kin-muted">
+                          <div className="mt-0.5 text-caption text-kin-muted">
                             {tr("routines.nextDue")}: {formatWhen(r.next_due_at)}
                             {r.consec_failures > 0
                               ? ` · ${tr("routines.failures", { n: r.consec_failures })}`
@@ -524,7 +526,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onRunNow(r)}
-                            className="rounded-lg bg-kin-accent px-2.5 py-1 text-[12px] font-medium text-white disabled:opacity-50"
+                            className="rounded-lg bg-kin-accent px-2.5 py-1 text-body font-medium text-white disabled:opacity-50"
                           >
                             {tr("routines.runNow")}
                           </button>
@@ -532,7 +534,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onToggle(r)}
-                            className="rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-[12px] text-kin-secondary disabled:opacity-50"
+                            className="rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary disabled:opacity-50"
                           >
                             {r.enabled ? tr("routines.pause") : tr("routines.resume")}
                           </button>
@@ -540,7 +542,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onDelete(r)}
-                            className="rounded-lg px-2.5 py-1 text-[12px] text-kin-red/90 disabled:opacity-50"
+                            className="rounded-lg px-2.5 py-1 text-body text-kin-red/90 disabled:opacity-50"
                           >
                             {tr("routines.delete")}
                           </button>
@@ -555,7 +557,7 @@ export default function RoutinesPage() {
                   type="button"
                   onClick={() => void loadMoreRoutines()}
                   disabled={loadingMoreRoutines}
-                  className="mt-3 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-[12px] text-kin-secondary hover:bg-[var(--kin-fill)]"
+                  className="mt-3 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
                 >
                   {loadingMoreRoutines ? tr("tree.loadingMore") : tr("routines.loadMore")}
                 </button>
@@ -594,7 +596,7 @@ function RunCard({
           <div className="flex flex-wrap items-center gap-2">
             <Link
               to={`/tasks/${run.id}`}
-              className="truncate text-[14px] font-medium text-kin-text hover:underline"
+              className="truncate text-strong font-medium text-kin-text hover:underline"
               onClick={() => {
                 if (run.routine_unread) onMarkRead(run.id);
               }}
@@ -602,16 +604,16 @@ function RunCard({
               {run.title || run.id.slice(0, 8)}
             </Link>
             {run.routine_noteworthy && (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-300">
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-caption font-medium text-amber-300">
                 {tr("routines.noteworthy")}
               </span>
             )}
-            <span className="text-[11px] text-kin-muted">{statusLabel(run.status, tr)}</span>
+            <span className="text-caption text-kin-muted">{statusLabel(run.status, tr)}</span>
           </div>
           {run.routine_tldr && (
-            <p className="mt-1 text-[13px] text-kin-secondary">{run.routine_tldr}</p>
+            <p className="mt-1 text-strong text-kin-secondary">{run.routine_tldr}</p>
           )}
-          <div className="mt-1 text-[11.5px] text-kin-muted">
+          <div className="mt-1 text-caption text-kin-muted">
             {formatWhen(run.finished_at ?? run.created_at)}
             {run.routine_id ? ` · ${run.routine_id.slice(0, 8)}` : ""}
           </div>
@@ -620,7 +622,7 @@ function RunCard({
           <button
             type="button"
             onClick={() => onMarkRead(run.id)}
-            className="shrink-0 text-[12px] text-kin-blue hover:underline"
+            className="shrink-0 text-body text-kin-blue hover:underline"
           >
             {tr("routines.markRead")}
           </button>

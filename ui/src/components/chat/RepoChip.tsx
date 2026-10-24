@@ -39,7 +39,7 @@ export default function RepoChip({
   );
   const classes = [
     "flex-none inline-flex items-center gap-1 rounded-lg border border-[var(--kin-hairline-strong)]",
-    "bg-[var(--kin-fill)] px-1.5 py-0.5 text-[11.5px] text-kin-secondary min-w-0",
+    "bg-[var(--kin-fill)] px-1.5 py-0.5 text-caption text-kin-secondary min-w-0",
     "max-w-[min(40vw,16rem)]",
     href ? "hover:border-kin-blue/40 hover:text-kin-blue" : "",
     className ?? "",

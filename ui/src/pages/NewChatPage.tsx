@@ -578,17 +578,17 @@ export default function NewChatPage() {
             `newChat.title` are one string), so only the rest of the row — who
             hosts the session, and where it runs — is worth the 44px there. It
             returns at `md`, where the shell header goes away. */}
-        <div className="hidden text-[13.5px] font-semibold text-kin-text md:block">
+        <div className="hidden text-strong font-semibold text-kin-text md:block">
           {tr("newChat.title")}
         </div>
         {defaultAgent && (
-          <div className="text-[12px] text-kin-muted">
+          <div className="text-body text-kin-muted">
             {tr("newChat.hostAgent", { name: defaultAgent.name })}
           </div>
         )}
         {remote ? (
           <div
-            className="inline-flex items-center gap-1 text-[12px] text-kin-secondary"
+            className="inline-flex items-center gap-1 text-body text-kin-secondary"
             title={tr("machine.remoteHint", { name: machineLabel })}
           >
             <IconMachine size={12} />
@@ -599,7 +599,7 @@ export default function NewChatPage() {
           <button
             type="button"
             onClick={refreshMachines}
-            className="text-[11.5px] text-kin-blue hover:underline"
+            className="text-caption text-kin-blue hover:underline"
           >
             {tr("machine.refresh")}
           </button>
@@ -613,27 +613,27 @@ export default function NewChatPage() {
         ].join(" ")}
       >
         <div
-          className={`w-8 h-8 rounded-[9px] flex items-center justify-center mb-4 text-[12px] font-semibold ${mainAgentAvatar.className}`}
+          className={`w-8 h-8 rounded-[9px] flex items-center justify-center mb-4 text-body font-semibold ${mainAgentAvatar.className}`}
           aria-label={mainAgentAvatar.label}
         >
           {mainAgentAvatar.initials}
         </div>
-        <h1 className="text-[22px] font-semibold tracking-tight text-center max-w-md">
+        <h1 className="text-hero font-semibold tracking-tight text-center max-w-md">
           {tr("newChat.heroTitle", { name: mainAgentName })}
         </h1>
-        <p className="mt-2 text-[14px] text-kin-secondary text-center max-w-md">
+        <p className="mt-2 text-strong text-kin-secondary text-center max-w-md">
           {tr("newChat.heroSubtitleHost", { name: mainAgentName })}
         </p>
 
         {available.length > 1 && (
-          <p className="mt-2 text-[11.5px] text-kin-muted">{tr("newChat.hostPickerHint")}</p>
+          <p className="mt-2 text-caption text-kin-muted">{tr("newChat.hostPickerHint")}</p>
         )}
 
         {agents.some((a) => !a.available) && !remote && (
           <div className="mt-1 flex sm:mt-3">
             <button
               type="button"
-              className="min-h-[44px] px-3 text-[12px] text-kin-blue hover:underline sm:min-h-0 sm:px-0"
+              className="min-h-[44px] px-3 text-body text-kin-blue hover:underline sm:min-h-0 sm:px-0"
               onClick={() => navigate("/agents")}
             >
               {tr("agents.manageLink")}
@@ -641,32 +641,32 @@ export default function NewChatPage() {
           </div>
         )}
         {machinesFailed ? (
-          <p className="mt-2 text-[11.5px] text-kin-muted">{tr("machine.listUnavailable")}</p>
+          <p className="mt-2 text-caption text-kin-muted">{tr("machine.listUnavailable")}</p>
         ) : null}
 
         <div className="mt-8 w-full max-w-xl space-y-3">
           {remote ? (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-[13px] text-kin-secondary">
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-strong text-kin-secondary">
               {machine && machine.roots.length > 0
                 ? tr("machine.rootsHint", { name: machineLabel, path: machine.roots[0] })
                 : tr("machine.noRoots", { name: machineLabel })}
             </div>
           ) : !cwd.trim() ? (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-[13px] text-kin-secondary">
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-strong text-kin-secondary">
               {tr("newChat.noCwdHint")}
             </div>
           ) : projectLookupState === "loading" ? (
-            <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-[13px] text-kin-muted">
+            <div className="rounded-xl border border-[var(--kin-hairline)] bg-kin-panel/60 px-4 py-5 text-center text-strong text-kin-muted">
               {tr("newChat.projectSummaryLoading")}
             </div>
           ) : projectLookupState === "error" ? (
             <div className="w-full rounded-2xl border border-red-500/30 bg-kin-panel px-4 py-3 text-left">
-              <p className="text-[12.5px] text-red-500/90">
+              <p className="text-body text-red-500/90">
                 {projectLookupError || tr("newChat.projectSummaryError")}
               </p>
               <button
                 type="button"
-                className="mt-2 text-[12px] text-kin-accent hover:underline"
+                className="mt-2 text-body text-kin-accent hover:underline"
                 onClick={() => setProjectLookupKey((k) => k + 1)}
               >
                 {tr("common.retry")}
@@ -675,7 +675,7 @@ export default function NewChatPage() {
           ) : project ? (
             <ProjectSummaryCard project={project} summary={projectSummary} />
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-[13px] text-kin-secondary">
+            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)]/60 px-4 py-5 text-center text-strong text-kin-secondary">
               {tr("newChat.onePagerNoProject", {
                 project: projectLabel(cwd),
               })}
@@ -689,7 +689,7 @@ export default function NewChatPage() {
           {hints.length > 0 && (
             // Desktop only: a line of @-mention hints is reference material, and
             // on the phone it was the widest thing on the screen.
-            <div className="hidden text-[11.5px] text-kin-muted px-0.5 sm:block">
+            <div className="hidden text-caption text-kin-muted px-0.5 sm:block">
               {tr("newChat.tip", {
                 hints: hints.join(" · "),
               })}
@@ -720,7 +720,7 @@ export default function NewChatPage() {
                 key={group.id}
                 className="flex min-w-0 flex-col gap-1 rounded-[8px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
               >
-                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-kin-muted sm:w-[5.25rem] sm:flex-none">
+                <div className="text-micro font-semibold uppercase tracking-[0.08em] text-kin-muted sm:w-[5.25rem] sm:flex-none">
                   {tr(group.labelKey)}
                 </div>
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -737,7 +737,7 @@ export default function NewChatPage() {
             onClick={() => setControlsOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={controlsOpen}
-            className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-[13px] text-kin-muted"
+            className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-strong text-kin-muted"
           >
             <svg
               width="15"
@@ -770,7 +770,7 @@ export default function NewChatPage() {
           </button>
           {asRoutine && (
             <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
-              <div className="mb-2 text-[11.5px] font-medium text-kin-blue">
+              <div className="mb-2 text-caption font-medium text-kin-blue">
                 {tr("routines.routineModeOn")}
               </div>
               <RoutineScheduleFields
@@ -813,15 +813,15 @@ export default function NewChatPage() {
             className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-[20px] border-t border-[var(--kin-hairline-strong)] bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
           >
             <div className="mx-auto mb-3.5 h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]" />
-            <div className="text-[16px] font-semibold">{tr("newChat.controlsTitle")}</div>
-            <p className="mb-3 mt-0.5 text-[12px] text-kin-muted">{tr("newChat.controlsHint")}</p>
+            <div className="text-subtitle font-semibold">{tr("newChat.controlsTitle")}</div>
+            <p className="mb-3 mt-0.5 text-body text-kin-muted">{tr("newChat.controlsHint")}</p>
             <div className="grid gap-2">
               {controlGroups.map((group) => (
                 <div
                   key={group.id}
                   className="flex min-w-0 flex-col gap-2 rounded-[12px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/45 px-3 py-2.5"
                 >
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-kin-muted">
+                  <div className="text-micro font-semibold uppercase tracking-[0.08em] text-kin-muted">
                     {tr(group.labelKey)}
                   </div>
                   {/* The pickers are built for a mouse: 17–28px chips. Inside a
@@ -840,7 +840,7 @@ export default function NewChatPage() {
             <button
               type="button"
               onClick={() => setControlsOpen(false)}
-              className="mt-3 min-h-[48px] w-full rounded-[12px] bg-kin-blue text-[15px] font-semibold text-white"
+              className="mt-3 min-h-[48px] w-full rounded-[12px] bg-kin-blue text-subtitle font-semibold text-white"
             >
               {tr("newChat.controlsDone")}
             </button>

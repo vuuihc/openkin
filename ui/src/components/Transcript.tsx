@@ -25,7 +25,7 @@ export default function Transcript({ events }: Props) {
 
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-zinc-500" role="status">
+      <p className="text-strong leading-5 text-zinc-500" role="status">
         Waiting for events…
       </p>
     );
@@ -45,7 +45,7 @@ export default function Transcript({ events }: Props) {
                     : "border-[var(--kin-hairline)] bg-kin-elevated"
                 }`}
               >
-                <div className="mb-1 text-[10px] uppercase tracking-wide text-kin-muted">
+                <div className="mb-1 text-micro uppercase tracking-wide text-kin-muted">
                   {row.role}
                   {row.partial ? " · streaming" : ""}
                 </div>
@@ -58,7 +58,7 @@ export default function Transcript({ events }: Props) {
             return (
               <pre
                 key={row.key}
-                className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-2 text-[11px] font-mono text-kin-secondary"
+                className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-2 text-caption font-mono text-kin-secondary"
               >
                 {row.line}
               </pre>
@@ -67,7 +67,7 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-kin-red"
+                className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-kin-red"
               >
                 {friendlyErrorLabel(row.message, tr)}
               </div>
@@ -76,7 +76,7 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-kin-green/30 bg-[rgba(48,209,88,.08)] px-4 py-3 text-xs text-kin-secondary"
+                className="rounded-xl border border-kin-green/30 bg-[rgba(48,209,88,.08)] px-4 py-3 text-body leading-4 text-kin-secondary"
               >
                 Result · cost{" "}
                 {typeof row.payload.cost_usd === "number" ? `$${row.payload.cost_usd}` : "—"}
@@ -84,7 +84,7 @@ export default function Transcript({ events }: Props) {
             );
           case "meta":
             return (
-              <p key={row.key} className="text-xs text-zinc-500">
+              <p key={row.key} className="text-body leading-4 text-zinc-500">
                 {row.label}
               </p>
             );
@@ -92,14 +92,14 @@ export default function Transcript({ events }: Props) {
             return (
               <div
                 key={row.key}
-                className="rounded-xl border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm"
+                className="rounded-xl border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-strong leading-5"
               >
                 <span className="text-amber-300 font-medium">Approval requested</span>
                 <span className="text-zinc-400">
                   {" "}
                   · {row.tool || "tool"}
                   {row.approvalId ? (
-                    <span className="font-mono text-xs text-zinc-500">
+                    <span className="font-mono text-body leading-4 text-zinc-500">
                       {" "}
                       · {row.approvalId.slice(0, 10)}…
                     </span>
@@ -113,11 +113,16 @@ export default function Transcript({ events }: Props) {
               ? "border-emerald-900/50 bg-emerald-950/30 text-emerald-300"
               : "border-red-900/50 bg-red-950/30 text-red-300";
             return (
-              <div key={row.key} className={`rounded-xl border px-4 py-3 text-sm ${cls}`}>
+              <div
+                key={row.key}
+                className={`rounded-xl border px-4 py-3 text-strong leading-5 ${cls}`}
+              >
                 <span className="font-medium">
                   {row.decision === "expired" ? "Approval expired" : ok ? "Approved" : "Denied"}
                 </span>
-                {row.via ? <span className="text-zinc-500 text-xs"> · via {row.via}</span> : null}
+                {row.via ? (
+                  <span className="text-zinc-500 text-body leading-4"> · via {row.via}</span>
+                ) : null}
               </div>
             );
           }
@@ -134,13 +139,13 @@ function ToolBlock({ name, input }: { name: string; input: unknown }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm"
+        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-strong leading-5"
       >
         <span className="font-mono text-accent-muted">tool · {name || "unknown"}</span>
-        <span className="text-xs text-zinc-500">{open ? "Hide" : "Show"}</span>
+        <span className="text-body leading-4 text-zinc-500">{open ? "Hide" : "Show"}</span>
       </button>
       {open && (
-        <pre className="overflow-x-auto border-t border-surface-border p-3 text-xs font-mono text-zinc-300">
+        <pre className="overflow-x-auto border-t border-surface-border p-3 text-body leading-4 font-mono text-zinc-300">
           {JSON.stringify(input, null, 2)}
         </pre>
       )}

@@ -59,15 +59,15 @@ export default function ModelPicker({
       ].join(" ")}
     >
       {!compact && (
-        <span className="text-[11.5px] text-kin-muted flex-none">{tr("modelPicker.label")}</span>
+        <span className="text-caption text-kin-muted flex-none">{tr("modelPicker.label")}</span>
       )}
       <select
         className={[
           compact ? "max-w-[9.5rem]" : "max-w-[14rem]",
           "truncate rounded-lg border border-[var(--kin-hairline-strong)]",
           compact
-            ? "bg-transparent px-1.5 py-0.5 text-[11px] font-medium text-kin-secondary"
-            : "bg-transparent px-2 py-1 text-[11.5px] font-medium text-kin-secondary",
+            ? "bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary"
+            : "bg-transparent px-2 py-1 text-caption font-medium text-kin-secondary",
           "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
         ].join(" ")}
@@ -97,7 +97,7 @@ export default function ModelPicker({
       {(custom || currentIsCustom) && !readOnly && (
         <input
           className={[
-            compact ? "w-28 px-1.5 py-0.5 text-[11px]" : "w-44 px-2 py-1 text-[11.5px]",
+            compact ? "w-28 px-1.5 py-0.5 text-caption" : "w-44 px-2 py-1 text-caption",
             "rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent text-kin-secondary focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
           ].join(" ")}
           value={current}
@@ -107,13 +107,15 @@ export default function ModelPicker({
         />
       )}
       {currentIsCustom && readOnly && (
-        <span className="text-[11.5px] text-kin-secondary truncate">{current}</span>
+        <span className="text-caption text-kin-secondary truncate">{current}</span>
       )}
       {sourceLabel && !compact && (
-        <span className="text-[11px] text-kin-muted truncate">{sourceLabel}</span>
+        <span className="text-caption text-kin-muted truncate">{sourceLabel}</span>
       )}
       {locked && !compact && (
-        <span className="text-[11px] text-kin-muted truncate">{tr("modelPicker.sessionHint")}</span>
+        <span className="text-caption text-kin-muted truncate">
+          {tr("modelPicker.sessionHint")}
+        </span>
       )}
     </div>
   );

@@ -118,15 +118,15 @@ export default function SessionsPage() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
       {loading && (
-        <p className="px-4 py-10 text-center text-[13.5px] text-kin-muted">
+        <p className="px-4 py-10 text-center text-strong text-kin-muted">
           {tr("sessions.loading")}
         </p>
       )}
 
       {!loading && groups.length === 0 && (
         <div className="px-6 py-16 text-center">
-          <p className="text-[15px] font-medium text-kin-text">{tr("sessions.empty")}</p>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-kin-muted">
+          <p className="text-subtitle font-medium text-kin-text">{tr("sessions.empty")}</p>
+          <p className="mt-1.5 text-strong leading-relaxed text-kin-muted">
             {tr("sessions.emptyHint")}
           </p>
         </div>
@@ -136,7 +136,7 @@ export default function SessionsPage() {
         groups.map((device) => (
           <section key={device.id || "self"}>
             {machineLabels && (
-              <h2 className="sticky top-0 z-[2] flex items-center gap-1.5 px-4 pb-1.5 pt-4 text-[12px] font-semibold text-kin-muted bg-[var(--kin-page)]">
+              <h2 className="sticky top-0 z-[2] flex items-center gap-1.5 px-4 pb-1.5 pt-4 text-body font-semibold text-kin-muted bg-[var(--kin-page)]">
                 <span
                   className={`h-[7px] w-[7px] flex-none rounded-full ${
                     device.online ? "bg-kin-green" : "bg-kin-muted"
@@ -159,19 +159,19 @@ export default function SessionsPage() {
                 }
                 className="flex w-full min-h-[62px] items-start gap-2.5 border-b border-[var(--kin-hairline)] px-4 py-2.5 text-left active:bg-[var(--kin-fill)]"
               >
-                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] bg-kin-blue-soft text-[15px] font-bold text-[#6cb2ff]">
+                <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] bg-kin-blue-soft text-subtitle font-bold text-[#6cb2ff]">
                   {initial(agentDisplayName(row.task?.agent ?? row.session!.agent_id))}
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="line-clamp-2 text-[15px] font-medium leading-[1.32]">
+                  <span className="line-clamp-2 text-subtitle font-medium leading-[1.32]">
                     {row.task
                       ? row.task.title.trim() ||
                         displayUserPrompt(row.task.prompt) ||
                         tr("sessions.untitled")
                       : displayAgentSessionTitle(row.session!, tr("sessions.untitled"))}
                   </span>
-                  <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] text-kin-muted">
+                  <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-body text-kin-muted">
                     <span className="truncate">{row.project}</span>
                     <span className="opacity-50">·</span>
                     <span className="flex-none">{formatRelativeTime(row.at)}</span>
@@ -182,7 +182,7 @@ export default function SessionsPage() {
                   {row.task ? (
                     <StatusPill status={row.task.status} />
                   ) : (
-                    <span className="inline-flex h-5 items-center rounded-[10px] bg-[var(--kin-fill)] px-2 text-[11px] font-semibold text-kin-muted">
+                    <span className="inline-flex h-5 items-center rounded-[10px] bg-[var(--kin-fill)] px-2 text-caption font-semibold text-kin-muted">
                       {agentDisplayName(row.session!.agent_id)}
                     </span>
                   )}
@@ -193,7 +193,7 @@ export default function SessionsPage() {
         ))}
 
       {!loading && sessionsFailed && groups.length > 0 && (
-        <p className="px-4 py-6 text-center text-[12px] text-kin-muted">
+        <p className="px-4 py-6 text-center text-body text-kin-muted">
           {tr("sessions.agentSessionsFailed")}
         </p>
       )}
@@ -218,7 +218,7 @@ function StatusPill({ status }: { status: string }) {
             : "bg-[var(--kin-fill)] text-kin-muted";
   return (
     <span
-      className={`inline-flex h-5 items-center rounded-[10px] px-2 text-[11px] font-semibold ${tone}`}
+      className={`inline-flex h-5 items-center rounded-[10px] px-2 text-caption font-semibold ${tone}`}
     >
       {tr(view.labelKey)}
     </span>

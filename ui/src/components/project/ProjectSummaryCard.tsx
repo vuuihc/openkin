@@ -34,44 +34,44 @@ export default function ProjectSummaryCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-kin-secondary">
+          <div className="text-caption font-medium uppercase tracking-wide text-kin-secondary">
             {tr("newChat.projectSummaryLabel")}
           </div>
-          <div className="mt-0.5 truncate text-[14px] font-semibold text-kin-text">{name}</div>
-          <div className="mt-0.5 text-[11.5px] text-kin-muted">
+          <div className="mt-0.5 truncate text-strong font-semibold text-kin-text">{name}</div>
+          <div className="mt-0.5 text-caption text-kin-muted">
             {tr("newChat.projectMode", { mode: String(mode || "ship") })}
           </div>
         </div>
         <Link
           to={`/projects/${encodeURIComponent(project.id)}`}
-          className="flex-none rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-[12px] text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text"
+          className="flex-none rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text"
         >
           {tr("newChat.openOnePager")}
         </Link>
       </div>
 
       {loading ? (
-        <p className="mt-3 text-[12.5px] text-kin-muted">{tr("newChat.projectSummaryLoading")}</p>
+        <p className="mt-3 text-body text-kin-muted">{tr("newChat.projectSummaryLoading")}</p>
       ) : error ? (
         <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-[12.5px] text-red-500/90">{error}</p>
+          <p className="text-body text-red-500/90">{error}</p>
           {onRetry && (
             <button
               type="button"
               onClick={onRetry}
-              className="text-[12px] text-kin-accent hover:underline"
+              className="text-body text-kin-accent hover:underline"
             >
               {tr("common.retry")}
             </button>
           )}
         </div>
       ) : empty ? (
-        <p className="mt-3 text-[12.5px] text-kin-secondary">{tr("newChat.projectSummaryEmpty")}</p>
+        <p className="mt-3 text-body text-kin-secondary">{tr("newChat.projectSummaryEmpty")}</p>
       ) : (
-        <div className="mt-3 space-y-2 text-[12.5px] leading-relaxed">
+        <div className="mt-3 space-y-2 text-body leading-relaxed">
           {summary?.north_star ? (
             <div>
-              <div className="text-[11px] font-medium text-kin-muted">
+              <div className="text-caption font-medium text-kin-muted">
                 {tr("newChat.summaryNorthStar")}
               </div>
               <div className="text-kin-text">{summary.north_star}</div>
@@ -79,7 +79,7 @@ export default function ProjectSummaryCard({
           ) : null}
           {summary?.focus ? (
             <div>
-              <div className="text-[11px] font-medium text-kin-muted">
+              <div className="text-caption font-medium text-kin-muted">
                 {tr("newChat.summaryFocus")}
               </div>
               <div className="text-kin-text">{summary.focus}</div>
@@ -87,7 +87,7 @@ export default function ProjectSummaryCard({
           ) : null}
           {summary?.next && summary.next.length > 0 ? (
             <div>
-              <div className="text-[11px] font-medium text-kin-muted">
+              <div className="text-caption font-medium text-kin-muted">
                 {tr("newChat.summaryNext")}
               </div>
               <ol className="mt-0.5 list-decimal space-y-0.5 pl-4 text-kin-text">

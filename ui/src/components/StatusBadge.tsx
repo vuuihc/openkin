@@ -12,7 +12,7 @@ export default function StatusBadge({ status }: { status: string }) {
   const cls = STYLES[status] ?? STYLES.queued;
   return (
     <span
-      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium capitalize ${cls}`}
+      className={`inline-flex items-center rounded-md border px-2 py-0.5 text-body leading-4 font-medium capitalize ${cls}`}
     >
       {status === "running" && (
         <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400" />

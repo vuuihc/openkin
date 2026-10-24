@@ -36,7 +36,7 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
 
   if (ordered.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center px-4 text-center text-[12px] text-kin-muted">
+      <div className="h-full flex items-center justify-center px-4 text-center text-body text-kin-muted">
         {t("workspace.changed.empty")}
       </div>
     );
@@ -74,10 +74,10 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
                 />
                 <IconFile size={13} className="mt-0.5 flex-none opacity-80" />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-[12px] leading-snug">
+                  <span className="block truncate font-mono text-body leading-snug">
                     {shortPath(f.path, 36)}
                   </span>
-                  <span className="mt-0.5 flex items-center gap-1.5 text-[10px] uppercase tracking-wide opacity-70">
+                  <span className="mt-0.5 flex items-center gap-1.5 text-micro uppercase tracking-wide opacity-70">
                     <span>{actionLabel(f.action, t)}</span>
                     {(f.additions != null || f.deletions != null) && (
                       <span className="normal-case tabular-nums tracking-normal">

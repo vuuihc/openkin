@@ -99,15 +99,15 @@ export default function TerminalTabs({
               onKeyDown={(event) => handleKeyDown(event, session.id)}
               onClick={() => onSelectSession(session.id)}
             >
-              <span className="truncate text-[13px] font-medium">{label}</span>
+              <span className="truncate text-strong font-medium">{label}</span>
               {isExited && exitCode !== undefined ? (
-                <span className="text-[11px] text-kin-muted">
+                <span className="text-caption text-kin-muted">
                   {tr("terminal.exited", { code: exitCode })}
                 </span>
               ) : session.connectionStatus === "connecting" ? (
-                <span className="text-[11px] text-kin-muted">{tr("terminal.connecting")}</span>
+                <span className="text-caption text-kin-muted">{tr("terminal.connecting")}</span>
               ) : session.connectionStatus === "disconnected" ? (
-                <span className="text-[11px] text-kin-orange">{tr("terminal.disconnected")}</span>
+                <span className="text-caption text-kin-orange">{tr("terminal.disconnected")}</span>
               ) : null}
             </button>
 

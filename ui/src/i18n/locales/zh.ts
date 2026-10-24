@@ -1324,6 +1324,11 @@ const zh = {
     noteLines: "发丝线是表面内部的边界；两个表面之间靠上面的阶梯分开，不靠线。",
     groupStatus: "状态色与品牌色",
     noteStatus: "这些是填充色，上面压的是白字或近黑字。",
+    groupType: "字号阶梯",
+    noteType:
+      "七级，每级就是它自己的样例——字号是写死的，字重与墨色是这一级该有的样子，由审查对齐。",
+    absorbed: "吸收",
+    absorbedDefault: "默认 {name}",
   },
 };
 

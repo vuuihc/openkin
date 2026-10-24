@@ -302,23 +302,23 @@ export default function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={tr("palette.search")}
-            className="flex-1 bg-transparent text-[17px] text-kin-text outline-none placeholder:text-kin-muted"
+            className="flex-1 bg-transparent text-title text-kin-text outline-none placeholder:text-kin-muted"
           />
-          <kbd className="text-[11px] text-kin-muted border border-[var(--kin-hairline-strong)] rounded px-1.5 py-0.5">
+          <kbd className="text-caption text-kin-muted border border-[var(--kin-hairline-strong)] rounded px-1.5 py-0.5">
             esc
           </kbd>
         </div>
 
         <div className="max-h-[min(360px,50vh)] overflow-y-auto kin-scroll p-2">
           {items.length === 0 && (
-            <p className="px-3 py-8 text-center text-sm text-kin-muted">
+            <p className="px-3 py-8 text-center text-strong leading-5 text-kin-muted">
               {tr("palette.noMatches")}
             </p>
           )}
 
           {actionItems.length > 0 && (
             <>
-              <div className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted px-2.5 pt-2 pb-1">
+              <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-2.5 pt-2 pb-1">
                 {tr("palette.actions")}
               </div>
               {actionItems.map((item) => {
@@ -353,7 +353,7 @@ export default function CommandPalette({
 
           {taskItems.length > 0 && (
             <>
-              <div className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted px-2.5 pt-3 pb-1">
+              <div className="text-caption font-semibold uppercase tracking-wide text-kin-muted px-2.5 pt-3 pb-1">
                 {tr("palette.chats")}
               </div>
               {taskItems.map((item) => {
@@ -410,7 +410,7 @@ function PaletteRow({
       onMouseEnter={onHover}
       onClick={onClick}
       className={[
-        "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-[14px]",
+        "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left text-strong",
         active ? "bg-kin-blue text-white" : "text-kin-text hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
@@ -418,7 +418,7 @@ function PaletteRow({
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {hint && (
         <span
-          className={["text-[11px] flex-none", active ? "text-white/70" : "text-kin-muted"].join(
+          className={["text-caption flex-none", active ? "text-white/70" : "text-kin-muted"].join(
             " ",
           )}
         >

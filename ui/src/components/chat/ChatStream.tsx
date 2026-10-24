@@ -307,7 +307,7 @@ function AgentTurn({
   return (
     <div className="flex gap-2.5 items-start">
       <div
-        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-[11px] font-bold ${meta.className}`}
+        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={agentIdentityTitle(meta.label, model)}
       >
         {meta.initials}
@@ -316,13 +316,13 @@ function AgentTurn({
         <div className="flex items-start gap-2">
           <AgentIdentity name={meta.label} model={model} />
           {hasPartial && (
-            <span className="mt-px inline-flex items-center gap-1.5 text-[11px] text-kin-muted">
+            <span className="mt-px inline-flex items-center gap-1.5 text-caption text-kin-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
               {tr("chat.streaming")}
             </span>
           )}
           {showThinking && !hasPartial && (
-            <span className="mt-px text-[11px] text-kin-muted">{tr("chat.thinking")}</span>
+            <span className="mt-px text-caption text-kin-muted">{tr("chat.thinking")}</span>
           )}
         </div>
 
@@ -364,7 +364,7 @@ function AgentTurn({
                             disabled={actionsBusy}
                             title={tr("task.retryTitle")}
                             onClick={() => onRetry?.(item.seq!)}
-                            className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
                           >
                             {tr("task.retry")}
                           </button>
@@ -373,7 +373,7 @@ function AgentTurn({
                             disabled={actionsBusy}
                             title={tr("task.forkTitle")}
                             onClick={() => onFork?.(item.seq!)}
-                            className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
                           >
                             {tr("task.fork")}
                           </button>
@@ -386,7 +386,7 @@ function AgentTurn({
                             title={tr("chat.message.copyTitle")}
                             aria-label={tr("chat.message.copyTitle")}
                             onClick={() => onCopyMessage(item.text)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
                           >
                             <IconCopy size={13} />
                             {tr("chat.message.copy")}
@@ -396,7 +396,7 @@ function AgentTurn({
                             title={tr("chat.message.shareTitle")}
                             aria-label={tr("chat.message.shareTitle")}
                             onClick={() => onShareMessage(item.key)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06]"
                           >
                             <IconShare size={13} />
                             {tr("chat.message.share")}
@@ -409,7 +409,7 @@ function AgentTurn({
                           disabled={actionsBusy}
                           title={tr("task.saveArtifactTitle")}
                           onClick={() => onSaveArtifact?.(item.text)}
-                          className="px-2 py-0.5 rounded-md text-[11.5px] font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
+                          className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text hover:bg-black/[.05] dark:hover:bg-white/[.06] disabled:opacity-40"
                         >
                           {tr("task.saveArtifact")}
                         </button>
@@ -433,14 +433,14 @@ function AgentTurn({
               return (
                 <div
                   key={item.key}
-                  className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-[13.5px] text-kin-red"
+                  className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-strong text-kin-red"
                 >
                   {item.message}
                 </div>
               );
             case "meta":
               return (
-                <p key={item.key} className="text-[11.5px] text-kin-muted">
+                <p key={item.key} className="text-caption text-kin-muted">
                   {item.label}
                 </p>
               );
@@ -457,12 +457,12 @@ function StandaloneRow({ item }: { item: Extract<ChatItem, { kind: "error" | "me
   const tr = useT();
   if (item.kind === "error") {
     return (
-      <div className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-[13.5px] text-kin-red">
+      <div className="rounded-xl border border-kin-red/30 bg-[rgba(255,69,58,.08)] px-3.5 py-2.5 text-strong text-kin-red">
         {friendlyErrorLabel(item.message, tr)}
       </div>
     );
   }
-  return <p className="text-center text-[11.5px] text-kin-muted">{item.label}</p>;
+  return <p className="text-center text-caption text-kin-muted">{item.label}</p>;
 }
 
 /** Animated “thinking” row while waiting for the first assistant token. */
@@ -477,7 +477,7 @@ function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
       aria-label={tr("chat.thinking")}
     >
       <div
-        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-[11px] font-bold ${meta.className}`}
+        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={agentIdentityTitle(meta.label, model)}
       >
         {meta.initials}
@@ -485,7 +485,7 @@ function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
       <div className="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
         <div className="flex items-start gap-2">
           <AgentIdentity name={meta.label} model={model} />
-          <span className="mt-px text-[11px] text-kin-muted">{tr("chat.thinking")}</span>
+          <span className="mt-px text-caption text-kin-muted">{tr("chat.thinking")}</span>
         </div>
         <ThinkingDots />
       </div>
@@ -496,12 +496,10 @@ function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
 function AgentIdentity({ name, model }: { name: string; model?: string }) {
   return (
     <span className="flex min-w-0 max-w-[70%] flex-col leading-none">
-      <span className="truncate text-[12px] font-semibold leading-[14px] text-kin-text">
-        {name}
-      </span>
+      <span className="truncate text-body font-semibold leading-[14px] text-kin-text">{name}</span>
       {model && (
         <span
-          className="mt-0.5 truncate font-mono text-[10px] font-normal leading-[12px] text-kin-muted/80"
+          className="mt-0.5 truncate font-mono text-micro font-normal leading-[12px] text-kin-muted/80"
           title={model}
         >
           {model}
@@ -591,11 +589,11 @@ function ProgressCard({
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
-        className="flex items-center gap-2 w-full px-3 py-2 text-[12.5px] text-left cursor-pointer hover:bg-[var(--kin-fill-strong)]/30 transition-colors"
+        className="flex items-center gap-2 w-full px-3 py-2 text-body text-left cursor-pointer hover:bg-[var(--kin-fill-strong)]/30 transition-colors"
       >
         <span
           className={[
-            "flex-none text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded",
+            "flex-none text-micro font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded",
             badgeTone,
           ].join(" ")}
         >
@@ -612,14 +610,14 @@ function ProgressCard({
           <span className="break-words font-medium text-kin-text">{summary}</span>
           {collapsed && details.latestNote && (
             <span
-              className="truncate text-[11.5px] font-normal text-kin-muted"
+              className="truncate text-caption font-normal text-kin-muted"
               title={details.latestNote}
             >
               {details.latestNote}
             </span>
           )}
         </span>
-        <span className="flex-none text-[10.5px] font-normal text-kin-muted">
+        <span className="flex-none text-caption font-normal text-kin-muted">
           {collapsed ? tr("chat.progress.expand") : tr("chat.progress.hide")}
         </span>
       </button>
@@ -654,12 +652,10 @@ function NoteStepRow({ note, index }: { note: NoteStep; index: number }) {
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
   return (
-    <div className="flex items-start gap-2 px-3 py-1.5 text-[12px]">
-      <span className="flex-none w-5 text-[10.5px] tabular-nums text-kin-muted pt-0.5">
-        {index}
-      </span>
+    <div className="flex items-start gap-2 px-3 py-1.5 text-body">
+      <span className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5">{index}</span>
       <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
-      <span className="font-mono text-[11px] text-kin-muted flex-none pt-px">
+      <span className="font-mono text-caption text-kin-muted flex-none pt-px">
         {tr("chat.progress.note")}
       </span>
       <span className="flex-1 min-w-0 whitespace-pre-wrap break-words text-kin-secondary">
@@ -701,7 +697,7 @@ function ToolStepRow({
         : tr("chat.progress.done");
 
   return (
-    <div className="text-[12px]">
+    <div className="text-body">
       <button
         type="button"
         onClick={() => hasDetail && onToggle()}
@@ -713,21 +709,21 @@ function ToolStepRow({
         ].join(" ")}
         aria-expanded={open}
       >
-        <span className="flex-none w-5 text-[10.5px] tabular-nums text-kin-muted pt-0.5">
+        <span className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5">
           {index}
         </span>
         <span
           className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
           title={statusText}
         />
-        <span className="font-mono text-[11px] text-kin-muted flex-none pt-px">
+        <span className="font-mono text-caption text-kin-muted flex-none pt-px">
           {prettyToolName(tool.name)}
         </span>
         <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
         {filePath && onOpenPath && (
           <button
             type="button"
-            className="flex-none max-w-[40%] truncate font-mono text-[10.5px] text-kin-blue hover:underline pt-0.5"
+            className="flex-none max-w-[40%] truncate font-mono text-caption text-kin-blue hover:underline pt-0.5"
             title={filePath}
             onClick={(e) => {
               e.stopPropagation();
@@ -738,7 +734,7 @@ function ToolStepRow({
           </button>
         )}
         {hasDetail && (
-          <span className="flex-none text-[10.5px] text-kin-muted pt-0.5">
+          <span className="flex-none text-caption text-kin-muted pt-0.5">
             {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
           </span>
         )}
@@ -749,7 +745,7 @@ function ToolStepRow({
             <button
               type="button"
               onClick={() => onOpenPath(filePath)}
-              className="text-[11.5px] text-kin-blue hover:underline font-mono"
+              className="text-caption text-kin-blue hover:underline font-mono"
               title={filePath}
             >
               {tr("workspace.openFile")} · {shortPath(filePath, 48)}
@@ -757,20 +753,20 @@ function ToolStepRow({
           )}
           {tool.input != null && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
+              <div className="text-micro font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
                 {tr("chat.progress.input")}
               </div>
-              <pre className="overflow-x-auto max-h-28 text-[11px] font-mono text-kin-secondary whitespace-pre-wrap break-all rounded-md bg-[var(--kin-fill)] px-2 py-1.5">
+              <pre className="overflow-x-auto max-h-28 text-caption font-mono text-kin-secondary whitespace-pre-wrap break-all rounded-md bg-[var(--kin-fill)] px-2 py-1.5">
                 {formatToolJson(tool.input)}
               </pre>
             </div>
           )}
           {tool.output?.trim() && (
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
+              <div className="text-micro font-semibold uppercase tracking-wide text-kin-muted mb-0.5">
                 {tr("chat.progress.output")}
               </div>
-              <pre className="overflow-x-auto max-h-36 text-[11px] font-mono text-kin-secondary whitespace-pre-wrap break-all rounded-md bg-[var(--kin-fill)] px-2 py-1.5">
+              <pre className="overflow-x-auto max-h-36 text-caption font-mono text-kin-secondary whitespace-pre-wrap break-all rounded-md bg-[var(--kin-fill)] px-2 py-1.5">
                 {tool.output}
               </pre>
             </div>
@@ -794,7 +790,7 @@ function formatToolJson(input: unknown): string {
 function MessageBody({ text, partial }: { text: string; partial?: boolean }) {
   const body = text ?? "";
   return (
-    <div className="text-[14px] sm:text-[15px] leading-relaxed text-kin-text">
+    <div className="text-strong sm:text-subtitle leading-relaxed text-kin-text">
       <Markdown text={body} />
       {partial && !body.trim() && <ThinkingDots />}
       {partial && body.trim() && (
@@ -844,9 +840,9 @@ function MessageRow({
               onToggle={onToggleSelection ?? (() => undefined)}
             />
           )}
-          <div className="text-[11.5px] font-medium text-kin-muted px-1">{meta.label}</div>
+          <div className="text-caption font-medium text-kin-muted px-1">{meta.label}</div>
           <div
-            className="max-w-full min-w-0 px-3.5 py-2.5 rounded-[18px] rounded-br-[5px] text-[14px] sm:text-[15px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+            className="max-w-full min-w-0 px-3.5 py-2.5 rounded-[18px] rounded-br-[5px] text-strong sm:text-subtitle leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{
               background: "var(--kin-bubble-user)",
               color: "var(--kin-bubble-user-fg)",
@@ -856,7 +852,7 @@ function MessageRow({
           </div>
         </div>
         <div
-          className={`w-[28px] h-[28px] flex-none rounded-full flex items-center justify-center text-[11px] font-bold ${meta.className}`}
+          className={`w-[28px] h-[28px] flex-none rounded-full flex items-center justify-center text-caption font-bold ${meta.className}`}
           title={meta.label}
         >
           {meta.initials}
@@ -869,16 +865,16 @@ function MessageRow({
   return (
     <div className="flex gap-2.5 items-start">
       <div
-        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-[11px] font-bold ${meta.className}`}
+        className={`w-[28px] h-[28px] flex-none rounded-[8px] flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={meta.label}
       >
         {meta.initials}
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-1 pt-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-[12px] font-semibold text-kin-text">{meta.label}</span>
+          <span className="text-body font-semibold text-kin-text">{meta.label}</span>
           {partial && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] text-kin-muted">
+            <span className="inline-flex items-center gap-1.5 text-caption text-kin-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
               {tr("chat.streaming")}
             </span>
@@ -909,14 +905,14 @@ function ShareSelectionBar({
       role="region"
       aria-label={tr("chat.message.selection")}
     >
-      <span className="mr-auto text-[12px] font-medium text-kin-text">
+      <span className="mr-auto text-body font-medium text-kin-text">
         {tr("chat.message.selected", { count })}
       </span>
       <button
         type="button"
         onClick={onCopy}
         disabled={disabled}
-        className="inline-flex min-h-[32px] items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-[12px] font-medium text-white hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-[32px] items-center gap-1 rounded-md bg-kin-blue px-2.5 py-1 text-body font-medium text-white hover:bg-kin-blue/90 disabled:cursor-not-allowed disabled:opacity-40"
       >
         <IconCopy size={14} />
         {tr("chat.message.copyText")}
@@ -925,7 +921,7 @@ function ShareSelectionBar({
         type="button"
         onClick={onDownload}
         disabled={disabled}
-        className="inline-flex min-h-[32px] items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-[12px] font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex min-h-[32px] items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] px-2.5 py-1 text-body font-medium text-kin-text hover:bg-[var(--kin-fill)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         <IconDownload size={14} />
         {tr("chat.message.downloadHTML")}
@@ -933,7 +929,7 @@ function ShareSelectionBar({
       <button
         type="button"
         onClick={onCancel}
-        className="min-h-[32px] rounded-md px-2 py-1 text-[12px] font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+        className="min-h-[32px] rounded-md px-2 py-1 text-body font-medium text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
       >
         {tr("chat.message.cancel")}
       </button>
@@ -953,7 +949,7 @@ function MessageSelectionControl({
   const tr = useT();
   const label = role === "user" ? tr("chat.message.user") : tr("chat.message.assistant");
   return (
-    <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 text-[11.5px] font-medium text-kin-muted">
+    <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 text-caption font-medium text-kin-muted">
       <input
         type="checkbox"
         checked={selected}

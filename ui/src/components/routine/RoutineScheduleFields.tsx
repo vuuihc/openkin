@@ -75,7 +75,7 @@ export default function RoutineScheduleFields({
       className={compact ? "flex flex-wrap items-end gap-x-3 gap-y-2" : "grid gap-3 sm:grid-cols-2"}
     >
       <label className="block min-w-[8rem]">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-kin-muted">
+        <span className="text-caption font-medium uppercase tracking-wide text-kin-muted">
           {tr("routines.intervalLabel")}
         </span>
         <select
@@ -86,7 +86,7 @@ export default function RoutineScheduleFields({
             if (v === "custom") return;
             onIntervalChange(Number(v));
           }}
-          className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-[12.5px] text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
+          className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-body text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
         >
           {ROUTINE_INTERVAL_PRESETS.map((p) => (
             <option key={p.secs} value={p.secs}>
@@ -97,7 +97,7 @@ export default function RoutineScheduleFields({
       </label>
 
       <label className="block min-w-[12rem] flex-1">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-kin-muted">
+        <span className="text-caption font-medium uppercase tracking-wide text-kin-muted">
           {tr("routines.firstRunLabel")}
         </span>
         <input
@@ -105,9 +105,9 @@ export default function RoutineScheduleFields({
           value={nextRunLocal}
           disabled={disabled}
           onChange={(e) => onNextRunLocalChange(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-[12.5px] text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
+          className="mt-1 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 py-1.5 text-body text-kin-text outline-none focus:border-kin-blue/40 disabled:opacity-50"
         />
-        <span className="mt-1 block text-[11px] text-kin-muted">{hint}</span>
+        <span className="mt-1 block text-caption text-kin-muted">{hint}</span>
       </label>
 
       {nextRunLocal && (
@@ -115,7 +115,7 @@ export default function RoutineScheduleFields({
           type="button"
           disabled={disabled}
           onClick={() => onNextRunLocalChange("")}
-          className="self-end text-[12px] text-kin-secondary hover:text-kin-text disabled:opacity-50"
+          className="self-end text-body text-kin-secondary hover:text-kin-text disabled:opacity-50"
         >
           {tr("routines.clearFirstRun")}
         </button>

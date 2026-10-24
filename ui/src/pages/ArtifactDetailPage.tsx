@@ -100,8 +100,8 @@ export default function ArtifactDetailPage() {
   if (error || !artifact) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
-        <p className="text-[14px] text-kin-red">{error || tr("artifacts.notFound")}</p>
-        <Link to="/artifacts" className="text-[13px] text-kin-blue hover:underline">
+        <p className="text-strong text-kin-red">{error || tr("artifacts.notFound")}</p>
+        <Link to="/artifacts" className="text-strong text-kin-blue hover:underline">
           {tr("artifacts.backToLibrary")}
         </Link>
       </div>
@@ -120,8 +120,8 @@ export default function ArtifactDetailPage() {
           <IconBack size={16} />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-[15px] font-semibold truncate text-kin-text">{artifact.title}</h1>
-          <p className="text-[11.5px] text-kin-muted truncate">
+          <h1 className="text-subtitle font-semibold truncate text-kin-text">{artifact.title}</h1>
+          <p className="text-caption text-kin-muted truncate">
             {artifact.kind} · {formatBytes(artifact.size)}
             {artifact.source_task_id ? (
               <>
@@ -141,7 +141,7 @@ export default function ArtifactDetailPage() {
             type="button"
             disabled={archiving}
             onClick={() => void onArchive()}
-            className="shrink-0 px-2.5 py-1.5 rounded-lg text-[12.5px] font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-40"
+            className="shrink-0 px-2.5 py-1.5 rounded-lg text-body font-medium text-kin-secondary hover:bg-[var(--kin-fill)] disabled:opacity-40"
           >
             {tr("artifacts.archive")}
           </button>
@@ -157,7 +157,7 @@ export default function ArtifactDetailPage() {
             className="w-full h-full min-h-[70vh] border-0 bg-white"
           />
         ) : artifact.kind === "text" ? (
-          <pre className="max-w-3xl mx-auto px-4 sm:px-6 py-6 text-[13.5px] font-mono whitespace-pre-wrap text-kin-text">
+          <pre className="max-w-3xl mx-auto px-4 sm:px-6 py-6 text-strong font-mono whitespace-pre-wrap text-kin-text">
             {content}
           </pre>
         ) : (

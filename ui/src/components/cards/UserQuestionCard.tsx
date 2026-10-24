@@ -78,17 +78,17 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
       <div className="px-3.5 py-3.5">
         <div className="flex items-center gap-2">
           <IconAlert size={15} className="text-indigo-400 flex-none" />
-          <span className="text-[12.5px] font-semibold text-indigo-200">
+          <span className="text-body font-semibold text-indigo-200">
             {tr("question.cardTitle")}
           </span>
           {payload.header ? (
-            <span className="ml-auto rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-200">
+            <span className="ml-auto rounded-full border border-indigo-500/40 bg-indigo-500/10 px-2 py-0.5 text-caption text-indigo-200">
               {payload.header}
             </span>
           ) : null}
         </div>
 
-        <p className="mt-2.5 text-[13.5px] leading-snug text-kin-primary">
+        <p className="mt-2.5 text-strong leading-snug text-kin-primary">
           {payload.question || tr("question.fallback")}
         </p>
 
@@ -110,13 +110,13 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-2">
-                    <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded border border-indigo-400/40 text-[11px] text-indigo-200">
+                    <span className="mt-0.5 inline-flex h-5 w-5 flex-none items-center justify-center rounded border border-indigo-400/40 text-caption text-indigo-200">
                       {idx + 1}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[13px] font-medium">{opt.label}</span>
+                      <span className="block text-strong font-medium">{opt.label}</span>
                       {opt.description ? (
-                        <span className="mt-0.5 block text-[11.5px] text-kin-muted">
+                        <span className="mt-0.5 block text-caption text-kin-muted">
                           {opt.description}
                         </span>
                       ) : null}
@@ -129,7 +129,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
         </ul>
 
         <div className="mt-3">
-          <label className="block text-[11.5px] text-kin-muted mb-1">{tr("question.other")}</label>
+          <label className="block text-caption text-kin-muted mb-1">{tr("question.other")}</label>
           <input
             type="text"
             value={otherText}
@@ -142,7 +142,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
               }
             }}
             placeholder={tr("question.otherPlaceholder")}
-            className="w-full rounded-lg border border-[var(--kin-hairline)] bg-black/25 px-3 py-2 text-[13px] text-kin-primary placeholder:text-kin-muted focus:border-indigo-400 focus:outline-none"
+            className="w-full rounded-lg border border-[var(--kin-hairline)] bg-black/25 px-3 py-2 text-strong text-kin-primary placeholder:text-kin-muted focus:border-indigo-400 focus:outline-none"
           />
         </div>
 
@@ -152,7 +152,7 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
             disabled={!canSubmit}
             onClick={submit}
             className={[
-              "rounded-lg px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors",
+              "rounded-lg px-3.5 py-1.5 text-body font-semibold transition-colors",
               canSubmit
                 ? "bg-indigo-500 text-white hover:bg-indigo-400"
                 : "bg-indigo-500/30 text-indigo-200/60 cursor-not-allowed",

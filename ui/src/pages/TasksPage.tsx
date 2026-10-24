@@ -68,8 +68,8 @@ export default function TasksPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-semibold tracking-tight">{tr("tasks.title")}</h1>
-            <p className="text-[13px] text-kin-muted mt-0.5">
+            <h1 className="text-hero font-semibold tracking-tight">{tr("tasks.title")}</h1>
+            <p className="text-strong text-kin-muted mt-0.5">
               {tr("tasks.today", { cost: formatCost(todayCost) })}
             </p>
           </div>
@@ -91,7 +91,7 @@ export default function TasksPage() {
               type="button"
               onClick={() => setFilter(k)}
               className={[
-                "px-3 py-1.5 rounded-lg text-[13px] font-medium min-h-[36px]",
+                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-[36px]",
                 filter === k
                   ? "bg-kin-blue text-white"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -111,7 +111,7 @@ export default function TasksPage() {
 
         {error && (
           <div
-            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-sm text-[#ff8a80]"
+            className="mt-6 rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 text-strong leading-5 text-[#ff8a80]"
             role="alert"
           >
             {error}
@@ -119,13 +119,15 @@ export default function TasksPage() {
         )}
 
         {resource.loaded && filtered.length === 0 && (
-          <p className="mt-10 text-center text-sm text-kin-muted">{tr("tasks.empty")}</p>
+          <p className="mt-10 text-center text-strong leading-5 text-kin-muted">
+            {tr("tasks.empty")}
+          </p>
         )}
 
         {resource.loaded && filtered.length > 0 && (
           <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--kin-hairline)]">
-            <table className="w-full text-left text-[13px]">
-              <thead className="text-[11px] uppercase tracking-wide text-kin-muted border-b border-[var(--kin-hairline)]">
+            <table className="w-full text-left text-strong">
+              <thead className="text-caption uppercase tracking-wide text-kin-muted border-b border-[var(--kin-hairline)]">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">{tr("tasks.colTask")}</th>
                   <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">
@@ -169,7 +171,7 @@ export default function TasksPage() {
                       <button
                         type="button"
                         onClick={() => void handleDelete(t)}
-                        className="text-[12px] text-kin-muted hover:text-[#ff8a80]"
+                        className="text-body text-kin-muted hover:text-[#ff8a80]"
                       >
                         {tr("tasks.delete")}
                       </button>
@@ -201,7 +203,7 @@ function StatusChip({ status }: { status: string }) {
         ? t("tasks.statusDone")
         : status;
   return (
-    <span className={`inline-flex px-2 py-0.5 rounded text-[11.5px] font-semibold ${color}`}>
+    <span className={`inline-flex px-2 py-0.5 rounded text-caption font-semibold ${color}`}>
       {label}
     </span>
   );

@@ -46,13 +46,13 @@ export default function RunningTaskCard({
               statusView.animated ? "animate-breathe" : "",
             ].join(" ")}
           />
-          <span className="text-[14px] font-semibold text-kin-text truncate">
+          <span className="text-strong font-semibold text-kin-text truncate">
             {task.title || displayUserPrompt(task.prompt || "")}
           </span>
-          <span className="text-[10.5px] font-semibold tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5 flex-none">
+          <span className="text-caption font-semibold tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5 flex-none">
             {task.agent}
           </span>
-          <span className="ml-auto text-[12px] text-kin-muted tabular-nums flex-none whitespace-nowrap">
+          <span className="ml-auto text-body text-kin-muted tabular-nums flex-none whitespace-nowrap">
             {tr(statusView.labelKey)}
             {" · "}
             {formatElapsed(task, now)}
@@ -61,7 +61,7 @@ export default function RunningTaskCard({
           </span>
         </div>
         {activity && (
-          <div className="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-kin-secondary font-mono">
+          <div className="mt-2.5 flex items-center gap-1.5 text-body text-kin-secondary font-mono">
             <IconTerminal size={13} className="text-kin-muted flex-none" />
             <span className="truncate">{activity}</span>
           </div>

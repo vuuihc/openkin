@@ -756,8 +756,8 @@ export default function SettingsPage() {
   if (error && !settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
-        <h1 className="hidden text-[22px] font-semibold md:block">{tr("settings.title")}</h1>
-        <p className="text-sm text-kin-red mt-3" role="alert">
+        <h1 className="hidden text-hero font-semibold md:block">{tr("settings.title")}</h1>
+        <p className="text-strong leading-5 text-kin-red mt-3" role="alert">
           {error}
         </p>
       </div>
@@ -767,7 +767,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6 space-y-4">
-        <h1 className="hidden text-[22px] font-semibold md:block">{tr("settings.title")}</h1>
+        <h1 className="hidden text-hero font-semibold md:block">{tr("settings.title")}</h1>
         <SlowConnectHint show={slow} />
         <div className="rounded-xl border border-[var(--kin-hairline)] p-4 space-y-3">
           <SkeletonLine className="h-40 w-40" />
@@ -871,7 +871,7 @@ export default function SettingsPage() {
     >
       {error ? (
         <p
-          className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-xs text-kin-red"
+          className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-body leading-4 text-kin-red"
           role="alert"
         >
           {error}
@@ -949,7 +949,7 @@ export default function SettingsPage() {
                   applyTheme(value);
                 }}
                 className={[
-                  "px-3 py-2 rounded-lg text-[13px] font-medium min-h-[44px] sm:min-h-[40px] border",
+                  "px-3 py-2 rounded-lg text-strong font-medium min-h-[44px] sm:min-h-[40px] border",
                   theme === value
                     ? "border-kin-blue bg-kin-blue-soft text-kin-blue"
                     : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -968,16 +968,16 @@ export default function SettingsPage() {
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+              <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
                 {tr("settings.relay.heading")}
               </h2>
-              <p className="text-[12px] text-kin-secondary leading-relaxed">
+              <p className="text-body text-kin-secondary leading-relaxed">
                 {tr("settings.relay.desc")}
               </p>
             </div>
             <span
               className={[
-                "shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                "shrink-0 rounded-full px-2 py-1 text-micro font-semibold uppercase tracking-wide",
                 relayState === "connected"
                   ? "bg-kin-green/15 text-kin-green"
                   : relayState === "connecting"
@@ -993,10 +993,10 @@ export default function SettingsPage() {
           <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 p-3 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="space-y-1">
-                <p className="text-xs font-medium text-kin-secondary">
+                <p className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.cloudflareTitle")}
                 </p>
-                <p className="text-[11px] text-kin-muted leading-relaxed">
+                <p className="text-caption text-kin-muted leading-relaxed">
                   {settings["cloudflare.authenticated"]
                     ? tr("settings.relay.cloudflareConnected", {
                         account:
@@ -1022,13 +1022,13 @@ export default function SettingsPage() {
               </button>
             </div>
             {settings["cloudflare.relay_last_error"] ? (
-              <p className="text-xs text-kin-red" role="alert">
+              <p className="text-body leading-4 text-kin-red" role="alert">
                 {settings["cloudflare.relay_last_error"]}
               </p>
             ) : null}
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-kin-secondary">
+                <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.cloudflareAccount")}
                 </span>
                 <select
@@ -1062,7 +1062,7 @@ export default function SettingsPage() {
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-kin-secondary">
+                <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.workerName")}
                 </span>
                 <input
@@ -1070,7 +1070,7 @@ export default function SettingsPage() {
                   value={cloudflareScriptName}
                   onChange={(e) => setCloudflareScriptName(e.target.value)}
                   disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                  className="kin-input min-h-[44px] font-mono text-xs"
+                  className="kin-input min-h-[44px] font-mono text-body leading-4"
                   autoComplete="off"
                 />
               </label>
@@ -1078,7 +1078,7 @@ export default function SettingsPage() {
             {hasCloudflareWorker ? (
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
                 <label className="block space-y-1">
-                  <span className="text-xs font-medium text-kin-secondary">
+                  <span className="text-body leading-4 font-medium text-kin-secondary">
                     {tr("settings.relay.cloudflareZone")}
                   </span>
                   <select
@@ -1112,7 +1112,7 @@ export default function SettingsPage() {
                   </select>
                 </label>
                 <label className="block space-y-1">
-                  <span className="text-xs font-medium text-kin-secondary">
+                  <span className="text-body leading-4 font-medium text-kin-secondary">
                     {tr("settings.relay.customDomain")}
                   </span>
                   <input
@@ -1124,7 +1124,7 @@ export default function SettingsPage() {
                     }}
                     disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
                     placeholder={tr("settings.relay.customDomainPlaceholder")}
-                    className="kin-input min-h-[44px] font-mono text-xs"
+                    className="kin-input min-h-[44px] font-mono text-body leading-4"
                     autoComplete="off"
                   />
                 </label>
@@ -1192,23 +1192,23 @@ export default function SettingsPage() {
               ) : null}
             </div>
             {!hasCloudflareWorker && settings["cloudflare.authenticated"] ? (
-              <p className="text-[11px] text-kin-muted leading-relaxed">
+              <p className="text-caption text-kin-muted leading-relaxed">
                 {tr("settings.relay.deployFirst")}
               </p>
             ) : null}
             {settings["cloudflare.relay_worker_url"] ? (
-              <p className="break-all font-mono text-[11px] text-kin-muted">
+              <p className="break-all font-mono text-caption text-kin-muted">
                 {settings["cloudflare.relay_worker_url"]}
               </p>
             ) : null}
             {settings["cloudflare.relay_custom_domain_url"] ? (
-              <p className="break-all font-mono text-[11px] text-kin-green">
+              <p className="break-all font-mono text-caption text-kin-green">
                 {settings["cloudflare.relay_custom_domain_url"]}
               </p>
             ) : null}
           </div>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.relay.workerUrl")}
             </span>
             <input
@@ -1216,13 +1216,15 @@ export default function SettingsPage() {
               value={relayURL}
               onChange={(e) => setRelayURL(e.target.value)}
               placeholder="https://kin-relay.example.workers.dev"
-              className="kin-input min-h-[44px] font-mono text-xs"
+              className="kin-input min-h-[44px] font-mono text-body leading-4"
               autoComplete="url"
             />
-            <span className="text-[11px] text-kin-muted">{tr("settings.relay.workerUrlHint")}</span>
+            <span className="text-caption text-kin-muted">
+              {tr("settings.relay.workerUrlHint")}
+            </span>
           </label>
           {settings["relay.last_error"] ? (
-            <p className="text-xs text-kin-red" role="alert">
+            <p className="text-body leading-4 text-kin-red" role="alert">
               {settings["relay.last_error"]}
             </p>
           ) : null}
@@ -1252,16 +1254,16 @@ export default function SettingsPage() {
                 <QRCodeSVG value={settings["relay.pairing_url"]} size={160} level="M" />
               </div>
               <div className="min-w-0 flex-1 space-y-2">
-                <p className="text-xs font-medium text-kin-secondary">
+                <p className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.pairingTitle")}
                 </p>
-                <p className="break-all font-mono text-[11px] text-kin-muted">
+                <p className="break-all font-mono text-caption text-kin-muted">
                   {settings["relay.pairing_url"]}
                 </p>
                 <button
                   type="button"
                   onClick={() => void copy(settings["relay.pairing_url"])}
-                  className="min-h-[40px] text-xs text-kin-blue hover:underline"
+                  className="min-h-[40px] text-body leading-4 text-kin-blue hover:underline"
                 >
                   {tr("settings.connection.copyUrl")}
                 </button>
@@ -1272,7 +1274,7 @@ export default function SettingsPage() {
 
         {/* Connection */}
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {tr("settings.connection.heading")}
           </h2>
           <div className="flex flex-col sm:flex-row gap-4 items-start">
@@ -1281,29 +1283,29 @@ export default function SettingsPage() {
                 <QRCodeSVG value={connectURL} size={160} level="M" />
               </div>
             ) : (
-              <div className="h-40 w-40 rounded-lg border border-dashed border-surface-border flex items-center justify-center text-xs text-zinc-500">
+              <div className="h-40 w-40 rounded-lg border border-dashed border-surface-border flex items-center justify-center text-body leading-4 text-zinc-500">
                 {tr("settings.connection.noUrl")}
               </div>
             )}
             <div className="min-w-0 flex-1 space-y-3">
               <div>
-                <div className="text-xs text-kin-muted">
+                <div className="text-body leading-4 text-kin-muted">
                   {tr("settings.connection.networkMode")}
                 </div>
-                <div className="mt-0.5 font-mono text-sm text-kin-blue">{mode}</div>
+                <div className="mt-0.5 font-mono text-strong leading-5 text-kin-blue">{mode}</div>
               </div>
               {connectURL && (
                 <div>
-                  <div className="text-xs text-kin-muted">
+                  <div className="text-body leading-4 text-kin-muted">
                     {tr("settings.connection.connectUrl")}
                   </div>
-                  <div className="mt-0.5 break-all font-mono text-xs text-kin-secondary">
+                  <div className="mt-0.5 break-all font-mono text-body leading-4 text-kin-secondary">
                     {connectURL}
                   </div>
                   <button
                     type="button"
                     onClick={() => void copy(connectURL)}
-                    className="mt-1 min-h-[44px] text-xs text-kin-blue hover:underline"
+                    className="mt-1 min-h-[44px] text-body leading-4 text-kin-blue hover:underline"
                   >
                     {tr("settings.connection.copyUrl")}
                   </button>
@@ -1311,27 +1313,29 @@ export default function SettingsPage() {
               )}
               {token ? (
                 <div>
-                  <div className="text-xs text-kin-muted">{tr("settings.connection.token")}</div>
+                  <div className="text-body leading-4 text-kin-muted">
+                    {tr("settings.connection.token")}
+                  </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                    <code className="break-all font-mono text-xs text-kin-text">
+                    <code className="break-all font-mono text-body leading-4 text-kin-text">
                       {reveal ? token : "••••••••••••••••"}
                     </code>
                     <button
                       type="button"
                       onClick={() => setReveal((v) => !v)}
-                      className="min-h-[44px] text-xs text-kin-blue hover:underline"
+                      className="min-h-[44px] text-body leading-4 text-kin-blue hover:underline"
                     >
                       {reveal ? tr("settings.hide") : tr("settings.reveal")}
                     </button>
                     <button
                       type="button"
                       onClick={() => void copy(token)}
-                      className="min-h-[44px] text-xs text-kin-blue hover:underline"
+                      className="min-h-[44px] text-body leading-4 text-kin-blue hover:underline"
                     >
                       {tr("settings.connection.copy")}
                     </button>
                   </div>
-                  <p className="mt-1 text-xs text-kin-muted">
+                  <p className="mt-1 text-body leading-4 text-kin-muted">
                     {tr("settings.connection.tokenHintA")}
                     <code className="text-kin-secondary">kin token rotate</code>
                     {tr("settings.connection.tokenHintB")}
@@ -1341,7 +1345,7 @@ export default function SettingsPage() {
                 // A Hub answers this endpoint without a token on purpose: the
                 // browser got in with an account, and handing it the daemon's own
                 // credential would outlive the session it came from.
-                <p className="text-xs text-kin-muted leading-relaxed">
+                <p className="text-body text-kin-muted leading-relaxed">
                   {tr("settings.connection.accountSession")}
                 </p>
               )}
@@ -1353,16 +1357,16 @@ export default function SettingsPage() {
       {/* Notifications */}
       <SettingsTabPanel id="notifications" active={activeTab === "notifications"}>
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {tr("settings.notify.heading")}
           </h2>
-          <p className="text-xs text-kin-muted">
+          <p className="text-body leading-4 text-kin-muted">
             {tr("settings.notify.descA")}
             <code className="text-kin-secondary">ui.base_url</code>
             {tr("settings.notify.descB")}
           </p>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.notify.barkUrl")}
             </span>
             <input
@@ -1374,7 +1378,7 @@ export default function SettingsPage() {
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.notify.ntfyTopic")}
             </span>
             <input
@@ -1386,7 +1390,7 @@ export default function SettingsPage() {
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.notify.uiBaseUrl")}
             </span>
             <input
@@ -1396,10 +1400,12 @@ export default function SettingsPage() {
               placeholder="http://192.168.x.x:7777"
               className="kin-input min-h-[44px]"
             />
-            <span className="text-xs text-kin-muted">{tr("settings.notify.uiBaseUrlHint")}</span>
+            <span className="text-body leading-4 text-kin-muted">
+              {tr("settings.notify.uiBaseUrlHint")}
+            </span>
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">
+            <span className="text-body leading-4 font-medium text-kin-secondary">
               {tr("settings.notify.quotaWaitAfter")}
             </span>
             <input
@@ -1410,7 +1416,7 @@ export default function SettingsPage() {
               onChange={(e) => setQuotaWaitNotifySecs(e.target.value)}
               className="kin-input min-h-[44px]"
             />
-            <span className="text-xs text-kin-muted">
+            <span className="text-body leading-4 text-kin-muted">
               {tr("settings.notify.quotaWaitAfterHint")}
             </span>
           </label>
@@ -1432,9 +1438,11 @@ export default function SettingsPage() {
               {testing ? tr("settings.notify.sending") : tr("settings.notify.sendTest")}
             </button>
             {saved && (
-              <span className="text-xs text-kin-green">{tr("settings.notify.savedShort")}</span>
+              <span className="text-body leading-4 text-kin-green">
+                {tr("settings.notify.savedShort")}
+              </span>
             )}
-            {error && <span className="text-xs text-kin-red">{error}</span>}
+            {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
           </div>
         </section>
       </SettingsTabPanel>
@@ -1443,20 +1451,20 @@ export default function SettingsPage() {
       <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
           <div className="flex items-start justify-between gap-3">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
               {tr("settings.price.heading")}
             </h2>
             <a
               href="https://github.com/BerriAI/litellm"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline shrink-0 sm:min-h-0"
+              className="inline-flex min-h-[44px] items-center text-caption text-kin-blue hover:underline shrink-0 sm:min-h-0"
               title={tr("settings.price.sourceHint")}
             >
               {tr("settings.price.sourceName")} ↗
             </a>
           </div>
-          <p className="text-xs text-kin-muted leading-relaxed">
+          <p className="text-body text-kin-muted leading-relaxed">
             {tr("settings.price.descA")}
             <code className="text-kin-secondary">total_cost_usd</code>
             {tr("settings.price.descB")}
@@ -1471,7 +1479,7 @@ export default function SettingsPage() {
             {tr("settings.price.descC")}
             <code className="text-kin-secondary">{`{"model": {"in": 1.25, "out": 10.0}}`}</code>
           </p>
-          <p className="text-[11px] text-kin-muted">
+          <p className="text-caption text-kin-muted">
             {tr("settings.price.sourceHint")}
             {" · "}
             {tr("settings.price.overrideHint")}
@@ -1481,7 +1489,7 @@ export default function SettingsPage() {
             onChange={(e) => setPriceTable(e.target.value)}
             rows={10}
             spellCheck={false}
-            className="kin-input font-mono text-xs resize-y min-h-[160px]"
+            className="kin-input font-mono text-body leading-4 resize-y min-h-[160px]"
           />
           <div className="flex flex-wrap items-center gap-3">
             <button
@@ -1526,10 +1534,10 @@ export default function SettingsPage() {
 
         {/* Agent usage limits */}
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {tr("settings.agentLimits.heading")}
           </h2>
-          <p className="text-xs text-kin-muted">
+          <p className="text-body leading-4 text-kin-muted">
             {tr("settings.agentLimits.desc")}
             <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
           </p>
@@ -1538,7 +1546,7 @@ export default function SettingsPage() {
             onChange={(e) => setAgentLimitsText(e.target.value)}
             rows={6}
             spellCheck={false}
-            className="kin-input font-mono text-xs resize-y min-h-[100px]"
+            className="kin-input font-mono text-body leading-4 resize-y min-h-[100px]"
           />
           <div className="flex items-center gap-3">
             <button
@@ -1549,7 +1557,7 @@ export default function SettingsPage() {
             >
               {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
             </button>
-            {error && <span className="text-xs text-kin-red">{error}</span>}
+            {error && <span className="text-body leading-4 text-kin-red">{error}</span>}
           </div>
         </section>
       </SettingsTabPanel>
@@ -1557,10 +1565,10 @@ export default function SettingsPage() {
       {/* Rate-limit policy */}
       <SettingsTabPanel id="routing" active={activeTab === "routing"}>
         <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
             {tr("settings.limitPolicy.heading")}
           </h2>
-          <p className="text-xs text-kin-muted">{tr("settings.limitPolicy.desc")}</p>
+          <p className="text-body leading-4 text-kin-muted">{tr("settings.limitPolicy.desc")}</p>
           <div className="flex flex-col gap-2">
             {(
               [
@@ -1571,7 +1579,7 @@ export default function SettingsPage() {
             ).map(([value, labelKey]) => (
               <label
                 key={value}
-                className="flex items-center gap-2 text-[13px] text-kin-secondary cursor-pointer"
+                className="flex items-center gap-2 text-strong text-kin-secondary cursor-pointer"
               >
                 <input
                   type="radio"
@@ -1586,16 +1594,16 @@ export default function SettingsPage() {
           </div>
           {limitPolicy === "switch" ? (
             <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] text-kin-muted">
+              <span className="text-caption text-kin-muted">
                 {tr("settings.limitPolicy.fallback")}
               </span>
               <input
                 value={limitFallbackText}
                 onChange={(e) => setLimitFallbackText(e.target.value)}
-                className="kin-input font-mono text-xs"
+                className="kin-input font-mono text-body leading-4"
                 spellCheck={false}
               />
-              <span className="text-[11px] text-kin-muted">
+              <span className="text-caption text-kin-muted">
                 {tr("settings.limitPolicy.fallbackHint")}
               </span>
             </label>

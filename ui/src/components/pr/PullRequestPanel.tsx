@@ -223,8 +223,8 @@ export default function PullRequestPanel({
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconPullRequest size={14} className="flex-none text-kin-muted" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-semibold text-kin-text">{tr("pr.title")}</div>
-          <div className="truncate font-mono text-[11px] text-kin-muted">
+          <div className="truncate text-body font-semibold text-kin-text">{tr("pr.title")}</div>
+          <div className="truncate font-mono text-caption text-kin-muted">
             {headerLabel(snapshot, lead) || absentRepoLabel(tr, elsewhere)}
           </div>
         </div>
@@ -236,7 +236,7 @@ export default function PullRequestPanel({
         */}
         <button
           type="button"
-          className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[12px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex flex-none items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)] disabled:cursor-not-allowed disabled:opacity-50"
           onClick={() => void onRefresh()}
           disabled={busy}
           title={tr("pr.refreshHint")}
@@ -260,7 +260,7 @@ export default function PullRequestPanel({
       <div className="min-h-0 flex-1 overflow-y-auto kin-scroll px-3 py-3">
         <div className="mx-auto max-w-[720px] space-y-2">
           {snapshot?.notice && (
-            <p className="flex items-start gap-1.5 text-[11.5px] text-kin-muted">
+            <p className="flex items-start gap-1.5 text-caption text-kin-muted">
               <IconAlert size={12} className="mt-0.5 flex-none" />
               <span>{snapshot.notice}</span>
             </p>
@@ -272,7 +272,7 @@ export default function PullRequestPanel({
             would lose the number and link the user opened this panel to find.
           */}
           {error && (
-            <p className="flex items-start gap-1.5 text-[12px] text-kin-red">
+            <p className="flex items-start gap-1.5 text-body text-kin-red">
               <IconAlert size={13} className="mt-0.5 flex-none" />
               <span>{error}</span>
             </p>
@@ -288,7 +288,7 @@ export default function PullRequestPanel({
             busy ? (
               <Checking />
             ) : (
-              <p className="text-[12.5px] text-kin-muted">{unobservedLabel(tr)}</p>
+              <p className="text-body text-kin-muted">{unobservedLabel(tr)}</p>
             )
           ) : (
             <ObservationCard lead={lead} busy={busy} />
@@ -296,17 +296,17 @@ export default function PullRequestPanel({
 
           {others.length > 0 && (
             <div className="pt-1">
-              <div className="mb-1 text-[11px] font-medium text-kin-muted">
+              <div className="mb-1 text-caption font-medium text-kin-muted">
                 {tr("pr.earlierBranches")}
               </div>
               <ul className="space-y-1">
                 {others.map((o) => (
                   <li
                     key={`${o.repo}/${o.head_branch}`}
-                    className="flex items-center gap-2 text-[12px]"
+                    className="flex items-center gap-2 text-body"
                   >
                     <span className="flex-none text-kin-muted">#{o.number}</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-kin-muted">
+                    <span className="min-w-0 flex-1 truncate font-mono text-caption text-kin-muted">
                       {o.head_branch}
                     </span>
                     {o.url && (
@@ -339,7 +339,7 @@ export default function PullRequestPanel({
 function Checking() {
   const tr = useT();
   return (
-    <p className="flex items-start gap-1.5 text-[12.5px] text-kin-muted">
+    <p className="flex items-start gap-1.5 text-body text-kin-muted">
       <IconSpinner size={13} className="mt-0.5 flex-none" />
       <span>{tr("pr.checking")}</span>
     </p>
@@ -349,7 +349,7 @@ function Checking() {
 function Loading() {
   const tr = useT();
   return (
-    <div className="flex items-center gap-2 text-[13px] text-kin-muted">
+    <div className="flex items-center gap-2 text-strong text-kin-muted">
       <IconSpinner size={14} strokeWidth={2} />
       {tr("pr.loading")}
     </div>
@@ -366,10 +366,10 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
         busy ? (
           <Checking />
         ) : (
-          <p className="text-[12.5px] text-kin-muted">{tr("pr.neverChecked")}</p>
+          <p className="text-body text-kin-muted">{tr("pr.neverChecked")}</p>
         )
       ) : lead.number === undefined ? (
-        <p className="text-[12.5px] text-kin-muted">{tr("pr.none")}</p>
+        <p className="text-body text-kin-muted">{tr("pr.none")}</p>
       ) : (
         <>
           <div className="flex items-start gap-2">
@@ -379,14 +379,14 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
                 href={lead.url}
                 target="_blank"
                 rel="noreferrer"
-                className="block truncate text-[13px] font-medium text-kin-text hover:underline"
+                className="block truncate text-strong font-medium text-kin-text hover:underline"
                 title={lead.title}
               >
                 <span className="text-kin-muted">#{lead.number}</span>{" "}
                 {lead.title || tr("pr.untitled")}
                 <IconExternal size={11} className="ml-1 inline-flex" />
               </a>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-kin-muted">
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-kin-muted">
                 <span>{stateLabel(tr, lead)}</span>
                 {lead.base_branch && lead.head_branch && (
                   // Branch names are `kin/task/<id>/g<N>`, so this line can be
@@ -400,7 +400,7 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
           </div>
 
           {lead.ci_state && lead.ci_state !== "none" && (
-            <div className="mt-2 flex items-start gap-1.5 text-[11.5px]">
+            <div className="mt-2 flex items-start gap-1.5 text-caption">
               {lead.ci_state === "success" ? (
                 <IconCheck size={12} className="mt-0.5 flex-none text-kin-green" />
               ) : lead.ci_state === "failure" ? (
@@ -418,7 +418,7 @@ function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: b
 
       {/* The age and the last failure, which are what make the card above
           trustworthy rather than merely present. */}
-      <div className="mt-2 border-t border-[var(--kin-hairline)] pt-1.5 text-[11px] text-kin-muted">
+      <div className="mt-2 border-t border-[var(--kin-hairline)] pt-1.5 text-caption text-kin-muted">
         {lead.observed_at !== undefined ? (
           <span>
             {tr("pr.lastSeen", {

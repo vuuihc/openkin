@@ -76,7 +76,7 @@ export default function MobileTabBar({ pendingCount }: Props) {
           key={tab.to}
           to={tab.to}
           className={({ isActive }) =>
-            `relative flex-1 min-h-[50px] flex flex-col items-center justify-center gap-0.5 text-[10px] transition-colors ${
+            `relative flex-1 min-h-[50px] flex flex-col items-center justify-center gap-0.5 text-micro transition-colors ${
               isActive ? "text-kin-blue" : "text-kin-muted"
             }`
           }
@@ -84,7 +84,7 @@ export default function MobileTabBar({ pendingCount }: Props) {
           {tab.icon}
           {tab.label}
           {tab.to === "/inbox" && pendingCount > 0 && (
-            <span className="absolute top-1 left-1/2 ml-1 min-w-[17px] h-[17px] px-1 rounded-full bg-kin-orange text-[#1a1a1c] text-[11px] font-bold inline-flex items-center justify-center">
+            <span className="absolute top-1 left-1/2 ml-1 min-w-[17px] h-[17px] px-1 rounded-full bg-kin-orange text-[#1a1a1c] text-caption font-bold inline-flex items-center justify-center">
               {pendingCount}
             </span>
           )}

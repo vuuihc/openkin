@@ -126,10 +126,10 @@ export default function FileTree({
   return (
     <div className="h-full min-h-0 overflow-auto kin-scroll px-2 py-2">
       {rootState?.loading && rootEntries.length === 0 && (
-        <div className="px-2 py-1.5 text-[12px] text-kin-muted">{t("workspace.tree.loading")}</div>
+        <div className="px-2 py-1.5 text-body text-kin-muted">{t("workspace.tree.loading")}</div>
       )}
       {rootState?.error && (
-        <div className="mx-2 my-1 rounded-lg border border-[rgba(255,69,58,.25)] bg-[rgba(255,69,58,.08)] px-2.5 py-2 text-[12px] text-[#ffb4ad]">
+        <div className="mx-2 my-1 rounded-lg border border-[rgba(255,69,58,.25)] bg-[rgba(255,69,58,.08)] px-2.5 py-2 text-body text-[#ffb4ad]">
           {rootState.error}
         </div>
       )}
@@ -149,7 +149,7 @@ export default function FileTree({
         },
       })}
       {rootState?.truncated && (
-        <div className="px-2 py-2 text-[11px] text-kin-muted">
+        <div className="px-2 py-2 text-caption text-kin-muted">
           {t("workspace.tree.truncatedRoot")}
         </div>
       )}
@@ -192,7 +192,7 @@ function renderEntries({
             }
           }}
           className={[
-            "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors",
+            "w-full flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-body transition-colors",
             isSelected
               ? "bg-kin-blue/20 text-white"
               : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -223,7 +223,7 @@ function renderEntries({
           <div>
             {dirState?.loading && (
               <div
-                className="px-2 py-1 text-[11px] text-kin-muted"
+                className="px-2 py-1 text-caption text-kin-muted"
                 style={{ paddingLeft: 36 + depth * 14 }}
               >
                 {t("workspace.tree.loadingMore")}
@@ -231,7 +231,7 @@ function renderEntries({
             )}
             {dirState?.error && (
               <div
-                className="px-2 py-1 text-[11px] text-[#ffb4ad]"
+                className="px-2 py-1 text-caption text-[#ffb4ad]"
                 style={{ paddingLeft: 36 + depth * 14 }}
               >
                 {dirState.error}
@@ -249,7 +249,7 @@ function renderEntries({
               })}
             {dirState?.truncated && (
               <div
-                className="px-2 py-1 text-[11px] text-kin-muted"
+                className="px-2 py-1 text-caption text-kin-muted"
                 style={{ paddingLeft: 36 + depth * 14 }}
               >
                 {t("workspace.tree.truncated")}

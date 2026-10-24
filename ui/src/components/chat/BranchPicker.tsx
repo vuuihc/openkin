@@ -210,7 +210,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
         className={[
           "inline-flex items-center gap-1 min-w-0 max-w-full flex-none",
           "rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]",
-          compact ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-[11.5px]",
+          compact ? "px-1.5 py-0.5 text-caption" : "px-2 py-0.5 text-caption",
           "text-kin-muted",
           className ?? "",
         ].join(" ")}
@@ -278,7 +278,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
       ].join(" ")}
     >
       {!compact && (
-        <span className="text-[11.5px] text-kin-muted flex-none">{tr("branch.label")}</span>
+        <span className="text-caption text-kin-muted flex-none">{tr("branch.label")}</span>
       )}
       <button
         ref={triggerRef}
@@ -293,8 +293,8 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
           "inline-flex items-center min-w-0 max-w-full rounded-lg border",
           "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]",
           compact
-            ? "gap-1 px-1.5 py-0.5 text-[11px] font-medium transition-colors"
-            : "gap-1.5 px-2 py-0.5 text-[11.5px] font-medium transition-colors",
+            ? "gap-1 px-1.5 py-0.5 text-caption font-medium transition-colors"
+            : "gap-1.5 px-2 py-0.5 text-caption font-medium transition-colors",
           "hover:border-kin-blue/40 hover:text-kin-secondary",
           open ? "border-kin-blue/50 text-kin-blue" : "text-kin-secondary",
           busy ? "opacity-60" : "",
@@ -346,7 +346,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
               placeholder={tr("branch.filter")}
               className={[
                 "w-full rounded-md border border-[var(--kin-hairline)]",
-                "bg-[var(--kin-fill)] px-2 py-1 text-[12px] font-mono",
+                "bg-[var(--kin-fill)] px-2 py-1 text-body font-mono",
                 "text-kin-primary placeholder:text-kin-muted outline-none",
                 "focus:border-kin-blue/50",
               ].join(" ")}
@@ -355,7 +355,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
           </div>
           <ul className="flex-1 min-h-0 max-h-56 overflow-y-auto py-1">
             {branches.length === 0 ? (
-              <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("branch.empty")}</li>
+              <li className="px-3 py-2 text-body text-kin-muted">{tr("branch.empty")}</li>
             ) : (
               branches.map((b) => {
                 const active = b.current || b.name === status.current;
@@ -368,7 +368,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
                       disabled={locked || busy || active}
                       onClick={() => void switchTo(b.name)}
                       className={[
-                        "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[12.5px]",
+                        "w-full flex items-center gap-2 px-3 py-1.5 text-left text-body",
                         "font-mono transition-colors",
                         active
                           ? "bg-kin-blue-soft text-kin-blue"
@@ -387,12 +387,12 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
             )}
           </ul>
           {locked && (
-            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-[11px] text-kin-muted">
+            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-caption text-kin-muted">
               {tr("branch.sessionLocked")}
             </div>
           )}
           {!locked && status.dirty && (
-            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-[11px] text-kin-orange">
+            <div className="flex-none px-3 py-1.5 border-t border-[var(--kin-hairline)] text-caption text-kin-orange">
               {tr("branch.dirty")}
             </div>
           )}

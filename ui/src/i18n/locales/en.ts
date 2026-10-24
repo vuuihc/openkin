@@ -1367,6 +1367,11 @@ const en: MessageTree = {
       "A hairline is a boundary inside a surface; between two surfaces the ladder above separates them.",
     groupStatus: "Status and brand",
     noteStatus: "These are fills: white or near-black text sits on top of them.",
+    groupType: "Type ladder",
+    noteType:
+      "Seven roles, each shown at its own size. The size is binding; the weight and ink are what the role should look like, aligned by review.",
+    absorbed: "absorbed",
+    absorbedDefault: "default {name}",
   },
 };
 

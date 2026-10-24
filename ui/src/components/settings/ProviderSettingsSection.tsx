@@ -106,12 +106,12 @@ export function ProviderSettingsSection({
       <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1 min-w-0">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            <h2 className="text-caption font-semibold uppercase tracking-wide text-kin-muted">
               {tr("settings.provider.heading")}
             </h2>
-            <p className="text-[12px] text-kin-secondary leading-relaxed">
+            <p className="text-body text-kin-secondary leading-relaxed">
               {tr("settings.provider.descA")}
-              <code className="text-[11px] px-1 rounded bg-[var(--kin-fill)]">kin</code>
+              <code className="text-caption px-1 rounded bg-[var(--kin-fill)]">kin</code>
               {tr("settings.provider.descB")}
             </p>
           </div>
@@ -126,7 +126,7 @@ export function ProviderSettingsSection({
         </div>
 
         {providers.length === 0 ? (
-          <p className="text-[13px] text-kin-muted">{tr("settings.provider.empty")}</p>
+          <p className="text-strong text-kin-muted">{tr("settings.provider.empty")}</p>
         ) : (
           <ul className="space-y-2">
             {providers.map((provider) => {
@@ -143,16 +143,16 @@ export function ProviderSettingsSection({
                 >
                   <div className="min-w-0 flex-1 space-y-0.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[13px] font-medium truncate">
+                      <span className="text-strong font-medium truncate">
                         {providerDisplayName(provider)}
                       </span>
                       {isActive ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-kin-blue">
+                        <span className="text-micro font-semibold uppercase tracking-wide text-kin-blue">
                           {tr("settings.provider.activeBadge")}
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-[11px] text-kin-muted font-mono truncate">
+                    <p className="text-caption text-kin-muted font-mono truncate">
                       {providerSummary(provider)}
                     </p>
                   </div>
@@ -162,7 +162,7 @@ export function ProviderSettingsSection({
                         type="button"
                         disabled={providerBusy}
                         onClick={() => onActivateProvider(provider.id)}
-                        className="kin-btn-secondary text-[12px] min-h-[36px] disabled:opacity-50"
+                        className="kin-btn-secondary text-body min-h-[36px] disabled:opacity-50"
                       >
                         {tr("settings.provider.use")}
                       </button>
@@ -171,7 +171,7 @@ export function ProviderSettingsSection({
                       type="button"
                       disabled={providerBusy}
                       onClick={() => onEditProvider(provider)}
-                      className="kin-btn-secondary text-[12px] min-h-[36px] disabled:opacity-50"
+                      className="kin-btn-secondary text-body min-h-[36px] disabled:opacity-50"
                     >
                       {tr("settings.provider.edit")}
                     </button>
@@ -179,7 +179,7 @@ export function ProviderSettingsSection({
                       type="button"
                       disabled={providerBusy}
                       onClick={() => onDeleteProvider(provider.id)}
-                      className="kin-btn-secondary text-[12px] min-h-[36px] text-kin-red disabled:opacity-50"
+                      className="kin-btn-secondary text-body min-h-[36px] text-kin-red disabled:opacity-50"
                     >
                       {tr("settings.provider.delete")}
                     </button>
@@ -192,11 +192,11 @@ export function ProviderSettingsSection({
 
         {editingId !== null ? (
           <div className="rounded-lg border border-[var(--kin-hairline)] p-3 space-y-3 bg-kin-elevated">
-            <h3 className="text-[12px] font-semibold text-kin-secondary">
+            <h3 className="text-body font-semibold text-kin-secondary">
               {editingId ? tr("settings.provider.editHeading") : tr("settings.provider.addHeading")}
             </h3>
             <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
+              <span className="text-body leading-4 font-medium text-kin-secondary">
                 {tr("settings.provider.name")}
               </span>
               <input
@@ -208,7 +208,7 @@ export function ProviderSettingsSection({
               />
             </label>
             <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
+              <span className="text-body leading-4 font-medium text-kin-secondary">
                 {tr("settings.provider.baseUrl")}
               </span>
               <input
@@ -216,17 +216,17 @@ export function ProviderSettingsSection({
                 value={providerBaseUrl}
                 onChange={(event) => onProviderBaseUrlChange(event.target.value)}
                 placeholder="https://api.openai.com/v1 · http://127.0.0.1:8317/v1"
-                className="kin-input min-h-[44px] font-mono text-xs"
+                className="kin-input min-h-[44px] font-mono text-body leading-4"
                 autoComplete="off"
               />
-              <span className="text-[11px] text-kin-muted">
+              <span className="text-caption text-kin-muted">
                 {tr("settings.provider.baseUrlHintA")}
-                <code className="text-[10px]">/v1</code>
+                <code className="text-micro">/v1</code>
                 {tr("settings.provider.baseUrlHintB")}
               </span>
             </label>
             <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
+              <span className="text-body leading-4 font-medium text-kin-secondary">
                 {tr("settings.provider.apiKey")}
               </span>
               <div className="flex gap-2">
@@ -237,7 +237,7 @@ export function ProviderSettingsSection({
                     onProviderApiKeyChange(event.target.value);
                     onProviderApiKeyDirty(true);
                   }}
-                  className="kin-input min-h-[44px] font-mono text-xs flex-1"
+                  className="kin-input min-h-[44px] font-mono text-body leading-4 flex-1"
                   autoComplete="off"
                 />
                 <button
@@ -248,20 +248,20 @@ export function ProviderSettingsSection({
                   {revealApiKey ? tr("settings.hide") : tr("settings.reveal")}
                 </button>
               </div>
-              <span className="text-[11px] text-kin-muted">
+              <span className="text-caption text-kin-muted">
                 {tr("settings.provider.apiKeyHint")}
               </span>
             </label>
             <label className="block space-y-1">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-kin-secondary">
+                <span className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.provider.model")}
                 </span>
                 <button
                   type="button"
                   disabled={providerModelLoading}
                   onClick={onFetchProviderModels}
-                  className="text-[11px] text-kin-blue hover:underline disabled:opacity-50 shrink-0"
+                  className="text-caption text-kin-blue hover:underline disabled:opacity-50 shrink-0"
                 >
                   {providerModelLoading
                     ? tr("settings.provider.modelsFetching")
@@ -274,7 +274,7 @@ export function ProviderSettingsSection({
                 value={providerModel}
                 onChange={(event) => onProviderModelChange(event.target.value)}
                 placeholder="gpt-4.1-mini · grok-3 · llama3.2"
-                className="kin-input min-h-[44px] font-mono text-xs"
+                className="kin-input min-h-[44px] font-mono text-body leading-4"
               />
               <datalist id="provider-model-options">
                 {providerModelOptions.map((model) => (
@@ -282,7 +282,7 @@ export function ProviderSettingsSection({
                 ))}
               </datalist>
               {providerModelError ? (
-                <span className="block text-[11px] text-kin-red">{providerModelError}</span>
+                <span className="block text-caption text-kin-red">{providerModelError}</span>
               ) : null}
               {providerModelOptions.length > 0 ? (
                 <select
@@ -290,7 +290,7 @@ export function ProviderSettingsSection({
                   onChange={(event) => {
                     if (event.target.value) onProviderModelChange(event.target.value);
                   }}
-                  className="kin-input min-h-[40px] text-xs mt-1"
+                  className="kin-input min-h-[40px] text-body leading-4 mt-1"
                 >
                   <option value="">
                     {tr("settings.provider.modelsPick").replace(
@@ -314,10 +314,10 @@ export function ProviderSettingsSection({
                 className="mt-1"
               />
               <span className="space-y-0.5">
-                <span className="block text-xs font-medium text-kin-secondary">
+                <span className="block text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.provider.stream")}
                 </span>
-                <span className="block text-[11px] text-kin-muted">
+                <span className="block text-caption text-kin-muted">
                   {tr("settings.provider.streamHint")}
                 </span>
               </span>
@@ -326,7 +326,7 @@ export function ProviderSettingsSection({
               <button
                 type="button"
                 onClick={onToggleRouting}
-                className="flex items-center gap-1 text-xs font-medium text-kin-secondary hover:text-kin-blue"
+                className="flex items-center gap-1 text-body leading-4 font-medium text-kin-secondary hover:text-kin-blue"
               >
                 <span className={`transition-transform ${showRouting ? "rotate-90" : ""}`}>▸</span>
                 {tr("settings.routing.heading")}
@@ -334,23 +334,23 @@ export function ProviderSettingsSection({
               {showRouting && (
                 <div className="mt-2 space-y-3">
                   <label className="block space-y-1">
-                    <span className="text-xs font-medium text-kin-secondary">
+                    <span className="text-body leading-4 font-medium text-kin-secondary">
                       {tr("settings.routing.supportsAgents")}
                     </span>
                     <input
                       type="text"
                       value={providerSupportsAgents}
                       onChange={(event) => onProviderSupportsAgentsChange(event.target.value)}
-                      className="kin-input min-h-[40px] font-mono text-xs"
+                      className="kin-input min-h-[40px] font-mono text-body leading-4"
                       placeholder="claude-code, kin, codex"
                     />
-                    <span className="text-[10px] text-kin-muted">
+                    <span className="text-micro text-kin-muted">
                       {tr("settings.provider.supportsAgentsHint")}
                     </span>
                   </label>
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-kin-secondary">
+                      <span className="text-body leading-4 font-medium text-kin-secondary">
                         {tr("settings.routing.models")}
                       </span>
                       <button
@@ -361,7 +361,7 @@ export function ProviderSettingsSection({
                             { id: "", tier: "balanced", cost_label: "unknown" },
                           ])
                         }
-                        className="text-[11px] text-kin-blue hover:underline"
+                        className="text-caption text-kin-blue hover:underline"
                       >
                         {tr("settings.routing.addModel")}
                       </button>
@@ -372,7 +372,7 @@ export function ProviderSettingsSection({
                         className="rounded border border-[var(--kin-hairline)] p-2 space-y-1.5"
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono text-kin-muted">
+                          <span className="text-micro font-mono text-kin-muted">
                             {tr("settings.provider.modelLabel", { index: index + 1 })}
                           </span>
                           <button
@@ -382,7 +382,7 @@ export function ProviderSettingsSection({
                                 providerModels.filter((_, modelIndex) => modelIndex !== index),
                               )
                             }
-                            className="text-[10px] text-kin-red hover:underline"
+                            className="text-micro text-kin-red hover:underline"
                           >
                             {tr("settings.provider.removeModel")}
                           </button>
@@ -391,14 +391,14 @@ export function ProviderSettingsSection({
                           type="text"
                           value={model.id}
                           onChange={(event) => updateModel(index, { id: event.target.value })}
-                          className="kin-input min-h-[32px] text-xs font-mono"
+                          className="kin-input min-h-[32px] text-body leading-4 font-mono"
                           placeholder="claude-sonnet-4-20250514"
                         />
                         <div className="flex gap-2">
                           <select
                             value={model.tier}
                             onChange={(event) => updateModel(index, { tier: event.target.value })}
-                            className="kin-input min-h-[32px] text-xs flex-1"
+                            className="kin-input min-h-[32px] text-body leading-4 flex-1"
                           >
                             <option value="smart">{tr("settings.provider.tierSmart")}</option>
                             <option value="balanced">{tr("settings.provider.tierBalanced")}</option>
@@ -410,7 +410,7 @@ export function ProviderSettingsSection({
                             onChange={(event) =>
                               updateModel(index, { cost_label: event.target.value })
                             }
-                            className="kin-input min-h-[32px] text-xs flex-1"
+                            className="kin-input min-h-[32px] text-body leading-4 flex-1"
                           >
                             <option value="paid">{tr("settings.provider.costPaid")}</option>
                             <option value="company">{tr("settings.provider.costCompany")}</option>
@@ -446,7 +446,7 @@ export function ProviderSettingsSection({
         ) : null}
 
         <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
+          <span className="text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.provider.defaultAgent")}
           </span>
           <select
@@ -470,13 +470,13 @@ export function ProviderSettingsSection({
               );
             })}
           </select>
-          <span className="text-[11px] text-kin-muted">
+          <span className="text-caption text-kin-muted">
             {tr("settings.provider.defaultAgentHint")}
           </span>
           {agentList.some((agent) => !agent.available) ? (
             <Link
               to="/agents"
-              className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline sm:min-h-0 sm:mt-1"
+              className="inline-flex min-h-[44px] items-center text-caption text-kin-blue hover:underline sm:min-h-0 sm:mt-1"
             >
               {tr("agents.manageLink")}
             </Link>
