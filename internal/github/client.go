@@ -265,47 +265,91 @@ func lookup(ctx context.Context, runner apiRunner, repo Repo, branch string) (Lo
 	return LookupResult{PR: out, Source: runner.Name()}, nil
 }
 
-// readCI prefers check runs and falls back to the older commit status API,
-// which still carries results from integrations that never adopted checks.
+// readCI merges the two places a commit's CI state lives.
+//
+// Check runs are the newer API and most integrations report there, but the
+// combined status API is not a legacy subset of it: it carries the results of the
+// integrations that never adopted checks, so a commit can have passing check runs
+// and a failing status from its external CI at the same time. Reading check runs
+// and stopping when there are any reports "all passed" for exactly that commit,
+// which is the one answer this must never give.
+//
+// Both are read, and both have to be: a source that cannot be read is not a
+// source that reported nothing, so a failure on either leaves the state unknown —
+// CINone, which the console renders as "not reported" — rather than half-read.
 func readCI(ctx context.Context, runner apiRunner, repo Repo, sha string) (CIStatus, error) {
 	if sha == "" {
 		return CIStatus{State: CINone}, nil
 	}
 	base := fmt.Sprintf("/repos/%s/%s/commits/%s", repo.Owner, repo.Name, sha)
 
-	body, err := runner.apiGet(ctx, base+"/check-runs", [][2]string{{"per_page", "100"}})
-	if err == nil {
-		var runs apiCheckRuns
-		if err := json.Unmarshal(body, &runs); err != nil {
-			return CIStatus{}, fmt.Errorf("decode check runs: %w", err)
-		}
-		if len(runs.CheckRuns) > 0 {
-			checks := make([]checkResult, 0, len(runs.CheckRuns))
-			for _, run := range runs.CheckRuns {
-				checks = append(checks, checkResult{
-					name:       run.Name,
-					status:     run.Status,
-					conclusion: run.Conclusion,
-				})
-			}
-			return deriveCI(checks), nil
-		}
-	}
-
-	body, err = runner.apiGet(ctx, base+"/status", nil)
+	runs, err := readCheckRuns(ctx, runner, base)
 	if err != nil {
 		return CIStatus{}, err
 	}
+	statuses, err := readCommitStatuses(ctx, runner, base)
+	if err != nil {
+		return CIStatus{}, err
+	}
+	return deriveCI(mergeChecks(runs, statuses)), nil
+}
+
+func readCheckRuns(ctx context.Context, runner apiRunner, base string) ([]checkResult, error) {
+	body, err := runner.apiGet(ctx, base+"/check-runs", [][2]string{{"per_page", "100"}})
+	if err != nil {
+		return nil, err
+	}
+	var runs apiCheckRuns
+	if err := json.Unmarshal(body, &runs); err != nil {
+		return nil, fmt.Errorf("decode check runs: %w", err)
+	}
+	checks := make([]checkResult, 0, len(runs.CheckRuns))
+	for _, run := range runs.CheckRuns {
+		checks = append(checks, checkResult{
+			name:       run.Name,
+			status:     run.Status,
+			conclusion: run.Conclusion,
+		})
+	}
+	return checks, nil
+}
+
+func readCommitStatuses(ctx context.Context, runner apiRunner, base string) ([]checkResult, error) {
+	body, err := runner.apiGet(ctx, base+"/status", nil)
+	if err != nil {
+		return nil, err
+	}
 	var combined apiCombinedStatus
 	if err := json.Unmarshal(body, &combined); err != nil {
-		return CIStatus{}, fmt.Errorf("decode combined status: %w", err)
+		return nil, fmt.Errorf("decode combined status: %w", err)
 	}
 	checks := make([]checkResult, 0, len(combined.Statuses))
 	for _, s := range combined.Statuses {
 		status, conclusion := commitStatusAsCheck(s.State)
 		checks = append(checks, checkResult{name: s.Context, status: status, conclusion: conclusion})
 	}
-	return deriveCI(checks), nil
+	return checks, nil
+}
+
+// mergeChecks appends the statuses to the check runs, dropping one whose name a
+// check run already carries. One name is one check: an integration that reports
+// through both APIs is one job, and counting it twice would show it as two, in
+// the totals and in the list of what is failing. The check run is the copy kept,
+// because that is the API being maintained.
+func mergeChecks(runs, statuses []checkResult) []checkResult {
+	named := make(map[string]bool, len(runs))
+	for _, c := range runs {
+		if c.name != "" {
+			named[c.name] = true
+		}
+	}
+	for _, c := range statuses {
+		if c.name != "" && named[c.name] {
+			continue
+		}
+		runs = append(runs, c)
+	}
+	return runs
 }
 
 // commitStatusAsCheck translates the commit-status vocabulary into the check-run

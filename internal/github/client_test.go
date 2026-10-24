@@ -186,6 +186,11 @@ func TestLookupFindsPullRequestAndChecks(t *testing.T) {
 					{"name": "build", "status": "completed", "conclusion": "success"},
 					{"name": "test", "status": "completed", "conclusion": "failure"}
 				]}`),
+			// Both CI sources are read on every lookup, and a source that cannot
+			// be read leaves the state unknown — so a fixture for a commit with
+			// checks has to say what its commit statuses are, even when the answer
+			// is "there are none".
+			"/repos/owner/repo/commits/abc123/status": []byte(`{"state": "", "statuses": []}`),
 		},
 	}
 	res, err := lookup(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, "kin/task/1/g1")
@@ -268,6 +273,92 @@ func TestLookupSurvivesUnreadableChecks(t *testing.T) {
 	}
 	if res.PR.CI.State != CINone {
 		t.Fatalf("ci = %q, want %q", res.PR.CI.State, CINone)
+	}
+}
+
+// A commit can have passing check runs and a failing commit status at the same
+// time, because the two APIs are fed by different integrations. Reading check
+// runs and stopping when there are any reports "all passed" for that commit,
+// which is the one answer the console must not give.
+func TestLookupReadsBothCISourcesAndReportsTheFailure(t *testing.T) {
+	runner := &fakeRunner{
+		name: SourceGH,
+		responses: map[string][]byte{
+			"/repos/owner/repo/pulls": []byte(`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`),
+			"/repos/owner/repo/commits/abc/check-runs": []byte(`{
+				"check_runs": [{"name": "build", "status": "completed", "conclusion": "success"}]}`),
+			// The integration that never adopted checks: it only ever reported here.
+			"/repos/owner/repo/commits/abc/status": []byte(`{
+				"state": "failure", "statuses": [{"context": "ci/external", "state": "failure"}]}`),
+		},
+	}
+	res, err := lookup(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, "b")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	ci := res.PR.CI
+	if ci.State != CIFailure {
+		t.Fatalf("ci = %q (%+v), want %q — the external status was not read", ci.State, ci, CIFailure)
+	}
+	if ci.Total != 2 || ci.Passed != 1 || ci.Failed != 1 {
+		t.Fatalf("ci = %+v, want both sources counted", ci)
+	}
+	if len(ci.Failing) != 1 || ci.Failing[0] != "ci/external" {
+		t.Fatalf("failing = %v, want the external status named", ci.Failing)
+	}
+}
+
+// An integration that reports through both APIs is one job, not two: counting it
+// twice would double it in the totals and show it twice in the failing list.
+func TestLookupCountsAJobReportedThroughBothAPIsOnce(t *testing.T) {
+	runner := &fakeRunner{
+		name: SourceGH,
+		responses: map[string][]byte{
+			"/repos/owner/repo/pulls": []byte(`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`),
+			"/repos/owner/repo/commits/abc/check-runs": []byte(`{
+				"check_runs": [{"name": "build", "status": "completed", "conclusion": "success"}]}`),
+			"/repos/owner/repo/commits/abc/status": []byte(`{
+				"state": "success", "statuses": [{"context": "build", "state": "success"}]}`),
+		},
+	}
+	res, err := lookup(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, "b")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if ci := res.PR.CI; ci.Total != 1 || ci.Passed != 1 || ci.State != CISuccess {
+		t.Fatalf("ci = %+v, want one passing check", ci)
+	}
+}
+
+// A source that cannot be read is not a source that reported nothing. The state
+// stays unknown rather than reporting the half that answered as the whole answer.
+func TestLookupLeavesCIUnknownWhenOneSourceCannotBeRead(t *testing.T) {
+	for _, missing := range []string{"check-runs", "status"} {
+		t.Run(missing, func(t *testing.T) {
+			runner := &fakeRunner{
+				name: SourceGH,
+				responses: map[string][]byte{
+					"/repos/owner/repo/pulls": []byte(`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`),
+					"/repos/owner/repo/commits/abc/check-runs": []byte(`{
+						"check_runs": [{"name": "build", "status": "completed", "conclusion": "success"}]}`),
+					"/repos/owner/repo/commits/abc/status": []byte(`{
+						"state": "success", "statuses": [{"context": "ci/external", "state": "success"}]}`),
+				},
+				errs: map[string]error{
+					"/repos/owner/repo/commits/abc/" + missing: errors.New("boom"),
+				},
+			}
+			res, err := lookup(context.Background(), runner, Repo{Owner: "owner", Name: "repo"}, "b")
+			if err != nil {
+				t.Fatalf("lookup: %v", err)
+			}
+			if res.PR == nil {
+				t.Fatal("the pull request itself was read and must survive")
+			}
+			if res.PR.CI.State != CINone {
+				t.Fatalf("ci = %q with %s unreadable, want %q", res.PR.CI.State, missing, CINone)
+			}
+		})
 	}
 }
 
