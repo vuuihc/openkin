@@ -34,7 +34,11 @@ type Queries struct {
 // question is one question in flight.
 type question struct {
 	deviceID string
-	id       string
+	// gen is the connection this question was asked on. A machine that
+	// reconnects gets a new one, which is what keeps a question asked on the
+	// socket that ended from being settled by the socket that replaced it.
+	gen uint64
+	id  string
 	// answer is buffered, and written at most once: whoever removes the entry
 	// from the table is the writer, so a delivery never blocks and a question is
 	// never answered twice.
@@ -68,7 +72,7 @@ func (q *Queries) Ask(ctx context.Context, sender Sender, method string, params 
 	if err != nil {
 		return worker.QueryResult{}, err
 	}
-	waiting := q.track(sender.DeviceID())
+	waiting := q.track(sender)
 	frame, err := worker.NewFrame("query", worker.Query{ID: waiting.id, Method: method, Params: raw})
 	if err != nil {
 		q.drop(waiting)
@@ -135,15 +139,22 @@ func (q *Queries) Route(_ context.Context, sender Sender, frame worker.Frame) er
 // Waiting for the timeout instead would hold an HTTP request — and the phone
 // looking at it — for as long as the timeout lasts, to report something the Hub
 // already knows.
+//
+// It is scoped to one connection, not to one machine, and that is the same rule
+// Turns and Approvals follow: a reconnect attaches the new socket before the old
+// one's ending is reported, so a question put to the machine in between is on the
+// new connection and must survive. Matching on the device alone would settle it
+// with the old socket's death, and the answer would then arrive for a question
+// that is no longer in the table.
 func (q *Queries) Abandon(sender Sender) []string {
 	if sender == nil {
 		return nil
 	}
-	deviceID := sender.DeviceID()
+	deviceID, gen := sender.DeviceID(), sender.Generation()
 	q.mu.Lock()
 	var abandoned []*question
 	for key, waiting := range q.open {
-		if waiting.deviceID == deviceID {
+		if waiting.deviceID == deviceID && waiting.gen == gen {
 			delete(q.open, key)
 			abandoned = append(abandoned, waiting)
 		}
@@ -167,7 +178,7 @@ func (q *Queries) Pending() int {
 }
 
 // track registers a question that is about to be sent.
-func (q *Queries) track(deviceID string) *question {
+func (q *Queries) track(sender Sender) *question {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if q.open == nil {
@@ -175,11 +186,12 @@ func (q *Queries) track(deviceID string) *question {
 	}
 	q.next++
 	waiting := &question{
-		deviceID: deviceID,
+		deviceID: sender.DeviceID(),
+		gen:      sender.Generation(),
 		id:       "q-" + strconv.FormatUint(q.next, 10),
 		answer:   make(chan answerOutcome, 1),
 	}
-	q.open[questionKey(deviceID, waiting.id)] = waiting
+	q.open[questionKey(waiting.deviceID, waiting.id)] = waiting
 	return waiting
 }
 

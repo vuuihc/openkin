@@ -333,11 +333,17 @@ func TestResponderDoesNotHoldTheReadLoop(t *testing.T) {
 // up on it (Queries.Abandon).
 func TestResponderWarnsWhenTheAnswerCannotBeSent(t *testing.T) {
 	root := tree(t)
-	var warned []string
+	// The warning is written by the goroutine answering the question, so it comes
+	// back on a channel: a slice the test also reads would be a data race with the
+	// very warning being asserted.
+	warned := make(chan string, 1)
 	conn := newTestConn("device-unreachable")
 	conn.sendErr = errors.New("the socket is gone")
 	r := &Responder{Roots: []string{root}, Warn: func(format string, args ...any) {
-		warned = append(warned, fmt.Sprintf(format, args...))
+		select {
+		case warned <- fmt.Sprintf(format, args...):
+		default:
+		}
 	}}
 	r.SetSender(conn.Send)
 
@@ -351,11 +357,14 @@ func TestResponderWarnsWhenTheAnswerCannotBeSent(t *testing.T) {
 	if err := r.Handle(context.Background(), frame); err != nil {
 		t.Fatalf("Handle = %v, want the question taken", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && len(warned) == 0 {
-		time.Sleep(time.Millisecond)
-	}
-	if len(warned) == 0 {
+	select {
+	case got := <-warned:
+		// Naming the question is the point: a machine with several answers in
+		// flight has to say which one went nowhere.
+		if !strings.Contains(got, "q-1") {
+			t.Fatalf("the warning does not name the question: %q", got)
+		}
+	case <-time.After(2 * time.Second):
 		t.Fatal("an answer that could not be sent was not reported")
 	}
 }

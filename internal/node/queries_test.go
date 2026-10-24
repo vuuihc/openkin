@@ -179,10 +179,18 @@ func TestAskEndsWhenTheConnectionEnds(t *testing.T) {
 
 // Abandon is per connection: a machine that reconnects must not lose the
 // questions asked on the connection that replaced it.
+//
+// One device, two connections, which is the case that actually happens: the
+// reconnect attaches the new socket before the old one's ending is reported, so
+// a question asked in that window belongs to the new connection. A test with two
+// devices passes even when Abandon matches on the device alone.
 func TestAbandonLeavesOtherMachinesQuestionsAlone(t *testing.T) {
 	q := NewQueries()
 	q.Timeout = func(string) time.Duration { return time.Minute }
-	gone, stays := newTestConn("device-gone"), newTestConn("device-stays")
+	gone, stays := newTestConn("device-reconnects"), newTestConn("device-reconnects")
+	if gone.Generation() == stays.Generation() {
+		t.Fatal("two connections of one machine share a generation")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -192,7 +200,7 @@ func TestAbandonLeavesOtherMachinesQuestionsAlone(t *testing.T) {
 	sent := awaitQuestions(t, stays, 1)
 
 	if abandoned := q.Abandon(gone); len(abandoned) != 1 {
-		t.Fatalf("Abandon reported %v, want the one question asked of that machine", abandoned)
+		t.Fatalf("Abandon reported %v, want the one question asked on that connection", abandoned)
 	}
 	if got := <-first; got.err == nil {
 		t.Fatal("the question on the ended connection was answered")
@@ -203,10 +211,10 @@ func TestAbandonLeavesOtherMachinesQuestionsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := answer(t, q, stays, result); err != nil {
-		t.Fatalf("the surviving machine's answer was refused: %v", err)
+		t.Fatalf("the reconnected machine's answer was refused: %v", err)
 	}
 	if got := <-second; got.err != nil {
-		t.Fatalf("the other machine's question was lost with it: %v", got.err)
+		t.Fatalf("the question on the connection that replaced it was lost with it: %v", got.err)
 	}
 }
 
