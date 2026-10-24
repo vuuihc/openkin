@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/toolpath"
 	"github.com/vuuihc/openkin/internal/workspace"
@@ -66,6 +68,89 @@ func TestLimitWriterSignalsTruncation(t *testing.T) {
 	}
 	if buf.Len() != 16 {
 		t.Fatalf("buffered %d bytes, want the cap of 16", buf.Len())
+	}
+}
+
+// A write that crosses the cap is the case that matters: the bytes past it are
+// dropped, but the write has to report the whole slice as accepted. os/exec
+// copies the child's output through this writer, and a short write there is
+// ErrShortWrite — a successful gh call reported as a failed query because it
+// was talkative.
+func TestLimitWriterAcceptsAWriteThatCrossesTheCap(t *testing.T) {
+	var buf bytes.Buffer
+	w := &limitWriter{w: &buf, n: 16}
+	n, err := w.Write(bytes.Repeat([]byte("a"), 40))
+	if err != nil {
+		t.Fatalf("write across the cap: %v", err)
+	}
+	if n != 40 {
+		t.Fatalf("Write accepted %d of 40 bytes, want the whole slice", n)
+	}
+	if buf.Len() != 16 {
+		t.Fatalf("buffered %d bytes, want the cap of 16", buf.Len())
+	}
+	if _, err := w.Write([]byte("more")); err != nil {
+		t.Fatalf("write past the cap: %v", err)
+	}
+	if buf.Len() != 16 {
+		t.Fatalf("buffered %d bytes after a second overflow, want 16", buf.Len())
+	}
+}
+
+// fakeGH writes an executable stand-in for the gh binary. What Run does with a
+// real child process — what gh writes, and what it leaves behind — cannot be
+// exercised with an in-process stub.
+func fakeGH(t *testing.T, script string) GHClient {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "gh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return GHClient{Bin: GHBinary{Path: path}}
+}
+
+// gh writes warnings and progress to stderr, and past the cap those bytes are
+// dropped. Dropped is fine; failed is not. The call exited 0 and its answer is
+// on stdout, so the answer is what the caller gets.
+func TestRunReportsAVerboseButSuccessfulCallAsSuccess(t *testing.T) {
+	gh := fakeGH(t, `#!/bin/sh
+i=0
+while [ $i -lt 400 ]; do
+  echo "warning: something noisy happened" >&2
+  i=$((i + 1))
+done
+printf '{"number":42}'
+`)
+	out, err := gh.Run(context.Background(), "api", "/repos/owner/repo/pulls")
+	if err != nil {
+		t.Fatalf("a successful gh call with noisy stderr was reported as a failure: %v", err)
+	}
+	if string(out) != `{"number":42}` {
+		t.Fatalf("stdout = %q, want the answer gh printed", out)
+	}
+}
+
+// gh runs helpers of its own, and one of them can outlive it while holding the
+// output pipe. The deadline a caller set is a promise about when Run returns,
+// and a command that exited 0 is not a failure because of what it left behind.
+func TestRunDoesNotWaitForAProcessThatOutlivesGH(t *testing.T) {
+	gh := fakeGH(t, `#!/bin/sh
+# A helper gh started and never reaped: it inherits the output pipes and stays
+# alive long past the grace period this is about.
+(sleep 30) &
+printf 'done'
+exit 0
+`)
+	start := time.Now()
+	out, err := gh.Run(context.Background(), "api", "/repos/owner/repo/pulls")
+	if err != nil {
+		t.Fatalf("Run failed a command that exited 0: %v", err)
+	}
+	if string(out) != "done" {
+		t.Fatalf("stdout = %q, want %q", out, "done")
+	}
+	if elapsed := time.Since(start); elapsed > 2*ghPipeGrace {
+		t.Fatalf("Run took %s, want it bounded by the %s grace period", elapsed, ghPipeGrace)
 	}
 }
 
