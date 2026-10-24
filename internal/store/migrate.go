@@ -955,10 +955,7 @@ func (s *Store) migrate() error {
 		return fmt.Errorf("read user_version: %w", err)
 	}
 	if v >= schemaVersion {
-		if err := s.ensureDeviceSchema(); err != nil {
-			return err
-		}
-		return s.ensureTaskScopeSchema()
+		return s.ensureCurrentSchema()
 	}
 	if v == 0 {
 		tx, err := s.db.Begin()
@@ -980,7 +977,7 @@ func (s *Store) migrate() error {
 		// migration001 already carries the columns, so this is normally a no-op —
 		// but "normally" is exactly what drifts. Asserting on every path out of
 		// here is what keeps a fresh install and an upgraded one the same shape.
-		return s.ensureTaskScopeSchema()
+		return s.ensureCurrentSchema()
 	}
 	if v == 1 {
 		tx, err := s.db.Begin()
@@ -2323,7 +2320,59 @@ ON eval_results(run_id, case_id, rep_idx);
 
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
-	return s.ensureTaskScopeSchema()
+	return s.ensureCurrentSchema()
+}
+
+// ensureCurrentSchema reconciles the shapes that must hold whatever version the
+// database reports, and it runs on every path out of migrate() -- including the
+// one that finds the database already current.
+//
+// That last path is the one that matters: a version number says which migrations
+// have run, not what the tables look like. A database written by a build that
+// stamped the current version and was changed afterwards is "current" and still
+// missing whatever came next, and the only way to notice is to look.
+func (s *Store) ensureCurrentSchema() error {
+	if err := s.ensureDeviceSchema(); err != nil {
+		return err
+	}
+	if err := s.ensureTaskScopeSchema(); err != nil {
+		return err
+	}
+	return s.ensurePendingPromptSchema()
+}
+
+// ensurePendingPromptSchema reconciles the queue table's shape on every open, the
+// same way ensureTaskScopeSchema reconciles owner scoping.
+//
+// The column list has to hold for databases written by *any* build that stamped
+// version 39, not just for the ones the numbered migrations produce: 39 was
+// stamped once before `user_seq` existed on this table, and such a database
+// would otherwise fail every queue read with "no such column" -- including reads
+// in the delivery path, where failing means a visible message stops being
+// answered.
+func (s *Store) ensurePendingPromptSchema() error {
+	present, err := s.tableExists("task_pending_prompts")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('task_pending_prompts') WHERE name = ?`,
+		"user_seq").Scan(&exists); err != nil {
+		return fmt.Errorf("inspect task_pending_prompts: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(
+		`ALTER TABLE task_pending_prompts ADD COLUMN user_seq INTEGER NOT NULL DEFAULT 0`,
+	); err != nil {
+		return fmt.Errorf("add task_pending_prompts.user_seq: %w", err)
+	}
+	return nil
 }
 
 // migrateAgentSessionIdentity rebuilds agent_sessions so a session is
