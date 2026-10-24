@@ -1141,6 +1141,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               />
               <BranchPicker
                 cwd={task.cwd}
+                // The task's cwd is on the machine that runs it, so the branches
+                // in the strip below are that machine's — not this one's, which
+                // for the same repository would read plausibly and be wrong.
+                device={task.executing_device_id}
                 locked
                 compact
                 className="flex-none"

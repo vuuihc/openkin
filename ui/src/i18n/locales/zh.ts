@@ -1055,6 +1055,8 @@ const zh = {
     sessionLocked: "此会话已锁定",
     switched: "已切换到 {name}",
     switchFailed: "切换分支失败",
+    unreadable: "分支未知",
+    unreadableHint: "持有这个目录的机器没有回应",
   },
   connect: {
     unauthorizedTitle: "会话已失效",

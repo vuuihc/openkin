@@ -6,6 +6,7 @@ import {
   type GitBranchStatus,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { isDirtyRefusal } from "../../lib/devices";
 import { useAppStore } from "../../store/appStore";
 
 /**
@@ -29,6 +30,12 @@ const EDGE = 8;
 
 type Props = {
   cwd: string;
+  /**
+   * The machine `cwd` is on. Omitted or "self" is the daemon serving this
+   * console; anything else is a machine the Hub forwards the question to, and
+   * the answer is then about that machine's checkout rather than this one's.
+   */
+  device?: string;
   /** When true, branch can be viewed but not switched (e.g. task already started). */
   locked?: boolean;
   /** Single-row footer: hide branch label. */
@@ -40,10 +47,11 @@ type Props = {
  * Git branch display + switcher next to the working-directory control.
  * Hidden when cwd is empty or not a git repository.
  */
-export default function BranchPicker({ cwd, locked, compact, className }: Props) {
+export default function BranchPicker({ cwd, device, locked, compact, className }: Props) {
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [status, setStatus] = useState<GitBranchStatus | null>(null);
+  const [unreadable, setUnreadable] = useState("");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
@@ -52,18 +60,28 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
   const filterRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
 
-  const load = useCallback(async (path: string) => {
-    if (!path.trim()) {
-      setStatus(null);
-      return;
-    }
-    try {
-      const st = await listGitBranches(path.trim());
-      setStatus(st);
-    } catch {
-      setStatus(null);
-    }
-  }, []);
+  const load = useCallback(
+    async (path: string) => {
+      if (!path.trim()) {
+        setStatus(null);
+        setUnreadable("");
+        return;
+      }
+      try {
+        const st = await listGitBranches(path.trim(), device);
+        setStatus(st);
+        setUnreadable("");
+      } catch (e) {
+        setStatus(null);
+        // Kept, not dropped. "This directory is not a repository" and "the
+        // machine holding it did not answer" draw the same way on screen — as
+        // nothing — and only one of them is a fact. On a phone the second is
+        // the common one: the machine was switched, or went to sleep.
+        setUnreadable(e instanceof ApiError ? e.message : tr("branch.unreadableHint"));
+      }
+    },
+    [device, tr],
+  );
 
   useEffect(() => {
     void load(cwd);
@@ -146,8 +164,32 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
     };
   }, [open]);
 
-  if (!cwd.trim() || !status?.is_git) {
+  if (!cwd.trim()) {
     return null;
+  }
+  if (!status?.is_git) {
+    // A directory that is not a repository is answered and stays hidden — most
+    // directories are not, and a chip saying so would be noise. A directory
+    // nobody answered about is not the same thing, and on the one client that
+    // cannot open a terminal, silence would read as "no branches here".
+    if (!unreadable) {
+      return null;
+    }
+    return (
+      <span
+        className={[
+          "inline-flex items-center gap-1 min-w-0 max-w-full flex-none",
+          "rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)]",
+          compact ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-[11.5px]",
+          "text-kin-muted",
+          className ?? "",
+        ].join(" ")}
+        title={unreadable}
+      >
+        <BranchIcon />
+        <span className="truncate">{tr("branch.unreadable")}</span>
+      </span>
+    );
   }
 
   const label = status.detached
@@ -166,7 +208,7 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
     }
     setBusy(true);
     try {
-      await checkoutGitBranch(cwd.trim(), name);
+      await checkoutGitBranch(cwd.trim(), name, device);
       await load(cwd);
       setOpen(false);
       setFilter("");
@@ -180,7 +222,11 @@ export default function BranchPicker({ cwd, locked, compact, className }: Props)
         } catch {
           if (e.message) msg = e.message;
         }
-        if (e.status === 409) {
+        // 409 from this machine is its dirty checkout — the one refusal worth
+        // rewording, because it is this daemon's own sentence and the toast is
+        // translated. From another machine 409 is that machine being away, and
+        // its answer is already the right words for it.
+        if (isDirtyRefusal(e.status, device)) {
           msg = tr("branch.dirty");
         }
       } else if (e instanceof Error && e.message) {

@@ -9,6 +9,7 @@ import {
   defaultAgentOn,
   findMachine,
   folderPickable,
+  isDirtyRefusal,
   machineLabelFor,
   machineList,
   machineRef,
@@ -295,5 +296,24 @@ describe("folderPickable", () => {
   it("refuses an empty path, which is the machine's roots rather than a directory", () => {
     expect(folderPickable({ ...ok, path: "" })).toBe(false);
     expect(folderPickable({ ...ok, path: "   " })).toBe(false);
+  });
+});
+
+describe("isDirtyRefusal", () => {
+  it("rewords this machine's 409, which is a dirty checkout", () => {
+    expect(isDirtyRefusal(409, undefined)).toBe(true);
+    expect(isDirtyRefusal(409, "")).toBe(true);
+    expect(isDirtyRefusal(409, "self")).toBe(true);
+  });
+
+  it("leaves another machine's 409 alone, because there it means that machine is away", () => {
+    expect(isDirtyRefusal(409, "desktop-abc")).toBe(false);
+  });
+
+  it("leaves every other status alone", () => {
+    for (const status of [400, 403, 500, 504]) {
+      expect(isDirtyRefusal(status, undefined)).toBe(false);
+      expect(isDirtyRefusal(status, "desktop-abc")).toBe(false);
+    }
   });
 });

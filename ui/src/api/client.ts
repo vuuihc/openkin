@@ -1529,19 +1529,33 @@ export type GitBranchStatus = {
   reason?: string;
 };
 
-export function listGitBranches(cwd: string): Promise<GitBranchStatus> {
+/**
+ * The branches one directory has, on one machine.
+ *
+ * `device` names the machine the directory is on. Omitted, empty, or "self" is
+ * the daemon serving this console; anything else is a machine the Hub has a
+ * channel to, and the question is forwarded to it. The answer is the same shape
+ * either way, because the control drawing it is the same control — but it is
+ * that machine's answer about that machine's directory, which for a checkout of
+ * the same repository is a different answer.
+ */
+export function listGitBranches(cwd: string, device?: string): Promise<GitBranchStatus> {
   const q = new URLSearchParams({ cwd });
+  const id = (device ?? "").trim();
+  if (id) q.set("device", id);
   return apiFetch<GitBranchStatus>(`/api/git/branches?${q.toString()}`);
 }
 
 export function checkoutGitBranch(
   cwd: string,
   branch: string,
+  device?: string,
 ): Promise<{ cwd: string; current: string }> {
+  const id = (device ?? "").trim();
   return apiFetch<{ cwd: string; current: string }>("/api/git/checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cwd, branch }),
+    body: JSON.stringify(id ? { cwd, branch, device: id } : { cwd, branch }),
   });
 }
 

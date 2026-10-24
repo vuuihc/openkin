@@ -556,6 +556,12 @@ export default function NewChatPage() {
           <BranchPicker
             key={control}
             cwd={cwd}
+            // The id that was chosen, not the machine record behind it: when the
+            // chosen machine has gone away, `machine` is undefined and reading
+            // this machine's branches would answer a question about that path on
+            // *that* machine with this one's refs — the mistake `machineGone`
+            // already refuses for sending.
+            device={machineId || undefined}
             compact
             className="max-w-full sm:flex-none"
           />

@@ -162,6 +162,21 @@ export function machineRef(device: string | undefined): string {
 }
 
 /**
+ * Whether a failed branch switch is this machine refusing to move a dirty
+ * checkout.
+ *
+ * 409 is two answers arriving on one route. From this daemon it is the dirty
+ * working tree — its own sentence, in its own words, which is the one the
+ * console replaces with a translated one. From another machine it is that
+ * machine being away, and that is a machine's answer about itself: rewording it
+ * would send a person looking for uncommitted changes on a laptop that is
+ * merely asleep.
+ */
+export function isDirtyRefusal(status: number, device: string | undefined): boolean {
+  return status === 409 && !isRemoteDevice(device);
+}
+
+/**
  * Whether a directory the browser walked to can be handed back as a working
  * directory.
  *

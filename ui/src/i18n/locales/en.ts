@@ -1068,6 +1068,8 @@ const en: MessageTree = {
     sessionLocked: "locked for this session",
     switched: "Switched to {name}",
     switchFailed: "Failed to switch branch",
+    unreadable: "Branches unknown",
+    unreadableHint: "The machine holding this directory did not answer",
   },
   connect: {
     unauthorizedTitle: "Session no longer authorized",
