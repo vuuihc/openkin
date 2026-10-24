@@ -48,6 +48,7 @@ import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import Composer from "../components/chat/Composer";
 import BranchPicker from "../components/chat/BranchPicker";
+import RepoChip from "../components/chat/RepoChip";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
@@ -1139,6 +1140,12 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 compact
                 onChange={() => undefined}
               />
+              {/* Which repository the work is in. A session on this machine has
+                  no recorded one and shows nothing here — its repository is the
+                  one the pull-request panel looked up. A session on another
+                  machine has one, because the Hub asked that machine when the
+                  session started. */}
+              <RepoChip repo={task.workspace_repo} />
               <BranchPicker
                 cwd={task.cwd}
                 // The task's cwd is on the machine that runs it, so the branches

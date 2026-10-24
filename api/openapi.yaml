@@ -2230,6 +2230,21 @@ components:
           type:
             - string
             - "null"
+          description: >-
+            For a task with a workspace lifecycle, the branch its current
+            generation runs on. For a session that runs on another machine, the
+            branch that machine reported for its checkout — the same column,
+            because both answer "which branch is this session's work on".
+        workspace_repo:
+          type:
+            - string
+            - "null"
+          description: >-
+            The repository a session that runs on another machine was recorded
+            on, canonical (host/owner/name, no transport, no credentials), as
+            that machine reported it when the session started. Empty for a task
+            that runs here, whose repository is derived from its workspace
+            generation when a pull request is looked up.
         workspace_policy:
           type:
             - string

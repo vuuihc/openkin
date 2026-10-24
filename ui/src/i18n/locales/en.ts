@@ -1080,6 +1080,10 @@ const en: MessageTree = {
     unreadable: "Branches unknown",
     unreadableHint: "The machine holding this directory did not answer",
   },
+  repo: {
+    openHint: "Open {name} on GitHub",
+    recordedOn: "Recorded on {name}",
+  },
   connect: {
     unauthorizedTitle: "Session no longer authorized",
     missingTitle: "Connect to your Kin daemon",

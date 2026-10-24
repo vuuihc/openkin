@@ -1065,6 +1065,10 @@ const zh = {
     unreadable: "分支未知",
     unreadableHint: "持有这个目录的机器没有回应",
   },
+  repo: {
+    openHint: "在 GitHub 上打开 {name}",
+    recordedOn: "记录于 {name}",
+  },
   connect: {
     unauthorizedTitle: "会话已失效",
     missingTitle: "连接到 Kin 守护进程",

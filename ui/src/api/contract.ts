@@ -94,6 +94,7 @@ function isTask(value: unknown): value is Task {
     optional(value, "workspace_scope", (v) => typeof v === "string", true) &&
     optional(value, "workspace_base_oid", (v) => typeof v === "string", true) &&
     optional(value, "workspace_branch", (v) => typeof v === "string", true) &&
+    optional(value, "workspace_repo", (v) => typeof v === "string", true) &&
     optional(value, "workspace_policy", (v) => typeof v === "string", true) &&
     optional(value, "current_workspace_id", (v) => typeof v === "string", true) &&
     optional(value, "routine_id", (v) => typeof v === "string") &&

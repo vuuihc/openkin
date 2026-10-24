@@ -1424,7 +1424,10 @@ export interface components {
             execution_cwd?: string | null;
             workspace_scope?: string | null;
             workspace_base_oid?: string | null;
+            /** @description For a task with a workspace lifecycle, the branch its current generation runs on. For a session that runs on another machine, the branch that machine reported for its checkout — the same column, because both answer "which branch is this session's work on". */
             workspace_branch?: string | null;
+            /** @description The repository a session that runs on another machine was recorded on, canonical (host/owner/name, no transport, no credentials), as that machine reported it when the session started. Empty for a task that runs here, whose repository is derived from its workspace generation when a pull request is looked up. */
+            workspace_repo?: string | null;
             workspace_policy?: string | null;
             current_workspace_id?: string | null;
             /** @description The device that runs every turn of this task. Empty means the daemon that stores it; a device id means the turn is dispatched to that machine, which executes it with its own agents and its own filesystem. */
