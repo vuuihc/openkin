@@ -623,7 +623,8 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 
 顺序按"是否影响手机 dogfood"排。表格是审计当时的记录，改动只往上加状态：
 
-**状态（2026-10-24）**：B / C / D / E / F / G / H / I / J 已修；A / K / L 未修。
+**状态（2026-10-24）**：B / C / D / E / F / G / H / I / J / K / L 已修；A 未修（它是
+P0-入口 的设计问题，不是这一层的缺陷）。
 
 - C + E → `96fa508`：匿名预算改成**在真正发请求的地方领**（`query` 内），删掉只看
   `ObservedAt` 的 `Fresh` 判定，改由 `due` 同时看两个时钟。
@@ -635,6 +636,8 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 - G → `b07d191`：强制刷新失败只写在行上，notice 只留给"连行都没写下去"的失败。
 - I + J → `00369b9`：`limitWriter` 跨 cap 的写不再报短写；gh 子进程设 `WaitDelay`，
   且 `ErrWaitDelay` 按成功读。
+- K + L → `e4ef8c7`、`f9ae62e`：1s tick 只在面板可见时跑（PR 面板与限额卡片），两个
+  互斥布尔换成一个 `Overlay`。详见 12.5 下的"修法 / 核实方式"。
 
 ### 12.1 会让手机看到**错答案**的
 
@@ -670,8 +673,27 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 
 | # | 症状 | 证据 | 归属 |
 |---|---|---|---|
-| K | 隐藏的面板仍然每秒重渲染 | `PullRequestPanel.tsx:107-110` 无条件 1s `setInterval`；`TaskDetailPage.tsx:1221` 只看 `prOpen` 不看 active，`TaskSessionHost` 保活最多 8 个 | 我（砍循环时只说对了"不再查询"，没说全"不再动"） |
-| L | `filesOpen` / `prOpen` 两个布尔表示互斥状态；`onOpenWorkspacePath`（`TaskDetailPage.tsx:747`）只设 filesOpen，切任务的 reset（:201）也只重置 filesOpen | 三个入口各自记得配对，第四个就会忘 | 本层 |
+| K ✅ | 隐藏的面板仍然每秒重渲染 | `PullRequestPanel.tsx:107-110` 无条件 1s `setInterval`；`TaskDetailPage.tsx:1221` 只看 `prOpen` 不看 active，`TaskSessionHost` 保活最多 8 个 | 我（砍循环时只说对了"不再查询"，没说全"不再动"） |
+| L ✅ | `filesOpen` / `prOpen` 两个布尔表示互斥状态；`onOpenWorkspacePath`（`TaskDetailPage.tsx:747`）只设 filesOpen，切任务的 reset（:201）也只重置 filesOpen | 三个入口各自记得配对，第四个就会忘 | 本层 |
+
+**修法（2026-10-24，`e4ef8c7` + `f9ae62e`）**：
+
+- K：面板与限额卡片都收一个 `active`（`TaskDetailPage` 从 `TaskSessionHost` 拿到的
+  `active && show`），1s tick 只在拿到它的那一格跑。顺带发现 `LimitCard.tsx:58` 是同一
+  个问题而且更常见——它自己会冒出来，且额度重置常在几小时后，所以后台任务会每秒重渲染
+  很久。两处的倒计时都只影响渲染出来的字（`remain` 只决定"现在继续"还是"提前继续"），
+  没有任何行为挂在 tick 上，所以停下来是安全的：切回来的那次渲染就会把字算对。
+- L：两个布尔换成一个 `Overlay` 值（`ui/src/lib/overlay.ts`，规则本身有测试），
+  `filesOpen` / `prOpen` 由它派生，六个配对点塌成一处。
+
+**核实方式**：这个仓库没有任何组件渲染测试（47→48 个测试文件全是 `.ts`，工具链里没有
+jsdom / testing-library），所以 tick 门是**在跑着的 console 里量的**，不是单测验的：
+包一层 `setInterval`/`clearInterval` 记 1000ms 的存活数 —— 面板可见时 1，点侧栏切到别的
+任务后（面板仍 `aria-hidden` 挂在 DOM 里）0，切回来又是 1；关掉面板也是 0。L 同样在
+浏览器里点了：鼠标开 PR 面板、用键盘激活（浮层不接管焦点，所以键盘够得到后面的按钮）
+文件面板 —— 结果始终只有一个 `role=complementary`。**残留**：transcript 里那条
+`onOpenWorkspacePath` 路径没能在 live 上点到（我驱动的两个任务的工具卡片里都没有带
+path 的 chip），它现在由"只有一个状态量"这个结构保证，而不是由这一次点击保证。
 
 ### 12.6 未核实（agent 报的，我没读到证据，先不采信）
 
@@ -682,7 +704,8 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
   packages is a rule that drifts"，所以值得再看一眼）。
 
 修的时候按 12.1 → 12.2 → 12.3 → 12.4 → 12.5 的顺序，每条都要一个能红的测试
-（12.1 B、12.2 C/D/E/F、12.3 G/H、12.4 I/J 已按此办；下一个是 12.5 K）。
+（12.1 B、12.2 C/D/E/F、12.3 G/H、12.4 I/J 已按此办，各有能红的测试；12.5 K 没有组件
+测试可写，改成在 live console 里量，见上）。**§12 到此清空，剩下 A 归 P0-入口。**
 
 **A 的修法是设计题，不是补丁，所以不在这一轮动手。** Hub 读不到节点的文件系统，而
 GitHub 的观测其实**不需要本地文件**——只需要 `owner/repo` + 分支 + 一个凭据。三个候选：
