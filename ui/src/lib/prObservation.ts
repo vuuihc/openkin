@@ -168,12 +168,12 @@ export type Elsewhere = { text: string; known: boolean } | null;
  * What the header says where the repository and branch would go.
  *
  * `headerLabel` names them when there is something to name, and its fallback is
- * a claim: "this task is not in a GitHub repository". Only the machine holding
- * the checkout can make that claim. Reading a task's pull-request state resolves
- * the task's directory on the daemon answering the console, so for a task that
- * runs elsewhere the empty answer means "not on this machine" — and the sentence
- * a person reads decides whether they go and look at the other machine or
- * conclude there is nothing to look at.
+ * a claim: "this task is not in a GitHub repository". That claim is only the
+ * daemon's to make about a checkout it can see. For a task that runs elsewhere,
+ * the pair is whatever the task row was created with and the other machine has
+ * not been asked yet, so an empty header is "the checkout is over there", not
+ * "there is no repository" — and the sentence a person reads decides whether
+ * they go and look at the other machine or conclude there is nothing to look at.
  *
  * The branch the work is on is not lost by saying so: it is on the other
  * machine, where the person can see it.
@@ -196,6 +196,34 @@ export function absentRepoLabel(tr: Translate, elsewhere: Elsewhere): string {
  */
 export function unobservedLabel(tr: Translate): string {
   return tr("pr.notChecked");
+}
+
+/**
+ * Whether opening the panel should ask for a read.
+ *
+ * A branch on screen that has never been observed is the case this is for: no
+ * other path asks about it, because the background pass only walks pull requests
+ * that already exist and a branch with none has nothing that changes on its own.
+ *
+ * The branchless case used to be nothing to ask about, on the grounds that no
+ * branch means no GitHub repository behind the task. That was true while the
+ * daemon answering this panel resolved every task's directory itself. It is not
+ * true for a task that runs elsewhere: the branch there is the other machine's to
+ * report, and a session that started while that machine was away — or that was
+ * forked from one — has none recorded until somebody asks. Those are exactly the
+ * sessions with something to find, so the machine's presence is what decides, and
+ * the ask is what turns "not checked yet" into an answer or a reason.
+ */
+export function shouldAskForRead(
+  snapshot: {
+    branch?: string;
+    observations?: PullRequestObservation[];
+  } | null,
+  elsewhere: Elsewhere,
+): boolean {
+  if (!snapshot) return false;
+  if (snapshot.branch) return !observedBranch(snapshot.observations, snapshot.branch);
+  return elsewhere !== null;
 }
 
 /** How the pull request reads: draft first, because it is the actionable part. */

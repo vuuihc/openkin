@@ -13,7 +13,7 @@ import {
   ciLabel,
   headerLabel,
   leadObservation,
-  observedBranch,
+  shouldAskForRead,
   otherPullRequests,
   parseCISummary,
   stateLabel,
@@ -40,8 +40,9 @@ type Props = {
   onClose?: () => void;
   /**
    * The machine this task runs on, when that is not the machine showing the
-   * page. See absentRepoLabel: without it this panel answers "no pull request"
-   * about a checkout it has never been able to read.
+   * page. The read behind every row was made by that machine, so this is what
+   * says where the work is before anything has been read (see absentRepoLabel)
+   * and what gives the panel something to ask about at all (shouldAskForRead).
    */
   elsewhere?: Elsewhere;
 };
@@ -195,24 +196,21 @@ export default function PullRequestPanel({
   // asking the question. One request for a branch that has no row of its own;
   // an answer that does exist, however old, is shown as it is, with its age.
   //
-  // "Nothing to show" is asked of `observedBranch`, not of the row being
-  // rendered: a task whose workspace moved to a new generation still renders the
-  // previous branch's pull request, and that is not an answer about the branch
-  // on screen.
+  // Which cases those are is `shouldAskForRead`'s to say, including the one this
+  // panel cannot see for itself: a task on another machine whose branch has not
+  // been recorded yet still has a checkout, and asking is how its branch arrives.
+  //
+  // Not asking leaves the question open rather than marking it asked, so a
+  // workspace that arrives later still gets its one query.
   const asked = useRef(false);
   useEffect(() => {
-    if (!snapshot || asked.current) return;
-    // No branch means no GitHub repository behind this task, which the daemon
-    // answers without querying anything. Returning here rather than marking the
-    // question asked keeps it open for a workspace that arrives later.
-    if (!snapshot.branch) return;
+    if (asked.current) return;
+    if (!shouldAskForRead(snapshot, elsewhere)) return;
     asked.current = true;
-    if (!observedBranch(snapshot.observations, snapshot.branch)) {
-      // Implicit: whatever this refresh has to say about itself, it says to the
-      // row, not to the user (see `onRefresh`).
-      void onRefresh({ implicit: true });
-    }
-  }, [snapshot, onRefresh]);
+    // Implicit: whatever this refresh has to say about itself, it says to the
+    // row, not to the user (see `onRefresh`).
+    void onRefresh({ implicit: true });
+  }, [snapshot, elsewhere, onRefresh]);
 
   const lead = leadObservation(snapshot?.observations, snapshot?.branch);
   const others = otherPullRequests(snapshot?.observations, lead);

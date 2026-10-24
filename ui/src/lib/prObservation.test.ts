@@ -8,6 +8,7 @@ import {
   otherPullRequests,
   parseCISummary,
   shortRepo,
+  shouldAskForRead,
   stateLabel,
   unobservedLabel,
   type CISummary,
@@ -312,5 +313,44 @@ describe("unobservedLabel", () => {
   // that none is coming.
   it("says the branch has not been checked yet", () => {
     expect(unobservedLabel(tr)).toBe("pr.notChecked");
+  });
+});
+
+describe("shouldAskForRead", () => {
+  const elsewhere = { text: "Work Mac", known: true };
+
+  it("asks about a branch that has no row of its own", () => {
+    expect(
+      shouldAskForRead({ branch: "feature/x", observations: [] }, null),
+    ).toBe(true);
+  });
+
+  it("does not ask again about a branch that has one", () => {
+    // Even a row that only records a failure: that is this branch's answer, and
+    // the age line is what says how old it is.
+    expect(
+      shouldAskForRead(
+        {
+          branch: "feature/x",
+          observations: [obs({ head_branch: "feature/x", last_error: "rate limited" })],
+        },
+        null,
+      ),
+    ).toBe(false);
+  });
+
+  it("asks a task on another machine even with no branch recorded", () => {
+    // A session that started while its machine was away, or a fork: the branch
+    // is that machine's to report, and this ask is how it arrives.
+    expect(shouldAskForRead({ branch: "", observations: [] }, elsewhere)).toBe(
+      true,
+    );
+  });
+
+  it("does not ask when no branch is recorded and no machine is known", () => {
+    // Nothing has a checkout to look in: the daemon answers this one without
+    // querying anything.
+    expect(shouldAskForRead({ branch: "", observations: [] }, null)).toBe(false);
+    expect(shouldAskForRead(null, elsewhere)).toBe(false);
   });
 });
