@@ -9,6 +9,11 @@ type Props = {
   wait?: TaskLimitWait | null;
   hostAgentId: string;
   agents: AgentInfo[];
+  /**
+   * Whether this task's pane is the one on screen. The host keeps recent tasks
+   * mounted and hides the rest, so a card can be on a pane nobody is looking at.
+   */
+  active?: boolean;
   focused?: boolean;
   busy?: string | null;
   onWait: () => void;
@@ -38,6 +43,7 @@ export default function LimitCard({
   hit,
   wait,
   hostAgentId,
+  active = true,
   agents,
   focused,
   busy,
@@ -53,11 +59,15 @@ export default function LimitCard({
     status === "continued" || status === "switched" || status === "dismissed";
   const waiting = status === "waiting";
 
+  // The countdown is read at render. Nothing here acts on it — `remain` only
+  // picks between "continue now" and "continue early" — so the tick can stop
+  // while the card is on a pane the user has navigated away from, and picks up
+  // again on the render that brings them back.
   useEffect(() => {
-    if (terminal) return;
+    if (terminal || !active) return;
     const id = window.setInterval(() => setNowTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
-  }, [terminal]);
+  }, [terminal, active]);
 
   const remain = useMemo(() => remainingSeconds(hit.reset_at), [hit.reset_at, nowTick]);
   const agentLabel = agentDisplayName(hit.agent || hostAgentId);

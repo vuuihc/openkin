@@ -1056,6 +1056,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                       hit={latestLimitHit.payload}
                       wait={limitWait}
                       hostAgentId={task.agent || ""}
+                      active={active}
                       agents={agents}
                       busy={limitBusy}
                       onWait={() => void onLimitAction("wait")}
