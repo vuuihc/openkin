@@ -71,11 +71,15 @@ func (m Metadata) EffectiveCwd(fallback string) string {
 var (
 	ErrGitUnavailable = errors.New("git unavailable")
 	ErrNotGit         = errors.New("not a git repository")
-	// ErrNoHead is "there is no commit here to base an isolated copy on", which
-	// is true both of a directory that is not a repository and of one that is a
-	// repository with nothing committed. They are one sentinel because they are
-	// one answer to the only question a caller asks: there is nothing to
-	// isolate from, so run in the directory itself.
+	// ErrNoHead is "there is no commit here to base an isolated copy on". It is
+	// deliberately one sentinel for every directory the probe reaches without a
+	// HEAD — not a repository at all, a repository with nothing committed, a bare
+	// repository, and anything else git inspected without producing one. They are
+	// one answer to the only question a caller asks ("is there anything to
+	// isolate from"), and mode auto acts on it by running in the directory
+	// itself, which is also what the non-lazy path has always done. A caller that
+	// wants to know which of them it has asks for ModeWorktree instead: that path
+	// keeps the reasons apart (ErrNotGit, ErrBareRepository, ErrNoHead).
 	ErrNoHead                = errors.New("repository has no HEAD")
 	ErrBareRepository        = errors.New("bare repository")
 	ErrDirtySource           = errors.New("source worktree is dirty")

@@ -1366,12 +1366,14 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 		// Lazy: resolve source metadata, no worktree, source_read_only turn.
 		src, err := e.workspace.ResolveSource(ctx, req.Cwd)
 		if errors.Is(err, workspace.ErrNoHead) {
-			// Nothing here to isolate from: either there is no repository at this
-			// path, or there is one with nothing committed yet. Both are the same
-			// answer, and it is not an error — a worktree is a copy of a commit,
-			// so with no commit the directory itself is the workspace. That is
-			// exactly what `workspace_mode: shared` means when it is asked for by
-			// name.
+			// Nothing here to isolate from, so the directory itself is the
+			// workspace — exactly what `workspace_mode: shared` means when it is
+			// asked for by name. In a repository that means no commit to copy; it
+			// also covers a plain folder and a bare repository, because the
+			// sentinel answers "is there anything to isolate from" and the answer
+			// is no in all three. That width is deliberate and is what the
+			// non-lazy path has always done with mode auto (prepare.go), so a
+			// lazy turn and a non-lazy one agree about the same directory.
 			//
 			// It matters most to the caller that cannot see this filesystem: a
 			// phone picks a folder out of a listing, and a folder being an
