@@ -88,9 +88,7 @@ describe("transcriptProjection", () => {
     ]);
     expect(
       items.filter(
-        (item) =>
-          item.kind === "message" &&
-          (item.text === "hel" || item.text === "hello back"),
+        (item) => item.kind === "message" && (item.text === "hel" || item.text === "hello back"),
       ),
     ).toHaveLength(1);
   });
@@ -206,7 +204,12 @@ describe("transcriptProjection", () => {
     const items = buildChatItems(
       [
         ev(1, "notice", { speaker: "acp", severity: "info", message: "context used: 1 of 10" }),
-        ev(2, "notice", { speaker: "acp", severity: "error", title: "disk", message: "the disk is full" }),
+        ev(2, "notice", {
+          speaker: "acp",
+          severity: "error",
+          title: "disk",
+          message: "the disk is full",
+        }),
         ev(3, "notice", { speaker: "acp", severity: "warning", message: "slow" }),
       ],
       "acp",
@@ -373,18 +376,14 @@ describe("transcriptProjection", () => {
         )
         .map((plan) => plan.text);
 
-    expect(roundOf({ text: "**bash**\n```text\nls\n```" })).toEqual([
+    expect(roundOf({ text: "**bash**\n```text\nls\n```" })).toEqual(["· old plan", "· new plan"]);
+    expect(roundOf({ content: [{ type: "text", text: "keep going" }], partial: true })).toEqual([
       "· old plan",
       "· new plan",
     ]);
-    expect(
-      roundOf({ content: [{ type: "text", text: "keep going" }], partial: true }),
-    ).toEqual(["· old plan", "· new plan"]);
     // The guard the round boundary keeps: a user event with no words in it
     // renders nothing and starts nothing.
-    expect(roundOf({ content: [{ type: "text", text: "   " }] })).toEqual([
-      "· new plan",
-    ]);
+    expect(roundOf({ content: [{ type: "text", text: "   " }] })).toEqual(["· new plan"]);
   });
 
   it("keeps the agent's reasoning out of the answer", () => {
@@ -597,9 +596,7 @@ describe("transcriptProjection", () => {
         },
       ],
     });
-    expect(
-      items[0]?.kind === "progress" ? items[0].steps : [],
-    ).toHaveLength(1);
+    expect(items[0]?.kind === "progress" ? items[0].steps : []).toHaveLength(1);
   });
 
   it("puts delegate chatter in progress and final orchestrator summary in chat", () => {
@@ -975,16 +972,10 @@ describe("transcriptProjection", () => {
       ],
       "kin",
     );
-    const process = items.find(
-      (item): item is ProgressItem => item.kind === "progress",
-    );
+    const process = items.find((item): item is ProgressItem => item.kind === "progress");
 
-    expect(process?.steps).toMatchObject([
-      { kind: "note", status: "error" },
-    ]);
-    expect(summarizeProgressStatus(process?.steps ?? [], false).state).toBe(
-      "failed",
-    );
+    expect(process?.steps).toMatchObject([{ kind: "note", status: "error" }]);
+    expect(summarizeProgressStatus(process?.steps ?? [], false).state).toBe("failed");
   });
 
   it("finalizes interleaved content and reasoning previews on error", () => {
@@ -1008,9 +999,7 @@ describe("transcriptProjection", () => {
       "kin",
     );
 
-    expect(
-      items.some((item) => item.kind === "message" && item.partial),
-    ).toBe(false);
+    expect(items.some((item) => item.kind === "message" && item.partial)).toBe(false);
     expect(items).toMatchObject([
       { kind: "message", text: "Partial answer", partial: false },
       {
@@ -1152,11 +1141,8 @@ describe("transcriptProjection", () => {
     expect(items.filter((item) => item.kind === "message")).toMatchObject([
       { kind: "message", text: "AB" },
     ]);
-    expect(
-      items.some((item) => item.kind === "message" && item.partial),
-    ).toBe(false);
+    expect(items.some((item) => item.kind === "message" && item.partial)).toBe(false);
   });
-
 
   it("projects an arbitrary plugin host without a speaker whitelist", () => {
     const items = buildChatItems(
@@ -1386,32 +1372,33 @@ describe("transcriptProjection", () => {
   });
 });
 
-
-  it("suppresses cancel error events from steer interrupts", () => {
-    const items = buildChatItems(
-      [
-        ev(1, "message", {
-          role: "user",
-          content: [{ type: "text", text: "do X" }],
-        }),
-        ev(2, "tool_use", {
-          speaker: "kin",
-          tool_use_id: "call-1",
-          name: "bash",
-          input: { command: "echo hi" },
-        }),
-        ev(3, "error", { message: "canceled" }),
-        ev(4, "message", {
-          role: "user",
-          content: [{ type: "text", text: "do Y instead" }],
-          source: "interrupt",
-        }),
-      ],
-      "kin",
-    );
-    expect(items.some((i) => i.kind === "error")).toBe(false);
-    expect(items.filter((i) => i.kind === "message").map((i) => (i as any).text || (i as any).role)).toBeTruthy();
-  });
+it("suppresses cancel error events from steer interrupts", () => {
+  const items = buildChatItems(
+    [
+      ev(1, "message", {
+        role: "user",
+        content: [{ type: "text", text: "do X" }],
+      }),
+      ev(2, "tool_use", {
+        speaker: "kin",
+        tool_use_id: "call-1",
+        name: "bash",
+        input: { command: "echo hi" },
+      }),
+      ev(3, "error", { message: "canceled" }),
+      ev(4, "message", {
+        role: "user",
+        content: [{ type: "text", text: "do Y instead" }],
+        source: "interrupt",
+      }),
+    ],
+    "kin",
+  );
+  expect(items.some((i) => i.kind === "error")).toBe(false);
+  expect(
+    items.filter((i) => i.kind === "message").map((i) => (i as any).text || (i as any).role),
+  ).toBeTruthy();
+});
 
 describe("mergeProcessRuns", () => {
   function progress(key: string, status: "running" | "done" | "error" = "done"): ProgressItem {
@@ -1435,7 +1422,14 @@ describe("mergeProcessRuns", () => {
       key,
       speaker: "kin",
       steps: [
-        { kind: "tool", key: `${key}-t1`, speaker: "kin", name: "bash", summary: "bash", status: "done" as const },
+        {
+          kind: "tool",
+          key: `${key}-t1`,
+          speaker: "kin",
+          name: "bash",
+          summary: "bash",
+          status: "done" as const,
+        },
         ...notes.map((text, i) => ({
           kind: "note" as const,
           key: `${key}-n${i}`,
@@ -1443,7 +1437,14 @@ describe("mergeProcessRuns", () => {
           text,
           status: "done" as const,
         })),
-        { kind: "tool", key: `${key}-t2`, speaker: "kin", name: "read", summary: "read", status: "done" as const },
+        {
+          kind: "tool",
+          key: `${key}-t2`,
+          speaker: "kin",
+          name: "read",
+          summary: "read",
+          status: "done" as const,
+        },
       ],
     };
   }
@@ -1491,11 +1492,7 @@ describe("mergeProcessRuns", () => {
       phase: "summary",
     };
     const initial = mergeProcessRuns([progress("p1"), summary]);
-    const updated = mergeProcessRuns([
-      progress("p1"),
-      progress("p2"),
-      summary,
-    ]);
+    const updated = mergeProcessRuns([progress("p1"), progress("p2"), summary]);
 
     expect(initial[0]).toMatchObject({ kind: "progress", key: "p1" });
     expect(updated[0]).toMatchObject({ kind: "progress", key: "p1" });
@@ -1550,12 +1547,7 @@ describe("mergeProcessRuns", () => {
       summary,
     ]);
 
-    expect(merged.map((item) => item.kind)).toEqual([
-      "progress",
-      "message",
-      "progress",
-      "message",
-    ]);
+    expect(merged.map((item) => item.kind)).toEqual(["progress", "message", "progress", "message"]);
     expect(merged[0]).toMatchObject({
       key: "before",
       steps: [{ kind: "tool", key: "before-t" }],
@@ -1839,11 +1831,31 @@ describe("summarizeProgressDetails", () => {
       key: "process",
       speaker: "kin",
       steps: [
-        { kind: "tool", key: "r1", speaker: "kin", name: "read_file", summary: "read", status: "done" },
+        {
+          kind: "tool",
+          key: "r1",
+          speaker: "kin",
+          name: "read_file",
+          summary: "read",
+          status: "done",
+        },
         { kind: "note", key: "n1", speaker: "kin", text: "Inspecting files", status: "done" },
         { kind: "tool", key: "g1", speaker: "kin", name: "glob", summary: "glob", status: "done" },
-        { kind: "tool", key: "r2", speaker: "kin", name: "read_file", summary: "read", status: "done" },
-        { kind: "note", key: "n2", speaker: "kin", text: "  Located\nrendering path.  ", status: "done" },
+        {
+          kind: "tool",
+          key: "r2",
+          speaker: "kin",
+          name: "read_file",
+          summary: "read",
+          status: "done",
+        },
+        {
+          kind: "note",
+          key: "n2",
+          speaker: "kin",
+          text: "  Located\nrendering path.  ",
+          status: "done",
+        },
         { kind: "note", key: "n3", speaker: "kin", text: " \n ", status: "done" },
         { kind: "tool", key: "b1", speaker: "kin", name: "bash", summary: "bash", status: "done" },
       ],

@@ -10,11 +10,7 @@ import {
   type UserQuestion,
   type WSMessage,
 } from "./client";
-import {
-  hasSequenceGap,
-  highestContiguousSeq,
-  mergeEventsBySeq,
-} from "../lib/eventStream";
+import { hasSequenceGap, highestContiguousSeq, mergeEventsBySeq } from "../lib/eventStream";
 
 export type TaskListParams = {
   status?: string;
@@ -147,18 +143,12 @@ export class LiveResourceStore {
     string,
     { params: TaskListParams; count: number }
   >();
-  private readonly taskRegistrations = new Map<
-    string,
-    { count: number; lease: number }
-  >();
+  private readonly taskRegistrations = new Map<string, { count: number; lease: number }>();
   private nextTaskLease = 0;
   private pendingRegistrations = 0;
   private readonly listRequests = new Map<string, Promise<void>>();
   private pendingRequest: Promise<void> | null = null;
-  private readonly taskRequests = new Map<
-    string,
-    { lease: number; promise: Promise<void> }
-  >();
+  private readonly taskRequests = new Map<string, { lease: number; promise: Promise<void> }>();
   private readonly eventRecoveryRequests = new Map<
     string,
     { lease: number; promise: Promise<void> }
@@ -330,8 +320,7 @@ export class LiveResourceStore {
   }
 
   patchTask(taskId: string, patch: Partial<Task>): void {
-    const current =
-      this.state.taskDetails[taskId]?.data.task ?? this.tasksById.get(taskId);
+    const current = this.state.taskDetails[taskId]?.data.task ?? this.tasksById.get(taskId);
     if (!current) return;
     this.applyTaskUpdate({ ...current, ...patch }, ++this.revision);
   }
@@ -366,8 +355,7 @@ export class LiveResourceStore {
     if (
       !detail ||
       !this.isCurrentTaskLease(reset.taskId, reset.lease) ||
-      (this.eventEpochs.get(reset.taskId) ?? 0) !==
-        reset.speculativeEventEpoch ||
+      (this.eventEpochs.get(reset.taskId) ?? 0) !== reset.speculativeEventEpoch ||
       (this.taskRevisions.get(reset.taskId) ?? 0) > reset.revision ||
       (this.eventRevisions.get(reset.taskId)?.size ?? 0) > 0 ||
       detail.data.events.length > 0
@@ -397,9 +385,7 @@ export class LiveResourceStore {
     expectedEpoch = this.eventEpochs.get(taskId) ?? 0,
   ): void {
     if ((this.eventEpochs.get(taskId) ?? 0) !== expectedEpoch) return;
-    const currentEvents = events.filter(
-      (event) => event.event_epoch === expectedEpoch,
-    );
+    const currentEvents = events.filter((event) => event.event_epoch === expectedEpoch);
     const detail = this.getTaskDetail(taskId);
     const bySeq = new Map(currentEvents.map((event) => [event.seq, event]));
     const revisions = this.eventRevisions.get(taskId);
@@ -417,10 +403,7 @@ export class LiveResourceStore {
     });
   }
 
-  async refreshTaskList(
-    params: TaskListParams,
-    forceAfterInflight = false,
-  ): Promise<void> {
+  async refreshTaskList(params: TaskListParams, forceAfterInflight = false): Promise<void> {
     const key = taskListKey(params);
     const existing = this.listRequests.get(key);
     if (existing) {
@@ -441,10 +424,7 @@ export class LiveResourceStore {
           if ((this.taskRevisions.get(task.id) ?? 0) <= startedAt && this.acceptTaskEpoch(task)) {
             this.tasksById.set(task.id, task);
             this.deletedTasks.delete(task.id);
-            if (
-              (task.event_epoch ?? 0) > previousEpoch &&
-              this.taskRegistrations.has(task.id)
-            ) {
+            if ((task.event_epoch ?? 0) > previousEpoch && this.taskRegistrations.has(task.id)) {
               void this.refreshTask(task.id, true);
             }
           }
@@ -496,16 +476,14 @@ export class LiveResourceStore {
       .then(([approvalResult, questionResult]) => {
         const current = this.state.pending.data;
         const approvalMap = new Map(
-          (approvalResult.status === "fulfilled"
-            ? approvalResult.value
-            : current.approvals
-          ).map((item) => [item.id, item]),
+          (approvalResult.status === "fulfilled" ? approvalResult.value : current.approvals).map(
+            (item) => [item.id, item],
+          ),
         );
         const questionMap = new Map(
-          (questionResult.status === "fulfilled"
-            ? questionResult.value
-            : current.questions
-          ).map((item) => [item.id, item]),
+          (questionResult.status === "fulfilled" ? questionResult.value : current.questions).map(
+            (item) => [item.id, item],
+          ),
         );
         for (const [id, changedAt] of this.approvalRevisions) {
           if (changedAt <= startedAt) continue;
@@ -521,12 +499,8 @@ export class LiveResourceStore {
         }
         this.setPending({
           data: {
-            approvals: Array.from(approvalMap.values()).sort(
-              (a, b) => b.created_at - a.created_at,
-            ),
-            questions: Array.from(questionMap.values()).sort(
-              (a, b) => a.created_at - b.created_at,
-            ),
+            approvals: Array.from(approvalMap.values()).sort((a, b) => b.created_at - a.created_at),
+            questions: Array.from(questionMap.values()).sort((a, b) => a.created_at - b.created_at),
           },
           loading: false,
           error:
@@ -564,10 +538,7 @@ export class LiveResourceStore {
     const request = (async () => {
       let task = await this.api.getTask(taskId);
       let snapshotEpoch = task.event_epoch ?? 0;
-      let events = await this.api.listEvents(
-        taskId,
-        snapshotEpoch === eventEpoch ? cursor : 0,
-      );
+      let events = await this.api.listEvents(taskId, snapshotEpoch === eventEpoch ? cursor : 0);
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const confirmed = await this.api.getTask(taskId);
         const confirmedEpoch = confirmed.event_epoch ?? 0;
@@ -588,10 +559,7 @@ export class LiveResourceStore {
         const incomingEpoch = task.event_epoch ?? 0;
         const currentEpoch = this.eventEpochs.get(taskId) ?? 0;
         const speculativeReset = this.speculativeEventResets.get(taskId);
-        if (
-          speculativeReset &&
-          incomingEpoch >= speculativeReset.speculativeEventEpoch
-        ) {
+        if (speculativeReset && incomingEpoch >= speculativeReset.speculativeEventEpoch) {
           this.speculativeEventResets.delete(taskId);
         }
         if (incomingEpoch < currentEpoch) {
@@ -696,10 +664,7 @@ export class LiveResourceStore {
         : this.state.taskDetails,
     };
     this.emit();
-    if (
-      (task.event_epoch ?? 0) > previousEpoch &&
-      this.taskRegistrations.has(task.id)
-    ) {
+    if ((task.event_epoch ?? 0) > previousEpoch && this.taskRegistrations.has(task.id)) {
       void this.refreshTask(task.id, true);
     }
   }
@@ -828,9 +793,7 @@ export class LiveResourceStore {
           return;
         }
         const detail = this.getTaskDetail(taskId);
-        const currentEvents = events.filter(
-          (event) => event.event_epoch === epoch,
-        );
+        const currentEvents = events.filter((event) => event.event_epoch === epoch);
         this.setTaskDetail(taskId, {
           ...detail,
           error: null,
@@ -868,11 +831,14 @@ export class LiveResourceStore {
         const contiguous = highestContiguousSeq(detail.data.events);
         const highest = detail.data.events.at(-1)?.seq ?? 0;
         if (highest > contiguous) {
-          globalThis.setTimeout(() => {
-            if (this.isCurrentTaskLease(taskId, lease)) {
-              void this.recoverEvents(taskId, contiguous, lease, attempt + 1);
-            }
-          }, 250 * 2 ** attempt);
+          globalThis.setTimeout(
+            () => {
+              if (this.isCurrentTaskLease(taskId, lease)) {
+                void this.recoverEvents(taskId, contiguous, lease, attempt + 1);
+              }
+            },
+            250 * 2 ** attempt,
+          );
         }
       });
     this.eventRecoveryRequests.set(taskId, { lease, promise: request });

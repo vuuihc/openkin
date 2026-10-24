@@ -105,13 +105,9 @@ export default function TerminalTabs({
                   {tr("terminal.exited", { code: exitCode })}
                 </span>
               ) : session.connectionStatus === "connecting" ? (
-                <span className="text-[11px] text-kin-muted">
-                  {tr("terminal.connecting")}
-                </span>
+                <span className="text-[11px] text-kin-muted">{tr("terminal.connecting")}</span>
               ) : session.connectionStatus === "disconnected" ? (
-                <span className="text-[11px] text-kin-orange">
-                  {tr("terminal.disconnected")}
-                </span>
+                <span className="text-[11px] text-kin-orange">{tr("terminal.disconnected")}</span>
               ) : null}
             </button>
 

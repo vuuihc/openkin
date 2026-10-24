@@ -38,7 +38,10 @@ import {
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
 import { relayPrimaryAction } from "../components/settings/RelayGuidance";
-import { RoutingDefaultsSection, RoutingProfilesSection } from "../components/settings/RoutingSettings";
+import {
+  RoutingDefaultsSection,
+  RoutingProfilesSection,
+} from "../components/settings/RoutingSettings";
 import {
   SettingsLayout,
   SettingsSection,
@@ -48,12 +51,7 @@ import {
   type SettingsTabItem,
 } from "../components/settings/SettingsPrimitives";
 import { useSlowHint } from "../hooks/useSlowHint";
-import {
-  applyTheme,
-  getThemeMode,
-  setThemeMode,
-  type ThemeMode,
-} from "../lib/theme";
+import { applyTheme, getThemeMode, setThemeMode, type ThemeMode } from "../lib/theme";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
 
@@ -367,7 +365,6 @@ export default function SettingsPage() {
     }
   };
 
-
   const applyProviderList = (reg: { active_id: string; providers: ProviderEntry[] }) => {
     setProviders(reg.providers ?? []);
     setActiveProviderId(reg.active_id ?? "");
@@ -612,7 +609,9 @@ export default function SettingsPage() {
               setCloudflareZones(zoneRes.zones ?? []);
               if (!next["cloudflare.relay_zone_id"] && zoneRes.zones?.length === 1) {
                 setCloudflareZoneID(zoneRes.zones[0].id);
-                setCloudflareHostname((current) => current || defaultRelayHostname(zoneRes.zones[0].name));
+                setCloudflareHostname(
+                  (current) => current || defaultRelayHostname(zoneRes.zones[0].name),
+                );
               }
             }
           } catch (accountErr) {
@@ -645,13 +644,16 @@ export default function SettingsPage() {
       if (next["cloudflare.account_id"]) {
         setCloudflareAccountID(next["cloudflare.account_id"]);
       }
-      const accountID = next["cloudflare.account_id"] || cloudflareAccountID || res.accounts?.[0]?.id || "";
+      const accountID =
+        next["cloudflare.account_id"] || cloudflareAccountID || res.accounts?.[0]?.id || "";
       if (accountID) {
         const zoneRes = await listCloudflareZones(accountID);
         setCloudflareZones(zoneRes.zones ?? []);
         if (!cloudflareZoneID && zoneRes.zones?.length === 1) {
           setCloudflareZoneID(zoneRes.zones[0].id);
-          setCloudflareHostname((current) => current || defaultRelayHostname(zoneRes.zones[0].name));
+          setCloudflareHostname(
+            (current) => current || defaultRelayHostname(zoneRes.zones[0].name),
+          );
         }
       }
     } catch (e) {
@@ -673,7 +675,10 @@ export default function SettingsPage() {
     return zones;
   };
 
-  const bindRelayCustomDomain = async (zoneID = cloudflareZoneID, hostname = cloudflareHostname) => {
+  const bindRelayCustomDomain = async (
+    zoneID = cloudflareZoneID,
+    hostname = cloudflareHostname,
+  ) => {
     setCloudflareBindingDomain(true);
     setError(null);
     try {
@@ -711,7 +716,9 @@ export default function SettingsPage() {
       if (workerURL && !(await probePublicURL(workerURL))) {
         setWorkerDevUnreachable(true);
         pushToast(tr("settings.relay.workerDevUnreachable"), "error");
-        const zones = cloudflareZones.length ? cloudflareZones : await refreshCloudflareZones(cloudflareAccountID);
+        const zones = cloudflareZones.length
+          ? cloudflareZones
+          : await refreshCloudflareZones(cloudflareAccountID);
         if (zones.length === 1) {
           await bindRelayCustomDomain(zones[0].id, defaultRelayHostname(zones[0].name));
         }
@@ -804,7 +811,9 @@ export default function SettingsPage() {
         ]
       : cloudflareZones;
   const cloudflareNeedsAccountRefresh =
-    !!settings["cloudflare.authenticated"] && !cloudflareAccountID.trim() && accountOptions.length === 0;
+    !!settings["cloudflare.authenticated"] &&
+    !cloudflareAccountID.trim() &&
+    accountOptions.length === 0;
   const relayPrimary = relayPrimaryAction({
     cloudflareAuthenticated: !!settings["cloudflare.authenticated"],
     needsAccountRefresh: cloudflareNeedsAccountRefresh,
@@ -861,7 +870,10 @@ export default function SettingsPage() {
       onTabChange={setActiveTab}
     >
       {error ? (
-        <p className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-xs text-kin-red" role="alert">
+        <p
+          className="rounded-lg border border-kin-red/30 bg-kin-red/10 px-3 py-2 text-xs text-kin-red"
+          role="alert"
+        >
           {error}
         </p>
       ) : null}
@@ -925,218 +937,216 @@ export default function SettingsPage() {
 
       {/* Appearance (design 3c / 3e) */}
       <SettingsTabPanel id="general" active={activeTab === "general"}>
-      <SettingsSection title={tr("settings.appearance.heading")}>
-        <div className="flex flex-wrap gap-2">
-          {(["system", "light", "dark"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => {
-                setTheme(value);
-                setThemeMode(value);
-                applyTheme(value);
-              }}
-              className={[
-                "px-3 py-2 rounded-lg text-[13px] font-medium min-h-[44px] sm:min-h-[40px] border",
-                theme === value
-                  ? "border-kin-blue bg-kin-blue-soft text-kin-blue"
-                  : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
-              ].join(" ")}
-            >
-              {tr(`settings.appearance.${value}`)}
-            </button>
-          ))}
-        </div>
-      </SettingsSection>
-      <AccountSection />
+        <SettingsSection title={tr("settings.appearance.heading")}>
+          <div className="flex flex-wrap gap-2">
+            {(["system", "light", "dark"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setTheme(value);
+                  setThemeMode(value);
+                  applyTheme(value);
+                }}
+                className={[
+                  "px-3 py-2 rounded-lg text-[13px] font-medium min-h-[44px] sm:min-h-[40px] border",
+                  theme === value
+                    ? "border-kin-blue bg-kin-blue-soft text-kin-blue"
+                    : "border-[var(--kin-hairline)] text-kin-secondary hover:bg-[var(--kin-fill)]",
+                ].join(" ")}
+              >
+                {tr(`settings.appearance.${value}`)}
+              </button>
+            ))}
+          </div>
+        </SettingsSection>
+        <AccountSection />
       </SettingsTabPanel>
 
       {/* Remote Relay */}
       <SettingsTabPanel id="remote" active={activeTab === "remote"}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-              {tr("settings.relay.heading")}
-            </h2>
-            <p className="text-[12px] text-kin-secondary leading-relaxed">
-              {tr("settings.relay.desc")}
-            </p>
-          </div>
-          <span
-            className={[
-              "shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
-              relayState === "connected"
-                ? "bg-kin-green/15 text-kin-green"
-                : relayState === "connecting"
-                  ? "bg-kin-warning/15 text-kin-warning"
-                : relayState === "disabled"
-                    ? "bg-[var(--kin-fill)] text-kin-muted"
-                    : "bg-kin-red/15 text-kin-red",
-            ].join(" ")}
-          >
-            {tr(`settings.relay.state.${relayState}` as "settings.relay.state.disabled")}
-          </span>
-        </div>
-        <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 p-3 space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <p className="text-xs font-medium text-kin-secondary">
-                {tr("settings.relay.cloudflareTitle")}
-              </p>
-              <p className="text-[11px] text-kin-muted leading-relaxed">
-                {settings["cloudflare.authenticated"]
-                  ? tr("settings.relay.cloudflareConnected", {
-                      account: settings["cloudflare.account_name"] || settings["cloudflare.account_id"] || "Cloudflare",
-                    })
-                  : tr("settings.relay.cloudflareDesc")}
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+                {tr("settings.relay.heading")}
+              </h2>
+              <p className="text-[12px] text-kin-secondary leading-relaxed">
+                {tr("settings.relay.desc")}
               </p>
             </div>
-            <button
-              type="button"
-              disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-              onClick={() => void connectCloudflare()}
+            <span
               className={[
-                relayPrimary === "connect-cloudflare" ? "kin-btn-primary" : "kin-btn-secondary",
-                "min-h-[40px] disabled:opacity-50",
+                "shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                relayState === "connected"
+                  ? "bg-kin-green/15 text-kin-green"
+                  : relayState === "connecting"
+                    ? "bg-kin-warning/15 text-kin-warning"
+                    : relayState === "disabled"
+                      ? "bg-[var(--kin-fill)] text-kin-muted"
+                      : "bg-kin-red/15 text-kin-red",
               ].join(" ")}
             >
-              {settings["cloudflare.authenticated"]
-                ? tr("settings.relay.reconnectCloudflare")
-                : tr("settings.relay.connectCloudflare")}
-            </button>
+              {tr(`settings.relay.state.${relayState}` as "settings.relay.state.disabled")}
+            </span>
           </div>
-          {settings["cloudflare.relay_last_error"] ? (
-            <p className="text-xs text-kin-red" role="alert">
-              {settings["cloudflare.relay_last_error"]}
-            </p>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.relay.cloudflareAccount")}
-              </span>
-              <select
-                value={cloudflareAccountID}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setCloudflareAccountID(next);
-                  setCloudflareZoneID("");
-                  setCloudflareHostname("");
-                  setCustomDomainTouched(false);
-                  void refreshCloudflareZones(next);
-                }}
-                disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                className="kin-input min-h-[44px]"
-              >
-                <option value="">
+          <div className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 p-3 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-kin-secondary">
+                  {tr("settings.relay.cloudflareTitle")}
+                </p>
+                <p className="text-[11px] text-kin-muted leading-relaxed">
                   {settings["cloudflare.authenticated"]
-                    ? tr("settings.relay.selectAccount")
-                    : tr("settings.relay.loginFirst")}
-                </option>
-                {accountOptions.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name || account.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-1">
-              <span className="text-xs font-medium text-kin-secondary">
-                {tr("settings.relay.workerName")}
-              </span>
-              <input
-                type="text"
-                value={cloudflareScriptName}
-                onChange={(e) => setCloudflareScriptName(e.target.value)}
+                    ? tr("settings.relay.cloudflareConnected", {
+                        account:
+                          settings["cloudflare.account_name"] ||
+                          settings["cloudflare.account_id"] ||
+                          "Cloudflare",
+                      })
+                    : tr("settings.relay.cloudflareDesc")}
+                </p>
+              </div>
+              <button
+                type="button"
                 disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                className="kin-input min-h-[44px] font-mono text-xs"
-                autoComplete="off"
-              />
-            </label>
-          </div>
-          {hasCloudflareWorker ? (
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                onClick={() => void connectCloudflare()}
+                className={[
+                  relayPrimary === "connect-cloudflare" ? "kin-btn-primary" : "kin-btn-secondary",
+                  "min-h-[40px] disabled:opacity-50",
+                ].join(" ")}
+              >
+                {settings["cloudflare.authenticated"]
+                  ? tr("settings.relay.reconnectCloudflare")
+                  : tr("settings.relay.connectCloudflare")}
+              </button>
+            </div>
+            {settings["cloudflare.relay_last_error"] ? (
+              <p className="text-xs text-kin-red" role="alert">
+                {settings["cloudflare.relay_last_error"]}
+              </p>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-kin-secondary">
-                  {tr("settings.relay.cloudflareZone")}
+                  {tr("settings.relay.cloudflareAccount")}
                 </span>
                 <select
-                  value={cloudflareZoneID}
+                  value={cloudflareAccountID}
                   onChange={(e) => {
                     const next = e.target.value;
-                    setCloudflareZoneID(next);
-                    const zone = cloudflareZones.find((z) => z.id === next);
-                    setCloudflareHostname((current) => current || defaultRelayHostname(zone?.name ?? ""));
+                    setCloudflareAccountID(next);
+                    setCloudflareZoneID("");
+                    setCloudflareHostname("");
+                    setCustomDomainTouched(false);
+                    void refreshCloudflareZones(next);
                   }}
-                  disabled={!settings["cloudflare.authenticated"] || cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                  disabled={
+                    !settings["cloudflare.authenticated"] ||
+                    cloudflareBusy ||
+                    cloudflareDeploying ||
+                    cloudflareBindingDomain
+                  }
                   className="kin-input min-h-[44px]"
                 >
                   <option value="">
                     {settings["cloudflare.authenticated"]
-                      ? tr("settings.relay.selectZone")
+                      ? tr("settings.relay.selectAccount")
                       : tr("settings.relay.loginFirst")}
                   </option>
-                  {zoneOptions.map((zone) => (
-                    <option key={zone.id} value={zone.id}>
-                      {zone.name}
+                  {accountOptions.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name || account.id}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-1">
                 <span className="text-xs font-medium text-kin-secondary">
-                  {tr("settings.relay.customDomain")}
+                  {tr("settings.relay.workerName")}
                 </span>
                 <input
                   type="text"
-                  value={cloudflareHostname}
-                  onChange={(e) => {
-                    setCloudflareHostname(e.target.value);
-                    setCustomDomainTouched(true);
-                  }}
+                  value={cloudflareScriptName}
+                  onChange={(e) => setCloudflareScriptName(e.target.value)}
                   disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
-                  placeholder={tr("settings.relay.customDomainPlaceholder")}
                   className="kin-input min-h-[44px] font-mono text-xs"
                   autoComplete="off"
                 />
               </label>
             </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain || !settings["cloudflare.authenticated"]}
-              onClick={() => void refreshCloudflareAccounts()}
-              className={[
-                relayPrimary === "refresh-accounts" ? "kin-btn-primary" : "kin-btn-secondary",
-                "min-h-[40px] disabled:opacity-50",
-              ].join(" ")}
-            >
-              {tr("settings.relay.refreshAccounts")}
-            </button>
-            <button
-              type="button"
-              disabled={
-                cloudflareBusy ||
-                cloudflareDeploying ||
-                cloudflareBindingDomain ||
-                !settings["cloudflare.authenticated"] ||
-                !cloudflareAccountID.trim()
-              }
-              onClick={() => void deployRelayWorker()}
-              className={[
-                relayPrimary === "deploy-worker" ? "kin-btn-primary" : "kin-btn-secondary",
-                "min-h-[40px] disabled:opacity-50",
-              ].join(" ")}
-            >
-              {cloudflareDeploying
-                ? tr("settings.relay.deployingWorker")
-                : hasCloudflareWorker
-                  ? tr("settings.relay.updateWorker")
-                  : tr("settings.relay.deployWorker")}
-            </button>
             {hasCloudflareWorker ? (
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-kin-secondary">
+                    {tr("settings.relay.cloudflareZone")}
+                  </span>
+                  <select
+                    value={cloudflareZoneID}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setCloudflareZoneID(next);
+                      const zone = cloudflareZones.find((z) => z.id === next);
+                      setCloudflareHostname(
+                        (current) => current || defaultRelayHostname(zone?.name ?? ""),
+                      );
+                    }}
+                    disabled={
+                      !settings["cloudflare.authenticated"] ||
+                      cloudflareBusy ||
+                      cloudflareDeploying ||
+                      cloudflareBindingDomain
+                    }
+                    className="kin-input min-h-[44px]"
+                  >
+                    <option value="">
+                      {settings["cloudflare.authenticated"]
+                        ? tr("settings.relay.selectZone")
+                        : tr("settings.relay.loginFirst")}
+                    </option>
+                    {zoneOptions.map((zone) => (
+                      <option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-xs font-medium text-kin-secondary">
+                    {tr("settings.relay.customDomain")}
+                  </span>
+                  <input
+                    type="text"
+                    value={cloudflareHostname}
+                    onChange={(e) => {
+                      setCloudflareHostname(e.target.value);
+                      setCustomDomainTouched(true);
+                    }}
+                    disabled={cloudflareBusy || cloudflareDeploying || cloudflareBindingDomain}
+                    placeholder={tr("settings.relay.customDomainPlaceholder")}
+                    className="kin-input min-h-[44px] font-mono text-xs"
+                    autoComplete="off"
+                  />
+                </label>
+              </div>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={
+                  cloudflareBusy ||
+                  cloudflareDeploying ||
+                  cloudflareBindingDomain ||
+                  !settings["cloudflare.authenticated"]
+                }
+                onClick={() => void refreshCloudflareAccounts()}
+                className={[
+                  relayPrimary === "refresh-accounts" ? "kin-btn-primary" : "kin-btn-secondary",
+                  "min-h-[40px] disabled:opacity-50",
+                ].join(" ")}
+              >
+                {tr("settings.relay.refreshAccounts")}
+              </button>
               <button
                 type="button"
                 disabled={
@@ -1144,446 +1154,467 @@ export default function SettingsPage() {
                   cloudflareDeploying ||
                   cloudflareBindingDomain ||
                   !settings["cloudflare.authenticated"] ||
-                  !cloudflareAccountID.trim() ||
-                  !cloudflareZoneID.trim()
+                  !cloudflareAccountID.trim()
                 }
-                onClick={() => void bindRelayCustomDomain()}
+                onClick={() => void deployRelayWorker()}
                 className={[
-                  relayPrimary === "bind-domain" ? "kin-btn-primary" : "kin-btn-secondary",
+                  relayPrimary === "deploy-worker" ? "kin-btn-primary" : "kin-btn-secondary",
                   "min-h-[40px] disabled:opacity-50",
                 ].join(" ")}
               >
-                {cloudflareBindingDomain
-                  ? tr("settings.relay.bindingDomain")
-                  : tr("settings.relay.bindDomain")}
+                {cloudflareDeploying
+                  ? tr("settings.relay.deployingWorker")
+                  : hasCloudflareWorker
+                    ? tr("settings.relay.updateWorker")
+                    : tr("settings.relay.deployWorker")}
               </button>
+              {hasCloudflareWorker ? (
+                <button
+                  type="button"
+                  disabled={
+                    cloudflareBusy ||
+                    cloudflareDeploying ||
+                    cloudflareBindingDomain ||
+                    !settings["cloudflare.authenticated"] ||
+                    !cloudflareAccountID.trim() ||
+                    !cloudflareZoneID.trim()
+                  }
+                  onClick={() => void bindRelayCustomDomain()}
+                  className={[
+                    relayPrimary === "bind-domain" ? "kin-btn-primary" : "kin-btn-secondary",
+                    "min-h-[40px] disabled:opacity-50",
+                  ].join(" ")}
+                >
+                  {cloudflareBindingDomain
+                    ? tr("settings.relay.bindingDomain")
+                    : tr("settings.relay.bindDomain")}
+                </button>
+              ) : null}
+            </div>
+            {!hasCloudflareWorker && settings["cloudflare.authenticated"] ? (
+              <p className="text-[11px] text-kin-muted leading-relaxed">
+                {tr("settings.relay.deployFirst")}
+              </p>
+            ) : null}
+            {settings["cloudflare.relay_worker_url"] ? (
+              <p className="break-all font-mono text-[11px] text-kin-muted">
+                {settings["cloudflare.relay_worker_url"]}
+              </p>
+            ) : null}
+            {settings["cloudflare.relay_custom_domain_url"] ? (
+              <p className="break-all font-mono text-[11px] text-kin-green">
+                {settings["cloudflare.relay_custom_domain_url"]}
+              </p>
             ) : null}
           </div>
-          {!hasCloudflareWorker && settings["cloudflare.authenticated"] ? (
-            <p className="text-[11px] text-kin-muted leading-relaxed">
-              {tr("settings.relay.deployFirst")}
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.relay.workerUrl")}
+            </span>
+            <input
+              type="url"
+              value={relayURL}
+              onChange={(e) => setRelayURL(e.target.value)}
+              placeholder="https://kin-relay.example.workers.dev"
+              className="kin-input min-h-[44px] font-mono text-xs"
+              autoComplete="url"
+            />
+            <span className="text-[11px] text-kin-muted">{tr("settings.relay.workerUrlHint")}</span>
+          </label>
+          {settings["relay.last_error"] ? (
+            <p className="text-xs text-kin-red" role="alert">
+              {settings["relay.last_error"]}
             </p>
           ) : null}
-          {settings["cloudflare.relay_worker_url"] ? (
-            <p className="break-all font-mono text-[11px] text-kin-muted">
-              {settings["cloudflare.relay_worker_url"]}
-            </p>
-          ) : null}
-          {settings["cloudflare.relay_custom_domain_url"] ? (
-            <p className="break-all font-mono text-[11px] text-kin-green">
-              {settings["cloudflare.relay_custom_domain_url"]}
-            </p>
-          ) : null}
-        </div>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.relay.workerUrl")}
-          </span>
-          <input
-            type="url"
-            value={relayURL}
-            onChange={(e) => setRelayURL(e.target.value)}
-            placeholder="https://kin-relay.example.workers.dev"
-            className="kin-input min-h-[44px] font-mono text-xs"
-            autoComplete="url"
-          />
-          <span className="text-[11px] text-kin-muted">
-            {tr("settings.relay.workerUrlHint")}
-          </span>
-        </label>
-        {settings["relay.last_error"] ? (
-          <p className="text-xs text-kin-red" role="alert">
-            {settings["relay.last_error"]}
-          </p>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={relayBusy}
-            onClick={() => void saveRelay()}
-            className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
-          >
-            {relayBusy ? tr("settings.saving") : tr("settings.relay.save")}
-          </button>
-          {settings["relay.url"] ? (
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={relayBusy}
-              onClick={() => void refreshPairing()}
+              onClick={() => void saveRelay()}
               className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
             >
-              {tr("settings.relay.refreshPairing")}
+              {relayBusy ? tr("settings.saving") : tr("settings.relay.save")}
             </button>
-          ) : null}
-        </div>
-        {settings["relay.pairing_url"] ? (
-          <div className="flex flex-col sm:flex-row gap-4 items-start border-t border-[var(--kin-hairline)] pt-4">
-            <div className="rounded-lg bg-white p-3 shrink-0">
-              <QRCodeSVG value={settings["relay.pairing_url"]} size={160} level="M" />
-            </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              <p className="text-xs font-medium text-kin-secondary">
-                {tr("settings.relay.pairingTitle")}
-              </p>
-              <p className="break-all font-mono text-[11px] text-kin-muted">
-                {settings["relay.pairing_url"]}
-              </p>
+            {settings["relay.url"] ? (
               <button
                 type="button"
-                onClick={() => void copy(settings["relay.pairing_url"])}
-                className="min-h-[40px] text-xs text-kin-blue hover:underline"
+                disabled={relayBusy}
+                onClick={() => void refreshPairing()}
+                className="kin-btn-secondary min-h-[40px] disabled:opacity-50"
               >
-                {tr("settings.connection.copyUrl")}
+                {tr("settings.relay.refreshPairing")}
               </button>
-            </div>
+            ) : null}
           </div>
-        ) : null}
-      </section>
-
-      {/* Connection */}
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-          {tr("settings.connection.heading")}
-        </h2>
-        <div className="flex flex-col sm:flex-row gap-4 items-start">
-          {connectURL ? (
-            <div className="rounded-lg bg-white p-3 shrink-0">
-              <QRCodeSVG value={connectURL} size={160} level="M" />
-            </div>
-          ) : (
-            <div className="h-40 w-40 rounded-lg border border-dashed border-surface-border flex items-center justify-center text-xs text-zinc-500">
-              {tr("settings.connection.noUrl")}
-            </div>
-          )}
-          <div className="min-w-0 flex-1 space-y-3">
-            <div>
-              <div className="text-xs text-kin-muted">
-                {tr("settings.connection.networkMode")}
+          {settings["relay.pairing_url"] ? (
+            <div className="flex flex-col sm:flex-row gap-4 items-start border-t border-[var(--kin-hairline)] pt-4">
+              <div className="rounded-lg bg-white p-3 shrink-0">
+                <QRCodeSVG value={settings["relay.pairing_url"]} size={160} level="M" />
               </div>
-              <div className="mt-0.5 font-mono text-sm text-kin-blue">{mode}</div>
-            </div>
-            {connectURL && (
-              <div>
-                <div className="text-xs text-kin-muted">
-                  {tr("settings.connection.connectUrl")}
-                </div>
-                <div className="mt-0.5 break-all font-mono text-xs text-kin-secondary">
-                  {connectURL}
-                </div>
+              <div className="min-w-0 flex-1 space-y-2">
+                <p className="text-xs font-medium text-kin-secondary">
+                  {tr("settings.relay.pairingTitle")}
+                </p>
+                <p className="break-all font-mono text-[11px] text-kin-muted">
+                  {settings["relay.pairing_url"]}
+                </p>
                 <button
                   type="button"
-                  onClick={() => void copy(connectURL)}
-                  className="mt-1 min-h-[44px] text-xs text-kin-blue hover:underline"
+                  onClick={() => void copy(settings["relay.pairing_url"])}
+                  className="min-h-[40px] text-xs text-kin-blue hover:underline"
                 >
                   {tr("settings.connection.copyUrl")}
                 </button>
               </div>
-            )}
-            {token ? (
-              <div>
-                <div className="text-xs text-kin-muted">
-                  {tr("settings.connection.token")}
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                  <code className="break-all font-mono text-xs text-kin-text">
-                    {reveal ? token : "••••••••••••••••"}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={() => setReveal((v) => !v)}
-                    className="min-h-[44px] text-xs text-kin-blue hover:underline"
-                  >
-                    {reveal ? tr("settings.hide") : tr("settings.reveal")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copy(token)}
-                    className="min-h-[44px] text-xs text-kin-blue hover:underline"
-                  >
-                    {tr("settings.connection.copy")}
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-kin-muted">
-                  {tr("settings.connection.tokenHintA")}
-                  <code className="text-kin-secondary">kin token rotate</code>
-                  {tr("settings.connection.tokenHintB")}
-                </p>
+            </div>
+          ) : null}
+        </section>
+
+        {/* Connection */}
+        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            {tr("settings.connection.heading")}
+          </h2>
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
+            {connectURL ? (
+              <div className="rounded-lg bg-white p-3 shrink-0">
+                <QRCodeSVG value={connectURL} size={160} level="M" />
               </div>
             ) : (
-              // A Hub answers this endpoint without a token on purpose: the
-              // browser got in with an account, and handing it the daemon's own
-              // credential would outlive the session it came from.
-              <p className="text-xs text-kin-muted leading-relaxed">
-                {tr("settings.connection.accountSession")}
-              </p>
+              <div className="h-40 w-40 rounded-lg border border-dashed border-surface-border flex items-center justify-center text-xs text-zinc-500">
+                {tr("settings.connection.noUrl")}
+              </div>
             )}
+            <div className="min-w-0 flex-1 space-y-3">
+              <div>
+                <div className="text-xs text-kin-muted">
+                  {tr("settings.connection.networkMode")}
+                </div>
+                <div className="mt-0.5 font-mono text-sm text-kin-blue">{mode}</div>
+              </div>
+              {connectURL && (
+                <div>
+                  <div className="text-xs text-kin-muted">
+                    {tr("settings.connection.connectUrl")}
+                  </div>
+                  <div className="mt-0.5 break-all font-mono text-xs text-kin-secondary">
+                    {connectURL}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void copy(connectURL)}
+                    className="mt-1 min-h-[44px] text-xs text-kin-blue hover:underline"
+                  >
+                    {tr("settings.connection.copyUrl")}
+                  </button>
+                </div>
+              )}
+              {token ? (
+                <div>
+                  <div className="text-xs text-kin-muted">{tr("settings.connection.token")}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <code className="break-all font-mono text-xs text-kin-text">
+                      {reveal ? token : "••••••••••••••••"}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => setReveal((v) => !v)}
+                      className="min-h-[44px] text-xs text-kin-blue hover:underline"
+                    >
+                      {reveal ? tr("settings.hide") : tr("settings.reveal")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void copy(token)}
+                      className="min-h-[44px] text-xs text-kin-blue hover:underline"
+                    >
+                      {tr("settings.connection.copy")}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-kin-muted">
+                    {tr("settings.connection.tokenHintA")}
+                    <code className="text-kin-secondary">kin token rotate</code>
+                    {tr("settings.connection.tokenHintB")}
+                  </p>
+                </div>
+              ) : (
+                // A Hub answers this endpoint without a token on purpose: the
+                // browser got in with an account, and handing it the daemon's own
+                // credential would outlive the session it came from.
+                <p className="text-xs text-kin-muted leading-relaxed">
+                  {tr("settings.connection.accountSession")}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
       </SettingsTabPanel>
 
       {/* Notifications */}
       <SettingsTabPanel id="notifications" active={activeTab === "notifications"}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-          {tr("settings.notify.heading")}
-        </h2>
-        <p className="text-xs text-kin-muted">
-          {tr("settings.notify.descA")}
-          <code className="text-kin-secondary">ui.base_url</code>
-          {tr("settings.notify.descB")}
-        </p>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.notify.barkUrl")}
-          </span>
-          <input
-            type="url"
-            value={bark}
-            onChange={(e) => setBark(e.target.value)}
-            placeholder="https://api.day.app/DEVICE_KEY"
-            className="kin-input min-h-[44px]"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.notify.ntfyTopic")}
-          </span>
-          <input
-            type="text"
-            value={ntfy}
-            onChange={(e) => setNtfy(e.target.value)}
-            placeholder="my-kin-topic or https://ntfy.sh/my-kin-topic"
-            className="kin-input min-h-[44px]"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.notify.uiBaseUrl")}
-          </span>
-          <input
-            type="url"
-            value={baseURL}
-            onChange={(e) => setBaseURL(e.target.value)}
-            placeholder="http://192.168.x.x:7777"
-            className="kin-input min-h-[44px]"
-          />
-          <span className="text-xs text-kin-muted">
-            {tr("settings.notify.uiBaseUrlHint")}
-          </span>
-        </label>
-        <label className="block space-y-1">
-          <span className="text-xs font-medium text-kin-secondary">
-            {tr("settings.notify.quotaWaitAfter")}
-          </span>
-          <input
-            type="number"
-            min={60}
-            step={60}
-            value={quotaWaitNotifySecs}
-            onChange={(e) => setQuotaWaitNotifySecs(e.target.value)}
-            className="kin-input min-h-[44px]"
-          />
-          <span className="text-xs text-kin-muted">
-            {tr("settings.notify.quotaWaitAfterHint")}
-          </span>
-        </label>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="kin-btn-primary disabled:opacity-50"
-          >
-            {busy ? tr("settings.saving") : tr("settings.notify.save")}
-          </button>
-          <button
-            type="button"
-            disabled={testing || busy}
-            onClick={() => void sendTest()}
-            className="kin-btn-secondary disabled:opacity-50"
-          >
-            {testing ? tr("settings.notify.sending") : tr("settings.notify.sendTest")}
-          </button>
-          {saved && (
-            <span className="text-xs text-kin-green">
-              {tr("settings.notify.savedShort")}
+        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            {tr("settings.notify.heading")}
+          </h2>
+          <p className="text-xs text-kin-muted">
+            {tr("settings.notify.descA")}
+            <code className="text-kin-secondary">ui.base_url</code>
+            {tr("settings.notify.descB")}
+          </p>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.notify.barkUrl")}
             </span>
-          )}
-          {error && <span className="text-xs text-kin-red">{error}</span>}
-        </div>
-      </section>
+            <input
+              type="url"
+              value={bark}
+              onChange={(e) => setBark(e.target.value)}
+              placeholder="https://api.day.app/DEVICE_KEY"
+              className="kin-input min-h-[44px]"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.notify.ntfyTopic")}
+            </span>
+            <input
+              type="text"
+              value={ntfy}
+              onChange={(e) => setNtfy(e.target.value)}
+              placeholder="my-kin-topic or https://ntfy.sh/my-kin-topic"
+              className="kin-input min-h-[44px]"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.notify.uiBaseUrl")}
+            </span>
+            <input
+              type="url"
+              value={baseURL}
+              onChange={(e) => setBaseURL(e.target.value)}
+              placeholder="http://192.168.x.x:7777"
+              className="kin-input min-h-[44px]"
+            />
+            <span className="text-xs text-kin-muted">{tr("settings.notify.uiBaseUrlHint")}</span>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.notify.quotaWaitAfter")}
+            </span>
+            <input
+              type="number"
+              min={60}
+              step={60}
+              value={quotaWaitNotifySecs}
+              onChange={(e) => setQuotaWaitNotifySecs(e.target.value)}
+              className="kin-input min-h-[44px]"
+            />
+            <span className="text-xs text-kin-muted">
+              {tr("settings.notify.quotaWaitAfterHint")}
+            </span>
+          </label>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save()}
+              className="kin-btn-primary disabled:opacity-50"
+            >
+              {busy ? tr("settings.saving") : tr("settings.notify.save")}
+            </button>
+            <button
+              type="button"
+              disabled={testing || busy}
+              onClick={() => void sendTest()}
+              className="kin-btn-secondary disabled:opacity-50"
+            >
+              {testing ? tr("settings.notify.sending") : tr("settings.notify.sendTest")}
+            </button>
+            {saved && (
+              <span className="text-xs text-kin-green">{tr("settings.notify.savedShort")}</span>
+            )}
+            {error && <span className="text-xs text-kin-red">{error}</span>}
+          </div>
+        </section>
       </SettingsTabPanel>
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}
       <SettingsTabPanel id="advanced" active={activeTab === "advanced"}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-            {tr("settings.price.heading")}
-          </h2>
-          <a
-            href="https://github.com/BerriAI/litellm"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline shrink-0 sm:min-h-0"
-            title={tr("settings.price.sourceHint")}
-          >
-            {tr("settings.price.sourceName")} ↗
-          </a>
-        </div>
-        <p className="text-xs text-kin-muted leading-relaxed">
-          {tr("settings.price.descA")}
-          <code className="text-kin-secondary">total_cost_usd</code>
-          {tr("settings.price.descB")}
-          <a
-            href="https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
-            target="_blank"
-            rel="noreferrer"
-            className="text-kin-blue hover:underline py-2"
-          >
-            {tr("settings.price.sourceName")}
-          </a>
-          {tr("settings.price.descC")}
-          <code className="text-kin-secondary">
-            {`{"model": {"in": 1.25, "out": 10.0}}`}
-          </code>
-        </p>
-        <p className="text-[11px] text-kin-muted">
-          {tr("settings.price.sourceHint")}
-          {" · "}
-          {tr("settings.price.overrideHint")}
-        </p>
-        <textarea
-          value={priceTable}
-          onChange={(e) => setPriceTable(e.target.value)}
-          rows={10}
-          spellCheck={false}
-          className="kin-input font-mono text-xs resize-y min-h-[160px]"
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="kin-btn-primary disabled:opacity-50"
-          >
-            {busy ? tr("settings.saving") : tr("settings.price.save")}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void (async () => {
-              setBusy(true);
-              setError(null);
-              try {
-                // Clear override → server returns embedded LiteLLM defaults.
-                const s = await updateSettings({ price_table: "" });
-                setSettings(s);
-                try {
-                  setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
-                } catch {
-                  setPriceTable(s.price_table ?? "");
-                }
-                pushToast(tr("settings.saved"), "info");
-              } catch (e) {
-                setError(e instanceof ApiError ? e.message : String(e));
-              } finally {
-                setBusy(false);
+        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+              {tr("settings.price.heading")}
+            </h2>
+            <a
+              href="https://github.com/BerriAI/litellm"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline shrink-0 sm:min-h-0"
+              title={tr("settings.price.sourceHint")}
+            >
+              {tr("settings.price.sourceName")} ↗
+            </a>
+          </div>
+          <p className="text-xs text-kin-muted leading-relaxed">
+            {tr("settings.price.descA")}
+            <code className="text-kin-secondary">total_cost_usd</code>
+            {tr("settings.price.descB")}
+            <a
+              href="https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json"
+              target="_blank"
+              rel="noreferrer"
+              className="text-kin-blue hover:underline py-2"
+            >
+              {tr("settings.price.sourceName")}
+            </a>
+            {tr("settings.price.descC")}
+            <code className="text-kin-secondary">{`{"model": {"in": 1.25, "out": 10.0}}`}</code>
+          </p>
+          <p className="text-[11px] text-kin-muted">
+            {tr("settings.price.sourceHint")}
+            {" · "}
+            {tr("settings.price.overrideHint")}
+          </p>
+          <textarea
+            value={priceTable}
+            onChange={(e) => setPriceTable(e.target.value)}
+            rows={10}
+            spellCheck={false}
+            className="kin-input font-mono text-xs resize-y min-h-[160px]"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save()}
+              className="kin-btn-primary disabled:opacity-50"
+            >
+              {busy ? tr("settings.saving") : tr("settings.price.save")}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void (async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    // Clear override → server returns embedded LiteLLM defaults.
+                    const s = await updateSettings({ price_table: "" });
+                    setSettings(s);
+                    try {
+                      setPriceTable(JSON.stringify(JSON.parse(s.price_table || "{}"), null, 2));
+                    } catch {
+                      setPriceTable(s.price_table ?? "");
+                    }
+                    pushToast(tr("settings.saved"), "info");
+                  } catch (e) {
+                    setError(e instanceof ApiError ? e.message : String(e));
+                  } finally {
+                    setBusy(false);
+                  }
+                })()
               }
-            })()}
-            className="kin-btn-secondary disabled:opacity-50"
-            title={tr("settings.price.sourceHint")}
-          >
-            {tr("settings.price.resetDefaults")}
-          </button>
-        </div>
-      </section>
+              className="kin-btn-secondary disabled:opacity-50"
+              title={tr("settings.price.sourceHint")}
+            >
+              {tr("settings.price.resetDefaults")}
+            </button>
+          </div>
+        </section>
 
-      {/* Agent usage limits */}
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-          {tr("settings.agentLimits.heading")}
-        </h2>
-        <p className="text-xs text-kin-muted">
-          {tr("settings.agentLimits.desc")}
-          <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
-        </p>
-        <textarea
-          value={agentLimitsText}
-          onChange={(e) => setAgentLimitsText(e.target.value)}
-          rows={6}
-          spellCheck={false}
-          className="kin-input font-mono text-xs resize-y min-h-[100px]"
-        />
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void save()}
-            className="kin-btn-primary disabled:opacity-50"
-          >
-            {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
-          </button>
-          {error && <span className="text-xs text-kin-red">{error}</span>}
-        </div>
-      </section>
+        {/* Agent usage limits */}
+        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            {tr("settings.agentLimits.heading")}
+          </h2>
+          <p className="text-xs text-kin-muted">
+            {tr("settings.agentLimits.desc")}
+            <code className="text-kin-secondary">{tr("settings.agentLimits.shape")}</code>
+          </p>
+          <textarea
+            value={agentLimitsText}
+            onChange={(e) => setAgentLimitsText(e.target.value)}
+            rows={6}
+            spellCheck={false}
+            className="kin-input font-mono text-xs resize-y min-h-[100px]"
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void save()}
+              className="kin-btn-primary disabled:opacity-50"
+            >
+              {busy ? tr("settings.saving") : tr("settings.agentLimits.save")}
+            </button>
+            {error && <span className="text-xs text-kin-red">{error}</span>}
+          </div>
+        </section>
       </SettingsTabPanel>
 
       {/* Rate-limit policy */}
       <SettingsTabPanel id="routing" active={activeTab === "routing"}>
-      <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
-          {tr("settings.limitPolicy.heading")}
-        </h2>
-        <p className="text-xs text-kin-muted">{tr("settings.limitPolicy.desc")}</p>
-        <div className="flex flex-col gap-2">
-          {(
-            [
-              ["wait", "settings.limitPolicy.wait"],
-              ["ask", "settings.limitPolicy.ask"],
-              ["switch", "settings.limitPolicy.switch"],
-            ] as const
-          ).map(([value, labelKey]) => (
-            <label key={value} className="flex items-center gap-2 text-[13px] text-kin-secondary cursor-pointer">
+        <section className="rounded-xl border border-[var(--kin-hairline)] bg-kin-elevated/60 p-4 space-y-4">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-kin-muted">
+            {tr("settings.limitPolicy.heading")}
+          </h2>
+          <p className="text-xs text-kin-muted">{tr("settings.limitPolicy.desc")}</p>
+          <div className="flex flex-col gap-2">
+            {(
+              [
+                ["wait", "settings.limitPolicy.wait"],
+                ["ask", "settings.limitPolicy.ask"],
+                ["switch", "settings.limitPolicy.switch"],
+              ] as const
+            ).map(([value, labelKey]) => (
+              <label
+                key={value}
+                className="flex items-center gap-2 text-[13px] text-kin-secondary cursor-pointer"
+              >
+                <input
+                  type="radio"
+                  name="limit_policy"
+                  value={value}
+                  checked={limitPolicy === value}
+                  onChange={() => setLimitPolicy(value)}
+                />
+                {tr(labelKey)}
+              </label>
+            ))}
+          </div>
+          {limitPolicy === "switch" ? (
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] text-kin-muted">
+                {tr("settings.limitPolicy.fallback")}
+              </span>
               <input
-                type="radio"
-                name="limit_policy"
-                value={value}
-                checked={limitPolicy === value}
-                onChange={() => setLimitPolicy(value)}
+                value={limitFallbackText}
+                onChange={(e) => setLimitFallbackText(e.target.value)}
+                className="kin-input font-mono text-xs"
+                spellCheck={false}
               />
-              {tr(labelKey)}
+              <span className="text-[11px] text-kin-muted">
+                {tr("settings.limitPolicy.fallbackHint")}
+              </span>
             </label>
-          ))}
-        </div>
-        {limitPolicy === "switch" ? (
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] text-kin-muted">{tr("settings.limitPolicy.fallback")}</span>
-            <input
-              value={limitFallbackText}
-              onChange={(e) => setLimitFallbackText(e.target.value)}
-              className="kin-input font-mono text-xs"
-              spellCheck={false}
-            />
-            <span className="text-[11px] text-kin-muted">{tr("settings.limitPolicy.fallbackHint")}</span>
-          </label>
-        ) : null}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void save()}
-          className="kin-btn-primary disabled:opacity-50"
-        >
-          {busy ? tr("settings.saving") : tr("settings.limitPolicy.save")}
-        </button>
-      </section>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="kin-btn-primary disabled:opacity-50"
+          >
+            {busy ? tr("settings.saving") : tr("settings.limitPolicy.save")}
+          </button>
+        </section>
 
-      {/* Auto Model Routing — defaults */}
-      <RoutingDefaultsSection />
+        {/* Auto Model Routing — defaults */}
+        <RoutingDefaultsSection />
 
-      {/* Auto Model Routing — team profiles */}
-      <RoutingProfilesSection />
+        {/* Auto Model Routing — team profiles */}
+        <RoutingProfilesSection />
       </SettingsTabPanel>
     </SettingsLayout>
   );

@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
-import {
-  liveResources,
-  taskListKey,
-  type TaskListParams,
-} from "./liveResources";
+import { liveResources, taskListKey, type TaskListParams } from "./liveResources";
 
 function useLiveState() {
   return useSyncExternalStore(

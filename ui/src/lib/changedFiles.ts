@@ -123,20 +123,9 @@ export function extractChangedFiles(events: TaskEvent[]): ChangedFile[] {
     const content = asRecord(p.content);
     const item = asRecord(p.item);
     const name = String(
-      content?.name ??
-        p.name ??
-        p.tool_name ??
-        item?.type ??
-        item?.name ??
-        "tool",
+      content?.name ?? p.name ?? p.tool_name ?? item?.type ?? item?.name ?? "tool",
     ).trim();
-    const input =
-      p.input ??
-      content?.input ??
-      item?.input ??
-      item?.changes ??
-      item ??
-      content;
+    const input = p.input ?? content?.input ?? item?.input ?? item?.changes ?? item ?? content;
 
     // Line deltas are per tool call; attribute to each touched path.
     const delta = lineDeltaFromTool(name, input);
@@ -197,28 +186,15 @@ function rank(action: ChangedFileAction): number {
   }
 }
 
-function actionForTool(
-  name: string,
-  _path: string,
-  input: unknown,
-): ChangedFileAction {
+function actionForTool(name: string, _path: string, input: unknown): ChangedFileAction {
   const n = name.toLowerCase();
-  if (
-    n.includes("delete") ||
-    n.includes("remove") ||
-    n === "rm"
-  ) {
+  if (n.includes("delete") || n.includes("remove") || n === "rm") {
     return "delete";
   }
   if (WRITE_TOOLS.has(n) || n.includes("write") || n.includes("create")) {
     return "write";
   }
-  if (
-    n.includes("edit") ||
-    n.includes("replace") ||
-    n.includes("patch") ||
-    n === "file_change"
-  ) {
+  if (n.includes("edit") || n.includes("replace") || n.includes("patch") || n === "file_change") {
     return "edit";
   }
   // Codex-style file_change items often carry a changes array with kind.
@@ -344,8 +320,6 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return null;
 }
 
-
-
 function mergeDelta(
   prev: ChangedFile | undefined,
   delta: { additions: number; deletions: number } | null,
@@ -384,11 +358,7 @@ export function lineDeltaFromTool(
 
   // Unified patch / diff text.
   const patch =
-    typeof rec.patch === "string"
-      ? rec.patch
-      : typeof rec.diff === "string"
-        ? rec.diff
-        : null;
+    typeof rec.patch === "string" ? rec.patch : typeof rec.diff === "string" ? rec.diff : null;
   if (
     patch &&
     (patch.includes("\n+") ||
@@ -410,10 +380,7 @@ export function lineDeltaFromTool(
           : typeof rec.text === "string" && (n.includes("write") || n === "create_file")
             ? rec.text
             : null;
-  if (
-    full != null &&
-    (n.includes("write") || n === "create_file" || n === "write_file")
-  ) {
+  if (full != null && (n.includes("write") || n === "create_file" || n === "write_file")) {
     return { additions: countLines(full), deletions: 0 };
   }
 
@@ -491,9 +458,7 @@ export function lineDeltaFromTool(
   return null;
 }
 
-function deltaFromUnifiedPatch(
-  patch: string,
-): { additions: number; deletions: number } {
+function deltaFromUnifiedPatch(patch: string): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
   for (const line of patch.split("\n")) {
@@ -559,10 +524,7 @@ export type FileDiffSnippet = {
  * - edit/str_replace with old_string/new_string (and multi-edit arrays)
  * - unified patch/diff text (best-effort single-file apply)
  */
-export function extractFileDiff(
-  events: TaskEvent[],
-  filePath: string,
-): FileDiffSnippet | null {
+export function extractFileDiff(events: TaskEvent[], filePath: string): FileDiffSnippet | null {
   const target = normalizePathKey(filePath);
   if (!target) return null;
 
@@ -576,8 +538,7 @@ export function extractFileDiff(
     const name = String(
       content?.name ?? p.name ?? p.tool_name ?? item?.type ?? item?.name ?? "tool",
     ).trim();
-    const input =
-      p.input ?? content?.input ?? item?.input ?? item?.changes ?? item ?? content;
+    const input = p.input ?? content?.input ?? item?.input ?? item?.changes ?? item ?? content;
 
     const paths = collectPaths(input, name).map(normalizePathKey);
     if (!paths.some((x) => x === target || x.endsWith("/" + target) || target.endsWith("/" + x))) {
@@ -696,11 +657,7 @@ function diffFromToolInput(
   // Unified patch/diff body — show as modified-only with empty original so
   // DiffEditor still colorizes +/– lines poorly; better: put patch on modified.
   const patch =
-    typeof rec.patch === "string"
-      ? rec.patch
-      : typeof rec.diff === "string"
-        ? rec.diff
-        : null;
+    typeof rec.patch === "string" ? rec.patch : typeof rec.diff === "string" ? rec.diff : null;
   if (patch && patch.includes("@@")) {
     const applied = applyUnifiedPatchSides(patch);
     if (applied) return { ...applied, source: "patch" };
@@ -714,14 +671,17 @@ function diffFromToolInput(
  * Best-effort: rebuild pre/post file text from a single-file unified diff.
  * Only handles simple hunks without renames; failures return null.
  */
-function applyUnifiedPatchSides(
-  patch: string,
-): { original: string; modified: string } | null {
+function applyUnifiedPatchSides(patch: string): { original: string; modified: string } | null {
   const orig: string[] = [];
   const mod: string[] = [];
   let sawHunk = false;
   for (const line of patch.split("\n")) {
-    if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+    if (
+      line.startsWith("diff ") ||
+      line.startsWith("index ") ||
+      line.startsWith("--- ") ||
+      line.startsWith("+++ ")
+    ) {
       continue;
     }
     if (line.startsWith("@@")) {

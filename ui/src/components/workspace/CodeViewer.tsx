@@ -44,9 +44,7 @@ type Props = {
   /** Allow editing + saving the open file (plain view only, never diff). */
   editable?: boolean;
   /** Called with the server response after a successful save. */
-  onSaved?: (
-    updated: TaskWorkspaceFileResponse | WorkspaceFileResponse,
-  ) => void;
+  onSaved?: (updated: TaskWorkspaceFileResponse | WorkspaceFileResponse) => void;
 };
 
 type MdViewMode = "preview" | "code";
@@ -92,9 +90,7 @@ export default function CodeViewer({
 }: Props) {
   const t = useT();
   const [draft, setDraft] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
-    "idle",
-  );
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   // Markdown files default to rendered preview; user can switch to source.
   const [mdView, setMdView] = useState<MdViewMode>("preview");
@@ -129,12 +125,9 @@ export default function CodeViewer({
     };
   }, [path]);
 
-  const onDiffMount = useCallback(
-    (editor: MonacoEditor.IStandaloneDiffEditor) => {
-      diffEditorRef.current = editor;
-    },
-    [],
-  );
+  const onDiffMount = useCallback((editor: MonacoEditor.IStandaloneDiffEditor) => {
+    diffEditorRef.current = editor;
+  }, []);
 
   const goToHunk = useCallback((target: "next" | "previous") => {
     const ed = diffEditorRef.current;
@@ -196,9 +189,7 @@ export default function CodeViewer({
   }
 
   // Prefer tool-derived diff when available; fall back to plain file view.
-  const useDiff = Boolean(
-    diff && (diff.original.length > 0 || diff.modified.length > 0),
-  );
+  const useDiff = Boolean(diff && (diff.original.length > 0 || diff.modified.length > 0));
   const isMd = isMarkdownPath(path);
   // Markdown preview is only available in plain (non-diff) view.
   const showMdPreview = isMd && !useDiff && mdView === "preview" && Boolean(file);
@@ -206,12 +197,7 @@ export default function CodeViewer({
   // truncated file must not be saved or we would clobber the unseen tail.
   // Markdown preview mode is also non-editable (switch to Code to edit).
   const canEdit = Boolean(
-    editable &&
-      taskId &&
-      file &&
-      !useDiff &&
-      !file.truncated &&
-      !(isMd && mdView === "preview"),
+    editable && taskId && file && !useDiff && !file.truncated && !(isMd && mdView === "preview"),
   );
   // Keep the last good file mounted while a new path loads so Monaco is not
   // disposed/recreated on every navigation. Only blank the editor on hard error
@@ -221,17 +207,12 @@ export default function CodeViewer({
   const showInitialLoading = loading && !file && !useDiff;
   const openRoot = file?.root || cwd || "";
   const modifiedContent =
-    file?.content != null && file.content.length > 0
-      ? file.content
-      : diff?.modified ?? "";
+    file?.content != null && file.content.length > 0 ? file.content : (diff?.modified ?? "");
 
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2 text-[11.5px] text-kin-muted">
-        <span
-          className="font-mono text-kin-secondary truncate min-w-0"
-          title={path}
-        >
+        <span className="font-mono text-kin-secondary truncate min-w-0" title={path}>
           {path}
         </span>
         {useDiff && (
@@ -387,9 +368,7 @@ export default function CodeViewer({
                 </span>
               )}
               {saveState === "saved" && !dirty && (
-                <span className="text-kin-green">
-                  {t("workspace.viewer.saved")}
-                </span>
+                <span className="text-kin-green">{t("workspace.viewer.saved")}</span>
               )}
               <button
                 type="button"
@@ -399,9 +378,7 @@ export default function CodeViewer({
                 className="kin-btn-primary !min-h-0 !py-1 !px-2 text-[11px] disabled:opacity-50"
               >
                 <IconCheck size={12} />
-                {saveState === "saving"
-                  ? t("workspace.viewer.saving")
-                  : t("workspace.viewer.save")}
+                {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}
               </button>
             </>
           )}
@@ -426,9 +403,7 @@ export default function CodeViewer({
           </div>
         )}
         {showEditor && useDiff && diff && (
-          <MonacoSafe
-            fallback={<FallbackPre text={diff.modified || diff.original} />}
-          >
+          <MonacoSafe fallback={<FallbackPre text={diff.modified || diff.original} />}>
             <DiffEditor
               key={`diff-${diffLayout}-${path}`}
               height="100%"
@@ -459,13 +434,9 @@ export default function CodeViewer({
               theme="vs-dark"
               language={languageForPath(path)}
               value={canEdit ? draft : file.content}
-              onChange={
-                canEdit ? (next) => setDraft(next ?? "") : undefined
-              }
+              onChange={canEdit ? (next) => setDraft(next ?? "") : undefined}
               onMount={canEdit ? onEditorMount : undefined}
-              options={
-                canEdit ? { ...EDITOR_OPTIONS, readOnly: false } : EDITOR_OPTIONS
-              }
+              options={canEdit ? { ...EDITOR_OPTIONS, readOnly: false } : EDITOR_OPTIONS}
               loading={
                 <div className="h-full flex items-center justify-center text-sm text-kin-muted">
                   {t("workspace.viewer.loading")}

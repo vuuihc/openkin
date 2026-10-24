@@ -36,11 +36,7 @@ export function agentLimitStatus(ratio: number): LimitStatus {
  * - "spend": formats values as USD cost strings.
  * - "tokens": formats values as compact token count strings.
  */
-export function formatLimitLabel(
-  used: number,
-  limit: number,
-  kind: "spend" | "tokens",
-): string {
+export function formatLimitLabel(used: number, limit: number, kind: "spend" | "tokens"): string {
   if (kind === "spend") {
     return `${formatCost(used)} / ${formatCost(limit)}`;
   }

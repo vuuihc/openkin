@@ -10,11 +10,7 @@ import {
   summarizeChangedFiles,
 } from "./changedFiles";
 
-function toolUse(
-  seq: number,
-  name: string,
-  input: Record<string, unknown>,
-): TaskEvent {
+function toolUse(seq: number, name: string, input: Record<string, unknown>): TaskEvent {
   return {
     task_id: "t1",
     event_epoch: 0,
@@ -148,7 +144,6 @@ describe("extractChangedFiles stats", () => {
     ];
     expect(extractChangedFiles(events)).toEqual([]);
   });
-
 });
 
 describe("changedFilesFromDiff", () => {

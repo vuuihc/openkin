@@ -74,31 +74,27 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
     const profileRequest = listTerminalProfiles()
       .then((result) => result)
       .catch(() => ({ profiles: [] as TerminalProfile[], default_profile_id: "" }));
-    const sessionRequest = listTerminalSessions().catch(
-      () => [] as TerminalSession[],
-    );
+    const sessionRequest = listTerminalSessions().catch(() => [] as TerminalSession[]);
 
-    void Promise.all([profileRequest, sessionRequest]).then(
-      ([profileResult, sessionList]) => {
-        setProfiles(profileResult.profiles);
-        setDefaultProfileId(profileResult.default_profile_id);
-        setLoadingProfiles(false);
+    void Promise.all([profileRequest, sessionRequest]).then(([profileResult, sessionList]) => {
+      setProfiles(profileResult.profiles);
+      setDefaultProfileId(profileResult.default_profile_id);
+      setLoadingProfiles(false);
 
-        const withStatus: SessionWithConnection[] = sessionList.map((session) => ({
-          ...session,
-          connectionStatus: "disconnected",
-        }));
-        setSessions(withStatus);
-        const newestRunning = [...withStatus]
-          .reverse()
-          .find((session) => session.status === "running");
-        const newest = newestRunning ?? withStatus.at(-1);
-        setActiveSessionId(newest?.id ?? null);
-        if (withStatus.length > 0) autoCreateAttemptedRef.current = true;
-        setLoadingSessions(false);
-        setInitialLoaded(true);
-      },
-    );
+      const withStatus: SessionWithConnection[] = sessionList.map((session) => ({
+        ...session,
+        connectionStatus: "disconnected",
+      }));
+      setSessions(withStatus);
+      const newestRunning = [...withStatus]
+        .reverse()
+        .find((session) => session.status === "running");
+      const newest = newestRunning ?? withStatus.at(-1);
+      setActiveSessionId(newest?.id ?? null);
+      if (withStatus.length > 0) autoCreateAttemptedRef.current = true;
+      setLoadingSessions(false);
+      setInitialLoaded(true);
+    });
   }, [open]);
 
   const createForProfile = useCallback(
@@ -117,10 +113,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
           cols: 80,
           rows: 24,
         });
-        setSessions((previous) => [
-          ...previous,
-          { ...session, connectionStatus: "disconnected" },
-        ]);
+        setSessions((previous) => [...previous, { ...session, connectionStatus: "disconnected" }]);
         setActiveSessionId(session.id);
       } catch {
         setCreateError(tr("terminal.createFailed"));
@@ -185,10 +178,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
         const removedIndex = previous.findIndex((session) => session.id === id);
         const remaining = previous.filter((session) => session.id !== id);
         if (activeSessionId === id) {
-          const nextIndex = Math.min(
-            Math.max(removedIndex, 0),
-            remaining.length - 1,
-          );
+          const nextIndex = Math.min(Math.max(removedIndex, 0), remaining.length - 1);
           setActiveSessionId(remaining[nextIndex]?.id ?? null);
         }
         return remaining;
@@ -221,29 +211,21 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
   const handleSessionExit = useCallback((id: string, exitCode: number) => {
     setSessions((previous) =>
       previous.map((session) =>
-        session.id === id
-          ? { ...session, status: "exited", exit_code: exitCode }
-          : session,
+        session.id === id ? { ...session, status: "exited", exit_code: exitCode } : session,
       ),
     );
   }, []);
 
   const handleConnectionChange = useCallback(
-    (
-      id: string,
-      connectionStatus: SessionWithConnection["connectionStatus"],
-    ) => {
+    (id: string, connectionStatus: SessionWithConnection["connectionStatus"]) => {
       setSessions((previous) =>
-        previous.map((session) =>
-          session.id === id ? { ...session, connectionStatus } : session,
-        ),
+        previous.map((session) => (session.id === id ? { ...session, connectionStatus } : session)),
       );
     },
     [],
   );
 
-  const canCreate =
-    !creatingSession && profiles.length > 0 && sessions.length < 8;
+  const canCreate = !creatingSession && profiles.length > 0 && sessions.length < 8;
   const defaultCreateId = defaultProfileId || profiles[0]?.id || "";
 
   // Keep the component mounted after first open so PTY sockets survive toggles.
@@ -268,16 +250,11 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
               {tr("terminal.title")}
             </div>
             {effectiveCwd ? (
-              <div
-                className="truncate font-mono text-[11px] text-kin-muted"
-                title={effectiveCwd}
-              >
+              <div className="truncate font-mono text-[11px] text-kin-muted" title={effectiveCwd}>
                 {projectLabel(effectiveCwd)} · {shortPath(effectiveCwd, 48)}
               </div>
             ) : (
-              <div className="truncate text-[11px] text-kin-muted">
-                {tr("terminal.noSessions")}
-              </div>
+              <div className="truncate text-[11px] text-kin-muted">{tr("terminal.noSessions")}</div>
             )}
           </div>
 
@@ -311,10 +288,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
                   aria-expanded={menuOpen}
                   title={tr("terminal.chooseProfile")}
                 >
-                  <IconChevron
-                    size={12}
-                    className={menuOpen ? "rotate-[-90deg]" : "rotate-90"}
-                  />
+                  <IconChevron size={12} className={menuOpen ? "rotate-[-90deg]" : "rotate-90"} />
                 </button>
               )}
             </div>
@@ -385,9 +359,7 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
             </div>
           ) : !effectiveCwd ? (
             <div className="flex h-full flex-col items-center justify-center gap-3">
-              <span className="text-[13px] text-kin-secondary">
-                {tr("terminal.noSessions")}
-              </span>
+              <span className="text-[13px] text-kin-secondary">{tr("terminal.noSessions")}</span>
               <button
                 type="button"
                 className="rounded-md bg-kin-blue px-3 py-1.5 text-[12px] text-white transition-all hover:brightness-110"

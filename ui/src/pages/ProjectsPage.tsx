@@ -89,10 +89,7 @@ export default function ProjectsPage() {
       setCreating(false);
       navigate(`/projects/${p.id}`);
     } catch (e) {
-      pushToast(
-        e instanceof Error ? e.message : tr("projects.createFailed"),
-        "error",
-      );
+      pushToast(e instanceof Error ? e.message : tr("projects.createFailed"), "error");
     } finally {
       setBusy(false);
     }
@@ -102,12 +99,8 @@ export default function ProjectsPage() {
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-kin-text">
-            {tr("projects.title")}
-          </h1>
-          <p className="mt-1 text-[12.5px] text-kin-secondary">
-            {tr("projects.optionalHint")}
-          </p>
+          <h1 className="text-lg font-semibold text-kin-text">{tr("projects.title")}</h1>
+          <p className="mt-1 text-[12.5px] text-kin-secondary">{tr("projects.optionalHint")}</p>
         </div>
         <button
           type="button"
@@ -120,16 +113,10 @@ export default function ProjectsPage() {
 
       {creating && (
         <div className="mb-5 rounded-xl border border-kin-border bg-kin-panel p-4 space-y-3">
-          <div className="text-[13px] font-medium text-kin-text">
-            {tr("projects.createTitle")}
-          </div>
-          <p className="text-[12px] text-kin-secondary">
-            {tr("projects.createFromCwdHint")}
-          </p>
+          <div className="text-[13px] font-medium text-kin-text">{tr("projects.createTitle")}</div>
+          <p className="text-[12px] text-kin-secondary">{tr("projects.createFromCwdHint")}</p>
           <div>
-            <div className="mb-1 text-[12px] text-kin-secondary">
-              {tr("projects.root")}
-            </div>
+            <div className="mb-1 text-[12px] text-kin-secondary">{tr("projects.root")}</div>
             <CwdPicker cwd={cwd} onChange={setCwd} />
           </div>
           <label className="block text-[12px] text-kin-secondary">
@@ -166,9 +153,7 @@ export default function ProjectsPage() {
       )}
 
       {items === null && !error && (
-        <div>
-          {slow ? <SlowConnectHint show /> : <TaskListSkeleton />}
-        </div>
+        <div>{slow ? <SlowConnectHint show /> : <TaskListSkeleton />}</div>
       )}
 
       {error && (
@@ -193,18 +178,13 @@ export default function ProjectsPage() {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-[14px] font-medium text-kin-text">
-                      {p.name}
-                    </div>
+                    <div className="text-[14px] font-medium text-kin-text">{p.name}</div>
                     <div className="mt-1 flex flex-wrap gap-2 text-[11.5px] text-kin-secondary">
                       <span className="rounded-md bg-[var(--kin-fill-strong)] px-1.5 py-0.5">
                         {modeLabel(p.mode, tr)}
                       </span>
                       {p.roots?.[0] && (
-                        <span
-                          className="truncate max-w-[240px]"
-                          title={p.roots[0]}
-                        >
+                        <span className="truncate max-w-[240px]" title={p.roots[0]}>
                           {p.roots[0]}
                         </span>
                       )}

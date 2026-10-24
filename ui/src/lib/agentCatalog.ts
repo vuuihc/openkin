@@ -2,11 +2,7 @@ import type { AgentInfo } from "../api/client";
 
 /** UI presentation state for the full agent catalog. */
 export type AgentCatalogState =
-  | "native"
-  | "generic"
-  | "verifying"
-  | "not_installed"
-  | "unavailable";
+  "native" | "generic" | "verifying" | "not_installed" | "unavailable";
 
 /** True when the agent declares Kin-native approval/tool capabilities. */
 export function isNativeAgent(a: AgentInfo): boolean {

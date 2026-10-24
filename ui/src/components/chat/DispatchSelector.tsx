@@ -195,7 +195,8 @@ export function DispatchSelector({
     if (!value.agent) return true;
     // Check agent support and kind capability.
     const agentOpt = agents.find((a) => a.id === value.agent);
-    if (agentOpt && agentOpt.supported_kinds && !agentOpt.supported_kinds.includes(p.kind as any)) return false;
+    if (agentOpt && agentOpt.supported_kinds && !agentOpt.supported_kinds.includes(p.kind as any))
+      return false;
     return p.supports_agents.includes(value.agent);
   });
 
@@ -277,7 +278,9 @@ export function DispatchSelector({
               <div className="space-y-1.5">
                 <select
                   value={value.team || ""}
-                  onChange={(e) => onChange({ mode: "auto", team: e.target.value, objective: value.objective })}
+                  onChange={(e) =>
+                    onChange({ mode: "auto", team: e.target.value, objective: value.objective })
+                  }
                   disabled={disabled}
                   className="kin-input min-h-[32px] text-xs w-full"
                 >
@@ -290,13 +293,17 @@ export function DispatchSelector({
                 </select>
                 <select
                   value={value.objective || "balanced"}
-                  onChange={(e) => onChange({ mode: "auto", team: value.team, objective: e.target.value })}
+                  onChange={(e) =>
+                    onChange({ mode: "auto", team: value.team, objective: e.target.value })
+                  }
                   disabled={disabled}
                   className="kin-input min-h-[32px] text-xs w-full"
                 >
                   <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
                   <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-                  <option value="intelligent-max">{tr("settings.routing.objectiveIntelligentMax")}</option>
+                  <option value="intelligent-max">
+                    {tr("settings.routing.objectiveIntelligentMax")}
+                  </option>
                 </select>
               </div>
             )}
@@ -319,7 +326,14 @@ export function DispatchSelector({
                 </select>
                 <select
                   value={value.provider || ""}
-                  onChange={(e) => onChange({ mode: "manual", agent: value.agent, provider: e.target.value, model: "" })}
+                  onChange={(e) =>
+                    onChange({
+                      mode: "manual",
+                      agent: value.agent,
+                      provider: e.target.value,
+                      model: "",
+                    })
+                  }
                   disabled={disabled || !value.agent}
                   className="kin-input min-h-[32px] text-xs w-full"
                 >
@@ -334,7 +348,14 @@ export function DispatchSelector({
                 {providerModels.length > 0 ? (
                   <select
                     value={value.model || ""}
-                    onChange={(e) => onChange({ mode: "manual", agent: value.agent, provider: value.provider, model: e.target.value })}
+                    onChange={(e) =>
+                      onChange({
+                        mode: "manual",
+                        agent: value.agent,
+                        provider: value.provider,
+                        model: e.target.value,
+                      })
+                    }
                     disabled={disabled || !value.provider}
                     className="kin-input min-h-[32px] text-xs w-full"
                   >
@@ -352,7 +373,8 @@ export function DispatchSelector({
             )}
 
             {/* Preview toggle */}
-            {(mode === "auto" && value.team) || (mode === "manual" && value.agent && value.provider && value.model) ? (
+            {(mode === "auto" && value.team) ||
+            (mode === "manual" && value.agent && value.provider && value.model) ? (
               <button
                 type="button"
                 onClick={() => setShowPreview((v) => !v)}
@@ -364,7 +386,11 @@ export function DispatchSelector({
 
             {showPreview && (
               <div className="rounded border border-[var(--kin-hairline)] p-2 space-y-1 bg-[var(--kin-fill)]/40">
-                {loading && <span className="text-[10px] text-kin-muted">{tr("dispatch.loadingPreview")}</span>}
+                {loading && (
+                  <span className="text-[10px] text-kin-muted">
+                    {tr("dispatch.loadingPreview")}
+                  </span>
+                )}
                 {error && <span className="text-[10px] text-kin-red">{error}</span>}
                 {preview?.blocked && (
                   <span className="text-[10px] text-kin-red block">
@@ -373,9 +399,15 @@ export function DispatchSelector({
                 )}
                 {preview?.phases.map((p) => (
                   <div key={p.phase} className="flex items-center gap-2 text-[10px]">
-                    <span className="font-mono font-semibold text-kin-secondary w-14">{p.phase}</span>
-                    <span className={`${p.status === "resolved" ? "text-kin-green" : p.status === "blocked" ? "text-kin-red" : "text-kin-muted"}`}>
-                      {p.status === "resolved" ? `${p.agent} · ${p.provider} · ${p.model}` : formatPreviewStatus(p.status, tr)}
+                    <span className="font-mono font-semibold text-kin-secondary w-14">
+                      {p.phase}
+                    </span>
+                    <span
+                      className={`${p.status === "resolved" ? "text-kin-green" : p.status === "blocked" ? "text-kin-red" : "text-kin-muted"}`}
+                    >
+                      {p.status === "resolved"
+                        ? `${p.agent} · ${p.provider} · ${p.model}`
+                        : formatPreviewStatus(p.status, tr)}
                     </span>
                   </div>
                 ))}

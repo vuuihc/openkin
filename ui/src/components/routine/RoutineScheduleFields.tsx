@@ -72,11 +72,7 @@ export default function RoutineScheduleFields({
 
   return (
     <div
-      className={
-        compact
-          ? "flex flex-wrap items-end gap-x-3 gap-y-2"
-          : "grid gap-3 sm:grid-cols-2"
-      }
+      className={compact ? "flex flex-wrap items-end gap-x-3 gap-y-2" : "grid gap-3 sm:grid-cols-2"}
     >
       <label className="block min-w-[8rem]">
         <span className="text-[11px] font-medium uppercase tracking-wide text-kin-muted">

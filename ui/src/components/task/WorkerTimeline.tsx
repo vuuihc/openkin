@@ -50,9 +50,7 @@ export default function WorkerTimeline({ steps }: WorkerTimelineProps) {
             </span>
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate font-medium text-[var(--kin-text)]">
-                  {step.agent}
-                </span>
+                <span className="truncate font-medium text-[var(--kin-text)]">{step.agent}</span>
                 <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-[var(--kin-muted)]">
                   {step.access === "write"
                     ? tr("task.workerAccessWrite")

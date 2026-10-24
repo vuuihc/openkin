@@ -52,12 +52,16 @@ const SELF = { id: "desk-1", name: "Work Mac" };
 
 describe("machineList", () => {
   it("puts this machine first, with the local registry as its agents", () => {
-    const machines = machineList(
-      [device()],
-      SELF,
-      [agent({ id: "kin", name: "Kin", default: true }), agent({ id: "codex", available: false })],
-    );
-    expect(machines[0]).toMatchObject({ id: "desk-1", label: "Work Mac", isSelf: true, online: true });
+    const machines = machineList([device()], SELF, [
+      agent({ id: "kin", name: "Kin", default: true }),
+      agent({ id: "codex", available: false }),
+    ]);
+    expect(machines[0]).toMatchObject({
+      id: "desk-1",
+      label: "Work Mac",
+      isSelf: true,
+      online: true,
+    });
     expect(machines[0].agents).toEqual([
       { id: "kin", installed: true, available: true, reason: undefined, isDefault: true },
       { id: "codex", installed: true, available: false, reason: undefined, isDefault: false },
@@ -66,7 +70,13 @@ describe("machineList", () => {
     expect(machines[1].roots).toEqual(["/code/kin"]);
     expect(machines[1].agents).toEqual([
       { id: "codex", installed: true, available: true, reason: undefined, isDefault: true },
-      { id: "grok", installed: true, available: false, reason: "not signed in", isDefault: undefined },
+      {
+        id: "grok",
+        installed: true,
+        available: false,
+        reason: "not signed in",
+        isDefault: undefined,
+      },
     ]);
   });
 
@@ -105,13 +115,25 @@ describe("machineLabelFor", () => {
   it("reads an empty id as this machine", () => {
     expect(machineLabelFor(machines, undefined)).toEqual({ text: "", isSelf: true, known: true });
     expect(machineLabelFor(machines, "  ")).toEqual({ text: "", isSelf: true, known: true });
-    expect(machineLabelFor(machines, "desk-1")).toEqual({ text: "Work Mac", isSelf: true, known: true });
+    expect(machineLabelFor(machines, "desk-1")).toEqual({
+      text: "Work Mac",
+      isSelf: true,
+      known: true,
+    });
   });
 
   it("names a machine it knows, and flags one it does not", () => {
-    expect(machineLabelFor(machines, "node-1")).toEqual({ text: "studio", isSelf: false, known: true });
+    expect(machineLabelFor(machines, "node-1")).toEqual({
+      text: "studio",
+      isSelf: false,
+      known: true,
+    });
     // A task whose machine was revoked must not be dressed up as local.
-    expect(machineLabelFor(machines, "node-2")).toEqual({ text: "node-2", isSelf: false, known: false });
+    expect(machineLabelFor(machines, "node-2")).toEqual({
+      text: "node-2",
+      isSelf: false,
+      known: false,
+    });
   });
 
   it("finds a machine by id, and nothing for an empty id", () => {
@@ -168,7 +190,11 @@ describe("defaultAgentOn", () => {
 
   it("has no answer for a machine with nothing runnable, or for no machine", () => {
     const empty = machineList(
-      [device({ agents: [{ id: "codex", installed: true, available: false, reason: "signed out" }] })],
+      [
+        device({
+          agents: [{ id: "codex", installed: true, available: false, reason: "signed out" }],
+        }),
+      ],
       SELF,
       [],
     )[1];

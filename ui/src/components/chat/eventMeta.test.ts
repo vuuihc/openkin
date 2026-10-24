@@ -32,22 +32,16 @@ describe("decodeCanonicalEventMeta", () => {
     expect(worker.legacyVisibility).toBe(true);
     expect(isTaskOnlyMeta(worker)).toBe(true);
 
-    const host = decodeCanonicalEventMeta(
-      { speaker: "kin", text: "legacy host reply" },
-      "kin",
-    );
+    const host = decodeCanonicalEventMeta({ speaker: "kin", text: "legacy host reply" }, "kin");
     expect(isTaskOnlyMeta(host)).toBe(false);
   });
 
   it("does not treat control source labels as speakers", () => {
-    expect(
-      resolveSpeaker({ source: "follow_up", text: "x" }, "future-agent"),
-    ).toBe("future-agent");
+    expect(resolveSpeaker({ source: "follow_up", text: "x" }, "future-agent")).toBe("future-agent");
   });
 
   it("keeps legacy role-only user messages attributed to the user", () => {
-    expect(resolveSpeaker({ role: "user", text: "hello" }, "future-agent"))
-      .toBe("user");
+    expect(resolveSpeaker({ role: "user", text: "hello" }, "future-agent")).toBe("user");
   });
 
   it("keeps explicit visibility authoritative over origin fallbacks", () => {
@@ -72,9 +66,9 @@ describe("decodeCanonicalEventMeta", () => {
       },
       "kin",
     );
-    expect(
-      isProgressMessageMeta(summary, "The workers found and fixed the root cause."),
-    ).toBe(false);
+    expect(isProgressMessageMeta(summary, "The workers found and fixed the root cause.")).toBe(
+      false,
+    );
 
     const plan = decodeCanonicalEventMeta(
       {

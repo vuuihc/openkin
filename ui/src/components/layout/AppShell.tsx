@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   deleteTask,
@@ -46,16 +39,11 @@ function publishAgentSessionSync(result: AgentSessionImportResult): void {
     synced_at: Date.now(),
   } satisfies AgentSessionImportResult & { synced_at: number };
   try {
-    window.localStorage.setItem(
-      "kin_agent_sessions_last_sync",
-      JSON.stringify(detail),
-    );
+    window.localStorage.setItem("kin_agent_sessions_last_sync", JSON.stringify(detail));
   } catch {
     // Session sync must remain useful when browser storage is unavailable.
   }
-  window.dispatchEvent(
-    new CustomEvent("kin:agent-sessions-sync", { detail }),
-  );
+  window.dispatchEvent(new CustomEvent("kin:agent-sessions-sync", { detail }));
 }
 
 function taskIdFromPath(pathname: string): string | null {
@@ -140,16 +128,12 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const taskListParams = useMemo(
-    () =>
-      debouncedQuery
-        ? { limit: 200, q: debouncedQuery }
-        : { limit: 100 },
+    () => (debouncedQuery ? { limit: 200, q: debouncedQuery } : { limit: 100 }),
     [debouncedQuery],
   );
   const taskList = useTaskList(taskListParams);
   const tasks = taskList.data;
-  const searchLoading =
-    searchQuery.trim() !== debouncedQuery || taskList.loading;
+  const searchLoading = searchQuery.trim() !== debouncedQuery || taskList.loading;
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -284,9 +268,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const handleDeleteSession = useCallback(
     async (task: Task) => {
       const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
-      const ok = window.confirm(
-        tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""),
-      );
+      const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
       if (!ok) return;
       try {
         await deleteTask(task.id);
@@ -387,10 +369,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     if (params.get("new") === "1") {
       params.delete("new");
       const qs = params.toString();
-      navigate(
-        { pathname: DRAFT_PATH, search: qs ? `?${qs}` : "" },
-        { replace: true },
-      );
+      navigate({ pathname: DRAFT_PATH, search: qs ? `?${qs}` : "" }, { replace: true });
     }
   }, [location.pathname, location.search, navigate]);
 
@@ -443,61 +422,89 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           */
           <div className="md:hidden flex-none pt-safe" />
         ) : (
-        <div
-          className="md:hidden flex items-center gap-2 px-3 min-h-[48px] pt-safe border-b border-[var(--kin-hairline)] flex-none"
-        >
-          {draftActive ? (
+          <div className="md:hidden flex items-center gap-2 px-3 min-h-[48px] pt-safe border-b border-[var(--kin-hairline)] flex-none">
+            {draftActive ? (
+              <button
+                type="button"
+                onClick={closeDraft}
+                className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
+                aria-label={tr("app.close")}
+              >
+                <svg
+                  width="21"
+                  height="21"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.1"
+                  strokeLinecap="round"
+                >
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
+                aria-label={tr("app.openMenu")}
+              >
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+            {barIsHeading ? (
+              <h1 className="font-semibold text-[15px]">{mobileTitle}</h1>
+            ) : (
+              <span className="font-semibold text-[15px]">{mobileTitle}</span>
+            )}
+            {onSessionsTab && (
+              <button
+                type="button"
+                onClick={openNewChat}
+                className="ml-auto min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-blue"
+                aria-label={tr("nav.newChat")}
+              >
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
-              onClick={closeDraft}
-              className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
-              aria-label={tr("app.close")}
+              onClick={() => setPaletteOpen(true)}
+              className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-tertiary`}
+              aria-label={tr("app.commandPalette")}
             >
-              <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6 6 18" />
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" strokeLinecap="round" />
               </svg>
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setMobileOpen(true)}
-              className="min-w-[44px] min-h-[44px] -ml-1 flex items-center justify-center text-kin-blue"
-              aria-label={tr("app.openMenu")}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
-          {barIsHeading ? (
-            <h1 className="font-semibold text-[15px]">{mobileTitle}</h1>
-          ) : (
-            <span className="font-semibold text-[15px]">{mobileTitle}</span>
-          )}
-          {onSessionsTab && (
-            <button
-              type="button"
-              onClick={openNewChat}
-              className="ml-auto min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-blue"
-              aria-label={tr("nav.newChat")}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setPaletteOpen(true)}
-            className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-tertiary`}
-            aria-label={tr("app.commandPalette")}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-              <circle cx="11" cy="11" r="7" />
-              <path d="m21 21-4.3-4.3" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
+          </div>
         )}
 
         {/*
@@ -515,15 +522,11 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           </div>
         )}
 
-        <main className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          {children}
-        </main>
+        <main className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</main>
 
         {/* The phone's three primary jobs. Hidden on the draft screen, which is
             a focused flow with its own way out. */}
-        {location.pathname !== DRAFT_PATH && (
-          <MobileTabBar pendingCount={pendingCount} />
-        )}
+        {location.pathname !== DRAFT_PATH && <MobileTabBar pendingCount={pendingCount} />}
 
         {/* Terminal panel — desktop only */}
         {desktop && (

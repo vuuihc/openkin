@@ -29,10 +29,9 @@ describe("renderRecipe", () => {
   });
 });
 
-  it("lists built-in recipes", () => {
-    const ids = listRecipes().map((r) => r.id);
-    expect(ids).toContain("focus.continue");
-    expect(ids).toContain("cover.update");
-    expect(ids).toContain("project.memory.tidy");
-  });
-
+it("lists built-in recipes", () => {
+  const ids = listRecipes().map((r) => r.id);
+  expect(ids).toContain("focus.continue");
+  expect(ids).toContain("cover.update");
+  expect(ids).toContain("project.memory.tidy");
+});

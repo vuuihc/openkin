@@ -34,7 +34,9 @@ export default function MachinePicker({
       className={[
         "max-w-[10.5rem] truncate rounded-lg border bg-transparent px-1.5 py-0.5 text-[11px] font-medium",
         "focus:outline-none focus:ring-1 focus:ring-kin-blue/40",
-        offline ? "border-[rgba(255,159,10,.4)] text-[#ffb340]" : "border-[var(--kin-hairline-strong)] text-kin-secondary",
+        offline
+          ? "border-[rgba(255,159,10,.4)] text-[#ffb340]"
+          : "border-[var(--kin-hairline-strong)] text-kin-secondary",
         disabled ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
       ].join(" ")}
       value={missing ? MISSING : (value ?? "")}
@@ -52,9 +54,7 @@ export default function MachinePicker({
       {loading && machines.length === 0 ? (
         <option value="">{tr("machine.detecting")}</option>
       ) : null}
-      {missing ? (
-        <option value={MISSING}>{tr("machine.gone", { name: missing })}</option>
-      ) : null}
+      {missing ? <option value={MISSING}>{tr("machine.gone", { name: missing })}</option> : null}
       {machines.map((m) => (
         <option key={m.id || "self"} value={m.isSelf ? "" : m.id}>
           {m.isSelf ? tr("machine.thisMachine") : m.label}

@@ -55,8 +55,7 @@ export default function LimitCard({
   const tr = useT();
   const [nowTick, setNowTick] = useState(0);
   const status = (hit.status || "open").toLowerCase();
-  const terminal =
-    status === "continued" || status === "switched" || status === "dismissed";
+  const terminal = status === "continued" || status === "switched" || status === "dismissed";
   const waiting = status === "waiting";
 
   // The countdown is read at render. Nothing here acts on it — `remain` only
@@ -71,9 +70,7 @@ export default function LimitCard({
 
   const remain = useMemo(() => remainingSeconds(hit.reset_at), [hit.reset_at, nowTick]);
   const agentLabel = agentDisplayName(hit.agent || hostAgentId);
-  const fallbacks = agents.filter(
-    (a) => a.available && a.id !== (hit.agent || hostAgentId),
-  );
+  const fallbacks = agents.filter((a) => a.available && a.id !== (hit.agent || hostAgentId));
 
   const title = waiting
     ? tr("limit.waitingTitle", { agent: agentLabel })
@@ -100,9 +97,7 @@ export default function LimitCard({
       <div className="px-3.5 py-3.5">
         <div className="flex items-center gap-2">
           <IconAlert size={15} className="text-amber-400 flex-none" />
-          <span className="text-[12.5px] font-semibold text-amber-100">
-            {title}
-          </span>
+          <span className="text-[12.5px] font-semibold text-amber-100">{title}</span>
           {hit.window ? (
             <span className="ml-auto rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-100">
               {hit.window}

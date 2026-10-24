@@ -4,20 +4,11 @@ export const DEFAULT_TERMINAL_HEIGHT = 320;
 export const MAX_TERMINAL_VIEWPORT_RATIO = 0.7;
 
 export function maxTerminalHeight(viewportHeight: number): number {
-  return Math.max(
-    MIN_TERMINAL_HEIGHT,
-    Math.floor(viewportHeight * MAX_TERMINAL_VIEWPORT_RATIO),
-  );
+  return Math.max(MIN_TERMINAL_HEIGHT, Math.floor(viewportHeight * MAX_TERMINAL_VIEWPORT_RATIO));
 }
 
-export function clampTerminalHeight(
-  height: number,
-  viewportHeight: number,
-): number {
-  return Math.max(
-    MIN_TERMINAL_HEIGHT,
-    Math.min(height, maxTerminalHeight(viewportHeight)),
-  );
+export function clampTerminalHeight(height: number, viewportHeight: number): number {
+  return Math.max(MIN_TERMINAL_HEIGHT, Math.min(height, maxTerminalHeight(viewportHeight)));
 }
 
 /**
@@ -37,10 +28,7 @@ export function isTerminalToggle(e: KeyboardEvent): boolean {
  * @param viewportHeight - Current window height in pixels
  * @returns Clamped height in pixels
  */
-export function parseTerminalHeight(
-  storedValue: string | null,
-  viewportHeight: number,
-): number {
+export function parseTerminalHeight(storedValue: string | null, viewportHeight: number): number {
   if (!storedValue) {
     return clampTerminalHeight(DEFAULT_TERMINAL_HEIGHT, viewportHeight);
   }
@@ -56,10 +44,7 @@ export function parseTerminalHeight(
  * Determine the working directory for a new terminal session.
  * Prefers: selected task cwd > draft cwd > empty
  */
-export function contextCwd(
-  selectedTaskCwd: string | undefined,
-  draftCwd: string,
-): string {
+export function contextCwd(selectedTaskCwd: string | undefined, draftCwd: string): string {
   if (selectedTaskCwd) return selectedTaskCwd;
   return draftCwd;
 }
@@ -82,10 +67,7 @@ export function localTerminalCwd(
 }
 
 /** A route-derived cwd supersedes a folder chosen only for the terminal panel. */
-export function effectiveTerminalCwd(
-  routeCwd: string,
-  panelOverride: string | null,
-): string {
+export function effectiveTerminalCwd(routeCwd: string, panelOverride: string | null): string {
   return routeCwd || panelOverride || "";
 }
 

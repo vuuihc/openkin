@@ -31,13 +31,11 @@ describe("gateFor", () => {
 });
 
 describe("authErrorText", () => {
-const tr = (key: string) =>
-  (({ "account.errors.weak_password": "密码太弱" }) as Record<string, string>)[key] ?? key;
+  const tr = (key: string) =>
+    (({ "account.errors.weak_password": "密码太弱" }) as Record<string, string>)[key] ?? key;
 
   it("translates a known code", () => {
-    expect(authErrorText({ code: "weak_password", message: "too weak" }, tr)).toBe(
-      "密码太弱",
-    );
+    expect(authErrorText({ code: "weak_password", message: "too weak" }, tr)).toBe("密码太弱");
   });
 
   it("falls back to the server message for an unknown code", () => {

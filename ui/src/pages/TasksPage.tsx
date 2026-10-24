@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  formatCost,
-  formatElapsed,
-  isTerminal,
-  deleteTask,
-  type Task,
-} from "../api/client";
+import { formatCost, formatElapsed, isTerminal, deleteTask, type Task } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { useTaskList } from "../api/useLiveResources";
 import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
@@ -53,16 +47,12 @@ export default function TasksPage() {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const ms = start.getTime();
-    return tasks
-      .filter((t) => t.created_at >= ms)
-      .reduce((s, t) => s + (t.cost_usd ?? 0), 0);
+    return tasks.filter((t) => t.created_at >= ms).reduce((s, t) => s + (t.cost_usd ?? 0), 0);
   }, [tasks]);
 
   async function handleDelete(task: Task) {
     const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
-    const ok = window.confirm(
-      tr("tasks.deleteConfirm") + (title ? `\n\n${title}` : ""),
-    );
+    const ok = window.confirm(tr("tasks.deleteConfirm") + (title ? `\n\n${title}` : ""));
     if (!ok) return;
     try {
       await deleteTask(task.id);
@@ -138,9 +128,13 @@ export default function TasksPage() {
               <thead className="text-[11px] uppercase tracking-wide text-kin-muted border-b border-[var(--kin-hairline)]">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">{tr("tasks.colTask")}</th>
-                  <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">{tr("tasks.colAgent")}</th>
+                  <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">
+                    {tr("tasks.colAgent")}
+                  </th>
                   <th className="px-3 py-2.5 font-semibold">{tr("tasks.colStatus")}</th>
-                  <th className="px-3 py-2.5 font-semibold hidden md:table-cell">{tr("tasks.colElapsed")}</th>
+                  <th className="px-3 py-2.5 font-semibold hidden md:table-cell">
+                    {tr("tasks.colElapsed")}
+                  </th>
                   <th className="px-3 py-2.5 font-semibold text-right">{tr("tasks.colCost")}</th>
                   <th className="px-3 py-2.5 font-semibold text-right w-[1%]">
                     <span className="sr-only">{tr("tasks.delete")}</span>
@@ -161,9 +155,7 @@ export default function TasksPage() {
                         {t.title || displayUserPrompt(t.prompt || "")}
                       </Link>
                     </td>
-                    <td className="px-3 py-3 text-kin-secondary hidden sm:table-cell">
-                      {t.agent}
-                    </td>
+                    <td className="px-3 py-3 text-kin-secondary hidden sm:table-cell">{t.agent}</td>
                     <td className="px-3 py-3">
                       <StatusChip status={t.status} />
                     </td>
@@ -189,8 +181,7 @@ export default function TasksPage() {
           </div>
         )}
       </div>
-
-      </div>
+    </div>
   );
 }
 

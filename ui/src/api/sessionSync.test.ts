@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionChangePage, Task, WSMessage } from "./client";
-import {
-  LiveResourceStore,
-  taskListKey,
-  type LiveResourceAPI,
-} from "./liveResources";
+import { LiveResourceStore, taskListKey, type LiveResourceAPI } from "./liveResources";
 import { SessionSync } from "./sessionSync";
 import { useAppStore } from "../store/appStore";
 
@@ -145,12 +141,8 @@ describe("SessionSync", () => {
     await store.refreshTaskList(params);
 
     client.listSessions
-      .mockResolvedValueOnce(
-        page({ sessions: [task()], next_cursor: 11, has_more: true }),
-      )
-      .mockResolvedValueOnce(
-        page({ sessions: [task({ id: "task-2" })], next_cursor: 13 }),
-      );
+      .mockResolvedValueOnce(page({ sessions: [task()], next_cursor: 11, has_more: true }))
+      .mockResolvedValueOnce(page({ sessions: [task({ id: "task-2" })], next_cursor: 13 }));
     sync.start();
     await vi.waitFor(() => expect(stream).not.toBeNull());
     stream?.onOpen?.();
@@ -176,9 +168,7 @@ describe("SessionSync", () => {
     const release = store.acquireTaskList(params);
     await store.refreshTaskList(params);
 
-    client.listSessions.mockResolvedValueOnce(
-      page({ deleted: ["task-9"], next_cursor: 20 }),
-    );
+    client.listSessions.mockResolvedValueOnce(page({ deleted: ["task-9"], next_cursor: 20 }));
     sync.start();
     await vi.waitFor(() => expect(stream).not.toBeNull());
     stream?.onOpen?.();
@@ -232,13 +222,9 @@ describe("SessionSync", () => {
     await vi.waitFor(() => expect(stream).not.toBeNull());
     stream?.onUnavailable?.();
 
-    pending.resolve(
-      page({ sessions: [task({ title: "from the poll" })], next_cursor: 30 }),
-    );
+    pending.resolve(page({ sessions: [task({ title: "from the poll" })], next_cursor: 30 }));
     await vi.waitFor(() =>
-      expect(store.getTaskList(taskListKey(params)).data[0]?.title).toBe(
-        "from the poll",
-      ),
+      expect(store.getTaskList(taskListKey(params)).data[0]?.title).toBe("from the poll"),
     );
     // Polling the feed is a working connection, not an outage.
     expect(useAppStore.getState().wsStatus).toBe("connected");

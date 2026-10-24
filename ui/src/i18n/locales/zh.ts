@@ -82,10 +82,8 @@ const zh = {
     roleHost: "主持",
     heroSubtitleHost: "{name} 主持本会话。@提及只指定 worker，不会切换主持。",
     heroTitle: "和 {name} 对话，编排你的 agent",
-    heroSubtitleKin:
-      "Kin 自带 agent loop；也可用 @claude-code / @codex 委派给外部 CLI。",
-    heroSubtitleExternal:
-      "本对话由 {name} 主持；使用 @agent 可委派任务，不会切换主 agent。",
+    heroSubtitleKin: "Kin 自带 agent loop；也可用 @claude-code / @codex 委派给外部 CLI。",
+    heroSubtitleExternal: "本对话由 {name} 主持；使用 @agent 可委派任务，不会切换主 agent。",
     roleMain: "主",
     roleWorker: "worker",
     tip: "提示：{hints} 委派 · 用 @agent[模型] 指定模型",
@@ -99,7 +97,8 @@ const zh = {
     onePagerPickCwd: "选择工作目录后，这里会显示对应项目的 One-Pager",
     onePagerLoading: "正在加载 One-Pager…",
     onePagerEmpty: "这个项目的 One-Pager 还是空的，可在项目封面里编辑。",
-    onePagerNoProject: "「{project}」还没有项目封面。发送消息后会按该目录自动关联；也可从侧边栏打开封面。",
+    onePagerNoProject:
+      "「{project}」还没有项目封面。发送消息后会按该目录自动关联；也可从侧边栏打开封面。",
     openOnePager: "打开封面",
     projectSummaryLabel: "项目",
     projectMode: "模式 · {mode}",
@@ -123,7 +122,8 @@ const zh = {
     hideOverride: "收起",
     autoAgent: "自动（{id}）",
     required: "工作目录和提示词都要填",
-    agentHint: "新建任务不强制选 agent — 默认用 {name}。同一 task 里可以随时 handoff 到别的 agent。",
+    agentHint:
+      "新建任务不强制选 agent — 默认用 {name}。同一 task 里可以随时 handoff 到别的 agent。",
     agentHintRemote: "任务在 {name} 上执行，用那台机器自己装的 agent；这里列的是它上报的清单。",
   },
   machine: {
@@ -136,7 +136,8 @@ const zh = {
     refresh: "重新检测",
     thisMachine: "本机",
     offline: "离线",
-    remoteHint: "任务在 {name} 自己的文件系统上、用它自己的 agent 执行；cwd 必须是那台机器上的路径。",
+    remoteHint:
+      "任务在 {name} 自己的文件系统上、用它自己的 agent 执行；cwd 必须是那台机器上的路径。",
     offlineHint: "{name} 当前离线，无法派发过去。",
     noRoots: "{name} 没有声明工作目录 — 请填一个它上面真实存在的路径。",
     noAgents: "{name} 上没有可用的 agent。",
@@ -758,7 +759,8 @@ const zh = {
     provider: {
       heading: "认知 · Provider",
       descA: "内置 ",
-      descB: " agent（规划、对话、未来的 wiki）的 OpenAI 兼容 API。Base URL 可指向 OpenAI、xAI、Ollama，或 cliproxyapi / LiteLLM 之类的代理。编码仍使用 Claude Code / Codex / Grok CLI。",
+      descB:
+        " agent（规划、对话、未来的 wiki）的 OpenAI 兼容 API。Base URL 可指向 OpenAI、xAI、Ollama，或 cliproxyapi / LiteLLM 之类的代理。编码仍使用 Claude Code / Codex / Grok CLI。",
       baseUrl: "Base URL",
       baseUrlHintA: "OpenAI 兼容根地址。仅含主机的 URL 会自动追加 ",
       baseUrlHintB: "（例如 https://aipool.example.com → …/v1/chat/completions）。",
@@ -771,7 +773,8 @@ const zh = {
       modelsEmpty: "该地址未返回任何模型",
       modelsPick: "从 {count} 个模型中选择…",
       stream: "流式传输",
-      streamHint: "边生成边显示到聊天（Kin agent）。也有助于缓解网关空闲超时；若代理不支持 stream=true 可关闭。",
+      streamHint:
+        "边生成边显示到聊天（Kin agent）。也有助于缓解网关空闲超时；若代理不支持 stream=true 可关闭。",
       defaultAgent: "默认 agent（无 @ 提及时）",
       autoOption: "自动（Provider 就绪时用 Kin，否则用第一个 CLI）",
       unavailable: " — 不可用",
@@ -885,7 +888,8 @@ const zh = {
       cloudflareLoginTimedOut: "Cloudflare 授权未完成",
       cloudflareDeployed: "Relay Worker 已部署",
       cloudflareDomainBound: "自定义 Relay 域名已绑定",
-      workerDevUnreachable: "workers.dev 当前网络不可达。若只有一个 Cloudflare 域名，Kin 会自动绑定自定义域名；否则请选择域名后绑定。",
+      workerDevUnreachable:
+        "workers.dev 当前网络不可达。若只有一个 Cloudflare 域名，Kin 会自动绑定自定义域名；否则请选择域名后绑定。",
       workerUrl: "Relay Worker URL",
       workerUrlHint: "填写已部署的 Worker 地址，例如 https://kin-relay.example.workers.dev。",
       save: "保存并连接",
@@ -1110,8 +1114,7 @@ const zh = {
   connect: {
     unauthorizedTitle: "会话已失效",
     missingTitle: "连接到 Kin 守护进程",
-    unauthorizedBlurb:
-      "此浏览器中的 token 无效或已被轮换。请粘贴新的 token 以重新连接。",
+    unauthorizedBlurb: "此浏览器中的 token 无效或已被轮换。请粘贴新的 token 以重新连接。",
     missingBlurb: "此浏览器没有认证 token。请粘贴守护进程 token 以打开控制台。",
     tokenLabel: "认证 token",
     pasteToken: "粘贴 token…",
@@ -1169,7 +1172,8 @@ const zh = {
     newWithProfile: "新建 {profile}",
     closePanel: "关闭终端面板",
     runsOn: "这个任务在 {name} 上执行；终端是本机的 shell，不会进入那台机器上的目录。",
-    runsOnUnknown: "这个任务在 {name} 上执行（不在机器列表里）；终端是本机的 shell，不会进入那台机器上的目录。",
+    runsOnUnknown:
+      "这个任务在 {name} 上执行（不在机器列表里）；终端是本机的 shell，不会进入那台机器上的目录。",
     closeSession: "关闭此会话",
     chooseFolder: "选择文件夹",
     noProfiles: "未找到支持的 shell",
@@ -1269,7 +1273,8 @@ const zh = {
     authHint: "基于本机凭据文件的尽力判断，非实时登录探测",
     askInstall: "让默认 Agent 安装",
     askInstallHint: "打开预填安装任务，发送前可先检查命令",
-    installPrompt: "请帮我在当前 Mac 上安装 {agent}。\n\n安装命令（执行前请先向我确认；不要执行其他未列出的命令）：\n{command}\n\n安装完成后，请重新检测该 Agent 是否可用，并告诉我版本和失败原因（如有）。不要索取或输出任何 API key、密码或 token。",
+    installPrompt:
+      "请帮我在当前 Mac 上安装 {agent}。\n\n安装命令（执行前请先向我确认；不要执行其他未列出的命令）：\n{command}\n\n安装完成后，请重新检测该 Agent 是否可用，并告诉我版本和失败原因（如有）。不要索取或输出任何 API key、密码或 token。",
     copyInstall: "复制安装命令",
     copyUpdate: "复制更新命令",
     setDefault: "设为默认",

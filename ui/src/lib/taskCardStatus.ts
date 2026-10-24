@@ -1,10 +1,4 @@
-export type TaskCardTone =
-  | "running"
-  | "approval"
-  | "completed"
-  | "failed"
-  | "canceled"
-  | "stale";
+export type TaskCardTone = "running" | "approval" | "completed" | "failed" | "canceled" | "stale";
 
 export type TaskCardStatusView = {
   tone: TaskCardTone;
@@ -16,19 +10,14 @@ export type TaskCardStatusView = {
   animated: boolean;
 };
 
-export function taskCardStatusView(
-  status: string,
-  degraded = false,
-): TaskCardStatusView {
+export function taskCardStatusView(status: string, degraded = false): TaskCardStatusView {
   if (degraded) {
     return makeView("stale", "task.statusLastSeen", false);
   }
   if (status === "waiting_approval" || status === "waiting_input") {
     return makeView(
       "approval",
-      status === "waiting_input"
-        ? "task.statusWaitingInput"
-        : "task.statusWaitingApproval",
+      status === "waiting_input" ? "task.statusWaitingInput" : "task.statusWaitingApproval",
       false,
     );
   }
@@ -52,11 +41,7 @@ export function taskCardStatusView(
   );
 }
 
-function makeView(
-  tone: TaskCardTone,
-  labelKey: string,
-  animated: boolean,
-): TaskCardStatusView {
+function makeView(tone: TaskCardTone, labelKey: string, animated: boolean): TaskCardStatusView {
   const toneClass = toneClasses[tone];
   return {
     tone,

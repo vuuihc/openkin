@@ -193,7 +193,9 @@ describe("groupByDevice", () => {
   });
 
   it("drops a machine whose only project is archived", () => {
-    const tasks = [task({ id: "old", cwd: "/srv/old", created_at: 1, executing_device_id: "nas-1" })];
+    const tasks = [
+      task({ id: "old", cwd: "/srv/old", created_at: 1, executing_device_id: "nas-1" }),
+    ];
     const groups = groupByDevice(tasks, [], machines, { ...prefs, archived: ["/srv/old"] });
     expect(groups).toEqual([]);
   });
@@ -247,12 +249,7 @@ describe("groupByDevice", () => {
 
   it("carries the stored pin onto a row it invents for a session", () => {
     const pinned = { ...prefs, pinned: ["/work/other"] };
-    const groups = groupByDevice(
-      [],
-      [session({ id: "s", cwd: "/work/other" })],
-      machines,
-      pinned,
-    );
+    const groups = groupByDevice([], [session({ id: "s", cwd: "/work/other" })], machines, pinned);
     // The row sorts to the pin tier, so it has to draw as pinned: the button
     // would otherwise offer to pin a project that already is.
     expect(groups[0]!.projects[0]!.pinned).toBe(true);

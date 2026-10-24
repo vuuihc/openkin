@@ -3,12 +3,7 @@ import { publishDraftFrom } from "./publishDraft";
 import type { TaskEvent } from "../api/client";
 
 /** A message event with only the fields the draft reads. */
-function message(
-  seq: number,
-  role: string,
-  text: string,
-  partial = false,
-): TaskEvent {
+function message(seq: number, role: string, text: string, partial = false): TaskEvent {
   return {
     seq,
     type: "message",
@@ -81,9 +76,7 @@ describe("publishDraftFrom", () => {
 
   it("cuts a title that is a paragraph, and a body that is a dump", () => {
     const long = "x".repeat(200);
-    const draft = publishDraftFrom([
-      message(1, "assistant", `${long}\n\n${"y".repeat(20000)}`),
-    ]);
+    const draft = publishDraftFrom([message(1, "assistant", `${long}\n\n${"y".repeat(20000)}`)]);
     expect(draft.title.length).toBeLessThanOrEqual(121);
     expect(draft.title.endsWith("…")).toBe(true);
     expect(draft.body.length).toBeLessThanOrEqual(16001);
@@ -91,9 +84,7 @@ describe("publishDraftFrom", () => {
   });
 
   it("takes a list marker off the front of the title", () => {
-    const draft = publishDraftFrom([
-      message(1, "assistant", "- Add the retry\n- and the test"),
-    ]);
+    const draft = publishDraftFrom([message(1, "assistant", "- Add the retry\n- and the test")]);
     expect(draft.title).toBe("Add the retry");
   });
 });

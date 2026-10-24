@@ -3,8 +3,7 @@ import { displayUserPrompt, stripAttachmentBlock } from "./attachments";
 
 describe("attachments display helpers", () => {
   it("strips absolute paths from attached image block", () => {
-    const raw =
-      "what is this?\n\nAttached image:\n- shot.png: /Users/me/.kin/uploads/abc.png";
+    const raw = "what is this?\n\nAttached image:\n- shot.png: /Users/me/.kin/uploads/abc.png";
     expect(displayUserPrompt(raw)).toBe("what is this?\n\nAttached image: shot.png");
     expect(stripAttachmentBlock(raw).includes("/Users")).toBe(false);
   });

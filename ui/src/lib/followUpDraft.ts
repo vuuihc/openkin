@@ -39,13 +39,9 @@ function parseDraft(raw: string | null): FollowUpDraft {
     if (!parsed || typeof parsed !== "object") return emptyDraft();
     const obj = parsed as Record<string, unknown>;
     const prompt = typeof obj.prompt === "string" ? obj.prompt : "";
-    const attachments = Array.isArray(obj.attachments)
-      ? obj.attachments.filter(isUpload)
-      : [];
+    const attachments = Array.isArray(obj.attachments) ? obj.attachments.filter(isUpload) : [];
     const updatedAt =
-      typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt)
-        ? obj.updatedAt
-        : 0;
+      typeof obj.updatedAt === "number" && Number.isFinite(obj.updatedAt) ? obj.updatedAt : 0;
     return { prompt, attachments, updatedAt };
   } catch {
     return emptyDraft();

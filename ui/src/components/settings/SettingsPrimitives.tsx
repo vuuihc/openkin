@@ -1,18 +1,7 @@
-import {
-  type ButtonHTMLAttributes,
-  type KeyboardEvent,
-  type ReactNode,
-  useRef,
-} from "react";
+import { type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, useRef } from "react";
 
 export type SettingsTabId =
-  | "general"
-  | "agents"
-  | "providers"
-  | "routing"
-  | "remote"
-  | "notifications"
-  | "advanced";
+  "general" | "agents" | "providers" | "routing" | "remote" | "notifications" | "advanced";
 
 export type SettingsTabItem = {
   id: SettingsTabId;

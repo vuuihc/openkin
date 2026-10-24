@@ -8,14 +8,7 @@ type IconProps = {
   strokeWidth?: number;
 };
 
-function base(
-  {
-    className,
-    size = 16,
-    strokeWidth = 1.7,
-  }: IconProps,
-  paths: ReactNode,
-) {
+function base({ className, size = 16, strokeWidth = 1.7 }: IconProps, paths: ReactNode) {
   return (
     <svg
       width={size}
@@ -155,7 +148,13 @@ export function IconShare(p: IconProps) {
   );
 }
 export function IconDownload(p: IconProps) {
-  return base(p, <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14" /></>);
+  return base(
+    p,
+    <>
+      <path d="M12 3v12M7 10l5 5 5-5" />
+      <path d="M5 21h14" />
+    </>,
+  );
 }
 export function IconAlert(p: IconProps) {
   return base(
@@ -170,10 +169,13 @@ export function IconSend(p: IconProps) {
   return base(p, <path d="M12 19V5M5 12l7-7 7 7" />);
 }
 export function IconStop(p: IconProps) {
-  return base(p, <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />);
+  return base(
+    p,
+    <rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none" />,
+  );
 }
 export function IconBack(p: IconProps) {
-  return base(p, <path d="M15 18l-6-6 6-6" />,);
+  return base(p, <path d="M15 18l-6-6 6-6" />);
 }
 export function IconFile(p: IconProps) {
   return base(
@@ -236,17 +238,11 @@ export function IconKin(p: IconProps) {
   );
 }
 export function IconStar(p: IconProps) {
-  return base(
-    p,
-    <path d="M12 3l2.5 6L21 9l-5 4 2 7-6-4-6 4 2-7-5-4 6.5 0z" />,
-  );
+  return base(p, <path d="M12 3l2.5 6L21 9l-5 4 2 7-6-4-6 4 2-7-5-4 6.5 0z" />);
 }
 
 export function IconPin(p: IconProps) {
-  return base(
-    p,
-    <path d="M12 17v5M9 3h6l-1 7h3l-5 5-5-5h3L9 3z" />,
-  );
+  return base(p, <path d="M12 17v5M9 3h6l-1 7h3l-5 5-5-5h3L9 3z" />);
 }
 
 export function IconSort(p: IconProps) {
@@ -316,11 +312,7 @@ export function IconMore(p: IconProps) {
 }
 
 /** Animated spinning loader icon. */
-export function IconSpinner({
-  className = "",
-  size = 16,
-  strokeWidth = 2,
-}: IconProps) {
+export function IconSpinner({ className = "", size = 16, strokeWidth = 2 }: IconProps) {
   return (
     <svg
       width={size}

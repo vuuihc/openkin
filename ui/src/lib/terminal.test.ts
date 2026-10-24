@@ -110,9 +110,7 @@ describe("parseTerminalHeight", () => {
   });
 
   it("rejects partially numeric storage values", () => {
-    expect(parseTerminalHeight("300px", viewportHeight)).toBe(
-      DEFAULT_TERMINAL_HEIGHT,
-    );
+    expect(parseTerminalHeight("300px", viewportHeight)).toBe(DEFAULT_TERMINAL_HEIGHT);
   });
 
   it("keeps the minimum usable height in a very short viewport", () => {
@@ -179,12 +177,7 @@ describe("terminalSocketURL", () => {
   });
 
   it("builds correct URL structure", () => {
-    const url = terminalSocketURL(
-      "http:",
-      "localhost:3000",
-      "mySessionId",
-      "myToken123",
-    );
+    const url = terminalSocketURL("http:", "localhost:3000", "mySessionId", "myToken123");
     expect(url).toMatch(
       /^ws:\/\/localhost:3000\/api\/terminal\/sessions\/mySessionId\/ws\?token=myToken123$/,
     );
@@ -202,9 +195,7 @@ describe("localTerminalCwd", () => {
     ).toBe("/draft");
     // With no draft directory either, the shell starts wherever the user's own
     // shell would, rather than in a same-named local folder.
-    expect(
-      localTerminalCwd({ cwd: "/srv/app", executing_device_id: "node-1" }, true, ""),
-    ).toBe("");
+    expect(localTerminalCwd({ cwd: "/srv/app", executing_device_id: "node-1" }, true, "")).toBe("");
   });
 
   it("falls back to the draft cwd with no task selected", () => {

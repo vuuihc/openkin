@@ -13,11 +13,7 @@ import { agentAvatarMeta } from "../../lib/agentMention";
 import { useAppStore } from "../../store/appStore";
 import { IconCopy, IconDownload, IconShare } from "../icons";
 import Markdown from "../Markdown";
-import {
-  formatSharedHTML,
-  formatSharedText,
-  type SharedMessage,
-} from "./shareExport";
+import { formatSharedHTML, formatSharedText, type SharedMessage } from "./shareExport";
 import {
   buildChatItems,
   findSpeakerModel,
@@ -87,15 +83,10 @@ export default function ChatStream({
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [sharing, setSharing] = useState(false);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   // Rebuild when locale changes (tool summaries use t()).
   const items = useMemo(
-    () =>
-      mergeProcessRuns(
-        buildChatItems(events, hostSpeaker, hostModel, !loading),
-      ),
+    () => mergeProcessRuns(buildChatItems(events, hostSpeaker, hostModel, !loading)),
     [events, locale, hostSpeaker, hostModel, loading],
   );
   const turns = useMemo(
@@ -106,16 +97,12 @@ export default function ChatStream({
     () => findSpeakerModel(events, hostSpeaker) ?? normalizeModel(hostModel),
     [events, hostSpeaker, hostModel],
   );
-  const hasUserMsg = items.some(
-    (i) => i.kind === "message" && i.speaker === "user",
-  );
+  const hasUserMsg = items.some((i) => i.kind === "message" && i.speaker === "user");
   const selectableMessages = useMemo(
     () =>
       items.filter(
         (item): item is Extract<ChatItem, { kind: "message" }> =>
-          item.kind === "message" &&
-          !item.partial &&
-          item.text.trim().length > 0,
+          item.kind === "message" && !item.partial && item.text.trim().length > 0,
       ),
     [items],
   );
@@ -136,9 +123,7 @@ export default function ChatStream({
 
   useEffect(() => {
     setSelectedKeys((previous) => {
-      const next = new Set(
-        [...previous].filter((key) => selectableKeys.has(key)),
-      );
+      const next = new Set([...previous].filter((key) => selectableKeys.has(key)));
       return next.size === previous.size ? previous : next;
     });
   }, [selectableKeys]);
@@ -203,8 +188,7 @@ export default function ChatStream({
   // If the last turn is already an agent column, fold thinking into it so we
   // don't paint a second Kin avatar under the same user message.
   const lastTurn = turns[turns.length - 1];
-  const loadingInsideAgent =
-    showLoading && lastTurn?.kind === "agent";
+  const loadingInsideAgent = showLoading && lastTurn?.kind === "agent";
   const loadingStandalone = showLoading && !loadingInsideAgent;
 
   return (
@@ -221,11 +205,7 @@ export default function ChatStream({
         />
       )}
       {!hasUserMsg && fallbackUserPrompt?.trim() && (
-        <MessageRow
-          speaker="user"
-          text={fallbackUserPrompt}
-          partial={false}
-        />
+        <MessageRow speaker="user" text={fallbackUserPrompt} partial={false} />
       )}
 
       {turns.map((turn, turnIdx) => {
@@ -243,9 +223,7 @@ export default function ChatStream({
               />
             );
           case "standalone":
-            return (
-              <StandaloneRow key={turn.item.key} item={turn.item} />
-            );
+            return <StandaloneRow key={turn.item.key} item={turn.item} />;
           case "agent": {
             const isLast = turnIdx === turns.length - 1;
             const withThinking = isLast && loadingInsideAgent;
@@ -275,9 +253,7 @@ export default function ChatStream({
         }
       })}
 
-      {loadingStandalone && (
-        <ThinkingRow speaker={loadingSpeaker} model={resolvedHostModel} />
-      )}
+      {loadingStandalone && <ThinkingRow speaker={loadingSpeaker} model={resolvedHostModel} />}
 
       {trailing}
     </div>
@@ -346,23 +322,16 @@ function AgentTurn({
             </span>
           )}
           {showThinking && !hasPartial && (
-            <span className="mt-px text-[11px] text-kin-muted">
-              {tr("chat.thinking")}
-            </span>
+            <span className="mt-px text-[11px] text-kin-muted">{tr("chat.thinking")}</span>
           )}
         </div>
 
         {items.map((item) => {
           switch (item.kind) {
             case "message": {
-              const canSave =
-                !!onSaveArtifact &&
-                !item.partial &&
-                item.text.trim().length > 0;
+              const canSave = !!onSaveArtifact && !item.partial && item.text.trim().length > 0;
               const canRetryFork =
-                showMessageActions &&
-                !item.partial &&
-                typeof item.seq === "number";
+                showMessageActions && !item.partial && typeof item.seq === "number";
               const canCopy = !item.partial && item.text.trim().length > 0;
               return (
                 <div
@@ -471,10 +440,7 @@ function AgentTurn({
               );
             case "meta":
               return (
-                <p
-                  key={item.key}
-                  className="text-[11.5px] text-kin-muted"
-                >
+                <p key={item.key} className="text-[11.5px] text-kin-muted">
                   {item.label}
                 </p>
               );
@@ -487,11 +453,7 @@ function AgentTurn({
   );
 }
 
-function StandaloneRow({
-  item,
-}: {
-  item: Extract<ChatItem, { kind: "error" | "meta" }>;
-}) {
+function StandaloneRow({ item }: { item: Extract<ChatItem, { kind: "error" | "meta" }> }) {
   const tr = useT();
   if (item.kind === "error") {
     return (
@@ -500,19 +462,11 @@ function StandaloneRow({
       </div>
     );
   }
-  return (
-    <p className="text-center text-[11.5px] text-kin-muted">{item.label}</p>
-  );
+  return <p className="text-center text-[11.5px] text-kin-muted">{item.label}</p>;
 }
 
 /** Animated “thinking” row while waiting for the first assistant token. */
-function ThinkingRow({
-  speaker,
-  model,
-}: {
-  speaker: string;
-  model?: string;
-}) {
+function ThinkingRow({ speaker, model }: { speaker: string; model?: string }) {
   const tr = useT();
   const meta = agentAvatarMeta(speaker);
   return (
@@ -531,9 +485,7 @@ function ThinkingRow({
       <div className="flex-1 min-w-0 flex flex-col gap-1.5 pt-0.5">
         <div className="flex items-start gap-2">
           <AgentIdentity name={meta.label} model={model} />
-          <span className="mt-px text-[11px] text-kin-muted">
-            {tr("chat.thinking")}
-          </span>
+          <span className="mt-px text-[11px] text-kin-muted">{tr("chat.thinking")}</span>
         </div>
         <ThinkingDots />
       </div>
@@ -589,9 +541,7 @@ function ProgressCard({
   const [openStep, setOpenStep] = useState<string | null>(null);
   const details = summarizeProgressDetails(steps);
   const status = summarizeProgressStatus(steps, running);
-  const activity =
-    details.toolCounts ||
-    tr("chat.progress.notes", { count: details.noteCount });
+  const activity = details.toolCounts || tr("chat.progress.notes", { count: details.noteCount });
 
   const summary = (() => {
     if (status.state === "running") {
@@ -612,11 +562,12 @@ function ProgressCard({
 
   const failed = status.state === "failed";
   const partialFailed = status.state === "partial_failed";
-  const statusTone = status.state === "running"
-    ? "border-kin-blue/25 bg-kin-blue-soft/30"
-    : failed || partialFailed
-      ? "border-kin-red/25 bg-[rgba(255,69,58,.05)]"
-      : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]";
+  const statusTone =
+    status.state === "running"
+      ? "border-kin-blue/25 bg-kin-blue-soft/30"
+      : failed || partialFailed
+        ? "border-kin-red/25 bg-[rgba(255,69,58,.05)]"
+        : "border-[var(--kin-hairline)] bg-[var(--kin-fill)]";
 
   const badgeLabel =
     status.state === "running"
@@ -627,11 +578,12 @@ function ProgressCard({
           ? tr("chat.progress.partialFailed")
           : tr("chat.progress.done");
 
-  const badgeTone = status.state === "running"
-    ? "bg-kin-blue/15 text-kin-blue"
-    : failed || partialFailed
-      ? "bg-kin-red/15 text-kin-red"
-      : "bg-[var(--kin-fill-strong)] text-kin-muted";
+  const badgeTone =
+    status.state === "running"
+      ? "bg-kin-blue/15 text-kin-blue"
+      : failed || partialFailed
+        ? "bg-kin-red/15 text-kin-red"
+        : "bg-[var(--kin-fill-strong)] text-kin-muted";
 
   return (
     <div className={`rounded-xl border ${statusTone} overflow-hidden`}>
@@ -657,9 +609,7 @@ function ProgressCard({
           )}
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="break-words font-medium text-kin-text">
-            {summary}
-          </span>
+          <span className="break-words font-medium text-kin-text">{summary}</span>
           {collapsed && details.latestNote && (
             <span
               className="truncate text-[11.5px] font-normal text-kin-muted"
@@ -683,9 +633,7 @@ function ProgressCard({
                 index={idx + 1}
                 open={openStep === step.key}
                 onOpenPath={onOpenPath}
-                onToggle={() =>
-                  setOpenStep((cur) => (cur === step.key ? null : step.key))
-                }
+                onToggle={() => setOpenStep((cur) => (cur === step.key ? null : step.key))}
               />
             ) : (
               <NoteStepRow key={step.key} note={step} index={idx + 1} />
@@ -710,9 +658,7 @@ function NoteStepRow({ note, index }: { note: NoteStep; index: number }) {
       <span className="flex-none w-5 text-[10.5px] tabular-nums text-kin-muted pt-0.5">
         {index}
       </span>
-      <span
-        className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
-      />
+      <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
       <span className="font-mono text-[11px] text-kin-muted flex-none pt-px">
         {tr("chat.progress.note")}
       </span>
@@ -738,8 +684,7 @@ function ToolStepRow({
 }) {
   const tr = useT();
   const filePath = extractPrimaryToolPath(tool.name, tool.input);
-  const hasDetail =
-    (tool.output && tool.output.trim().length > 0) || tool.input != null;
+  const hasDetail = (tool.output && tool.output.trim().length > 0) || tool.input != null;
 
   const statusDot =
     tool.status === "error"
@@ -778,9 +723,7 @@ function ToolStepRow({
         <span className="font-mono text-[11px] text-kin-muted flex-none pt-px">
           {prettyToolName(tool.name)}
         </span>
-        <span className="flex-1 min-w-0 break-words text-kin-secondary">
-          {tool.summary}
-        </span>
+        <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
         {filePath && onOpenPath && (
           <button
             type="button"
@@ -848,13 +791,7 @@ function formatToolJson(input: unknown): string {
 }
 
 /** Message body only (avatar / name owned by AgentTurn for assistants). */
-function MessageBody({
-  text,
-  partial,
-}: {
-  text: string;
-  partial?: boolean;
-}) {
+function MessageBody({ text, partial }: { text: string; partial?: boolean }) {
   const body = text ?? "";
   return (
     <div className="text-[14px] sm:text-[15px] leading-relaxed text-kin-text">
@@ -896,9 +833,7 @@ function MessageRow({
           // min-w-0: let this row shrink inside the chat column so max-w on
           // the bubble can actually constrain long unbroken paths/URLs.
           "flex min-w-0 w-full justify-end gap-2.5 items-start rounded-lg",
-          selectionMode && selected
-            ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2"
-            : "",
+          selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue-soft/20 p-2 -m-2" : "",
         ].join(" ")}
       >
         <div className="min-w-0 max-w-[85%] sm:max-w-[78%] flex flex-col items-end gap-1">
@@ -909,9 +844,7 @@ function MessageRow({
               onToggle={onToggleSelection ?? (() => undefined)}
             />
           )}
-          <div className="text-[11.5px] font-medium text-kin-muted px-1">
-            {meta.label}
-          </div>
+          <div className="text-[11.5px] font-medium text-kin-muted px-1">{meta.label}</div>
           <div
             className="max-w-full min-w-0 px-3.5 py-2.5 rounded-[18px] rounded-br-[5px] text-[14px] sm:text-[15px] leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{
@@ -943,9 +876,7 @@ function MessageRow({
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-1 pt-0.5">
         <div className="flex items-center gap-2">
-          <span className="text-[12px] font-semibold text-kin-text">
-            {meta.label}
-          </span>
+          <span className="text-[12px] font-semibold text-kin-text">{meta.label}</span>
           {partial && (
             <span className="inline-flex items-center gap-1.5 text-[11px] text-kin-muted">
               <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />

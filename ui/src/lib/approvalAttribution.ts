@@ -1,10 +1,7 @@
 import type { Approval } from "../api/client";
 
 /** Translator compatible with useT / i18n. */
-export type AttributionT = (
-  key: string,
-  vars?: Record<string, string | number>,
-) => string;
+export type AttributionT = (key: string, vars?: Record<string, string | number>) => string;
 
 /**
  * Format approval card attribution: worker label + step/id when present,
@@ -13,11 +10,7 @@ export type AttributionT = (
 export function formatApprovalAttribution(
   approval: Pick<
     Approval,
-    | "execution_agent"
-    | "execution_step"
-    | "execution_id"
-    | "task_agent"
-    | "task_title"
+    "execution_agent" | "execution_step" | "execution_id" | "task_agent" | "task_title"
   >,
   tr: AttributionT,
 ): string {

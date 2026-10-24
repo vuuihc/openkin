@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  summarizeChangedFiles,
-  type ChangedFile,
-} from "../../lib/changedFiles";
+import { summarizeChangedFiles, type ChangedFile } from "../../lib/changedFiles";
 import { useT } from "../../i18n/react";
 import { IconCheck, IconChevron, IconX } from "../icons";
 
@@ -184,10 +181,7 @@ export default function ChangedFilesBar({
             className="flex-1 min-w-0 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
           >
             <div className="flex items-center gap-1.5 min-w-0">
-              <IconChevron
-                size={12}
-                className="flex-none text-kin-muted rotate-90"
-              />
+              <IconChevron size={12} className="flex-none text-kin-muted rotate-90" />
               <span className="text-[10.5px] font-semibold uppercase tracking-wide text-kin-muted">
                 {t("workspace.changed.cardTitle")}
               </span>
@@ -198,10 +192,7 @@ export default function ChangedFilesBar({
               </span>
               {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
                 <span className="flex-none text-[12px] font-mono tabular-nums">
-                  <DeltaInline
-                    additions={stats.additions}
-                    deletions={stats.deletions}
-                  />
+                  <DeltaInline additions={stats.additions} deletions={stats.deletions} />
                 </span>
               )}
             </div>
@@ -245,10 +236,7 @@ export default function ChangedFilesBar({
                   </span>
                   {(f.additions != null || f.deletions != null) && (
                     <span className="flex-none text-[11px] font-mono tabular-nums">
-                      <DeltaInline
-                        additions={f.additions ?? 0}
-                        deletions={f.deletions ?? 0}
-                      />
+                      <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
                     </span>
                   )}
                 </button>
@@ -265,9 +253,7 @@ export default function ChangedFilesBar({
         </ul>
 
         {bulkActions && (
-          <div className="px-3 py-2 border-t border-[var(--kin-hairline)]">
-            {bulkActions}
-          </div>
+          <div className="px-3 py-2 border-t border-[var(--kin-hairline)]">{bulkActions}</div>
         )}
       </div>
     );
@@ -288,19 +274,13 @@ export default function ChangedFilesBar({
           title={t("workspace.changed.expand")}
           className="flex-1 min-w-0 flex items-center gap-2 text-left rounded-md -ml-1 pl-1 pr-1 py-0.5 hover:bg-[var(--kin-fill)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-kin-blue"
         >
-          <IconChevron
-            size={13}
-            className="flex-none text-kin-muted rotate-90"
-          />
+          <IconChevron size={13} className="flex-none text-kin-muted rotate-90" />
           <span className="flex-none text-[12px] font-semibold text-kin-text">
             {t("workspace.changed.reviewTitle", { count: labelCount })}
           </span>
           {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
             <span className="flex-none text-[12px] font-mono tabular-nums">
-              <DeltaInline
-                additions={stats.additions}
-                deletions={stats.deletions}
-              />
+              <DeltaInline additions={stats.additions} deletions={stats.deletions} />
             </span>
           )}
           {stats.hasStats && stats.additions === 0 && stats.deletions === 0 && (
@@ -330,22 +310,14 @@ export default function ChangedFilesBar({
   );
 }
 
-function DeltaInline({
-  additions,
-  deletions,
-}: {
-  additions: number;
-  deletions: number;
-}) {
+function DeltaInline({ additions, deletions }: { additions: number; deletions: number }) {
   if (additions === 0 && deletions === 0) {
     return <span className="text-kin-muted">±0</span>;
   }
   return (
     <span>
       {additions > 0 && <span className="text-[#8de4a0]">+{additions}</span>}
-      {additions > 0 && deletions > 0 && (
-        <span className="text-kin-muted"> </span>
-      )}
+      {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
       {deletions > 0 && <span className="text-[#ffb4ad]">−{deletions}</span>}
     </span>
   );

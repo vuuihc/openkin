@@ -88,10 +88,7 @@ export default function ArtifactsPage() {
       pushToast(tr("artifacts.archived"), "info");
       await load();
     } catch (err) {
-      pushToast(
-        err instanceof Error ? err.message : tr("artifacts.archiveFailed"),
-        "error",
-      );
+      pushToast(err instanceof Error ? err.message : tr("artifacts.archiveFailed"), "error");
     } finally {
       setBusyId(null);
     }
@@ -102,12 +99,8 @@ export default function ArtifactsPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-semibold tracking-tight">
-              {tr("artifacts.title")}
-            </h1>
-            <p className="text-[13px] text-kin-tertiary mt-0.5">
-              {tr("artifacts.subtitle")}
-            </p>
+            <h1 className="text-[22px] font-semibold tracking-tight">{tr("artifacts.title")}</h1>
+            <p className="text-[13px] text-kin-tertiary mt-0.5">{tr("artifacts.subtitle")}</p>
           </div>
         </div>
 
@@ -135,18 +128,12 @@ export default function ArtifactsPage() {
           ))}
         </div>
 
-        {error && (
-          <p className="mt-4 text-[13px] text-kin-red">{error}</p>
-        )}
+        {error && <p className="mt-4 text-[13px] text-kin-red">{error}</p>}
         {items === null && !error && (
-          <div className="mt-6">
-            {slow ? <SlowConnectHint show /> : <TaskListSkeleton />}
-          </div>
+          <div className="mt-6">{slow ? <SlowConnectHint show /> : <TaskListSkeleton />}</div>
         )}
         {items && visible.length === 0 && (
-          <p className="mt-10 text-center text-[14px] text-kin-muted">
-            {tr("artifacts.empty")}
-          </p>
+          <p className="mt-10 text-center text-[14px] text-kin-muted">{tr("artifacts.empty")}</p>
         )}
         {items && visible.length > 0 && (
           <ul className="mt-5 space-y-1.5">

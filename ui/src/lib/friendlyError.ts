@@ -14,20 +14,13 @@ export function isCancelNoise(message: string | null | undefined): boolean {
   );
 }
 
-export function friendlyErrorLabel(
-  message: string,
-  tr: (key: string) => string,
-): string {
+export function friendlyErrorLabel(message: string, tr: (key: string) => string): string {
   const raw = (message ?? "").trim();
   if (isCancelNoise(raw)) {
     return tr("chat.canceled");
   }
   const s = raw.toLowerCase();
-  if (
-    s === "timed out" ||
-    s === "timeout" ||
-    s === "context deadline exceeded"
-  ) {
+  if (s === "timed out" || s === "timeout" || s === "context deadline exceeded") {
     return tr("chat.timedOut");
   }
   return raw || "error";

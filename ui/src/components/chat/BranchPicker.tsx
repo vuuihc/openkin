@@ -278,9 +278,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
       ].join(" ")}
     >
       {!compact && (
-        <span className="text-[11.5px] text-kin-muted flex-none">
-          {tr("branch.label")}
-        </span>
+        <span className="text-[11.5px] text-kin-muted flex-none">{tr("branch.label")}</span>
       )}
       <button
         ref={triggerRef}
@@ -357,9 +355,7 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
           </div>
           <ul className="flex-1 min-h-0 max-h-56 overflow-y-auto py-1">
             {branches.length === 0 ? (
-              <li className="px-3 py-2 text-[12px] text-kin-muted">
-                {tr("branch.empty")}
-              </li>
+              <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("branch.empty")}</li>
             ) : (
               branches.map((b) => {
                 const active = b.current || b.name === status.current;
@@ -439,10 +435,7 @@ function ChevronIcon({ open }: { open: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={[
-        "flex-none opacity-60 transition-transform",
-        open ? "rotate-180" : "",
-      ].join(" ")}
+      className={["flex-none opacity-60 transition-transform", open ? "rotate-180" : ""].join(" ")}
       aria-hidden
     >
       <path d="M6 9l6 6 6-6" />

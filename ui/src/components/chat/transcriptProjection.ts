@@ -1,11 +1,7 @@
 import type { TaskEvent } from "../../api/client";
 import { isCancelNoise } from "../../lib/friendlyError";
 import { t } from "../../i18n";
-import {
-  decodeCanonicalEventMeta,
-  isProgressMessageMeta,
-  resolveSpeaker,
-} from "./eventMeta";
+import { decodeCanonicalEventMeta, isProgressMessageMeta, resolveSpeaker } from "./eventMeta";
 import { displayUserPrompt } from "../../lib/attachments";
 
 export type ToolStep = {
@@ -42,16 +38,16 @@ export type ProgressItem = {
 
 export type ChatItem =
   | {
-    kind: "message";
-    key: string;
-    speaker: string;
-    model?: string;
-    text: string;
-    partial?: boolean;
-    phase?: string;
-    /** Source event seq (for retry/fork). */
-    seq?: number;
-  }
+      kind: "message";
+      key: string;
+      speaker: string;
+      model?: string;
+      text: string;
+      partial?: boolean;
+      phase?: string;
+      /** Source event seq (for retry/fork). */
+      seq?: number;
+    }
   | ProgressItem
   | { kind: "error"; key: string; message: string }
   | { kind: "meta"; key: string; label: string };
@@ -62,16 +58,16 @@ type ProcessRunItem = Extract<ChatItem, { kind: "message" | "progress" }>;
 export type Turn =
   | { kind: "user"; item: Extract<ChatItem, { kind: "message" }> }
   | {
-    kind: "agent";
-    /** Host speaker for the shared left avatar. */
-    speaker: string;
-    model?: string;
-    items: ChatItem[];
-  }
+      kind: "agent";
+      /** Host speaker for the shared left avatar. */
+      speaker: string;
+      model?: string;
+      items: ChatItem[];
+    }
   | {
-    kind: "standalone";
-    item: Extract<ChatItem, { kind: "error" | "meta" }>;
-  };
+      kind: "standalone";
+      item: Extract<ChatItem, { kind: "error" | "meta" }>;
+    };
 
 /**
  * Project raw task events into the chat transcript model used by ChatStream.
@@ -103,10 +99,7 @@ export function buildChatItems(
   // Streaming note step key inside the progress box.
   let streamNoteKey: string | null = null;
 
-  const flushStream = (
-    final = false,
-    progressStatus: NoteStep["status"] = "done",
-  ) => {
+  const flushStream = (final = false, progressStatus: NoteStep["status"] = "done") => {
     if (!streamBuf) return;
     if (!streamBuf.trim()) {
       const active = progressRef.current;
@@ -135,22 +128,10 @@ export function buildChatItems(
           note.text = streamBuf;
           note.status = progressStatus;
         } else {
-          pushNote(
-            streamSpeaker,
-            streamModel,
-            streamBuf,
-            streamKey,
-            progressStatus,
-          );
+          pushNote(streamSpeaker, streamModel, streamBuf, streamKey, progressStatus);
         }
       } else {
-        pushNote(
-          streamSpeaker,
-          streamModel,
-          streamBuf,
-          streamKey,
-          progressStatus,
-        );
+        pushNote(streamSpeaker, streamModel, streamBuf, streamKey, progressStatus);
       }
     } else {
       progressRef.current = null;
@@ -235,8 +216,7 @@ export function buildChatItems(
     // plan line, in either direction. The plan is the agent's whole plan, and a
     // streamed chunk merged with it would replace it with a sentence and take its
     // key with it.
-    const lastIsPlan =
-      !!last && last.kind === "note" && last.key.startsWith(PLAN_NOTE_PREFIX);
+    const lastIsPlan = !!last && last.kind === "note" && last.key.startsWith(PLAN_NOTE_PREFIX);
     if (!key.startsWith(PLAN_NOTE_PREFIX) && !lastIsPlan) {
       if (
         last &&
@@ -293,10 +273,7 @@ export function buildChatItems(
     return false;
   };
 
-  const upsertTool = (
-    id: string,
-    patch: Partial<ToolStep> & { name: string; speaker: string },
-  ) => {
+  const upsertTool = (id: string, patch: Partial<ToolStep> & { name: string; speaker: string }) => {
     const existing = toolById.get(id);
     if (existing) {
       Object.assign(existing, patch);
@@ -352,12 +329,9 @@ export function buildChatItems(
         // main "user" column.
         const sp = speaker;
         if (sp === "user") {
-          canceledRound =
-            p.interrupted === true || p.source === "interrupt";
+          canceledRound = p.interrupted === true || p.source === "interrupt";
         }
-        let text =
-          extractText(p.content) ||
-          (typeof p.text === "string" ? p.text : "");
+        let text = extractText(p.content) || (typeof p.text === "string" ? p.text : "");
         // Never show local upload paths in the chat timeline.
         if (sp === "user" && text) {
           text = displayUserPrompt(text);
@@ -372,26 +346,16 @@ export function buildChatItems(
         if (sp === "user" && text.trim()) {
           planNotes.clear();
         }
-        const messageID =
-          typeof p.message_id === "string" ? p.message_id : "";
+        const messageID = typeof p.message_id === "string" ? p.message_id : "";
         const blockIndex =
-          typeof p.index === "number" || typeof p.index === "string"
-            ? String(p.index)
-            : "";
+          typeof p.index === "number" || typeof p.index === "string" ? String(p.index) : "";
         const messageKey =
-          messageID && blockIndex
-            ? `message-${sp}-${role}-${messageID}-${blockIndex}`
-            : "";
+          messageID && blockIndex ? `message-${sp}-${role}-${messageID}-${blockIndex}` : "";
         // Skip legacy expanded tool dumps from older kinagent builds.
         if (isLegacyToolDumpMessage(text)) {
           flushStream();
           streamNoteKey = null;
-          const legacy = parseLegacyToolDump(
-            text,
-            sp,
-            model,
-            `legacy-${ev.seq}`,
-          );
+          const legacy = parseLegacyToolDump(text, sp, model, `legacy-${ev.seq}`);
           if (legacy) {
             ensureProgress(hostSpeaker).steps.push(legacy);
             toolById.set(legacy.key, legacy);
@@ -422,13 +386,7 @@ export function buildChatItems(
             streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = true;
             streamRole = role;
-            pushNote(
-              sp,
-              model,
-              streamBuf,
-              streamNoteKey ?? streamKey,
-              "running",
-            );
+            pushNote(sp, model, streamBuf, streamNoteKey ?? streamKey, "running");
           } else {
             // User-facing stream closes the progress group.
             if (!streamBuf) {
@@ -463,9 +421,7 @@ export function buildChatItems(
           // duplicate the text and leave a dangling "partial" (stuck badge).
           const supersedesPreview =
             !!streamBuf &&
-            (messageKey
-              ? streamKey === messageKey
-              : streamSpeaker === sp && streamRole === role);
+            (messageKey ? streamKey === messageKey : streamSpeaker === sp && streamRole === role);
           if (supersedesPreview) {
             const active = progressRef.current;
             if (
@@ -474,9 +430,7 @@ export function buildChatItems(
               active &&
               !(asProgress && messageKey === streamNoteKey)
             ) {
-              active.steps = active.steps.filter(
-                (step) => step.key !== streamNoteKey,
-              );
+              active.steps = active.steps.filter((step) => step.key !== streamNoteKey);
             }
             streamBuf = "";
             if (!asProgress) progressRef.current = null;
@@ -486,17 +440,8 @@ export function buildChatItems(
           streamNoteKey = null;
           if (!text.trim()) break;
           if (asProgress) {
-            if (
-              !messageKey ||
-              !replaceProgressNote(messageKey, sp, model, text)
-            ) {
-              pushNote(
-                sp,
-                model,
-                text,
-                messageKey || `note-${ev.seq}`,
-                "done",
-              );
+            if (!messageKey || !replaceProgressNote(messageKey, sp, model, text)) {
+              pushNote(sp, model, text, messageKey || `note-${ev.seq}`, "done");
             }
           } else {
             progressRef.current = null;
@@ -523,10 +468,10 @@ export function buildChatItems(
         const content = p.content as Record<string, unknown> | undefined;
         const name = String(
           content?.name ??
-          p.name ??
-          p.tool_name ??
-          (p.item as { type?: string } | undefined)?.type ??
-          "tool",
+            p.name ??
+            p.tool_name ??
+            (p.item as { type?: string } | undefined)?.type ??
+            "tool",
         );
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
         const summary =
@@ -550,9 +495,7 @@ export function buildChatItems(
         flushStream();
         streamNoteKey = null;
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
-        const name = String(
-          p.name ?? p.tool_name ?? toolById.get(id)?.name ?? "tool",
-        );
+        const name = String(p.name ?? p.tool_name ?? toolById.get(id)?.name ?? "tool");
         const ok = p.ok !== false && p.status !== "error";
         const summary =
           typeof p.summary === "string" && p.summary
@@ -649,8 +592,7 @@ export function buildChatItems(
       case "result": {
         // Orchestrator / adapter result closes the turn: finalize any trailing
         // streamed text so it is not left dangling as "partial".
-        const terminalStatus =
-          p.is_error === true && !canceledRound ? "error" : "done";
+        const terminalStatus = p.is_error === true && !canceledRound ? "error" : "done";
         flushStream(true, terminalStatus);
         streamNoteKey = null;
         settlePartialMessages();
@@ -709,8 +651,7 @@ export function buildChatItems(
       default:
         // Workspace lifecycle events (workspace_provisioning, workspace_ready, etc.)
         if (typeof ev.type === "string" && ev.type.startsWith("workspace_")) {
-          const wsId =
-            typeof p.workspace_id === "string" ? p.workspace_id : "";
+          const wsId = typeof p.workspace_id === "string" ? p.workspace_id : "";
           const genNum =
             typeof p.generation === "number"
               ? p.generation
@@ -793,9 +734,7 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
   let segment: ProcessRunItem[] = [];
   const flushSegment = () => {
     if (segment.length === 0) return;
-    const anchor = segment.find(
-      (item): item is ProgressItem => item.kind === "progress",
-    );
+    const anchor = segment.find((item): item is ProgressItem => item.kind === "progress");
     if (!anchor) {
       merged.push(...segment);
       segment = [];
@@ -832,10 +771,7 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
       segment.push(item);
       continue;
     }
-    const foldIntoProcess =
-      !item.partial &&
-      item.phase !== "summary" &&
-      index !== finalMessageIdx;
+    const foldIntoProcess = !item.partial && item.phase !== "summary" && index !== finalMessageIdx;
     if (foldIntoProcess) {
       segment.push(item);
       continue;
@@ -853,11 +789,7 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
  * - consecutive agent content (messages + progress + errors/meta) after a
  *   user message share one left avatar column
  */
-export function groupIntoTurns(
-  items: ChatItem[],
-  hostSpeaker = "",
-  hostModel?: string,
-): Turn[] {
+export function groupIntoTurns(items: ChatItem[], hostSpeaker = "", hostModel?: string): Turn[] {
   const turns: Turn[] = [];
   for (const item of items) {
     if (item.kind === "message" && item.speaker === "user") {
@@ -880,10 +812,7 @@ export function groupIntoTurns(
       last.model ??= chatItemModel(item);
       continue;
     }
-    const speaker =
-      item.kind === "message"
-        ? item.speaker
-        : item.speaker || hostSpeaker;
+    const speaker = item.kind === "message" ? item.speaker : item.speaker || hostSpeaker;
     turns.push({
       kind: "agent",
       speaker,
@@ -894,10 +823,7 @@ export function groupIntoTurns(
   return turns;
 }
 
-export function shouldShowGenericThinking(
-  items: ChatItem[],
-  loading: boolean,
-): boolean {
+export function shouldShowGenericThinking(items: ChatItem[], loading: boolean): boolean {
   if (!loading) return false;
   let roundStart = 0;
   for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -910,9 +836,7 @@ export function shouldShowGenericThinking(
   return !items.slice(roundStart).some((item) => {
     if (item.kind === "message") return item.text.trim().length > 0;
     if (item.kind !== "progress") return false;
-    return item.steps.some(
-      (step) => step.kind === "tool" || step.text.trim().length > 0,
-    );
+    return item.steps.some((step) => step.kind === "tool" || step.text.trim().length > 0);
   });
 }
 
@@ -946,9 +870,7 @@ export function summarizeProgressDetails(steps: ProgressStep[]): {
     noteCount += 1;
   }
   return {
-    toolCounts: [...counts.entries()]
-      .map(([name, count]) => `${name} × ${count}`)
-      .join(" · "),
+    toolCounts: [...counts.entries()].map(([name, count]) => `${name} × ${count}`).join(" · "),
     latestNote,
     noteCount,
   };
@@ -963,9 +885,7 @@ export function summarizeProgressStatus(
   failedTools: number;
   totalTools: number;
 } {
-  const tools = steps.filter(
-    (step): step is ToolStep => step.kind === "tool",
-  );
+  const tools = steps.filter((step): step is ToolStep => step.kind === "tool");
   const doneTools = tools.filter((step) => step.status === "done").length;
   const failedTools = tools.filter((step) => step.status === "error").length;
   const statusSteps = tools.length > 0 ? tools : steps;
@@ -1020,9 +940,7 @@ function noticeSeverityMark(severity: string): string {
 /** Old kinagent dumped tools as markdown messages: **bash**\n```...``` */
 function isLegacyToolDumpMessage(text: string): boolean {
   if (typeof text !== "string" || !text) return false;
-  return /^\*\*(bash|read_file|write_file|edit_file|list_dir|glob)\*\*\s*\n```/m.test(
-    text.trim(),
-  );
+  return /^\*\*(bash|read_file|write_file|edit_file|list_dir|glob)\*\*\s*\n```/m.test(text.trim());
 }
 
 function parseLegacyToolDump(
@@ -1031,9 +949,7 @@ function parseLegacyToolDump(
   model: string | undefined,
   key: string,
 ): ToolStep | null {
-  const m = text
-    .trim()
-    .match(/^\*\*([a-z_]+)\*\*\s*\n```(?:\w*)\n?([\s\S]*?)```\s*$/i);
+  const m = text.trim().match(/^\*\*([a-z_]+)\*\*\s*\n```(?:\w*)\n?([\s\S]*?)```\s*$/i);
   if (!m) return null;
   const name = m[1];
   const output = m[2].trim();
@@ -1060,11 +976,7 @@ function countLines(s: string): number {
 // Speaker / visibility / progress classification live in eventMeta.ts
 // (canonical contract + one legacy decode path).
 
-function isUserFacingEvent(
-  p: Record<string, unknown>,
-  speaker: string,
-  hostSpeaker = "",
-): boolean {
+function isUserFacingEvent(p: Record<string, unknown>, speaker: string, hostSpeaker = ""): boolean {
   const meta = decodeCanonicalEventMeta(p, hostSpeaker);
   if (speaker) meta.speaker = speaker;
   if (meta.origin === "orchestrator" || meta.origin === "delegate") return true;
@@ -1097,10 +1009,7 @@ export function normalizeModel(value: unknown): string | undefined {
   return model || undefined;
 }
 
-export function findSpeakerModel(
-  events: TaskEvent[],
-  speaker: string,
-): string | undefined {
+export function findSpeakerModel(events: TaskEvent[], speaker: string): string | undefined {
   let model: string | undefined;
   for (const event of events) {
     const payload = (event.payload ?? {}) as Record<string, unknown>;
@@ -1140,15 +1049,8 @@ export function prettyToolName(name: string): string {
  * Map a workspace lifecycle event type to a human-readable label.
  * Uses the i18n layer so labels follow the active locale.
  */
-function workspaceEventLabel(
-  eventType: string,
-  workspaceId: string,
-  generation?: number,
-): string {
-  const genSuffix =
-    generation !== undefined && !isNaN(generation)
-      ? ` #${generation}`
-      : "";
+function workspaceEventLabel(eventType: string, workspaceId: string, generation?: number): string {
+  const genSuffix = generation !== undefined && !isNaN(generation) ? ` #${generation}` : "";
   const idSuffix = workspaceId ? ` (${workspaceId.slice(0, 8)})` : "";
 
   switch (eventType) {

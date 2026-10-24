@@ -38,10 +38,7 @@ import {
   type WorkerStep,
 } from "../api/client";
 import { liveResources } from "../api/liveResources";
-import {
-  usePendingResources,
-  useTaskResource,
-} from "../api/useLiveResources";
+import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
@@ -52,13 +49,7 @@ import RepoChip from "../components/chat/RepoChip";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
-import {
-  IconBack,
-  IconMachine,
-  IconPanel,
-  IconPullRequest,
-  IconTrash,
-} from "../components/icons";
+import { IconBack, IconMachine, IconPanel, IconPullRequest, IconTrash } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
@@ -74,20 +65,9 @@ import { remoteMachine } from "../lib/devices";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
-import {
-  normalizePermissionMode,
-  type PermissionMode,
-} from "../lib/permissionMode";
-import {
-  clearFollowUpDraft,
-  getFollowUpDraft,
-  setFollowUpDraft,
-} from "../lib/followUpDraft";
-import {
-  clearSessionScroll,
-  getSessionScroll,
-  setSessionScroll,
-} from "../lib/sessionScroll";
+import { normalizePermissionMode, type PermissionMode } from "../lib/permissionMode";
+import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
+import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelsForAgent } from "../lib/agentModels";
 import { toggleOverlay, type Overlay } from "../lib/overlay";
 import { useAppStore } from "../store/appStore";
@@ -139,8 +119,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [composerModel, setComposerModel] = useState("");
-  const [composerPermission, setComposerPermission] =
-    useState<PermissionMode>("default");
+  const [composerPermission, setComposerPermission] = useState<PermissionMode>("default");
   // Latest follow-up draft fields for this task (localStorage is source of truth).
   const draftPromptRef = useRef("");
   const draftAttachmentsRef = useRef<Upload[]>([]);
@@ -158,9 +137,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const publishOpen = overlay === "publish";
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
-    string | null | undefined
-  >(undefined);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
+    undefined,
+  );
   const [reviewBusy, setReviewBusy] = useState(false);
   /** Hide scroller until first position is applied — avoids top→bottom flash. */
   const [scrollReady, setScrollReady] = useState(false);
@@ -175,9 +154,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
    * Last known scrollTop while this pane was visible.
    * display:none (keep-alive hide) resets DOM scrollTop, so we restore from here.
    */
-  const savedScrollTopRef = useRef<number | null>(
-    id ? getSessionScroll(id) : null,
-  );
+  const savedScrollTopRef = useRef<number | null>(id ? getSessionScroll(id) : null);
   const markScrollReady = useCallback(() => {
     setScrollReady((prev) => (prev ? prev : true));
   }, []);
@@ -233,13 +210,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   useEffect(() => {
     if (!task) return;
     void loadUsage();
-  }, [
-    loadUsage,
-    task?.status,
-    task?.tokens_in,
-    task?.tokens_out,
-    task?.cost_usd,
-  ]);
+  }, [loadUsage, task?.status, task?.tokens_in, task?.tokens_out, task?.cost_usd]);
 
   // Opening a routine run marks it read (clears sidebar blue pill).
   useEffect(() => {
@@ -292,8 +263,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     const el = scrollRef.current;
     if (!el) return;
 
-    const saved =
-      savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
+    const saved = savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
 
     const finalize = (node: HTMLElement) => {
       didInitialScrollRef.current = true;
@@ -388,8 +358,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       if (stickToBottomRef.current) {
         node.scrollTop = node.scrollHeight;
       } else {
-        const saved =
-          savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
+        const saved = savedScrollTopRef.current ?? (id ? getSessionScroll(id) : null);
         if (saved != null) node.scrollTop = saved;
       }
       stickToBottomRef.current = isNearBottom(node);
@@ -435,7 +404,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     savedScrollTopRef.current = el.scrollTop;
     if (id) setSessionScroll(id, el.scrollTop);
   }, [events, approvals, userQuestions, sending, id]);
-
 
   const latestLimitHit = useMemo(() => {
     let lastUserSeq = 0;
@@ -502,11 +470,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     return () => window.removeEventListener("keydown", onKey);
   }, [active, needsYou, focusIdx]);
 
-
-  async function onLimitAction(
-    action: "wait" | "continue" | "switch" | "dismiss",
-    agent?: string,
-  ) {
+  async function onLimitAction(action: "wait" | "continue" | "switch" | "dismiss", agent?: string) {
     if (!task) return;
     const busyKey = action === "switch" && agent ? `switch:${agent}` : action;
     setLimitBusy(busyKey);
@@ -543,10 +507,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     }
   }
 
-  async function onAnswer(
-    questionId: string,
-    body: { selected: string[]; other_text: string },
-  ) {
+  async function onAnswer(questionId: string, body: { selected: string[]; other_text: string }) {
     setAnswerBusy((b) => ({ ...b, [questionId]: true }));
     try {
       const updated = await answerUserQuestion(questionId, body);
@@ -582,10 +543,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     draftAttachmentsRef.current = draft.attachments;
   }, [id]);
 
-  function persistFollowUpDraft(
-    prompt: string,
-    attachments = draftAttachmentsRef.current,
-  ) {
+  function persistFollowUpDraft(prompt: string, attachments = draftAttachmentsRef.current) {
     if (!id) return;
     draftPromptRef.current = prompt;
     draftAttachmentsRef.current = attachments;
@@ -605,13 +563,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       const currentPerm = normalizePermissionMode(task.permission_mode);
       const opts: { model?: string; permission_mode?: string } = {};
       if (picked !== current) opts.model = picked;
-      if (composerPermission !== currentPerm)
-        opts.permission_mode = composerPermission;
-      const t = await followUpPrompt(
-        task.id,
-        text,
-        Object.keys(opts).length ? opts : undefined,
-      );
+      if (composerPermission !== currentPerm) opts.permission_mode = composerPermission;
+      const t = await followUpPrompt(task.id, text, Object.keys(opts).length ? opts : undefined);
       liveResources.applyTaskSnapshot(t, requestRevision);
       clearFollowUpDraft(task.id);
       draftPromptRef.current = "";
@@ -645,9 +598,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   async function onDelete() {
     if (!task) return;
     const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
-    const ok = window.confirm(
-      tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""),
-    );
+    const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
     if (!ok) return;
     setDeleting(true);
     try {
@@ -663,8 +614,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       setDeleting(false);
     }
   }
-
-
 
   async function onRetry(fromSeq: number) {
     if (!task || !isTerminal(task.status) || actionBusy) return;
@@ -730,10 +679,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       pushToast(tr("task.saveArtifactDone"), "info");
       navigate(`/artifacts/${art.id}`);
     } catch (err) {
-      pushToast(
-        err instanceof Error ? err.message : tr("task.saveArtifactFailed"),
-        "error",
-      );
+      pushToast(err instanceof Error ? err.message : tr("task.saveArtifactFailed"), "error");
     } finally {
       setActionBusy(false);
     }
@@ -797,9 +743,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     }
   }
 
-
-
-
   if (loading) {
     return (
       <div className="flex-1 flex flex-col min-h-0 bg-kin-bg">
@@ -852,8 +795,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   const hostAgentName =
-    agents.find((agent) => agent.id === task.agent)?.name ??
-    agentDisplayName(task.agent || "kin");
+    agents.find((agent) => agent.id === task.agent)?.name ?? agentDisplayName(task.agent || "kin");
   const hostAgentAvatar = agentAvatarMeta(task.agent || "kin");
   const followUpDraft = getFollowUpDraft(task.id);
 
@@ -1080,13 +1022,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 )}
                 {needsYou.length > 0 && (
                   <p className="text-center text-[11.5px] text-kin-muted mt-2">
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                      A
-                    </kbd>{" "}
+                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
                     {tr("chat.approve")} ·{" "}
-                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">
-                      D
-                    </kbd>{" "}
+                    <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
                     {tr("chat.deny")}
                     {" · "}
                     {tr("question.hintKeys")}
@@ -1116,9 +1054,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   : tr("composer.followUpPlaceholder", { name: hostAgentName })
               }
               onValueChange={(v) => persistFollowUpDraft(v)}
-              onAttachmentsChange={(atts) =>
-                persistFollowUpDraft(draftPromptRef.current, atts)
-              }
+              onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
               onSubmit={onComposer}
               onStop={onStop}
             />
@@ -1203,11 +1139,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         className="hidden min-[1600px]:flex absolute top-14 right-3 bottom-3 z-10 w-[300px] flex-col gap-2.5 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-inspector)]/95 backdrop-blur-md shadow-lg px-3 py-3 min-h-0 overflow-y-auto kin-scroll"
         aria-label={tr("task.sessionRail")}
       >
-        <TaskUsageSummary
-          usage={usage}
-          loading={usageLoading}
-          variant="card"
-        />
+        <TaskUsageSummary usage={usage} loading={usageLoading} variant="card" />
         <ChangedFilesBar
           files={changedFiles}
           onOpenPath={onOpenWorkspacePath}
@@ -1290,10 +1222,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
 /** Extract speaker from a raw event payload for awaitingReply detection. */
 function parsePayloadSpeaker(payload: unknown): string | undefined {
-  if (payload && typeof payload === 'object') {
+  if (payload && typeof payload === "object") {
     const p = payload as Record<string, unknown>;
-    if (typeof p.speaker === 'string') return p.speaker;
-    if (typeof p.role === 'string') return p.role;
+    if (typeof p.speaker === "string") return p.speaker;
+    if (typeof p.role === "string") return p.role;
   }
   return undefined;
 }

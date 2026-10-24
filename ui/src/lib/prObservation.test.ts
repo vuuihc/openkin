@@ -16,10 +16,8 @@ import {
 import type { PullRequestObservation } from "../api/client";
 
 /** The real catalog is not loaded here; the key sent is the thing under test. */
-const tr = (
-  key: string,
-  params?: Record<string, string | number | undefined | null>,
-) => (params ? `${key}(${Object.values(params).join("|")})` : key);
+const tr = (key: string, params?: Record<string, string | number | undefined | null>) =>
+  params ? `${key}(${Object.values(params).join("|")})` : key;
 
 /** A parsed summary with only the fields a case cares about. */
 function ci(over: Partial<CISummary> = {}): CISummary {
@@ -89,9 +87,7 @@ describe("leadObservation", () => {
       obs({ head_branch: "kin/task/1/g1", observed_at: 500 }),
       obs({ head_branch: "kin/task/1/g2", observed_at: 100 }),
     ];
-    expect(leadObservation(rows, "kin/task/1/g2")?.head_branch).toBe(
-      "kin/task/1/g2",
-    );
+    expect(leadObservation(rows, "kin/task/1/g2")?.head_branch).toBe("kin/task/1/g2");
   });
 
   it("falls back to the most recent observation when the branch is gone", () => {
@@ -101,9 +97,7 @@ describe("leadObservation", () => {
       obs({ head_branch: "kin/task/1/g1", observed_at: 100 }),
       obs({ head_branch: "kin/task/1/g2", observed_at: 900 }),
     ];
-    expect(leadObservation(rows, "kin/task/1/g9")?.head_branch).toBe(
-      "kin/task/1/g2",
-    );
+    expect(leadObservation(rows, "kin/task/1/g9")?.head_branch).toBe("kin/task/1/g2");
     expect(leadObservation(rows, undefined)?.head_branch).toBe("kin/task/1/g2");
   });
 
@@ -124,9 +118,7 @@ describe("leadObservation", () => {
       obs({ head_branch: "kin/task/1/g9", last_error: "404" }),
       obs({ head_branch: "kin/task/1/g1", observed_at: 100 }),
     ];
-    expect(leadObservation(rows, "kin/task/1/gone")?.head_branch).toBe(
-      "kin/task/1/g1",
-    );
+    expect(leadObservation(rows, "kin/task/1/gone")?.head_branch).toBe("kin/task/1/g1");
   });
 
   it("returns null when there is nothing to show", () => {
@@ -141,9 +133,7 @@ describe("observedBranch", () => {
       obs({ head_branch: "kin/task/1/g1", observed_at: 500 }),
       obs({ head_branch: "kin/task/1/g2", observed_at: 100 }),
     ];
-    expect(observedBranch(rows, "kin/task/1/g2")?.head_branch).toBe(
-      "kin/task/1/g2",
-    );
+    expect(observedBranch(rows, "kin/task/1/g2")?.head_branch).toBe("kin/task/1/g2");
   });
 
   it("does not count another generation's row as this branch's", () => {
@@ -195,17 +185,13 @@ describe("otherPullRequests", () => {
       head_branch: "kin/task/1/g1",
       number: 43,
     });
-    expect(otherPullRequests([lead, other], lead).map((o) => o.number)).toEqual(
-      [43],
-    );
+    expect(otherPullRequests([lead, other], lead).map((o) => o.number)).toEqual([43]);
   });
 });
 
 describe("stateLabel", () => {
   it("reads draft before state", () => {
-    expect(stateLabel(tr, { is_draft: true, state: "open" })).toBe(
-      "pr.stateDraft",
-    );
+    expect(stateLabel(tr, { is_draft: true, state: "open" })).toBe("pr.stateDraft");
   });
 
   it("maps the three states, defaulting to open", () => {
@@ -231,26 +217,18 @@ describe("ciLabel", () => {
 
   it("names the failing checks when it knows them", () => {
     expect(
-      ciLabel(
-        tr,
-        "failure",
-        ci({ total: 5, failed: 2, failing: ["lint", "unit", "e2e", "docs"] }),
-      ),
+      ciLabel(tr, "failure", ci({ total: 5, failed: 2, failing: ["lint", "unit", "e2e", "docs"] })),
     ).toBe("pr.ciFailureNamed(5|2|lint, unit, e2e)");
   });
 
   it("falls back to counts, then to a bare verdict", () => {
-    expect(ciLabel(tr, "failure", ci({ total: 5, failed: 2 }))).toBe(
-      "pr.ciFailureCount(5|2)",
-    );
+    expect(ciLabel(tr, "failure", ci({ total: 5, failed: 2 }))).toBe("pr.ciFailureCount(5|2)");
     expect(ciLabel(tr, "failure", null)).toBe("pr.ciFailure");
     expect(ciLabel(tr, "pending", null)).toBe("pr.ciPending");
   });
 
   it("counts a run still in progress", () => {
-    expect(ciLabel(tr, "pending", ci({ total: 5, passed: 3 }))).toBe(
-      "pr.ciPendingCount(5|3)",
-    );
+    expect(ciLabel(tr, "pending", ci({ total: 5, passed: 3 }))).toBe("pr.ciPendingCount(5|3)");
   });
 });
 
@@ -291,9 +269,7 @@ describe("absentRepoLabel", () => {
   });
 
   it("names the machine holding the checkout instead", () => {
-    expect(absentRepoLabel(tr, { text: "studio", known: true })).toBe(
-      "pr.repoElsewhere(studio)",
-    );
+    expect(absentRepoLabel(tr, { text: "studio", known: true })).toBe("pr.repoElsewhere(studio)");
   });
 
   it("names a machine this console cannot place, by its id", () => {
@@ -320,9 +296,7 @@ describe("shouldAskForRead", () => {
   const elsewhere = { text: "Work Mac", known: true };
 
   it("asks about a branch that has no row of its own", () => {
-    expect(
-      shouldAskForRead({ branch: "feature/x", observations: [] }, null),
-    ).toBe(true);
+    expect(shouldAskForRead({ branch: "feature/x", observations: [] }, null)).toBe(true);
   });
 
   it("does not ask again about a branch that has one", () => {
@@ -342,9 +316,7 @@ describe("shouldAskForRead", () => {
   it("asks a task on another machine even with no branch recorded", () => {
     // A session that started while its machine was away, or a fork: the branch
     // is that machine's to report, and this ask is how it arrives.
-    expect(shouldAskForRead({ branch: "", observations: [] }, elsewhere)).toBe(
-      true,
-    );
+    expect(shouldAskForRead({ branch: "", observations: [] }, elsewhere)).toBe(true);
   });
 
   it("does not ask when no branch is recorded and no machine is known", () => {

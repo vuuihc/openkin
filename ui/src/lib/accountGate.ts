@@ -41,10 +41,7 @@ export function gateFor(account: AccountState): "token" | "claim" | "login" {
  * build does not know about still shows something useful rather than a raw
  * dot-path, which is what the i18n layer returns for a missing key.
  */
-export function authErrorText(
-  error: { code: string; message: string },
-  tr: Translator,
-): string {
+export function authErrorText(error: { code: string; message: string }, tr: Translator): string {
   const key = `account.errors.${error.code}`;
   const text = tr(key);
   if (text !== key) return text;
@@ -56,6 +53,9 @@ export function authErrorText(
  * limited to the ten characters the code actually has.
  */
 export function formatClaimCode(raw: string): string {
-  const bare = raw.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10);
+  const bare = raw
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 10);
   return bare.length > 5 ? `${bare.slice(0, 5)}-${bare.slice(5)}` : bare;
 }

@@ -1,11 +1,5 @@
 export type NewChatControlId =
-  | "machine"
-  | "permission"
-  | "routine"
-  | "hostModel"
-  | "dispatch"
-  | "cwd"
-  | "branch";
+  "machine" | "permission" | "routine" | "hostModel" | "dispatch" | "cwd" | "branch";
 
 export type NewChatControlGroup = {
   id: "run" | "route" | "workspace";

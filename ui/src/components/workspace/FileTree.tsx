@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ApiError,
-  type TaskWorkspaceEntry,
-} from "../../api/client";
+import { ApiError, type TaskWorkspaceEntry } from "../../api/client";
 import { t } from "../../i18n";
 import { useT } from "../../i18n/react";
 import { normalizeRelativePath } from "../../lib/paths";
 import { IconChevron, IconFile, IconFolder } from "../icons";
-import {
-  listWorkspaceViewTree,
-  workspaceTreeEntries,
-  type WorkspaceView,
-} from "./workspaceView";
+import { listWorkspaceViewTree, workspaceTreeEntries, type WorkspaceView } from "./workspaceView";
 
 type Props = {
   taskId: string;
@@ -47,54 +40,57 @@ export default function FileTree({
   const loadingRef = useRef<Set<string>>(new Set());
   const genRef = useRef(0);
 
-  const loadDir = useCallback(async (dirPath: string) => {
-    if (loadingRef.current.has(dirPath)) return;
-    loadingRef.current.add(dirPath);
-    const gen = genRef.current;
-    setDirs((prev) => ({
-      ...prev,
-      [dirPath]: {
-        entries: prev[dirPath]?.entries ?? [],
-        loading: true,
-        loaded: prev[dirPath]?.loaded ?? false,
-        error: null,
-        truncated: prev[dirPath]?.truncated ?? false,
-      },
-    }));
-    try {
-      const res = await listWorkspaceViewTree(
-        view,
-        taskId,
-        dirPath === ROOT ? undefined : dirPath,
-      );
-      const entries = workspaceTreeEntries(res);
-      if (genRef.current !== gen) return;
-      setDirs((prev) => ({
-        ...prev,
-        [dirPath]: {
-          entries,
-          loading: false,
-          loaded: true,
-          error: null,
-          truncated: Boolean(res.truncated),
-        },
-      }));
-    } catch (error) {
-      if (genRef.current !== gen) return;
+  const loadDir = useCallback(
+    async (dirPath: string) => {
+      if (loadingRef.current.has(dirPath)) return;
+      loadingRef.current.add(dirPath);
+      const gen = genRef.current;
       setDirs((prev) => ({
         ...prev,
         [dirPath]: {
           entries: prev[dirPath]?.entries ?? [],
-          loading: false,
-          loaded: false,
-          error: workspaceErrorMessage(error),
-          truncated: false,
+          loading: true,
+          loaded: prev[dirPath]?.loaded ?? false,
+          error: null,
+          truncated: prev[dirPath]?.truncated ?? false,
         },
       }));
-    } finally {
-      loadingRef.current.delete(dirPath);
-    }
-  }, [taskId, view]);
+      try {
+        const res = await listWorkspaceViewTree(
+          view,
+          taskId,
+          dirPath === ROOT ? undefined : dirPath,
+        );
+        const entries = workspaceTreeEntries(res);
+        if (genRef.current !== gen) return;
+        setDirs((prev) => ({
+          ...prev,
+          [dirPath]: {
+            entries,
+            loading: false,
+            loaded: true,
+            error: null,
+            truncated: Boolean(res.truncated),
+          },
+        }));
+      } catch (error) {
+        if (genRef.current !== gen) return;
+        setDirs((prev) => ({
+          ...prev,
+          [dirPath]: {
+            entries: prev[dirPath]?.entries ?? [],
+            loading: false,
+            loaded: false,
+            error: workspaceErrorMessage(error),
+            truncated: false,
+          },
+        }));
+      } finally {
+        loadingRef.current.delete(dirPath);
+      }
+    },
+    [taskId, view],
+  );
 
   useEffect(() => {
     genRef.current += 1;
@@ -104,17 +100,20 @@ export default function FileTree({
     void loadDir(ROOT);
   }, [loadDir, taskId]);
 
-  const expandToPath = useCallback(async (targetPath: string) => {
-    const clean = normalizeRelativePath(targetPath);
-    if (!clean || clean === ROOT) return;
-    const segments = clean.split("/");
-    let dir = ROOT;
-    for (const segment of segments.slice(0, -1)) {
-      dir = dir === ROOT ? segment : `${dir}/${segment}`;
-      setExpanded((prev) => ({ ...prev, [dir]: true }));
-      await loadDir(dir);
-    }
-  }, [loadDir]);
+  const expandToPath = useCallback(
+    async (targetPath: string) => {
+      const clean = normalizeRelativePath(targetPath);
+      if (!clean || clean === ROOT) return;
+      const segments = clean.split("/");
+      let dir = ROOT;
+      for (const segment of segments.slice(0, -1)) {
+        dir = dir === ROOT ? segment : `${dir}/${segment}`;
+        setExpanded((prev) => ({ ...prev, [dir]: true }));
+        await loadDir(dir);
+      }
+    },
+    [loadDir],
+  );
 
   useEffect(() => {
     if (!openPath) return;

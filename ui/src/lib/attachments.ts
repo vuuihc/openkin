@@ -11,8 +11,7 @@
  * local filesystem paths.
  */
 
-const ATTACHED_BLOCK_RE =
-  /(?:^|\n)Attached (?:image|file|files):\n((?:[ \t]*-[ \t].+\n?)*)/i;
+const ATTACHED_BLOCK_RE = /(?:^|\n)Attached (?:image|file|files):\n((?:[ \t]*-[ \t].+\n?)*)/i;
 
 /** Remove the whole "Attached …:" path block from a user prompt. */
 export function stripAttachmentBlock(text: string): string {

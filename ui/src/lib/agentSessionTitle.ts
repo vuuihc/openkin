@@ -12,11 +12,7 @@ function shortExternalRef(externalRef: string): string {
 
 export function isOpaqueAgentSessionTitle(title: string, externalRef: string): boolean {
   const value = title.trim();
-  return (
-    value.length === 0 ||
-    value === externalRef.trim() ||
-    opaqueTitlePattern.test(value)
-  );
+  return value.length === 0 || value === externalRef.trim() || opaqueTitlePattern.test(value);
 }
 
 /**

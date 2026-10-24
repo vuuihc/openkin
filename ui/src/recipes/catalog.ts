@@ -3,10 +3,7 @@
  * Launch via createTask / follow-up; no dedicated business APIs.
  */
 
-export type RecipeId =
-  | "focus.continue"
-  | "cover.update"
-  | "project.memory.tidy";
+export type RecipeId = "focus.continue" | "cover.update" | "project.memory.tidy";
 
 export type Recipe = {
   id: RecipeId;
@@ -61,10 +58,7 @@ export const RECIPE_CATALOG: Record<RecipeId, Recipe> = {
 };
 
 /** Simple {{token}} replacement; missing keys → empty string. */
-export function renderRecipe(
-  template: string,
-  ctx: RecipeContext = {},
-): string {
+export function renderRecipe(template: string, ctx: RecipeContext = {}): string {
   const map: Record<string, string> = {
     project_name: (ctx.project_name ?? "").trim(),
     project_id: (ctx.project_id ?? "").trim(),
@@ -87,4 +81,3 @@ export function getRecipe(id: RecipeId): Recipe {
 export function listRecipes(): Recipe[] {
   return (Object.keys(RECIPE_CATALOG) as RecipeId[]).map((id) => RECIPE_CATALOG[id]);
 }
-

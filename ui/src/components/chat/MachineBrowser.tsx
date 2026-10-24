@@ -293,9 +293,7 @@ function FolderTab({
               roots,
               entries,
               failed: Boolean(error),
-            }) && (
-              <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.empty")}</li>
-            )}
+            }) && <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.empty")}</li>}
             {!error && truncated && (
               <li className="px-3 py-2 text-[11px] text-kin-muted">
                 {tr("browse.truncated", { count: String(entries.length) })}
@@ -446,9 +444,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
               >
                 {(found.branches ?? []).map((name) => (
                   <option key={name} value={name}>
-                    {name === found.default_branch
-                      ? tr("browse.defaultBranch", { name })
-                      : name}
+                    {name === found.default_branch ? tr("browse.defaultBranch", { name }) : name}
                   </option>
                 ))}
               </select>

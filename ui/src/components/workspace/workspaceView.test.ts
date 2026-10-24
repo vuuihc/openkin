@@ -22,20 +22,21 @@ const generationBase = {
 };
 
 beforeEach(() => {
-  fetchMock.mockImplementation(async () =>
-    new Response(
-      JSON.stringify({
-        view: "source",
-        path: ".",
-        entries: [],
-        size: 0,
-        content: "",
-      }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      },
-    ),
+  fetchMock.mockImplementation(
+    async () =>
+      new Response(
+        JSON.stringify({
+          view: "source",
+          path: ".",
+          entries: [],
+          size: 0,
+          content: "",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
   );
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -81,14 +82,10 @@ describe("workspace view selection", () => {
   });
 
   it("allows edits only for a current generation in a writable state", () => {
-    const generation = (state: string) => [
-      { ...generationBase, id: "g1", generation: 1, state },
-    ];
+    const generation = (state: string) => [{ ...generationBase, id: "g1", generation: 1, state }];
 
     for (const state of ["active", "merge_blocked", "finalize_blocked"]) {
-      expect(resolveWorkspaceView("g1", "g1", generation(state)).editable).toBe(
-        true,
-      );
+      expect(resolveWorkspaceView("g1", "g1", generation(state)).editable).toBe(true);
     }
     for (const state of [
       "provisioning",
@@ -99,13 +96,9 @@ describe("workspace view selection", () => {
       "orphaned",
       "legacy_pending",
     ]) {
-      expect(resolveWorkspaceView("g1", "g1", generation(state)).editable).toBe(
-        false,
-      );
+      expect(resolveWorkspaceView("g1", "g1", generation(state)).editable).toBe(false);
     }
-    expect(
-      resolveWorkspaceView("g1", "g2", generation("active")).editable,
-    ).toBe(false);
+    expect(resolveWorkspaceView("g1", "g2", generation("active")).editable).toBe(false);
   });
 
   it("keeps automatic selection dynamic and explicit source selection stable", () => {
@@ -135,9 +128,7 @@ describe("workspace view selection", () => {
   });
 
   it("does not infer a released generation as current", () => {
-    const generations = [
-      { ...generationBase, id: "g1", generation: 1, state: "released" },
-    ];
+    const generations = [{ ...generationBase, id: "g1", generation: 1, state: "released" }];
     expect(effectiveCurrentWorkspaceID(null, generations)).toBeNull();
   });
 
@@ -156,9 +147,7 @@ describe("workspace view selection", () => {
         path: "ui/src",
         entries: [{ name: "App.tsx", type: "blob", size: 10 }],
       }),
-    ).toEqual([
-      { name: "App.tsx", path: "ui/src/App.tsx", type: "file", size: 10 },
-    ]);
+    ).toEqual([{ name: "App.tsx", path: "ui/src/App.tsx", type: "file", size: 10 }]);
   });
 
   it("prefers the latest non-orphaned generation", () => {
@@ -182,21 +171,13 @@ describe("workspace view selection", () => {
     });
     const base = workspaceLifecycleRefreshKey([event(1, "message")], "g1");
 
-    expect(workspaceLifecycleRefreshKey([event(1, "message")], "g2")).not.toBe(
+    expect(workspaceLifecycleRefreshKey([event(1, "message")], "g2")).not.toBe(base);
+    expect(
+      workspaceLifecycleRefreshKey([event(1, "message"), event(2, "workspace_ready")], "g1"),
+    ).not.toBe(base);
+    expect(workspaceLifecycleRefreshKey([event(1, "message"), event(2, "tool_result")], "g1")).toBe(
       base,
     );
-    expect(
-      workspaceLifecycleRefreshKey(
-        [event(1, "message"), event(2, "workspace_ready")],
-        "g1",
-      ),
-    ).not.toBe(base);
-    expect(
-      workspaceLifecycleRefreshKey(
-        [event(1, "message"), event(2, "tool_result")],
-        "g1",
-      ),
-    ).toBe(base);
   });
 });
 

@@ -65,9 +65,7 @@ export default function PermissionModePicker({
 
   return (
     <div className="flex items-center min-w-0 gap-2">
-      <span className="text-[11.5px] text-kin-muted flex-none">
-        {tr("permission.label")}
-      </span>
+      <span className="text-[11.5px] text-kin-muted flex-none">{tr("permission.label")}</span>
       <div
         className={[
           "inline-flex items-center rounded-lg border border-[var(--kin-hairline-strong)] p-0.5 gap-0.5",

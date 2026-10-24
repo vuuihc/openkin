@@ -39,28 +39,19 @@ export function resolveWorkspaceView(
     return SOURCE_VIEW;
   }
   const workspaceId =
-    selectedWorkspaceId ??
-    currentWorkspaceId ??
-    preferredWorkspaceID(generations);
+    selectedWorkspaceId ?? currentWorkspaceId ?? preferredWorkspaceID(generations);
   if (!workspaceId) return SOURCE_VIEW;
-  const generation =
-    generations.find((candidate) => candidate.id === workspaceId) ?? null;
+  const generation = generations.find((candidate) => candidate.id === workspaceId) ?? null;
   return {
     kind: "generation",
     workspaceId,
     generationState: generation?.state ?? null,
-    editable:
-      workspaceId === currentWorkspaceId &&
-      isWritableWorkspaceState(generation?.state),
+    editable: workspaceId === currentWorkspaceId && isWritableWorkspaceState(generation?.state),
   };
 }
 
 function isWritableWorkspaceState(state: string | undefined): boolean {
-  return (
-    state === "active" ||
-    state === "merge_blocked" ||
-    state === "finalize_blocked"
-  );
+  return state === "active" || state === "merge_blocked" || state === "finalize_blocked";
 }
 
 export function writeWorkspaceViewFile(
@@ -97,9 +88,7 @@ export function readWorkspaceViewFile(
   return readWorkspaceFile(taskId, view.workspaceId, path);
 }
 
-export function workspaceTreeEntries(
-  response: WorkspaceTreeResponse,
-): TaskWorkspaceEntry[] {
+export function workspaceTreeEntries(response: WorkspaceTreeResponse): TaskWorkspaceEntry[] {
   const base = response.path === "." ? "" : response.path.replace(/^\.?\//, "");
   return response.entries.map((entry) => ({
     name: entry.name,
@@ -109,9 +98,7 @@ export function workspaceTreeEntries(
   }));
 }
 
-export function preferredWorkspaceID(
-  generations: readonly WorkspaceGeneration[],
-): string | null {
+export function preferredWorkspaceID(generations: readonly WorkspaceGeneration[]): string | null {
   const preferred = [...generations]
     .sort((a, b) => b.generation - a.generation)
     .find((generation) => generation.state !== "orphaned");
@@ -127,17 +114,13 @@ export function effectiveCurrentWorkspaceID(
     : undefined;
   if (
     currentWorkspaceId &&
-    (!persisted ||
-      (persisted.state !== "released" && persisted.state !== "orphaned"))
+    (!persisted || (persisted.state !== "released" && persisted.state !== "orphaned"))
   ) {
     return currentWorkspaceId;
   }
   const current = [...generations]
     .sort((a, b) => b.generation - a.generation)
-    .find(
-      (generation) =>
-        generation.state !== "released" && generation.state !== "orphaned",
-    );
+    .find((generation) => generation.state !== "released" && generation.state !== "orphaned");
   return current?.id ?? null;
 }
 

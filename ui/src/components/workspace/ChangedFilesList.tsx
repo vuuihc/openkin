@@ -14,20 +14,13 @@ type Props = {
  * Sidebar list of agent-written files for the workspace dual-pane.
  * Left column of the diff panel: only mutations (write/edit/delete).
  */
-export default function ChangedFilesList({
-  files,
-  selectedPath,
-  onSelect,
-}: Props) {
+export default function ChangedFilesList({ files, selectedPath, onSelect }: Props) {
   const t = useT();
 
   const ordered = useMemo(() => {
     // Mutations only, newest first.
-    const mut = files.filter(
-      (f) => f.action !== "read" && f.action !== "other",
-    );
-    const bySeq = (a: ChangedFile, b: ChangedFile) =>
-      b.seq - a.seq || a.path.localeCompare(b.path);
+    const mut = files.filter((f) => f.action !== "read" && f.action !== "other");
+    const bySeq = (a: ChangedFile, b: ChangedFile) => b.seq - a.seq || a.path.localeCompare(b.path);
     return [...mut].sort(bySeq);
   }, [files]);
 
@@ -74,10 +67,9 @@ export default function ChangedFilesList({
                 ].join(" ")}
               >
                 <span
-                  className={[
-                    "mt-1 w-1.5 h-1.5 rounded-full flex-none",
-                    actionDot(f.action),
-                  ].join(" ")}
+                  className={["mt-1 w-1.5 h-1.5 rounded-full flex-none", actionDot(f.action)].join(
+                    " ",
+                  )}
                   aria-hidden
                 />
                 <IconFile size={13} className="mt-0.5 flex-none opacity-80" />
@@ -89,10 +81,7 @@ export default function ChangedFilesList({
                     <span>{actionLabel(f.action, t)}</span>
                     {(f.additions != null || f.deletions != null) && (
                       <span className="normal-case tabular-nums tracking-normal">
-                        <DeltaInline
-                          additions={f.additions ?? 0}
-                          deletions={f.deletions ?? 0}
-                        />
+                        <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
                       </span>
                     )}
                   </span>
@@ -125,10 +114,7 @@ function actionDot(action: ChangedFile["action"]): string {
 
 function actionLabel(
   action: ChangedFile["action"],
-  t: (
-    path: string,
-    params?: Record<string, string | number | null | undefined>,
-  ) => string,
+  t: (path: string, params?: Record<string, string | number | null | undefined>) => string,
 ): string {
   switch (action) {
     case "write":
@@ -142,22 +128,14 @@ function actionLabel(
   }
 }
 
-function DeltaInline({
-  additions,
-  deletions,
-}: {
-  additions: number;
-  deletions: number;
-}) {
+function DeltaInline({ additions, deletions }: { additions: number; deletions: number }) {
   if (additions === 0 && deletions === 0) {
     return <span className="text-kin-muted">±0</span>;
   }
   return (
     <span>
       {additions > 0 && <span className="text-[#8de4a0]">+{additions}</span>}
-      {additions > 0 && deletions > 0 && (
-        <span className="text-kin-muted"> </span>
-      )}
+      {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
       {deletions > 0 && <span className="text-[#ffb4ad]">−{deletions}</span>}
     </span>
   );

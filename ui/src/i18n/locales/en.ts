@@ -40,7 +40,8 @@ const en: MessageTree = {
     searchSessions: "Search sessions…",
     searchEmpty: "No sessions match “{query}”",
     searchHint: "Searching all sessions",
-    archiveConfirm: "Remove “{project}” from the sidebar? Tasks are kept and can be restored anytime.",
+    archiveConfirm:
+      "Remove “{project}” from the sidebar? Tasks are kept and can be restored anytime.",
     thisMachine: "This machine",
     machineOnline: "Online",
     machineOffline: "Offline, cannot take new work",
@@ -98,7 +99,8 @@ const en: MessageTree = {
     noAgents: "No agents available — configure provider or install a CLI",
     noAgentInstall: "No agent available — install a CLI or configure Provider",
     createFailed: "Failed to create task",
-    dispatchIncomplete: "Routing dispatch is incomplete — select a team or fill in agent/provider/model",
+    dispatchIncomplete:
+      "Routing dispatch is incomplete — select a team or fill in agent/provider/model",
     onePagerLabel: "Project One-Pager",
     onePagerPickCwd: "Pick a working directory to show that project's One-Pager here",
     onePagerLoading: "Loading One-Pager…",
@@ -136,9 +138,11 @@ const en: MessageTree = {
   machine: {
     title: "Machine",
     detecting: "Checking…",
-    pickerHint: "Which machine runs this. Switching also switches whose agents are offered and what the cwd refers to.",
+    pickerHint:
+      "Which machine runs this. Switching also switches whose agents are offered and what the cwd refers to.",
     gone: "{name} is no longer in the machine list",
-    goneHint: "{name} is no longer available (revoked, or the device list could not be read). Choose another machine.",
+    goneHint:
+      "{name} is no longer available (revoked, or the device list could not be read). Choose another machine.",
     rootsHint: "{name} works in directories like {path}; the cwd has to exist on that machine.",
     refresh: "Check again",
     thisMachine: "This machine",
@@ -148,8 +152,7 @@ const en: MessageTree = {
     offlineHint: "{name} is offline; work cannot be sent there.",
     noRoots: "{name} declared no working directories — type a path that exists on it.",
     noAgents: "No usable agent on {name}.",
-    listUnavailable:
-      "The machine list could not be read, so only this machine can run work.",
+    listUnavailable: "The machine list could not be read, so only this machine can run work.",
     runsOn: "runs on {name}",
     // Not "no longer visible": the id is missing from *this console's* machine
     // list, which is also what a list that has not loaded yet looks like. See
@@ -361,7 +364,8 @@ const en: MessageTree = {
   },
   projects: {
     title: "Projects",
-    empty: "No covers yet. Open a folder you already work in — Kin materializes a project from that cwd.",
+    empty:
+      "No covers yet. Open a folder you already work in — Kin materializes a project from that cwd.",
     loadFailed: "Failed to load projects",
     create: "Open folder…",
     createTitle: "Open or create from folder",
@@ -396,9 +400,11 @@ const en: MessageTree = {
     saveFailed: "Failed to save One-Pager",
     createFailed: "Failed to create project",
     conflict: "One-Pager changed elsewhere — reload and try again",
-    optionalHint: "A project is a working folder with a living cover page. Same idea as sidebar project groups.",
+    optionalHint:
+      "A project is a working folder with a living cover page. Same idea as sidebar project groups.",
     openOrCreate: "Open project",
-    createFromCwdHint: "Pick the same folder you use for chats (sidebar project). No separate name required.",
+    createFromCwdHint:
+      "Pick the same folder you use for chats (sidebar project). No separate name required.",
     pulse: "Pulse",
     refreshPulse: "Refresh cover",
     refreshing: "Refreshing…",
@@ -473,8 +479,10 @@ const en: MessageTree = {
     reasoning: "Reasoning",
     loadMore: "Load more",
     continueTitle: "Continue with {agent}",
-    continueDescription: "Calls the local {agent} directly and keeps the original session context; no cloud Provider binding is required.",
-    continueUnavailable: "This source session has no recorded working directory, so its history is view-only and cannot be resumed.",
+    continueDescription:
+      "Calls the local {agent} directly and keeps the original session context; no cloud Provider binding is required.",
+    continueUnavailable:
+      "This source session has no recorded working directory, so its history is view-only and cannot be resumed.",
     continuePrompt: "Next message for {agent}",
     continuePlaceholder: "Send the next message to {agent}…",
     continue: "Send and continue",
@@ -647,9 +655,9 @@ const en: MessageTree = {
     publishing: "Publishing…",
     published: "Published #{number}",
     // "A new one" rather than "one": the commonest way this ending happens is
-      // that a pull request for this branch already existed, and the machine's own
-      // sentence underneath says so. A headline denying one would be wrong there.
-      pushedNoPR: "The branch is on the remote, but no new pull request was opened for it.",
+    // that a pull request for this branch already existed, and the machine's own
+    // sentence underneath says so. A headline denying one would be wrong there.
+    pushedNoPR: "The branch is on the remote, but no new pull request was opened for it.",
     blocked: "Nothing was pushed ({code}).",
     // One line per refusal the machine can name. The machine's own sentence is
     // shown underneath: it carries the branch and the files, which these cannot.
@@ -679,8 +687,7 @@ const en: MessageTree = {
     questionsSection: "Questions",
     waiting: "{count} approval(s) waiting",
     allClear: "All clear",
-    allClearHint:
-      "When an agent needs permission, it shows up here for one-tap approve or deny.",
+    allClearHint: "When an agent needs permission, it shows up here for one-tap approve or deny.",
     running: "Running",
     loadFailed: "Failed to load",
     decisionFailed: "Decision failed",
@@ -775,10 +782,12 @@ const en: MessageTree = {
     provider: {
       heading: "Cognition · Provider",
       descA: "OpenAI-compatible API for the built-in ",
-      descB: " agent (planning, chat, future wiki). Point base URL at OpenAI, xAI, Ollama, or a proxy like cliproxyapi / LiteLLM. Coding still uses Claude Code / Codex / Grok CLIs.",
+      descB:
+        " agent (planning, chat, future wiki). Point base URL at OpenAI, xAI, Ollama, or a proxy like cliproxyapi / LiteLLM. Coding still uses Claude Code / Codex / Grok CLIs.",
       baseUrl: "Base URL",
       baseUrlHintA: "OpenAI-compatible root. Host-only URLs get ",
-      baseUrlHintB: " appended automatically (e.g. https://aipool.example.com → …/v1/chat/completions).",
+      baseUrlHintB:
+        " appended automatically (e.g. https://aipool.example.com → …/v1/chat/completions).",
       apiKey: "API key",
       apiKeyHint:
         "Stored in ~/.kin/kin.db. Leave unchanged to keep existing key; clear field and save to remove.",
@@ -789,7 +798,8 @@ const en: MessageTree = {
       modelsEmpty: "No models returned by this endpoint",
       modelsPick: "Pick from {count} models…",
       stream: "Stream responses",
-      streamHint: "Stream tokens into the chat as they arrive (Kin agent). Also helps with gateway idle timeouts. Turn off if a proxy mishandles stream=true.",
+      streamHint:
+        "Stream tokens into the chat as they arrive (Kin agent). Also helps with gateway idle timeouts. Turn off if a proxy mishandles stream=true.",
       defaultAgent: "Default agent (no @mention)",
       autoOption: "Auto (Kin if provider ready, else first CLI)",
       unavailable: " — unavailable",
@@ -880,8 +890,10 @@ const en: MessageTree = {
       heading: "Remote Relay",
       desc: "Access this Mac from your phone through a Cloudflare Worker you control. No Tailscale or shared Wi-Fi required.",
       cloudflareTitle: "Deploy Cloudflare Worker",
-      cloudflareDesc: "Sign in to Cloudflare and Kin will create or update the Relay Worker, then fill the URL below.",
-      cloudflareConnected: "Connected to {account}. Select an account to deploy or update the Relay Worker.",
+      cloudflareDesc:
+        "Sign in to Cloudflare and Kin will create or update the Relay Worker, then fill the URL below.",
+      cloudflareConnected:
+        "Connected to {account}. Select an account to deploy or update the Relay Worker.",
       connectCloudflare: "Sign in to Cloudflare",
       reconnectCloudflare: "Sign in again",
       cloudflareAccount: "Cloudflare account",
@@ -896,16 +908,19 @@ const en: MessageTree = {
       deployWorker: "Deploy Relay Worker",
       updateWorker: "Update Worker",
       deployingWorker: "Deploying...",
-      deployFirst: "Deploy the Worker first. Custom domain binding appears after the Worker URL is available.",
+      deployFirst:
+        "Deploy the Worker first. Custom domain binding appears after the Worker URL is available.",
       bindDomain: "Bind custom domain",
       bindingDomain: "Binding...",
       cloudflareLoginOpened: "Cloudflare authorization opened",
       cloudflareLoginTimedOut: "Cloudflare authorization was not completed",
       cloudflareDeployed: "Relay Worker deployed",
       cloudflareDomainBound: "Custom Relay domain bound",
-      workerDevUnreachable: "workers.dev is unreachable on this network. If exactly one Cloudflare domain is available, Kin will bind a custom domain automatically; otherwise select a domain and bind it.",
+      workerDevUnreachable:
+        "workers.dev is unreachable on this network. If exactly one Cloudflare domain is available, Kin will bind a custom domain automatically; otherwise select a domain and bind it.",
       workerUrl: "Relay Worker URL",
-      workerUrlHint: "Enter the deployed Worker address, for example https://kin-relay.example.workers.dev.",
+      workerUrlHint:
+        "Enter the deployed Worker address, for example https://kin-relay.example.workers.dev.",
       save: "Save and connect",
       refreshPairing: "Refresh pairing",
       pairingTitle: "Scan this code with Kin for iOS",
@@ -941,8 +956,7 @@ const en: MessageTree = {
       uiBaseUrlHint:
         "Set automatically from the most-public listener at serve start; override for tunnels.",
       quotaWaitAfter: "Quota wait notification threshold (seconds)",
-      quotaWaitAfterHint:
-        "Notify once when a quota wait has lasted this long. Minimum 60 seconds.",
+      quotaWaitAfterHint: "Notify once when a quota wait has lasted this long. Minimum 60 seconds.",
       save: "Save",
       sendTest: "Send test notification",
       sending: "Sending…",
@@ -951,12 +965,15 @@ const en: MessageTree = {
     },
     price: {
       heading: "Price table",
-      descA: "USD per 1M tokens for cost estimates when the agent does not report a bill. Claude Code uses ",
-      descB: " from the CLI and ignores this table. Defaults are a curated subset of the open-source ",
+      descA:
+        "USD per 1M tokens for cost estimates when the agent does not report a bill. Claude Code uses ",
+      descB:
+        " from the CLI and ignores this table. Defaults are a curated subset of the open-source ",
       descC: " price list (edit freely; keys must match the model id exactly). Shape: ",
       sourceName: "LiteLLM",
       sourceHint: "Open dataset · regenerate with scripts/gen_default_price_table.py",
-      overrideHint: "If you previously saved a custom table, it overrides the built-in defaults until you replace it.",
+      overrideHint:
+        "If you previously saved a custom table, it overrides the built-in defaults until you replace it.",
       save: "Save price table",
       resetDefaults: "Reset to LiteLLM defaults",
       invalidJson: "price_table must be valid JSON",
@@ -996,7 +1013,8 @@ const en: MessageTree = {
       qualityFloorMedium: "Medium",
       qualityFloorHeavy: "Heavy",
       forcePhases: "Force phases",
-      forcePhasesHint: "Leave empty for adaptive phases. Execute is required when phases are forced.",
+      forcePhasesHint:
+        "Leave empty for adaptive phases. Execute is required when phases are forced.",
       phasePlan: "Plan",
       phaseExecute: "Execute",
       phaseReview: "Review",
@@ -1006,7 +1024,8 @@ const en: MessageTree = {
       ask: "Ask every time",
       switch: "Switch agent",
       manualFallback: "Manual fallback",
-      manualFallbackHint: "Allow manual dispatch to auto-fallback when the selected route is unavailable.",
+      manualFallbackHint:
+        "Allow manual dispatch to auto-fallback when the selected route is unavailable.",
       save: "Save routing defaults",
       profiles: "Routing Profiles",
       profilesDesc: "Team/profiles define how tasks are routed across providers and agents.",
@@ -1132,8 +1151,7 @@ const en: MessageTree = {
     missingTitle: "Connect to your Kin daemon",
     unauthorizedBlurb:
       "The token stored in this browser is invalid or was rotated. Paste a fresh token to reconnect.",
-    missingBlurb:
-      "This browser has no auth token. Paste the daemon token to open the console.",
+    missingBlurb: "This browser has no auth token. Paste the daemon token to open the console.",
     tokenLabel: "Auth token",
     pasteToken: "Paste token…",
     pasteToContinue: "Paste a token to continue.",
@@ -1191,8 +1209,10 @@ const en: MessageTree = {
     defaultProfile: "default",
     newWithProfile: "New {profile}",
     closePanel: "Close terminal panel",
-    runsOn: "This task runs on {name}. The terminal is a shell on this machine and does not open that machine's directory.",
-    runsOnUnknown: "This task runs on {name} (not in the machine list). The terminal is a shell on this machine and does not open that machine's directory.",
+    runsOn:
+      "This task runs on {name}. The terminal is a shell on this machine and does not open that machine's directory.",
+    runsOnUnknown:
+      "This task runs on {name} (not in the machine list). The terminal is a shell on this machine and does not open that machine's directory.",
     closeSession: "Close this session",
     chooseFolder: "Choose folder",
     noProfiles: "No supported shells found",
@@ -1208,7 +1228,8 @@ const en: MessageTree = {
   },
   routines: {
     title: "Routines",
-    subtitle: "Scheduled reports and their inbox. Noteworthy runs buzz; quiet ones stay in the feed.",
+    subtitle:
+      "Scheduled reports and their inbox. Noteworthy runs buzz; quiet ones stay in the feed.",
     loadFailed: "Failed to load routines",
     actionFailed: "Action failed",
     markAllRead: "Mark all read",
@@ -1257,7 +1278,8 @@ const en: MessageTree = {
     created: "Routine created",
     createEntry: "New routine",
     createPanelTitle: "Create a routine",
-    createPanelHint: "Same composer as New chat — save as a recurring report instead of a one-off session.",
+    createPanelHint:
+      "Same composer as New chat — save as a recurring report instead of a one-off session.",
     firstRunLabel: "First run",
     nextRunAsap: "Runs on the next scheduler tick (about every 30s).",
     nextRunAt: "First run at {when}",
@@ -1292,7 +1314,8 @@ const en: MessageTree = {
     authHint: "Best-effort local credential check — not a live login probe",
     askInstall: "Ask default Agent to install",
     askInstallHint: "Open a prefilled task for the current default Agent; review before sending",
-    installPrompt: "Please install {agent} on this Mac.\n\nInstallation command (ask for my confirmation before running it; do not run any other command):\n{command}\n\nAfter installation, re-check whether the Agent is available and report its version or failure reason. Do not ask for or output any API key, password, or token.",
+    installPrompt:
+      "Please install {agent} on this Mac.\n\nInstallation command (ask for my confirmation before running it; do not run any other command):\n{command}\n\nAfter installation, re-check whether the Agent is available and report its version or failure reason. Do not ask for or output any API key, password, or token.",
     copyInstall: "Copy install command",
     copyUpdate: "Copy update command",
     setDefault: "Set as default",

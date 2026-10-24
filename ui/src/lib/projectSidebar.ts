@@ -249,10 +249,7 @@ export function touchSession(taskId: string, at = Date.now()): void {
 }
 
 /** Max activity timestamp for a single task (ms). Includes local open/follow-up. */
-export function taskActivityAt(
-  t: Task,
-  sessionMap: Record<string, number>,
-): number {
+export function taskActivityAt(t: Task, sessionMap: Record<string, number>): number {
   const localTouch = sessionMap[t.id] ?? 0;
   return Math.max(localTouch, t.finished_at ?? 0, t.started_at ?? 0, t.created_at ?? 0);
 }
@@ -314,16 +311,14 @@ export function groupByProject(
 
     // Keep full sorted list; Sidebar ProjectBlock collapses to a preview + scroll.
     // Sessions sorted by agent last-response time (finished_at), not user click time.
-    const sortedItems = items
-      .slice()
-      .sort(
-        (a, b) =>
-          // Active tasks first
-          (isActiveTask(b) ? 1 : 0) - (isActiveTask(a) ? 1 : 0) ||
-          (b.finished_at ?? 0) - (a.finished_at ?? 0) ||
-          (b.started_at ?? 0) - (a.started_at ?? 0) ||
-          b.created_at - a.created_at,
-      );
+    const sortedItems = items.slice().sort(
+      (a, b) =>
+        // Active tasks first
+        (isActiveTask(b) ? 1 : 0) - (isActiveTask(a) ? 1 : 0) ||
+        (b.finished_at ?? 0) - (a.finished_at ?? 0) ||
+        (b.started_at ?? 0) - (a.started_at ?? 0) ||
+        b.created_at - a.created_at,
+    );
     let lastTask = 0;
     let created = Number.POSITIVE_INFINITY;
     let hasActive = false;

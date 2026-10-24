@@ -34,10 +34,7 @@ export function RoutingDefaultsSection() {
 
   const load = useCallback(async () => {
     try {
-      const [d, o] = await Promise.all([
-        getRoutingDefaults(),
-        getRoutingOptions(),
-      ]);
+      const [d, o] = await Promise.all([getRoutingDefaults(), getRoutingOptions()]);
       setOptions(o);
       setEnabled(d.enabled);
       setDefaultTeam(d.default_team);
@@ -46,9 +43,7 @@ export function RoutingDefaultsSection() {
       setTerminalPolicy(d.terminal_limit_policy || "ask");
       setManualFallback(d.manual_fallback);
       const floor = d.quality_floor;
-      setQualityFloor(
-        floor === "light" || floor === "medium" || floor === "heavy" ? floor : "",
-      );
+      setQualityFloor(floor === "light" || floor === "medium" || floor === "heavy" ? floor : "");
       setForcePhases(d.force_phases ?? []);
     } catch {
       // ignore
@@ -137,7 +132,9 @@ export function RoutingDefaultsSection() {
             >
               <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
               <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-              <option value="intelligent-max">{tr("settings.routing.objectiveIntelligentMax")}</option>
+              <option value="intelligent-max">
+                {tr("settings.routing.objectiveIntelligentMax")}
+              </option>
             </select>
           </label>
 
@@ -166,9 +163,7 @@ export function RoutingDefaultsSection() {
             <legend className="text-xs font-medium text-kin-secondary">
               {tr("settings.routing.forcePhases")}
             </legend>
-            <p className="text-[11px] text-kin-muted">
-              {tr("settings.routing.forcePhasesHint")}
-            </p>
+            <p className="text-[11px] text-kin-muted">{tr("settings.routing.forcePhasesHint")}</p>
             <div className="flex flex-wrap gap-4">
               {(["plan", "execute", "review"] as const).map((phase) => (
                 <label key={phase} className="flex items-center gap-2 text-xs text-kin-secondary">
@@ -183,7 +178,9 @@ export function RoutingDefaultsSection() {
                       }
                     }}
                   />
-                  {tr(`settings.routing.phase${phase[0].toUpperCase()}${phase.slice(1)}` as "settings.routing.phasePlan")}
+                  {tr(
+                    `settings.routing.phase${phase[0].toUpperCase()}${phase.slice(1)}` as "settings.routing.phasePlan",
+                  )}
                 </label>
               ))}
             </div>
@@ -246,7 +243,9 @@ export function RoutingDefaultsSection() {
         >
           {busy ? tr("settings.saving") : tr("settings.routing.save")}
         </button>
-        {saved && <span className="text-xs text-kin-green">{tr("settings.notify.savedShort")}</span>}
+        {saved && (
+          <span className="text-xs text-kin-green">{tr("settings.notify.savedShort")}</span>
+        )}
         {error && <span className="text-xs text-kin-red">{error}</span>}
       </div>
     </section>
@@ -311,18 +310,33 @@ export function RoutingProfilesSection() {
       .catch(() => setProfiles(profiles)); // revert on error
   };
 
-  const updatePhase = (phase: string, field: keyof RoutingPhasePolicy, value: string | string[]) => {
+  const updatePhase = (
+    phase: string,
+    field: keyof RoutingPhasePolicy,
+    value: string | string[],
+  ) => {
     if (!editing) return;
     const updated = { ...editing };
     updated.phases = { ...updated.phases };
-    updated.phases[phase] = { ...(updated.phases[phase] || { agent: "", tier: "balanced", provider_priority: [], fallback: [] }), [field]: value };
+    updated.phases[phase] = {
+      ...(updated.phases[phase] || {
+        agent: "",
+        tier: "balanced",
+        provider_priority: [],
+        fallback: [],
+      }),
+      [field]: value,
+    };
     setEditing(updated);
   };
 
   const addPhase = (phase: string) => {
     if (!editing) return;
     const updated = { ...editing };
-    updated.phases = { ...updated.phases, [phase]: { agent: "", tier: "balanced", provider_priority: [], fallback: [] } };
+    updated.phases = {
+      ...updated.phases,
+      [phase]: { agent: "", tier: "balanced", provider_priority: [], fallback: [] },
+    };
     setEditing(updated);
   };
 
@@ -369,12 +383,15 @@ export function RoutingProfilesSection() {
                   {p.alias && (
                     <span className="text-[10px] font-mono text-kin-muted">{p.alias}</span>
                   )}
-                  <span className={`text-[10px] font-semibold uppercase tracking-wide ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}>
+                  <span
+                    className={`text-[10px] font-semibold uppercase tracking-wide ${p.enabled ? "text-kin-green" : "text-kin-muted"}`}
+                  >
                     {p.enabled ? "enabled" : "disabled"}
                   </span>
                 </div>
                 <p className="text-[11px] text-kin-muted font-mono truncate">
-                  {p.id} · {Object.keys(p.phases).length} phase(s) · {p.default_objective || "balanced"}
+                  {p.id} · {Object.keys(p.phases).length} phase(s) ·{" "}
+                  {p.default_objective || "balanced"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 shrink-0">
@@ -405,7 +422,9 @@ export function RoutingProfilesSection() {
             {isNew ? "New profile" : "Edit profile"}
           </h3>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">{tr("settings.routing.profileId")}</span>
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.routing.profileId")}
+            </span>
             <input
               type="text"
               value={editing.id}
@@ -421,7 +440,9 @@ export function RoutingProfilesSection() {
             )}
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">{tr("settings.routing.profileName")}</span>
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.routing.profileName")}
+            </span>
             <input
               type="text"
               value={editing.name}
@@ -438,7 +459,9 @@ export function RoutingProfilesSection() {
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">{tr("settings.routing.alias")}</span>
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.routing.alias")}
+            </span>
             <input
               type="text"
               value={editing.alias || ""}
@@ -454,10 +477,14 @@ export function RoutingProfilesSection() {
               checked={editing.enabled}
               onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
             />
-            <span className="text-xs text-kin-secondary">{tr("settings.routing.profileEnabled")}</span>
+            <span className="text-xs text-kin-secondary">
+              {tr("settings.routing.profileEnabled")}
+            </span>
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-kin-secondary">{tr("settings.routing.defaultObjective")}</span>
+            <span className="text-xs font-medium text-kin-secondary">
+              {tr("settings.routing.defaultObjective")}
+            </span>
             <select
               value={editing.default_objective || "balanced"}
               onChange={(e) => setEditing({ ...editing, default_objective: e.target.value })}
@@ -465,7 +492,9 @@ export function RoutingProfilesSection() {
             >
               <option value="balanced">{tr("settings.routing.objectiveBalanced")}</option>
               <option value="cost-min">{tr("settings.routing.objectiveCostMin")}</option>
-              <option value="intelligent-max">{tr("settings.routing.objectiveIntelligentMax")}</option>
+              <option value="intelligent-max">
+                {tr("settings.routing.objectiveIntelligentMax")}
+              </option>
             </select>
           </label>
 
@@ -492,9 +521,14 @@ export function RoutingProfilesSection() {
               </div>
             </div>
             {Object.entries(editing.phases).map(([phase, pp]) => (
-              <div key={phase} className="rounded border border-[var(--kin-hairline)] p-2 space-y-2">
+              <div
+                key={phase}
+                className="rounded border border-[var(--kin-hairline)] p-2 space-y-2"
+              >
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-mono font-semibold text-kin-secondary">{phase}</span>
+                  <span className="text-[11px] font-mono font-semibold text-kin-secondary">
+                    {phase}
+                  </span>
                   <button
                     type="button"
                     onClick={() => removePhase(phase)}
@@ -526,21 +560,43 @@ export function RoutingProfilesSection() {
                   </select>
                 </label>
                 <label className="block space-y-0.5">
-                  <span className="text-[10px] text-kin-muted">{tr("settings.routing.providerPriority")}</span>
+                  <span className="text-[10px] text-kin-muted">
+                    {tr("settings.routing.providerPriority")}
+                  </span>
                   <input
                     type="text"
                     value={pp.provider_priority.join(", ")}
-                    onChange={(e) => updatePhase(phase, "provider_priority", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
+                    onChange={(e) =>
+                      updatePhase(
+                        phase,
+                        "provider_priority",
+                        e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      )
+                    }
                     className="kin-input min-h-[36px] text-xs font-mono"
                     placeholder="provider-1, provider-2"
                   />
                 </label>
                 <label className="block space-y-0.5">
-                  <span className="text-[10px] text-kin-muted">{tr("settings.routing.fallback")}</span>
+                  <span className="text-[10px] text-kin-muted">
+                    {tr("settings.routing.fallback")}
+                  </span>
                   <input
                     type="text"
                     value={pp.fallback.join(", ")}
-                    onChange={(e) => updatePhase(phase, "fallback", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
+                    onChange={(e) =>
+                      updatePhase(
+                        phase,
+                        "fallback",
+                        e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean),
+                      )
+                    }
                     className="kin-input min-h-[36px] text-xs font-mono"
                     placeholder="next_provider_same_tier"
                   />
@@ -574,7 +630,10 @@ export function RoutingProfilesSection() {
             </button>
             <button
               type="button"
-              onClick={() => { setEditing(null); setIsNew(false); }}
+              onClick={() => {
+                setEditing(null);
+                setIsNew(false);
+              }}
               className="kin-btn-secondary"
             >
               {tr("settings.provider.cancel")}

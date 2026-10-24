@@ -97,9 +97,7 @@ function hasStoredToken(): boolean {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  auth: hasStoredToken()
-    ? { status: "ok" }
-    : { status: "need_token", reason: "missing" },
+  auth: hasStoredToken() ? { status: "ok" } : { status: "need_token", reason: "missing" },
   account: NO_ACCOUNT,
   wsStatus: "disconnected",
   reconnectGen: 0,
@@ -118,6 +116,5 @@ export const useAppStore = create<AppState>((set) => ({
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
     }, 5000);
   },
-  dismissToast: (id) =>
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));

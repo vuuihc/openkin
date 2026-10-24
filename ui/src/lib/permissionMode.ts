@@ -1,11 +1,7 @@
 /** Session-level permission mode shared by all agents in a task. */
 export type PermissionMode = "default" | "accept_edits" | "yolo";
 
-export const PERMISSION_MODES: PermissionMode[] = [
-  "default",
-  "accept_edits",
-  "yolo",
-];
+export const PERMISSION_MODES: PermissionMode[] = ["default", "accept_edits", "yolo"];
 
 /** i18n key for each mode's short label. Shared so the picker and any summary
  *  that names the current mode can never disagree about what it is called. */

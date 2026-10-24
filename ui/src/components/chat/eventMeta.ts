@@ -8,14 +8,7 @@
  */
 
 export type EventOrigin =
-  | "user"
-  | "host"
-  | "worker"
-  | "orchestrator"
-  | "delegate"
-  | "create"
-  | "follow_up"
-  | string;
+  "user" | "host" | "worker" | "orchestrator" | "delegate" | "create" | "follow_up" | string;
 
 export type EventPhase = "plan" | "progress" | "summary" | string;
 
@@ -69,9 +62,7 @@ export function decodeCanonicalEventMeta(
 ): CanonicalEventMeta {
   const speaker = resolveSpeaker(payload, hostSpeaker);
   const agent =
-    typeof payload.agent === "string" && payload.agent.trim()
-      ? payload.agent.trim()
-      : undefined;
+    typeof payload.agent === "string" && payload.agent.trim() ? payload.agent.trim() : undefined;
   const origin =
     typeof payload.source === "string" && payload.source.trim()
       ? (payload.source.trim() as EventOrigin)
@@ -81,13 +72,9 @@ export function decodeCanonicalEventMeta(
       ? (payload.phase.trim() as EventPhase)
       : undefined;
   const model =
-    typeof payload.model === "string" && payload.model.trim()
-      ? payload.model.trim()
-      : undefined;
+    typeof payload.model === "string" && payload.model.trim() ? payload.model.trim() : undefined;
   const role =
-    typeof payload.role === "string" && payload.role.trim()
-      ? payload.role.trim()
-      : undefined;
+    typeof payload.role === "string" && payload.role.trim() ? payload.role.trim() : undefined;
 
   const explicit = readVisibility(payload);
   let visibility = explicit;
@@ -118,10 +105,7 @@ export function decodeCanonicalEventMeta(
  * Control-plane labels that appear only as `source` are never speakers.
  * Legacy rows may encode a built-in agent id in `source`.
  */
-export function resolveSpeaker(
-  p: Record<string, unknown>,
-  hostSpeaker = "",
-): string {
+export function resolveSpeaker(p: Record<string, unknown>, hostSpeaker = ""): string {
   for (const raw of [p.speaker, p.agent]) {
     if (typeof raw === "string") {
       const s = raw.trim();
@@ -140,9 +124,7 @@ export function resolveSpeaker(
   return hostSpeaker || "assistant";
 }
 
-function readVisibility(
-  p: Record<string, unknown>,
-): EventVisibility | undefined {
+function readVisibility(p: Record<string, unknown>): EventVisibility | undefined {
   const v = p.visibility as { task?: boolean; user?: boolean } | undefined;
   if (!v || typeof v !== "object") return undefined;
   if (typeof v.user !== "boolean" && typeof v.task !== "boolean") {
@@ -176,19 +158,10 @@ function legacyVisibilityFor(
   return { user: true, task: true };
 }
 
-function readExecution(
-  p: Record<string, unknown>,
-): ExecutionAttribution | undefined {
-  const id =
-    typeof p.execution_id === "string" ? p.execution_id.trim() : undefined;
-  const agent =
-    typeof p.execution_agent === "string"
-      ? p.execution_agent.trim()
-      : undefined;
-  const model =
-    typeof p.execution_model === "string"
-      ? p.execution_model.trim()
-      : undefined;
+function readExecution(p: Record<string, unknown>): ExecutionAttribution | undefined {
+  const id = typeof p.execution_id === "string" ? p.execution_id.trim() : undefined;
+  const agent = typeof p.execution_agent === "string" ? p.execution_agent.trim() : undefined;
+  const model = typeof p.execution_model === "string" ? p.execution_model.trim() : undefined;
   let step: number | undefined;
   if (typeof p.execution_step === "number" && Number.isFinite(p.execution_step)) {
     step = p.execution_step;
@@ -218,10 +191,7 @@ export function isTaskOnlyMeta(meta: CanonicalEventMeta): boolean {
  * Explicit phase is preferred; wording heuristics apply only to legacy
  * orchestrator rows that predate the phase field (preserved for stored history).
  */
-export function isProgressMessageMeta(
-  meta: CanonicalEventMeta,
-  text: string,
-): boolean {
+export function isProgressMessageMeta(meta: CanonicalEventMeta, text: string): boolean {
   if (meta.speaker === "user") return false;
   if (isTaskOnlyMeta(meta)) return true;
   if (meta.role === "reasoning") return true;
@@ -245,7 +215,6 @@ export function isProgressMessageMeta(
 export function isLegacyOrchestratorSummaryWording(text: string): boolean {
   const trimmed = text.trim();
   return (
-    /^完成(（有失败）)?[：:]/u.test(trimmed) ||
-    /^(done|completed)([:：]|\s*\()/i.test(trimmed)
+    /^完成(（有失败）)?[：:]/u.test(trimmed) || /^(done|completed)([:：]|\s*\()/i.test(trimmed)
   );
 }

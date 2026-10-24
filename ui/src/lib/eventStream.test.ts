@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../api/client";
-import {
-  hasSequenceGap,
-  highestContiguousSeq,
-  mergeEventsBySeq,
-} from "./eventStream";
+import { hasSequenceGap, highestContiguousSeq, mergeEventsBySeq } from "./eventStream";
 
 function ev(seq: number): TaskEvent {
   return {

@@ -108,10 +108,7 @@ export function getViewedSessionIds(): string[] {
  * - succeeded (unviewed): green
  * - succeeded (viewed) / canceled: none
  */
-export function sessionStatusDotClass(
-  status: string,
-  viewed: boolean,
-): string | null {
+export function sessionStatusDotClass(status: string, viewed: boolean): string | null {
   if (status === "failed") return "bg-kin-red";
   if (status === "canceled") return null;
   if (status === "succeeded") {

@@ -10,10 +10,7 @@ type Props = {
   session: TerminalSession;
   active: boolean;
   onExit: (id: string, exitCode: number) => void;
-  onConnectionChange: (
-    id: string,
-    status: "connecting" | "connected" | "disconnected",
-  ) => void;
+  onConnectionChange: (id: string, status: "connecting" | "connected" | "disconnected") => void;
 };
 
 type WSMessage =
@@ -33,18 +30,10 @@ function parseWSTextMessage(data: string): WSMessage | null {
     if (type === "ready" && "session" in message) {
       return message as WSMessage;
     }
-    if (
-      type === "exit" &&
-      "exit_code" in message &&
-      typeof message.exit_code === "number"
-    ) {
+    if (type === "exit" && "exit_code" in message && typeof message.exit_code === "number") {
       return message as WSMessage;
     }
-    if (
-      type === "error" &&
-      "message" in message &&
-      typeof message.message === "string"
-    ) {
+    if (type === "error" && "message" in message && typeof message.message === "string") {
       return message as WSMessage;
     }
   } catch {
@@ -53,12 +42,7 @@ function parseWSTextMessage(data: string): WSMessage | null {
   return null;
 }
 
-export default function TerminalView({
-  session,
-  active,
-  onExit,
-  onConnectionChange,
-}: Props) {
+export default function TerminalView({ session, active, onExit, onConnectionChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -98,11 +82,7 @@ export default function TerminalView({
 
   const fitAndResize = useCallback(() => {
     const container = containerRef.current;
-    if (
-      !container ||
-      container.offsetWidth <= 0 ||
-      container.offsetHeight <= 0
-    ) {
+    if (!container || container.offsetWidth <= 0 || container.offsetHeight <= 0) {
       return;
     }
     try {
@@ -140,12 +120,7 @@ export default function TerminalView({
 
     try {
       const socket = new WebSocket(
-        terminalSocketURL(
-          window.location.protocol,
-          window.location.host,
-          session.id,
-          token,
-        ),
+        terminalSocketURL(window.location.protocol, window.location.host, session.id, token),
       );
       socket.binaryType = "arraybuffer";
       wsRef.current = socket;
@@ -240,10 +215,7 @@ export default function TerminalView({
           return false;
         }
       }
-      if (
-        (event.metaKey || (event.ctrlKey && event.shiftKey)) &&
-        event.code === "KeyV"
-      ) {
+      if ((event.metaKey || (event.ctrlKey && event.shiftKey)) && event.code === "KeyV") {
         const readText = navigator.clipboard?.readText;
         if (!readText) return true;
         if (isKeyDown) {

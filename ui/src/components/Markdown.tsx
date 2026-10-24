@@ -6,13 +6,7 @@ import MermaidBlock from "./MermaidBlock";
  * Supports: headings, fenced code, mermaid diagrams, paragraphs, lists,
  * blockquotes, hr, GFM tables, links, bold, italic, inline code.
  */
-export default function Markdown({
-  text,
-  className = "",
-}: {
-  text: string;
-  className?: string;
-}) {
+export default function Markdown({ text, className = "" }: { text: string; className?: string }) {
   if (!text) return null;
   const blocks = splitBlocks(text);
   return (
@@ -90,19 +84,11 @@ export default function Markdown({
           );
         }
         if (b.type === "hr") {
-          return (
-            <hr
-              key={i}
-              className="border-0 border-t border-[var(--kin-hairline)] my-1"
-            />
-          );
+          return <hr key={i} className="border-0 border-t border-[var(--kin-hairline)] my-1" />;
         }
         if (b.type === "table") {
           return (
-            <div
-              key={i}
-              className="overflow-x-auto rounded-lg border border-[var(--kin-hairline)]"
-            >
+            <div key={i} className="overflow-x-auto rounded-lg border border-[var(--kin-hairline)]">
               <table className="w-full min-w-[240px] border-collapse text-left text-[13px] sm:text-[13.5px]">
                 <thead className="bg-[var(--kin-fill)]">
                   <tr>
@@ -118,10 +104,7 @@ export default function Markdown({
                 </thead>
                 <tbody>
                   {b.rows.map((row, ri) => (
-                    <tr
-                      key={ri}
-                      className="odd:bg-transparent even:bg-[var(--kin-fill)]/40"
-                    >
+                    <tr key={ri} className="odd:bg-transparent even:bg-[var(--kin-fill)]/40">
                       {row.map((cell, ci) => (
                         <td
                           key={ci}
@@ -152,12 +135,7 @@ function isMermaidLang(lang?: string): boolean {
   if (!lang) return false;
   const l = lang.trim().toLowerCase();
   // Common aliases used by docs / GitHub / Obsidian.
-  return (
-    l === "mermaid" ||
-    l === "mmd" ||
-    l.startsWith("mermaid ") ||
-    l.startsWith("mermaid{")
-  );
+  return l === "mermaid" || l === "mmd" || l.startsWith("mermaid ") || l.startsWith("mermaid{");
 }
 
 type Block =
@@ -296,8 +274,7 @@ function splitTableRow(line: string): string[] {
   return t.split("|").map((c) => c.trim());
 }
 
-const INLINE_RE =
-  /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;
+const INLINE_RE = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;
 
 function inline(s: string): ReactNode[] {
   const parts: ReactNode[] = [];

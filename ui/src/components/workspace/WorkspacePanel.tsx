@@ -152,29 +152,18 @@ export default function WorkspacePanel({
 }: Props) {
   useT();
   const tr = useT();
-  const generationRefreshKey = workspaceLifecycleRefreshKey(
-    events,
-    currentWorkspaceId,
-  );
-  const [generationResource, setGenerationResource] =
-    useState<WorkspaceGenerationResource>(() => ({
-      taskId,
-      refreshKey: generationRefreshKey,
-      generations: [],
-      loading: true,
-    }));
+  const generationRefreshKey = workspaceLifecycleRefreshKey(events, currentWorkspaceId);
+  const [generationResource, setGenerationResource] = useState<WorkspaceGenerationResource>(() => ({
+    taskId,
+    refreshKey: generationRefreshKey,
+    generations: [],
+    loading: true,
+  }));
   const generationResourceCurrent =
-    generationResource.taskId === taskId &&
-    generationResource.refreshKey === generationRefreshKey;
-  const generations = generationResourceCurrent
-    ? generationResource.generations
-    : [];
-  const generationsLoading =
-    !generationResourceCurrent || generationResource.loading;
-  const effectiveCurrentWorkspaceId = effectiveCurrentWorkspaceID(
-    currentWorkspaceId,
-    generations,
-  );
+    generationResource.taskId === taskId && generationResource.refreshKey === generationRefreshKey;
+  const generations = generationResourceCurrent ? generationResource.generations : [];
+  const generationsLoading = !generationResourceCurrent || generationResource.loading;
+  const effectiveCurrentWorkspaceId = effectiveCurrentWorkspaceID(currentWorkspaceId, generations);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,16 +198,10 @@ export default function WorkspacePanel({
   }, [taskId, generationRefreshKey]);
 
   const workspaceView = useMemo(
-    () =>
-      resolveWorkspaceView(
-        selectedWorkspaceId,
-        effectiveCurrentWorkspaceId,
-        generations,
-      ),
+    () => resolveWorkspaceView(selectedWorkspaceId, effectiveCurrentWorkspaceId, generations),
     [selectedWorkspaceId, effectiveCurrentWorkspaceId, generations],
   );
-  const viewedWorkspaceId =
-    workspaceView.kind === "generation" ? workspaceView.workspaceId : null;
+  const viewedWorkspaceId = workspaceView.kind === "generation" ? workspaceView.workspaceId : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [file, setFile] = useState<TaskWorkspaceFileResponse | WorkspaceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -361,10 +344,7 @@ export default function WorkspacePanel({
   const visibleChangedFiles = useMemo(
     () =>
       changedFiles.filter(
-        (f) =>
-          f.action !== "read" &&
-          f.action !== "other" &&
-          !dismissedPaths.has(f.path),
+        (f) => f.action !== "read" && f.action !== "other" && !dismissedPaths.has(f.path),
       ),
     [changedFiles, dismissedPaths],
   );
@@ -381,9 +361,7 @@ export default function WorkspacePanel({
   useEffect(() => {
     setDismissedPaths(new Set());
   }, [changedFilesKey]);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(
-    hasChanges ? "changes" : "files",
-  );
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(hasChanges ? "changes" : "files");
 
   // Prefer Changes tab whenever the task gains mutations; don't yank the user
   // away if they already switched to Files manually after open.
@@ -393,25 +371,28 @@ export default function WorkspacePanel({
     setSidebarTab(hasChanges ? "changes" : "files");
   }, [hasChanges]);
 
-  const loadFile = useCallback(async (path: string) => {
-    const reqID = ++requestRef.current;
-    setSelectedPath(path);
-    setLoading(true);
-    setError(null);
-    try {
-      const next = await readWorkspaceViewFile(workspaceView, taskId, path);
-      if (requestRef.current !== reqID) return;
-      setFile(next);
-    } catch (err) {
-      if (requestRef.current !== reqID) return;
-      setFile(null);
-      setError(workspaceErrorMessage(err));
-    } finally {
-      if (requestRef.current === reqID) {
-        setLoading(false);
+  const loadFile = useCallback(
+    async (path: string) => {
+      const reqID = ++requestRef.current;
+      setSelectedPath(path);
+      setLoading(true);
+      setError(null);
+      try {
+        const next = await readWorkspaceViewFile(workspaceView, taskId, path);
+        if (requestRef.current !== reqID) return;
+        setFile(next);
+      } catch (err) {
+        if (requestRef.current !== reqID) return;
+        setFile(null);
+        setError(workspaceErrorMessage(err));
+      } finally {
+        if (requestRef.current === reqID) {
+          setLoading(false);
+        }
       }
-    }
-  }, [taskId, workspaceView]);
+    },
+    [taskId, workspaceView],
+  );
 
   useEffect(() => {
     requestRef.current += 1;
@@ -664,16 +645,10 @@ export default function WorkspacePanel({
                 diff={enrichedDiff}
                 cwd={cwd}
                 taskId={taskId}
-                workspaceId={
-                  workspaceView.kind === "generation"
-                    ? workspaceView.workspaceId
-                    : null
-                }
+                workspaceId={workspaceView.kind === "generation" ? workspaceView.workspaceId : null}
                 editable={workspaceView.editable}
                 onSaved={(updated) => setFile(updated)}
-                reviewActions={
-                  workspaceView.editable && reviewActions && Boolean(selectedPath)
-                }
+                reviewActions={workspaceView.editable && reviewActions && Boolean(selectedPath)}
                 actionsBusy={actionsBusy}
                 onKeep={() => {
                   if (!selectedPath) return;

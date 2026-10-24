@@ -1,15 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  Approval,
-  Task,
-  TaskEvent,
-  UserQuestion,
-} from "./client";
-import {
-  LiveResourceStore,
-  taskListKey,
-  type LiveResourceAPI,
-} from "./liveResources";
+import type { Approval, Task, TaskEvent, UserQuestion } from "./client";
+import { LiveResourceStore, taskListKey, type LiveResourceAPI } from "./liveResources";
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -96,17 +87,10 @@ describe("LiveResourceStore", () => {
     await store.refreshTaskList(params);
 
     tasks = [task({ status: "succeeded" }), task({ id: "task-2" })];
-    const applied = store.applyChangesSince(store.currentRevision(), [tasks[0]], [
-      "task-2",
-    ]);
+    const applied = store.applyChangesSince(store.currentRevision(), [tasks[0]], ["task-2"]);
 
-    expect(applied.map((message) => message.kind)).toEqual([
-      "task_update",
-      "task_deleted",
-    ]);
-    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual([
-      "task-1",
-    ]);
+    expect(applied.map((message) => message.kind)).toEqual(["task_update", "task_deleted"]);
+    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual(["task-1"]);
     expect(store.getTaskList(taskListKey(params)).data[0]?.status).toBe("succeeded");
     expect(store.getTaskDetail("task-1").data.task?.status).toBe("succeeded");
 
@@ -125,11 +109,7 @@ describe("LiveResourceStore", () => {
       kind: "task_update",
       data: task({ status: "succeeded" }),
     });
-    const applied = store.applyChangesSince(
-      startedAt,
-      [task({ status: "queued" })],
-      ["task-2"],
-    );
+    const applied = store.applyChangesSince(startedAt, [task({ status: "queued" })], ["task-2"]);
 
     expect(applied).toEqual([{ kind: "task_deleted", data: { id: "task-2" } }]);
     expect(store.getTaskList(taskListKey(params)).data[0]?.status).toBe("succeeded");
@@ -139,9 +119,7 @@ describe("LiveResourceStore", () => {
   it("renews an open transcript from its event cursor", async () => {
     let events = [event(1)];
     const client = api({
-      listEvents: vi.fn(async (_id, since) =>
-        events.filter((item) => item.seq > since),
-      ),
+      listEvents: vi.fn(async (_id, since) => events.filter((item) => item.seq > since)),
     });
     const store = new LiveResourceStore(client);
     const release = store.acquireTask("task-1");
@@ -150,9 +128,7 @@ describe("LiveResourceStore", () => {
     events = [event(1), event(2, "result")];
     await store.refreshOpenDetails();
 
-    expect(store.getTaskDetail("task-1").data.events.map((item) => item.seq)).toEqual([
-      1, 2,
-    ]);
+    expect(store.getTaskDetail("task-1").data.events.map((item) => item.seq)).toEqual([1, 2]);
     release();
   });
 
@@ -178,9 +154,9 @@ describe("LiveResourceStore", () => {
     });
     await vi.waitFor(() => expect(listEvents).toHaveBeenLastCalledWith("task-1", 0));
     await vi.waitFor(() =>
-      expect(
-        store.getTaskDetail("task-1").data.events.map((item) => item.type),
-      ).toEqual(["retained-message"]),
+      expect(store.getTaskDetail("task-1").data.events.map((item) => item.type)).toEqual([
+        "retained-message",
+      ]),
     );
     release();
   });
@@ -191,9 +167,7 @@ describe("LiveResourceStore", () => {
       .fn<LiveResourceAPI["listEvents"]>()
       .mockResolvedValueOnce([event(1, "old-message"), event(2, "old-result")])
       .mockResolvedValueOnce([event(1, "new-message")]);
-    const getTask = vi.fn(async () =>
-      task({ event_epoch: epoch, status: "succeeded" }),
-    );
+    const getTask = vi.fn(async () => task({ event_epoch: epoch, status: "succeeded" }));
     const store = new LiveResourceStore(api({ getTask, listEvents }));
     const release = store.acquireTask("task-1");
     await store.refreshTask("task-1");
@@ -202,9 +176,9 @@ describe("LiveResourceStore", () => {
     await store.refreshTask("task-1", true);
 
     expect(listEvents).toHaveBeenLastCalledWith("task-1", 0);
-    expect(
-      store.getTaskDetail("task-1").data.events.map((item) => item.type),
-    ).toEqual(["new-message"]);
+    expect(store.getTaskDetail("task-1").data.events.map((item) => item.type)).toEqual([
+      "new-message",
+    ]);
     release();
   });
 
@@ -229,9 +203,9 @@ describe("LiveResourceStore", () => {
     await store.refreshTask("task-1", true);
 
     expect(listEvents).toHaveBeenLastCalledWith("task-1", 0);
-    expect(
-      store.getTaskDetail("task-1").data.events.map((item) => item.type),
-    ).toEqual(["new-message"]);
+    expect(store.getTaskDetail("task-1").data.events.map((item) => item.type)).toEqual([
+      "new-message",
+    ]);
     release();
   });
 
@@ -271,9 +245,7 @@ describe("LiveResourceStore", () => {
 
     expect(store.getSnapshot().pending.data.approvals).toEqual([approval()]);
     expect(store.getSnapshot().pending.data.questions).toEqual([]);
-    expect(store.getSnapshot().pending.error).toEqual(
-      new Error("questions unavailable"),
-    );
+    expect(store.getSnapshot().pending.error).toEqual(new Error("questions unavailable"));
   });
 
   it("deduplicates task and approval updates", async () => {
@@ -313,9 +285,7 @@ describe("LiveResourceStore", () => {
       data: task({ id: "task-4" }),
     });
 
-    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual([
-      "task-4",
-    ]);
+    expect(store.getTaskList(taskListKey(params)).data.map((item) => item.id)).toEqual(["task-4"]);
     release();
   });
 
@@ -378,10 +348,7 @@ describe("LiveResourceStore", () => {
 
     await vi.waitFor(() => {
       expect(
-        store.getTaskDetail("task-1").data.events.map((item) => [
-          item.seq,
-          item.type,
-        ]),
+        store.getTaskDetail("task-1").data.events.map((item) => [item.seq, item.type]),
       ).toEqual([
         [1, "message"],
         [2, "message"],
@@ -406,9 +373,7 @@ describe("LiveResourceStore", () => {
     });
     store.applyTaskSnapshot(task({ status: "queued" }), requestRevision);
 
-    expect(store.getTaskList(taskListKey(params)).data[0]?.status).toBe(
-      "succeeded",
-    );
+    expect(store.getTaskList(taskListKey(params)).data[0]?.status).toBe("succeeded");
     release();
   });
 
@@ -428,9 +393,10 @@ describe("LiveResourceStore", () => {
       barrier.revision,
     );
 
-    expect(
-      store.getTaskDetail("task-1").data.events.map((item) => item.type),
-    ).toEqual(["new-message", "new-result"]);
+    expect(store.getTaskDetail("task-1").data.events.map((item) => item.type)).toEqual([
+      "new-message",
+      "new-result",
+    ]);
     release();
   });
 
@@ -444,9 +410,7 @@ describe("LiveResourceStore", () => {
     const reset = store.resetTaskEvents("task-1");
     expect(store.getTaskDetail("task-1").data.events).toEqual([]);
     expect(store.restoreTaskEvents(reset)).toBe(true);
-    expect(
-      store.getTaskDetail("task-1").data.events.map((item) => item.seq),
-    ).toEqual([1, 2]);
+    expect(store.getTaskDetail("task-1").data.events.map((item) => item.seq)).toEqual([1, 2]);
     release();
   });
 
@@ -481,13 +445,8 @@ describe("LiveResourceStore", () => {
   it("rejects a speculative retry epoch when the server still has the old epoch", async () => {
     const store = new LiveResourceStore(
       api({
-        getTask: vi.fn(async () =>
-          task({ event_epoch: 0, status: "succeeded" }),
-        ),
-        listEvents: vi.fn(async () => [
-          event(1, "old-message"),
-          event(2, "old-result"),
-        ]),
+        getTask: vi.fn(async () => task({ event_epoch: 0, status: "succeeded" })),
+        listEvents: vi.fn(async () => [event(1, "old-message"), event(2, "old-result")]),
       }),
     );
     const release = store.acquireTask("task-1");
@@ -499,10 +458,7 @@ describe("LiveResourceStore", () => {
     const detail = store.getTaskDetail("task-1");
     expect(detail.loading).toBe(false);
     expect(detail.error).toBeNull();
-    expect(detail.data.events.map((item) => item.type)).toEqual([
-      "old-message",
-      "old-result",
-    ]);
+    expect(detail.data.events.map((item) => item.type)).toEqual(["old-message", "old-result"]);
     release();
   });
 
@@ -541,9 +497,7 @@ describe("LiveResourceStore", () => {
 
   it("ignores an old refresh after the retry event epoch changes", async () => {
     const oldEvents = deferred<TaskEvent[]>();
-    const store = new LiveResourceStore(
-      api({ listEvents: vi.fn(() => oldEvents.promise) }),
-    );
+    const store = new LiveResourceStore(api({ listEvents: vi.fn(() => oldEvents.promise) }));
     const release = store.acquireTask("task-1");
     const refresh = store.refreshTask("task-1");
 
@@ -555,9 +509,7 @@ describe("LiveResourceStore", () => {
     oldEvents.resolve([event(1, "old-generation")]);
     await refresh;
 
-    expect(store.getTaskDetail("task-1").data.events).toEqual([
-      event(1, "new-generation", 1),
-    ]);
+    expect(store.getTaskDetail("task-1").data.events).toEqual([event(1, "new-generation", 1)]);
     release();
   });
 
@@ -596,9 +548,7 @@ describe("LiveResourceStore", () => {
 
     expect(getTask).toHaveBeenCalledTimes(4);
     expect(store.getTaskDetail("task-1").data.task?.title).toBe("fresh");
-    expect(store.getTaskDetail("task-1").data.events).toEqual([
-      event(1, "live-after-reacquire"),
-    ]);
+    expect(store.getTaskDetail("task-1").data.events).toEqual([event(1, "live-after-reacquire")]);
     releaseFresh();
   });
 
@@ -627,16 +577,12 @@ describe("LiveResourceStore", () => {
     await oldRecovery.promise;
     await Promise.resolve();
 
-    expect(store.getTaskDetail("task-1").data.events).toEqual([
-      event(1, "fresh-after-reacquire"),
-    ]);
+    expect(store.getTaskDetail("task-1").data.events).toEqual([event(1, "fresh-after-reacquire")]);
     releaseFresh();
   });
 
   it("evicts an unregistered task transcript", async () => {
-    const store = new LiveResourceStore(
-      api({ listEvents: vi.fn(async () => [event(1)]) }),
-    );
+    const store = new LiveResourceStore(api({ listEvents: vi.fn(async () => [event(1)]) }));
     const release = store.acquireTask("task-1");
     await store.refreshTask("task-1");
     release();

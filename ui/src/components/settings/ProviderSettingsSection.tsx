@@ -1,11 +1,7 @@
 import { Link } from "react-router-dom";
 import type { AgentInfo, ModelSpec, ProviderEntry } from "../../api/client";
 import { useT } from "../../i18n/react";
-import {
-  agentCatalogState,
-  runnableAgents,
-  sortAgentCatalog,
-} from "../../lib/agentCatalog";
+import { agentCatalogState, runnableAgents, sortAgentCatalog } from "../../lib/agentCatalog";
 import { SettingsTabPanel } from "./SettingsPrimitives";
 
 export function providerDisplayName(provider: ProviderEntry): string {
@@ -197,9 +193,7 @@ export function ProviderSettingsSection({
         {editingId !== null ? (
           <div className="rounded-lg border border-[var(--kin-hairline)] p-3 space-y-3 bg-kin-elevated">
             <h3 className="text-[12px] font-semibold text-kin-secondary">
-              {editingId
-                ? tr("settings.provider.editHeading")
-                : tr("settings.provider.addHeading")}
+              {editingId ? tr("settings.provider.editHeading") : tr("settings.provider.addHeading")}
             </h3>
             <label className="block space-y-1">
               <span className="text-xs font-medium text-kin-secondary">
@@ -334,9 +328,7 @@ export function ProviderSettingsSection({
                 onClick={onToggleRouting}
                 className="flex items-center gap-1 text-xs font-medium text-kin-secondary hover:text-kin-blue"
               >
-                <span className={`transition-transform ${showRouting ? "rotate-90" : ""}`}>
-                  ▸
-                </span>
+                <span className={`transition-transform ${showRouting ? "rotate-90" : ""}`}>▸</span>
                 {tr("settings.routing.heading")}
               </button>
               {showRouting && (
@@ -473,8 +465,7 @@ export function ProviderSettingsSection({
               }
               return (
                 <option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.id})
-                  {suffix ? ` — ${suffix}` : ""}
+                  {agent.name} ({agent.id}){suffix ? ` — ${suffix}` : ""}
                 </option>
               );
             })}
@@ -483,7 +474,10 @@ export function ProviderSettingsSection({
             {tr("settings.provider.defaultAgentHint")}
           </span>
           {agentList.some((agent) => !agent.available) ? (
-            <Link to="/agents" className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline sm:min-h-0 sm:mt-1">
+            <Link
+              to="/agents"
+              className="inline-flex min-h-[44px] items-center text-[11px] text-kin-blue hover:underline sm:min-h-0 sm:mt-1"
+            >
               {tr("agents.manageLink")}
             </Link>
           ) : null}

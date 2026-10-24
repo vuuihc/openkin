@@ -16,7 +16,12 @@ import Composer from "../components/chat/Composer";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import AgentModelPicker from "../components/chat/AgentModelPicker";
 import MachinePicker from "../components/chat/MachinePicker";
-import { DispatchSelector, defaultDispatchSelection, isDispatchReady, type DispatchSelection } from "../components/chat/DispatchSelector";
+import {
+  DispatchSelector,
+  defaultDispatchSelection,
+  isDispatchReady,
+  type DispatchSelection,
+} from "../components/chat/DispatchSelector";
 import { IconMachine, IconRoutines } from "../components/icons";
 import RoutineScheduleFields, {
   defaultNextRunLocal,
@@ -43,12 +48,7 @@ import {
   setDraftPrompt,
 } from "../lib/draftChat";
 import { useMachines } from "../hooks/useMachines";
-import {
-  catalogFor,
-  cwdAfterMachineChange,
-  cwdSuggestions,
-  findMachine,
-} from "../lib/devices";
+import { catalogFor, cwdAfterMachineChange, cwdSuggestions, findMachine } from "../lib/devices";
 import { projectLabel } from "../lib/paths";
 import {
   getDraftPermissionMode,
@@ -57,10 +57,7 @@ import {
   setDraftPermissionMode,
   type PermissionMode,
 } from "../lib/permissionMode";
-import {
-  newChatControlGroups,
-  type NewChatControlId,
-} from "../lib/newChatWorkbench";
+import { newChatControlGroups, type NewChatControlId } from "../lib/newChatWorkbench";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -78,8 +75,8 @@ export default function NewChatPage() {
   const [initialValue, setInitialValue] = useState(() => getDraftPrompt());
   const [previewPrompt, setPreviewPrompt] = useState(() => getDraftPrompt());
   const [initialAttachments] = useState(() => getDraftAttachments());
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
-    () => getDraftPermissionMode(),
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(() =>
+    getDraftPermissionMode(),
   );
   const [asRoutine, setAsRoutine] = useState(false);
   /** Phone only: the run/route/workspace controls live behind this. */
@@ -137,14 +134,11 @@ export default function NewChatPage() {
   const [dispatchPreviewBlocked, setDispatchPreviewBlocked] = useState(false);
   const [sending, setSending] = useState(false);
   const [project, setProject] = useState<Project | null>(null);
-  const [projectSummary, setProjectSummary] =
-    useState<OnePagerSummary | null>(null);
+  const [projectSummary, setProjectSummary] = useState<OnePagerSummary | null>(null);
   const [projectLookupState, setProjectLookupState] = useState<
     "idle" | "loading" | "ready" | "missing" | "error"
   >("idle");
-  const [projectLookupError, setProjectLookupError] = useState<string | null>(
-    null,
-  );
+  const [projectLookupError, setProjectLookupError] = useState<string | null>(null);
   const [projectLookupKey, setProjectLookupKey] = useState(0);
   const [dirs, setDirs] = useState<string[]>([]);
 
@@ -164,7 +158,11 @@ export default function NewChatPage() {
     getRoutingOptions()
       .then((opts) => {
         if (opts.defaults.enabled && opts.defaults.default_team) {
-          setDispatch({ mode: "auto", team: opts.defaults.default_team, objective: opts.defaults.objective || "balanced" });
+          setDispatch({
+            mode: "auto",
+            team: opts.defaults.default_team,
+            objective: opts.defaults.objective || "balanced",
+          });
         }
       })
       .catch(() => undefined);
@@ -250,9 +248,7 @@ export default function NewChatPage() {
         setProject(null);
         setProjectSummary(null);
         setProjectLookupState("error");
-        setProjectLookupError(
-          e instanceof Error ? e.message : tr("newChat.projectSummaryError"),
-        );
+        setProjectLookupError(e instanceof Error ? e.message : tr("newChat.projectSummaryError"));
       }
     })();
     return () => {
@@ -270,10 +266,7 @@ export default function NewChatPage() {
   );
   const machineLabel = machine && !machine.isSelf ? machine.label : "";
 
-  const available = useMemo(
-    () => agents.filter((a) => a.available),
-    [agents],
-  );
+  const available = useMemo(() => agents.filter((a) => a.available), [agents]);
   const availableIds = useMemo(() => available.map((a) => a.id), [available]);
   const defaultAgent = available.find((a) => a.default) ?? available[0];
   // Prefer explicit host pick; else daemon default; else first available.
@@ -282,21 +275,15 @@ export default function NewChatPage() {
     defaultAgent?.id ||
     availableIds[0] ||
     "";
-  const mainAgentMeta =
-    available.find((a) => a.id === mainAgentId) ?? defaultAgent;
-  const mainAgentName =
-    mainAgentMeta?.name ?? agentDisplayName(mainAgentId || "agent");
+  const mainAgentMeta = available.find((a) => a.id === mainAgentId) ?? defaultAgent;
+  const mainAgentName = mainAgentMeta?.name ?? agentDisplayName(mainAgentId || "agent");
   const mainAgentAvatar = agentAvatarMeta(mainAgentId || "agent");
   const hints = mentionHints(availableIds, mainAgentId);
 
   // Drop model selection when host agent changes to one without that model.
   useEffect(() => {
     const opts = modelsForAgent(available, mainAgentId);
-    if (
-      selectedModel &&
-      opts.length > 0 &&
-      !opts.some((m) => m.id === selectedModel)
-    ) {
+    if (selectedModel && opts.length > 0 && !opts.some((m) => m.id === selectedModel)) {
       setSelectedModel("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-check when host agent id changes
@@ -346,8 +333,7 @@ export default function NewChatPage() {
       try {
         const nextMs = parseLocalDateTime(routineNextLocal);
         const titleRunes = Array.from(raw);
-        const title =
-          titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : raw;
+        const title = titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : raw;
         const routine = await createRoutine({
           title,
           cwd: cwd.trim(),
@@ -377,9 +363,7 @@ export default function NewChatPage() {
     }
     if (available.length === 0) {
       pushToast(
-        remote
-          ? tr("machine.noAgents", { name: machineLabel })
-          : tr("newChat.noAgents"),
+        remote ? tr("machine.noAgents", { name: machineLabel }) : tr("newChat.noAgents"),
         "error",
       );
       return;
@@ -420,7 +404,18 @@ export default function NewChatPage() {
         ...(selectedModel.trim() ? { model: selectedModel.trim() } : {}),
         // Team dispatch is the Hub's own multi-agent routing and does not cross
         // machines, so a remote task is sent without it.
-        ...(dispatchReady && !remote ? { dispatch: { mode: dispatch.mode, team: dispatch.team, objective: dispatch.objective, agent: dispatch.agent, provider: dispatch.provider, model: dispatch.model } } : {}),
+        ...(dispatchReady && !remote
+          ? {
+              dispatch: {
+                mode: dispatch.mode,
+                team: dispatch.team,
+                objective: dispatch.objective,
+                agent: dispatch.agent,
+                provider: dispatch.provider,
+                model: dispatch.model,
+              },
+            }
+          : {}),
         ...(remote ? { executing_device_id: machine.id } : {}),
       });
       clearDraftPrompt();
@@ -438,11 +433,8 @@ export default function NewChatPage() {
     }
   }
 
-
   const showProjectColumn =
-    project != null ||
-    projectLookupState === "loading" ||
-    projectLookupState === "error";
+    project != null || projectLookupState === "loading" || projectLookupState === "error";
   const controlGroups = newChatControlGroups({ asRoutine, remote });
 
   /**
@@ -634,9 +626,7 @@ export default function NewChatPage() {
         </p>
 
         {available.length > 1 && (
-          <p className="mt-2 text-[11.5px] text-kin-muted">
-            {tr("newChat.hostPickerHint")}
-          </p>
+          <p className="mt-2 text-[11.5px] text-kin-muted">{tr("newChat.hostPickerHint")}</p>
         )}
 
         {agents.some((a) => !a.available) && !remote && (
@@ -651,9 +641,7 @@ export default function NewChatPage() {
           </div>
         )}
         {machinesFailed ? (
-          <p className="mt-2 text-[11.5px] text-kin-muted">
-            {tr("machine.listUnavailable")}
-          </p>
+          <p className="mt-2 text-[11.5px] text-kin-muted">{tr("machine.listUnavailable")}</p>
         ) : null}
 
         <div className="mt-8 w-full max-w-xl space-y-3">
@@ -714,7 +702,11 @@ export default function NewChatPage() {
             disabled={sending}
             initialValue={initialValue}
             initialAttachments={initialAttachments}
-            placeholder={asRoutine ? tr("routines.promptPlaceholder") : tr("newChat.placeholder", { name: mainAgentName })}
+            placeholder={
+              asRoutine
+                ? tr("routines.promptPlaceholder")
+                : tr("newChat.placeholder", { name: mainAgentName })
+            }
             onAttachmentsChange={setDraftAttachments}
             onValueChange={(value) => {
               setDraftPrompt(value);
@@ -747,13 +739,32 @@ export default function NewChatPage() {
             aria-expanded={controlsOpen}
             className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-[13px] text-kin-tertiary"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
               <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
               <circle cx="16" cy="7" r="2" />
               <circle cx="10" cy="17" r="2" />
             </svg>
             <span className="min-w-0 flex-1 truncate text-left">{runSummary}</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
               <path d="M9 5l7 7-7 7" />
             </svg>
           </button>
@@ -803,9 +814,7 @@ export default function NewChatPage() {
           >
             <div className="mx-auto mb-3.5 h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]" />
             <div className="text-[16px] font-semibold">{tr("newChat.controlsTitle")}</div>
-            <p className="mb-3 mt-0.5 text-[12px] text-kin-muted">
-              {tr("newChat.controlsHint")}
-            </p>
+            <p className="mb-3 mt-0.5 text-[12px] text-kin-muted">{tr("newChat.controlsHint")}</p>
             <div className="grid gap-2">
               {controlGroups.map((group) => (
                 <div

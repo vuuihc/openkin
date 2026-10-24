@@ -280,8 +280,7 @@ export function branchAnswerApplies(
 ): boolean {
   return (
     answer !== null &&
-    branchQuestion(answer.cwd, answer.device) ===
-      branchQuestion(question.cwd, question.device)
+    branchQuestion(answer.cwd, answer.device) === branchQuestion(question.cwd, question.device)
   );
 }
 
@@ -324,10 +323,7 @@ export function cwdAfterMachineChange(current: string, before: string[], after: 
  * validates a dispatched agent against: offering an agent the target does not
  * have would turn a click into a rejected request.
  */
-export function catalogFor(
-  machine: Machine | undefined,
-  localAgents: AgentInfo[],
-): AgentInfo[] {
+export function catalogFor(machine: Machine | undefined, localAgents: AgentInfo[]): AgentInfo[] {
   if (!machine || machine.isSelf) return localAgents;
   return machine.agents.map((a) => ({
     id: a.id,

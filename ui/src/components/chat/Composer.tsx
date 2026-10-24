@@ -86,8 +86,7 @@ export default function Composer({
     el.style.height = "auto";
     const maxH = parseFloat(getComputedStyle(el).maxHeight);
     const contentH = el.scrollHeight;
-    const capped =
-      Number.isFinite(maxH) && maxH > 0 ? Math.min(contentH, maxH) : contentH;
+    const capped = Number.isFinite(maxH) && maxH > 0 ? Math.min(contentH, maxH) : contentH;
     el.style.height = `${capped}px`;
     // Only show a scrollbar once we actually hit the cap.
     el.style.overflowY = contentH > capped ? "auto" : "hidden";
@@ -116,10 +115,7 @@ export default function Composer({
 
   const available = agents.filter((a) => a.available);
   const mentionMatches = useMemo(
-    () =>
-      available.filter((a) =>
-        a.id.toLowerCase().includes(mentionQuery.toLowerCase()),
-      ),
+    () => available.filter((a) => a.id.toLowerCase().includes(mentionQuery.toLowerCase())),
     [available, mentionQuery],
   );
 
@@ -148,9 +144,7 @@ export default function Composer({
           continue;
         }
         const up = await uploadFile(f);
-        const previewUrl = isImageMime(up.mime || f.type)
-          ? URL.createObjectURL(f)
-          : undefined;
+        const previewUrl = isImageMime(up.mime || f.type) ? URL.createObjectURL(f) : undefined;
         setAttachments((prev) => {
           const next = [...prev, { ...up, previewUrl }];
           onAttachmentsChange?.(next);
@@ -158,10 +152,7 @@ export default function Composer({
         });
       }
     } catch (err) {
-      const msg =
-        err instanceof Error && err.message
-          ? err.message
-          : tr("composer.uploadFailed");
+      const msg = err instanceof Error && err.message ? err.message : tr("composer.uploadFailed");
       // Prefer short toast; strip raw JSON bodies.
       const clean = msg.replace(/^\{.*"error"\s*:\s*"([^"]+)".*$/s, "$1");
       pushToast(clean || tr("composer.uploadFailed"), "error");
@@ -184,16 +175,14 @@ export default function Composer({
   /** Append absolute paths so coding CLIs / Kin tools can read the files. */
   function withAttachments(text: string): string {
     if (attachments.length === 0) return text;
-    const lines = attachments.map((a) => {
-      const label = a.name || a.id;
-      return `- ${label}: ${a.path}`;
-    }).join("\n");
+    const lines = attachments
+      .map((a) => {
+        const label = a.name || a.id;
+        return `- ${label}: ${a.path}`;
+      })
+      .join("\n");
     const noun =
-      attachments.length === 1
-        ? isImageMime(attachments[0].mime)
-          ? "image"
-          : "file"
-        : "files";
+      attachments.length === 1 ? (isImageMime(attachments[0].mime) ? "image" : "file") : "files";
     const block = `Attached ${noun}:\n${lines}`;
     return text ? `${text}\n\n${block}` : block;
   }
@@ -231,12 +220,7 @@ export default function Composer({
       onAttachmentsChange?.(restored);
       // Parent handlers usually toast; never let an unhandled rejection
       // leave the composer in a cleared-but-failed state without feedback.
-      useAppStore
-        .getState()
-        .pushToast(
-          err instanceof Error ? err.message : "Send failed",
-          "error",
-        );
+      useAppStore.getState().pushToast(err instanceof Error ? err.message : "Send failed", "error");
     }
   }
 
@@ -278,10 +262,7 @@ export default function Composer({
       // Mid-string: replace the active query token if present.
       const idx = value.toLowerCase().lastIndexOf(`@${mentionQuery.toLowerCase()}`);
       if (idx >= 0) {
-        next =
-          value.slice(0, idx) +
-          `@${agentId} ` +
-          value.slice(idx + 1 + mentionQuery.length);
+        next = value.slice(0, idx) + `@${agentId} ` + value.slice(idx + 1 + mentionQuery.length);
       } else {
         next = `${value}@${agentId} `;
       }
@@ -308,9 +289,7 @@ export default function Composer({
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setMentionIndex(
-          (i) => (i - 1 + mentionMatches.length) % mentionMatches.length,
-        );
+        setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
         return;
       }
       if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
@@ -340,8 +319,7 @@ export default function Composer({
       e.preventDefault();
       const el = e.currentTarget;
       const { selectionStart, selectionEnd } = el;
-      const next =
-        value.slice(0, selectionStart) + "\n" + value.slice(selectionEnd);
+      const next = value.slice(0, selectionStart) + "\n" + value.slice(selectionEnd);
       onChange(next, selectionStart + 1);
       requestAnimationFrame(() => {
         el.selectionStart = el.selectionEnd = selectionStart + 1;
@@ -355,8 +333,7 @@ export default function Composer({
     }
   }
 
-  const expanded =
-    Boolean(value.trim()) || attachments.length > 0 || focused || uploading;
+  const expanded = Boolean(value.trim()) || attachments.length > 0 || focused || uploading;
 
   return (
     <form onSubmit={submit} className="relative">
@@ -392,24 +369,18 @@ export default function Composer({
                 aria-selected={active}
                 className={
                   "w-full flex items-center gap-3 px-3 py-2.5 text-left text-[13px] " +
-                  (active
-                    ? "bg-kin-blue/15 text-kin-text"
-                    : "hover:bg-[var(--kin-fill-strong)]")
+                  (active ? "bg-kin-blue/15 text-kin-text" : "hover:bg-[var(--kin-fill-strong)]")
                 }
                 onMouseEnter={() => setMentionIndex(i)}
                 onClick={() => insertMention(a.id)}
               >
-                <span className="font-mono text-kin-blue font-semibold">
-                  @{a.id}
-                </span>
+                <span className="font-mono text-kin-blue font-semibold">@{a.id}</span>
                 <span className="text-kin-secondary">
                   {agentDisplayName(a.id)}
                   {hostAgentId && a.id === hostAgentId
                     ? ` · ${tr("composer.roleMain")}`
                     : ` · ${tr("composer.roleWorker")}`}
-                  {agentCatalogState(a) === "generic"
-                    ? ` · ${tr("agentCatalog.generic")}`
-                    : ""}
+                  {agentCatalogState(a) === "generic" ? ` · ${tr("agentCatalog.generic")}` : ""}
                 </span>
               </button>
             );
@@ -439,21 +410,13 @@ export default function Composer({
                   title={`${a.name} (${formatBytes(a.size)})`}
                 >
                   {image ? (
-                    <img
-                      src={src}
-                      alt={a.name}
-                      className="w-full h-full object-cover"
-                    />
+                    <img src={src} alt={a.name} className="w-full h-full object-cover" />
                   ) : (
                     <>
                       <IconFile size={14} className="text-kin-muted shrink-0" />
                       <div className="min-w-0">
-                        <div className="text-[12px] text-kin-text truncate">
-                          {a.name}
-                        </div>
-                        <div className="text-[10.5px] text-kin-muted">
-                          {formatBytes(a.size)}
-                        </div>
+                        <div className="text-[12px] text-kin-text truncate">{a.name}</div>
+                        <div className="text-[10.5px] text-kin-muted">{formatBytes(a.size)}</div>
                       </div>
                     </>
                   )}
@@ -483,143 +446,147 @@ export default function Composer({
           className="hidden"
           onChange={(e) => void addFiles(e.target.files)}
         />
-        <div
-          className={
-            expanded
-              ? "flex flex-col"
-              : "flex items-center gap-1.5"
-          }
-        >
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          value={value}
-          disabled={disabled || busy || stopping}
-          onPaste={(e) => {
-            const files = Array.from(e.clipboardData.files);
-            if (files.length > 0) {
-              e.preventDefault();
-              void addFiles(files);
+        <div className={expanded ? "flex flex-col" : "flex items-center gap-1.5"}>
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={value}
+            disabled={disabled || busy || stopping}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData.files);
+              if (files.length > 0) {
+                e.preventDefault();
+                void addFiles(files);
+              }
+            }}
+            onChange={(e) => {
+              onChange(e.target.value, e.target.selectionStart ?? undefined);
+              // Sync height in the same frame as typing for snappy growth.
+              requestAnimationFrame(adjustTextareaHeight);
+            }}
+            onClick={(e) =>
+              onChange(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined)
             }
-          }}
-          onChange={(e) => {
-            onChange(e.target.value, e.target.selectionStart ?? undefined);
-            // Sync height in the same frame as typing for snappy growth.
-            requestAnimationFrame(adjustTextareaHeight);
-          }}
-          onClick={(e) =>
-            onChange(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined)
-          }
-          onKeyUp={(e) => {
-            // Don't re-open / clobber menu index after Arrow keys handled in keydown.
-            if (
-              menu === "mention" &&
-              (e.key === "ArrowDown" ||
-                e.key === "ArrowUp" ||
-                e.key === "Enter" ||
-                e.key === "Tab" ||
-                e.key === "Escape")
-            ) {
-              return;
-            }
-            onChange(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined);
-          }}
-          onKeyDown={onKeyDown}
-          onInput={adjustTextareaHeight}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={resolvedPlaceholder}
-          className={[
-            "kin-scroll resize-none bg-transparent text-[14px] text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
-            expanded
-              ? "w-full min-h-[44px] leading-[1.45]"
-              : "flex-1 min-w-0 min-h-[28px] leading-[1.35]",
-          ].join(" ")}
-        />
-        <div
-          className={[
-            "flex items-center gap-1.5",
-            expanded ? "mt-2" : "mt-0 flex-none",
-          ].join(" ")}
-        >
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={disabled || busy || stopping || uploading}
+            onKeyUp={(e) => {
+              // Don't re-open / clobber menu index after Arrow keys handled in keydown.
+              if (
+                menu === "mention" &&
+                (e.key === "ArrowDown" ||
+                  e.key === "ArrowUp" ||
+                  e.key === "Enter" ||
+                  e.key === "Tab" ||
+                  e.key === "Escape")
+              ) {
+                return;
+              }
+              onChange(e.currentTarget.value, e.currentTarget.selectionStart ?? undefined);
+            }}
+            onKeyDown={onKeyDown}
+            onInput={adjustTextareaHeight}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={resolvedPlaceholder}
             className={[
-              // 44pt while the phone shell is in charge, desktop size from `md`
-              // up. A 24px target is not hittable with a thumb. (`sm:w-6` alone
-              // would not restore the desktop size: the floor is a two-class
-              // selector and outranks it.)
-              "rounded-lg text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center disabled:opacity-40",
-              expanded ? "w-11 h-11 sm:w-7 sm:h-7 sm:-ml-1" : "w-11 h-11 sm:w-6 sm:h-6",
+              "kin-scroll resize-none bg-transparent text-[14px] text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
+              expanded
+                ? "w-full min-h-[44px] leading-[1.45]"
+                : "flex-1 min-w-0 min-h-[28px] leading-[1.35]",
             ].join(" ")}
-            aria-label={tr("composer.attachFile")}
-            title={tr("composer.attachFile")}
+          />
+          <div
+            className={["flex items-center gap-1.5", expanded ? "mt-2" : "mt-0 flex-none"].join(
+              " ",
+            )}
           >
-            <IconImage size={expanded ? 15 : 14} />
-          </button>
-          {uploading && (
-            <span className="text-[11.5px] text-kin-muted">{tr("composer.uploading")}</span>
-          )}
-          <span
-            className={[
-              "text-[11.5px] text-kin-muted items-center gap-1",
-              expanded ? "inline-flex" : "hidden",
-            ].join(" ")}
-          >
-            <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
-              @
-            </kbd>
-            {tr("composer.agent")}
-          </span>
-          <span
-            className={[
-              "text-[11.5px] text-kin-muted items-center gap-1",
-              expanded ? "hidden sm:inline-flex" : "hidden",
-            ].join(" ")}
-          >
-            <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
-              ⌘↵
-            </kbd>
-            {tr("composer.send")}
-          </span>
-          {running && onStop ? (
             <button
               type="button"
-              onClick={() => void onStop()}
-              disabled={stopping || busy}
-              className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-[rgba(255,69,58,.16)] text-[#ff8a80] flex items-center justify-center disabled:opacity-40 border border-[rgba(255,69,58,.35)]"
-              aria-label={tr("composer.stop")}
-              title={tr("composer.stop")}
+              onClick={() => fileRef.current?.click()}
+              disabled={disabled || busy || stopping || uploading}
+              className={[
+                // 44pt while the phone shell is in charge, desktop size from `md`
+                // up. A 24px target is not hittable with a thumb. (`sm:w-6` alone
+                // would not restore the desktop size: the floor is a two-class
+                // selector and outranks it.)
+                "rounded-lg text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] flex items-center justify-center disabled:opacity-40",
+                expanded ? "w-11 h-11 sm:w-7 sm:h-7 sm:-ml-1" : "w-11 h-11 sm:w-6 sm:h-6",
+              ].join(" ")}
+              aria-label={tr("composer.attachFile")}
+              title={tr("composer.attachFile")}
             >
-              <IconStop size={13} strokeWidth={2} />
+              <IconImage size={expanded ? 15 : 14} />
             </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={
-                disabled || busy || stopping || uploading ||
-                (!value.trim() && attachments.length === 0)
-              }
-              className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
-              aria-label={busy ? tr("composer.sending") : tr("composer.send")}
+            {uploading && (
+              <span className="text-[11.5px] text-kin-muted">{tr("composer.uploading")}</span>
+            )}
+            <span
+              className={[
+                "text-[11.5px] text-kin-muted items-center gap-1",
+                expanded ? "inline-flex" : "hidden",
+              ].join(" ")}
             >
-              {busy ? <IconSpinner size={15} strokeWidth={2} /> : <IconSend size={15} strokeWidth={2} />}
-            </button>
-          )}
-          {running && value.trim() ? (
-            <button
-              type="submit"
-              disabled={disabled || busy || stopping}
-              className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
-              aria-label={tr("composer.sendGuide")}
-              title={tr("composer.sendGuide")}
+              <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
+                @
+              </kbd>
+              {tr("composer.agent")}
+            </span>
+            <span
+              className={[
+                "text-[11.5px] text-kin-muted items-center gap-1",
+                expanded ? "hidden sm:inline-flex" : "hidden",
+              ].join(" ")}
             >
-              {busy ? <IconSpinner size={15} strokeWidth={2} /> : <IconSend size={15} strokeWidth={2} />}
-            </button>
-          ) : null}
-        </div>
+              <kbd className="rounded border border-[var(--kin-hairline-strong)] px-1 font-semibold">
+                ⌘↵
+              </kbd>
+              {tr("composer.send")}
+            </span>
+            {running && onStop ? (
+              <button
+                type="button"
+                onClick={() => void onStop()}
+                disabled={stopping || busy}
+                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-[rgba(255,69,58,.16)] text-[#ff8a80] flex items-center justify-center disabled:opacity-40 border border-[rgba(255,69,58,.35)]"
+                aria-label={tr("composer.stop")}
+                title={tr("composer.stop")}
+              >
+                <IconStop size={13} strokeWidth={2} />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={
+                  disabled ||
+                  busy ||
+                  stopping ||
+                  uploading ||
+                  (!value.trim() && attachments.length === 0)
+                }
+                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
+                aria-label={busy ? tr("composer.sending") : tr("composer.send")}
+              >
+                {busy ? (
+                  <IconSpinner size={15} strokeWidth={2} />
+                ) : (
+                  <IconSend size={15} strokeWidth={2} />
+                )}
+              </button>
+            )}
+            {running && value.trim() ? (
+              <button
+                type="submit"
+                disabled={disabled || busy || stopping}
+                className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-white flex items-center justify-center disabled:opacity-40"
+                aria-label={tr("composer.sendGuide")}
+                title={tr("composer.sendGuide")}
+              >
+                {busy ? (
+                  <IconSpinner size={15} strokeWidth={2} />
+                ) : (
+                  <IconSend size={15} strokeWidth={2} />
+                )}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </form>

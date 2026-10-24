@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import {
-  getToken,
-  getRoutineUnreadCount,
-} from "./api/client";
+import { getToken, getRoutineUnreadCount } from "./api/client";
 import { liveResources } from "./api/liveResources";
 import { SessionSync } from "./api/sessionSync";
 import { usePendingResources } from "./api/useLiveResources";

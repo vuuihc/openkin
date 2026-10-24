@@ -32,9 +32,7 @@ describe("sessionStatusDotClass", () => {
   it("blue pulse while running / queued / waiting", () => {
     expect(sessionStatusDotClass("running", false)).toBe("bg-kin-blue animate-pulse");
     expect(sessionStatusDotClass("queued", false)).toBe("bg-kin-blue animate-pulse");
-    expect(sessionStatusDotClass("waiting_approval", false)).toBe(
-      "bg-kin-blue animate-pulse",
-    );
+    expect(sessionStatusDotClass("waiting_approval", false)).toBe("bg-kin-blue animate-pulse");
   });
 
   it("green when succeeded and not yet viewed", () => {

@@ -20,8 +20,7 @@ const ALIASES: Record<string, string> = {
 };
 
 /** Ordered mention patterns (longer first). */
-const MENTION_RE =
-  /@([a-zA-Z][a-zA-Z0-9_-]*)(?:\[([a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,127})\])?/g;
+const MENTION_RE = /@([a-zA-Z][a-zA-Z0-9_-]*)(?:\[([a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,127})\])?/g;
 
 export type DelegateStep = {
   agent: string;
@@ -45,10 +44,7 @@ export type AgentDirective = {
   multi: boolean;
 };
 
-export function parseAgentDirective(
-  raw: string,
-  availableIds: string[],
-): AgentDirective {
+export function parseAgentDirective(raw: string, availableIds: string[]): AgentDirective {
   const avail = new Set(availableIds);
   const text = raw;
   const hits: {
@@ -87,10 +83,12 @@ export function parseAgentDirective(
   const overview = text.slice(0, hits[0].start).trim();
   const steps: DelegateStep[] = hits.map((h, i) => {
     const end = i + 1 < hits.length ? hits[i + 1].start : text.length;
-    let instruction = text.slice(h.end, end).trim().replace(/[ \t]{2,}/g, " ");
+    let instruction = text
+      .slice(h.end, end)
+      .trim()
+      .replace(/[ \t]{2,}/g, " ");
     if (!instruction) {
-      instruction =
-        overview || "Complete the assigned work for this session.";
+      instruction = overview || "Complete the assigned work for this session.";
     }
     return {
       agent: h.agent,

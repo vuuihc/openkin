@@ -52,9 +52,7 @@ describe("taskActivityAt", () => {
         {},
       ),
     ).toBe(20);
-    expect(
-      taskActivityAt(task({ id: "b", cwd: "/p", created_at: 5 }), {}),
-    ).toBe(5);
+    expect(taskActivityAt(task({ id: "b", cwd: "/p", created_at: 5 }), {})).toBe(5);
   });
 });
 
@@ -110,15 +108,12 @@ describe("groupByProject", () => {
   });
 
   it("normalizes path casing for pin match", () => {
-    const groups = groupByProject(
-      [task({ id: "1", cwd: "/Users/Me/Proj", created_at: 1 })],
-      {
-        sortMode: "active",
-        pinned: ["/users/me/proj"],
-        archived: [],
-        lastInteracted: {},
-      },
-    );
+    const groups = groupByProject([task({ id: "1", cwd: "/Users/Me/Proj", created_at: 1 })], {
+      sortMode: "active",
+      pinned: ["/users/me/proj"],
+      archived: [],
+      lastInteracted: {},
+    });
     expect(groups[0].pinned).toBe(true);
   });
 

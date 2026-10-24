@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  isTerminal,
-  listAgentSessions,
-  type AgentSession,
-  type Task,
-} from "../api/client";
+import { isTerminal, listAgentSessions, type AgentSession, type Task } from "../api/client";
 import { useTaskList } from "../api/useLiveResources";
 import { useMachines } from "../hooks/useMachines";
 import {
@@ -70,8 +65,7 @@ function deviceRows(device: DeviceGroup): Row[] {
   // Running work first, then newest — the two questions someone opens this
   // screen to answer.
   return rows.sort(
-    (a, b) =>
-      Number(b.active) - Number(a.active) || b.at - a.at || a.key.localeCompare(b.key),
+    (a, b) => Number(b.active) - Number(a.active) || b.at - a.at || a.key.localeCompare(b.key),
   );
 }
 
@@ -115,15 +109,7 @@ export default function SessionsPage() {
 
   const machineList = machines.length > 0 ? machines : ONLY_THIS_MACHINE;
   const groups = useMemo(
-    () =>
-      groupByDevice(
-        taskList.data,
-        sessions,
-        machineList,
-        null,
-        false,
-        machinesLoading,
-      ),
+    () => groupByDevice(taskList.data, sessions, machineList, null, false, machinesLoading),
     [taskList.data, sessions, machineList, machinesLoading],
   );
   const machineLabels = showMachineLabels(groups, []);
@@ -139,9 +125,7 @@ export default function SessionsPage() {
 
       {!loading && groups.length === 0 && (
         <div className="px-6 py-16 text-center">
-          <p className="text-[15px] font-medium text-kin-text">
-            {tr("sessions.empty")}
-          </p>
+          <p className="text-[15px] font-medium text-kin-text">{tr("sessions.empty")}</p>
           <p className="mt-1.5 text-[13px] leading-relaxed text-kin-muted">
             {tr("sessions.emptyHint")}
           </p>
@@ -176,9 +160,7 @@ export default function SessionsPage() {
                 className="flex w-full min-h-[62px] items-start gap-2.5 border-b border-[var(--kin-hairline)] px-4 py-2.5 text-left active:bg-[var(--kin-fill)]"
               >
                 <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] bg-kin-blue-soft text-[15px] font-bold text-[#6cb2ff]">
-                  {initial(
-                    agentDisplayName(row.task?.agent ?? row.session!.agent_id),
-                  )}
+                  {initial(agentDisplayName(row.task?.agent ?? row.session!.agent_id))}
                 </span>
 
                 <span className="min-w-0 flex-1">
@@ -187,10 +169,7 @@ export default function SessionsPage() {
                       ? row.task.title.trim() ||
                         displayUserPrompt(row.task.prompt) ||
                         tr("sessions.untitled")
-                      : displayAgentSessionTitle(
-                          row.session!,
-                          tr("sessions.untitled"),
-                        )}
+                      : displayAgentSessionTitle(row.session!, tr("sessions.untitled"))}
                   </span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] text-kin-muted">
                     <span className="truncate">{row.project}</span>

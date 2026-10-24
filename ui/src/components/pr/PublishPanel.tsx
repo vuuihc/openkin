@@ -262,9 +262,7 @@ export default function PublishPanel({
                   className="flex items-center gap-1.5 text-[13px] font-medium text-kin-text hover:underline"
                 >
                   <IconPullRequest size={14} className="flex-none text-kin-green" />
-                  <span>
-                    {tr("publish.published", { number: report.number })}
-                  </span>
+                  <span>{tr("publish.published", { number: report.number })}</span>
                   <IconExternal size={11} className="flex-none" />
                 </a>
               ) : (
@@ -304,9 +302,7 @@ export default function PublishPanel({
                     : "flex items-start gap-1.5 text-[12.5px] text-kin-text"
                 }
               >
-                {!headline && (
-                  <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange" />
-                )}
+                {!headline && <IconAlert size={13} className="mt-0.5 flex-none text-kin-orange" />}
                 <span>
                   {headline ? `${tr("publish.said")} ` : ""}
                   {report?.reason || tr("publish.blocked", { code: blocked })}

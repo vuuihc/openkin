@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  type UserQuestion,
-  parseUserQuestionPayload,
-} from "../../api/client";
+import { type UserQuestion, parseUserQuestionPayload } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconAlert } from "../icons";
 
@@ -13,17 +10,9 @@ type Props = {
   onAnswer: (body: { selected: string[]; other_text: string }) => void;
 };
 
-export default function UserQuestionCard({
-  question,
-  focused,
-  busy,
-  onAnswer,
-}: Props) {
+export default function UserQuestionCard({ question, focused, busy, onAnswer }: Props) {
   const tr = useT();
-  const payload = useMemo(
-    () => parseUserQuestionPayload(question.payload),
-    [question.payload],
-  );
+  const payload = useMemo(() => parseUserQuestionPayload(question.payload), [question.payload]);
   const multi = Boolean(payload.multi_select);
   const [selected, setSelected] = useState<string[]>([]);
   const [otherText, setOtherText] = useState("");
@@ -31,16 +20,13 @@ export default function UserQuestionCard({
   function toggle(label: string) {
     setSelected((prev) => {
       if (multi) {
-        return prev.includes(label)
-          ? prev.filter((x) => x !== label)
-          : [...prev, label];
+        return prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label];
       }
       return prev.includes(label) ? [] : [label];
     });
   }
 
-  const canSubmit =
-    !busy && (selected.length > 0 || otherText.trim().length > 0);
+  const canSubmit = !busy && (selected.length > 0 || otherText.trim().length > 0);
 
   function submit() {
     if (!canSubmit) return;
@@ -128,9 +114,7 @@ export default function UserQuestionCard({
                       {idx + 1}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-[13px] font-medium">
-                        {opt.label}
-                      </span>
+                      <span className="block text-[13px] font-medium">{opt.label}</span>
                       {opt.description ? (
                         <span className="mt-0.5 block text-[11.5px] text-kin-muted">
                           {opt.description}
@@ -145,9 +129,7 @@ export default function UserQuestionCard({
         </ul>
 
         <div className="mt-3">
-          <label className="block text-[11.5px] text-kin-muted mb-1">
-            {tr("question.other")}
-          </label>
+          <label className="block text-[11.5px] text-kin-muted mb-1">{tr("question.other")}</label>
           <input
             type="text"
             value={otherText}

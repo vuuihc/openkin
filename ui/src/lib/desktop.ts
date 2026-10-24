@@ -27,10 +27,7 @@ export type ExternalApp = {
 export type KinDesktopAPI = {
   isDesktop: true;
   platform: string;
-  selectDirectory: (opts?: {
-    defaultPath?: string;
-    title?: string;
-  }) => Promise<string | null>;
+  selectDirectory: (opts?: { defaultPath?: string; title?: string }) => Promise<string | null>;
   listExternalApps?: () => Promise<ExternalApp[]>;
   openInApp?: (
     path: string,

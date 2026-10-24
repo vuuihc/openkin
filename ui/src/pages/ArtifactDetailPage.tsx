@@ -38,10 +38,7 @@ export default function ArtifactDetailPage() {
     if (!isAuthenticated() || !id) return;
     setLoading(true);
     try {
-      const [meta, body] = await Promise.all([
-        getArtifact(id),
-        getArtifactContent(id),
-      ]);
+      const [meta, body] = await Promise.all([getArtifact(id), getArtifactContent(id)]);
       setArtifact(meta);
       setContent(body);
       setError(null);
@@ -77,10 +74,7 @@ export default function ArtifactDetailPage() {
       pushToast(tr("artifacts.archived"), "info");
       navigate("/artifacts");
     } catch (e) {
-      pushToast(
-        e instanceof Error ? e.message : tr("artifacts.archiveFailed"),
-        "error",
-      );
+      pushToast(e instanceof Error ? e.message : tr("artifacts.archiveFailed"), "error");
     } finally {
       setArchiving(false);
     }
@@ -126,9 +120,7 @@ export default function ArtifactDetailPage() {
           <IconBack size={16} />
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-[15px] font-semibold truncate text-kin-text">
-            {artifact.title}
-          </h1>
+          <h1 className="text-[15px] font-semibold truncate text-kin-text">{artifact.title}</h1>
           <p className="text-[11.5px] text-kin-muted truncate">
             {artifact.kind} · {formatBytes(artifact.size)}
             {artifact.source_task_id ? (

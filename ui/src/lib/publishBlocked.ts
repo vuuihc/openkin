@@ -45,10 +45,7 @@ const SESSION_RUNS_HERE = "session_runs_here";
  * here" — telling somebody their session runs on this machine when it runs on
  * another is worse than repeating the daemon's own sentence at them.
  */
-export function isSessionRunsHere(err: {
-  status: number;
-  body?: unknown;
-}): boolean {
+export function isSessionRunsHere(err: { status: number; body?: unknown }): boolean {
   if (err.status !== 409) return false;
   const code = (err.body as { code?: unknown } | undefined)?.code;
   return code === SESSION_RUNS_HERE;

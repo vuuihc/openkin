@@ -66,9 +66,7 @@ export default function PullRequestPanel({
   elsewhere = null,
 }: Props) {
   const tr = useT();
-  const [snapshot, setSnapshot] = useState<TaskPullRequestSnapshot | null>(
-    null,
-  );
+  const [snapshot, setSnapshot] = useState<TaskPullRequestSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -225,9 +223,7 @@ export default function PullRequestPanel({
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconPullRequest size={14} className="flex-none text-kin-muted" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[12px] font-semibold text-kin-text">
-            {tr("pr.title")}
-          </div>
+          <div className="truncate text-[12px] font-semibold text-kin-text">{tr("pr.title")}</div>
           <div className="truncate font-mono text-[11px] text-kin-muted">
             {headerLabel(snapshot, lead) || absentRepoLabel(tr, elsewhere)}
           </div>
@@ -245,11 +241,7 @@ export default function PullRequestPanel({
           disabled={busy}
           title={tr("pr.refreshHint")}
         >
-          {busy ? (
-            <IconSpinner size={13} strokeWidth={2} />
-          ) : (
-            <IconRefresh size={13} />
-          )}
+          {busy ? <IconSpinner size={13} strokeWidth={2} /> : <IconRefresh size={13} />}
           <span className="hidden sm:inline">{tr("pr.refresh")}</span>
         </button>
         {onClose && (
@@ -287,16 +279,16 @@ export default function PullRequestPanel({
           )}
 
           {!snapshot ? (
-            loading ? <Loading /> : null
+            loading ? (
+              <Loading />
+            ) : null
           ) : !lead ? (
             // Asking is what this branch needs, and while that request is out
             // "not checked yet" would read as a settled answer.
             busy ? (
               <Checking />
             ) : (
-              <p className="text-[12.5px] text-kin-muted">
-                {unobservedLabel(tr)}
-              </p>
+              <p className="text-[12.5px] text-kin-muted">{unobservedLabel(tr)}</p>
             )
           ) : (
             <ObservationCard lead={lead} busy={busy} />
@@ -313,9 +305,7 @@ export default function PullRequestPanel({
                     key={`${o.repo}/${o.head_branch}`}
                     className="flex items-center gap-2 text-[12px]"
                   >
-                    <span className="flex-none text-kin-muted">
-                      #{o.number}
-                    </span>
+                    <span className="flex-none text-kin-muted">#{o.number}</span>
                     <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-kin-muted">
                       {o.head_branch}
                     </span>
@@ -366,13 +356,7 @@ function Loading() {
   );
 }
 
-function ObservationCard({
-  lead,
-  busy,
-}: {
-  lead: PullRequestObservation;
-  busy: boolean;
-}) {
+function ObservationCard({ lead, busy }: { lead: PullRequestObservation; busy: boolean }) {
   const tr = useT();
   const ci = parseCISummary(lead.ci_summary);
 
@@ -389,10 +373,7 @@ function ObservationCard({
       ) : (
         <>
           <div className="flex items-start gap-2">
-            <IconPullRequest
-              size={14}
-              className={`mt-0.5 flex-none ${stateColor(lead.state)}`}
-            />
+            <IconPullRequest size={14} className={`mt-0.5 flex-none ${stateColor(lead.state)}`} />
             <div className="min-w-0 flex-1">
               <a
                 href={lead.url}
@@ -421,20 +402,13 @@ function ObservationCard({
           {lead.ci_state && lead.ci_state !== "none" && (
             <div className="mt-2 flex items-start gap-1.5 text-[11.5px]">
               {lead.ci_state === "success" ? (
-                <IconCheck
-                  size={12}
-                  className="mt-0.5 flex-none text-kin-green"
-                />
+                <IconCheck size={12} className="mt-0.5 flex-none text-kin-green" />
               ) : lead.ci_state === "failure" ? (
                 <IconAlert size={12} className="mt-0.5 flex-none text-kin-red" />
               ) : (
                 <IconSpinner size={12} className="mt-0.5 flex-none" />
               )}
-              <span
-                className={
-                  lead.ci_state === "failure" ? "text-kin-red" : "text-kin-muted"
-                }
-              >
+              <span className={lead.ci_state === "failure" ? "text-kin-red" : "text-kin-muted"}>
                 {ciLabel(tr, lead.ci_state, ci)}
               </span>
             </div>

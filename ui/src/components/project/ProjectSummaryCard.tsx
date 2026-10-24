@@ -22,7 +22,8 @@ export default function ProjectSummaryCard({
   const tr = useT();
   const name = summary?.name || project.name;
   const mode = summary?.mode || project.mode;
-  const empty = summary?.empty !== false && !summary?.north_star && !summary?.focus && !(summary?.next?.length);
+  const empty =
+    summary?.empty !== false && !summary?.north_star && !summary?.focus && !summary?.next?.length;
 
   return (
     <div
@@ -36,9 +37,7 @@ export default function ProjectSummaryCard({
           <div className="text-[11px] font-medium uppercase tracking-wide text-kin-secondary">
             {tr("newChat.projectSummaryLabel")}
           </div>
-          <div className="mt-0.5 truncate text-[14px] font-semibold text-kin-text">
-            {name}
-          </div>
+          <div className="mt-0.5 truncate text-[14px] font-semibold text-kin-text">{name}</div>
           <div className="mt-0.5 text-[11.5px] text-kin-muted">
             {tr("newChat.projectMode", { mode: String(mode || "ship") })}
           </div>
@@ -67,9 +66,7 @@ export default function ProjectSummaryCard({
           )}
         </div>
       ) : empty ? (
-        <p className="mt-3 text-[12.5px] text-kin-secondary">
-          {tr("newChat.projectSummaryEmpty")}
-        </p>
+        <p className="mt-3 text-[12.5px] text-kin-secondary">{tr("newChat.projectSummaryEmpty")}</p>
       ) : (
         <div className="mt-3 space-y-2 text-[12.5px] leading-relaxed">
           {summary?.north_star ? (

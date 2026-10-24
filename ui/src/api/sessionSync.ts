@@ -212,7 +212,6 @@ export class SessionSync {
     this.setStatus("disconnected");
     await new Promise<void>((resolve) => setTimeout(resolve, delay));
   }
-
 }
 
 function sleep(ms: number): Promise<void> {

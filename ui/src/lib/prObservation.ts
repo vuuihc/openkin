@@ -124,15 +124,10 @@ export function otherPullRequests(
   lead: PullRequestObservation | null,
 ): PullRequestObservation[] {
   if (!observations) return [];
-  return observations.filter(
-    (o) => o.number !== undefined && !sameRow(o, lead),
-  );
+  return observations.filter((o) => o.number !== undefined && !sameRow(o, lead));
 }
 
-function sameRow(
-  a: PullRequestObservation,
-  b: PullRequestObservation | null,
-): boolean {
+function sameRow(a: PullRequestObservation, b: PullRequestObservation | null): boolean {
   return !!b && a.repo === b.repo && a.head_branch === b.head_branch;
 }
 
@@ -249,16 +244,10 @@ export function stateLabel(
  * legacy cache row can carry `success` with no summary, and rendering that as
  * "checks running" is the worst of the three wrong answers available.
  */
-export function ciLabel(
-  tr: Translate,
-  state: string,
-  ci: CISummary | null,
-): string {
+export function ciLabel(tr: Translate, state: string, ci: CISummary | null): string {
   const total = ci?.total ?? 0;
   if (state === "success") {
-    return total > 0
-      ? tr("pr.ciSuccess", { total: String(total) })
-      : tr("pr.ciSuccessPlain");
+    return total > 0 ? tr("pr.ciSuccess", { total: String(total) }) : tr("pr.ciSuccessPlain");
   }
   if (total === 0) {
     return state === "failure" ? tr("pr.ciFailure") : tr("pr.ciPending");

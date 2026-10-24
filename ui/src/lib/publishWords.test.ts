@@ -1,20 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  MAX_BODY_BYTES,
-  MAX_TITLE_CHARS,
-  bodyBytes,
-  publishWordsRefusal,
-} from "./publishWords";
+import { MAX_BODY_BYTES, MAX_TITLE_CHARS, bodyBytes, publishWordsRefusal } from "./publishWords";
 import { en, zh } from "../i18n";
 
 /** The sentence one catalog holds for a dotted key, or undefined. */
 function at(catalog: unknown, path: string): unknown {
   return path
     .split(".")
-    .reduce<unknown>(
-      (cur, part) => (cur as Record<string, unknown> | undefined)?.[part],
-      catalog,
-    );
+    .reduce<unknown>((cur, part) => (cur as Record<string, unknown> | undefined)?.[part], catalog);
 }
 
 describe("publishWordsRefusal", () => {

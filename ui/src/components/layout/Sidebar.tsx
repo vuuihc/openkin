@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   ensureProject,
@@ -38,10 +31,7 @@ import {
   type DeviceGroup,
 } from "../../lib/deviceSidebar";
 import { useMachines } from "../../hooks/useMachines";
-import {
-  sidebarNavSections,
-  type SidebarNavItemId,
-} from "../../lib/sidebarNavigation";
+import { sidebarNavSections, type SidebarNavItemId } from "../../lib/sidebarNavigation";
 import {
   getViewedSessionIds,
   isSessionViewed,
@@ -263,16 +253,17 @@ export default function Sidebar({
   // A draft belongs to one machine. The same cwd can be a project on several
   // machines, so matching on the path alone would nest a "New chat" row under
   // each of them.
-  const draftHome = hasDraft && draftCwd
-    ? [...groups, ...archivedGroups].reduce<{ deviceId: string; cwd: string } | null>(
-        (found, device) => {
-          if (found) return found;
-          const g = device.projects.find((p) => normCwd(p.cwd) === normCwd(draftCwd));
-          return g ? { deviceId: device.id, cwd: g.cwd } : null;
-        },
-        null,
-      )
-    : null;
+  const draftHome =
+    hasDraft && draftCwd
+      ? [...groups, ...archivedGroups].reduce<{ deviceId: string; cwd: string } | null>(
+          (found, device) => {
+            if (found) return found;
+            const g = device.projects.find((p) => normCwd(p.cwd) === normCwd(draftCwd));
+            return g ? { deviceId: device.id, cwd: g.cwd } : null;
+          },
+          null,
+        )
+      : null;
   const draftGroupCwd = draftHome?.cwd ?? null;
   // Show orphan "New chat" tab when we have a draft and it is not nested under a project group.
   const showOrphanDraft = Boolean(hasDraft && !draftGroupCwd);
@@ -482,10 +473,7 @@ export default function Sidebar({
 
       <div className="px-3 pb-2">
         <label className="relative flex items-center">
-          <IconSearch
-            size={13}
-            className="absolute left-2.5 text-kin-muted pointer-events-none"
-          />
+          <IconSearch size={13} className="absolute left-2.5 text-kin-muted pointer-events-none" />
           <input
             type="search"
             value={searchQuery}
@@ -497,9 +485,7 @@ export default function Sidebar({
         </label>
         {searchQuery.trim() && (
           <div className="mt-1 px-0.5 text-[11px] text-kin-muted">
-            {searchLoading
-              ? tr("common.loading")
-              : tr("nav.searchHint")}
+            {searchLoading ? tr("common.loading") : tr("nav.searchHint")}
           </div>
         )}
       </div>
@@ -708,9 +694,7 @@ function DeviceSection({
   children: ReactNode;
 }) {
   const tr = useT();
-  const [open, toggle] = useSidebarDisclosure(
-    `device:${mode}:${device.id || "self"}`,
-  );
+  const [open, toggle] = useSidebarDisclosure(`device:${mode}:${device.id || "self"}`);
   if (!showLabel) return <div className="space-y-3">{children}</div>;
   return (
     <div className="space-y-1">
@@ -798,9 +782,7 @@ function ProjectBlock({
   mode: "active" | "archived";
 }) {
   const navigate = useNavigate();
-  const [open, toggle] = useSidebarDisclosure(
-    `project:${mode}:${projectKey(g.cwd)}`,
-  );
+  const [open, toggle] = useSidebarDisclosure(`project:${mode}:${projectKey(g.cwd)}`);
 
   const openCover = async () => {
     try {
@@ -967,7 +949,6 @@ function ProjectBlock({
           </div>
         </>
       )}
-
     </div>
   );
 }
@@ -1009,10 +990,9 @@ function ExternalSessionRow({
       title={`${label}: ${availabilityLabel}: ${sessionTitle}`}
     >
       <span
-        className={[
-          "h-7 w-1 flex-none rounded-full",
-          externalSessionRailClass(availability),
-        ].join(" ")}
+        className={["h-7 w-1 flex-none rounded-full", externalSessionRailClass(availability)].join(
+          " ",
+        )}
         aria-hidden="true"
       />
       <span
@@ -1129,7 +1109,11 @@ function ProjectSessionRows({
               }}
               className="flex flex-1 items-center gap-2 px-2 py-1.5 text-[12.5px] min-w-0"
             >
-              <span className={["w-1.5 h-1.5 rounded-full flex-none", dot ?? "bg-transparent"].join(" ")} />
+              <span
+                className={["w-1.5 h-1.5 rounded-full flex-none", dot ?? "bg-transparent"].join(
+                  " ",
+                )}
+              />
               <span className="truncate flex-1 min-w-0">
                 {task.title || displayUserPrompt(task.prompt || "")}
               </span>
@@ -1185,8 +1169,7 @@ function mergeProjectRows(tasks: Task[], sessions: AgentSession[]): ProjectRow[]
     })),
   ];
   return rows.sort(
-    (a, b) =>
-      Number(b.active) - Number(a.active) || b.at - a.at || a.key.localeCompare(b.key),
+    (a, b) => Number(b.active) - Number(a.active) || b.at - a.at || a.key.localeCompare(b.key),
   );
 }
 

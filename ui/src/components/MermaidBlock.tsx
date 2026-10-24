@@ -9,8 +9,7 @@ function loadMermaid() {
         startOnLoad: false,
         securityLevel: "strict",
         theme: "dark",
-        fontFamily:
-          'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
+        fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
       });
       return mod;
     });
@@ -85,9 +84,7 @@ export default function MermaidBlock({
           Mermaid
         </div>
         <p className="mb-2 text-[12px] text-kin-red">{error}</p>
-        <pre className="whitespace-pre-wrap text-[12px] font-mono text-kin-secondary">
-          {code}
-        </pre>
+        <pre className="whitespace-pre-wrap text-[12px] font-mono text-kin-secondary">{code}</pre>
       </div>
     );
   }

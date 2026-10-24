@@ -149,8 +149,7 @@ function historyItemToTaskEvent(
   if (!item.text.trim()) return null;
 
   const speaker = item.role === "user" ? "user" : hostSpeaker;
-  const phase =
-    item.role === "user" ? undefined : finalAssistant ? "summary" : "progress";
+  const phase = item.role === "user" ? undefined : finalAssistant ? "summary" : "progress";
   const role = kind === "reasoning" ? "reasoning" : item.role;
   return {
     task_id: taskID,

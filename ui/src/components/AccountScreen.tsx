@@ -108,9 +108,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
         >
           {mode === "claim" && (
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-zinc-400">
-                {tr("account.codeLabel")}
-              </span>
+              <span className="text-xs font-medium text-zinc-400">{tr("account.codeLabel")}</span>
               <input
                 type="text"
                 required
@@ -127,9 +125,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
           )}
 
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-400">
-              {tr("account.emailLabel")}
-            </span>
+            <span className="text-xs font-medium text-zinc-400">{tr("account.emailLabel")}</span>
             <input
               type="email"
               required
@@ -146,32 +142,24 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
           </label>
 
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-400">
-              {tr("account.passwordLabel")}
-            </span>
+            <span className="text-xs font-medium text-zinc-400">{tr("account.passwordLabel")}</span>
             <input
               type="password"
               required
               autoComplete={mode === "claim" ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={
-                mode === "claim" ? tr("account.newPasswordPlaceholder") : "••••••••"
-              }
+              placeholder={mode === "claim" ? tr("account.newPasswordPlaceholder") : "••••••••"}
               className="w-full min-h-[44px] rounded-xl border border-surface-border bg-surface px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-accent"
             />
             {mode === "claim" && (
-              <span className="block text-xs text-zinc-500">
-                {tr("account.passwordHint")}
-              </span>
+              <span className="block text-xs text-zinc-500">{tr("account.passwordHint")}</span>
             )}
           </label>
 
           {mode === "claim" && (
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-zinc-400">
-                {tr("account.nameLabel")}
-              </span>
+              <span className="text-xs font-medium text-zinc-400">{tr("account.nameLabel")}</span>
               <input
                 type="text"
                 autoComplete="name"
@@ -222,9 +210,7 @@ export default function AccountScreen({ mode }: { mode: Mode }) {
             <code className="block rounded-lg bg-surface px-2 py-1.5 text-zinc-300">
               docker compose logs kin
             </code>
-            {!account.claimable && (
-              <p className="text-amber-300/90">{tr("account.codeExpired")}</p>
-            )}
+            {!account.claimable && <p className="text-amber-300/90">{tr("account.codeExpired")}</p>}
           </div>
         )}
       </div>

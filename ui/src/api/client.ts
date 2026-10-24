@@ -356,7 +356,6 @@ export type WorkerStepsResponse = {
   steps: WorkerStep[];
 };
 
-
 export type CreateTaskBody = CreateTaskRequest;
 
 export type AgentModelOption = {
@@ -449,12 +448,7 @@ export function serverVersion(): Promise<ServerVersion> {
 }
 
 export type AgentProviderState =
-  | "not_detected"
-  | "detected"
-  | "available"
-  | "unsupported"
-  | "degraded"
-  | "permission_required";
+  "not_detected" | "detected" | "available" | "unsupported" | "degraded" | "permission_required";
 
 export type AgentProviderCapability = {
   capability: string;
@@ -678,12 +672,8 @@ export type WorkspaceDiffResponse = {
   truncated?: boolean;
 };
 
-export function listTaskWorkspaces(
-  taskId: string,
-): Promise<WorkspaceGeneration[]> {
-  return apiFetch<WorkspaceGeneration[]>(
-    `/api/tasks/${encodeURIComponent(taskId)}/workspaces`,
-  );
+export function listTaskWorkspaces(taskId: string): Promise<WorkspaceGeneration[]> {
+  return apiFetch<WorkspaceGeneration[]>(`/api/tasks/${encodeURIComponent(taskId)}/workspaces`);
 }
 
 export function listWorkspaceTree(
@@ -739,10 +729,7 @@ export function getWorkspaceDiff(
   );
 }
 
-export function listTaskSourceTree(
-  taskId: string,
-  path?: string,
-): Promise<WorkspaceTreeResponse> {
+export function listTaskSourceTree(taskId: string, path?: string): Promise<WorkspaceTreeResponse> {
   const q = new URLSearchParams();
   if (path && path !== ".") q.set("path", path);
   const qs = q.toString();
@@ -751,10 +738,7 @@ export function listTaskSourceTree(
   );
 }
 
-export function readTaskSourceFile(
-  taskId: string,
-  path: string,
-): Promise<WorkspaceFileResponse> {
+export function readTaskSourceFile(taskId: string, path: string): Promise<WorkspaceFileResponse> {
   const q = new URLSearchParams({ path });
   return apiFetch<WorkspaceFileResponse>(
     `/api/tasks/${encodeURIComponent(taskId)}/source/file?${q.toString()}`,
@@ -770,12 +754,8 @@ export function readTaskSourceFile(
  * no generation, and — when the task runs on another machine — a `git status`
  * that machine has to run, because it is about that filesystem.
  */
-export function getTaskSourceChanges(
-  taskId: string,
-): Promise<WorkspaceDiffResponse> {
-  return apiFetch<WorkspaceDiffResponse>(
-    `/api/tasks/${encodeURIComponent(taskId)}/source/changes`,
-  );
+export function getTaskSourceChanges(taskId: string): Promise<WorkspaceDiffResponse> {
+  return apiFetch<WorkspaceDiffResponse>(`/api/tasks/${encodeURIComponent(taskId)}/source/changes`);
 }
 
 // ---- Legacy workspace routes (delegate to current generation) ----
@@ -818,18 +798,12 @@ export function writeTaskWorkspaceFile(
 }
 
 /** Restore isolated task files to a checkpoint (event_seq 0 = initial). */
-export function restoreTaskWorkspace(
-  taskId: string,
-  eventSeq = 0,
-): Promise<Task> {
-  return apiFetch<Task>(
-    `/api/tasks/${encodeURIComponent(taskId)}/workspace/restore`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event_seq: eventSeq }),
-    },
-  );
+export function restoreTaskWorkspace(taskId: string, eventSeq = 0): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${encodeURIComponent(taskId)}/workspace/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event_seq: eventSeq }),
+  });
 }
 
 export function createTask(body: CreateTaskBody): Promise<Task> {
@@ -875,10 +849,7 @@ export function followUpPrompt(
 }
 
 /** Rewind a terminal task to a user turn and re-run (same task id). */
-export function retryTask(
-  id: string,
-  opts?: { from_seq?: number },
-): Promise<Task> {
+export function retryTask(id: string, opts?: { from_seq?: number }): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/retry`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -901,7 +872,6 @@ export function limitContinue(
   });
 }
 
-
 export function forkTask(
   id: string,
   opts?: { from_seq?: number; prompt?: string; agent?: string },
@@ -917,16 +887,15 @@ export function forkTask(
   });
 }
 
-
 export function listEvents(id: string, sinceSeq = 0): Promise<TaskEvent[]> {
   const q = sinceSeq > 0 ? `?since_seq=${sinceSeq}` : "";
   return apiFetch<TaskEvent[]>(`/api/tasks/${encodeURIComponent(id)}/events${q}`);
 }
 
 export function listWorkerSteps(id: string): Promise<WorkerStep[]> {
-  return apiFetch<WorkerStepsResponse>(
-    `/api/tasks/${encodeURIComponent(id)}/workers`,
-  ).then((response) => response.steps);
+  return apiFetch<WorkerStepsResponse>(`/api/tasks/${encodeURIComponent(id)}/workers`).then(
+    (response) => response.steps,
+  );
 }
 
 export async function getTaskLimitWait(id: string): Promise<TaskLimitWait | null> {
@@ -958,20 +927,14 @@ export function getTaskPullRequest(
   id: string,
   signal?: AbortSignal,
 ): Promise<TaskPullRequestSnapshot> {
-  return apiFetch<TaskPullRequestSnapshot>(
-    `/api/tasks/${encodeURIComponent(id)}/pr`,
-    { signal },
-  );
+  return apiFetch<TaskPullRequestSnapshot>(`/api/tasks/${encodeURIComponent(id)}/pr`, { signal });
 }
 
 /** Query GitHub now and wait. Spends rate limit, so only on an explicit tap. */
-export function refreshTaskPullRequest(
-  id: string,
-): Promise<TaskPullRequestSnapshot> {
-  return apiFetch<TaskPullRequestSnapshot>(
-    `/api/tasks/${encodeURIComponent(id)}/pr/refresh`,
-    { method: "POST" },
-  );
+export function refreshTaskPullRequest(id: string): Promise<TaskPullRequestSnapshot> {
+  return apiFetch<TaskPullRequestSnapshot>(`/api/tasks/${encodeURIComponent(id)}/pr/refresh`, {
+    method: "POST",
+  });
 }
 
 /**
@@ -990,14 +953,11 @@ export function publishTaskPullRequest(
   id: string,
   words: { title: string; body: string },
 ): Promise<PublishReport> {
-  return apiFetch<PublishReport>(
-    `/api/tasks/${encodeURIComponent(id)}/pr/publish`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(words),
-    },
-  );
+  return apiFetch<PublishReport>(`/api/tasks/${encodeURIComponent(id)}/pr/publish`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(words),
+  });
 }
 
 /**
@@ -1007,9 +967,7 @@ export function publishTaskPullRequest(
  * It is the way out of a publish refused on the default branch: uncommitted
  * work comes along, because that is what is being published.
  */
-export function createTaskBranch(
-  id: string,
-): Promise<{ cwd?: string; current?: string }> {
+export function createTaskBranch(id: string): Promise<{ cwd?: string; current?: string }> {
   return apiFetch<{ cwd?: string; current?: string }>(
     `/api/tasks/${encodeURIComponent(id)}/branch`,
     { method: "POST" },
@@ -1038,13 +996,15 @@ export function answerUserQuestion(
 export function parseUserQuestionPayload(payload: unknown): UserQuestionPayload {
   const p = (payload ?? {}) as Record<string, unknown>;
   const optionsRaw = Array.isArray(p.options) ? p.options : [];
-  const options: UserQuestionOption[] = optionsRaw.map((o) => {
-    const item = (o ?? {}) as Record<string, unknown>;
-    return {
-      label: String(item.label ?? ""),
-      description: item.description != null ? String(item.description) : undefined,
-    };
-  }).filter((o) => o.label);
+  const options: UserQuestionOption[] = optionsRaw
+    .map((o) => {
+      const item = (o ?? {}) as Record<string, unknown>;
+      return {
+        label: String(item.label ?? ""),
+        description: item.description != null ? String(item.description) : undefined,
+      };
+    })
+    .filter((o) => o.label);
   return {
     question: String(p.question ?? ""),
     header: p.header != null ? String(p.header) : undefined,
@@ -1105,10 +1065,7 @@ export function createArtifact(body: {
   });
 }
 
-export function setArtifactStatus(
-  id: string,
-  status: string,
-): Promise<Artifact> {
+export function setArtifactStatus(id: string, status: string): Promise<Artifact> {
   return apiFetch<Artifact>(`/api/artifacts/${encodeURIComponent(id)}/status`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1117,9 +1074,7 @@ export function setArtifactStatus(
 }
 
 /** Infer artifact kind from content (P0: trivial heuristic). */
-export function detectArtifactKind(
-  content: string,
-): "markdown" | "html" | "text" {
+export function detectArtifactKind(content: string): "markdown" | "html" | "text" {
   const head = content.slice(0, 512).toLowerCase();
   if (head.includes("<!doctype html") || head.includes("<html")) return "html";
   return "markdown";
@@ -1136,7 +1091,6 @@ export function deriveArtifactTitle(content: string, fallback: string): string {
   if (line) return line.replace(/^#+\s*/, "").slice(0, 120);
   return fallback || t("api.untitled");
 }
-
 
 export type ProjectMode = "ship" | "learn" | "explore" | "maintain";
 
@@ -1175,7 +1129,6 @@ export type ProjectByRoot = Project & {
   one_pager_updated_at?: number;
 };
 
-
 export function listProjects(status: string = "active"): Promise<Project[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
   return apiFetch<Project[]>(`/api/projects${q}`);
@@ -1184,7 +1137,6 @@ export function listProjects(status: string = "active"): Promise<Project[]> {
 export function getProject(id: string): Promise<Project> {
   return apiFetch<Project>(`/api/projects/${encodeURIComponent(id)}`);
 }
-
 
 export type PulseDay = { date: string; count: number };
 export type ProjectPulse = {
@@ -1205,15 +1157,11 @@ export type ProjectPulse = {
   auto_markdown: string;
 };
 
-export function getProjectPulse(
-  id: string,
-  windowDays = 90,
-): Promise<ProjectPulse> {
+export function getProjectPulse(id: string, windowDays = 90): Promise<ProjectPulse> {
   return apiFetch<ProjectPulse>(
     `/api/projects/${encodeURIComponent(id)}/pulse?window_days=${windowDays}`,
   );
 }
-
 
 export function refreshProjectPulse(
   id: string,
@@ -1273,50 +1221,31 @@ export function patchProject(
 }
 
 export function getOnePager(id: string): Promise<OnePager> {
-  return apiFetch<OnePager>(
-    `/api/projects/${encodeURIComponent(id)}/one-pager`,
-  );
+  return apiFetch<OnePager>(`/api/projects/${encodeURIComponent(id)}/one-pager`);
 }
 
-export function putOnePager(
-  id: string,
-  markdown: string,
-  updatedAt?: number,
-): Promise<OnePager> {
-  return apiFetch<OnePager>(
-    `/api/projects/${encodeURIComponent(id)}/one-pager`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        markdown,
-        updated_at: updatedAt,
-      }),
-    },
-  );
+export function putOnePager(id: string, markdown: string, updatedAt?: number): Promise<OnePager> {
+  return apiFetch<OnePager>(`/api/projects/${encodeURIComponent(id)}/one-pager`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      markdown,
+      updated_at: updatedAt,
+    }),
+  });
 }
 
 export function listProjectTasks(id: string, limit = 50): Promise<Task[]> {
-  return apiFetch<Task[]>(
-    `/api/projects/${encodeURIComponent(id)}/tasks?limit=${limit}`,
-  );
+  return apiFetch<Task[]>(`/api/projects/${encodeURIComponent(id)}/tasks?limit=${limit}`);
 }
 
-export function listProjectArtifacts(
-  id: string,
-  limit = 30,
-): Promise<Artifact[]> {
-  return apiFetch<Artifact[]>(
-    `/api/projects/${encodeURIComponent(id)}/artifacts?limit=${limit}`,
-  );
+export function listProjectArtifacts(id: string, limit = 30): Promise<Artifact[]> {
+  return apiFetch<Artifact[]>(`/api/projects/${encodeURIComponent(id)}/artifacts?limit=${limit}`);
 }
 
 export function findProjectByRoot(path: string): Promise<ProjectByRoot> {
-  return apiFetch<ProjectByRoot>(
-    `/api/projects/by-root?path=${encodeURIComponent(path)}`,
-  );
+  return apiFetch<ProjectByRoot>(`/api/projects/by-root?path=${encodeURIComponent(path)}`);
 }
-
 
 export type Routine = {
   id: string;
@@ -1429,10 +1358,9 @@ export function getRoutineUnreadCount(): Promise<{ count: number }> {
 }
 
 export function markRoutineRunRead(taskId: string): Promise<Task> {
-  return apiFetch<Task>(
-    `/api/routines/runs/${encodeURIComponent(taskId)}/read`,
-    { method: "POST" },
-  );
+  return apiFetch<Task>(`/api/routines/runs/${encodeURIComponent(taskId)}/read`, {
+    method: "POST",
+  });
 }
 
 export function markAllRoutineRunsRead(): Promise<{ marked: number }> {
@@ -1463,9 +1391,7 @@ export function createEvalRun(body: EvalRunRequest): Promise<EvalRun> {
   });
 }
 
-export function compareEvalRuns(
-  body: EvalCompareRequest,
-): Promise<{ runs: EvalRun[] }> {
+export function compareEvalRuns(body: EvalCompareRequest): Promise<{ runs: EvalRun[] }> {
   return apiFetch<{ runs: EvalRun[] }>("/api/evals/compare", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1473,18 +1399,12 @@ export function compareEvalRuns(
   });
 }
 
-export function replayTask(
-  id: string,
-  body: ReplayRequest,
-): Promise<Record<string, unknown>> {
-  return apiFetch<Record<string, unknown>>(
-    `/api/tasks/${encodeURIComponent(id)}/replay`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  );
+export function replayTask(id: string, body: ReplayRequest): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>(`/api/tasks/${encodeURIComponent(id)}/replay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 export function getA2ATask(id: string): Promise<A2ATask> {
@@ -1492,16 +1412,12 @@ export function getA2ATask(id: string): Promise<A2ATask> {
 }
 
 export function listRoutineRuns(limit = 50): Promise<Task[]> {
-  return apiFetch<RoutinePage>(
-    `/api/routines?runs=1&runs_limit=${limit}`,
-  ).then((r) => r.runs ?? []);
+  return apiFetch<RoutinePage>(`/api/routines?runs=1&runs_limit=${limit}`).then(
+    (r) => r.runs ?? [],
+  );
 }
 
-
-export function decideApproval(
-  id: string,
-  decision: "approved" | "denied",
-): Promise<Approval> {
+export function decideApproval(id: string, decision: "approved" | "denied"): Promise<Approval> {
   const body: ApprovalDecisionRequest = { decision };
   return apiFetch<Approval>(`/api/approvals/${encodeURIComponent(id)}/decision`, {
     method: "POST",
@@ -1681,10 +1597,7 @@ export function isImageMime(mime: string | undefined | null): boolean {
 /** POST /api/uploads — upload a single attachment (multipart). */
 export async function uploadFile(file: File): Promise<Upload> {
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new ApiError(
-      413,
-      `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`,
-    );
+    throw new ApiError(413, `File too large (max ${MAX_UPLOAD_BYTES >> 20} MiB)`);
   }
   const form = new FormData();
   form.append("file", file);
@@ -1945,15 +1858,11 @@ export function listAgentSessionsPage(params?: {
   if (params?.limit) query.set("limit", String(params.limit));
   if (params?.before) query.set("before", params.before);
   const suffix = query.toString();
-  return apiFetch<AgentSessionListPage>(
-    `/api/agent-sessions/page${suffix ? `?${suffix}` : ""}`,
-  );
+  return apiFetch<AgentSessionListPage>(`/api/agent-sessions/page${suffix ? `?${suffix}` : ""}`);
 }
 
 export function getAgentSession(id: string): Promise<AgentSession> {
-  return apiFetch<AgentSession>(
-    `/api/agent-sessions/${encodeURIComponent(id)}`,
-  );
+  return apiFetch<AgentSession>(`/api/agent-sessions/${encodeURIComponent(id)}`);
 }
 
 export type AgentSessionImportResult = {
@@ -1963,14 +1872,15 @@ export type AgentSessionImportResult = {
 };
 
 let agentSessionImportTail: Promise<void> = Promise.resolve();
-const agentSessionImportInFlight = new Map<
-  string,
-  Promise<AgentSessionImportResult>
->();
+const agentSessionImportInFlight = new Map<string, Promise<AgentSessionImportResult>>();
 
 export function importAgentSessions(agents?: string[]): Promise<AgentSessionImportResult> {
   const key = agents?.length
-    ? [...agents].map((agent) => agent.trim()).filter(Boolean).sort().join(",")
+    ? [...agents]
+        .map((agent) => agent.trim())
+        .filter(Boolean)
+        .sort()
+        .join(",")
     : "*";
   const existing = agentSessionImportInFlight.get(key);
   if (existing) {
@@ -1988,15 +1898,18 @@ export function importAgentSessions(agents?: string[]): Promise<AgentSessionImpo
     () => undefined,
     () => undefined,
   );
-  void promise.then(() => {
-    if (agentSessionImportInFlight.get(key) === promise) {
-      agentSessionImportInFlight.delete(key);
-    }
-  }, () => {
-    if (agentSessionImportInFlight.get(key) === promise) {
-      agentSessionImportInFlight.delete(key);
-    }
-  });
+  void promise.then(
+    () => {
+      if (agentSessionImportInFlight.get(key) === promise) {
+        agentSessionImportInFlight.delete(key);
+      }
+    },
+    () => {
+      if (agentSessionImportInFlight.get(key) === promise) {
+        agentSessionImportInFlight.delete(key);
+      }
+    },
+  );
   return promise;
 }
 
@@ -2036,7 +1949,7 @@ export function attachAgentSession(
 /** Model spec with tier and cost label for routing decisions. */
 export type ModelSpec = {
   id: string;
-  tier: string;       // smart | balanced | fast | free
+  tier: string; // smart | balanced | fast | free
   cost_label: string; // paid | company | free | unknown
 };
 
@@ -2087,10 +2000,7 @@ export function createProvider(body: ProviderWrite): Promise<ProvidersResponse> 
   });
 }
 
-export function updateProvider(
-  id: string,
-  body: ProviderWrite,
-): Promise<ProvidersResponse> {
+export function updateProvider(id: string, body: ProviderWrite): Promise<ProvidersResponse> {
   return apiFetch<ProvidersResponse>(`/api/providers/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -2105,10 +2015,9 @@ export function deleteProvider(id: string): Promise<ProvidersResponse> {
 }
 
 export function activateProvider(id: string): Promise<ProvidersResponse> {
-  return apiFetch<ProvidersResponse>(
-    `/api/providers/${encodeURIComponent(id)}/activate`,
-    { method: "POST" },
-  );
+  return apiFetch<ProvidersResponse>(`/api/providers/${encodeURIComponent(id)}/activate`, {
+    method: "POST",
+  });
 }
 
 export type ProviderModelsQuery = {
@@ -2119,9 +2028,7 @@ export type ProviderModelsQuery = {
 };
 
 /** Discovers models the provider's base_url supports (GET {base_url}/models). */
-export function listProviderModels(
-  body: ProviderModelsQuery,
-): Promise<{ models: string[] }> {
+export function listProviderModels(body: ProviderModelsQuery): Promise<{ models: string[] }> {
   return apiFetch<{ models: string[] }>("/api/providers/models", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2436,9 +2343,7 @@ export function parseApprovalPayload(payload: unknown): {
   input: Record<string, unknown>;
 } {
   const p = (payload ?? {}) as Record<string, unknown>;
-  const toolName = String(
-    p.tool_name ?? p.toolName ?? p.name ?? p.tool ?? t("api.unknownTool"),
-  );
+  const toolName = String(p.tool_name ?? p.toolName ?? p.name ?? p.tool ?? t("api.unknownTool"));
   let input: Record<string, unknown> = {};
   if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
     input = p.input as Record<string, unknown>;
@@ -2625,7 +2530,9 @@ export function getRoutingProfiles(): Promise<{ profiles: RoutingTeamProfile[] }
 }
 
 /** PUT /api/routing/profiles — update team routing profiles. */
-export function updateRoutingProfiles(profiles: RoutingTeamProfile[]): Promise<{ profiles: RoutingTeamProfile[] }> {
+export function updateRoutingProfiles(
+  profiles: RoutingTeamProfile[],
+): Promise<{ profiles: RoutingTeamProfile[] }> {
   return apiFetch<{ profiles: RoutingTeamProfile[] }>("/api/routing/profiles", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -2639,7 +2546,9 @@ export function getRoutingProviderProfiles(): Promise<{ profiles: RoutingProvide
 }
 
 /** PUT /api/routing/provider-profiles — update routing provider profiles. */
-export function updateRoutingProviderProfiles(profiles: RoutingProviderProfile[]): Promise<{ profiles: RoutingProviderProfile[] }> {
+export function updateRoutingProviderProfiles(
+  profiles: RoutingProviderProfile[],
+): Promise<{ profiles: RoutingProviderProfile[] }> {
   return apiFetch<{ profiles: RoutingProviderProfile[] }>("/api/routing/provider-profiles", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

@@ -71,9 +71,7 @@ function messageText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
     .map((c) =>
-      c && typeof c === "object" && "text" in c
-        ? String((c as { text: unknown }).text ?? "")
-        : "",
+      c && typeof c === "object" && "text" in c ? String((c as { text: unknown }).text ?? "") : "",
     )
     .join("");
 }

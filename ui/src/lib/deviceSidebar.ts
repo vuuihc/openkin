@@ -59,10 +59,7 @@ export function projectLabelForSession(session: AgentSession): string {
   );
 }
 
-export function sessionsForProject(
-  sessions: AgentSession[],
-  group: ProjectGroup,
-): AgentSession[] {
+export function sessionsForProject(sessions: AgentSession[], group: ProjectGroup): AgentSession[] {
   return sessions.filter((session) => projectKey(session.cwd) === projectKey(group.cwd));
 }
 
@@ -85,9 +82,7 @@ export function mergeExternalProjectGroups(
   // Sort ranks pins from the stored list, not from `group.pinned`, so a row
   // that leaves this false sorts to the top and draws an unlit pin button that
   // unpins it when clicked.
-  const pinned = new Set(
-    (prefs?.pinned ?? getPinnedProjects()).map((cwd) => normCwd(cwd)),
-  );
+  const pinned = new Set((prefs?.pinned ?? getPinnedProjects()).map((cwd) => normCwd(cwd)));
   for (const session of sessions) {
     const key = projectKey(session.cwd);
     if (known.has(key)) continue;
@@ -167,11 +162,7 @@ export function groupByDevice(
   const sessionsByDevice = new Map<string, AgentSession[]>();
   for (const session of sessions) {
     const id = deviceIdOf(session.device_id, selfId);
-    bucket(
-      sessionsByDevice,
-      unknownIsSelf && !described.has(id) ? selfId : id,
-      session,
-    );
+    bucket(sessionsByDevice, unknownIsSelf && !described.has(id) ? selfId : id, session);
   }
 
   const archivedKeys = new Set(
@@ -184,7 +175,9 @@ export function groupByDevice(
   for (const id of ids) {
     const deviceTasks = tasksByDevice.get(id) ?? [];
     const deviceSessions = (sessionsByDevice.get(id) ?? []).filter((session) =>
-      onlyArchived ? archivedKeys.has(normCwd(session.cwd)) : !archivedKeys.has(normCwd(session.cwd)),
+      onlyArchived
+        ? archivedKeys.has(normCwd(session.cwd))
+        : !archivedKeys.has(normCwd(session.cwd)),
     );
 
     const projects = mergeExternalProjectGroups(
@@ -210,9 +203,7 @@ export function groupByDevice(
       // What the section will actually list. Counting the device's whole task
       // bucket would put a number over a section that does not show that many
       // rows — the archived pass sees the same tasks, filtered the other way.
-      count:
-        projects.reduce((n, project) => n + project.items.length, 0) +
-        deviceSessions.length,
+      count: projects.reduce((n, project) => n + project.items.length, 0) + deviceSessions.length,
       lastActivityAt,
     });
   }
@@ -240,10 +231,7 @@ export function groupByDevice(
  * "obviously this machine", and staying silent hides the one fact the grouping
  * exists to show.
  */
-export function showMachineLabels(
-  groups: DeviceGroup[],
-  archivedGroups: DeviceGroup[],
-): boolean {
+export function showMachineLabels(groups: DeviceGroup[], archivedGroups: DeviceGroup[]): boolean {
   const all = [...groups, ...archivedGroups];
   if (new Set(all.map((group) => group.id)).size > 1) return true;
   return all.length > 0 && all.every((group) => !group.isSelf);

@@ -63,9 +63,7 @@ export function getTerminalTheme(): ITheme {
  * Watch for theme changes and update terminal theme reactively.
  * Returns a cleanup function.
  */
-export function observeThemeChanges(
-  onThemeChange: (theme: ITheme) => void,
-): () => void {
+export function observeThemeChanges(onThemeChange: (theme: ITheme) => void): () => void {
   const observer = new MutationObserver(() => {
     onThemeChange(getTerminalTheme());
   });

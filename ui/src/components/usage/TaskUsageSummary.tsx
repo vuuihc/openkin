@@ -22,12 +22,7 @@ type Props = {
  * Task usage summary. Default strip sits above the transcript;
  * card variant docks into the session side rail.
  */
-export default function TaskUsageSummary({
-  usage,
-  loading,
-  variant = "strip",
-  className,
-}: Props) {
+export default function TaskUsageSummary({ usage, loading, variant = "strip", className }: Props) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const detailsID = useId();
@@ -85,9 +80,7 @@ export default function TaskUsageSummary({
     costLabelKey && usage.cost_usd != null
       ? {
           label:
-            costLabelKey === "costEstimated"
-              ? tr("usage.costEstimated")
-              : tr("usage.costProvider"),
+            costLabelKey === "costEstimated" ? tr("usage.costEstimated") : tr("usage.costProvider"),
           title:
             costSource === "price_table"
               ? tr("usage.costEstimatedHint")
@@ -247,10 +240,7 @@ export default function TaskUsageSummary({
         </button>
 
         {open && (
-          <div
-            id={detailsID}
-            className="border-t border-[var(--kin-hairline)] px-3 py-3 space-y-3"
-          >
+          <div id={detailsID} className="border-t border-[var(--kin-hairline)] px-3 py-3 space-y-3">
             {details}
           </div>
         )}
@@ -278,9 +268,7 @@ function Metric({
       ].join(" ")}
       title={title}
     >
-      <dt className="text-[10px] font-semibold uppercase tracking-wide text-kin-muted">
-        {label}
-      </dt>
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-kin-muted">{label}</dt>
       <dd
         className={[
           "mt-0.5 truncate font-semibold tabular-nums",

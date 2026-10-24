@@ -40,8 +40,7 @@ export function localAgentStatusKey(state: AgentProviderState): string {
 
 export function canImportAgentSessions(agent: AgentProvider): boolean {
   return (agent.capabilities ?? []).some(
-    (capability) =>
-      capability.capability === "session_list" && capability.state === "available",
+    (capability) => capability.capability === "session_list" && capability.state === "available",
   );
 }
 
@@ -106,10 +105,7 @@ export function LocalAgentSettingsSection({
           <div className="divide-y divide-[var(--kin-hairline)] rounded-lg border border-[var(--kin-hairline)]">
             {agentProviders.map((agent) => {
               const capabilities = new Map(
-                (agent.capabilities ?? []).map((capability) => [
-                  capability.capability,
-                  capability,
-                ]),
+                (agent.capabilities ?? []).map((capability) => [capability.capability, capability]),
               );
               const statusText = tr(localAgentStatusKey(agent.state));
               const canImport = canImportAgentSessions(agent);
@@ -205,9 +201,7 @@ export function LocalAgentSettingsSection({
             <option value="enabled">{tr("settings.localAgents.modeEnabled")}</option>
             <option value="disabled">{tr("settings.localAgents.modeDisabled")}</option>
           </select>
-          <span className="text-[11px] text-kin-muted">
-            {tr("settings.localAgents.policy")}
-          </span>
+          <span className="text-[11px] text-kin-muted">{tr("settings.localAgents.policy")}</span>
           <div
             className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)]/40 px-3 py-2 text-[11px] text-kin-muted"
             role="status"

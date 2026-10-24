@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  dropSessionCache,
-  taskIdFromPathname,
-  touchSessionCache,
-} from "./sessionCache";
+import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "./sessionCache";
 
 describe("touchSessionCache", () => {
   it("promotes existing id to front", () => {
@@ -12,16 +8,7 @@ describe("touchSessionCache", () => {
 
   it("inserts new id at front and caps size", () => {
     const prev = ["1", "2", "3", "4", "5", "6", "7", "8"];
-    expect(touchSessionCache(prev, "9", 8)).toEqual([
-      "9",
-      "1",
-      "2",
-      "3",
-      "4",
-      "5",
-      "6",
-      "7",
-    ]);
+    expect(touchSessionCache(prev, "9", 8)).toEqual(["9", "1", "2", "3", "4", "5", "6", "7"]);
   });
 
   it("ignores empty id", () => {

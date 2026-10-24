@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   isAuthenticated,
@@ -206,10 +199,7 @@ export default function CommandPalette({
           navigate(`/tasks/${task.id}`);
         })
         .catch((e) => {
-          pushToast(
-            e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"),
-            "error",
-          );
+          pushToast(e instanceof Error ? e.message : tr("projects.recipeLaunchFailed"), "error");
         })
         .finally(() => setLaunchingRecipe(false));
     };
@@ -223,12 +213,7 @@ export default function CommandPalette({
             hint: tr("projects.recipeSection"),
             run: () => runRecipe(r.id),
           }))
-          .filter(
-            (a) =>
-              match(a.label) ||
-              match(a.hint || "") ||
-              match(recipeProject.name),
-          )
+          .filter((a) => match(a.label) || match(a.hint || "") || match(recipeProject.name))
       : [];
 
     const chats: Item[] = tasks
@@ -243,9 +228,7 @@ export default function CommandPalette({
         id: t.id,
         task: t,
         label: `${projectLabel(t.cwd)}: ${t.title || displayUserPrompt(t.prompt || "")}`,
-        hint: isTerminal(t.status)
-          ? t.status
-          : `${t.status} · ${t.agent}`,
+        hint: isTerminal(t.status) ? t.status : `${t.status} · ${t.agent}`,
       }));
 
     return [...actions, ...recipeActions, ...chats];
@@ -328,7 +311,9 @@ export default function CommandPalette({
 
         <div className="max-h-[min(360px,50vh)] overflow-y-auto kin-scroll p-2">
           {items.length === 0 && (
-            <p className="px-3 py-8 text-center text-sm text-kin-muted">{tr("palette.noMatches")}</p>
+            <p className="px-3 py-8 text-center text-sm text-kin-muted">
+              {tr("palette.noMatches")}
+            </p>
           )}
 
           {actionItems.length > 0 && (
@@ -433,10 +418,9 @@ function PaletteRow({
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {hint && (
         <span
-          className={[
-            "text-[11px] flex-none",
-            active ? "text-white/70" : "text-kin-muted",
-          ].join(" ")}
+          className={["text-[11px] flex-none", active ? "text-white/70" : "text-kin-muted"].join(
+            " ",
+          )}
         >
           {active ? `↵ ${t("palette.open")}` : hint}
         </span>

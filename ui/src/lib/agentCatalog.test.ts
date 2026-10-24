@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "../api/client";
-import {
-  agentCatalogState,
-  isNativeAgent,
-  runnableAgents,
-  sortAgentCatalog,
-} from "./agentCatalog";
+import { agentCatalogState, isNativeAgent, runnableAgents, sortAgentCatalog } from "./agentCatalog";
 
 function agent(partial: Partial<AgentInfo> & Pick<AgentInfo, "id" | "name">): AgentInfo {
   return {
@@ -79,10 +74,6 @@ describe("runnableAgents / sortAgentCatalog", () => {
       }),
     ];
     expect(runnableAgents(list).map((a) => a.id)).toEqual(["gemini-cli"]);
-    expect(sortAgentCatalog(list).map((a) => a.id)).toEqual([
-      "gemini-cli",
-      "pi",
-      "cursor",
-    ]);
+    expect(sortAgentCatalog(list).map((a) => a.id)).toEqual(["gemini-cli", "pi", "cursor"]);
   });
 });

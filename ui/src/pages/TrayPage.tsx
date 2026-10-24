@@ -7,10 +7,7 @@ import {
   parseApprovalPayload,
 } from "../api/client";
 import { liveResources } from "../api/liveResources";
-import {
-  usePendingResources,
-  useTaskList,
-} from "../api/useLiveResources";
+import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import { shortPath } from "../lib/paths";
 import { IconFile, IconKin } from "../components/icons";
 import { useAppStore } from "../store/appStore";
@@ -34,18 +31,13 @@ export default function TrayPage() {
     return () => clearInterval(id);
   }, []);
 
-  const running = useMemo(
-    () => tasks.filter((t) => !isTerminal(t.status)).slice(0, 5),
-    [tasks],
-  );
+  const running = useMemo(() => tasks.filter((t) => !isTerminal(t.status)).slice(0, 5), [tasks]);
 
   const doneToday = useMemo(() => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const ms = start.getTime();
-    return tasks
-      .filter((t) => isTerminal(t.status) && t.created_at >= ms)
-      .slice(0, 5);
+    return tasks.filter((t) => isTerminal(t.status) && t.created_at >= ms).slice(0, 5);
   }, [tasks]);
 
   async function onDecide(id: string, decision: "approved" | "denied") {
@@ -137,9 +129,7 @@ export default function TrayPage() {
                       </div>
                     )}
                     {a.task_title && (
-                      <div className="text-[11px] text-kin-muted mt-1 truncate">
-                        {a.task_title}
-                      </div>
+                      <div className="text-[11px] text-kin-muted mt-1 truncate">{a.task_title}</div>
                     )}
                     <div className="flex gap-1.5 mt-2.5">
                       <button
@@ -198,12 +188,8 @@ export default function TrayPage() {
                   </div>
                 </div>
                 <div className="text-right tabular-nums flex-none">
-                  <div className="text-[12px] text-kin-secondary">
-                    {formatElapsed(t, now)}
-                  </div>
-                  <div className="text-[11px] text-kin-muted">
-                    {formatCost(t.cost_usd)}
-                  </div>
+                  <div className="text-[12px] text-kin-secondary">{formatElapsed(t, now)}</div>
+                  <div className="text-[11px] text-kin-muted">{formatCost(t.cost_usd)}</div>
                 </div>
               </button>
             ))}
@@ -224,7 +210,9 @@ export default function TrayPage() {
                   onClick={() => openMain(`/tasks/${t.id}`)}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12.5px] text-kin-secondary hover:bg-[var(--kin-fill)] text-left"
                 >
-                  <span className="truncate flex-1">{t.title || displayUserPrompt(t.prompt || "")}</span>
+                  <span className="truncate flex-1">
+                    {t.title || displayUserPrompt(t.prompt || "")}
+                  </span>
                   <span className="tabular-nums text-kin-muted flex-none">
                     {formatCost(t.cost_usd)}
                   </span>

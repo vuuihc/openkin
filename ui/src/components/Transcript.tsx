@@ -79,9 +79,7 @@ export default function Transcript({ events }: Props) {
                 className="rounded-xl border border-kin-green/30 bg-[rgba(48,209,88,.08)] px-4 py-3 text-xs text-kin-secondary"
               >
                 Result · cost{" "}
-                {typeof row.payload.cost_usd === "number"
-                  ? `$${row.payload.cost_usd}`
-                  : "—"}
+                {typeof row.payload.cost_usd === "number" ? `$${row.payload.cost_usd}` : "—"}
               </div>
             );
           case "meta":
@@ -101,7 +99,10 @@ export default function Transcript({ events }: Props) {
                   {" "}
                   · {row.tool || "tool"}
                   {row.approvalId ? (
-                    <span className="font-mono text-xs text-zinc-500"> · {row.approvalId.slice(0, 10)}…</span>
+                    <span className="font-mono text-xs text-zinc-500">
+                      {" "}
+                      · {row.approvalId.slice(0, 10)}…
+                    </span>
                   ) : null}
                 </span>
               </div>
@@ -114,15 +115,9 @@ export default function Transcript({ events }: Props) {
             return (
               <div key={row.key} className={`rounded-xl border px-4 py-3 text-sm ${cls}`}>
                 <span className="font-medium">
-                  {row.decision === "expired"
-                    ? "Approval expired"
-                    : ok
-                      ? "Approved"
-                      : "Denied"}
+                  {row.decision === "expired" ? "Approval expired" : ok ? "Approved" : "Denied"}
                 </span>
-                {row.via ? (
-                  <span className="text-zinc-500 text-xs"> · via {row.via}</span>
-                ) : null}
+                {row.via ? <span className="text-zinc-500 text-xs"> · via {row.via}</span> : null}
               </div>
             );
           }
@@ -141,9 +136,7 @@ function ToolBlock({ name, input }: { name: string; input: unknown }) {
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm"
       >
-        <span className="font-mono text-accent-muted">
-          tool · {name || "unknown"}
-        </span>
+        <span className="font-mono text-accent-muted">tool · {name || "unknown"}</span>
         <span className="text-xs text-zinc-500">{open ? "Hide" : "Show"}</span>
       </button>
       {open && (

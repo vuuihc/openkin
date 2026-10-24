@@ -72,11 +72,7 @@ export function toAbsoluteWorkspacePath(
   }
   // Refuse absolute / drive inputs before normalizing.
   const slashRel = slashPath(relativePath.trim());
-  if (
-    slashRel.startsWith("/") ||
-    /^[A-Za-z]:\//.test(slashRel) ||
-    slashRel.startsWith("//")
-  ) {
+  if (slashRel.startsWith("/") || /^[A-Za-z]:\//.test(slashRel) || slashRel.startsWith("//")) {
     return null;
   }
   const rel = normalizeRelativePath(relativePath);
@@ -85,4 +81,3 @@ export function toAbsoluteWorkspacePath(
   if (rel === ".") return base || null;
   return `${base}/${rel}`;
 }
-

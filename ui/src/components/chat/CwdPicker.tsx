@@ -126,9 +126,7 @@ export default function CwdPicker({
         <FolderIcon />
         {/* The label keeps its width and the path tag beside it truncates: a
             directory's own name is the part worth reading in a tight row. */}
-        <span className="font-medium text-kin-secondary shrink-0">
-          {projectLabel(cwd)}
-        </span>
+        <span className="font-medium text-kin-secondary shrink-0">{projectLabel(cwd)}</span>
         {cwd && <PathHoverTag cwd={cwd} compact={compact} />}
         {!compact && (
           <span className="ml-auto text-[10.5px] uppercase tracking-wide opacity-70">
@@ -159,11 +157,7 @@ export default function CwdPicker({
             }
           }}
           onBlur={() => commit(draft)}
-          placeholder={
-            native
-              ? "/Users/… or use Browse"
-              : processPlaceholder()
-          }
+          placeholder={native ? "/Users/… or use Browse" : processPlaceholder()}
           className="flex-1 min-w-0 rounded-md border border-kin-blue/40 bg-[var(--kin-fill)] px-2 py-1 text-[12.5px] font-mono text-kin-text outline-none"
         />
         <datalist id="kin-cwd-suggestions">
@@ -241,9 +235,7 @@ export default function CwdPicker({
       >
         <FolderIcon />
         {cwd ? (
-          <span className="font-medium text-kin-secondary">
-            {projectLabel(cwd)}
-          </span>
+          <span className="font-medium text-kin-secondary">{projectLabel(cwd)}</span>
         ) : (
           <span className="text-kin-orange">
             {native ? tr("cwd.chooseFolder") : tr("cwd.chooseCwd")}
@@ -291,9 +283,7 @@ export default function CwdPicker({
         </>
       )}
 
-      {dirs.length > 0 && !cwd && (
-        <div className="hidden" />
-      )}
+      {dirs.length > 0 && !cwd && <div className="hidden" />}
     </div>
   );
 }
@@ -339,10 +329,7 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
     const r = anchorRef.current?.getBoundingClientRect();
     if (r) {
       const cardWidth = 340;
-      const left = Math.min(
-        Math.max(8, r.left),
-        Math.max(8, window.innerWidth - cardWidth - 8),
-      );
+      const left = Math.min(Math.max(8, r.left), Math.max(8, window.innerWidth - cardWidth - 8));
       setRect({ left, bottom: window.innerHeight - r.top + 4 });
     }
   }

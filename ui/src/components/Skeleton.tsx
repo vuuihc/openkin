@@ -1,12 +1,7 @@
 /** Shared skeleton building blocks for loading states (no layout jump). */
 
 export function SkeletonLine({ className = "" }: { className?: string }) {
-  return (
-    <div
-      className={`animate-pulse rounded-md bg-zinc-800/80 ${className}`}
-      aria-hidden
-    />
-  );
+  return <div className={`animate-pulse rounded-md bg-zinc-800/80 ${className}`} aria-hidden />;
 }
 
 export function SkeletonCard({ lines = 2 }: { lines?: number }) {

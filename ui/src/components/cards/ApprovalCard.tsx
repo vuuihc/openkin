@@ -1,7 +1,4 @@
-import {
-  type Approval,
-  parseApprovalPayload,
-} from "../../api/client";
+import { type Approval, parseApprovalPayload } from "../../api/client";
 import { shortPath } from "../../lib/paths";
 import { formatApprovalAttribution } from "../../lib/approvalAttribution";
 import { useT } from "../../i18n/react";
@@ -125,7 +122,9 @@ export default function ApprovalCard({
             onClick={onApprove}
             className="kin-btn-approve flex-1 disabled:opacity-60"
           >
-            {busy === "approved" ? tr("approval.approving") : (
+            {busy === "approved" ? (
+              tr("approval.approving")
+            ) : (
               <>
                 {tr("chat.approve")} <span className="opacity-60 font-semibold">A</span>
               </>
@@ -137,7 +136,9 @@ export default function ApprovalCard({
             onClick={onDeny}
             className="kin-btn-deny flex-1 disabled:opacity-60"
           >
-            {busy === "denied" ? tr("approval.denying") : (
+            {busy === "denied" ? (
+              tr("approval.denying")
+            ) : (
               <>
                 {tr("chat.deny")} <span className="opacity-50">D</span>
               </>

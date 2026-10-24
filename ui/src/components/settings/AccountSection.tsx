@@ -33,9 +33,7 @@ export function AccountSection() {
           {account.displayName && account.email ? (
             <p className="truncate text-[12px] text-kin-muted">{account.email}</p>
           ) : null}
-          <p className="text-[11px] text-kin-muted">
-            {tr("settings.account.deviceCountNote")}
-          </p>
+          <p className="text-[11px] text-kin-muted">{tr("settings.account.deviceCountNote")}</p>
         </div>
         <button
           type="button"

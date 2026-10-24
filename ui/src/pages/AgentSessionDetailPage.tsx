@@ -61,10 +61,7 @@ export default function AgentSessionDetailPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [attachBusy, setAttachBusy] = useState(false);
   const historyEvents = useMemo(
-    () =>
-      session
-        ? agentSessionHistoryToTaskEvents(items, session.id, session.agent_id)
-        : [],
+    () => (session ? agentSessionHistoryToTaskEvents(items, session.id, session.agent_id) : []),
     [items, session],
   );
   const slow = useSlowHint(loading);
@@ -205,9 +202,7 @@ export default function AgentSessionDetailPage() {
         </button>
         <AgentAvatar agentID={session.agent_id} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-[15px] font-semibold truncate text-kin-text">
-            {sessionTitle}
-          </h1>
+          <h1 className="text-[15px] font-semibold truncate text-kin-text">{sessionTitle}</h1>
           <p className="text-[11.5px] text-kin-muted truncate">
             {agentName}
             {session.project_label ? ` · ${session.project_label}` : ""}
@@ -235,7 +230,9 @@ export default function AgentSessionDetailPage() {
         <span>{tr("agentSession.created", { value: formatTimestamp(session.first_seen_at) })}</span>
         <span>{tr("agentSession.updated", { value: formatTimestamp(session.updated_at) })}</span>
         {session.content_digest ? (
-          <span>{tr("agentSession.sourceRevision", { value: session.content_digest.slice(0, 12) })}</span>
+          <span>
+            {tr("agentSession.sourceRevision", { value: session.content_digest.slice(0, 12) })}
+          </span>
         ) : null}
         <span>{tr("agentSession.historySource")}</span>
       </div>

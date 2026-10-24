@@ -4,8 +4,7 @@ export type Task = components["schemas"]["Task"];
 export type TaskEvent = components["schemas"]["TaskEvent"];
 export type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type FollowUpRequest = components["schemas"]["FollowUpRequest"];
-export type ApprovalDecisionRequest =
-  components["schemas"]["ApprovalDecisionRequest"];
+export type ApprovalDecisionRequest = components["schemas"]["ApprovalDecisionRequest"];
 export type Approval = components["schemas"]["Approval"];
 export type UserQuestionOption = components["schemas"]["UserQuestionOption"];
 export type UserQuestionPayload = components["schemas"]["UserQuestionPayload"];
@@ -18,11 +17,9 @@ export type EvalRunRequest = components["schemas"]["EvalRunRequest"];
 export type EvalCompareRequest = components["schemas"]["EvalCompareRequest"];
 export type ReplayRequest = components["schemas"]["ReplayRequest"];
 export type A2ATask = components["schemas"]["A2ATask"];
-export type PullRequestObservation =
-  components["schemas"]["PullRequestObservation"];
+export type PullRequestObservation = components["schemas"]["PullRequestObservation"];
 export type GHStatus = components["schemas"]["GHStatus"];
-export type TaskPullRequestSnapshot =
-  components["schemas"]["TaskPullRequestSnapshot"];
+export type TaskPullRequestSnapshot = components["schemas"]["TaskPullRequestSnapshot"];
 export type PublishReport = components["schemas"]["PublishReport"];
 
 type RecordValue = Record<string, unknown>;
@@ -49,11 +46,7 @@ function optional(
   predicate: (candidate: unknown) => boolean,
   nullable = false,
 ): boolean {
-  return (
-    !(key in value) ||
-    (nullable && value[key] === null) ||
-    predicate(value[key])
-  );
+  return !(key in value) || (nullable && value[key] === null) || predicate(value[key]);
 }
 
 function hasOnlyKeys(value: RecordValue, keys: readonly string[]): boolean {
@@ -79,12 +72,7 @@ function isTask(value: unknown): value is Task {
     optional(value, "session_ref", (v) => typeof v === "string", true) &&
     optional(value, "permission_mode", (v) => typeof v === "string", true) &&
     optional(value, "exit_code", (v) => Number.isInteger(v), true) &&
-    optional(
-      value,
-      "cost_usd",
-      (v) => typeof v === "number" && Number.isFinite(v),
-      true,
-    ) &&
+    optional(value, "cost_usd", (v) => typeof v === "number" && Number.isFinite(v), true) &&
     optional(value, "started_at", (v) => Number.isInteger(v), true) &&
     optional(value, "finished_at", (v) => Number.isInteger(v), true) &&
     optional(value, "project_id", (v) => typeof v === "string", true) &&
@@ -203,9 +191,7 @@ function decodeWSMessage(value: unknown): WSMessage | null {
     case "task_update":
       return isTask(value.data) ? { kind: value.kind, data: value.data } : null;
     case "task_deleted":
-      return isRecord(value.data) &&
-        hasOnlyKeys(value.data, ["id"]) &&
-        hasString(value.data, "id")
+      return isRecord(value.data) && hasOnlyKeys(value.data, ["id"]) && hasString(value.data, "id")
         ? { kind: value.kind, data: { id: value.data.id as string } }
         : null;
     case "event":
@@ -213,9 +199,7 @@ function decodeWSMessage(value: unknown): WSMessage | null {
     case "approval_update":
       return isApproval(value.data) ? { kind: value.kind, data: value.data } : null;
     case "user_question_update":
-      return isUserQuestion(value.data)
-        ? { kind: value.kind, data: value.data }
-        : null;
+      return isUserQuestion(value.data) ? { kind: value.kind, data: value.data } : null;
     default:
       return null;
   }

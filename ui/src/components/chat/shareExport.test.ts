@@ -19,7 +19,7 @@ describe("share export", () => {
     const html = formatSharedHTML(messages, labels);
 
     expect(html).toContain("<!doctype html>");
-    expect(html).toContain("<div class=\"role\">Assistant</div>");
+    expect(html).toContain('<div class="role">Assistant</div>');
     expect(html).toContain("Use &lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
   });

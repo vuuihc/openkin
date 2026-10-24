@@ -1,11 +1,5 @@
 import { useSyncExternalStore } from "react";
-import {
-  getLocale,
-  setLocale,
-  subscribeLocale,
-  t as translate,
-  type Locale,
-} from "./index";
+import { getLocale, setLocale, subscribeLocale, t as translate, type Locale } from "./index";
 
 /** Re-render when locale changes. */
 export function useLocale(): {

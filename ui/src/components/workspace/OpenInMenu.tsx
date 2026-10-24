@@ -29,10 +29,7 @@ export default function OpenInMenu({ root, relativePath }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const desktop = isKinDesktop();
-  const absPath =
-    relativePath && root
-      ? toAbsoluteWorkspacePath(root, relativePath)
-      : null;
+  const absPath = relativePath && root ? toAbsoluteWorkspacePath(root, relativePath) : null;
 
   const ensureApps = useCallback(async () => {
     if (apps) return apps;

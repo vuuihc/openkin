@@ -1,9 +1,4 @@
-import {
-  formatCost,
-  formatElapsed,
-  isTerminal,
-  type Task,
-} from "../../api/client";
+import { formatCost, formatElapsed, isTerminal, type Task } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { IconTerminal } from "../icons";
 import { displayUserPrompt } from "../../lib/attachments";

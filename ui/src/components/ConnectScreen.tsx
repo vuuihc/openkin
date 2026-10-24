@@ -28,14 +28,10 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
   }
 
   const title =
-    reason === "unauthorized"
-      ? tr("connect.unauthorizedTitle")
-      : tr("connect.missingTitle");
+    reason === "unauthorized" ? tr("connect.unauthorizedTitle") : tr("connect.missingTitle");
 
   const blurb =
-    reason === "unauthorized"
-      ? tr("connect.unauthorizedBlurb")
-      : tr("connect.missingBlurb");
+    reason === "unauthorized" ? tr("connect.unauthorizedBlurb") : tr("connect.missingBlurb");
 
   return (
     <div className="min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
@@ -87,8 +83,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
           <p className="font-medium text-zinc-400">{tr("connect.whereTitle")}</p>
           <ul className="list-disc pl-4 space-y-1">
             <li>
-              {tr("connect.whereHost")}{" "}
-              <code className="text-zinc-300">~/.kin/token</code>
+              {tr("connect.whereHost")} <code className="text-zinc-300">~/.kin/token</code>
             </li>
             <li>
               {tr("connect.whereDevice")}{" "}

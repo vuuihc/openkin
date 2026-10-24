@@ -66,10 +66,7 @@ describe("parseWSMessage", () => {
     ["non-text frame", new Blob(["{}"])],
     ["unknown kind", JSON.stringify({ kind: "unknown", data: {} })],
     ["missing envelope data", JSON.stringify({ kind: "task_deleted" })],
-    [
-      "invalid task payload",
-      JSON.stringify({ kind: "task_update", data: { id: "task-1" } }),
-    ],
+    ["invalid task payload", JSON.stringify({ kind: "task_update", data: { id: "task-1" } })],
     [
       "invalid optional task field",
       JSON.stringify({
@@ -81,9 +78,7 @@ describe("parseWSMessage", () => {
       "missing task event epoch",
       JSON.stringify({
         kind: "task_update",
-        data: Object.fromEntries(
-          Object.entries(task).filter(([key]) => key !== "event_epoch"),
-        ),
+        data: Object.fromEntries(Object.entries(task).filter(([key]) => key !== "event_epoch")),
       }),
     ],
     [

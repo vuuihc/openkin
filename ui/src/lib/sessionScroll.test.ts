@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  clearSessionScroll,
-  getSessionScroll,
-  setSessionScroll,
-} from "./sessionScroll";
+import { clearSessionScroll, getSessionScroll, setSessionScroll } from "./sessionScroll";
 
 const store = new Map<string, string>();
 

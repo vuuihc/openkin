@@ -19,23 +19,14 @@ import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
-import {
-  agentCatalogState,
-  openInstallURL,
-  sortAgentCatalog,
-} from "../lib/agentCatalog";
+import { agentCatalogState, openInstallURL, sortAgentCatalog } from "../lib/agentCatalog";
 import {
   agentLimitProgress,
   combinedStatus,
   formatLimitLabel,
   type LimitStatus,
 } from "../lib/agentLimits";
-import {
-  cacheRateLabel,
-  cacheState,
-  formatTokenCount,
-  type CacheStatus,
-} from "../lib/usage";
+import { cacheRateLabel, cacheState, formatTokenCount, type CacheStatus } from "../lib/usage";
 
 /**
  * Agents management console with folded-in usage overview.
@@ -55,25 +46,28 @@ export default function AgentsPage() {
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint((rows === null || agents === null) && !error);
 
-  const load = useCallback(async (refresh = false) => {
-    if (!isAuthenticated()) return;
-    setError(null);
-    try {
-      const [data, limits, agentList, management] = await Promise.all([
-        getUsageSummary(days),
-        getUsageLimits().catch(() => [] as AgentLimitStatus[]),
-        listAgents(),
-        listAgentManagement(refresh).catch(() => [] as AgentManagement[]),
-      ]);
-      setRows(data);
-      setLimitStatuses(limits);
-      setAgents(agentList);
-      setMgmt(management);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 401) return;
-      setError(e instanceof ApiError ? e.message : String(e));
-    }
-  }, [days]);
+  const load = useCallback(
+    async (refresh = false) => {
+      if (!isAuthenticated()) return;
+      setError(null);
+      try {
+        const [data, limits, agentList, management] = await Promise.all([
+          getUsageSummary(days),
+          getUsageLimits().catch(() => [] as AgentLimitStatus[]),
+          listAgents(),
+          listAgentManagement(refresh).catch(() => [] as AgentManagement[]),
+        ]);
+        setRows(data);
+        setLimitStatuses(limits);
+        setAgents(agentList);
+        setMgmt(management);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return;
+        setError(e instanceof ApiError ? e.message : String(e));
+      }
+    },
+    [days],
+  );
 
   useEffect(() => {
     setRows(null);
@@ -260,7 +254,6 @@ export default function AgentsPage() {
     }
   }
 
-
   type AgentSortKey =
     | "name"
     | "status"
@@ -352,10 +345,8 @@ export default function AgentsPage() {
           cmp = (ua?.tasks ?? 0) - (ub?.tasks ?? 0);
           break;
         case "cache": {
-          const ca =
-            ua && ua.cacheEligible > 0 ? ua.cacheRead / ua.cacheEligible : -1;
-          const cb =
-            ub && ub.cacheEligible > 0 ? ub.cacheRead / ub.cacheEligible : -1;
+          const ca = ua && ua.cacheEligible > 0 ? ua.cacheRead / ua.cacheEligible : -1;
+          const cb = ub && ub.cacheEligible > 0 ? ub.cacheRead / ub.cacheEligible : -1;
           cmp = ca - cb;
           break;
         }
@@ -562,203 +553,203 @@ export default function AgentsPage() {
               </thead>
               <tbody className="divide-y divide-[var(--kin-hairline)]">
                 {sortedCatalog.map((a) => {
-                const state = agentCatalogState(a);
-                const m = mgmtById.get(a.id);
-                const usage = usageByAgent.get(a.id);
-                const limitStatus = limitsByAgent.get(a.id);
-                const spendProgress =
-                  limitStatus?.limit_spend_usd != null
-                    ? agentLimitProgress(limitStatus.used_spend_usd, limitStatus.limit_spend_usd)
-                    : null;
-                const tokensProgress =
-                  limitStatus?.limit_tokens != null
-                    ? agentLimitProgress(limitStatus.used_tokens, limitStatus.limit_tokens)
-                    : null;
-                const limitColor: LimitStatus =
-                  spendProgress && tokensProgress
-                    ? combinedStatus(spendProgress.status, tokensProgress.status)
-                    : spendProgress?.status ?? tokensProgress?.status ?? "ok";
-                const limitColorClass =
-                  limitColor === "over"
-                    ? "text-[var(--kin-red,#ff453a)]"
-                    : limitColor === "warn"
-                      ? "text-[var(--kin-yellow,#ffd60a)]"
-                      : "text-kin-muted";
-                const barBgClass =
-                  limitColor === "over"
-                    ? "bg-[var(--kin-red,#ff453a)]"
-                    : limitColor === "warn"
-                      ? "bg-[var(--kin-yellow,#ffd60a)]"
-                      : "bg-kin-blue/70";
-                const kindBadge =
-                  state === "native"
-                    ? tr("agentCatalog.native")
-                    : state === "generic"
-                      ? tr("agentCatalog.generic")
+                  const state = agentCatalogState(a);
+                  const m = mgmtById.get(a.id);
+                  const usage = usageByAgent.get(a.id);
+                  const limitStatus = limitsByAgent.get(a.id);
+                  const spendProgress =
+                    limitStatus?.limit_spend_usd != null
+                      ? agentLimitProgress(limitStatus.used_spend_usd, limitStatus.limit_spend_usd)
                       : null;
-                const cacheHit =
-                  usage && usage.cacheEligible > 0
-                    ? usage.cacheRead / usage.cacheEligible
-                    : null;
-                return (
-                  <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]/30">
-                    <td className="px-3 py-3 min-w-[160px]">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-medium text-kin-text">{a.name}</span>
-                        {a.default ? (
-                          <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-[10px] font-semibold text-kin-blue">
-                            {tr("agents.isDefault")}
-                          </span>
-                        ) : null}
-                        {kindBadge ? (
-                          <span
-                            className="rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-[10px] font-semibold text-kin-secondary"
-                            title={
-                              state === "generic"
-                                ? tr("agentCatalog.genericHint")
-                                : undefined
-                            }
-                          >
-                            {kindBadge}
-                          </span>
-                        ) : null}
-                      </div>
-                      {a.id !== a.name ? (
-                        <div className="mt-0.5 font-mono text-[11px] text-kin-muted">{a.id}</div>
-                      ) : null}
-                    </td>
-                    <td
-                      className="px-3 py-3 whitespace-nowrap text-kin-secondary"
-                      title={a.reason || undefined}
-                    >
-                      {statusLabel(a)}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap tabular-nums text-kin-secondary">
-                      {m?.version || "—"}
-                    </td>
-                    <td
-                      className="px-3 py-3 whitespace-nowrap text-kin-secondary"
-                      title={tr("agents.authHint")}
-                    >
-                      {authLabel(m?.auth_status)}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums font-medium text-kin-text">
-                      {usage ? formatCost(usage.cost) : "—"}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
-                      {usage ? formatTokenCount(usage.tokens) : "—"}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
-                      {usage ? usage.tasks : "—"}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
-                      {pct(cacheHit)}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
-                      {usage && usage.tasks > 0 ? formatCost(usage.cost / usage.tasks) : "—"}
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
-                      {usage && usage.tasks > 0
-                        ? formatTokenCount(usage.tokens / usage.tasks)
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-3 min-w-[140px]">
-                      <div className="flex flex-col gap-1">
-                        {spendProgress && limitStatus?.limit_spend_usd != null ? (
-                          <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
-                            <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
-                              <span
-                                className={`block h-full rounded-full ${barBgClass}`}
-                                style={{ width: `${spendProgress.barPct}%` }}
-                              />
+                  const tokensProgress =
+                    limitStatus?.limit_tokens != null
+                      ? agentLimitProgress(limitStatus.used_tokens, limitStatus.limit_tokens)
+                      : null;
+                  const limitColor: LimitStatus =
+                    spendProgress && tokensProgress
+                      ? combinedStatus(spendProgress.status, tokensProgress.status)
+                      : (spendProgress?.status ?? tokensProgress?.status ?? "ok");
+                  const limitColorClass =
+                    limitColor === "over"
+                      ? "text-[var(--kin-red,#ff453a)]"
+                      : limitColor === "warn"
+                        ? "text-[var(--kin-yellow,#ffd60a)]"
+                        : "text-kin-muted";
+                  const barBgClass =
+                    limitColor === "over"
+                      ? "bg-[var(--kin-red,#ff453a)]"
+                      : limitColor === "warn"
+                        ? "bg-[var(--kin-yellow,#ffd60a)]"
+                        : "bg-kin-blue/70";
+                  const kindBadge =
+                    state === "native"
+                      ? tr("agentCatalog.native")
+                      : state === "generic"
+                        ? tr("agentCatalog.generic")
+                        : null;
+                  const cacheHit =
+                    usage && usage.cacheEligible > 0 ? usage.cacheRead / usage.cacheEligible : null;
+                  return (
+                    <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]/30">
+                      <td className="px-3 py-3 min-w-[160px]">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-medium text-kin-text">{a.name}</span>
+                          {a.default ? (
+                            <span className="rounded-full bg-kin-blue/15 px-2 py-0.5 text-[10px] font-semibold text-kin-blue">
+                              {tr("agents.isDefault")}
                             </span>
-                            <span className="tabular-nums">
-                              {formatLimitLabel(
-                                limitStatus.used_spend_usd,
-                                limitStatus.limit_spend_usd,
-                                "spend",
-                              )}
+                          ) : null}
+                          {kindBadge ? (
+                            <span
+                              className="rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-[10px] font-semibold text-kin-secondary"
+                              title={
+                                state === "generic" ? tr("agentCatalog.genericHint") : undefined
+                              }
+                            >
+                              {kindBadge}
                             </span>
-                          </span>
+                          ) : null}
+                        </div>
+                        {a.id !== a.name ? (
+                          <div className="mt-0.5 font-mono text-[11px] text-kin-muted">{a.id}</div>
                         ) : null}
-                        {tokensProgress && limitStatus?.limit_tokens != null ? (
-                          <span className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}>
-                            <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
-                              <span
-                                className={`block h-full rounded-full ${barBgClass}`}
-                                style={{ width: `${tokensProgress.barPct}%` }}
-                              />
+                      </td>
+                      <td
+                        className="px-3 py-3 whitespace-nowrap text-kin-secondary"
+                        title={a.reason || undefined}
+                      >
+                        {statusLabel(a)}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap tabular-nums text-kin-secondary">
+                        {m?.version || "—"}
+                      </td>
+                      <td
+                        className="px-3 py-3 whitespace-nowrap text-kin-secondary"
+                        title={tr("agents.authHint")}
+                      >
+                        {authLabel(m?.auth_status)}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums font-medium text-kin-text">
+                        {usage ? formatCost(usage.cost) : "—"}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                        {usage ? formatTokenCount(usage.tokens) : "—"}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                        {usage ? usage.tasks : "—"}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                        {pct(cacheHit)}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                        {usage && usage.tasks > 0 ? formatCost(usage.cost / usage.tasks) : "—"}
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                        {usage && usage.tasks > 0
+                          ? formatTokenCount(usage.tokens / usage.tasks)
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-3 min-w-[140px]">
+                        <div className="flex flex-col gap-1">
+                          {spendProgress && limitStatus?.limit_spend_usd != null ? (
+                            <span
+                              className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}
+                            >
+                              <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
+                                <span
+                                  className={`block h-full rounded-full ${barBgClass}`}
+                                  style={{ width: `${spendProgress.barPct}%` }}
+                                />
+                              </span>
+                              <span className="tabular-nums">
+                                {formatLimitLabel(
+                                  limitStatus.used_spend_usd,
+                                  limitStatus.limit_spend_usd,
+                                  "spend",
+                                )}
+                              </span>
                             </span>
-                            <span className="tabular-nums">
-                              {formatLimitLabel(
-                                limitStatus.used_tokens,
-                                limitStatus.limit_tokens,
-                                "tokens",
-                              )}
+                          ) : null}
+                          {tokensProgress && limitStatus?.limit_tokens != null ? (
+                            <span
+                              className={`flex items-center gap-1.5 text-[11px] ${limitColorClass}`}
+                            >
+                              <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-[var(--kin-fill)]">
+                                <span
+                                  className={`block h-full rounded-full ${barBgClass}`}
+                                  style={{ width: `${tokensProgress.barPct}%` }}
+                                />
+                              </span>
+                              <span className="tabular-nums">
+                                {formatLimitLabel(
+                                  limitStatus.used_tokens,
+                                  limitStatus.limit_tokens,
+                                  "tokens",
+                                )}
+                              </span>
                             </span>
-                          </span>
-                        ) : null}
-                        {!spendProgress && !tokensProgress ? (
-                          <span className="text-[11px] text-kin-muted">—</span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 whitespace-nowrap text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        {a.available && !a.default ? (
-                          <button
-                            type="button"
-                            className="text-[12px] text-kin-blue hover:underline"
-                            onClick={() => void onSetDefault(a.id)}
-                          >
-                            {tr("agents.setDefault")}
-                          </button>
-                        ) : null}
-                        {!a.installed && a.install_url ? (
-                          <button
-                            type="button"
-                            className="text-[12px] text-kin-blue hover:underline"
-                            title={tr("agentCatalog.installHint")}
-                            onClick={() => openInstallURL(a.install_url)}
-                          >
-                            {tr("agentCatalog.install")}
-                          </button>
-                        ) : null}
-                        {m?.install_cmd ? (
-                          <>
-                            {!a.installed ? (
+                          ) : null}
+                          {!spendProgress && !tokensProgress ? (
+                            <span className="text-[11px] text-kin-muted">—</span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 whitespace-nowrap text-right">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {a.available && !a.default ? (
+                            <button
+                              type="button"
+                              className="text-[12px] text-kin-blue hover:underline"
+                              onClick={() => void onSetDefault(a.id)}
+                            >
+                              {tr("agents.setDefault")}
+                            </button>
+                          ) : null}
+                          {!a.installed && a.install_url ? (
+                            <button
+                              type="button"
+                              className="text-[12px] text-kin-blue hover:underline"
+                              title={tr("agentCatalog.installHint")}
+                              onClick={() => openInstallURL(a.install_url)}
+                            >
+                              {tr("agentCatalog.install")}
+                            </button>
+                          ) : null}
+                          {m?.install_cmd ? (
+                            <>
+                              {!a.installed ? (
+                                <button
+                                  type="button"
+                                  className="text-[12px] text-kin-blue hover:underline"
+                                  title={tr("agents.askInstallHint")}
+                                  onClick={() => askDefaultAgentToInstall(a, m.install_cmd!)}
+                                >
+                                  {tr("agents.askInstall")}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
-                                className="text-[12px] text-kin-blue hover:underline"
-                                title={tr("agents.askInstallHint")}
-                                onClick={() => askDefaultAgentToInstall(a, m.install_cmd!)}
+                                className="text-[12px] text-kin-secondary hover:underline"
+                                onClick={() => void copyText(m.install_cmd!)}
                               >
-                                {tr("agents.askInstall")}
+                                {tr("agents.copyInstall")}
                               </button>
-                            ) : null}
+                            </>
+                          ) : null}
+                          {m?.update_cmd && a.installed ? (
                             <button
                               type="button"
                               className="text-[12px] text-kin-secondary hover:underline"
-                              onClick={() => void copyText(m.install_cmd!)}
+                              onClick={() => void copyText(m.update_cmd!)}
                             >
-                              {tr("agents.copyInstall")}
+                              {tr("agents.copyUpdate")}
                             </button>
-                          </>
-                        ) : null}
-                        {m?.update_cmd && a.installed ? (
-                          <button
-                            type="button"
-                            className="text-[12px] text-kin-secondary hover:underline"
-                            onClick={() => void copyText(m.update_cmd!)}
-                          >
-                            {tr("agents.copyUpdate")}
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {sortedCatalog.length === 0 && (
                   <tr>
                     <td colSpan={13} className="px-4 py-6 text-sm text-kin-muted">
@@ -774,7 +765,6 @@ export default function AgentsPage() {
     </div>
   );
 }
-
 
 /** Format a 0..1 ratio as a rounded percent, or "—" when not available. */
 function pct(x: number | null): string {

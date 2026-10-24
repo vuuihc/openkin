@@ -1,21 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ApiError,
-  answerUserQuestion,
-  decideApproval,
-} from "../api/client";
+import { ApiError, answerUserQuestion, decideApproval } from "../api/client";
 import { liveResources } from "../api/liveResources";
-import {
-  usePendingResources,
-  useTaskList,
-} from "../api/useLiveResources";
+import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import RunningTaskCard from "../components/cards/RunningTaskCard";
-import {
-  ApprovalListSkeleton,
-  SlowConnectHint,
-} from "../components/Skeleton";
+import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
@@ -102,10 +92,7 @@ export default function ApprovalsPage() {
     }
   }
 
-  async function onAnswer(
-    id: string,
-    body: { selected: string[]; other_text: string },
-  ) {
+  async function onAnswer(id: string, body: { selected: string[]; other_text: string }) {
     setAnswerBusy((b) => ({ ...b, [id]: true }));
     try {
       const updated = await answerUserQuestion(id, body);
@@ -159,14 +146,16 @@ export default function ApprovalsPage() {
           </div>
         )}
 
-        {!loading && !error && items.length === 0 && questions.length === 0 && running.length === 0 && (
-          <div className="mt-10 rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-16 text-center">
-            <p className="text-base font-medium text-kin-text">{tr("inbox.allClear")}</p>
-            <p className="mt-1 text-sm text-kin-secondary">
-              {tr("inbox.allClearHint")}
-            </p>
-          </div>
-        )}
+        {!loading &&
+          !error &&
+          items.length === 0 &&
+          questions.length === 0 &&
+          running.length === 0 && (
+            <div className="mt-10 rounded-2xl border border-dashed border-[var(--kin-hairline-strong)] px-6 py-16 text-center">
+              <p className="text-base font-medium text-kin-text">{tr("inbox.allClear")}</p>
+              <p className="mt-1 text-sm text-kin-secondary">{tr("inbox.allClearHint")}</p>
+            </div>
+          )}
 
         {!loading && items.length > 0 && (
           <div className="mt-6">

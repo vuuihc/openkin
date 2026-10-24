@@ -6,14 +6,25 @@ export function formatTokenCount(tokens: number): string {
   return String(tokens);
 }
 
-export function cacheState(status: CacheStatus | string | null | undefined, rate: number | null): CacheStatus {
-  if (status === "reported" || status === "unknown" || status === "unsupported" || status === "mixed") {
+export function cacheState(
+  status: CacheStatus | string | null | undefined,
+  rate: number | null,
+): CacheStatus {
+  if (
+    status === "reported" ||
+    status === "unknown" ||
+    status === "unsupported" ||
+    status === "mixed"
+  ) {
     return status;
   }
   return rate == null ? "unknown" : "reported";
 }
 
-export function cacheRateLabel(status: CacheStatus | string | null | undefined, rate: number | null): string {
+export function cacheRateLabel(
+  status: CacheStatus | string | null | undefined,
+  rate: number | null,
+): string {
   const state = cacheState(status, rate);
   if (state === "unknown" || state === "unsupported" || rate == null) return "—";
   return `${Math.round(rate * 100)}%`;
@@ -29,7 +40,8 @@ export type CostSource = "provider" | "price_table" | "unknown" | string;
 
 /** Dominant cost source for a task (by spend, then request count). */
 export function primaryCostSource(
-  subtotals: { cost_source: string; cost_usd?: number | null; request_count?: number }[] | null | undefined,
+  subtotals:
+    { cost_source: string; cost_usd?: number | null; request_count?: number }[] | null | undefined,
 ): CostSource | null {
   if (!subtotals?.length) return null;
   let best = subtotals[0];

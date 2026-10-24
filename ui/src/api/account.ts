@@ -1,6 +1,11 @@
 import { apiFetch, ApiError } from "./client";
 import type { AuthErrorCode } from "../lib/accountGate";
-import { NO_ACCOUNT, useAppStore, type AccountState, type AccountProvider } from "../store/appStore";
+import {
+  NO_ACCOUNT,
+  useAppStore,
+  type AccountState,
+  type AccountProvider,
+} from "../store/appStore";
 
 /**
  * The Hub's account surface.

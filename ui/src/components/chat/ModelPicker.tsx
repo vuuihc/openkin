@@ -41,9 +41,12 @@ export default function ModelPicker({
     else if (current) setCustom(false);
   }, [currentIsCustom, current]);
 
-  const sourceLabel = source && source !== "none"
-    ? tr(`modelPicker.source.${source}`)
-    : status === "default_only" ? tr("modelPicker.defaultOnly") : "";
+  const sourceLabel =
+    source && source !== "none"
+      ? tr(`modelPicker.source.${source}`)
+      : status === "default_only"
+        ? tr("modelPicker.defaultOnly")
+        : "";
 
   return (
     <div
@@ -56,9 +59,7 @@ export default function ModelPicker({
       ].join(" ")}
     >
       {!compact && (
-        <span className="text-[11.5px] text-kin-muted flex-none">
-          {tr("modelPicker.label")}
-        </span>
+        <span className="text-[11.5px] text-kin-muted flex-none">{tr("modelPicker.label")}</span>
       )}
       <select
         className={[
@@ -105,14 +106,14 @@ export default function ModelPicker({
           onChange={(e) => onChange(e.target.value)}
         />
       )}
-      {currentIsCustom && readOnly && <span className="text-[11.5px] text-kin-secondary truncate">{current}</span>}
+      {currentIsCustom && readOnly && (
+        <span className="text-[11.5px] text-kin-secondary truncate">{current}</span>
+      )}
       {sourceLabel && !compact && (
         <span className="text-[11px] text-kin-muted truncate">{sourceLabel}</span>
       )}
       {locked && !compact && (
-        <span className="text-[11px] text-kin-muted truncate">
-          {tr("modelPicker.sessionHint")}
-        </span>
+        <span className="text-[11px] text-kin-muted truncate">{tr("modelPicker.sessionHint")}</span>
       )}
     </div>
   );

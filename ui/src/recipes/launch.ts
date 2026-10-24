@@ -1,10 +1,5 @@
 import { createTask, type Task } from "../api/client";
-import {
-  getRecipe,
-  renderRecipe,
-  type RecipeContext,
-  type RecipeId,
-} from "./catalog";
+import { getRecipe, renderRecipe, type RecipeContext, type RecipeId } from "./catalog";
 
 export type LaunchRecipeOptions = {
   id: RecipeId;

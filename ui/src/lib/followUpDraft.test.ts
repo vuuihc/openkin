@@ -19,11 +19,7 @@ const localStorageMock = {
 
 vi.stubGlobal("localStorage", localStorageMock);
 
-const {
-  clearFollowUpDraft,
-  getFollowUpDraft,
-  setFollowUpDraft,
-} = await import("./followUpDraft");
+const { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } = await import("./followUpDraft");
 
 describe("followUpDraft", () => {
   beforeEach(() => {
@@ -99,14 +95,17 @@ describe("followUpDraft", () => {
       "kin_followup_draft:task-1",
       JSON.stringify({
         prompt: "hi",
-        attachments: [{ id: "incomplete" }, {
-          id: "ok.txt",
-          name: "ok.txt",
-          mime: "text/plain",
-          size: 1,
-          url: "/api/uploads/ok.txt",
-          path: "/tmp/ok.txt",
-        }],
+        attachments: [
+          { id: "incomplete" },
+          {
+            id: "ok.txt",
+            name: "ok.txt",
+            mime: "text/plain",
+            size: 1,
+            url: "/api/uploads/ok.txt",
+            path: "/tmp/ok.txt",
+          },
+        ],
         updatedAt: 1,
       }),
     );
@@ -131,9 +130,7 @@ describe("followUpDraft", () => {
     setFollowUpDraft("fresh", { prompt: "newest" });
     expect(getFollowUpDraft("fresh").prompt).toBe("newest");
     // Cap is 40; writing triggers prune of the oldest extras.
-    const remaining = Array.from(store.keys()).filter((k) =>
-      k.startsWith("kin_followup_draft:"),
-    );
+    const remaining = Array.from(store.keys()).filter((k) => k.startsWith("kin_followup_draft:"));
     expect(remaining.length).toBeLessThanOrEqual(40);
     expect(store.has("kin_followup_draft:fresh")).toBe(true);
   });

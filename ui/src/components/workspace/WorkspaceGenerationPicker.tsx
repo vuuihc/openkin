@@ -46,12 +46,7 @@ export default function WorkspaceGenerationPicker({
 
   if (generations.length === 0) {
     return (
-      <span
-        className={[
-          "text-[11px] text-kin-muted",
-          loading ? "animate-pulse" : "",
-        ].join(" ")}
-      >
+      <span className={["text-[11px] text-kin-muted", loading ? "animate-pulse" : ""].join(" ")}>
         {t("workspace.generation.source")}
       </span>
     );
@@ -104,9 +99,7 @@ export default function WorkspaceGenerationPicker({
                 : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
             ].join(" ")}
           >
-            <span className="flex-1 truncate">
-              {t("workspace.generation.source")}
-            </span>
+            <span className="flex-1 truncate">{t("workspace.generation.source")}</span>
             <span className="flex-none rounded px-1 py-0 text-[9px] font-semibold uppercase tracking-wide bg-kin-muted/20 text-kin-muted">
               {t("workspace.generation.readOnly")}
             </span>

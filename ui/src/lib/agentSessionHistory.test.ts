@@ -44,9 +44,7 @@ describe("agentSessionHistoryToTaskEvents", () => {
       "agent-session-1",
       "claude-code",
     );
-    const chatItems = mergeProcessRuns(
-      buildChatItems(events, "claude-code", undefined, true),
-    );
+    const chatItems = mergeProcessRuns(buildChatItems(events, "claude-code", undefined, true));
 
     expect(chatItems.map((entry) => entry.kind)).toEqual([
       "message",
@@ -58,11 +56,7 @@ describe("agentSessionHistoryToTaskEvents", () => {
     expect(chatItems[0]).toMatchObject({ kind: "message", speaker: "user" });
     expect(chatItems[1]).toMatchObject({ kind: "progress" });
     if (chatItems[1].kind !== "progress") throw new Error("expected progress");
-    expect(chatItems[1].steps.map((entry) => entry.kind)).toEqual([
-      "note",
-      "note",
-      "tool",
-    ]);
+    expect(chatItems[1].steps.map((entry) => entry.kind)).toEqual(["note", "note", "tool"]);
     expect(chatItems[2]).toMatchObject({
       kind: "message",
       speaker: "claude-code",

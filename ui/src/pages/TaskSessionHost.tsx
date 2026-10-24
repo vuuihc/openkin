@@ -1,10 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
-import {
-  dropSessionCache,
-  taskIdFromPathname,
-  touchSessionCache,
-} from "../lib/sessionCache";
+import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
 import { subscribeWS } from "../store/appStore";
 import ErrorBoundary from "../components/ErrorBoundary";
 import TaskDetailPage from "./TaskDetailPage";
@@ -36,19 +32,13 @@ export default function TaskSessionHost() {
 
   // Active route must appear even before the touch effect commits.
   const ids =
-    activeId && !cachedIds.includes(activeId)
-      ? touchSessionCache(cachedIds, activeId)
-      : cachedIds;
+    activeId && !cachedIds.includes(activeId) ? touchSessionCache(cachedIds, activeId) : cachedIds;
 
   const show = Boolean(activeId);
 
   return (
     <div
-      className={
-        show
-          ? "relative flex flex-1 min-h-0 min-w-0 flex-col"
-          : "hidden"
-      }
+      className={show ? "relative flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
       aria-hidden={!show}
     >
       {ids.map((taskId) => {
@@ -56,11 +46,7 @@ export default function TaskSessionHost() {
         return (
           <div
             key={taskId}
-            className={
-              active
-                ? "flex flex-1 min-h-0 min-w-0 flex-col"
-                : "hidden"
-            }
+            className={active ? "flex flex-1 min-h-0 min-w-0 flex-col" : "hidden"}
             aria-hidden={!active}
           >
             <ErrorBoundary>

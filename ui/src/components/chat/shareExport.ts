@@ -10,20 +10,14 @@ export type ShareLabels = {
 };
 
 /** Format selected transcript messages for a clipboard-friendly plain-text export. */
-export function formatSharedText(
-  messages: SharedMessage[],
-  labels: ShareLabels,
-): string {
+export function formatSharedText(messages: SharedMessage[], labels: ShareLabels): string {
   return messages
     .map((message) => `${roleLabel(message.role, labels)}\n${message.text}`)
     .join("\n\n");
 }
 
 /** Build a self-contained, readable HTML document without interpreting message text. */
-export function formatSharedHTML(
-  messages: SharedMessage[],
-  labels: ShareLabels,
-): string {
+export function formatSharedHTML(messages: SharedMessage[], labels: ShareLabels): string {
   const rows = messages
     .map(
       (message) => `
