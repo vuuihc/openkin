@@ -1354,6 +1354,20 @@ const en: MessageTree = {
     close: "Close",
     retry: "Retry",
   },
+  design: {
+    title: "Design system",
+    lede: "Every token appears here once. A token that is missing from this page fails tokens.test.ts — a token nobody renders is a token nobody would notice breaking.",
+    groupSurfaces: "Surface ladder",
+    noteSurfaces:
+      "From the window backdrop inward to the content. Light inverts the ladder: the page is the grey and the content sits on it in white.",
+    groupInk: "Ink ladder",
+    noteInk: "Each step is drawn on the surfaces it is actually used on, and measured there.",
+    groupLines: "Lines and fills",
+    noteLines:
+      "A hairline is a boundary inside a surface; between two surfaces the ladder above separates them.",
+    groupStatus: "Status and brand",
+    noteStatus: "These are fills: white or near-black text sits on top of them.",
+  },
 };
 
 export default en;

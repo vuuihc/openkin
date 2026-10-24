@@ -136,7 +136,7 @@ export default function SessionsPage() {
         groups.map((device) => (
           <section key={device.id || "self"}>
             {machineLabels && (
-              <h2 className="sticky top-0 z-[2] flex items-center gap-1.5 px-4 pb-1.5 pt-4 text-[12px] font-semibold text-kin-tertiary bg-[var(--kin-page)]">
+              <h2 className="sticky top-0 z-[2] flex items-center gap-1.5 px-4 pb-1.5 pt-4 text-[12px] font-semibold text-kin-muted bg-[var(--kin-page)]">
                 <span
                   className={`h-[7px] w-[7px] flex-none rounded-full ${
                     device.online ? "bg-kin-green" : "bg-kin-muted"
@@ -182,7 +182,7 @@ export default function SessionsPage() {
                   {row.task ? (
                     <StatusPill status={row.task.status} />
                   ) : (
-                    <span className="inline-flex h-5 items-center rounded-[10px] bg-[var(--kin-fill)] px-2 text-[11px] font-semibold text-kin-tertiary">
+                    <span className="inline-flex h-5 items-center rounded-[10px] bg-[var(--kin-fill)] px-2 text-[11px] font-semibold text-kin-muted">
                       {agentDisplayName(row.session!.agent_id)}
                     </span>
                   )}
@@ -215,7 +215,7 @@ function StatusPill({ status }: { status: string }) {
           ? "bg-[rgba(255,69,58,.12)] text-kin-red"
           : view.tone === "running"
             ? "bg-kin-blue-soft text-[#6cb2ff]"
-            : "bg-[var(--kin-fill)] text-kin-tertiary";
+            : "bg-[var(--kin-fill)] text-kin-muted";
   return (
     <span
       className={`inline-flex h-5 items-center rounded-[10px] px-2 text-[11px] font-semibold ${tone}`}

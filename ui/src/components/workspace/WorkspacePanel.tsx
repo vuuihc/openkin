@@ -515,10 +515,13 @@ export default function WorkspacePanel({
       {/* Dual pane: sidebar (list/tree) | resizer | viewer. Always side-by-side on md+. */}
       <div ref={panesRef} className="flex-1 min-h-0 flex flex-col md:flex-row">
         <aside
-          className="flex flex-col min-h-0 border-b border-[var(--kin-hairline)] h-[40%] max-h-[46%] w-full md:h-auto md:max-h-none md:w-[var(--kin-ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]/40"
+          className="flex flex-col min-h-0 border-b border-[var(--kin-hairline)] h-[40%] max-h-[46%] w-full md:h-auto md:max-h-none md:w-[var(--ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]/40"
           style={
             {
-              ["--kin-ws-sidebar" as string]: `${sidebarWidth}px`,
+              // Not a `--kin-*` token: this one is a per-element measurement the
+              // user drags, set on the element itself. The token namespace is
+              // only for values that come from `design/theme.css`.
+              ["--ws-sidebar" as string]: `${sidebarWidth}px`,
             } as CSSProperties
           }
         >

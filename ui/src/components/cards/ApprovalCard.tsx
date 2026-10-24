@@ -63,7 +63,7 @@ export default function ApprovalCard({
               {tr("approval.focused")}
             </span>
           )}
-          <span className="ml-auto text-[11px] text-kin-tertiary truncate max-w-[45%]" title={attr}>
+          <span className="ml-auto text-[11px] text-kin-muted truncate max-w-[45%]" title={attr}>
             {attr}
           </span>
         </div>

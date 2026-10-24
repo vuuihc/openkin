@@ -1,7 +1,17 @@
 /** @type {import('tailwindcss').Config} */
 /**
- * Kin design tokens — from kin-desktop-ui-redesign (2f).
- * Dark-first Apple-native palette; status colors only for running / approval / success / error.
+ * Kin design tokens — the *scale* ladders only.
+ *
+ * Colours are written in `src/design/theme.css` and referenced here by name;
+ * this file must not contain a colour value (the tokens test rejects one), and
+ * the semantic pair — `bg-kin-panel` in dark vs light — comes from the
+ * variable, not from a second definition here.
+ *
+ * Status colours are still literals: `#0A84FF`, `#FF9F0A`, `#30D158` and
+ * `#FF453A` are the dark-mode values and do not switch, which is why every one
+ * of them fails 4.5:1 on a light page. They move to variables — as RGB channel
+ * triplets, so `border-kin-red/40` keeps working — with the rest of the status
+ * work.
  */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
@@ -14,9 +24,7 @@ export default {
           elevated: "var(--kin-elevated)",
           // Solid floating surface (modals/cards). Never leave undefined — missing token = transparent.
           panel: "var(--kin-panel)",
-          surface: "var(--kin-surface)",
           sidebar: "var(--kin-sidebar)",
-          chat: "var(--kin-chat)",
           inspector: "var(--kin-inspector)",
           hairline: "var(--kin-hairline)",
           "hairline-strong": "var(--kin-hairline-strong)",
@@ -24,7 +32,6 @@ export default {
           border: "var(--kin-hairline)",
           text: "var(--kin-text)",
           secondary: "var(--kin-secondary)",
-          tertiary: "var(--kin-tertiary)",
           muted: "var(--kin-muted)",
           // Alias used by primary action buttons across project/routines pages.
           accent: "#0A84FF",

@@ -10,6 +10,7 @@ import ToastHost from "./components/ToastHost";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import ArtifactDetailPage from "./pages/ArtifactDetailPage";
 import ArtifactsPage from "./pages/ArtifactsPage";
+import DesignSystemPage from "./pages/DesignSystemPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import NewChatPage from "./pages/NewChatPage";
@@ -160,6 +161,9 @@ export default function App() {
             <Route path="/usage" element={<Navigate to="/agents" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/agent-sessions/:id" element={<AgentSessionDetailPage />} />
+            {/* The token gallery. Not in the nav: it is a place to check the
+                design layer, not a place to work. */}
+            <Route path="/design" element={<DesignSystemPage />} />
             <Route path="*" element={<Navigate to="/new" replace />} />
           </Routes>
         </ErrorBoundary>

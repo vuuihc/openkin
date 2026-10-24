@@ -296,7 +296,7 @@ export default function CommandPalette({
     >
       <div className="w-full max-w-[600px] rounded-2xl overflow-hidden border border-[var(--kin-hairline-strong)] bg-[rgba(44,44,48,.92)] backdrop-blur-[50px] shadow-[0_40px_100px_-20px_rgba(0,0,0,.8)]">
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--kin-hairline)]">
-          <IconSearch size={18} className="text-kin-tertiary flex-none" />
+          <IconSearch size={18} className="text-kin-muted flex-none" />
           <input
             ref={inputRef}
             value={query}
@@ -414,7 +414,7 @@ function PaletteRow({
         active ? "bg-kin-blue text-white" : "text-kin-text hover:bg-[var(--kin-fill)]",
       ].join(" ")}
     >
-      <span className={active ? "text-white" : "text-kin-tertiary"}>{icon}</span>
+      <span className={active ? "text-white" : "text-kin-muted"}>{icon}</span>
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {hint && (
         <span

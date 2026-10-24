@@ -489,7 +489,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-tertiary`}
+              className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-[44px] flex items-center justify-center text-kin-muted`}
               aria-label={tr("app.commandPalette")}
             >
               <svg

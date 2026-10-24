@@ -48,7 +48,7 @@ export default function CompletedTaskCard({ task, summary, compact, onClick }: P
         <IconStar size={14} className={statusView.iconClass} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] text-kin-tertiary mb-2">{tr("task.historySection")}</div>
+        <div className="text-[13px] text-kin-muted mb-2">{tr("task.historySection")}</div>
         <button
           type="button"
           onClick={onClick}

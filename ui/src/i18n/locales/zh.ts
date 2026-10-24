@@ -1313,6 +1313,18 @@ const zh = {
     close: "关闭",
     retry: "重试",
   },
+  design: {
+    title: "设计系统",
+    lede: "每个令牌都在这里出现一次。没有出现在这一页的令牌会让 tokens.test.ts 失败——没人呈现的令牌，坏了也没人会发现。",
+    groupSurfaces: "表面阶梯",
+    noteSurfaces: "从窗口底色往内容走。亮色下阶梯是反的：底灰而内容白。",
+    groupInk: "墨色阶梯",
+    noteInk: "每一级都画在它真正会被画到的表面上，对比度即在那些表面上量。",
+    groupLines: "线与填充",
+    noteLines: "发丝线是表面内部的边界；两个表面之间靠上面的阶梯分开，不靠线。",
+    groupStatus: "状态色与品牌色",
+    noteStatus: "这些是填充色，上面压的是白字或近黑字。",
+  },
 };
 
 export default zh;

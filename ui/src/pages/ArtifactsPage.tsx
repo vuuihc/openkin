@@ -100,7 +100,7 @@ export default function ArtifactsPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight">{tr("artifacts.title")}</h1>
-            <p className="text-[13px] text-kin-tertiary mt-0.5">{tr("artifacts.subtitle")}</p>
+            <p className="text-[13px] text-kin-muted mt-0.5">{tr("artifacts.subtitle")}</p>
           </div>
         </div>
 
@@ -149,7 +149,7 @@ export default function ArtifactsPage() {
                       navigate(`/artifacts/${a.id}`);
                     }
                   }}
-                  className="w-full text-left rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-surface)] hover:bg-[var(--kin-fill)] px-3.5 py-3 flex items-start gap-3 cursor-pointer"
+                  className="w-full text-left rounded-xl border border-[var(--kin-hairline)] bg-kin-panel hover:bg-[var(--kin-fill)] px-3.5 py-3 flex items-start gap-3 cursor-pointer"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">

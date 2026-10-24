@@ -958,7 +958,7 @@ function MessageSelectionControl({
         type="checkbox"
         checked={selected}
         onChange={onToggle}
-        className="h-4 w-4 accent-[var(--kin-blue)]"
+        className="h-4 w-4 accent-kin-blue"
         aria-label={tr("chat.message.selectMessage", { role: label })}
       />
       {label}

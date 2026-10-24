@@ -34,7 +34,7 @@ export default class ErrorBoundary extends Component<Props, State> {
       if (this.props.fallback) return this.props.fallback;
       const message = this.state.error.message || t("task.loadFailed");
       return (
-        <div className="flex-1 min-h-0 flex items-center justify-center p-6 bg-[var(--kin-chat)]">
+        <div className="flex-1 min-h-0 flex items-center justify-center p-6 bg-kin-bg">
           <div
             className="max-w-md w-full rounded-xl border border-kin-red/40 bg-[rgba(255,69,58,.08)] px-4 py-3 space-y-3"
             role="alert"

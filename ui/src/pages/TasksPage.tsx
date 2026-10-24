@@ -69,7 +69,7 @@ export default function TasksPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight">{tr("tasks.title")}</h1>
-            <p className="text-[13px] text-kin-tertiary mt-0.5">
+            <p className="text-[13px] text-kin-muted mt-0.5">
               {tr("tasks.today", { cost: formatCost(todayCost) })}
             </p>
           </div>

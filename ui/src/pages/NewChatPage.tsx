@@ -737,7 +737,7 @@ export default function NewChatPage() {
             onClick={() => setControlsOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={controlsOpen}
-            className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-[13px] text-kin-tertiary"
+            className="sm:hidden flex w-full min-h-[44px] items-center gap-2 rounded-[13px] border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-[13px] text-kin-muted"
           >
             <svg
               width="15"

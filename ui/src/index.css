@@ -1,113 +1,8 @@
 @import "@xterm/xterm/css/xterm.css";
-
+@import "./design/theme.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/*
-  Design tokens — dark default, light with real surface separation.
-  Problem fixed: light mode previously painted sidebar/main/inspector nearly the same grey.
-*/
-
-:root {
-  color-scheme: dark;
-  --kin-bg: #1a1a1c;
-  --kin-elevated: #2c2c2e;
-  --kin-panel: #2c2c2e;
-  --kin-surface: var(--kin-panel);
-  --kin-sidebar: #141416;
-  --kin-hairline: rgba(255, 255, 255, 0.08);
-  --kin-hairline-strong: rgba(255, 255, 255, 0.14);
-  --kin-text: #f5f5f7;
-  --kin-secondary: #c7c7cc;
-  --kin-tertiary: #98989d;
-  --kin-muted: #6e6e73;
-  --kin-fill: rgba(255, 255, 255, 0.06);
-  --kin-fill-strong: rgba(255, 255, 255, 0.1);
-  --kin-page: #0e0e10;
-  --kin-chat: #1a1a1c;
-  --kin-inspector: #222226;
-  --kin-bubble-user: #0a84ff;
-  --kin-bubble-user-fg: #ffffff;
-  --kin-warning: #ff9f0a;
-}
-
-/* Explicit light */
-html.light,
-html[data-theme="light"] {
-  color-scheme: light;
-  --kin-page: #d8d8dc;
-  --kin-sidebar: #ececf0;
-  --kin-bg: #ffffff;
-  --kin-chat: #ffffff;
-  --kin-elevated: #f4f4f6;
-  --kin-panel: #ffffff;
-  --kin-surface: var(--kin-panel);
-  --kin-inspector: #ebebf0;
-  --kin-hairline: rgba(0, 0, 0, 0.09);
-  --kin-hairline-strong: rgba(0, 0, 0, 0.16);
-  --kin-text: #1c1c1e;
-  --kin-secondary: #3a3a3c;
-  --kin-tertiary: #636366;
-  --kin-muted: #8e8e93;
-  --kin-fill: rgba(0, 0, 0, 0.04);
-  --kin-fill-strong: rgba(0, 0, 0, 0.08);
-  --kin-bubble-user: #007aff;
-  --kin-bubble-user-fg: #ffffff;
-  --kin-warning: #b45309;
-}
-
-/* System → light */
-@media (prefers-color-scheme: light) {
-  html[data-theme="system"] {
-    color-scheme: light;
-    --kin-page: #d8d8dc;
-    --kin-sidebar: #ececf0;
-    --kin-bg: #ffffff;
-    --kin-chat: #ffffff;
-    --kin-elevated: #f4f4f6;
-    --kin-panel: #ffffff;
-    --kin-surface: var(--kin-panel);
-    --kin-inspector: #ebebf0;
-    --kin-hairline: rgba(0, 0, 0, 0.09);
-    --kin-hairline-strong: rgba(0, 0, 0, 0.16);
-    --kin-text: #1c1c1e;
-    --kin-secondary: #3a3a3c;
-    --kin-tertiary: #636366;
-    --kin-muted: #8e8e93;
-    --kin-fill: rgba(0, 0, 0, 0.04);
-    --kin-fill-strong: rgba(0, 0, 0, 0.08);
-    --kin-bubble-user: #007aff;
-    --kin-bubble-user-fg: #ffffff;
-    --kin-warning: #b45309;
-  }
-}
-
-/* System → dark (explicit so class=dark + data-theme=system stay consistent) */
-@media (prefers-color-scheme: dark) {
-  html[data-theme="system"] {
-    color-scheme: dark;
-    --kin-bg: #1a1a1c;
-    --kin-elevated: #2c2c2e;
-    --kin-panel: #2c2c2e;
-    --kin-surface: var(--kin-panel);
-    --kin-sidebar: #141416;
-    --kin-hairline: rgba(255, 255, 255, 0.08);
-    --kin-hairline-strong: rgba(255, 255, 255, 0.14);
-    --kin-text: #f5f5f7;
-    --kin-secondary: #c7c7cc;
-    --kin-tertiary: #98989d;
-    --kin-muted: #6e6e73;
-    --kin-fill: rgba(255, 255, 255, 0.06);
-    --kin-fill-strong: rgba(255, 255, 255, 0.1);
-    --kin-page: #0e0e10;
-    --kin-chat: #1a1a1c;
-    --kin-inspector: #222226;
-    --kin-bubble-user: #0a84ff;
-    --kin-bubble-user-fg: #ffffff;
-    --kin-warning: #ff9f0a;
-  }
-}
 
 html,
 body,
@@ -303,7 +198,7 @@ body {
   }
   /* Layout surfaces */
   .kin-surface-chat {
-    background: var(--kin-chat);
+    background: var(--kin-bg);
     color: var(--kin-text);
   }
   .kin-surface-inspector {

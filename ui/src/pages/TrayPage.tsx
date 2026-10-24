@@ -82,7 +82,7 @@ export default function TrayPage() {
           <IconKin size={12} className="text-white" />
         </div>
         <span className="text-[14px] font-semibold">Kin</span>
-        <span className="ml-auto text-[11.5px] text-kin-tertiary inline-flex items-center gap-1.5">
+        <span className="ml-auto text-[11.5px] text-kin-muted inline-flex items-center gap-1.5">
           <span
             className={[
               "w-1.5 h-1.5 rounded-full",
@@ -119,7 +119,7 @@ export default function TrayPage() {
                     <div className="flex items-center gap-1.5 text-[12.5px]">
                       <IconFile size={14} className="text-kin-orange flex-none" />
                       <span className="font-semibold">{toolName}</span>
-                      <span className="ml-auto text-[10.5px] text-kin-tertiary">
+                      <span className="ml-auto text-[10.5px] text-kin-muted">
                         {a.task_agent || ""}
                       </span>
                     </div>
@@ -183,7 +183,7 @@ export default function TrayPage() {
                   <div className="text-[13px] font-semibold truncate">
                     {t.title || displayUserPrompt(t.prompt || "")}
                   </div>
-                  <div className="text-[11px] text-kin-tertiary mt-0.5">
+                  <div className="text-[11px] text-kin-muted mt-0.5">
                     {t.agent} · {t.status}
                   </div>
                 </div>

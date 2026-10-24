@@ -52,7 +52,7 @@ export default function RunningTaskCard({
           <span className="text-[10.5px] font-semibold tracking-wide text-kin-blue bg-kin-blue-soft rounded px-1.5 py-0.5 flex-none">
             {task.agent}
           </span>
-          <span className="ml-auto text-[12px] text-kin-tertiary tabular-nums flex-none whitespace-nowrap">
+          <span className="ml-auto text-[12px] text-kin-muted tabular-nums flex-none whitespace-nowrap">
             {tr(statusView.labelKey)}
             {" · "}
             {formatElapsed(task, now)}

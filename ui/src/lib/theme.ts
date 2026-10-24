@@ -14,21 +14,24 @@ export function getThemeMode(): ThemeMode {
   return "dark";
 }
 
+/**
+ * Applies the preference to `<html>` as a *resolved* scheme.
+ *
+ * The attribute carries the scheme that is actually in force (`dark` or
+ * `light`), not the preference — so the stylesheet needs one block per scheme
+ * instead of one per preference plus two `prefers-color-scheme` blocks that
+ * restate the same values. The class stays because Tailwind's `dark:` variant
+ * keys off it; both are written from the same resolution, so they cannot
+ * disagree.
+ */
 export function applyTheme(mode: ThemeMode): void {
   const root = document.documentElement;
-  root.classList.remove("light", "dark");
-  root.removeAttribute("data-theme");
-  if (mode === "system") {
-    root.setAttribute("data-theme", "system");
-    const light = window.matchMedia("(prefers-color-scheme: light)").matches;
-    root.classList.add(light ? "light" : "dark");
-  } else if (mode === "light") {
-    root.setAttribute("data-theme", "light");
-    root.classList.add("light");
-  } else {
-    root.setAttribute("data-theme", "dark");
-    root.classList.add("dark");
-  }
+  const light =
+    mode === "light" ||
+    (mode === "system" && window.matchMedia("(prefers-color-scheme: light)").matches);
+  root.classList.toggle("light", light);
+  root.classList.toggle("dark", !light);
+  root.setAttribute("data-theme", light ? "light" : "dark");
 }
 
 export function setThemeMode(mode: ThemeMode): void {

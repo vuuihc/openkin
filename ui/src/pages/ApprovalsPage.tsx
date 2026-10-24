@@ -122,7 +122,7 @@ export default function ApprovalsPage() {
         <h1 className="hidden text-[28px] font-bold tracking-tight md:block md:text-[32px]">
           {tr("inbox.title")}
         </h1>
-        <p className="text-[13.5px] text-kin-tertiary mt-1">
+        <p className="text-[13.5px] text-kin-muted mt-1">
           {loading
             ? tr("inbox.loading")
             : items.length + questions.length === 0

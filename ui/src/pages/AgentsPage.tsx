@@ -571,15 +571,15 @@ export default function AgentsPage() {
                       : (spendProgress?.status ?? tokensProgress?.status ?? "ok");
                   const limitColorClass =
                     limitColor === "over"
-                      ? "text-[var(--kin-red,#ff453a)]"
+                      ? "text-kin-red"
                       : limitColor === "warn"
-                        ? "text-[var(--kin-yellow,#ffd60a)]"
+                        ? "text-kin-warning"
                         : "text-kin-muted";
                   const barBgClass =
                     limitColor === "over"
-                      ? "bg-[var(--kin-red,#ff453a)]"
+                      ? "bg-kin-red"
                       : limitColor === "warn"
-                        ? "bg-[var(--kin-yellow,#ffd60a)]"
+                        ? "bg-kin-warning"
                         : "bg-kin-blue/70";
                   const kindBadge =
                     state === "native"

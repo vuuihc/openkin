@@ -1,0 +1,99 @@
+/*
+  Kin design tokens — every colour value the console uses is written here.
+
+  Two blocks, one per scheme, and only two. There used to be four: the two
+  `@media (prefers-color-scheme: …)` blocks that matched
+  `html[data-theme="system"]` were dead, because `applyTheme()` always sets the
+  resolved class (`light` / `dark`) alongside the attribute, and `html.light`
+  already matched. Resolving "system" in JS — which it did anyway, to keep the
+  class in step with the attribute — is what lets the duplication go.
+
+  Invariants, all held by `tokens.test.ts`:
+
+  - both blocks declare the same set of names;
+  - every `var(--kin-*)` referenced anywhere in `src/` or in the Tailwind
+    config resolves here (four did not, before this file existed);
+  - every token is presented on the `/design` gallery page, so a token nobody
+    renders is a test failure rather than a discovery;
+  - each of `page` / `sidebar` / `inspector` / `elevated` is at least 2 L* from
+    `bg`, and each ink step clears 4.5:1 on the four surfaces it is drawn on
+    (`bg`, `elevated`, `panel`, `sidebar`);
+  - neither this file nor the config keeps a colour literal in a component.
+
+  The Tailwind side (`tailwind.config.js`) holds the *scale* ladders — type,
+  radius, elevation, control heights — and references these names. It must not
+  contain a colour value; the test rejects literals in both places.
+*/
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces, from the window backdrop inward. Adjacent steps in this list are
+     the ones that meet on screen: page|sidebar, sidebar|bg, bg|inspector.
+     `elevated` and `panel` are the same value in this scheme by design; they
+     diverge in light, where a card and a sheet need different greys. */
+  --kin-page: #0e0e10; /* L* 4.0 — the window backdrop, body background */
+  --kin-sidebar: #141416; /* L* 6.4 */
+  --kin-bg: #1a1a1c; /* L* 9.3 — the main content surface and chat */
+  --kin-inspector: #222226; /* L* 13.4 */
+  --kin-elevated: #2c2c2e; /* L* 18.1 — cards, popovers, the active tab */
+  --kin-panel: #2c2c2e; /* L* 18.1 — sheets and modals */
+
+  /* Ink, three steps. Contrast on --kin-bg / --kin-elevated: text 16.0/12.8,
+     secondary 10.3/8.3, muted 6.1/4.9. `muted` is the step that carries
+     timestamps and labels, and it used to be #6e6e73 — 3.4:1 on this
+     background, below AA at the 11–13px it is actually used at. `tertiary`
+     was a fourth step 2.1 L* from this one; it is gone, and its callers point
+     here. */
+  --kin-text: #f5f5f7;
+  --kin-secondary: #c7c7cc;
+  --kin-muted: #98989d;
+
+  /* Lines and fills. A hairline is a boundary *inside* a surface; between two
+     surfaces the ladder above is what separates them. */
+  --kin-hairline: rgba(255, 255, 255, 0.08);
+  --kin-hairline-strong: rgba(255, 255, 255, 0.14);
+  --kin-fill: rgba(255, 255, 255, 0.06);
+  --kin-fill-strong: rgba(255, 255, 255, 0.1);
+
+  /* Status and brand. These are fills: they carry white or near-black text on
+     top of them. The ink variants that clear AA on a page are a separate set,
+     added with the rest of the status work. */
+  --kin-warning: #ff9f0a; /* 8.5:1 on --kin-bg */
+  --kin-bubble-user: #0a84ff;
+  --kin-bubble-user-fg: #ffffff;
+}
+
+html.light,
+html[data-theme="light"] {
+  color-scheme: light;
+
+  /* Light inverts which end of the ladder is "away": the page is the grey and
+     the content sits on it in white. Each step is still at least 2 L* from
+     --kin-bg, which is what makes a card readable without a border. */
+  --kin-page: #d8d8dc; /* L* 86.4 */
+  --kin-sidebar: #ececf0; /* L* 93.5 */
+  --kin-bg: #ffffff; /* L* 100 */
+  --kin-inspector: #ebebf0; /* L* 93.2 */
+  --kin-elevated: #f4f4f6; /* L* 96.2 */
+  --kin-panel: #ffffff; /* L* 100 — a sheet is separated by its scrim */
+
+  /* 17.0/15.5, 11.3/10.3, 5.5/5.0 on --kin-bg / --kin-elevated, and 4.6 on the
+     sidebar. The dark steps would be 1.0–2.2:1 here, which is why these
+     cannot be shared with the block above. The one surface `muted` does not
+     clear AA on is --kin-page (3.8:1) — that is the backdrop cards sit on,
+     not a place labels are drawn, and darkening it further would cost the
+     step its distance from `secondary`. */
+  --kin-text: #1c1c1e;
+  --kin-secondary: #3a3a3c;
+  --kin-muted: #69696e;
+
+  --kin-hairline: rgba(0, 0, 0, 0.09);
+  --kin-hairline-strong: rgba(0, 0, 0, 0.16);
+  --kin-fill: rgba(0, 0, 0, 0.04);
+  --kin-fill-strong: rgba(0, 0, 0, 0.08);
+
+  --kin-warning: #b45309; /* 5.0:1 on --kin-bg */
+  --kin-bubble-user: #007aff;
+  --kin-bubble-user-fg: #ffffff;
+}
