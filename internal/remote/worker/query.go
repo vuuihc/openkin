@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -50,6 +52,31 @@ const QueryGitBranches = "git.branches"
 // therefore bounded the same way a dispatched turn is (see Responder).
 const QueryGitCheckout = "git.checkout"
 
+// QueryWorkspaceChanges asks what has changed in one of the machine's own
+// directories.
+//
+// A task that runs on this machine keeps its files here, so "what did this
+// session change" is a question only this machine can answer — the Hub may hold
+// a different checkout of the same repository at the same address, and reading
+// that one would show the wrong session's work. It is the same read the Hub
+// performs on its own shared workspaces (workspace.ListLiveChanges), asked of
+// the machine whose filesystem it is about.
+const QueryWorkspaceChanges = "workspace.changes"
+
+// QueryWorkspaceTree asks what is directly inside one directory of a workspace.
+//
+// One level, not a walk: the console draws one column at a time, and a directory
+// with more entries than fit is answered with the first of them and a flag
+// saying so.
+const QueryWorkspaceTree = "workspace.tree"
+
+// QueryWorkspaceFile asks for the contents of one text file in a workspace.
+//
+// Text only, and bounded: this is a viewer for a person reading a diff on a
+// phone, not a file transfer. What is not text is refused in this machine's own
+// words rather than answered with replacement characters.
+const QueryWorkspaceFile = "workspace.file"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -68,6 +95,19 @@ const (
 	MaxBranch = 255
 	// MaxBranches bounds one answer, on the same reasoning as MaxDirEntries.
 	MaxBranches = 500
+	// MaxWorkspaceChanges bounds one change list, on the same reasoning again: a
+	// session that touched everything is answered with the first of them and a
+	// flag saying so, rather than with a frame too large to arrive.
+	MaxWorkspaceChanges = 500
+	// MaxWorkspaceFile bounds the text of one file in an answer.
+	//
+	// The bound is the frame's, not a judgement about files: MaxFrameBytes is
+	// 1 MiB and a JSON string costs at most six bytes per byte of input (a
+	// control character, or one of the three HTML characters encoding/json
+	// escapes, becomes \uXXXX), so 128 KiB of text — 768 KiB encoded — cannot
+	// overflow the frame no matter what is in the file. A larger file is
+	// answered with its beginning and Truncated.
+	MaxWorkspaceFile = 128 << 10
 )
 
 // Query is one question about the machine it is sent to.
@@ -346,6 +386,149 @@ func (p GitCheckoutParams) Validate() error {
 		return fmt.Errorf("branch is required")
 	}
 	return argument("branch", branch)
+}
+
+// WorkspaceChange is one changed file, as it crosses the wire.
+//
+// It carries the same fields as the workspace layer's Change and is still a type
+// of this protocol's own: this package is the wire specification and imports
+// nothing else in the module (ADR 0025 D5), so that what a Hub and a Node agree
+// on is written here rather than inherited from whichever internal type happened
+// to serialize it. Both sides convert, which is the point — a field the
+// workspace layer renames is a change this file has to make deliberately.
+type WorkspaceChange struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"old_path,omitempty"`
+	Status    string `json:"status"` // added|modified|deleted|renamed|binary
+	Additions int    `json:"additions,omitempty"`
+	Deletions int    `json:"deletions,omitempty"`
+	Binary    bool   `json:"binary,omitempty"`
+}
+
+// WorkspaceTreeEntry is one name in a listing, as it crosses the wire. The same
+// reasoning as WorkspaceChange, and the same fields as workspace.TreeEntry —
+// whose Type vocabulary is git's (blob|tree), not a browser's (file|dir).
+type WorkspaceTreeEntry struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Size int64  `json:"size,omitempty"`
+}
+
+// WorkspaceChangesParams names the directory whose changes are asked about.
+//
+// The path is absolute and names a directory on the machine being asked, for the
+// same reason a dispatch's cwd is: a path relative to the Hub would be resolved
+// against a directory the Hub does not own.
+type WorkspaceChangesParams struct {
+	Path string `json:"path"`
+}
+
+// WorkspaceChangesResult is what changed in one directory.
+type WorkspaceChangesResult struct {
+	// Path is the directory that was read, as this machine resolved it.
+	Path string `json:"path"`
+	// Changes is empty for a clean checkout, which is an answer and not an
+	// error: a session that has not changed anything yet is the normal state of
+	// a session.
+	Changes []WorkspaceChange `json:"changes"`
+	// Truncated reports that Changes stopped at MaxWorkspaceChanges.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// WorkspaceTreeParams names one directory of a workspace.
+type WorkspaceTreeParams struct {
+	// Path is the workspace directory itself — the checkout, not the
+	// subdirectory being listed. It is what the machine checks against its roots,
+	// and it is the same path every other question about this workspace uses.
+	Path string `json:"path"`
+	// Dir is the subdirectory to list, relative to Path. Empty means Path.
+	Dir string `json:"dir,omitempty"`
+}
+
+// WorkspaceTreeResult is one level of a workspace directory.
+type WorkspaceTreeResult struct {
+	Path      string               `json:"path"`
+	Dir       string               `json:"dir,omitempty"`
+	Entries   []WorkspaceTreeEntry `json:"entries"`
+	Truncated bool                 `json:"truncated,omitempty"`
+}
+
+// WorkspaceFileParams names one file in a workspace.
+type WorkspaceFileParams struct {
+	// Path is the workspace directory, as in WorkspaceTreeParams.
+	Path string `json:"path"`
+	// File is the file to read, relative to Path.
+	File string `json:"file"`
+}
+
+// WorkspaceFileResult is one file's text.
+type WorkspaceFileResult struct {
+	Path string `json:"path"`
+	File string `json:"file"`
+	// Size is the file's size on disk, which is larger than Content when
+	// Truncated says so.
+	Size    int64  `json:"size"`
+	Content string `json:"content"`
+	// Truncated reports that the file was longer than MaxWorkspaceFile and the
+	// answer carries its beginning.
+	//
+	// It is an answer rather than a refusal because the reason to read a file
+	// from a phone is to see what changed, and the first 128 KiB of a file that
+	// changed says what it says. A file that is not text at all is a different
+	// case and is refused (ReadLiveFile decides both).
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+func (p WorkspaceChangesParams) Validate() error {
+	return directory("path", p.Path, true)
+}
+
+func (p WorkspaceTreeParams) Validate() error {
+	if err := directory("path", p.Path, true); err != nil {
+		return err
+	}
+	// The subdirectory is optional: no subdirectory is the workspace root, which
+	// is the first thing a browser shows and therefore the commonest question.
+	return relative("dir", p.Dir, false)
+}
+
+func (p WorkspaceFileParams) Validate() error {
+	if err := directory("path", p.Path, true); err != nil {
+		return err
+	}
+	return relative("file", p.File, true)
+}
+
+// relative checks a path that names something inside a directory the machine
+// already agreed to work in.
+//
+// This is not the containment check — the workspace layer makes that one, and it
+// is the one that counts, because it is the code that opens the file. What is
+// refused here is a path that could not mean what it says: an absolute one would
+// silently replace the directory being asked about, and a traversal would make
+// the answer about a directory this machine never agreed to show.
+func relative(field, value string, required bool) error {
+	value = strings.TrimSpace(value)
+	if err := optional(field, value, MaxCwd); err != nil {
+		return err
+	}
+	if value == "" {
+		if required {
+			return fmt.Errorf("%s is required", field)
+		}
+		return nil
+	}
+	if strings.ContainsAny(value, "\x00\n\r") {
+		return fmt.Errorf("%s %q contains a control character", field, value)
+	}
+	if isAbsNodePath(value) {
+		return fmt.Errorf("%s %q is absolute, and names something inside the directory being asked about", field, value)
+	}
+	clean := path.Clean(filepath.ToSlash(value))
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("%s %q leaves the directory being asked about", field, value)
+	}
+	return nil
 }
 
 // directory checks a path that names a directory on the machine being asked.

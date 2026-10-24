@@ -192,6 +192,36 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, switched)
+	case worker.QueryWorkspaceChanges:
+		var asked worker.WorkspaceChangesParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		changed, err := r.workspaceChanges(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, changed)
+	case worker.QueryWorkspaceTree:
+		var asked worker.WorkspaceTreeParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		listed, err := r.workspaceTree(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, listed)
+	case worker.QueryWorkspaceFile:
+		var asked worker.WorkspaceFileParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		read, err := r.workspaceFile(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, read)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}
@@ -261,7 +291,7 @@ func (r *Responder) gitBranches(ctx context.Context, asked worker.GitBranchesPar
 	if err != nil {
 		return worker.GitBranchesResult{}, err
 	}
-	git, err := r.workspaceFor()
+	git, err := r.workspaceFor("what a directory has checked out")
 	if err != nil {
 		return worker.GitBranchesResult{}, err
 	}
@@ -306,7 +336,7 @@ func (r *Responder) gitCheckout(ctx context.Context, asked worker.GitCheckoutPar
 	if err != nil {
 		return worker.GitCheckoutResult{}, err
 	}
-	git, err := r.workspaceFor()
+	git, err := r.workspaceFor("what a directory has checked out")
 	if err != nil {
 		return worker.GitCheckoutResult{}, err
 	}
@@ -348,11 +378,15 @@ func (r *Responder) own(path string) (string, error) {
 	return path, nil
 }
 
-// workspaceFor is the git this machine reads its own checkouts with, or the
-// reason it has none.
-func (r *Responder) workspaceFor() (*workspace.Manager, error) {
+// workspaceFor is the git-backed reader this machine answers with, or the reason
+// it has none.
+//
+// what names the thing that could not be answered, because the reason a machine
+// gives for not answering is read by a person looking at a control that asked a
+// specific question.
+func (r *Responder) workspaceFor(what string) (*workspace.Manager, error) {
 	if r.Workspace == nil {
-		return nil, errors.New("this machine has no git, so it cannot say what a directory has checked out")
+		return nil, fmt.Errorf("this machine has no git, so it cannot say %s", what)
 	}
 	return r.Workspace, nil
 }

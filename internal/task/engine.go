@@ -2858,12 +2858,7 @@ func (e *Engine) prepareWorkspace(ctx context.Context, taskID, cwd string, mode 
 // sharedWorkspace is the metadata for a cwd used exactly as given: no
 // worktree, no isolation, no rewriting.
 func sharedWorkspace(cwd string) workspace.Metadata {
-	return workspace.Metadata{
-		Mode:  workspace.ResolvedShared,
-		Root:  cwd,
-		Cwd:   cwd,
-		Scope: ".",
-	}
+	return workspace.SharedMetadata(cwd)
 }
 
 func workspaceMetadata(t store.Task) workspace.Metadata {

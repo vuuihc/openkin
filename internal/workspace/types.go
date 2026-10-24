@@ -59,6 +59,24 @@ type Checkpoint struct {
 	CreatedAt int64
 }
 
+// SharedMetadata is the workspace metadata for a directory used exactly as it
+// is: no worktree, no isolation, no rewriting.
+//
+// It is the shape a task has when its files are the person's own checkout — the
+// Hub's shared mode, and every task that runs on another machine, where the
+// workspace is that machine's checkout and the Hub only knows its address. One
+// definition rather than one per caller, because the callers that read a
+// directory this way (the file API, the diff API, the machine answering
+// questions about itself) have to agree about what they are reading.
+func SharedMetadata(root string) Metadata {
+	return Metadata{
+		Mode:  ResolvedShared,
+		Root:  root,
+		Cwd:   root,
+		Scope: ".",
+	}
+}
+
 // EffectiveCwd returns the path agents and file APIs should use.
 func (m Metadata) EffectiveCwd(fallback string) string {
 	if m.Cwd != "" {

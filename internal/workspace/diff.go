@@ -40,6 +40,16 @@ type TreeEntry struct {
 // ListLiveTree lists the actual filesystem contents for a live workspace or
 // source checkout. Paths are repository-relative and constrained to meta.Scope.
 func (m *Manager) ListLiveTree(_ context.Context, meta Metadata, relDir string) ([]TreeEntry, bool, error) {
+	return ListLiveTree(meta, relDir)
+}
+
+// ListLiveTree lists one level of an existing directory beneath a rooted
+// workspace.
+//
+// It is the package function and not only a manager method because listing a
+// directory needs no git and no state directory: a machine that cannot run git
+// still has directories, and can still answer what is inside one.
+func ListLiveTree(meta Metadata, relDir string) ([]TreeEntry, bool, error) {
 	rootPath, rel, err := rootedLivePath(meta, relDir)
 	if err != nil {
 		return nil, false, err
@@ -148,6 +158,20 @@ func ReadLiveFile(meta Metadata, relPath string) ([]byte, error) {
 		return nil, fmt.Errorf("live file is not UTF-8 text")
 	}
 	return data, nil
+}
+
+// TrimValidUTF8 drops the bytes a cut left in the middle of a rune.
+//
+// Truncating text at a byte boundary can end it mid-character, and half a
+// character is not text: encoding/json replaces it on the way out, which puts a
+// character in the answer that is not in the file. Every place that shows the
+// beginning of a file cuts it here, so that what a reader sees is what the file
+// says.
+func TrimValidUTF8(data []byte) []byte {
+	for len(data) > 0 && !utf8.Valid(data) {
+		data = data[:len(data)-1]
+	}
+	return data
 }
 
 // WriteLiveFile replaces an existing UTF-8 file in a live workspace.
