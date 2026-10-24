@@ -9,7 +9,7 @@ import { useT } from "../../i18n/react";
 import { shortRepo } from "../../lib/prObservation";
 import { blockedHeadline, isSessionRunsHere } from "../../lib/publishBlocked";
 import type { PublishDraft } from "../../lib/publishDraft";
-import { publishWordsRefusal } from "../../lib/publishWords";
+import { MAX_TITLE_CHARS, publishWordsRefusal } from "../../lib/publishWords";
 import { IconAlert, IconExternal, IconPullRequest, IconSend, IconSpinner, IconX } from "../icons";
 
 type Props = {
@@ -232,7 +232,7 @@ export default function PublishPanel({
               // it, and a title written in Chinese is not cut off at 85 of them.
               // (The box counts UTF-16 units, so a title of emoji stops at 128:
               // earlier than the wire would, and never later.)
-              maxLength={256}
+              maxLength={MAX_TITLE_CHARS}
               className="w-full rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 text-[13px] text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
             />
           </label>
@@ -274,7 +274,7 @@ export default function PublishPanel({
                 // this line claims.
                 <p className="flex items-start gap-1.5 text-[12.5px] text-kin-orange">
                   <IconAlert size={13} className="mt-0.5 flex-none" />
-                  <span>{tr("publish.pushedNoPR", { branch: report.branch ?? shownBranch })}</span>
+                  <span>{tr("publish.pushedNoPR")}</span>
                 </p>
               )}
               {report.reason && (
