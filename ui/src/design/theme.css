@@ -41,14 +41,16 @@
   - no component writes a colour literal: every colour the console paints is a
     name below, reached through `tailwind.config.ts` — the three elevation
     colours included, which the config spells as geometry plus a token name, so
-    a colour literal in the config is a test failure too. Three boundaries are
-    known
-    and outside this file: `components/terminal/terminalTheme.ts` (an ANSI
-    palette handed to xterm, which cannot read CSS variables and is a spec
-    rather than a design decision), `components/project/Heatmap.tsx` (five
-    literal greens on a fixed activity scale), and `components/chat/shareExport.ts`
-    (an inline light-theme stylesheet for a shared transcript — its own
-    document, with no tokens in it). S6's lint is what brings those in;
+    a colour literal in the config is a test failure too. Since S6 the rule is
+    enforced rather than stated: `eslint.config.js` fails on a colour literal
+    anywhere under `src/` outside this directory. Three boundaries are known and
+    have moved in here to satisfy it, each with its reason in its own header:
+    `terminalTheme.ts` (an ANSI palette handed to xterm, which cannot read CSS
+    variables and is a spec rather than a design decision), `heat.ts` (five
+    literal greens on a fixed activity scale), and `exportDocument.ts` (the
+    stylesheet of a shared transcript — its own document, with no tokens in it).
+    So every colour value in the console is now under `design/`, and this file
+    is the ones that are *tokens*;
 
   The Tailwind side (`tailwind.config.ts`) holds the *scale* ladders — type,
   leading, tracking, elevation, radius (Tailwind's own six-step subset), and the

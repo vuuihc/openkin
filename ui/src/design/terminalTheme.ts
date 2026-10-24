@@ -1,6 +1,22 @@
 import { type ITheme } from "@xterm/xterm";
 
 /**
+ * The ANSI palette handed to xterm.
+ *
+ * Not tokens, and the reason is structural rather than editorial: xterm paints
+ * into a canvas and takes colours as strings, so it cannot read a custom
+ * property, and the sixteen ANSI slots plus cursor and selection are a
+ * published spec — the terminal's vocabulary, not this console's. Only one
+ * thing in this file is a design decision: the two backdrops (`#1e1e1e` in the
+ * dark scheme, `#ffffff` in the light one), chosen to sit on our own.
+ *
+ * It lives under `design/` because that is the one directory allowed to spell a
+ * colour — `eslint.config.js` fails on a colour literal anywhere else in `src/`
+ * — so a palette that has to stay literal belongs here, where the token layer
+ * can see it and `theme.css`'s header can name it.
+ */
+
+/**
  * Get xterm theme colors based on light/dark mode.
  * Detects theme from root element's data-theme or class.
  */

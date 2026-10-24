@@ -1,4 +1,5 @@
 import type { PulseDay } from "../../api/client";
+import { HEAT_CELL_RING, HEAT_RAMP } from "../../design/heat";
 
 type Props = {
   days: PulseDay[] | undefined;
@@ -8,8 +9,8 @@ type Props = {
 };
 
 /**
- * GitHub-like discrete levels. Use solid colors (color-mix often looks flat
- * when CSS vars resolve poorly).
+ * GitHub-like discrete levels. The ramp is solid colours rather than a token:
+ * see `design/heat.ts` for why.
  */
 function level(count: number, maxCount: number): number {
   if (count <= 0) return 0;
@@ -23,15 +24,6 @@ function level(count: number, maxCount: number): number {
   if (r >= 0.75) return 4;
   return 3;
 }
-
-// Dark-theme greens that read clearly on kin panels.
-const COLORS_DARK = [
-  "#2a2b30", // empty
-  "#0e4429",
-  "#006d32",
-  "#26a641",
-  "#39d353",
-];
 
 /**
  * Compact contribution-style heatmap for session or commit activity.
@@ -76,8 +68,8 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
                 style={{
                   width: 10,
                   height: 10,
-                  background: COLORS_DARK[lv],
-                  boxShadow: lv > 0 ? "inset 0 0 0 1px rgba(255,255,255,0.06)" : undefined,
+                  background: HEAT_RAMP[lv],
+                  boxShadow: lv > 0 ? HEAT_CELL_RING : undefined,
                 }}
               />
             );
@@ -86,7 +78,7 @@ export default function Heatmap({ days, title, max = 90 }: Props) {
       </div>
       <div className="mt-1.5 flex items-center gap-1 text-micro text-kin-muted">
         <span>Less</span>
-        {COLORS_DARK.map((c, i) => (
+        {HEAT_RAMP.map((c, i) => (
           <span
             key={i}
             className="inline-block rounded-sm"

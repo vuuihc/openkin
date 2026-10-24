@@ -1,3 +1,5 @@
+import { EXPORT_STYLESHEET } from "../../design/exportDocument";
+
 export type SharedMessage = {
   role: "user" | "assistant";
   text: string;
@@ -34,17 +36,7 @@ export function formatSharedHTML(messages: SharedMessage[], labels: ShareLabels)
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHTML(labels.title)}</title>
-  <style>
-    :root { color-scheme: light; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #f6f7fb; color: #1c1c1e; font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    main { width: min(780px, calc(100% - 32px)); margin: 48px auto; }
-    h1 { margin: 0 0 24px; font-size: 26px; letter-spacing: -.02em; }
-    .message { margin: 16px 0; padding: 16px 18px; border: 1px solid #e3e4ea; border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 3%); }
-    .message.user { margin-left: 9%; background: #eef5ff; border-color: #d9e8ff; }
-    .role { margin-bottom: 7px; color: #61636b; font-size: 12px; font-weight: 650; }
-    .content { white-space: pre-wrap; overflow-wrap: anywhere; }
-  </style>
+  <style>${EXPORT_STYLESHEET}</style>
 </head>
 <body>
   <main>

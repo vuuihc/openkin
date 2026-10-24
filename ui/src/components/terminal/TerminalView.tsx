@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { getToken, type TerminalSession } from "../../api/client";
 import { terminalSocketURL } from "../../lib/terminal";
-import { getTerminalTheme, observeThemeChanges } from "./terminalTheme";
+import { getTerminalTheme, observeThemeChanges } from "../../design/terminalTheme";
 
 type Props = {
   session: TerminalSession;
