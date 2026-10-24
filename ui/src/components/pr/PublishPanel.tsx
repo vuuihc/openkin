@@ -9,6 +9,7 @@ import { useT } from "../../i18n/react";
 import { shortRepo } from "../../lib/prObservation";
 import { blockedHeadline, isSessionRunsHere } from "../../lib/publishBlocked";
 import type { PublishDraft } from "../../lib/publishDraft";
+import { publishWordsRefusal } from "../../lib/publishWords";
 import { IconAlert, IconExternal, IconPullRequest, IconSend, IconSpinner, IconX } from "../icons";
 
 type Props = {
@@ -164,11 +165,15 @@ export default function PublishPanel({
     } finally {
       setEscaping(false);
     }
-  }, [taskId, title, body, publish, describe, onRowChanged]);;
+  }, [taskId, title, body, publish, describe, onRowChanged]);
 
   const blocked = report?.blocked ?? "";
   const headline = blockedHeadline(blocked);
-  const canPublish = title.trim().length > 0 && !busy && !escaping;
+  // Why these words cannot be sent, in the wire's own terms — the same rule the
+  // machine checks, so the sheet never offers a tap that would be refused, and
+  // never disables one it cannot explain.
+  const wordsRefusal = publishWordsRefusal({ title, body });
+  const canPublish = wordsRefusal === "" && !busy && !escaping;
   const working = busy || escaping;
 
   return (
@@ -222,9 +227,11 @@ export default function PublishPanel({
               onChange={(e) => setTitle(e.target.value)}
               placeholder={tr("publish.titlePlaceholder")}
               disabled={working}
-              // GitHub's own bound, which the machine counts in characters rather
+              // The wire's bound, which the machine counts in characters rather
               // than bytes — so this stops at what would be refused and not before
               // it, and a title written in Chinese is not cut off at 85 of them.
+              // (The box counts UTF-16 units, so a title of emoji stops at 128:
+              // earlier than the wire would, and never later.)
               maxLength={256}
               className="w-full rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1.5 text-[13px] text-kin-text outline-none focus:border-kin-blue/50 disabled:opacity-60"
             />
@@ -306,22 +313,15 @@ export default function PublishPanel({
                 </span>
               </p>
               {blocked === "default_branch" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void escape()}
-                    disabled={!canPublish}
-                    className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-[12px] disabled:opacity-50"
-                  >
-                    {escaping && <IconSpinner size={13} strokeWidth={2} />}
-                    {tr("publish.escape")}
-                  </button>
-                  {title.trim().length === 0 && (
-                    <span className="ml-2 text-[11.5px] text-kin-muted">
-                      {tr("publish.needsTitle")}
-                    </span>
-                  )}
-                </>
+                <button
+                  type="button"
+                  onClick={() => void escape()}
+                  disabled={!canPublish}
+                  className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-[12px] disabled:opacity-50"
+                >
+                  {escaping && <IconSpinner size={13} strokeWidth={2} />}
+                  {tr("publish.escape")}
+                </button>
               )}
             </div>
           )}
@@ -343,10 +343,8 @@ export default function PublishPanel({
               {busy && <IconSpinner size={13} strokeWidth={2} />}
               {busy ? tr("publish.publishing") : tr("publish.action")}
             </button>
-            {title.trim().length === 0 && (
-              <span className="text-[11.5px] text-kin-muted">
-                {tr("publish.needsTitle")}
-              </span>
+            {wordsRefusal && (
+              <span className="text-[11.5px] text-kin-muted">{tr(wordsRefusal)}</span>
             )}
           </div>
         </div>

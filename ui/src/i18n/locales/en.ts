@@ -643,9 +643,10 @@ const en: MessageTree = {
     bodyLabel: "Description",
     bodyPlaceholder: "Filled in from the agent's last reply; edit it as you like.",
     needsTitle: "A pull request needs a title",
+    bodyTooLong: "The description is past the 64 KiB a publish can carry",
     publishing: "Publishing…",
     published: "Published #{number}",
-    pushedNoPR: "The branch is on the remote, but the pull request was not created.",
+    pushedNoPR: "The branch is on the remote, but no pull request was opened for it.",
     blocked: "Nothing was pushed ({code}).",
     // One line per refusal the machine can name. The machine's own sentence is
     // shown underneath: it carries the branch and the files, which these cannot.
@@ -653,8 +654,11 @@ const en: MessageTree = {
       not_a_checkout: "That directory is not a git checkout.",
       no_github_remote: "This checkout has no GitHub remote to push to.",
       detached_head: "This checkout is not on a branch.",
-      default_branch:
-        "This is the repository's default branch, and Kin does not push that one on its own.",
+      // The rule rather than the fact: a checkout that recorded no origin/HEAD is
+      // refused on `main` by convention, and a headline saying "this is the
+      // default branch" would be a claim the repository can contradict. What the
+      // machine's sentence underneath says is what the machine actually read.
+      default_branch: "Kin does not push a repository's default branch on its own.",
       uncommitted_changes:
         "There is work here that is not committed, and a push would leave it behind.",
       no_gh: "That machine has no GitHub CLI, so no pull request can be opened.",

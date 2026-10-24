@@ -633,9 +633,10 @@ const zh = {
     bodyLabel: "正文",
     bodyPlaceholder: "已预填 agent 的最后一条回复，可以随意修改。",
     needsTitle: "Pull Request 需要一个标题",
+    bodyTooLong: "正文超过了发布能带的 64 KiB",
     publishing: "正在发布…",
     published: "已发布 #{number}",
-    pushedNoPR: "分支已经在远端，但 Pull Request 没有创建成功。",
+    pushedNoPR: "分支已经在远端，但没有为它开成 Pull Request。",
     blocked: "没有推上去（{code}）。",
     // 机器能报出来的每一种拒绝各一行。机器自己的那句话会跟在下
     // 面：分支名和文件名单只有它知道，这两行写不出来。
@@ -643,7 +644,7 @@ const zh = {
       not_a_checkout: "那个目录不是 git 仓库",
       no_github_remote: "这个 checkout 没有指向 GitHub 的远端",
       detached_head: "这个 checkout 不在任何分支上",
-      default_branch: "这是仓库的默认分支，Kin 不会自己往上面推",
+      default_branch: "Kin 不会自己往仓库的默认分支上推",
       uncommitted_changes: "这里还有没提交的改动，推上去就会把它们落下",
       no_gh: "那台机器上没有 GitHub CLI，开不了 Pull Request",
     },
