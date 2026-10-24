@@ -615,13 +615,20 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 
 ---
 
-## 12. 审计出来的缺陷清单（2026-10-24，已核实、未修）
+## 12. 审计出来的缺陷清单（2026-10-24，已核实）
 
 一轮针对 P0a 已落地代码的审计（多个独立 agent 分头找，**每一条都由我重读代码核实过**，
 不是转述）。本轮**没有**可用的独立评审：环境里的 sub-agent 全部走 Codex 网关，而那个网关
 配额已耗尽（429）——所以这份清单是我自己的核对结果，核实方式逐条写在下面。
 
-顺序按"是否影响手机 dogfood"排。
+顺序按"是否影响手机 dogfood"排。表格是审计当时的记录，改动只往上加状态：
+
+**状态（2026-10-24）**：C / D / E / H 已修；A / B / F / G / I / J / K / L 未修。
+
+- C + E → `96fa508`：匿名预算改成**在真正发请求的地方领**（`query` 内），删掉只看
+  `ObservedAt` 的 `Fresh` 判定，改由 `due` 同时看两个时钟。
+- D + H → `37243b8`：同一分支、同一花费意图的并发提问合并为一次查询；写入带的是
+  **提问时刻**而不是落地时刻，旧答案不能覆盖新答案，attempt 时钟只前进。
 
 ### 12.1 会让手机看到**错答案**的
 
@@ -634,9 +641,9 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 
 | # | 症状 | 证据 | 归属 |
 |---|---|---|---|
-| C | 读失败的 open 行**每个 tick 重查**：25 行 × 60s = ~1500 次/小时，而匿名配额是 60/小时 | `Reconcile` 用 `Fresh(now, floor)`（`service.go:540`），`Fresh` **只看 `ObservedAt`**（`store/pr_observations.go:66`）；失败只动 `AttemptedAt`。**这是我在 `ba47063` 里删 `dueForRefresh` 时丢的规则**——被删的代码原文：「a refresh that just failed must not be immediately retried by the next view」 | 我 |
-| D | 同一目标没有并发去重：手机和桌面各点一次 = 两次查询 | `inFlight` 也在 `ba47063` 被删；`Observe` 无 per-target 串行化 | 我 |
-| E | gh 失败后**回落匿名读不领小时预算** | 预算只在 `Reconcile` 前置领（`service.go:551`）；`query` 里 gh 失败后的匿名分支（`service.go:288`）不领 | 本层 |
+| C ✅ | 读失败的 open 行**每个 tick 重查**：25 行 × 60s = ~1500 次/小时，而匿名配额是 60/小时 | `Reconcile` 用 `Fresh(now, floor)`（`service.go:540`），`Fresh` **只看 `ObservedAt`**（`store/pr_observations.go:66`）；失败只动 `AttemptedAt`。**这是我在 `ba47063` 里删 `dueForRefresh` 时丢的规则**——被删的代码原文：「a refresh that just failed must not be immediately retried by the next view」 | 我 |
+| D ✅ | 同一目标没有并发去重：手机和桌面各点一次 = 两次查询 | `inFlight` 也在 `ba47063` 被删；`Observe` 无 per-target 串行化 | 我 |
+| E ✅ | gh 失败后**回落匿名读不领小时预算** | 预算只在 `Reconcile` 前置领（`service.go:551`）；`query` 里 gh 失败后的匿名分支（`service.go:288`）不领 | 本层 |
 | F | 删掉的任务，它的 PR 行**永远留在巡检集合里**继续查 | `pr_observations.task_id TEXT NOT NULL` 无 FK（`migrate.go:816`）；`DeleteTask` 的子表清单里没有它（`store.go:691-702`）；`ListOpenPRObservations` 不 join tasks（`pr_observations.go:218`） | 本层 |
 
 ### 12.3 会显示错/重复一句话的
@@ -644,7 +651,7 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
 | # | 症状 | 证据 | 归属 |
 |---|---|---|---|
 | G | 强制刷新失败时，同一句话在面板上出现**两次**（顶部 notice + 卡片里行上的 last_error） | `SnapshotForTask` 的 force 分支写 `snap.Notice = err.Error()`（`service.go:429`），而 `Observe` 刚把同一个字符串写进行上的 `last_error`（`service.go:309`）。这直接违反 §8.2 和 `Snapshot.Notice` 的注释。`TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice` 只跑 `force=false`，钉不住 | 我 |
-| H | 顺序错乱：旧答案可以覆盖新答案（先发的查询看到 open，后发的看到 merged，先发的后落地 → 退回 open） | `Observe` = query → record，时间戳在写时取，且 `RecordPRObservation` 无条件 upsert（`pr_observations.go:113-135`）；§8.1 里"慢的过期读不能覆盖用户点的那次刷新"目前只由 UI 的 seq 守住，服务端没有 | 我（D 的同一族） |
+| H ✅ | 顺序错乱：旧答案可以覆盖新答案（先发的查询看到 open，后发的看到 merged，先发的后落地 → 退回 open） | `Observe` = query → record，时间戳在写时取，且 `RecordPRObservation` 无条件 upsert（`pr_observations.go:113-135`）；§8.1 里"慢的过期读不能覆盖用户点的那次刷新"目前只由 UI 的 seq 守住，服务端没有 | 我（D 的同一族） |
 
 ### 12.4 gh 进程处理
 
@@ -668,7 +675,7 @@ P0a 可以先独立验收：**不 publish 也能看到别人开的 PR 的 CI 和
   属于自觉重复；但仓库在 `task_scope.go` 里对同类重复的判词是"a rule copied into two
   packages is a rule that drifts"，所以值得再看一眼）。
 
-修的时候按 12.1 → 12.2 → 12.3 → 12.4 → 12.5 的顺序，每条都要一个能红的测试。
+修的时候按 12.1 → 12.2 → 12.3 → 12.4 → 12.5 的顺序，每条都要一个能红的测试（C/D/E/H 已按此办，下一个是 12.1 B）。
 
 **A 的修法是设计题，不是补丁，所以不在这一轮动手。** Hub 读不到节点的文件系统，而
 GitHub 的观测其实**不需要本地文件**——只需要 `owner/repo` + 分支 + 一个凭据。三个候选：
