@@ -86,10 +86,25 @@ type Task struct {
 	ExecutionCwd        string `json:"execution_cwd,omitempty"`
 	WorkspaceScope      string `json:"workspace_scope,omitempty"`
 	WorkspaceBaseOID    string `json:"workspace_base_oid,omitempty"`
-	WorkspaceBranch     string `json:"workspace_branch,omitempty"`
-	WorkspacePolicy     string `json:"workspace_policy,omitempty"`
-	CurrentWorkspaceID  string `json:"current_workspace_id,omitempty"`
-	EventEpoch          int64  `json:"event_epoch"`
+	// WorkspaceBranch is the git branch this task's work is on.
+	//
+	// For an isolated workspace that is the branch of the generation, and the
+	// workspace lifecycle owns it. For a task that runs on another machine there
+	// is no generation: the branch is a fact about that machine's checkout,
+	// recorded by asking it (workspace.git) and refreshed when someone asks for a
+	// fresh answer. One field because it is one question — which branch is this
+	// session's work on — and the readers of it (the PR panel's target, the
+	// console's branch chip) do not care which machine answered.
+	WorkspaceBranch string `json:"workspace_branch,omitempty"`
+	// WorkspaceRepo is the repository this task's work is in, canonical and
+	// without credentials ("github.com/owner/name"), as the machine that has the
+	// files reported it. Empty when nobody has asked yet, which is every task
+	// created before this was recorded and every directory that is not a GitHub
+	// checkout.
+	WorkspaceRepo      string `json:"workspace_repo,omitempty"`
+	WorkspacePolicy    string `json:"workspace_policy,omitempty"`
+	CurrentWorkspaceID string `json:"current_workspace_id,omitempty"`
+	EventEpoch         int64  `json:"event_epoch"`
 
 	// Optional project association (ADR 0008). Empty = not linked.
 	ProjectID string `json:"project_id,omitempty"`
@@ -294,7 +309,7 @@ func scanTask(scanner interface {
 	var startedAt, finishedAt sql.NullInt64
 	var permissionMode sql.NullString
 	var workspaceMode, sourceRoot, workspaceRoot, executionCwd sql.NullString
-	var workspaceScope, baseOID, branch sql.NullString
+	var workspaceScope, baseOID, branch, repo sql.NullString
 	var projectID sql.NullString
 	var routineID sql.NullString
 	var routineNoteworthy, routineUnread int
@@ -309,7 +324,7 @@ func scanTask(scanner interface {
 		&exitCode, &t.TokensIn, &t.TokensOut, &costUSD,
 		&t.CreatedAt, &startedAt, &finishedAt,
 		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
-		&workspaceScope, &baseOID, &branch, &projectID,
+		&workspaceScope, &baseOID, &branch, &repo, &projectID,
 		&routineID, &routineNoteworthy, &routineTLDR, &routineUnread,
 		&t.WorkspacePolicy, &t.CurrentWorkspaceID, &t.EventEpoch,
 		&dispatch, &executingDevice, &anchorID, &t.HubSeq, &ownerUserID,
@@ -345,6 +360,9 @@ func scanTask(scanner interface {
 	}
 	if branch.Valid {
 		t.WorkspaceBranch = branch.String
+	}
+	if repo.Valid {
+		t.WorkspaceRepo = repo.String
 	}
 	if projectID.Valid {
 		t.ProjectID = projectID.String
@@ -391,7 +409,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -812,17 +830,17 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			exit_code, tokens_in, tokens_out, cost_usd,
 			created_at, started_at, finished_at,
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
-			workspace_scope, workspace_base_oid, workspace_branch, project_id,
+			workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id,
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
 				workspace_policy, current_workspace_id, event_epoch, dispatch,
 			executing_device_id, workspace_anchor_id, hub_seq, owner_user_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
 		t.CreatedAt, t.StartedAt, t.FinishedAt,
 		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
-		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, projectID,
+		wsScope, t.WorkspaceBaseOID, t.WorkspaceBranch, t.WorkspaceRepo, projectID,
 		routineID, noteworthy, t.RoutineTLDR, unread,
 		t.WorkspacePolicy, t.CurrentWorkspaceID, t.EventEpoch,
 		dispatchJSON(t.Dispatch), executingDevice, anchorID, hubSeq, ownerUserID,
@@ -871,6 +889,12 @@ type TaskPatch struct {
 	// ExecutingDeviceID moves the task to another machine. Empty means this
 	// daemon; a task cannot be moved while a turn is in flight.
 	ExecutingDeviceID *string
+	// WorkspaceRepo and WorkspaceBranch record where this task's work is, as the
+	// machine holding the files reported it (workspace.git). Nil leaves them
+	// alone, because a machine that cannot answer must not erase the last answer
+	// it gave — an offline machine is not a repository-less one.
+	WorkspaceRepo   *string
+	WorkspaceBranch *string
 }
 
 // UpdateTask applies a patch to a task row.
@@ -983,6 +1007,14 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 		}
 		sets = append(sets, "executing_device_id = ?")
 		args = append(args, device)
+	}
+	if p.WorkspaceRepo != nil {
+		sets = append(sets, "workspace_repo = ?")
+		args = append(args, *p.WorkspaceRepo)
+	}
+	if p.WorkspaceBranch != nil {
+		sets = append(sets, "workspace_branch = ?")
+		args = append(args, *p.WorkspaceBranch)
 	}
 	if len(sets) == 0 {
 		return nil

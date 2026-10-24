@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 37
+const schemaVersion = 38
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -201,6 +201,7 @@ CREATE TABLE tasks (
   workspace_scope TEXT NOT NULL DEFAULT '.',
   workspace_base_oid TEXT NOT NULL DEFAULT '',
   workspace_branch TEXT NOT NULL DEFAULT '',
+  workspace_repo TEXT NOT NULL DEFAULT '',
   project_id TEXT,
   routine_id TEXT,
   routine_noteworthy INTEGER NOT NULL DEFAULT 0,
@@ -2226,6 +2227,39 @@ ON eval_results(run_id, case_id, rep_idx);
 			return fmt.Errorf("commit migration 037: %w", err)
 		}
 		v = 37
+	}
+
+	if v == 37 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 038: %w", err)
+		}
+		// Which repository a task's work is in, as the machine holding the files
+		// reported it. Additive and empty by default: a task nobody has asked
+		// about reads as unknown rather than as some other repository.
+		var present int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'workspace_repo'`,
+		).Scan(&present); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check workspace_repo column: %w", err)
+		}
+		if present == 0 {
+			if _, err := tx.Exec(
+				`ALTER TABLE tasks ADD COLUMN workspace_repo TEXT NOT NULL DEFAULT ''`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add workspace_repo column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 38`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 038: %w", err)
+		}
+		v = 38
 	}
 
 	// Every path out of here has to reach the same shape, so the assertion runs
