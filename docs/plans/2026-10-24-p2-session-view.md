@@ -36,6 +36,10 @@
   控制台再按 `visibility.user` 丢掉（`ui/src/components/chat/transcriptProjection.ts:461-465,491-493`）。
   属性字段 `execution` 已经解出来没人用（`ui/src/components/chat/eventMeta.ts:161-171`）。
   今天订阅方式是 250ms REST 轮询 `GET /api/tasks/{id}/workers`：只有终态、没有工具细节。
+
+  **S1b 核过之后这条要改口**：数据不是没有，是没人说清哪块面料归谁。见 §3.6。
+  端点名也写错了，是 `GET /api/tasks/{id}/worker-steps`（`internal/api/worker_steps.go:13`），
+  而且它只服务**计划表**，不是活动。
 - **逐轮 diff 的锚**：投影里 `ToolStep`/`NoteStep`/`ProgressItem` 没有 `seq`
   （`transcriptProjection.ts:7-37`），只有 message 有；`groupIntoTurns`
   （`:792-824`）不给轮边界。所以「这一轮的 diff」今天**算不出来**。
@@ -161,7 +165,48 @@ P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还
 - 控件宽（44px 那 9 处是按钮最小宽）**不要**并进栏宽阶梯：它和 P1 已经落地的
   控制件高度是同一套刻度，混进来会让两条轴互相污染。
 
-### 3.6 代码高亮不引 Monaco
+### 3.6 subagent 可见性：两块面料，两个事实来源（S1b 决定）
+
+**结论：引擎不用改。** 数据面今天就是对的，缺的是把「哪块面料归谁」写下来，加两条守卫。
+
+**一、`visibility.user` 的语义是「属于 host 的聊天栏」，不是「给用户看」。**
+
+- worker 的一切（叙述 + 工具）保持 `{user:false, task:true}`。
+  **把 worker 工具翻成 `user:true` 是最诱人的错误改法**：`isUserFacingEvent`
+  （`transcriptProjection.ts:979-992`）只看这一位，翻了之后聊天栏里就会显示
+  host「跑」了它根本没跑的命令——子代理的动作记在主代理头上，比不显示更糟。
+- 用户能看到的子代理活动走**活动面**：`isTaskOnlyMeta`
+  （`eventMeta.ts:175-181`，显式 `visibility.user` 优先，`task:true` 即入活动面）。
+  worker 叙述今天就已经落在活动/进度卡里；worker 工具**也已经在流上**
+  （`name`/`tool_name`/`input`/`output`/`summary`/`status`/`ok`，外加
+  `execution_id`/`execution_step`/`execution_agent`/`execution_model`），
+  控制台只是在**聊天投影**里丢掉它（`:463,492`）。
+- 不进面板的：partial / reasoning 增量、`usage`、`raw_output`。
+
+**二、订阅方式：不新增订阅。** 两个事实源，各管一半：
+
+| 事实 | 从哪来 | 为什么不是另一个 |
+|---|---|---|
+| 某个 worker **正在干什么**（工具调用与结果） | 现有 SSE `GET /api/events`：worker 事件本来就在这条流上，本来就在客户端按 seq 合并、有断档补齐（`?since_seq=`），服务端**不过滤** visibility（`handleListEvents` → `Engine.Events` 原样返回） | `worker-steps` 表里**没有**工具细节 |
+| 每个 worker 被**要求**做什么（`role`/`depends_on`/`access`/`step_index`/`attempt`/`result_summary`） | `GET /api/tasks/{id}/worker-steps`（250ms 轮询保留，但它只服务这张表） | 事件流里**没有** `depends_on`/`access` |
+
+**连接键**：事件 `execution_id` + `execution_step` ↔ 行 `execution_id` + `step_index`
+（`applyExecutionMeta`，`orchestrate.go:1110`；表的 PK `(task_id, execution_id, step_index)`，
+`migrate.go:1928-1946`）。两边都已经打上，**不用新增字段**；`eventMeta.ts:161-171`
+那个没人用的 `readExecution` 正好是 UI 侧的解码入口。
+
+**三、所以 S6 是纯渲染**：面板读它**已经拿到**的事件，按 `execution_step` 归到计划行上。
+S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被后来的改动悄悄推翻：
+
+- worker 事件不得进入 host 聊天栏（今天只有一条 message 形状的断言，工具形状没钉住）。
+- worker 叙述不得进入 host 的 handoff 上下文：`summarizeEvent`
+  （`approvals.go:1607+`）只处理 `message`/`error`/`result`/`raw_output`，对非
+  orchestrator 来源且 `visibility.user=false` 的 message 返回空，所以 `handoffContext`
+  看不到 worker 的原话——host 只读 orchestrator 的 summary。这条让「面板可以展示
+  worker 叙述」和「host 不会因此多读东西」解耦：把 worker 叙述翻成 `user:true`
+  会**改变 orchestrator 在上下文重建时看到的东西**，那是行为变更，不是 UI 变更。
+
+### 3.7 代码高亮不引 Monaco
 
 先例是 `MermaidBlock.tsx:3-17` 的懒加载单例。Monaco 已经 3.3MB 且工作区专用，
 **不要**把它拉进聊天（`Markdown.tsx:26-38` 的围栏今天是纯文本）。
@@ -228,7 +273,7 @@ P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还
 
 ### S8 — 聊天内代码高亮
 
-按 §3.6。
+按 §3.7。
 
 ### 顺手结清
 
@@ -293,6 +338,10 @@ P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还
 | 宽度阶梯会碰 28 个文件（清点后从 11 修正） | 独立成片（S7），按家族再切，不和功能片混 |
 | 手机上「排队中」的状态不明显 | 定点截图验证，不靠推理 |
 | 引入 DOM 测试环境的诱惑 | 见 §6：先论证哪些断言抽不出来 |
+| `Cancel` 与「轮末投递」之间那个窄窗（复审 nit 6） | 已修：`runLoop` 的投递条件补上 `!wasCanceled`（orchestrated 路径本来就先查）。**没写测试**——窗口是「cancel 落在 pop 与 apply 之间」，靠 sleep 去撞只会得到一条会飘的测试；记在这里而不是假装盖住了 |
+| `Cancel` 清队失败时错误被忽略（同一处） | 有意留着：清队失败只影响「丢了几条」的报数，不影响状态机；这条路径上的任何 `return err` 都会让「取消」这个动作本身失败，比少报一个数更糟 |
+| A2A 对端没有任何打断手段（复审 nit 8 的另一半） | MCP 那一半已补（`send_task_message` 声明 `interrupt` 并把「忙任务会排队」写进描述）。A2A 走 `Engine.FollowUp`（无 interrupt），**没改**：那是对外协议面，改它要另开一片并定语义。今天 A2A 对端发消息=排队等轮末 |
+| 重启后 `waiting_input` 任务上的提问已经「过期」 | **先于本片存在**：进程死了，等的那个 waiter 也没了，答上去也到不了模型（`AnswerUserQuestion` 只把状态推回 running，不重启 run）。本片只保证队列有投递者（消息会被回答）；「重启后提问怎么续」是 P3「审批/提问顶替输入框」那片的范围 |
 
 ## 8. 进展
 
@@ -301,5 +350,6 @@ P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还
 | S1a 存储 | `d590e87` | `task_pending_prompts` 有序列（表，不是任务行上的列）：尾插头取、`ON DELETE CASCADE`、`model`/`permission_mode` 可空（「没说」≠「说清空」）、`user_seq` 指向那条可见消息。**没有写者**，引擎那一半在下一提交 | 10 条 store 测试（顺序、逐条出队、空队非错误、重启还在、按任务隔离、删任务带走队列、清队报数、空消息不收、未知任务不收）。两条定点 red：列改 `NOT NULL`（「没说」与「清空」塌成一种 → 插入即报错）、`ORDER BY id ASC` 改 `DESC`（先出队变成后出队）。空库/满库两条迁移路各一条测试 |
 | S1a 引擎 | `317d18a` | 非终态 ⇒ 入队 + **立刻**写 user-guide 事件（否则手机上发完什么都不显示）；轮末投递，adapter 路径与 orchestrated 路径各一处，取队首、`interrupted=false`（保留会话续跑，不谎报「上一轮被打断」）；`Recover` 投递重启时孤儿任务留下的队列；`Cancel` 清队并报告条数；打断变成显式 `interrupt: true` | 4 条新测试：排队**不碰**那三步（审批仍 pending、提问仍未答、任务状态不变）、多条按序逐轮投递、重启不丢、取消即清且有报错事件。四条都按「删掉机制看它变红」验过——red 1 的报错正是 `pending approvals = []`，也就是今天这条路上待批审批被拒光的实证。5 条旧测试改成显式打断（它们本来就是打断路径的测试） |
 | S1a API | `0236670` | `interrupt` 进 `FollowUpRequest`（含 openapi 说明）；新增 `GET /api/tasks/{id}/prompts` 回答「哪些看得见的消息还没被回答」。**additive**：任务读、任务列表、prompt 响应形状都没变 | 3 条 API 测试：等待中的消息可见且有序（含 `user_seq`）、404/401、`interrupt` 在**线上**的行为差异（不带 = 任务仍 running，带 = 重新排队）。red：json tag 改成 `interrupts` 后第三条报错。`scripts/check-openapi.sh` 通过，生成的 TS 类型随同一提交更新 |
-| S1b | — | — | — |
+| S1b | `07a06a2` | **决定片，引擎零改动**：结论与依据见 §3.6。`visibility.user` = 「属于 host 聊天栏」；worker 事件保持 `{user:false, task:true}`；面板的活动来自已在流上的 worker 工具事件，计划结构来自 `worker-steps`，连接键 `execution_id`+`execution_step` | 两条守卫（都是补今天缺的那半）：① worker 的 message/tool_use/tool_result/raw_output **四种形状**都不得 `user:true`——Go 侧 1 条（4 个子用例）钉住盖章，console 侧 1 条钉住投影（`isUserFacingEvent` 被改成恒真即红）。② worker 叙述不得进入 host handoff，同时 orchestrator 的总结**必须**进得去（`summarizeEvent` 只认 message/error/result/raw_output，且跳过非 orchestrator 的 `visibility.user=false`）——Go 1 条，两条断言写在同一个测试里，好让「干脆全静音」这种修法也红。两条守卫都按删机制验红、按 sha256 逐字节还原 |
+| S1a 复审 | `4c21404` `d906ef3` | `@claude` 对抗复审（blocker/major/nit 分级）提了 5 major + 4 nit + 5 处测试缺口，逐条核过后**全部成立**，已修（`4c21404` 是其中的 schema 自愈）；另修了复审没提但被测试当场抓到的一处：把三个 reconcile 收进 `ensureCurrentSchema` 后才发现「已是最新版本」那条早退路径**根本没跑**任何 reconcile——也就是说 d590e87 写下的 v39 库永远不会被修 | 6 条新测试（读不了队列≠空队列、workspace 失败要报告且消息保留、retry 带走被删消息的队列、投递只答一次且锚在自己的消息上、打断锚在自己的消息上、waiting_input 的队列要活过重启）+ 2 条 store（队列表缺锚列自愈、`TasksWithPendingPrompts`）+ 2 条 API（空队答 `[]`、`user_seq` 恒在）。**8 个机制逐个删掉验红，全部按 sha256 逐字节还原**。`scripts/check-openapi.sh` 通过（`user_seq` 去掉 omitempty 不改 schema 的 required） |
 | S1c | — | — | — |
