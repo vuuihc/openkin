@@ -85,6 +85,46 @@ func (r *Responder) workspaceTree(ctx context.Context, asked worker.WorkspaceTre
 	return worker.WorkspaceTreeResult{Path: path, Dir: dir, Entries: wire, Truncated: truncated}, nil
 }
 
+// workspaceGit answers what repository and branch one of this machine's own
+// directories is in.
+//
+// It is the question the Hub cannot answer for a session that runs here: the
+// Hub's copy of the same repository at the same address says nothing about which
+// branch this machine's checkout is on, and the panel that shows a session's
+// pull request is drawn from this answer. Every read behind it is local, so a
+// phone is not waiting on this machine's network or its credential helper.
+//
+// A machine that cannot read git answers that instead of refusing, on the same
+// reasoning the workspace layer uses for a missing git binary: "there is no
+// checkout here" and "this machine cannot tell" are two different facts, and
+// Reason is where the second one is said.
+func (r *Responder) workspaceGit(ctx context.Context, asked worker.WorkspaceGitParams) (worker.WorkspaceGitResult, error) {
+	path, err := r.own(asked.Path)
+	if err != nil {
+		return worker.WorkspaceGitResult{}, err
+	}
+	git, err := r.workspaceFor("what a directory has checked out")
+	if err != nil {
+		return worker.WorkspaceGitResult{Path: path, Reason: err.Error()}, nil
+	}
+	facts, err := git.InspectGit(ctx, path)
+	if err != nil {
+		return worker.WorkspaceGitResult{}, err
+	}
+	return worker.WorkspaceGitResult{
+		Path:          path,
+		IsGit:         facts.IsGit,
+		Repo:          facts.Repo,
+		Branch:        facts.Branch,
+		DefaultBranch: facts.DefaultBranch,
+		Detached:      facts.Detached,
+		Dirty:         facts.Dirty,
+		Upstream:      facts.Upstream,
+		HeadOID:       facts.HeadOID,
+		Reason:        facts.Reason,
+	}, nil
+}
+
 func (r *Responder) workspaceFile(_ context.Context, asked worker.WorkspaceFileParams) (worker.WorkspaceFileResult, error) {
 	path, err := r.own(asked.Path)
 	if err != nil {

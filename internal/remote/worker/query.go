@@ -77,6 +77,19 @@ const QueryWorkspaceTree = "workspace.tree"
 // words rather than answered with replacement characters.
 const QueryWorkspaceFile = "workspace.file"
 
+// QueryWorkspaceGit asks which repository and branch one of the machine's own
+// directories is in, and where that branch stands.
+//
+// It is what makes a remote session's pull-request panel possible at all: the
+// Hub cannot read another machine's checkout, so without this it has no way to
+// learn the `owner/repo` and branch that a session's work is on. Every read
+// behind it is local — nothing here reaches a remote, so the answer does not
+// hang on a credential prompt.
+//
+// The repository comes back canonicalized, with any credential in the remote URL
+// stripped before it leaves the machine that holds it (ADR 0022 D7).
+const QueryWorkspaceGit = "workspace.git"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -479,7 +492,48 @@ type WorkspaceFileResult struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
+// WorkspaceGitParams names one directory whose git is asked about. It is the
+// workspace directory itself, as in WorkspaceTreeParams.
+type WorkspaceGitParams struct {
+	Path string `json:"path"`
+}
+
+// WorkspaceGitResult is one directory's git, in the shape the workspace layer
+// reads it (workspace.GitFacts) — the same fields, because the Hub draws one
+// panel from whichever machine answered.
+type WorkspaceGitResult struct {
+	// Path is the directory that was read, as this machine resolved it.
+	Path string `json:"path"`
+	// IsGit is false for a directory that is not a checkout. That is an answer:
+	// most directories are not, and a person who picked one is looking at a list
+	// of names that did not say.
+	IsGit bool `json:"is_git"`
+	// Repo is the canonical origin remote — host/owner/name, no transport, no
+	// credentials — or empty for a checkout with no origin.
+	Repo string `json:"repo,omitempty"`
+	// Branch is what is checked out, empty when detached or unknown.
+	Branch string `json:"branch,omitempty"`
+	// DefaultBranch is the branch origin's HEAD names, as this checkout recorded
+	// it, or empty when it cannot be told offline.
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// Detached reports a HEAD that is not on a branch.
+	Detached bool `json:"detached,omitempty"`
+	// Dirty reports uncommitted work.
+	Dirty bool `json:"dirty,omitempty"`
+	// Upstream is the tracking branch of Branch, empty when it tracks nothing.
+	Upstream string `json:"upstream,omitempty"`
+	// HeadOID is the commit HEAD points at.
+	HeadOID string `json:"head_oid,omitempty"`
+	// Reason says why the answer is what it is, in this machine's words, when git
+	// itself could not be read.
+	Reason string `json:"reason,omitempty"`
+}
+
 func (p WorkspaceChangesParams) Validate() error {
+	return directory("path", p.Path, true)
+}
+
+func (p WorkspaceGitParams) Validate() error {
 	return directory("path", p.Path, true)
 }
 

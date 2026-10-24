@@ -2,6 +2,7 @@ package node
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -265,5 +266,123 @@ func TestWorkspaceAnswersOnAMachineWithoutGitSaySo(t *testing.T) {
 	reason := gitRefusal(t, worker.QueryWorkspaceChanges, worker.WorkspaceChangesParams{Path: repo}, r, conn)
 	if !strings.Contains(reason, "no git") {
 		t.Errorf("refusal = %q, want the missing git named", reason)
+	}
+}
+
+// workspaceGitOf asks one machine where one directory's git is, and insists on
+// an answer.
+func workspaceGitOf(t *testing.T, r *Responder, conn *testConn, path string) worker.WorkspaceGitResult {
+	t.Helper()
+	result := put(t, r, conn, worker.QueryWorkspaceGit, worker.WorkspaceGitParams{Path: path})
+	if result.Error != "" {
+		t.Fatalf("the git of %s was refused: %s", path, result.Error)
+	}
+	var found worker.WorkspaceGitResult
+	if err := result.Into(&found); err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+// What the Hub cannot read for itself: a session runs on this machine, and which
+// repository and branch its work is on is a fact about this filesystem.
+func TestWorkspaceGitNamesTheRepositoryAndBranchOfACheckout(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	gitCmdIn(t, repo, "remote", "add", "origin", "https://github.com/owner/app.git")
+	r, conn := repoOn(t, root)
+
+	found := workspaceGitOf(t, r, conn, repo)
+	if !found.IsGit {
+		t.Fatalf("a checkout was read as not one: %+v", found)
+	}
+	if found.Repo != "github.com/owner/app" {
+		t.Errorf("repo = %q, want the canonical remote", found.Repo)
+	}
+	if found.Branch != "main" || found.Detached {
+		t.Errorf("branch = %q detached = %v, want main on a branch", found.Branch, found.Detached)
+	}
+	if found.HeadOID == "" {
+		t.Error("no head commit in the answer, so publish could not say what it would push")
+	}
+}
+
+// A remote URL is copied between machines through the Hub's database, and from
+// there onto a phone. A token pasted into one must not make that trip.
+func TestWorkspaceGitStripsCredentialsBeforeTheAnswerLeaves(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	gitCmdIn(t, repo, "remote", "add", "origin",
+		"https://x-access-token:ghp_example@github.com/owner/app.git")
+	r, conn := repoOn(t, root)
+
+	result := put(t, r, conn, worker.QueryWorkspaceGit, worker.WorkspaceGitParams{Path: repo})
+	if result.Error != "" {
+		t.Fatalf("the git of %s was refused: %s", repo, result.Error)
+	}
+	if strings.Contains(string(result.Result), "ghp_") || strings.Contains(string(result.Result), "x-access-token") {
+		t.Fatalf("the answer carries the remote's credential: %s", result.Result)
+	}
+}
+
+// A directory that is not a checkout is an answer: the caller is a control that
+// asked whether this is a repository, and it has to draw something either way.
+func TestWorkspaceGitAnswersThatADirectoryIsNotACheckout(t *testing.T) {
+	root := t.TempDir()
+	plain := filepath.Join(root, "notes")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, conn := repoOn(t, root)
+
+	found := workspaceGitOf(t, r, conn, plain)
+	if found.IsGit {
+		t.Fatalf("a plain directory reads as a checkout: %+v", found)
+	}
+	if !strings.Contains(found.Reason, "not a git repository") {
+		t.Errorf("reason = %q, want the machine's own words", found.Reason)
+	}
+}
+
+// A machine that cannot read git says so in the answer rather than refusing:
+// "there is no checkout here" and "this machine cannot tell" are different
+// things, and only the second one is this.
+func TestWorkspaceGitOnAMachineWithoutGitAnswersWhy(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	r, conn := responderOn(t, root)
+
+	found := workspaceGitOf(t, r, conn, repo)
+	if found.IsGit || found.Repo != "" {
+		t.Fatalf("answer = %+v, want nothing claimed about git", found)
+	}
+	if !strings.Contains(found.Reason, "no git") {
+		t.Errorf("reason = %q, want the missing git named", found.Reason)
+	}
+}
+
+func TestWorkspaceGitRefusesADirectoryOutsideTheRoots(t *testing.T) {
+	root := t.TempDir()
+	outside := gitRepo(t, filepath.Join(t.TempDir(), "elsewhere"))
+	r, conn := repoOn(t, root)
+
+	reason := gitRefusal(t, worker.QueryWorkspaceGit, worker.WorkspaceGitParams{Path: outside}, r, conn)
+	if !strings.Contains(reason, "not a directory this machine works in") {
+		t.Errorf("refusal = %q, want the boundary named", reason)
+	}
+}
+
+// gitCmdIn runs one git command in one directory, for the setups above.
+func gitCmdIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_TERMINAL_PROMPT=0",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 }

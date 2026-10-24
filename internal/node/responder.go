@@ -222,6 +222,16 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, read)
+	case worker.QueryWorkspaceGit:
+		var asked worker.WorkspaceGitParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		found, err := r.workspaceGit(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, found)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}
