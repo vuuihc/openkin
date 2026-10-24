@@ -418,6 +418,105 @@ func seedTaskForPRs(t *testing.T, s *Store, taskID string) {
 	}
 }
 
+// A row is watched only while it is the pair its task is on.
+//
+// For a task this daemon reads itself that is always true: the row's branch *is*
+// the question, so refreshing it always writes back to it. For a task on another
+// machine it is not — the question there is "what is this checkout on now", so a
+// row for a branch the checkout has left can never be written to again by
+// anything: its clocks freeze, it stays due forever, and it holds a slot in the
+// batch. Twenty-five of those and no pull request anywhere is refreshed in the
+// background again.
+func TestOpenWatchSetSkipsARemoteRowTheCheckoutHasLeft(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	seedRemoteTaskForPRs(t, s, testPRTask, "node-1", "feature/new")
+
+	seed := []PRObservation{
+		{Repo: testPRRepo, HeadBranch: "feature/old", TaskID: testPRTask, Number: number(1), State: "open"},
+		{Repo: testPRRepo, HeadBranch: "feature/new", TaskID: testPRTask, Number: number(2), State: "open"},
+	}
+	for _, o := range seed {
+		if err := s.RecordPRObservation(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ListOpenPRObservations(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].HeadBranch != "feature/new" {
+		t.Fatalf("watch set = %+v, want only the branch the checkout is on", got)
+	}
+}
+
+// Nothing recorded is not a disagreement. A session that started while its
+// machine was away has no pair on the row, and the observation is the only thing
+// that knows the branch — watching it is how the row gets refreshed at all.
+func TestOpenWatchSetKeepsARemoteRowWithNothingRecorded(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	seedRemoteTaskForPRs(t, s, testPRTask, "node-1", "")
+
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: "feature/scratch", TaskID: testPRTask,
+		Number: number(1), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListOpenPRObservations(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].HeadBranch != "feature/scratch" {
+		t.Fatalf("watch set = %+v, want the row nothing disagrees with", got)
+	}
+}
+
+// A task this daemon reads itself is watched whatever its row says. Its rows are
+// the question it asks, so a pair on the task that disagrees — written by any
+// other path — is not a reason to stop refreshing a pull request it can read.
+func TestOpenWatchSetKeepsALocalRowWhoseTaskRecordsAnotherBranch(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if err := s.InsertTask(ctx, Task{
+		ID: testPRTask, Title: "pr fixture", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: NowMilli(),
+		WorkspaceRepo: testPRRepo, WorkspaceBranch: "something/else",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: "feature/scratch", TaskID: testPRTask,
+		Number: number(1), State: "open",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListOpenPRObservations(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].HeadBranch != "feature/scratch" {
+		t.Fatalf("watch set = %+v, want this daemon's own row", got)
+	}
+}
+
+// seedRemoteTaskForPRs is seedTaskForPRs for a task that runs on another machine,
+// with the pair that machine reported.
+func seedRemoteTaskForPRs(t *testing.T, s *Store, taskID, device, branch string) {
+	t.Helper()
+	if err := s.InsertTask(context.Background(), Task{
+		ID: taskID, Title: "pr fixture", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: NowMilli(),
+		ExecutingDeviceID: device, WorkspaceRepo: testPRRepo, WorkspaceBranch: branch,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestListPRObservationsByTask(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

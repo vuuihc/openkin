@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -61,9 +62,16 @@ type PRObservation struct {
 	LastError   string `json:"last_error,omitempty"`
 }
 
-const prObservationColumns = `repo, head_branch, task_id, number, url, title, state,
-	is_draft, base_branch, head_oid, ci_state, ci_summary, comments_seen, source,
-	observed_at, attempted_at, last_error`
+const prObservationColumns = `repo, head_branch, task_id, number, url, title, state, is_draft, base_branch, head_oid, ci_state, ci_summary, comments_seen, source, observed_at, attempted_at, last_error`
+
+// observationColumnsOn qualifies the column list with a table alias, for the
+// queries that join another table. It is derived rather than written out: `title`
+// is on tasks as well as pr_observations, so an unqualified list is ambiguous the
+// moment a join is added, and a second copy of the list is a second thing to
+// forget to update.
+func observationColumnsOn(alias string) string {
+	return alias + "." + strings.ReplaceAll(prObservationColumns, ", ", ", "+alias+".")
+}
 
 func scanPRObservation(row interface{ Scan(...any) error }) (PRObservation, error) {
 	var (
@@ -241,15 +249,25 @@ func (s *Store) ListPRObservationsByTask(ctx context.Context, taskID string) ([]
 // a database that predates that, or a row left by any other path, would otherwise
 // be polled forever: nothing lists it, nothing can delete it, and every tick
 // spends a query on a branch no screen can reach.
+//
+// A row for a task that runs on another machine is watched only while it is the
+// branch that machine is on. There the question is not "what does this branch
+// have" but "what is this checkout on now", so the answer to a row the checkout
+// has left goes to a different row and the asked-about row is never written to
+// again: its clocks freeze, it stays due, and it keeps its slot in this batch
+// forever. Nothing recorded on the task is not a disagreement — that is a session
+// whose machine has not been asked yet, and this row is all anyone knows.
 func (s *Store) ListOpenPRObservations(ctx context.Context, limit int) ([]PRObservation, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+prObservationColumns+` FROM pr_observations
-		 WHERE state = 'open' AND number IS NOT NULL
-		   AND task_id IN (SELECT id FROM tasks)
-		 ORDER BY attempted_at ASC, head_branch ASC LIMIT ?`, limit)
+		`SELECT `+observationColumnsOn("o")+` FROM pr_observations o
+		   JOIN tasks t ON t.id = o.task_id
+		  WHERE o.state = 'open' AND o.number IS NOT NULL
+		    AND (t.executing_device_id IS NULL OR t.executing_device_id = ''
+		         OR t.workspace_branch = '' OR t.workspace_branch = o.head_branch)
+		  ORDER BY o.attempted_at ASC, o.head_branch ASC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list open pr observations: %w", err)
 	}
