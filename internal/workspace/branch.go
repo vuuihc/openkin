@@ -187,6 +187,88 @@ func (m *Manager) CheckoutBranch(ctx context.Context, cwd, branch string) error 
 	return nil
 }
 
+// CreateBranch starts a new branch in the worktree at cwd and switches to it.
+//
+// It is not CheckoutBranch with a flag, and the difference is the dirty tree.
+// A switch refuses uncommitted work because the work belongs to the branch it
+// is on; starting a branch carries it along, because that is what starting a
+// branch means and because the uncommitted work is often the whole point — a
+// session's changes that nobody has committed yet are what a person publishes.
+// Refusing here would leave exactly that work behind on the old branch.
+//
+// The name must not already exist. Creating a branch that is there is a request
+// to move a ref, which is not what any caller of this means.
+func (m *Manager) CreateBranch(ctx context.Context, cwd, branch string) error {
+	if m == nil {
+		return fmt.Errorf("workspace manager is nil")
+	}
+	if m.gitPath == "" || m.git == nil {
+		return ErrGitUnavailable
+	}
+	branch = strings.TrimSpace(branch)
+	if err := validateBranchName(branch); err != nil {
+		return err
+	}
+	abs, err := resolveAbsDir(cwd)
+	if err != nil {
+		return err
+	}
+	if _, err := m.git.Run(ctx, abs, nil, ControlStdoutLimit, "rev-parse", "--git-dir"); err != nil {
+		return ErrNotGit
+	}
+	if _, err := m.git.Run(ctx, abs, nil, ControlStdoutLimit, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		return fmt.Errorf("branch %q already exists", branch)
+	}
+
+	// Prefer `git switch -c` (modern); fall back to checkout if unavailable.
+	if _, err := m.git.Run(ctx, abs, nil, ControlStdoutLimit, "switch", "-c", branch); err != nil {
+		if _, cerr := m.git.Run(ctx, abs, nil, ControlStdoutLimit, "checkout", "-b", branch); cerr != nil {
+			return fmt.Errorf("create branch %q: %w", branch, err)
+		}
+	}
+	return nil
+}
+
+// PushBranch puts one branch on origin.
+//
+// This is the only operation in this package that changes anything outside the
+// machine, and there is no force anywhere on it: a branch that would have to
+// rewrite what the remote already has is refused by git, and git's refusal is
+// the answer — a person who wanted that has not asked for it here.
+//
+// `--set-upstream` because a branch that does not track origin is one whose
+// distance from it a person cannot see in the next turn's status, and seeing
+// that is how they know the push landed.
+//
+// The command is run with the caller's context and without an output bound
+// worth the name: a push that succeeded must not be reported as a failure
+// because a talkative remote filled a buffer, so the limit is the listing one
+// rather than the control one.
+func (m *Manager) PushBranch(ctx context.Context, cwd, branch string) error {
+	if m == nil {
+		return fmt.Errorf("workspace manager is nil")
+	}
+	if m.gitPath == "" || m.git == nil {
+		return ErrGitUnavailable
+	}
+	branch = strings.TrimSpace(branch)
+	if err := validateBranchName(branch); err != nil {
+		return err
+	}
+	abs, err := resolveAbsDir(cwd)
+	if err != nil {
+		return err
+	}
+	if _, err := m.git.Run(ctx, abs, nil, ControlStdoutLimit, "rev-parse", "--git-dir"); err != nil {
+		return ErrNotGit
+	}
+	if _, err := m.git.Run(ctx, abs, nil, PathListStdoutLimit,
+		"push", "--set-upstream", "origin", branch); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateBranchName(name string) error {
 	if name == "" {
 		return fmt.Errorf("branch name is empty")

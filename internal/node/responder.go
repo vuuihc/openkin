@@ -60,6 +60,16 @@ type Responder struct {
 	// is built — its CLI, its login, its network, and which GitHub host it talks
 	// to — rather than inside the question.
 	Observe ObserveFunc
+	// CreateBranch starts a branch in one of this machine's checkouts. Nil means
+	// its own workspace manager does it.
+	CreateBranch BranchCreateFunc
+	// Publish pushes one of this machine's branches and opens its pull request.
+	// Nil means this machine does it itself: its own git, its own GitHub CLI.
+	//
+	// It is a field for the same reason Observe is: whether a machine can publish
+	// at all — a credential helper, an ssh agent, a gh that is logged in — is
+	// decided where the machine is built, not inside the question.
+	Publish PublishFunc
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -206,6 +216,16 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, switched)
+	case worker.QueryGitBranchCreate:
+		var asked worker.GitBranchCreateParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		created, err := r.branchCreate(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, created)
 	case worker.QueryWorkspaceChanges:
 		var asked worker.WorkspaceChangesParams
 		if err := decodeParams(params, &asked); err != nil {
@@ -256,6 +276,16 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, observed)
+	case worker.QueryPRPublish:
+		var asked worker.PRPublishParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		published, err := r.publishPR(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, published)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}

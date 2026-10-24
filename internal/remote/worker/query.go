@@ -52,6 +52,20 @@ const QueryGitBranches = "git.branches"
 // therefore bounded the same way a dispatched turn is (see Responder).
 const QueryGitCheckout = "git.checkout"
 
+// QueryGitBranchCreate asks the machine to start a branch in one of its own
+// checkouts and switch to it.
+//
+// It exists because publishing refuses to run from the default branch, and a
+// refusal that leaves no way forward is a dead end. Creating the branch and
+// switching to it are one question because to a person they are one action, and
+// because asking for them separately would let a machine end up on a branch
+// nobody meant to be on if the second question never arrived.
+//
+// The branch starts from wherever HEAD is now. The asker does not choose a base:
+// the work being published is in this directory, and this directory is on one
+// branch.
+const QueryGitBranchCreate = "git.branch.create"
+
 // QueryWorkspaceChanges asks what has changed in one of the machine's own
 // directories.
 //
@@ -105,6 +119,25 @@ const QueryWorkspaceGit = "workspace.git"
 // switched branches would otherwise answer about the branch it used to be on.
 const QueryPRObserve = "pr.observe"
 
+// QueryPRPublish asks a machine to publish the work in one of its own
+// checkouts: push its branch, and open the pull request for it.
+//
+// This is the only question in the table that writes anywhere outside the
+// machine. Everything it needs stays there — the credential, the remote, the
+// network — and what comes back is what the person sees: which repository, which
+// branch, and which pull request now exists. The Hub never holds the token, and
+// never learns it.
+//
+// The words are the asker's. Title and body are drafted from the session and
+// edited by the person before this is asked, so the machine checks their size
+// and not their content.
+//
+// It refuses rather than guesses. A checkout on its default branch, with
+// uncommitted work, with no origin, or with a detached HEAD is answered with the
+// reason and nothing is pushed: a publish that half-happened is worse than one
+// that did not, because the remote now holds something nobody agreed to.
+const QueryPRPublish = "pr.publish"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -136,6 +169,17 @@ const (
 	// overflow the frame no matter what is in the file. A larger file is
 	// answered with its beginning and Truncated.
 	MaxWorkspaceFile = 128 << 10
+	// MaxPRTitle and MaxPRBody bound the words that travel with a publish.
+	//
+	// They are GitHub's own bounds rather than the frame's: a title is one line
+	// and a body is a message, both written by a person before they are sent, and
+	// a pull request that GitHub would reject for length should be refused here,
+	// where the answer can still say which field it was. The body is counted in
+	// bytes, so a body of multi-byte text is bounded a little sooner than GitHub
+	// would bound it — which refuses a request that might have been accepted, and
+	// never accepts one that would have been refused.
+	MaxPRTitle = 256
+	MaxPRBody  = 64 << 10
 )
 
 // Query is one question about the machine it is sent to.
@@ -399,6 +443,25 @@ func (p GitBranchesParams) Validate() error {
 	return directory("path", p.Path, true)
 }
 
+// GitBranchCreateParams names the checkout and the branch to start in it.
+type GitBranchCreateParams struct {
+	Path string `json:"path"`
+	// Branch is the new branch's name. A name that already exists is refused: to
+	// "create" a branch that is there is to move a ref, which is not this
+	// question and not a thing a publish should be able to do by accident.
+	Branch string `json:"branch"`
+}
+
+// GitBranchCreateResult is the branch that directory is on afterwards.
+//
+// Read back from git rather than echoed, for the reason a checkout's answer is:
+// what a directory is on is a fact about the directory, and a person who tapped
+// the button is about to be shown a publish sheet naming it.
+type GitBranchCreateResult struct {
+	Cwd     string `json:"cwd"`
+	Current string `json:"current"`
+}
+
 func (p GitCheckoutParams) Validate() error {
 	if err := directory("path", p.Path, true); err != nil {
 		return err
@@ -597,6 +660,100 @@ type PRObserveResult struct {
 
 func (p PRObserveParams) Validate() error {
 	return directory("path", p.Path, true)
+}
+
+func (p GitBranchCreateParams) Validate() error {
+	if err := directory("path", p.Path, true); err != nil {
+		return err
+	}
+	// Required, and bounded the way a checkout's branch is: this name becomes a
+	// ref under .git/refs/heads, which is one path component on the machine's
+	// filesystem. What the name may contain beyond its shape is the machine's
+	// answer — it is the side that has a git to hand the name to.
+	branch := strings.TrimSpace(p.Branch)
+	if err := bounded("branch", branch, MaxBranch); err != nil {
+		return err
+	}
+	return argument("branch", branch)
+}
+
+func (p PRPublishParams) Validate() error {
+	if err := directory("path", p.Path, true); err != nil {
+		return err
+	}
+	return ValidatePRWords(p.Title, p.Body)
+}
+
+// ValidatePRWords checks the words a publish carries.
+//
+// It is exported because both ends check them, and they are checking the same
+// thing: the asker, so that a title with a newline in it is refused by the side
+// that can still fix it without a push, and the machine, because the asker is
+// another party on this channel and the words become an argument to a program.
+func ValidatePRWords(title, body string) error {
+	// A title is one line, and GitHub collapses a newline in one when it arrives,
+	// so a title that has one is a drafting mistake from the asking side.
+	title = strings.TrimSpace(title)
+	if err := optional("title", title, MaxPRTitle); err != nil {
+		return err
+	}
+	if strings.ContainsAny(title, "\x00\n\r") {
+		return errors.New("title contains a control character, and a title is one line")
+	}
+	// The body is Markdown: newlines are its substance, so only its size is
+	// checked. Empty is not refused here — whether a pull request may have no body
+	// is GitHub's answer to give, and the machine relays it.
+	return optional("body", body, MaxPRBody)
+}
+
+// PRPublishParams names the checkout to publish and the words for the pull
+// request.
+type PRPublishParams struct {
+	Path string `json:"path"`
+	// Title and Body are the asker's words, carried to `gh pr create` as given.
+	// Neither is required here: what a pull request may not have is checked where
+	// the answer can say which one was missing, and that is the machine's side,
+	// which also knows whether a pull request already exists to reuse.
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
+}
+
+// PRPublishResult is the pull request that now exists, and what it was made
+// from.
+//
+// The repository and branch come back for the same reason GitCheckoutResult's
+// Cwd does: they are what the machine actually published, which is the
+// checkout's answer and not the asker's memory of where the session started.
+type PRPublishResult struct {
+	Path string `json:"path"`
+	// Repo is the canonical origin remote, without any credential that was in it.
+	Repo string `json:"repo,omitempty"`
+	// Branch is the branch that was pushed.
+	Branch string `json:"branch,omitempty"`
+	// Number and URL are the pull request. Zero with no error means the branch is
+	// pushed and no pull request was opened — which this method does not do, and
+	// which a caller must not read as success.
+	Number int    `json:"number,omitempty"`
+	URL    string `json:"url,omitempty"`
+	// HeadOID is the commit that was pushed, so the Hub can record what the pull
+	// request was opened at rather than reading it back.
+	HeadOID string `json:"head_oid,omitempty"`
+	// Blocked names why nothing was published, and nothing was pushed when it is
+	// set. The vocabulary is the machine's guard's (internal/github's
+	// PublishBlocked* constants); of them, only "default_branch" is acted on —
+	// it is the one with a way out, which the console offers as a task branch.
+	//
+	// A machine that could not do the thing at all — git refused the push, gh
+	// died — refuses the question instead, and Blocked is not that: it is a
+	// decision this machine made on purpose, in Reason's words.
+	Blocked string `json:"blocked,omitempty"`
+	// Reason is the machine's own sentence: why it will not publish, or why the
+	// pull request is not there even though the branch is (see Pushed).
+	Reason string `json:"reason,omitempty"`
+	// Pushed reports that the branch is on the remote. It can be true with no
+	// Number: the push happened and gh could not finish, which is the state a
+	// pull request that already exists arrives in, and Reason carries gh's words.
+	Pushed bool `json:"pushed,omitempty"`
 }
 
 func (p WorkspaceGitParams) Validate() error {
