@@ -477,7 +477,7 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 | 验收 | **删掉 `ui/src/index.css` 里全部 76 个手写变量**（每个 token 只写一次），控制台视觉不回退；gallery 测试能报出未被呈现的 token |
 | 依赖 | 无 |
 | 大小 | M |
-| 进展 | **S0–S3 已落地**：Prettier 全树格式化、令牌层只写一次（`index.css` 里 76 行手写变量 → 0）、字号 7 级（862 处尺寸全部落到阶梯，268 处真的变了）、圆角/控制件高度/字距/行高/阴影/焦点环六轴全部落阶梯（`--kin-focus-ring` 替掉 21 处各写各的蓝色焦点指示，其中 10 处在亮色主题只有 2.57:1）。每一片的提交号、验证与证据见 `2026-10-24-p1-design-system.md` §8；接下来是 S4 状态色（裸值 42 处 + 默认调色板 131 处收进令牌） |
+| 进展 | **S0–S4 已落地**：Prettier 全树格式化、令牌层只写一次（`index.css` 里 76 行手写变量 → 0）、字号 7 级（862 处尺寸全部落到阶梯，268 处真的变了）、圆角/控制件高度/字距/行高/阴影/焦点环六轴全部落阶梯（`--kin-focus-ring` 替掉 21 处各写各的蓝色焦点指示，其中 10 处在亮色主题只有 2.57:1）、语义色三档（`theme.css` 成为全仓唯一写颜色字面量的文件；4 族 × 填充/墨两档 + 每个填充一个指定的前景；**43 处 `/NN` 死类**与 5 个死 token 名修掉——它们此前渲染成空白）。每一片的提交号、验证与证据见 `2026-10-24-p1-design-system.md` §8；接下来是 S5 无边框分离、S6 lint + 画廊，然后整个 P1 过 Feature completion gate |
 | 开工前已量到的现状 | 字号是 18 个任意值（`text-[11px]`…`text-[13.5px]`，含 11/11.5/12/12.5/13/13.5 这种差 1px 的相邻档，违反 §4.2 第 5 条）；`index.css` 里 19 个颜色 token 在四个主题块（dark / light / system→light / system→dark）里手抄了四遍，共 76 行；status 色（`blue`/`orange`/`green`/`red`）写死在 `tailwind.config.js` 里，不随明暗切换；`ChatStream.tsx:1030` 的 `accent-[var(--kin-blue)]` 引用了**从未定义**的 token（`kin-blue` 是 Tailwind 颜色，不是 CSS 变量）——正是缺口测试该抓的那类 |
 
 ### P2 — 会话视图升级
