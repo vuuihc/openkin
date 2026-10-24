@@ -12,9 +12,14 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
+
+// ObserveFunc reads one branch's pull request for whoever asks about it.
+// github.ObserveHere is the one a real machine uses; see Responder.Observe.
+type ObserveFunc func(ctx context.Context, repo github.Repo, branch string) (github.LookupResult, error)
 
 // Responder answers questions the Hub asks about this machine.
 //
@@ -46,6 +51,15 @@ type Responder struct {
 	// and switching between them. Nil means the two git questions are refused —
 	// a machine with no git has no answers about branches.
 	Workspace *workspace.Manager
+	// Observe reads one branch's pull request from this machine. Nil means it is
+	// read the way a person sitting at this machine would read it: its own GitHub
+	// CLI first, because those are the credentials that see private
+	// repositories, then a credential-free read of the public API.
+	//
+	// It is a field because what a machine can see is decided where the machine
+	// is built — its CLI, its login, its network, and which GitHub host it talks
+	// to — rather than inside the question.
+	Observe ObserveFunc
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -232,6 +246,16 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, found)
+	case worker.QueryPRObserve:
+		var asked worker.PRObserveParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		observed, err := r.observePR(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, observed)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}

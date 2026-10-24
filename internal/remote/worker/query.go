@@ -90,6 +90,21 @@ const QueryWorkspaceFile = "workspace.file"
 // stripped before it leaves the machine that holds it (ADR 0022 D7).
 const QueryWorkspaceGit = "workspace.git"
 
+// QueryPRObserve asks a machine what pull request the branch in one of its own
+// checkouts has.
+//
+// It is the same question the Hub answers for its own checkouts, asked of the
+// machine that holds this one — which is the only machine whose answer is about
+// the right directory. The read behind it is this machine's: its GitHub CLI,
+// with the credentials and the private-repository access that come with it, or a
+// credential-free read of the public API. The Hub never sees a token; it sees
+// the answer.
+//
+// The branch is not asked for, because it is not the asker's to know: the
+// checkout's own HEAD is what the work is on, and a machine that has since
+// switched branches would otherwise answer about the branch it used to be on.
+const QueryPRObserve = "pr.observe"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -530,6 +545,57 @@ type WorkspaceGitResult struct {
 }
 
 func (p WorkspaceChangesParams) Validate() error {
+	return directory("path", p.Path, true)
+}
+
+// PRObserveParams names the checkout whose branch is asked about. It is the
+// workspace directory itself, as in WorkspaceGitParams.
+type PRObserveParams struct {
+	Path string `json:"path"`
+}
+
+// PRObserveResult is what one machine says about one checkout's pull request.
+//
+// The two halves answer different questions and are read in that order. Which
+// repository and branch the answer is about is what the machine's checkout says
+// — not what the asker remembered, which is a session's starting point and not
+// where the work went. The pull request itself is read afterwards, and a read
+// that could not be made is a distinct answer from one that found nothing:
+// Observed separates them, and a caller that confuses the two either loses a
+// card that was still true or invents a merge that never happened.
+type PRObserveResult struct {
+	// Path is the directory that was read, as this machine resolved it.
+	Path string `json:"path"`
+	// Repo is the canonical origin remote, empty when the checkout has none this
+	// machine can name.
+	Repo string `json:"repo,omitempty"`
+	// Branch is the branch that was observed, empty for a detached HEAD.
+	Branch string `json:"branch,omitempty"`
+	// Observed reports that the pull request was actually read. When it is false
+	// the answer is a reason, and whatever was known before still stands.
+	Observed bool `json:"observed,omitempty"`
+	// Source is how it was read: "gh" with this machine's credentials, or
+	// "anonymous" without any.
+	Source string `json:"source,omitempty"`
+	// Number is the pull request's number, zero when this branch has none. Zero
+	// with Observed set is an answer: there is no pull request for this branch.
+	Number int    `json:"number,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Title  string `json:"title,omitempty"`
+	// State is open, closed, or merged.
+	State      string `json:"state,omitempty"`
+	Draft      bool   `json:"draft,omitempty"`
+	BaseBranch string `json:"base_branch,omitempty"`
+	HeadOID    string `json:"head_oid,omitempty"`
+	CIState    string `json:"ci_state,omitempty"`
+	// CISummary is the check counts, as JSON, in the shape the Hub stores.
+	CISummary string `json:"ci_summary,omitempty"`
+	// Reason says why there is no observation, in this machine's words: no
+	// checkout here, no origin remote, no branch, or the read itself failed.
+	Reason string `json:"reason,omitempty"`
+}
+
+func (p PRObserveParams) Validate() error {
 	return directory("path", p.Path, true)
 }
 
