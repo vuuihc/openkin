@@ -598,7 +598,7 @@ const en: MessageTree = {
     refresh: "Refresh",
     refreshHint: "Query GitHub now (counts against the rate limit)",
     unavailable: "GitHub integration is not configured on this node",
-    forbidden: "Only the owner of this node can query GitHub on demand",
+    forbidden: "Only this node's owner and its paired devices can query GitHub on demand",
     close: "Close the pull request panel",
     loading: "Loading",
     checking: "Checking this branch…",

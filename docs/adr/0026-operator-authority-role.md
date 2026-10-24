@@ -89,3 +89,8 @@ This does not by itself make a multi-account Hub safe. `operatorOnly` was one of
 several places that assumed a single account; the assumption is now written down
 where it is checked, but the rest of the surface has not been audited against a
 second account existing.
+
+*2026-10-24:* the guard this ADR settled now has one exception, on a different
+middleware rather than a change to this rule. ADR 0027 records why spending a
+node's GitHub query quota is not administering it, and why a paired device may
+do the first and still not the second.

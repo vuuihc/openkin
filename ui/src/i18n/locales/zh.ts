@@ -589,7 +589,7 @@ const zh = {
     refresh: "刷新",
     refreshHint: "立即查询 GitHub（会计入速率限额）",
     unavailable: "此节点未配置 GitHub 集成",
-    forbidden: "只有此节点的所有者可以主动查询 GitHub",
+    forbidden: "只有此节点的所有者与已配对设备可以主动查询 GitHub",
     close: "关闭 Pull Request 面板",
     loading: "正在加载",
     checking: "正在查询该分支…",

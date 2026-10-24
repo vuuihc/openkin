@@ -329,7 +329,7 @@ func (s *Server) Handler() http.Handler {
 			r.With(operatorOnly).Put("/workspaces/{workspace_id}/file", s.handleWriteWorkspaceFile)
 			r.Get("/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
 			r.Get("/pr", s.handleTaskPR)
-			r.With(operatorOnly).Post("/pr/refresh", s.handleRefreshTaskPR)
+			r.With(githubQueryOnly).Post("/pr/refresh", s.handleRefreshTaskPR)
 			r.Get("/source/tree", s.handleListSourceTree)
 			r.Get("/source/file", s.handleReadSourceFile)
 			r.Get("/workspace/list", s.handleLegacyListWorkspace)
@@ -480,29 +480,71 @@ func isMasterRequest(r *http.Request) bool {
 // operatorOnly guards the routes that administer this daemon: its settings,
 // providers, connectors, devices, and files.
 //
-// Two principals qualify. The master token does, because whoever holds the
-// machine holds the daemon. The owning account does, by role rather than by
-// being signed in: a Hub can hold accounts that registered after the first
-// claim, and those drive tasks without reconfiguring the daemon they talk to.
-// The role is read from the account record, so an account whose role is missing
-// or unrecognized falls through to the denial below.
-//
-// A paired device token is deliberately excluded at any rate. A phone or a
-// desktop client drives tasks; it does not reconfigure the daemon it talks to.
+// A paired device token does not pass. A phone or a desktop client drives
+// tasks; it does not reconfigure the daemon it talks to. The one exception is
+// spelled out at canQueryGitHub rather than here, so that reading this
+// middleware is enough to know the rule it enforces.
 func operatorOnly(next http.Handler) http.Handler {
+	return requirePrincipal(isOperator, next)
+}
+
+// isOperator reports whether a principal may act as this node's operator.
+//
+// Two qualify. The master token does, because whoever holds the machine holds
+// the daemon. The owning account does, by role rather than by being signed in:
+// a Hub can hold accounts that registered after the first claim, and those
+// drive tasks without reconfiguring the daemon they talk to. The role is read
+// from the account record, so an account whose role is missing or unrecognized
+// falls through to the denial below.
+func isOperator(principal remote.Principal) bool {
+	return principal.Kind == remote.PrincipalMaster ||
+		(principal.Kind == remote.PrincipalUser && principal.Role == store.RoleOwner)
+}
+
+// canQueryGitHub reports whether a principal may spend this node's GitHub
+// quota.
+//
+// This is the one operator-gated action a paired device may take, and the
+// exception is narrow enough to state. A query reads and writes nothing: it
+// reports state that already exists on GitHub. What makes a device the owner's
+// own client is that only an operator can mint one — POST /api/pairing/sessions
+// is itself operator-gated — and the phone is the client that needs this most,
+// because a branch nobody has looked at has to be asked about from somewhere
+// and the phone cannot open a terminal to run gh in.
+//
+// What bounds it: not the hourly budget, which the background pass claims and
+// this path does not. A forced query is spent because a person asked for it —
+// their tap is the rate limit — and it is GitHub's own refusal, plus the
+// backoff that follows it, that stops a hand that keeps tapping.
+//
+// Members stay refused. A member is another person on this node, not one of the
+// owner's devices.
+func canQueryGitHub(principal remote.Principal) bool {
+	return isOperator(principal) || principal.Kind == remote.PrincipalDevice
+}
+
+// requirePrincipal refuses anything the predicate does not allow.
+//
+// A request with no principal in its context reaches the predicate as the zero
+// value, so every predicate here has to answer false for it. Both do — an empty
+// kind matches neither rule. Auth.Middleware refuses an unauthenticated request
+// with 401 before this runs, so that is the second line rather than the first,
+// but it is the line that still holds if a route is ever mounted outside that
+// middleware.
+func requirePrincipal(allowed func(remote.Principal) bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		principal, ok := remote.PrincipalFromContext(r.Context())
-		if !ok {
+		principal, _ := remote.PrincipalFromContext(r.Context())
+		if !allowed(principal) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
 			return
 		}
-		if principal.Kind == remote.PrincipalMaster ||
-			(principal.Kind == remote.PrincipalUser && principal.Role == store.RoleOwner) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "operator access required"})
+		next.ServeHTTP(w, r)
 	})
+}
+
+// githubQueryOnly is operatorOnly plus paired devices; see canQueryGitHub.
+func githubQueryOnly(next http.Handler) http.Handler {
+	return requirePrincipal(canQueryGitHub, next)
 }
 
 // taskActorOnly formerly guarded the human gate — listing, approving, or

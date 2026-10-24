@@ -790,7 +790,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Query GitHub now and wait for the answer. The only route that spends rate limit, and the only one that touches the network: it is separate from the read so that reading can be granted to every caller while querying stays with the node's operator. */
+        /** @description Query GitHub now and wait for the answer. The only route that spends rate limit, and the only one that touches the network: it is separate from the read so that reading can be granted to every caller while querying is granted to the callers who hold this machine — its owner and the devices paired to it. A paired phone is one of those: it has no terminal to run `gh` in, so refusing it here would leave the phone unable to ask about a branch nobody has looked at yet. */
         post: operations["refreshTaskPullRequest"];
         delete?: never;
         options?: never;
@@ -3082,7 +3082,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskPullRequestSnapshot"];
                 };
             };
-            /** @description The caller may read pull-request state but not spend GitHub rate limit on demand; querying is limited to the node's owner */
+            /** @description The caller may read pull-request state but not spend GitHub rate limit on demand; querying is limited to the node's owner and to the devices paired to it */
             403: {
                 headers: {
                     [name: string]: unknown;

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/remote"
@@ -77,5 +78,69 @@ func TestTaskPRRouteStates(t *testing.T) {
 	if rr := get(http.MethodGet, "/api/tasks/no-such-task/pr"); rr.Code != http.StatusBadGateway {
 		t.Fatalf("unreadable status = %d, want %d; body = %s",
 			rr.Code, http.StatusBadGateway, rr.Body.String())
+	}
+}
+
+// The refresh route is the one operator-gated action a paired device may take,
+// and this is where that exception is written down: a phone has to be able to
+// ask about a branch nobody has looked at yet, because it cannot open a terminal
+// to do it. The test after this one holds the other side of the line.
+func TestRefreshPRAllowsAPairedDevice(t *testing.T) {
+	s, master, _ := newAuthTestServer(t)
+	handler := s.Handler()
+	s.GitHub = github.NewService(s.Store)
+
+	const deviceToken = "0011223344556677889900112233445566778899001122334455667788990011"
+	if err := s.Store.InsertDeviceCredential(t.Context(), store.DeviceCredential{
+		ID:        "device-phone",
+		TokenHash: remote.HashToken(deviceToken),
+		Label:     "phone",
+		CreatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("insert device credential: %v", err)
+	}
+
+	// The other half of the predicate, asserted here so that a change to
+	// isOperator cannot quietly take the route away from the node's owner while
+	// this test goes on passing for the device.
+	operator := &authClient{t: t, h: handler, master: master}
+	if rec := operator.post("/api/tasks/no-such-task/pr/refresh", ""); rec.Code != http.StatusOK {
+		t.Fatalf("operator refreshing: %d %s, want 200", rec.Code, rec.Body.String())
+	}
+
+	device := &authClient{t: t, h: handler, master: deviceToken}
+	if rec := device.post("/api/tasks/no-such-task/pr/refresh", ""); rec.Code != http.StatusOK {
+		t.Fatalf("paired device refreshing: %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	// The exception is one route wide: the same credential still cannot reach
+	// the routes that reconfigure the node it is paired with.
+	if rec := device.get("/api/settings"); rec.Code != http.StatusForbidden {
+		t.Fatalf("device reading settings: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+}
+
+// The exception stops at devices. A member account is another person on this
+// node, not one of the owner's clients, and stays refused — written now rather
+// than when member registration opens, so that widening the gate later has to
+// confront this test.
+//
+// The task belongs to the member on purpose. On a task they cannot see, the
+// scope middleware answers 404 first and the gate is never consulted, so the
+// test would pass whatever the gate said.
+func TestRefreshPRRefusesAMember(t *testing.T) {
+	s, _, _ := newAuthTestServer(t)
+	handler := s.Handler()
+	s.GitHub = github.NewService(s.Store)
+
+	member := joinMember(t, s, handler, "acct-member", "member@example.com")
+	insertOwnedTaskForGate(t, s, "task-member", "acct-member")
+
+	// The control: reading is theirs, so a refusal below is the spending gate
+	// and not the scope check wearing a different status code.
+	if rec := member.get("/api/tasks/task-member/pr"); rec.Code != http.StatusOK {
+		t.Fatalf("member reading the pull request: %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if rec := member.post("/api/tasks/task-member/pr/refresh", ""); rec.Code != http.StatusForbidden {
+		t.Fatalf("member refreshing: %d %s, want 403", rec.Code, rec.Body.String())
 	}
 }
