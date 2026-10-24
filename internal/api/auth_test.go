@@ -19,12 +19,22 @@ import (
 func newAuthTestServer(t *testing.T) (*Server, string, string) {
 	t.Helper()
 	s, master := newTestServer(t)
-	s.Accounts = auth.New(s.Store, auth.Config{})
+	accountsOn(s)
 	code, err := s.Accounts.IssueBootstrapCode(t.Context())
 	if err != nil {
 		t.Fatalf("issue bootstrap code: %v", err)
 	}
 	return s, master, code
+}
+
+// accountsOn turns the Hub's account system on.
+//
+// It is a step of its own because it has to happen before the router is built:
+// Handler() installs the session lookup a cookie is resolved through, and only
+// if Accounts was already set. A Hub that grows accounts afterwards answers
+// logins and then refuses every cookie they hand out.
+func accountsOn(s *Server) {
+	s.Accounts = auth.New(s.Store, auth.Config{})
 }
 
 type authClient struct {

@@ -45,7 +45,17 @@ func remoteWorkspaceHub(t *testing.T, roots ...string) (*Server, http.Handler, s
 // for real cannot assert anything about what the Hub did with the reply.
 func hubWithMachine(t *testing.T, setup func(*node.Responder), roots ...string) (*Server, http.Handler, string, string) {
 	t.Helper()
-	s, master, conns := machinesServer(t)
+	return hubWith(t, nil, setup, roots...)
+}
+
+// hubWith is hubWithMachine with the Hub configured before its router is built
+// as well, for the
+// tests where both sides have to exist at once: a member account is only a
+// member on a Hub that has accounts, and accounts have to be on before the
+// router is assembled (accountsOn).
+func hubWith(t *testing.T, before func(*Server), setup func(*node.Responder), roots ...string) (*Server, http.Handler, string, string) {
+	t.Helper()
+	s, master, conns := machinesServerWith(t, before)
 	h := s.Handler()
 	hub := httptest.NewServer(h)
 	t.Cleanup(hub.Close)

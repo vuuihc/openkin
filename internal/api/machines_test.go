@@ -24,7 +24,20 @@ import (
 // machine.
 func machinesServer(t *testing.T) (*Server, string, *node.Connections) {
 	t.Helper()
+	return machinesServerWith(t, nil)
+}
+
+// machinesServerWith is machinesServer with the Hub itself configurable before
+// its router is assembled — accounts, in practice, because the session lookup a
+// cookie is resolved through is installed once, at Handler() time (accountsOn).
+// A test that turns accounts on after the handler exists gets a Hub that hands
+// out sessions nothing recognises.
+func machinesServerWith(t *testing.T, before func(*Server)) (*Server, string, *node.Connections) {
+	t.Helper()
 	s, master := newTestServer(t)
+	if before != nil {
+		before(s)
+	}
 	conns := node.NewConnections(nil)
 	s.Nodes = conns
 	s.Queries = node.NewQueries()

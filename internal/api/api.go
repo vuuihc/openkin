@@ -367,6 +367,10 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/workspaces/{workspace_id}/diff", s.handleGetWorkspaceDiff)
 			r.Get("/pr", s.handleTaskPR)
 			r.With(githubQueryOnly).Post("/pr/refresh", s.handleRefreshTaskPR)
+			// Holder-only, and the only route that writes to a forge: a paired
+			// phone is a full client of the machine it is paired with, and this
+			// is that machine pushing a branch it holds. See the handler.
+			r.With(holderOnly).Post("/pr/publish", s.handlePublishTaskPR)
 			r.Get("/source/tree", s.handleListSourceTree)
 			r.Get("/source/file", s.handleReadSourceFile)
 			r.Get("/source/changes", s.handleListSourceChanges)
