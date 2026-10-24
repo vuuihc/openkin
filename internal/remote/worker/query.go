@@ -24,6 +24,13 @@ import (
 // QueryListDirs asks what directories are inside a path on the machine.
 const QueryListDirs = "fs.list"
 
+// QueryRepoBranches asks what branches one repository has.
+const QueryRepoBranches = "repo.branches"
+
+// QueryRepoPrepare asks the machine to make one repository available on itself,
+// and to say where it put it.
+const QueryRepoPrepare = "repo.prepare"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -34,6 +41,14 @@ const (
 	// answered with the first of them and a flag saying so: what a picker needs
 	// is somewhere to tap, not a whole tree.
 	MaxDirEntries = 500
+	// MaxRepo bounds one repository, named or addressed.
+	MaxRepo = 512
+	// MaxBranch bounds one branch name. It is the limit a filesystem puts on one
+	// path component, and a branch becomes one under .git/refs/heads, so a longer
+	// name is one git could not check out anyway.
+	MaxBranch = 255
+	// MaxBranches bounds one answer, on the same reasoning as MaxDirEntries.
+	MaxBranches = 500
 )
 
 // Query is one question about the machine it is sent to.
@@ -168,4 +183,107 @@ func (p ListDirsParams) Validate() error {
 		return fmt.Errorf("path %q is not absolute", path)
 	}
 	return nil
+}
+
+// argument checks a value that is about to become an argument to git.
+//
+// Two shapes are refused here rather than passed on, and neither is a statement
+// about whether the repository exists — that is the machine's answer to give,
+// and it says so in its own words. What is refused is a name that could be read
+// as something other than a name: a leading dash is how a name becomes an
+// option, which both `ls-remote` and `checkout` would honour, and a control
+// character is how one argument becomes two. The Hub is the other party on this
+// channel, so a name it chose must not be able to reach git's option parser.
+func argument(field, value string) error {
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("%s %q starts with a dash, which git would read as an option", field, value)
+	}
+	if strings.ContainsAny(value, "\x00\n\r") {
+		return fmt.Errorf("%s %q contains a control character", field, value)
+	}
+	return nil
+}
+
+// RepoBranchesParams asks which branches one repository has.
+//
+// The repository is named, not located, and that division is the same one
+// fs.list makes: the Hub names a thing, and the machine decides what that name
+// means on itself — which remote to reach, and with whose credentials.
+type RepoBranchesParams struct {
+	Repo string `json:"repo"`
+}
+
+// RepoBranchesResult is one repository's branches.
+type RepoBranchesResult struct {
+	// Repo is the repository as this machine canonicalised it. It travels back
+	// because it is what a later repo.prepare must be asked for: the console asks
+	// the second question in the words the first answer used, not in the words
+	// the person typed.
+	Repo string `json:"repo"`
+	// DefaultBranch is where a session starts when nobody picks one, or empty
+	// when the machine could not tell — a remote with no HEAD, or no credential
+	// to ask with.
+	DefaultBranch string `json:"default_branch,omitempty"`
+	// Branches are the branch names the remote reports, sorted.
+	Branches []string `json:"branches,omitempty"`
+	// Truncated reports that Branches stopped at MaxBranches.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// RepoPrepareParams asks a machine to make one repository available on itself.
+//
+// It names a repository and a branch and nothing else. Where the checkout goes
+// is the machine's decision, not the Hub's: a Hub that could name the
+// destination could write anywhere under a root, and a root is permission to run
+// an agent, not permission for the Hub to write.
+type RepoPrepareParams struct {
+	Repo   string `json:"repo"`
+	Branch string `json:"branch,omitempty"`
+}
+
+// RepoPrepareResult is where a repository now is on one machine.
+type RepoPrepareResult struct {
+	// Path is an absolute path inside this machine's roots, ready to be handed
+	// back as a task's working directory.
+	Path string `json:"path"`
+	// Branch is what is checked out there now, which is not always what was
+	// asked for: no branch named means the remote's default.
+	Branch string `json:"branch,omitempty"`
+	// Cloned reports whether this call is what put it there, as opposed to
+	// finding it already present. It is the difference between "this took a
+	// minute" and "this machine already had it", which a phone cannot see.
+	Cloned bool `json:"cloned,omitempty"`
+}
+
+func (p RepoBranchesParams) Validate() error {
+	if _, err := repoName(p.Repo); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p RepoPrepareParams) Validate() error {
+	if _, err := repoName(p.Repo); err != nil {
+		return err
+	}
+	// A branch is optional — absent means the remote's default — so this is the
+	// lenient bound, not the required one. What it is not is unchecked: a branch
+	// is an argument to checkout.
+	branch := strings.TrimSpace(p.Branch)
+	if err := optional("branch", branch, MaxBranch); err != nil {
+		return err
+	}
+	return argument("branch", branch)
+}
+
+// repoName reads a repository out of a question, or says why it cannot be one.
+func repoName(repo string) (string, error) {
+	repo = strings.TrimSpace(repo)
+	if err := bounded("repo", repo, MaxRepo); err != nil {
+		return "", err
+	}
+	if err := argument("repo", repo); err != nil {
+		return "", err
+	}
+	return repo, nil
 }

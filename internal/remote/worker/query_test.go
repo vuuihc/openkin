@@ -113,3 +113,55 @@ func TestListDirsParamsRequireAnAbsolutePath(t *testing.T) {
 		t.Fatal("an oversized path was accepted")
 	}
 }
+
+// A repository and a branch are names, and a name must not be able to become an
+// option.
+//
+// Both end up as arguments to git on a machine the Hub is not: `ls-remote
+// --upload-pack=` runs whatever it is pointed at, and `checkout -f` throws away
+// work in a directory somebody is using. The Hub is the other party on this
+// channel, so this is decided here, before the question is sent, rather than
+// trusted to the side that did not choose the name.
+func TestRepoQuestionsRefuseANameThatIsAnOption(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		params interface{ Validate() error }
+		// field is the word the refusal has to name, or empty when the question
+		// is one this package accepts.
+		field string
+	}{
+		{name: "an ordinary shorthand", params: RepoBranchesParams{Repo: "owner/repo"}},
+		{name: "a full url", params: RepoBranchesParams{Repo: "https://github.com/owner/repo.git"}},
+		{name: "a local path", params: RepoBranchesParams{Repo: "/srv/git/repo.git"}},
+
+		{name: "no repo", params: RepoBranchesParams{}, field: "repo"},
+		{name: "blank repo", params: RepoBranchesParams{Repo: "  "}, field: "repo"},
+		{name: "repo over the bound", params: RepoBranchesParams{Repo: strings.Repeat("r", MaxRepo+1)}, field: "repo"},
+		{name: "repo that is an option", params: RepoBranchesParams{Repo: "--upload-pack=/bin/sh"}, field: "dash"},
+		{name: "repo with a newline", params: RepoBranchesParams{Repo: "owner/repo\n--upload-pack=/bin/sh"}, field: "control"},
+
+		{name: "prepare without a branch", params: RepoPrepareParams{Repo: "owner/repo"}},
+		{name: "prepare with a branch", params: RepoPrepareParams{Repo: "owner/repo", Branch: "main"}},
+
+		{name: "prepare with no repo", params: RepoPrepareParams{Branch: "main"}, field: "repo"},
+		{name: "branch that is an option", params: RepoPrepareParams{Repo: "owner/repo", Branch: "-f"}, field: "dash"},
+		{name: "branch with a newline", params: RepoPrepareParams{Repo: "owner/repo", Branch: "main\n-f"}, field: "control"},
+		{name: "branch over the bound", params: RepoPrepareParams{Repo: "owner/repo", Branch: strings.Repeat("b", MaxBranch+1)}, field: "branch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.params.Validate()
+			if tc.field == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want it accepted", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() accepted %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.field) {
+				t.Fatalf("Validate() = %q, want it to name %q", err, tc.field)
+			}
+		})
+	}
+}

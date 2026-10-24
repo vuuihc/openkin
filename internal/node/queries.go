@@ -212,7 +212,7 @@ func questionKey(deviceID, id string) string {
 // long and a machine that is not answering holds a phone's screen.
 func queryTimeout(method string) time.Duration {
 	switch method {
-	case "repo.prepare":
+	case worker.QueryRepoPrepare:
 		return 5 * time.Minute
 	default:
 		return 15 * time.Second
