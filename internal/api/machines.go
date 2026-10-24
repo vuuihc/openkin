@@ -94,12 +94,18 @@ func (s *Server) handleMachineRepoPrepare(w http.ResponseWriter, r *http.Request
 // Every question takes this path, so a refusal reads the same whichever question
 // produced it: one shape for a console to handle, rather than one per endpoint.
 func (s *Server) askMachineInto(w http.ResponseWriter, r *http.Request, method string, params any, out any) {
+	s.askDeviceInto(w, r, chi.URLParam(r, "device"), method, params, out)
+}
+
+// askDeviceInto is askMachineInto for the questions whose device is a parameter
+// rather than a path segment.
+func (s *Server) askDeviceInto(w http.ResponseWriter, r *http.Request, device, method string, params any, out any) {
 	raw, err := json.Marshal(params)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	result, err := s.askMachine(r.Context(), chi.URLParam(r, "device"), method, raw)
+	result, err := s.askMachine(r.Context(), device, method, raw)
 	if err != nil {
 		writeMachineQueryError(w, err)
 		return
@@ -119,6 +125,19 @@ func (s *Server) askMachineInto(w http.ResponseWriter, r *http.Request, method s
 	writeJSON(w, http.StatusOK, out)
 }
 
+// localDevice reports whether a device name means the daemon answering this
+// request.
+//
+// There are three ways to say it and they are one machine: absent, which is what
+// a console that has not thought about machines sends; "self", which is what one
+// that has calls the daemon it is talking to; and the desktop id, which is what
+// the rest of the API calls the same thing. One predicate, because the day two
+// of these disagree is the day a question about a phone gets answered by a NAS.
+func (s *Server) localDevice(device string) bool {
+	device = strings.TrimSpace(device)
+	return device == "" || device == "self" || device == strings.TrimSpace(s.DesktopID)
+}
+
 // askMachine puts one question to one machine and returns its answer.
 //
 // It is the single place the local machine and a paired one are told apart, so
@@ -126,9 +145,7 @@ func (s *Server) askMachineInto(w http.ResponseWriter, r *http.Request, method s
 func (s *Server) askMachine(ctx context.Context, device, method string, params json.RawMessage) (worker.QueryResult, error) {
 	device = strings.TrimSpace(device)
 
-	// This machine. "self" is what a console calls the daemon it is talking to;
-	// the desktop id is what the rest of the API calls the same thing.
-	if device == "" || device == "self" || device == strings.TrimSpace(s.DesktopID) {
+	if s.localDevice(device) {
 		if s.LocalMachine == nil {
 			return worker.QueryResult{}, fmt.Errorf("%w: this machine does not answer questions about itself", errNoMachineChannel)
 		}

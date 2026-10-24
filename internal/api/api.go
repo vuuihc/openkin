@@ -376,7 +376,11 @@ func (s *Server) Handler() http.Handler {
 		r.With(s.userQuestionInScope).Post("/api/user-questions/{id}/answer", s.handleAnswerUserQuestion)
 		r.With(holderOnly).Get("/api/recent-cwds", s.handleRecentCwds)
 		r.With(holderOnly).Get("/api/git/branches", s.handleGitBranches)
-		r.With(operatorOnly).Post("/api/git/checkout", s.handleGitCheckout)
+		// Holder-only on the route, operator-only on this machine inside the
+		// handler: switching a branch on another machine is bounded by that
+		// machine's roots, switching one here rearranges the operator's own
+		// checkouts. See handleGitCheckout.
+		r.With(holderOnly).Post("/api/git/checkout", s.handleGitCheckout)
 		r.With(operatorOnly).Get("/api/settings", s.handleGetSettings)
 		r.With(operatorOnly).Put("/api/settings", s.handlePutSettings)
 		r.With(operatorOnly).Post("/api/relay/pairing", s.handleRefreshRelayPairing)
