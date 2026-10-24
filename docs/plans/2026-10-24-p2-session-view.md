@@ -327,11 +327,31 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 若 S3/S4 落地时出现一条「必须在真实 DOM 上才成立」的断言（例如焦点真的要落在某个节点上），
 那时再引入，并把那条断言写成本决定的反例——不要因为「反正迟早要」而先装。
 
+### 6.2 S1c 的表：按区间切流能拼到什么
+
+结论是**够用，不补 turn-diff store**。下表每一行都由一条测试钉住（`transcriptProjection.test.ts`
+的 `turn seq ranges` 那组），不是推理：
+
+| 输入 | `extractChangedFiles` 按区间切流后 | 依据 |
+|---|---|---|
+| 文件类工具（`EDIT_TOOLS`：`edit`/`write`/`str_replace`…） | ✅ 路径 + 动作 + 行数增量 | 「slices the stream into exactly the turn's own file changes」 |
+| **subagent/worker 的文件工具**（`visibility.user=false`，聊天栏里根本看不到） | ✅ 事件在流上，抽取器不看 visibility；这一条正是**区间**（而不是可见 item）才是正确边界的证明 | 「reaches work the chat column never showed」 |
+| shell 改的文件（`sed -i`、`git apply`） | ❌ 只认文件类工具，`Bash` 的 `command` 不是路径 | 「cannot see a file a shell command wrote, which is why the card says so」 |
+| 一轮里没有任何带 seq 的 item（纯 partial 流） | ❌ 没有区间可用，卡片应当**不出现**而不是瞎猜 | 「leaves a turn with no range…」 |
+| 最新一轮的**尾事件** | ⚠️ 没有下一轮来闭合，止于自己最新的事件；路径在**调用**事件上，所以仍看得到 | 区间测试里的 `["agent", 10, 10]` |
+
+消费单位是**一轮 = user turn + 紧随其后的 agent turn**，两段的区间并起来才是「这一轮改了什么」：
+被过滤掉的事件（worker 工具、`raw_output`）不产生 item，落在两轮之间的空隙里，
+只读可见 item 的区间会把「这一轮 host 全程在派活」读成「什么都没改」。
+
+所以卡片的措辞只能是「这一轮**通过文件工具**改了什么」，权威视图仍是工作区/PR 面板。
+
 ## 7. 风险与未决
 
 | 风险 | 处置 |
 |---|---|
-| 逐轮 diff 的上游是有损的（8000 字节 / 64KB / 结构化 diff 被拍平） | S1c 先算「用现有数据能拼到什么程度」，够用就不补 store |
+| 逐轮 diff 的上游是有损的（8000 字节 / 64KB / 结构化 diff 被拍平） | S1c 先算「用现有数据能拼到什么程度」：结论是够用，表见 §6.2，不补 store |
+| 流式 note 与「折叠进 note 的 message」这两条路的 `seq` **没有测试钉住** | 它们只会让区间**更早/更准**，不会让区间变错：真正决定卡片内容的是文件工具事件的 `seq`，而文件类 `tool_use` 一律产生 step（有 `seq`），所以漏的只可能是「本轮更早的一段文本事件」。不编脆弱的 fixture 去盖它，记在这里 |
 | 队列落成**独立小表**，没动 `tasks` | 判据（§3.1）是「要不要按序查询」，队列是尾插头取，所以是表不是列。`schemaVersion` 38 → 39；新表在 `migration001` 的拼装串里（空库）与 039 块（满库）各出现一次，两条路同形，各有测试 |
 | **投递是「先出队、后应用」，中间崩溃会丢一条已可见的消息** | 未闭合的窗口，代价写在这里：丢的是**投递**不是消息——那条话仍在聊天里、用户能看见也能重发，且与「重启后由 `Recover` 补齐」的窗口相比小得多（毫秒级，同库两次写之间）。不上 `task_limit_waits` 那套租约状态，收益不抵复杂度 |
 | 排队中的消息可能等不到轮末（agent 卡在审批/提问上） | 有意的：审批卡与问题就在聊天里可答，答完这一轮就会结束并投递；逃生口是显式打断（`interrupt: true`）与 `Cancel`（清队并报告丢了几条，不静默） |
@@ -351,5 +371,6 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 | S1a 引擎 | `317d18a` | 非终态 ⇒ 入队 + **立刻**写 user-guide 事件（否则手机上发完什么都不显示）；轮末投递，adapter 路径与 orchestrated 路径各一处，取队首、`interrupted=false`（保留会话续跑，不谎报「上一轮被打断」）；`Recover` 投递重启时孤儿任务留下的队列；`Cancel` 清队并报告条数；打断变成显式 `interrupt: true` | 4 条新测试：排队**不碰**那三步（审批仍 pending、提问仍未答、任务状态不变）、多条按序逐轮投递、重启不丢、取消即清且有报错事件。四条都按「删掉机制看它变红」验过——red 1 的报错正是 `pending approvals = []`，也就是今天这条路上待批审批被拒光的实证。5 条旧测试改成显式打断（它们本来就是打断路径的测试） |
 | S1a API | `0236670` | `interrupt` 进 `FollowUpRequest`（含 openapi 说明）；新增 `GET /api/tasks/{id}/prompts` 回答「哪些看得见的消息还没被回答」。**additive**：任务读、任务列表、prompt 响应形状都没变 | 3 条 API 测试：等待中的消息可见且有序（含 `user_seq`）、404/401、`interrupt` 在**线上**的行为差异（不带 = 任务仍 running，带 = 重新排队）。red：json tag 改成 `interrupts` 后第三条报错。`scripts/check-openapi.sh` 通过，生成的 TS 类型随同一提交更新 |
 | S1b | `07a06a2` | **决定片，引擎零改动**：结论与依据见 §3.6。`visibility.user` = 「属于 host 聊天栏」；worker 事件保持 `{user:false, task:true}`；面板的活动来自已在流上的 worker 工具事件，计划结构来自 `worker-steps`，连接键 `execution_id`+`execution_step` | 两条守卫（都是补今天缺的那半）：① worker 的 message/tool_use/tool_result/raw_output **四种形状**都不得 `user:true`——Go 侧 1 条（4 个子用例）钉住盖章，console 侧 1 条钉住投影（`isUserFacingEvent` 被改成恒真即红）。② worker 叙述不得进入 host handoff，同时 orchestrator 的总结**必须**进得去（`summarizeEvent` 只认 message/error/result/raw_output，且跳过非 orchestrator 的 `visibility.user=false`）——Go 1 条，两条断言写在同一个测试里，好让「干脆全静音」这种修法也红。两条守卫都按删机制验红、按 sha256 逐字节还原 |
+| S1c | `0e9a09a` | 决定片 + 一条投影改动（**不渲染**）：`ToolStep`/`NoteStep` 带 `seq`，且锚在**打开它的那个事件**上（不是最后合并进来的那个——结果可能在打断之后、在另一轮里到达）；`groupIntoTurns` 吐 `fromSeq`/`toSeq`，**闭合在下一轮开始前一个事件**，所以每个事件恰好属于一轮。消费单位是**一轮 = user turn + 紧随的 agent turn** | 表见 §6.2（结论：够用，不补 turn-diff store）。**5 条新测试** + **3 个机制删掉验红**（闭合那趟、步的 seq、不许结果挪步），全部按 sha256 逐字节还原。`npm run build` 后 `web/dist/index.html` 随源码同一提交 |
 | S1a 复审 | `4c21404` `d906ef3` | `@claude` 对抗复审（blocker/major/nit 分级）提了 5 major + 4 nit + 5 处测试缺口，逐条核过后**全部成立**，已修（`4c21404` 是其中的 schema 自愈）；另修了复审没提但被测试当场抓到的一处：把三个 reconcile 收进 `ensureCurrentSchema` 后才发现「已是最新版本」那条早退路径**根本没跑**任何 reconcile——也就是说 d590e87 写下的 v39 库永远不会被修 | 6 条新测试（读不了队列≠空队列、workspace 失败要报告且消息保留、retry 带走被删消息的队列、投递只答一次且锚在自己的消息上、打断锚在自己的消息上、waiting_input 的队列要活过重启）+ 2 条 store（队列表缺锚列自愈、`TasksWithPendingPrompts`）+ 2 条 API（空队答 `[]`、`user_seq` 恒在）。**8 个机制逐个删掉验红，全部按 sha256 逐字节还原**。`scripts/check-openapi.sh` 通过（`user_seq` 去掉 omitempty 不改 schema 的 required） |
 | S1c | — | — | — |
