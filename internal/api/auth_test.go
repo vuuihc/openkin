@@ -421,6 +421,50 @@ func TestMemberAccountCannotReachOperatorRoutes(t *testing.T) {
 	}
 }
 
+// The machine routes are the holder's, and the holder gate has two halves that
+// are refused for different reasons: a member account, which is not the holder,
+// and a device that is not paired. A paired phone passes — that is the product,
+// a phone driving the machine it was paired to — so the device half is pinned by
+// TestAPairedDeviceCanDiscoverMachinesButNotManageThem and this is the other one.
+//
+// It is worth its own test because these routes answer with the paths a machine
+// works in (see machineResponse), and because a member is the principal the gate
+// exists for: a guest on someone's Hub runs its own tasks and has no business
+// reading where the holder keeps their checkouts. Every route in the family is
+// listed rather than the one that was just added — they share a gate, and a route
+// added to the family later without it is the regression this refuses.
+func TestMemberAccountCannotReadTheMachineRoutes(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	member := joinMember(t, s, handler, "machine-member", "machine@example.com")
+
+	// The owner is not refused, so a 403 below is the gate and not a route that
+	// answers nothing to anyone.
+	if rec := owner.get("/api/machines"); rec.Code != http.StatusOK {
+		t.Fatalf("owner listing machines: %d %s", rec.Code, rec.Body.String())
+	}
+
+	for _, path := range []string{
+		"/api/machines",
+		"/api/machines/self/dirs?path=/",
+		"/api/machines/self/repo/branches?url=https://github.com/owner/repo",
+		"/api/git/branches?cwd=/tmp",
+	} {
+		if rec := member.get(path); rec.Code != http.StatusForbidden {
+			t.Fatalf("member reading %s: %d %s, want 403", path, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := member.do(http.MethodPost, "/api/machines/self/repo/prepare", `{"url":"https://github.com/owner/repo"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("member preparing a repository: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if rec := member.do(http.MethodPost, "/api/git/checkout", `{"cwd":"/tmp","branch":"main"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("member checking out a branch: %d %s, want 403", rec.Code, rec.Body.String())
+	}
+}
+
 // TestTheApprovalGateFollowsTheTaskNotTheRole covers the human gate. These
 // handlers once read no principal at all, which was correct while "the human"
 // and "the owner" were the same actor; the gate is now a property of the task

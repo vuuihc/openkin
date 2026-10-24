@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -256,4 +258,29 @@ func awaitConnected(t *testing.T, conns *node.Connections, deviceID string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("the machine never connected to the hub")
+}
+
+// A question about a machine fails in three different ways, and the status is
+// what a client acts on: a machine that is away means pick another one, a
+// question that went unanswered means try the same one again, and a Hub with no
+// way to ask any machine is not a timeout at all.
+func TestMachineQueryFailureStatuses(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "the machine is away", err: fmt.Errorf("list dirs: %w: node-x", node.ErrOffline), want: http.StatusConflict},
+		{name: "the question went unanswered", err: fmt.Errorf("%w: q-3", errNoAnswer), want: http.StatusGatewayTimeout},
+		{name: "there is no way to ask a machine", err: errNoMachineChannel, want: http.StatusServiceUnavailable},
+		{name: "the machine refused", err: errors.New("there is no /srv/app on this machine"), want: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeMachineQueryError(rec, tc.err)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tc.want, rec.Body.String())
+			}
+		})
+	}
 }

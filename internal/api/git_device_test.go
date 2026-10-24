@@ -352,3 +352,50 @@ func TestGitBranchesOnAnUnknownMachineIsRefused(t *testing.T) {
 		t.Fatal("no reason given")
 	}
 }
+
+// There are three ways to name the machine serving the console, and the operator
+// gate on the local half of a checkout hangs off exactly that predicate — so
+// each spelling has to reach the same gate.
+//
+// Absent, "self" and the desktop id are one machine (see Server.localDevice), and
+// the gate is what stops a paired console from rearranging the operator's own
+// checkouts. A test that only ever sends the empty spelling pins one third of
+// the predicate the gate depends on.
+func TestEverySpellingOfThisMachineReachesTheLocalBranch(t *testing.T) {
+	requireGitBin(t)
+	s, master, _ := machinesServer(t)
+	s.DesktopID = "desktop_1234abcd"
+	s.Workspace = workspace.NewManager(t.TempDir())
+	h := s.Handler()
+	deviceToken, deviceID := pairDevice(t, h, master)
+	dir := repo(t, filepath.Join(t.TempDir(), "checkout"))
+
+	for _, device := range []string{"", "self", s.DesktopID} {
+		if device == deviceID {
+			t.Fatalf("the fixture paired a device that claims to be this machine")
+		}
+		rec := getBranches(t, h, master, dir, device)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("branches with device %q: %d %s", device, rec.Code, rec.Body.String())
+		}
+		var status struct {
+			IsGit   bool   `json:"is_git"`
+			Current string `json:"current"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+			t.Fatal(err)
+		}
+		if !status.IsGit || status.Current != "main" {
+			t.Fatalf("device %q answered about something else: %s", device, rec.Body.String())
+		}
+		// The paired console, naming the Hub under any of the three names, is
+		// asking to move the operator's own checkout.
+		rec = askCheckout(t, h, deviceToken, dir, "dev", device)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("checkout with device %q: %d %s, want 403", device, rec.Code, rec.Body.String())
+		}
+	}
+	if got := currentBranch(t, dir); got != "main" {
+		t.Fatalf("the checkout moved to %q despite every refusal", got)
+	}
+}

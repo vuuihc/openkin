@@ -77,7 +77,7 @@ func (s *Server) handleMachineRepoBranches(w http.ResponseWriter, r *http.Reques
 // no path in the request and a path in the response.
 func (s *Server) handleMachineRepoPrepare(w http.ResponseWriter, r *http.Request) {
 	var params worker.RepoPrepareParams
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&params); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -182,8 +182,14 @@ func writeMachineQueryError(w http.ResponseWriter, err error) {
 		// The machine is away. The phone can say so and let the person pick
 		// another one; retrying the same question will not help.
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-	case errors.Is(err, errNoAnswer), errors.Is(err, errNoMachineChannel):
+	case errors.Is(err, errNoAnswer):
+		// A question went out and nothing came back in time. That is a gateway
+		// timeout, and the caller can try the same machine again.
 		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": err.Error()})
+	case errors.Is(err, errNoMachineChannel):
+		// Nothing timed out: this Hub has no way to ask any machine at all. That
+		// is a service that is not up rather than a door that did not open.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

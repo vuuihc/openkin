@@ -297,6 +297,16 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
 		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
 		r.With(holderOnly).Get("/api/workers", s.handleListWorkers)
+		// Which machines a piece of work can be sent to.
+		//
+		// Holder-only, and deliberately not the device list above: every console
+		// that arrives through a pairing link is a device — that is what the
+		// exchange mints — so an operator-only machine list leaves the picker of a
+		// paired phone with the one machine serving the page, which is the feature
+		// this milestone exists for. What a picker needs is which machines there
+		// are, whether they can take work, and what they can run; the management
+		// view of the same rows stays the operator's.
+		r.With(holderOnly).Get("/api/machines", s.handleListMachines)
 		// A machine's own directories, for the console that has to pick one
 		// before it can start anything. Holder-only: a guest on someone's Hub
 		// runs its own tasks and has no business reading the holder's paths.

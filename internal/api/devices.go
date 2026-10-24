@@ -184,6 +184,80 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// machineResponse is one machine as the console sending work to it sees it.
+//
+// A subset of deviceResponse, and the subset is the point: a picker needs which
+// machines there are, whether one can take work now, and which agents it can run.
+// It does not need when a machine was last seen, what platform it is, or when it
+// was enrolled, so those stay on the operator-only device list rather than being
+// handed to every console that paired with this Hub.
+type machineResponse struct {
+	ID           string              `json:"id"`
+	Label        string              `json:"label,omitempty"`
+	Reachability string              `json:"reachability"`
+	Agents       []deviceAgentResult `json:"agents"`
+	Roots        []string            `json:"workspace_roots,omitempty"`
+}
+
+// handleListMachines answers which machines the console can send work to.
+//
+// Two things are left out rather than reported and filtered by the reader, and
+// for the same reason: the console that has to name a machine is the last place
+// that should be deciding whether it is one. A revoked machine cannot connect
+// again, so it is not a place work can go; and a device that has never said
+// hello is not a machine at all — see runsWork.
+func (s *Server) handleListMachines(w http.ResponseWriter, r *http.Request) {
+	devices, err := s.Store.ListDevices(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	out := make([]machineResponse, 0, len(devices))
+	for _, device := range devices {
+		if device.RevokedAt != nil || !runsWork(device) {
+			continue
+		}
+		full := s.deviceResponse(r.Context(), device)
+		out = append(out, machineResponse{
+			ID:           full.ID,
+			Label:        full.Label,
+			Reachability: full.Reachability,
+			Agents:       full.Agents,
+			Roots:        full.Roots,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// runsWork reports whether a device is a machine a turn can be handed to.
+//
+// Pairing writes every device as a client, and a machine becomes a node only by
+// dialling in and saying hello (see store.RecordDeviceHello) — so the role is
+// what the registry recorded about the other end, which is the closest thing to
+// an answer available before anything has been sent to it. A client is a
+// console: a phone, a browser, the desktop window. Nothing on it answers a turn,
+// which makes offering it in a list of machines to run work on an offer of a
+// choice that cannot be taken.
+//
+// It is a display filter, not a permission. The control channel that carries the
+// hello is open to any device token, so a console that dialled in and said hello
+// would be recorded as a node and offered here — and that is left alone, because
+// the device token it would do that with is already a full client of this Hub.
+// Nothing here starts trusting the row: the executor validates the device it is
+// actually handed, and this only decides what a picker shows.
+//
+// It is not hypothetical. The console on a phone paired through a link, so the
+// phone is itself a client row on this Hub; without this, the picker a person
+// uses to choose where their work runs lists the device they are holding,
+// offline, beside the machine that would actually do it.
+//
+// The local daemon's own row has role "hub" and no credential, so it is not in
+// the list either way: this route answers about the *other* machines, and the
+// console already knows which machine is serving it.
+func runsWork(device store.Device) bool {
+	return device.Role == "node"
+}
+
 // workspaceRootPaths renders reported roots as the directories the machine
 // works in — a checkout plus the path inside it reads as one path, which is what
 // the console shows and what the operator recognizes.
