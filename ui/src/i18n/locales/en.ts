@@ -627,6 +627,43 @@ const en: MessageTree = {
     ciFailureNamed: "{failed} of {total} checks failed: {names}",
     earlierBranches: "Earlier branches",
   },
+  publish: {
+    title: "Publish",
+    hint: "Push this session's branch and open a pull request, on the machine holding it",
+    action: "Publish",
+    on: "on {name}",
+    onUnknown: "on {name} (not in the machine list)",
+    close: "Close the publish sheet",
+    repoLabel: "Repository",
+    branchLabel: "Branch",
+    unknown: "unknown",
+    what: "The commits on this branch are pushed to the remote and a pull request is opened for them. Anything uncommitted is not pushed: the machine refuses and tells you which files.",
+    titleLabel: "Title",
+    titlePlaceholder: "What this change does",
+    bodyLabel: "Description",
+    bodyPlaceholder: "Filled in from the agent's last reply; edit it as you like.",
+    needsTitle: "A pull request needs a title",
+    publishing: "Publishing…",
+    published: "Published #{number}",
+    pushedNoPR: "The branch is on the remote, but the pull request was not created.",
+    blocked: "Nothing was pushed ({code}).",
+    // One line per refusal the machine can name. The machine's own sentence is
+    // shown underneath: it carries the branch and the files, which these cannot.
+    blockedWhy: {
+      not_a_checkout: "That directory is not a git checkout.",
+      no_github_remote: "This checkout has no GitHub remote to push to.",
+      detached_head: "This checkout is not on a branch.",
+      default_branch:
+        "This is the repository's default branch, and Kin does not push that one on its own.",
+      uncommitted_changes:
+        "There is work here that is not committed, and a push would leave it behind.",
+      no_gh: "That machine has no GitHub CLI, so no pull request can be opened.",
+    },
+    said: "The machine said:",
+    escape: "Create the task branch and publish",
+    unavailable: "This node has no GitHub configured, so it cannot open a pull request",
+    notHere: "This session runs on this machine, so there is nothing to publish from here",
+  },
   inbox: {
     title: "Inbox",
     loading: "Loading…",

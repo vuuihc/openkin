@@ -61,11 +61,13 @@ import {
 } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
+import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import { extractChangedFiles } from "../lib/changedFiles";
+import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
 import { remoteMachine } from "../lib/devices";
@@ -153,6 +155,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [overlay, setOverlay] = useState<Overlay>(null);
   const filesOpen = overlay === "files";
   const prOpen = overlay === "pr";
+  const publishOpen = overlay === "publish";
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
@@ -753,8 +756,16 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
 
+  // The agent's last answer, as the publish sheet's opening draft. Recomputed
+  // only when the stream changes, because it walks the whole transcript.
+  const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
+
   function openFilesPanel() {
     setOverlay("files");
+  }
+
+  function openPublishPanel() {
+    setOverlay("publish");
   }
 
   function togglePrPanel() {
@@ -1229,10 +1240,33 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               reviewActions={terminal}
               onDiscardAll={onDiscardAllChanges}
               actionsBusy={reviewBusy}
+              // Publishing is offered for a session on another machine and no
+              // other: the Hub refuses the write for a checkout it holds, and a
+              // button that could only ever be refused is worse than no button.
+              onPublish={machine ? openPublishPanel : undefined}
               onClose={() => setOverlay(null)}
             />
           </div>
         </div>
+      )}
+
+      {publishOpen && machine && (
+        <PublishPanel
+          taskId={task.id}
+          machine={machine}
+          // Where the Hub remembers the work being. It is what the machine
+          // recorded when the session started (or the last publish corrected),
+          // and the sheet says "unknown" rather than guessing when there is
+          // nothing: only that machine can answer, and it answers when asked.
+          repo={task.workspace_repo ?? undefined}
+          branch={task.workspace_branch ?? undefined}
+          draft={publishDraft}
+          // A publish corrects the row on the Hub — the branch is on the remote
+          // now and the repository it landed in is recorded — so the page reads
+          // it again rather than going on drawing where the session started.
+          onPublished={() => void liveResources.refreshTask(task.id, true)}
+          onClose={() => setOverlay(null)}
+        />
       )}
 
       {prOpen && (

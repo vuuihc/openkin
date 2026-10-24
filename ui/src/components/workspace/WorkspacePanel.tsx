@@ -29,7 +29,7 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath } from "../../lib/paths";
-import { IconPanel, IconSpinner, IconX } from "../icons";
+import { IconPanel, IconSend, IconSpinner, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
 import FileTree from "./FileTree";
 
@@ -70,6 +70,14 @@ type Props = {
   reviewActions?: boolean;
   onDiscardAll?: () => void | Promise<void>;
   actionsBusy?: boolean;
+  /**
+   * Opens the publish sheet, for a task whose checkout is on another machine.
+   *
+   * Omitted means this console has nothing to publish here — the session runs on
+   * the machine showing the page, where the person can push the branch
+   * themselves, and the Hub refuses the write for exactly that reason.
+   */
+  onPublish?: () => void;
 };
 
 type SidebarTab = "changes" | "files";
@@ -139,6 +147,7 @@ export default function WorkspacePanel({
   reviewActions = false,
   onDiscardAll,
   actionsBusy = false,
+  onPublish,
 }: Props) {
   useT();
   const tr = useT();
@@ -481,6 +490,22 @@ export default function WorkspacePanel({
             {projectLabel(cwd)} · {shortPath(cwd, 48)}
           </div>
         </div>
+        {/*
+          The one write this panel offers, in the corner of the header it belongs
+          in: what the panel shows is a session's changes, and publishing is what
+          a person does about them when they are done reading.
+        */}
+        {onPublish && (
+          <button
+            type="button"
+            onClick={onPublish}
+            title={tr("publish.hint")}
+            className="flex-none inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-[11.5px] text-kin-text transition-colors hover:bg-[var(--kin-fill-strong)]"
+          >
+            <IconSend size={12} />
+            {tr("publish.action")}
+          </button>
+        )}
         {workspaceView.editable && reviewActions && onDiscardAll && (
           <button
             type="button"

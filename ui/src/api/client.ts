@@ -17,6 +17,7 @@ import {
   type Task,
   type TaskEvent,
   type TaskPullRequestSnapshot,
+  type PublishReport,
   type UserQuestion,
   type UserQuestionOption,
   type UserQuestionPayload,
@@ -41,6 +42,7 @@ export type {
   PullRequestObservation,
   GHStatus,
   TaskPullRequestSnapshot,
+  PublishReport,
 } from "./contract";
 
 const TOKEN_KEY = "kin_token";
@@ -968,6 +970,48 @@ export function refreshTaskPullRequest(
 ): Promise<TaskPullRequestSnapshot> {
   return apiFetch<TaskPullRequestSnapshot>(
     `/api/tasks/${encodeURIComponent(id)}/pr/refresh`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * Push this session's branch and open its pull request.
+ *
+ * The push happens on the machine that holds the checkout, with that machine's
+ * credentials, and the daemon answers with what it did — including a refusal,
+ * which arrives as a 200 whose `blocked` says why. That is deliberate: "this
+ * checkout is on main" is an outcome of a question the person asked, not a
+ * failure of the request, and the sheet that asked draws it in place.
+ *
+ * A 400 is the other kind of no: the words cannot travel (a newline in the
+ * title), or the push itself failed and the message is the machine's own.
+ */
+export function publishTaskPullRequest(
+  id: string,
+  words: { title: string; body: string },
+): Promise<PublishReport> {
+  return apiFetch<PublishReport>(
+    `/api/tasks/${encodeURIComponent(id)}/pr/publish`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(words),
+    },
+  );
+}
+
+/**
+ * Start this task's own branch on the machine holding its checkout, and switch
+ * to it. The name is the daemon's (kin/task/<id>/g1); the caller passes none.
+ *
+ * It is the way out of a publish refused on the default branch: uncommitted
+ * work comes along, because that is what is being published.
+ */
+export function createTaskBranch(
+  id: string,
+): Promise<{ cwd?: string; current?: string }> {
+  return apiFetch<{ cwd?: string; current?: string }>(
+    `/api/tasks/${encodeURIComponent(id)}/branch`,
     { method: "POST" },
   );
 }

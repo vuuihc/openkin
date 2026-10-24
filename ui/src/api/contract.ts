@@ -23,6 +23,7 @@ export type PullRequestObservation =
 export type GHStatus = components["schemas"]["GHStatus"];
 export type TaskPullRequestSnapshot =
   components["schemas"]["TaskPullRequestSnapshot"];
+export type PublishReport = components["schemas"]["PublishReport"];
 
 type RecordValue = Record<string, unknown>;
 
