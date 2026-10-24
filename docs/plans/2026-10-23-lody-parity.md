@@ -471,6 +471,7 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 | 验收 | **删掉 `ui/src/index.css` 里全部 89 个手写变量**，控制台视觉不回退；gallery 测试能报出未被呈现的 token |
 | 依赖 | 无 |
 | 大小 | M |
+| 开工前已量到的现状 | 字号是 18 个任意值（`text-[11px]`…`text-[13.5px]`，含 11/11.5/12/12.5/13/13.5 这种差 1px 的相邻档，违反 §4.2 第 5 条）；`index.css` 里 19 个颜色 token 在四个主题块（dark / light / system→light / system→dark）里手抄了四遍，共 76 行；status 色（`blue`/`orange`/`green`/`red`）写死在 `tailwind.config.js` 里，不随明暗切换；`ChatStream.tsx:1030` 的 `accent-[var(--kin-blue)]` 引用了**从未定义**的 token（`kin-blue` 是 Tailwind 颜色，不是 CSS 变量）——正是缺口测试该抓的那类 |
 
 ### P2 — 会话视图升级
 
