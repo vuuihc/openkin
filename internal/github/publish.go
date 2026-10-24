@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -82,10 +83,11 @@ type PublishOutcome struct {
 //
 // It refuses rather than guesses, and it refuses *before* the first thing that
 // cannot be undone. Everything above the push is a read: which repository, which
-// branch, whether the tree is clean, whether there is a gh to finish with. Only
-// a checkout that passed all of them is pushed, because a publish that
-// half-happened is worse than one that did not — the remote holds something
-// nobody agreed to, and the person is looking at a phone.
+// branch, whether the tree is clean, which branch the repository calls its own,
+// and whether there is a gh to finish with. Only a checkout that passed all of
+// them is pushed, because a publish that half-happened is worse than one that did
+// not — the remote holds something nobody agreed to, and the person is looking at
+// a phone.
 func PublishHere(ctx context.Context, git *workspace.Manager, req PublishRequest) (PublishOutcome, error) {
 	return publishWith(ctx, git, nil, req)
 }
@@ -119,6 +121,14 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 	}
 	// Which repository, then which branch, then whether the tree is clean: each
 	// answer makes the next question the right one to ask.
+	//
+	// Uncommitted work is asked about before the default branch, and that order is
+	// a promise the console keeps: it offers a way out of one refusal only — start
+	// this task's own branch, then publish that — and a checkout with uncommitted
+	// work would be refused again the moment it was on the branch, because
+	// publishing a branch publishes the commits on it and this machine does not
+	// commit for anybody. So a dirty checkout is told what to do about the work
+	// first, and the default-branch refusal lands on a checkout that can act on it.
 	repo, ok := ParseCanonical(facts.Repo)
 	if !ok {
 		out.Blocked = PublishBlockedNoRemote
@@ -134,13 +144,6 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 		out.Reason = "this checkout is not on a branch, so there is no branch to publish"
 		return out, nil
 	}
-	if name := branchThisMachineWillNotPush(facts); name != "" {
-		out.Blocked = PublishBlockedDefault
-		out.Reason = fmt.Sprintf(
-			"this checkout is on %s, which is this repository's default branch, and Kin does not push that one on its own",
-			name)
-		return out, nil
-	}
 	changes, err := git.ListLiveChanges(ctx, workspace.SharedMetadata(facts.Path))
 	if err != nil {
 		return out, fmt.Errorf("read whether %s has uncommitted work: %w", facts.Path, err)
@@ -150,6 +153,11 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 		out.Reason = uncommittedSentence(changes)
 		return out, nil
 	}
+	// gh is resolved before the default branch is decided, for both halves of what
+	// it is needed for: a machine with no gh cannot finish a publish at all — which
+	// is the sentence to give before one about a branch — and a checkout that
+	// recorded no origin/HEAD is one whose default branch only the forge can name
+	// (see branchThisMachineWillNotPush).
 	if gh == nil {
 		client, err := ResolveGH()
 		if err != nil {
@@ -158,6 +166,13 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 			return out, nil
 		}
 		gh = GHClient{Bin: client}
+	}
+	if name := branchThisMachineWillNotPush(ctx, gh, repo, facts); name != "" {
+		out.Blocked = PublishBlockedDefault
+		out.Reason = fmt.Sprintf(
+			"this checkout is on %s, which is this repository's default branch, and Kin does not push that one on its own",
+			name)
+		return out, nil
 	}
 
 	// Past this line nothing is a read. The push is not forced and never will
@@ -189,24 +204,68 @@ func publishWith(ctx context.Context, git *workspace.Manager, gh ghRunner, req P
 // origin's HEAD names.
 //
 // A checkout that recorded no origin/HEAD — one whose remote was added by hand,
-// which is the ordinary way a local repository gets one — is not evidence that
-// the repository has no default branch, so `main` and `master` are treated as
-// though they were it. That refuses a push that might have been wanted, which is
-// the direction this has to err in: pushing a repository's main branch by
-// accident is the one outcome here that asking again cannot undo.
-func branchThisMachineWillNotPush(facts workspace.GitFacts) string {
+// which is the ordinary way a local repository gets one — is not evidence that the
+// repository has no default branch, so the forge is asked, once, and its answer
+// joins `main` and `master` in the set this refuses. Both halves are needed: the
+// forge names the repositories whose trunk is `trunk`, and the two names cover the
+// machine whose gh cannot answer — no credentials for a private repository, no
+// network — where the direction to err in is refusing a push that might have been
+// wanted. Pushing a repository's default branch by accident is the one outcome
+// here that asking again cannot undo.
+func branchThisMachineWillNotPush(ctx context.Context, gh ghRunner, repo Repo, facts workspace.GitFacts) string {
 	if facts.DefaultBranch != "" {
 		if facts.Branch == facts.DefaultBranch {
 			return facts.DefaultBranch
 		}
 		return ""
 	}
-	for _, name := range []string{"main", "master"} {
+	names := []string{"main", "master"}
+	if name := forgeDefaultBranch(ctx, gh, repo); name != "" {
+		names = append(names, name)
+	}
+	for _, name := range names {
 		if facts.Branch == name {
 			return name
 		}
 	}
 	return ""
+}
+
+// apiRepo mirrors the one field this package reads from GitHub's repository
+// payload. The REST payload rather than `gh repo view --json`, for the reason the
+// pull request reads use it: gh's projection is gh's schema and moves between its
+// releases, while this is the documented contract.
+type apiRepo struct {
+	DefaultBranch string `json:"default_branch"`
+}
+
+// forgeDefaultBranch is the repository's default branch, as the forge answers it.
+//
+// It is asked only for a checkout that recorded no origin/HEAD of its own, and a
+// failure to answer — gh erroring, a repository gh cannot see, an answer that is
+// not the payload — is silence rather than a refusal of its own: this narrows a
+// guard that already has a fallback, and a publish that cannot learn the default
+// branch is still refused on `main` and `master`.
+func forgeDefaultBranch(ctx context.Context, gh ghRunner, repo Repo) string {
+	if gh == nil {
+		return ""
+	}
+	out, err := gh.Run(ctx, "api", "--method", "GET", "repos/"+repo.String())
+	if err != nil {
+		return ""
+	}
+	var payload apiRepo
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(payload.DefaultBranch)
+	// A branch name is one word and a ref may hold no control character; anything
+	// else is an answer this cannot compare, and returning it would put it in a
+	// sentence about somebody's checkout.
+	if name == "" || strings.ContainsAny(name, " \t\r\n") {
+		return ""
+	}
+	return name
 }
 
 // uncommittedSentence says what a push would leave behind, by name.

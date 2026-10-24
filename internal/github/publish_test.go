@@ -156,6 +156,81 @@ func TestPublishRefusesMainWhenTheDefaultBranchIsUnknown(t *testing.T) {
 	}
 }
 
+// A checkout whose remote was added by hand records no origin/HEAD, and `main` is
+// only one of the names a repository's default branch goes by. The forge is asked,
+// once, and the branch it names is refused too.
+func TestPublishRefusesTheDefaultBranchTheForgeNames(t *testing.T) {
+	f := newPublishFixture(t)
+	// This repository's trunk is `trunk`, and nothing in the checkout says so:
+	// no origin/HEAD, no remote-tracking branch, nothing to read offline.
+	gitIn(t, f.dir, "branch", "-m", "trunk")
+	gh := fakeGH(t, "#!/bin/sh\nprintf '{\"default_branch\":\"trunk\",\"private\":true}\\n'\n")
+
+	out, err := publishWith(context.Background(), f.manager, gh, PublishRequest{
+		Dir: f.dir, Title: "t", Body: "b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Blocked != PublishBlockedDefault {
+		t.Fatalf("blocked = %q (%s), want the default branch the forge named", out.Blocked, out.Reason)
+	}
+	if !strings.Contains(out.Reason, "trunk") {
+		t.Fatalf("reason = %q, want the branch named", out.Reason)
+	}
+	if f.remoteHas(t, "trunk") != "" {
+		t.Fatal("the forge's default branch was pushed")
+	}
+}
+
+// A machine whose gh cannot answer for the repository is still refused on the two
+// names every repository with a trunk has, because the direction to err in is
+// refusing a push that might have been wanted.
+func TestPublishFallsBackToTheTwoNamesWhenTheForgeWillNotSay(t *testing.T) {
+	f := newPublishFixture(t)
+	gitIn(t, f.dir, "checkout", "-q", "main")
+	// gh failing is the ordinary way this happens: no credentials for a private
+	// repository, or no network.
+	gh := fakeGH(t, "#!/bin/sh\necho 'gh: Not Found (HTTP 404)' >&2\nexit 1\n")
+
+	out, err := publishWith(context.Background(), f.manager, gh, PublishRequest{
+		Dir: f.dir, Title: "t", Body: "b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Blocked != PublishBlockedDefault {
+		t.Fatalf("blocked = %q (%s), want main refused anyway", out.Blocked, out.Reason)
+	}
+	if f.remoteHas(t, "main") != "" {
+		t.Fatal("main was pushed")
+	}
+}
+
+// The console offers a way out of exactly one refusal — start this task's branch,
+// then publish that — and a checkout that is both on the default branch and dirty
+// would be refused again the moment it was on the branch. So uncommitted work is
+// what the person is told about first, and the branch is only ever offered on a
+// checkout where the offer can be kept.
+func TestPublishNamesUncommittedWorkBeforeTheDefaultBranch(t *testing.T) {
+	f := newPublishFixture(t)
+	gitIn(t, f.dir, "checkout", "-q", "main")
+	writeFileIn(t, f.dir, "notes.md", "uncommitted\n")
+
+	out, err := publishWith(context.Background(), f.manager, fakeGH(t, "#!/bin/sh\nexit 0\n"), PublishRequest{
+		Dir: f.dir, Title: "t", Body: "b",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Blocked != PublishBlockedDirty {
+		t.Fatalf("blocked = %q (%s), want the uncommitted work", out.Blocked, out.Reason)
+	}
+	if !strings.Contains(out.Reason, "notes.md") {
+		t.Fatalf("reason does not name the file: %q", out.Reason)
+	}
+}
+
 func TestPublishRefusesUncommittedWorkByName(t *testing.T) {
 	f := newPublishFixture(t)
 	writeFileIn(t, f.dir, "notes.md", "uncommitted\n")
