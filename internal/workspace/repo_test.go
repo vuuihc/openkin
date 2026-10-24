@@ -244,6 +244,31 @@ func TestParseLsRemoteReadsBranchesAndTheDefault(t *testing.T) {
 	}
 }
 
+// The answer to "what branches does this have" is also the question "fetch
+// this", so the answer has to be a name the machine still accepts when it comes
+// back. The canonical name is not one: it carries no transport, and for a
+// remote whose host has a port, reading it back turns `host:port/owner/repo`
+// into scp syntax and the port into a path.
+func TestTheAnswerToBranchesIsSomethingPrepareAccepts(t *testing.T) {
+	c := NewCheckouts(filepath.Join(t.TempDir(), "checkouts"))
+	c.git = &recordedGit{answer: func([]string) ([]byte, error) {
+		return []byte("ref: refs/heads/main\tHEAD\nabc\trefs/heads/main\n"), nil
+	}}
+
+	got, err := c.RemoteBranches(context.Background(), "http://127.0.0.1:7779/origin.git")
+	if err != nil {
+		t.Fatalf("RemoteBranches: %v", err)
+	}
+	back, err := ResolveRepo(got.CloneURL)
+	if err != nil {
+		t.Fatalf("asking again with the answer %q: %v", got.CloneURL, err)
+	}
+	if back.Canonical != got.Repo {
+		t.Fatalf("the answer %q reads back as %q, not as the %q it came from",
+			got.CloneURL, back.Canonical, got.Repo)
+	}
+}
+
 // Asking what branches a remote has is one round trip, in the machine's own
 // checkout root rather than wherever the daemon was started.
 func TestRemoteBranchesAsksTheRemoteOnce(t *testing.T) {
@@ -259,7 +284,10 @@ func TestRemoteBranchesAsksTheRemoteOnce(t *testing.T) {
 		t.Fatalf("RemoteBranches: %v", err)
 	}
 	if got.Repo != "github.com/owner/repo" {
-		t.Fatalf("Repo = %q, want the canonical name a later prepare is asked for", got.Repo)
+		t.Fatalf("Repo = %q, want the canonical name", got.Repo)
+	}
+	if got.CloneURL != "https://github.com/owner/repo.git" {
+		t.Fatalf("CloneURL = %q, want the form a later prepare is asked for", got.CloneURL)
 	}
 	if got.DefaultBranch != "main" || len(got.Branches) != 1 {
 		t.Fatalf("RemoteBranches = %+v", got)

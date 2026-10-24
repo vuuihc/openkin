@@ -1461,9 +1461,9 @@ export function machineDirs(device: string | undefined, path: string): Promise<M
 
 /** The branches one repository has, as one machine sees them. */
 export type MachineRepoBranches = {
-  /** The repository as that machine canonicalised it — ask the next question in
-   * these words, not in the words that were typed. */
-  repo: string;
+  /** The repository spelled as a remote that machine will fetch — ask the next
+   * question in these words, not in the words that were typed. */
+  clone_url: string;
   /** Where a session starts when nobody picks a branch. */
   default_branch?: string;
   branches?: string[];

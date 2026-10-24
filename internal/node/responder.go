@@ -187,7 +187,7 @@ func (r *Responder) repoBranches(ctx context.Context, asked worker.RepoBranchesP
 	if err != nil {
 		return worker.RepoBranchesResult{}, err
 	}
-	result := worker.RepoBranchesResult{Repo: found.Repo, DefaultBranch: found.DefaultBranch}
+	result := worker.RepoBranchesResult{CloneURL: found.CloneURL, DefaultBranch: found.DefaultBranch}
 	// The bound is applied where the answer is built rather than where the remote
 	// is read: how many branches a repository has is not this machine's to
 	// decide, but how many of them fit in one answer is.

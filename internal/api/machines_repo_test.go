@@ -156,7 +156,7 @@ func TestMachineRepoBranchesAnswerWithoutCloning(t *testing.T) {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
 	var answer struct {
-		Repo          string   `json:"repo"`
+		CloneURL      string   `json:"clone_url"`
 		DefaultBranch string   `json:"default_branch"`
 		Branches      []string `json:"branches"`
 	}
@@ -169,12 +169,52 @@ func TestMachineRepoBranchesAnswerWithoutCloning(t *testing.T) {
 	if answer.DefaultBranch != "main" {
 		t.Fatalf("default = %q, want main", answer.DefaultBranch)
 	}
-	if answer.Repo == repo {
-		t.Fatalf("repo = %q, want the machine's canonical name for it, not the words the console used", answer.Repo)
+	if answer.CloneURL != repo {
+		t.Fatalf("clone_url = %q, want the remote the console will be told to ask with", answer.CloneURL)
 	}
 	// Nothing was cloned: reading a remote's branches is not a reason to put a
 	// copy of it on somebody's disk.
 	assertNothingFetched(t, checkoutRoot)
+}
+
+// The two questions are one conversation: whatever the first answer says the
+// repository is, asking the second question with those words has to work.
+//
+// This is the shape a phone is in — it cannot see either machine's filesystem,
+// so the answer to the first question is the only name it has for the second —
+// and it is a shape that broke once, because the name that travels back was the
+// canonical one, which carries no transport.
+func TestMachineRepoBranchesAnswerIsWhatPrepareIsAskedWith(t *testing.T) {
+	h, token, deviceID, _, checkoutRoot := fetchedMachine(t)
+
+	rec := getRepo(t, h, token, deviceID, "/repo/branches?repo="+url.QueryEscape(gitOrigin(t)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("branches: status %d: %s", rec.Code, rec.Body.String())
+	}
+	var answer struct {
+		CloneURL string `json:"clone_url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &answer); err != nil {
+		t.Fatal(err)
+	}
+
+	rec = postPrepare(t, h, token, deviceID, answer.CloneURL, "alpha")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("prepare with the answer %q: status %d: %s", answer.CloneURL, rec.Code, rec.Body.String())
+	}
+	var prepared struct {
+		Path   string `json:"path"`
+		Branch string `json:"branch"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &prepared); err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Branch != "alpha" {
+		t.Fatalf("branch = %q, want alpha", prepared.Branch)
+	}
+	if !strings.HasPrefix(prepared.Path, checkoutRoot+string(filepath.Separator)) {
+		t.Fatalf("path = %q, want it under %q", prepared.Path, checkoutRoot)
+	}
 }
 
 // A repository with more branches than a picker can use is answered with the

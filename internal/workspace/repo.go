@@ -39,8 +39,15 @@ type Repo struct {
 }
 
 // Branches is every branch one remote offers.
+//
+// It carries both names for one repository, and the difference matters to a
+// caller that has to say something back: Canonical is the identity (and the
+// checkout path), while CloneURL is the only one of the two that can be handed
+// straight back to EnsureCheckout. Canonical cannot — it has no transport, so
+// re-reading it is guessing, and `host:port/owner/repo` guesses wrong.
 type Branches struct {
 	Repo          string
+	CloneURL      string
 	DefaultBranch string
 	Branches      []string
 }
@@ -104,7 +111,7 @@ func (c *Checkouts) RemoteBranches(ctx context.Context, repo string) (Branches, 
 	if len(branches) == 0 {
 		return Branches{}, fmt.Errorf("%s has no branches this machine can see", resolved.Canonical)
 	}
-	return Branches{Repo: resolved.Canonical, DefaultBranch: defaultBranch, Branches: branches}, nil
+	return Branches{Repo: resolved.Canonical, CloneURL: resolved.CloneURL, DefaultBranch: defaultBranch, Branches: branches}, nil
 }
 
 // EnsureCheckout makes one repository available under this machine's checkout

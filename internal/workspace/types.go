@@ -69,8 +69,13 @@ func (m Metadata) EffectiveCwd(fallback string) string {
 
 // Sentinel errors for workspace isolation and checkpoints.
 var (
-	ErrGitUnavailable        = errors.New("git unavailable")
-	ErrNotGit                = errors.New("not a git repository")
+	ErrGitUnavailable = errors.New("git unavailable")
+	ErrNotGit         = errors.New("not a git repository")
+	// ErrNoHead is "there is no commit here to base an isolated copy on", which
+	// is true both of a directory that is not a repository and of one that is a
+	// repository with nothing committed. They are one sentinel because they are
+	// one answer to the only question a caller asks: there is nothing to
+	// isolate from, so run in the directory itself.
 	ErrNoHead                = errors.New("repository has no HEAD")
 	ErrBareRepository        = errors.New("bare repository")
 	ErrDirtySource           = errors.New("source worktree is dirty")

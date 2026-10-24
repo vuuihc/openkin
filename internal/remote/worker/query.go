@@ -215,11 +215,17 @@ type RepoBranchesParams struct {
 
 // RepoBranchesResult is one repository's branches.
 type RepoBranchesResult struct {
-	// Repo is the repository as this machine canonicalised it. It travels back
-	// because it is what a later repo.prepare must be asked for: the console asks
-	// the second question in the words the first answer used, not in the words
-	// the person typed.
-	Repo string `json:"repo"`
+	// CloneURL is the repository spelled as a remote this machine will fetch. It
+	// travels back because it is what a later repo.prepare must be asked for:
+	// the console asks the second question in the words the first answer used,
+	// not in the words the person typed.
+	//
+	// It is the clone URL and not the canonical name on purpose. The canonical
+	// name has no transport (`github.com/owner/repo`), so a machine reading it
+	// back would have to guess one — and for a remote that is not on GitHub the
+	// guess is wrong rather than merely different: `host:port/owner/repo` reads
+	// as scp syntax, and the port becomes a path.
+	CloneURL string `json:"clone_url"`
 	// DefaultBranch is where a session starts when nobody picks one, or empty
 	// when the machine could not tell — a remote with no HEAD, or no credential
 	// to ask with.

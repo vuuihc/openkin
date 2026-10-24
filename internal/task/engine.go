@@ -1365,20 +1365,35 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	} else if useLazy {
 		// Lazy: resolve source metadata, no worktree, source_read_only turn.
 		src, err := e.workspace.ResolveSource(ctx, req.Cwd)
-		if err != nil {
+		if errors.Is(err, workspace.ErrNoHead) {
+			// Nothing here to isolate from: either there is no repository at this
+			// path, or there is one with nothing committed yet. Both are the same
+			// answer, and it is not an error — a worktree is a copy of a commit,
+			// so with no commit the directory itself is the workspace. That is
+			// exactly what `workspace_mode: shared` means when it is asked for by
+			// name.
+			//
+			// It matters most to the caller that cannot see this filesystem: a
+			// phone picks a folder out of a listing, and a folder being an
+			// ordinary folder is not something it could have known first.
+			meta = sharedWorkspace(req.Cwd)
+			t.WorkspacePolicy = string(store.WorkspacePolicyShared)
+			turnAccess = string(adapter.AccessShared)
+		} else if err != nil {
 			return store.Task{}, fmt.Errorf("resolve source: %w", err)
+		} else {
+			meta = workspace.Metadata{
+				Mode:       workspace.ResolvedWorktree,
+				SourceRoot: src.SourceRoot,
+				Root:       src.SourceRoot,
+				Cwd:        src.Cwd,
+				Scope:      src.Scope,
+				BaseOID:    src.HeadOID,
+				Branch:     src.TargetBranch,
+			}
+			t.WorkspacePolicy = string(store.WorkspacePolicyAuto)
+			turnAccess = string(adapter.AccessSourceReadOnly)
 		}
-		meta = workspace.Metadata{
-			Mode:       workspace.ResolvedWorktree,
-			SourceRoot: src.SourceRoot,
-			Root:       src.SourceRoot,
-			Cwd:        src.Cwd,
-			Scope:      src.Scope,
-			BaseOID:    src.HeadOID,
-			Branch:     src.TargetBranch,
-		}
-		t.WorkspacePolicy = string(store.WorkspacePolicyAuto)
-		turnAccess = string(adapter.AccessSourceReadOnly)
 	} else if workspaceMode == workspace.ModeShared {
 		meta, err = e.prepareWorkspace(ctx, id, req.Cwd, workspaceMode)
 		if err != nil {

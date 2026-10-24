@@ -298,7 +298,7 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
       // The repository is asked for in the words the machine answered with, not
       // the words that were typed: the machine decided what the name means on
       // itself, and this is that decision handed back.
-      const prepared = await prepareMachineRepo(device, found?.repo ?? repo.trim(), branch);
+      const prepared = await prepareMachineRepo(device, found?.clone_url ?? repo.trim(), branch);
       onPick(prepared.path);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : tr("browse.fetchFailed"));

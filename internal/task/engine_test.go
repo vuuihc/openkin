@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
@@ -863,6 +864,7 @@ type fakeWorkspaceRuntime struct {
 	treeRestores            []restoreCall
 	prepareForks            []prepareForkCall
 	prepare                 func(ctx context.Context, taskID, cwd string, requested workspace.RequestedMode) (workspace.Metadata, error)
+	resolveSource           func(ctx context.Context, cwd string) (workspace.SourceMetadata, error)
 	capture                 func(ctx context.Context, meta workspace.Metadata, taskID string, eventSeq int) (workspace.Checkpoint, error)
 	restore                 func(ctx context.Context, meta workspace.Metadata, taskID string, cp workspace.Checkpoint) error
 	prepareFork             func(ctx context.Context, newTaskID string, source workspace.Metadata, cp workspace.Checkpoint) (workspace.Metadata, error)
@@ -912,6 +914,9 @@ type prepareForkCall struct {
 }
 
 func (f *fakeWorkspaceRuntime) ResolveSource(ctx context.Context, cwd string) (workspace.SourceMetadata, error) {
+	if f.resolveSource != nil {
+		return f.resolveSource(ctx, cwd)
+	}
 	targetBranch, err := f.CurrentBranch(ctx, cwd)
 	if err != nil {
 		return workspace.SourceMetadata{}, err
@@ -1373,5 +1378,111 @@ func TestCreateInsertFailureCleansWorktree(t *testing.T) {
 	rt.mu.Unlock()
 	if n != 1 {
 		t.Fatalf("cleanups=%d", n)
+	}
+}
+
+// lazyEngine is an engine whose agent can be told about its workspace lazily,
+// which is the path a task takes when it is created in a directory without an
+// explicit workspace_mode. The stock harness registers agents without that
+// capability, so the path has to be built here to be exercised at all.
+func lazyEngine(t *testing.T, ws WorkspaceRuntime) *Engine {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	reg, err := agent.NewRegistry(agent.Entry{
+		ID: "claude-code", Name: "Claude Code", Kind: agent.KindCLI,
+		Caps:   []agent.Capability{agent.CapabilityRun, agent.CapabilityLazyWorkspace},
+		Runner: &fakeAdapter{events: successEvents()},
+		LazyWorkspace: func(context.Context) agent.LazyWorkspaceSupport {
+			return agent.LazyWorkspaceSupport{Supported: true}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(st, reg, NewBus(), 1)
+	e.SetWorkspaceRuntime(ws)
+	t.Cleanup(e.Close)
+	if err := e.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// What a directory does with a task depends on whether there is a commit in it
+// to isolate from, and only that. Both answers have to be reachable from the
+// same request, because the caller that picks the directory is a phone looking
+// at a list of names: whether a folder is a repository, and whether anything
+// has been committed in it, is not something it could have known first.
+func TestCreatePicksAWorkspaceFromWhatIsInTheDirectory(t *testing.T) {
+	noHead := errors.New("no commit here")
+	cases := []struct {
+		name        string
+		resolve     func(context.Context, string) (workspace.SourceMetadata, error)
+		wantPolicy  string
+		wantFailure error
+	}{
+		{
+			// A plain folder, or a repository with nothing committed yet: there
+			// is no commit to copy, so the directory itself is the workspace.
+			name: "nothing to isolate from",
+			resolve: func(context.Context, string) (workspace.SourceMetadata, error) {
+				return workspace.SourceMetadata{}, workspace.ErrNoHead
+			},
+			wantPolicy: string(store.WorkspacePolicyShared),
+		},
+		{
+			name: "a source to isolate from",
+			resolve: func(_ context.Context, cwd string) (workspace.SourceMetadata, error) {
+				return workspace.SourceMetadata{
+					Cwd: cwd, SourceRoot: cwd, Scope: ".", TargetBranch: "main",
+					HeadOID: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+				}, nil
+			},
+			wantPolicy: string(store.WorkspacePolicyAuto),
+		},
+		{
+			// A directory that cannot be read at all is a real failure and stays
+			// one: the fallback is for having nothing to isolate from, not for
+			// any reason resolving a source did not work.
+			name: "a directory that cannot be read",
+			resolve: func(context.Context, string) (workspace.SourceMetadata, error) {
+				return workspace.SourceMetadata{}, noHead
+			},
+			wantFailure: noHead,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := lazyEngine(t, &fakeWorkspaceRuntime{resolveSource: tc.resolve})
+			dir := t.TempDir()
+
+			created, err := e.Create(context.Background(),
+				CreateRequest{Agent: "claude-code", Cwd: dir, Prompt: "work here"})
+			if tc.wantFailure != nil {
+				if !errors.Is(err, tc.wantFailure) {
+					t.Fatalf("err = %v, want the resolve failure", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+			if created.WorkspacePolicy != tc.wantPolicy {
+				t.Fatalf("policy = %q, want %q", created.WorkspacePolicy, tc.wantPolicy)
+			}
+			// Either way the work happens in the directory that was picked: a
+			// worktree is made from it later, not instead of it.
+			resolved, err := filepath.EvalSymlinks(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if created.ExecutionCwd != resolved && created.ExecutionCwd != dir {
+				t.Fatalf("cwd = %q, want %q", created.ExecutionCwd, resolved)
+			}
+		})
 	}
 }
