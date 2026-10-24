@@ -404,16 +404,101 @@ func TestReconcileLeavesARecentlyAnsweredRemoteRowAlone(t *testing.T) {
 	}
 }
 
-// A machine this Hub cannot reach for directions — no anchor, no roots — still
-// produces a failure on the row rather than an empty panel: the person is owed
-// the reason, and "we could not ask" is one.
-func TestATaskWhoseCheckoutCannotBeLocatedStillSaysWhy(t *testing.T) {
+// An answer that says "I did not look" without saying why still has to read as a
+// sentence: the reason is what the panel prints under the card, and an empty one
+// leaves a red line with nothing after it.
+func TestAMachineThatSaysNothingAboutWhyStillReadsAsASentence(t *testing.T) {
 	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
 	ctx := context.Background()
 	remoteTask(t, st, "github.com/owner/app", "feature/scratch")
+	svc.SetMachines(&fakeMachines{
+		runsElsewhere: true,
+		dir:           "/Users/x/work/app",
+		answer: worker.PRObserveResult{
+			Path: "/Users/x/work/app", Repo: "github.com/owner/app", Branch: "feature/scratch",
+		},
+	})
+
+	target, _, err := svc.TargetForTask(ctx, "remote-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, err := svc.Observe(ctx, target)
+	if err == nil {
+		t.Fatal("an answer with no observation was taken for one")
+	}
+	if strings.TrimSpace(cached.LastError) == "" {
+		t.Fatalf("the row carries an empty reason: %+v", cached)
+	}
+	if !strings.Contains(cached.LastError, "node-1") {
+		t.Errorf("last error = %q, want it to name the machine", cached.LastError)
+	}
+}
+
+// The pass converges on a checkout that has moved on.
+//
+// A remote row is asked about a directory, not a branch, so the row it was asked
+// about is not the row the answer goes to. Without the watch set's rule the old
+// row is due forever — its clocks never move again — and every tick spends one
+// remote read on a branch nothing can be told about, holding a slot in a batch
+// that is what keeps every live pull request fresh.
+func TestThePassStopsAskingAboutABranchTheCheckoutHasLeft(t *testing.T) {
+	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	ctx := context.Background()
+	remoteTask(t, st, "github.com/owner/app", "feature/old")
 	machines := &fakeMachines{
 		runsElsewhere: true,
-		dirErr:        errors.New("no workspace anchor for this task"),
+		dir:           "/Users/x/work/app",
+		answer: worker.PRObserveResult{
+			Path: "/Users/x/work/app", Repo: "github.com/owner/app", Branch: "feature/new",
+			Observed: true, Source: "gh", Number: 7, State: "open",
+		},
+	}
+	svc.SetMachines(machines)
+
+	old := time.Now().Add(-24 * time.Hour).UnixMilli()
+	if err := st.RecordPRObservation(ctx, store.PRObservation{
+		Repo: "github.com/owner/app", HeadBranch: "feature/old", TaskID: "remote-task",
+		Number: number(42), State: "open", Source: SourceGH,
+		ObservedAt: &old, AttemptedAt: old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for pass := 1; pass <= 3; pass++ {
+		if _, err := svc.Reconcile(ctx, 25); err != nil {
+			t.Fatalf("pass %d: %v", pass, err)
+		}
+	}
+	if len(machines.asked) != 1 {
+		t.Fatalf("the machine was asked %d times over three passes, want once", len(machines.asked))
+	}
+	row, err := st.GetTask(ctx, "remote-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.WorkspaceBranch != "feature/new" {
+		t.Errorf("the task row says %q, want the branch the checkout moved to", row.WorkspaceBranch)
+	}
+}
+
+// A workspace the machine cannot place is refused, not guessed at.
+//
+// The task's original path is not a fallback here. A task whose anchor that
+// machine cannot resolve is a task whose turns are refused outright, so reading
+// the path it was created with would report on a directory no turn can run in —
+// and where some other checkout happens to sit at the same path, the card would
+// be about that one, then written onto the task by noteWhereTheWorkMoved. The
+// person is owed the reason instead, and it is the sentence the refused turn
+// itself gets.
+func TestAWorkspaceTheMachineCannotPlaceIsNotReadAnyway(t *testing.T) {
+	svc, st := newTestService(t, &fakeRunner{name: SourceAnonymous})
+	ctx := context.Background()
+	remoteTask(t, st, "github.com/owner/app", "feature/scratch")
+	const refusal = "cannot resolve workspace anchor: git remote github.com/owner/app"
+	machines := &fakeMachines{
+		runsElsewhere: true,
+		dirErr:        errors.New(refusal),
 		answer: worker.PRObserveResult{
 			Path: "/Users/x/work/app", Repo: "github.com/owner/app", Branch: "feature/scratch",
 			Observed: true, Source: "gh", Number: 42,
@@ -425,11 +510,27 @@ func TestATaskWhoseCheckoutCannotBeLocatedStillSaysWhy(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("TargetForTask = %+v, %v, %v", target, ok, err)
 	}
-	if target.Dir != "/Users/x/work/app" {
-		t.Errorf("directory = %q, want the task's own cwd as the fallback", target.Dir)
+	if target.Dir != "" {
+		t.Errorf("directory = %q, want none: this machine cannot place the workspace", target.Dir)
 	}
-	if _, err := svc.Observe(ctx, target); err != nil {
-		t.Fatalf("Observe: %v", err)
+	if !strings.Contains(target.DirReason, refusal) {
+		t.Errorf("reason = %q, want the resolution failure", target.DirReason)
+	}
+
+	if _, err := svc.Observe(ctx, target); err == nil {
+		t.Fatal("the read succeeded, so the machine was asked about a workspace it cannot place")
+	} else if !strings.Contains(err.Error(), refusal) {
+		t.Fatalf("err = %v, want the resolution failure", err)
+	}
+	if len(machines.asked) != 0 {
+		t.Fatalf("questions that reached the machine: %+v", machines.asked)
+	}
+	row, ok, err := st.GetPRObservation(ctx, "github.com/owner/app", "feature/scratch")
+	if err != nil || !ok {
+		t.Fatalf("row = %+v ok=%v err=%v", row, ok, err)
+	}
+	if !strings.Contains(row.LastError, refusal) {
+		t.Fatalf("last_error = %q, want the reason on the row the panel reads", row.LastError)
 	}
 }
 

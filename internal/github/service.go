@@ -75,6 +75,12 @@ type Target struct {
 	// Dir is that checkout's directory on that machine. Unused for a local
 	// target, whose repository and branch are already resolved.
 	Dir string
+	// DirReason is why the checkout could not be located on Device, set instead
+	// of Dir when the task has a workspace identity that machine cannot place.
+	// The read is refused with it rather than pointed at the task's original
+	// path, which is a directory no turn can run in and may be a different
+	// checkout with the same name.
+	DirReason string
 }
 
 // Machines is the Hub's own view of the paired machines, as this package needs
@@ -388,12 +394,17 @@ type observeKey struct {
 	// and the caller's budget does not enter into it — that machine's own
 	// credentials make the read, and its own address pays for it.
 	device, dir string
+	// reason stands in for dir when there is no directory to ask about: the
+	// machine cannot place the task's workspace, and the refusal is the whole
+	// question. It is part of the identity so that two such tasks on one machine
+	// do not share an answer about one of their workspaces.
+	reason string
 }
 
 // observeKeyFor is the identity of the question one target asks.
 func observeKeyFor(t Target, maySpendAnonymous bool) observeKey {
 	if t.Device != "" {
-		return observeKey{device: t.Device, dir: t.Dir}
+		return observeKey{device: t.Device, dir: t.Dir, reason: t.DirReason}
 	}
 	return observeKey{repo: t.Repo.Canonical(), branch: t.Branch, maySpend: maySpendAnonymous}
 }
@@ -533,6 +544,14 @@ func (s *Service) observeOnMachine(ctx context.Context, t Target, askedAt time.T
 	if s.machines == nil {
 		return store.PRObservation{}, errors.New("no machines are paired with this daemon")
 	}
+	if t.DirReason != "" {
+		// Refused, not guessed. The machine cannot place the workspace this
+		// task's turns run in, so there is no checkout whose pull request this
+		// could be — and the sentence is the one the refused turn itself gets,
+		// so the panel and the transcript say the same thing.
+		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID,
+			errors.New(t.DirReason), askedAt)
+	}
 	if t.Dir == "" {
 		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID,
 			fmt.Errorf("%s did not say which directory to read", t.Device), askedAt)
@@ -542,7 +561,16 @@ func (s *Service) observeOnMachine(ctx context.Context, t Target, askedAt time.T
 	var answer worker.PRObserveResult
 	err := s.machines.Ask(askCtx, t.Device, worker.QueryPRObserve, worker.PRObserveParams{Path: t.Dir}, &answer)
 	if err == nil && !answer.Observed {
-		err = errors.New(strings.TrimSpace(answer.Reason))
+		// The reason is what the row's last_error will say, and the console prints
+		// it under the card. An answer that says "I did not look" and nothing else
+		// is one this Hub cannot render — every path in this repo's own node sets a
+		// reason, but the answer is a wire value and an empty sentence on screen is
+		// worse than a plain one.
+		reason := strings.TrimSpace(answer.Reason)
+		if reason == "" {
+			reason = fmt.Sprintf("%s did not say why it could not read the pull request", t.Device)
+		}
+		err = errors.New(reason)
 	}
 	if err != nil {
 		return s.failedAttempt(ctx, t.Repo.Canonical(), t.Branch, t.TaskID, err, askedAt)
@@ -711,19 +739,34 @@ func (s *Service) TargetForTask(ctx context.Context, taskID string) (Target, boo
 // have reported no roots — and that is a machine that cannot be asked, not a
 // task with no repository: the target still exists, and the failure is what the
 // observation attempt will report.
+//
+// The directory itself is resolved the way the turn resolves it (see
+// Engine.dispatchCwd), because the checkout whose pull request this panel is
+// about is the one the turn runs in. That means the two ends are kept apart:
+// a task with no workspace identity runs at the path it was created with, and
+// that path is the answer here too; a task whose anchor this machine cannot
+// place is a turn that would be refused outright, and reading the created path
+// instead would draw a card about whatever happens to sit there — then write it
+// onto the task row through noteWhereTheWorkMoved.
 func (s *Service) targetOnMachine(ctx context.Context, t store.Task) (Target, bool, error) {
 	device := strings.TrimSpace(t.ExecutingDeviceID)
 	if device == "" {
 		return Target{}, false, nil
 	}
-	target := Target{TaskID: t.ID, Device: device, Dir: t.EffectiveCwd()}
+	target := Target{TaskID: t.ID, Device: device}
 	if t.WorkspaceRepo != "" && t.WorkspaceBranch != "" {
 		if repo, ok := ParseCanonical(t.WorkspaceRepo); ok {
 			target.Repo, target.Branch = repo, t.WorkspaceBranch
 		}
 	}
-	if cwd, remote, err := s.machines.RemoteWorkspaceCwd(ctx, t); err == nil && remote && strings.TrimSpace(cwd) != "" {
+	cwd, remote, err := s.machines.RemoteWorkspaceCwd(ctx, t)
+	switch {
+	case err != nil:
+		target.DirReason = err.Error()
+	case remote && strings.TrimSpace(cwd) != "":
 		target.Dir = cwd
+	default:
+		target.Dir = t.EffectiveCwd()
 	}
 	return target, true, nil
 }
