@@ -3172,7 +3172,7 @@ export interface operations {
                 "application/json": {
                     /** @description One line, and required: `gh pr create` opens an editor without one, and the machine has none. At most 256 characters, counted the way GitHub counts them, so a title written in Chinese is not refused for its length in bytes. A control character in it is a 400. */
                     title?: string;
-                    /** @description Markdown, at most 64 KiB. Newlines are its substance and are not refused. */
+                    /** @description Markdown, at most 32 KiB. Newlines are its substance and are not refused. The bound is the query frame's rather than GitHub's: these words travel inside one, where a byte can cost six once encoded, so a larger body would be accepted here and then refused by the frame with a sentence naming no field. */
                     body?: string;
                 };
             };

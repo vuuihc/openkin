@@ -358,3 +358,41 @@ func TestAPublishWaitsForThePushAndTheForgeCallInsideIt(t *testing.T) {
 			" half-done publish, and one number for both would hide that", d)
 	}
 }
+
+// A publish's words have to survive the frame that carries them.
+//
+// Every field is filled with the byte that costs the most to encode — `<`, which
+// encoding/json turns into `<` — because the bounds the machine checks the
+// words against are the words, not their encoding, and the two are six times
+// apart at the worst. A body at MaxPRBody that passes ValidatePRWords and then
+// cannot be encoded is the failure this pins: the person is told their words are
+// fine, and the refusal that arrives names no field, after the console has
+// already offered them a tap that starts a branch.
+func TestAPublishsWordsFitInOneFrame(t *testing.T) {
+	// The three fields a publish carries, each at its own bound and filled with the
+	// byte that costs the most to encode. The path is the one field with a shape of
+	// its own: it has to be absolute, so its worst case is a slash and then 4095 of
+	// whatever follows.
+	const worst = "<"
+	params := worker.PRPublishParams{
+		Path:  "/" + strings.Repeat(worst, worker.MaxCwd-1),
+		Title: strings.Repeat(worst, worker.MaxPRTitle),
+		Body:  strings.Repeat(worst, worker.MaxPRBody),
+	}
+	if err := params.Validate(); err != nil {
+		t.Fatalf("the largest publish a person can describe does not validate: %v", err)
+	}
+	raw, err := encodeParams(params)
+	if err != nil {
+		t.Fatalf("words this machine accepts are refused by the frame that carries"+
+			" them: %v", err)
+	}
+	frame, err := worker.NewFrame("query", worker.Query{ID: "q-1", Method: worker.QueryPRPublish, Params: raw})
+	if err != nil {
+		t.Fatalf("the question does not fit in a frame: %v", err)
+	}
+	if len(frame.Data) > worker.MaxFrameBytes {
+		t.Fatalf("a publish encodes to %d bytes, past the frame's %d",
+			len(frame.Data), worker.MaxFrameBytes)
+	}
+}

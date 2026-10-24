@@ -5,7 +5,17 @@ import {
   bodyBytes,
   publishWordsRefusal,
 } from "./publishWords";
-import { DEFAULT_LOCALE, setLocale, t } from "../i18n";
+import { en, zh } from "../i18n";
+
+/** The sentence one catalog holds for a dotted key, or undefined. */
+function at(catalog: unknown, path: string): unknown {
+  return path
+    .split(".")
+    .reduce<unknown>(
+      (cur, part) => (cur as Record<string, unknown> | undefined)?.[part],
+      catalog,
+    );
+}
 
 describe("publishWordsRefusal", () => {
   it("sends the words the sheet was opened with", () => {
@@ -21,20 +31,26 @@ describe("publishWordsRefusal", () => {
     // escape below it starts a branch and then meets the refusal.
     const key = publishWordsRefusal({ title: "t", body: "x".repeat(MAX_BODY_BYTES + 1) });
     expect(key).toBe("publish.bodyTooLong");
-    for (const locale of ["en", "zh"] as const) {
-      setLocale(locale);
-      expect(t(key), locale).not.toBe(key);
-      expect(t(key), locale).toContain("64");
+    // Read out of each catalog rather than through `t()`: `t` falls back to the
+    // other language before it gives up, so it answers with a sentence even when
+    // the key is missing from one of them — which is the bug this is about.
+    for (const [name, catalog] of [
+      ["en", en],
+      ["zh", zh],
+    ] as const) {
+      const sentence = at(catalog, key);
+      expect(typeof sentence, name).toBe("string");
+      expect(sentence, name).not.toBe(key);
+      expect(String(sentence), name).toContain("32");
     }
-    setLocale(DEFAULT_LOCALE);
   });
 });
 
 describe("bodyBytes", () => {
   it("counts bytes rather than UTF-16 units", () => {
-    // 30,000 Chinese characters are 30,000 units and 90,000 bytes: a check on
+    // 20,000 Chinese characters are 20,000 units and 60,000 bytes: a check on
     // `.length` would let through the one body this is here to stop.
-    const body = "标".repeat(30000);
+    const body = "标".repeat(20000);
     expect(body.length).toBeLessThan(MAX_BODY_BYTES);
     expect(bodyBytes(body)).toBeGreaterThan(MAX_BODY_BYTES);
     expect(publishWordsRefusal({ title: "t", body })).toBe("publish.bodyTooLong");

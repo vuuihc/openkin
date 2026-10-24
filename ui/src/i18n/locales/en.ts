@@ -643,10 +643,13 @@ const en: MessageTree = {
     bodyLabel: "Description",
     bodyPlaceholder: "Filled in from the agent's last reply; edit it as you like.",
     needsTitle: "A pull request needs a title",
-    bodyTooLong: "The description is past the 64 KiB a publish can carry",
+    bodyTooLong: "The description is past the 32 KiB a publish can carry",
     publishing: "Publishing…",
     published: "Published #{number}",
-    pushedNoPR: "The branch is on the remote, but no pull request was opened for it.",
+    // "A new one" rather than "one": the commonest way this ending happens is
+      // that a pull request for this branch already existed, and the machine's own
+      // sentence underneath says so. A headline denying one would be wrong there.
+      pushedNoPR: "The branch is on the remote, but no new pull request was opened for it.",
     blocked: "Nothing was pushed ({code}).",
     // One line per refusal the machine can name. The machine's own sentence is
     // shown underneath: it carries the branch and the files, which these cannot.

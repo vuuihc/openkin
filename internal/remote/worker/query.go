@@ -171,19 +171,29 @@ const (
 	MaxWorkspaceFile = 128 << 10
 	// MaxPRTitle and MaxPRBody bound the words that travel with a publish.
 	//
-	// They are GitHub's own bounds rather than the frame's: a title is one line
-	// and a body is a message, both written by a person before they are sent, and
-	// a pull request that GitHub would reject for length should be refused here,
-	// where the answer can still say which field it was. The body is counted in
-	// bytes, so a body of multi-byte text is bounded a little sooner than GitHub
-	// would bound it — which refuses a request that might have been accepted, and
-	// never accepts one that would have been refused. The title is counted in
-	// characters instead, because GitHub counts it that way and because 256
-	// characters is a title a person writing Chinese or Japanese reaches: a byte
-	// bound there would refuse the title, not the length. The frame cannot be
-	// overflowed by either: 256 characters of four-byte runes is a kilobyte.
+	// A title is one line and a body is a message, both written by a person, and a
+	// pull request GitHub would reject for length should be refused here, where the
+	// answer can still say which field it was. The title is counted in characters,
+	// because GitHub counts it that way and because 256 characters is a title a
+	// person writing Chinese or Japanese reaches: a byte bound there would refuse
+	// the title, not the length. The body is counted in bytes, so a body of
+	// multi-byte text is bounded a little sooner than GitHub would bound it — which
+	// refuses a request that might have been accepted, and never accepts one that
+	// would have been refused.
+	//
+	// The body's number is the frame's rather than GitHub's, on the reasoning
+	// MaxWorkspaceFile gives: the words are carried *inside* a query's params, and
+	// those are bounded by MaxQueryParams once encoded, where one byte of input
+	// costs at most six (a control character, or one of the three HTML characters
+	// encoding/json escapes, becomes \uXXXX). 64 KiB of body would be 384 KiB
+	// encoded, so a body that passed the check below could still be refused by
+	// encodeParams — with a sentence naming no field, after the person had already
+	// been told their words were fine. At 32 KiB the encoded body is 192 KiB, and
+	// the path and title beside it (24 KiB and 6 KiB at their own worst) cannot
+	// reach the remaining 64. TestAPublishsWordsFitInOneFrame holds that arithmetic
+	// still.
 	MaxPRTitle = 256
-	MaxPRBody  = 64 << 10
+	MaxPRBody  = 32 << 10
 )
 
 // Query is one question about the machine it is sent to.

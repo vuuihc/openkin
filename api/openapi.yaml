@@ -1068,8 +1068,12 @@ paths:
                 body:
                   type: string
                   description: >-
-                    Markdown, at most 64 KiB. Newlines are its substance and are
-                    not refused.
+                    Markdown, at most 32 KiB. Newlines are its substance and are
+                    not refused. The bound is the query frame's rather than
+                    GitHub's: these words travel inside one, where a byte can
+                    cost six once encoded, so a larger body would be accepted
+                    here and then refused by the frame with a sentence naming no
+                    field.
       responses:
         "200":
           description: >-

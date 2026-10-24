@@ -633,10 +633,12 @@ const zh = {
     bodyLabel: "正文",
     bodyPlaceholder: "已预填 agent 的最后一条回复，可以随意修改。",
     needsTitle: "Pull Request 需要一个标题",
-    bodyTooLong: "正文超过了发布能带的 64 KiB",
+    bodyTooLong: "正文超过了发布能带的 32 KiB",
     publishing: "正在发布…",
     published: "已发布 #{number}",
-    pushedNoPR: "分支已经在远端，但没有为它开成 Pull Request。",
+    // 「新的」而不是「一个」：这种结局最常见的成因是这个分支本来就已经有一个
+    // Pull Request，机器自己那句话会说明；说成「没有开成」在那里就是错的。
+    pushedNoPR: "分支已经在远端，但没有为它开成新的 Pull Request。",
     blocked: "没有推上去（{code}）。",
     // 机器能报出来的每一种拒绝各一行。机器自己的那句话会跟在下
     // 面：分支名和文件名单只有它知道，这两行写不出来。

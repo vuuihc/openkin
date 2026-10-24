@@ -9,12 +9,15 @@
  *
  * The two bounds are counted differently on purpose. A title is characters, which
  * is GitHub's own unit and what the wire counts, so a title written in Chinese is
- * not refused for its length in bytes. A description is bytes, which is what a
- * `gh` invocation can carry. Both are the numbers in `internal/remote/worker`
- * (`MaxPRTitle`, `MaxPRBody`); a change there is a change here.
+ * not refused for its length in bytes. A description is bytes, which is what the
+ * question carrying it can hold. Both are the numbers in `internal/remote/worker`
+ * (`MaxPRTitle`, `MaxPRBody`); a change there is a change here, and the body's
+ * number is that side's frame arithmetic rather than GitHub's limit — see the
+ * comment on `MaxPRBody`, and `TestAPublishsWordsFitInOneFrame`, which is what
+ * keeps the two numbers equal.
  */
 export const MAX_TITLE_CHARS = 256;
-export const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_BODY_BYTES = 32 * 1024;
 
 export type PublishWords = {
   title: string;
