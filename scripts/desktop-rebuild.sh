@@ -6,7 +6,8 @@
 #   make desktop-rebuild
 #
 # Unlike `make desktop-dev` (backend only + Electron), this always:
-#   1. builds the Vite UI into web/dist (embedded by Go)
+#   1. installs ui dependencies when they changed, then builds the Vite UI
+#      into web/dist (embedded by Go)
 #   2. builds ./kin with the new embed
 #   3. refreshes the launchd node's own copy of kin, when one is installed
 #   4. stops any daemon on :7777 (desktop otherwise attaches to the old one)
@@ -153,8 +154,17 @@ kill_desktop_dev() {
 echo "==> [1/5] build UI (ui → web/dist)"
 (
   cd "$ROOT/ui"
-  if [[ ! -d node_modules ]]; then
-    echo "    npm install (first run)..."
+  # Install when there is no tree at all, or when the declared dependencies are
+  # newer than the tree installed from them. The second check earns its keep: a
+  # checkout whose node_modules predates a `package.json` change fails in
+  # `tsc --noEmit` below, and it reads as a type error in whatever file first
+  # needs the missing package rather than as a stale install. (Seen for real:
+  # `@types/node` added by the design-system work, reported as
+  # `Cannot find module 'node:fs'` in a test file.)
+  stamp=node_modules/.package-lock.json
+  if [[ ! -d node_modules ]] || [[ ! -f "$stamp" ]] \
+    || [[ package.json -nt "$stamp" ]] || [[ package-lock.json -nt "$stamp" ]]; then
+    echo "    npm install (dependencies changed)..."
     npm install
   fi
   npm run build
