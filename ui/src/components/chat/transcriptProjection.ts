@@ -14,6 +14,8 @@ export type ToolStep = {
   status: "running" | "done" | "error";
   input?: unknown;
   output?: string;
+  /** Source event seq, when an event is behind this step. */
+  seq?: number;
 };
 
 export type NoteStep = {
@@ -23,6 +25,8 @@ export type NoteStep = {
   model?: string;
   text: string;
   status: "running" | "done" | "error";
+  /** Source event seq, when an event is behind this step. */
+  seq?: number;
 };
 
 export type ProgressStep = ToolStep | NoteStep;
@@ -54,8 +58,32 @@ export type ChatItem =
 
 type ProcessRunItem = Extract<ChatItem, { kind: "message" | "progress" }>;
 
+/**
+ * The event seq range a turn was built from, when it has one.
+ *
+ * `toSeq` runs to the event before the next turn begins, so every event lands in
+ * exactly one turn: the events between two turns were produced by the earlier
+ * one. Read it as "the events this turn's visible content came from" rather than
+ * as an authority. A turn whose items all came from seq-less events (a streamed
+ * preview) has no range; one whose first item has no seq starts later than the
+ * turn really did; and the last turn has no next turn to close it, so it ends at
+ * the newest event any of its items came from — a step is anchored at the event
+ * that opened it, so a trailing result of the newest call can sit outside it.
+ *
+ * A round — what the user asked for and everything done about it — is a user
+ * turn plus the agent turn after it, and its range is those two turns' ranges
+ * together. That union is the boundary to read when asking "what did this round
+ * change": work that the chat column never showed (a subagent's file tools, a
+ * filtered event) produces no item at all, so it falls in the gap and belongs to
+ * whichever turn the gap was closed onto rather than to the item it is nearest.
+ */
+export type TurnSeqRange = {
+  fromSeq?: number;
+  toSeq?: number;
+};
+
 /** Visual grouping: one user bubble, or one agent column (single avatar). */
-export type Turn =
+export type Turn = (
   | { kind: "user"; item: Extract<ChatItem, { kind: "message" }> }
   | {
       kind: "agent";
@@ -67,7 +95,30 @@ export type Turn =
   | {
       kind: "standalone";
       item: Extract<ChatItem, { kind: "error" | "meta" }>;
-    };
+    }
+) &
+  TurnSeqRange;
+
+/**
+ * The seq range a chat item came from: a message is its own seq, a progress box
+ * spans the steps in it. Null when nothing behind the item carried a seq.
+ */
+export function chatItemSeqRange(item: ChatItem): { from: number; to: number } | null {
+  if (item.kind === "message") {
+    return typeof item.seq === "number" ? { from: item.seq, to: item.seq } : null;
+  }
+  if (item.kind === "progress") {
+    let from = Infinity;
+    let to = -Infinity;
+    for (const step of item.steps) {
+      if (typeof step.seq !== "number") continue;
+      if (step.seq < from) from = step.seq;
+      if (step.seq > to) to = step.seq;
+    }
+    return to >= from ? { from, to } : null;
+  }
+  return null;
+}
 
 /**
  * Project raw task events into the chat transcript model used by ChatStream.
@@ -82,6 +133,9 @@ export function buildChatItems(
 ): ChatItem[] {
   const items: ChatItem[] = [];
   let streamBuf = "";
+  // The seq the current streamed buffer started at: a note built from many
+  // partial chunks has only this one event to be anchored to.
+  let streamFromSeq = 0;
   let streamSpeaker = hostSpeaker;
   let streamModel = normalizeModel(hostModel);
   let streamKey = "stream";
@@ -112,6 +166,7 @@ export function buildChatItems(
         }
       }
       streamBuf = "";
+      streamFromSeq = 0;
       streamNoteKey = null;
       streamProgress = false;
       streamRole = "";
@@ -127,11 +182,26 @@ export function buildChatItems(
         if (note) {
           note.text = streamBuf;
           note.status = progressStatus;
+          if (note.seq === undefined && streamFromSeq) note.seq = streamFromSeq;
         } else {
-          pushNote(streamSpeaker, streamModel, streamBuf, streamKey, progressStatus);
+          pushNote(
+            streamSpeaker,
+            streamModel,
+            streamBuf,
+            streamKey,
+            progressStatus,
+            streamFromSeq || undefined,
+          );
         }
       } else {
-        pushNote(streamSpeaker, streamModel, streamBuf, streamKey, progressStatus);
+        pushNote(
+          streamSpeaker,
+          streamModel,
+          streamBuf,
+          streamKey,
+          progressStatus,
+          streamFromSeq || undefined,
+        );
       }
     } else {
       progressRef.current = null;
@@ -150,6 +220,7 @@ export function buildChatItems(
       });
     }
     streamBuf = "";
+    streamFromSeq = 0;
     streamNoteKey = null;
     streamRole = "";
   };
@@ -198,6 +269,7 @@ export function buildChatItems(
       model,
       text,
       status: "running",
+      seq,
     };
     ensureProgress(hostSpeaker).steps.push(note);
     planNotes.set(speaker, note);
@@ -209,6 +281,7 @@ export function buildChatItems(
     text: string,
     key: string,
     status: NoteStep["status"],
+    seq?: number,
   ) => {
     const prog = ensureProgress(hostSpeaker);
     const last = prog.steps[prog.steps.length - 1];
@@ -249,6 +322,7 @@ export function buildChatItems(
       model,
       text,
       status,
+      seq,
     });
   };
 
@@ -276,7 +350,13 @@ export function buildChatItems(
   const upsertTool = (id: string, patch: Partial<ToolStep> & { name: string; speaker: string }) => {
     const existing = toolById.get(id);
     if (existing) {
-      Object.assign(existing, patch);
+      // A step keeps the seq of the event that opened it. Letting the result
+      // patch move it would drag the step — and the seq range of the turn it
+      // sits in — into whatever turn the result arrived in, which for an
+      // interrupted call is a different one.
+      const { seq, ...rest } = patch;
+      Object.assign(existing, rest);
+      if (existing.seq === undefined) existing.seq = seq;
       return;
     }
     const item: ToolStep = {
@@ -289,6 +369,7 @@ export function buildChatItems(
       status: patch.status ?? "running",
       input: patch.input,
       output: patch.output,
+      seq: patch.seq,
     };
     toolById.set(id, item);
     ensureProgress(hostSpeaker).steps.push(item);
@@ -357,6 +438,7 @@ export function buildChatItems(
           streamNoteKey = null;
           const legacy = parseLegacyToolDump(text, sp, model, `legacy-${ev.seq}`);
           if (legacy) {
+            legacy.seq = ev.seq;
             ensureProgress(hostSpeaker).steps.push(legacy);
             toolById.set(legacy.key, legacy);
           }
@@ -379,6 +461,7 @@ export function buildChatItems(
             if (!streamBuf) {
               // Opening a progress stream closes nothing else; stays in box.
               streamNoteKey = messageKey || `note-s-${ev.seq}`;
+              streamFromSeq = ev.seq;
             }
             streamBuf += text;
             streamSpeaker = sp;
@@ -386,12 +469,13 @@ export function buildChatItems(
             streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = true;
             streamRole = role;
-            pushNote(sp, model, streamBuf, streamNoteKey ?? streamKey, "running");
+            pushNote(sp, model, streamBuf, streamNoteKey ?? streamKey, "running", ev.seq);
           } else {
             // User-facing stream closes the progress group.
             if (!streamBuf) {
               progressRef.current = null;
               streamNoteKey = null;
+              streamFromSeq = ev.seq;
             }
             streamBuf += text;
             streamSpeaker = sp;
@@ -433,6 +517,7 @@ export function buildChatItems(
               active.steps = active.steps.filter((step) => step.key !== streamNoteKey);
             }
             streamBuf = "";
+            streamFromSeq = 0;
             if (!asProgress) progressRef.current = null;
           } else {
             flushStream();
@@ -441,7 +526,7 @@ export function buildChatItems(
           if (!text.trim()) break;
           if (asProgress) {
             if (!messageKey || !replaceProgressNote(messageKey, sp, model, text)) {
-              pushNote(sp, model, text, messageKey || `note-${ev.seq}`, "done");
+              pushNote(sp, model, text, messageKey || `note-${ev.seq}`, "done", ev.seq);
             }
           } else {
             progressRef.current = null;
@@ -485,6 +570,7 @@ export function buildChatItems(
           summary,
           status: "running",
           input: p.input ?? content?.input ?? content,
+          seq: ev.seq,
         });
         break;
       }
@@ -509,6 +595,7 @@ export function buildChatItems(
           status: ok ? "done" : "error",
           ...(p.input !== undefined ? { input: p.input } : {}),
           output: typeof p.output === "string" ? p.output : undefined,
+          seq: ev.seq,
         });
         break;
       }
@@ -752,6 +839,7 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
           model: item.model,
           text: item.text,
           status: "done",
+          seq: item.seq,
         });
       }
     }
@@ -820,7 +908,59 @@ export function groupIntoTurns(items: ChatItem[], hostSpeaker = "", hostModel?: 
       items: [item],
     });
   }
+  assignTurnSeqRanges(turns, items);
   return turns;
+}
+
+/**
+ * Fill in each turn's seq range from the items it holds, then close it at the
+ * event before the next turn starts.
+ *
+ * The closing pass is why this cannot be a field on the item: a turn's last
+ * item is rarely its last event (the result of a tool, the end of a stream), and
+ * those events are the turn's too. Taking them from the next turn's start is the
+ * only boundary the projection actually knows.
+ */
+function assignTurnSeqRanges(turns: Turn[], items: ChatItem[]): void {
+  const ranges = new Map<ChatItem, { from: number; to: number }>();
+  for (const item of items) {
+    const range = chatItemSeqRange(item);
+    if (range) ranges.set(item, range);
+  }
+  const own = (turn: Turn): { from: number; to: number } | null => {
+    const held = turn.kind === "standalone" ? [turn.item] : turn.kind === "user" ? [turn.item] : turn.items;
+    let from = Infinity;
+    let to = -Infinity;
+    for (const item of held) {
+      const range = ranges.get(item);
+      if (!range) continue;
+      if (range.from < from) from = range.from;
+      if (range.to > to) to = range.to;
+    }
+    return to >= from ? { from, to } : null;
+  };
+  // Two passes, because closing a turn needs the *next* turn's start: assigning
+  // and closing in one pass would read fromSeq before it was written and quietly
+  // never close anything.
+  for (const turn of turns) {
+    const range = own(turn);
+    if (!range) continue;
+    turn.fromSeq = range.from;
+    turn.toSeq = range.to;
+  }
+  for (let index = 0; index < turns.length; index += 1) {
+    const to = turns[index].toSeq;
+    if (to === undefined) continue;
+    // The next turn that knows its own start is what closes this one; a
+    // standalone error or a streamed preview carries no seq, and letting one of
+    // those close the turn would end it at the wrong event.
+    for (let next = index + 1; next < turns.length; next += 1) {
+      const nextFrom = turns[next].fromSeq;
+      if (nextFrom === undefined) continue;
+      if (nextFrom - 1 > to) turns[index].toSeq = nextFrom - 1;
+      break;
+    }
+  }
 }
 
 export function shouldShowGenericThinking(items: ChatItem[], loading: boolean): boolean {

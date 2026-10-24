@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../../api/client";
+import { extractChangedFiles } from "../../lib/changedFiles";
 import {
   buildChatItems,
+  chatItemSeqRange,
   groupIntoTurns,
   isProgressCardRunning,
   mergeProcessRuns,
@@ -10,6 +12,7 @@ import {
   summarizeProgressStatus,
   type ChatItem,
   type ProgressItem,
+  type Turn,
 } from "./transcriptProjection";
 
 function ev(seq: number, type: string, payload: unknown): TaskEvent {
@@ -1997,5 +2000,231 @@ describe("summarizeProgressStatus", () => {
     ];
 
     expect(summarizeProgressStatus(steps, false).state).toBe("failed");
+  });
+});
+
+describe("turn seq ranges", () => {
+  const hostToolUse = (seq: number, id: string, name: string, path: string) =>
+    ev(seq, "tool_use", {
+      name,
+      tool_name: name,
+      tool_use_id: id,
+      input: { path },
+      summary: `${name} ${path}`,
+      status: "running",
+      speaker: "kin",
+      visibility: { user: true, task: true },
+    });
+  const hostToolResult = (seq: number, id: string, name: string) =>
+    ev(seq, "tool_result", {
+      name,
+      tool_name: name,
+      tool_use_id: id,
+      ok: true,
+      output: "ok",
+      summary: `${name} done`,
+      status: "done",
+      speaker: "kin",
+      visibility: { user: true, task: true },
+    });
+  const userTurn = (seq: number, text: string) =>
+    ev(seq, "message", {
+      role: "user",
+      speaker: "user",
+      text,
+      visibility: { user: true, task: true },
+    });
+
+  /**
+   * Three rounds. The middle one ends with a tool call whose result arrives after
+   * it, and the last one is the newest in the stream, so the two shapes the range
+   * has to get right -- a turn closed by the next turn, and a turn with nothing
+   * after it to close it -- are both in here.
+   */
+  const threeRounds = (): TaskEvent[] => [
+    userTurn(1, "fix the parser"),
+    hostToolUse(2, "t1", "edit", "internal/parse.go"),
+    hostToolResult(3, "t1", "edit"),
+    // Nothing in the projection comes from this one, and it is still the first
+    // turn's: the range has to cover it, or an event that matters later would be
+    // missing from the turn's evidence.
+    ev(4, "raw_output", { text: "cli noise", speaker: "kin" }),
+    ev(5, "message", {
+      role: "assistant",
+      speaker: "kin",
+      text: "parser fixed",
+      visibility: { user: true, task: true },
+    }),
+    userTurn(6, "now the docs"),
+    hostToolUse(7, "t2", "write", "docs/readme.md"),
+    hostToolResult(8, "t2", "write"),
+    userTurn(9, "and the changelog"),
+    hostToolUse(10, "t3", "edit", "CHANGELOG.md"),
+    hostToolResult(11, "t3", "edit"),
+  ];
+
+  const turnsOf = (events: TaskEvent[]) => groupIntoTurns(buildChatItems(events, "kin"), "kin");
+
+  it("gives each turn the events behind it, closed before the next turn starts", () => {
+    const turns = turnsOf(threeRounds());
+
+    expect(turns.map((turn) => [turn.kind, turn.fromSeq, turn.toSeq])).toEqual([
+      ["user", 1, 1],
+      ["agent", 2, 5],
+      ["user", 6, 6],
+      // The call is at 7 and its result at 8; the step is anchored at 7, so 8 is
+      // only in this turn because the next turn closes it there. That is the
+      // whole reason the closing pass exists.
+      ["agent", 7, 8],
+      ["user", 9, 9],
+      // Nothing follows this one, so it ends at its own newest event: the result
+      // at 11 is outside. See the note on TurnSeqRange -- the call that carried
+      // the path is inside, which is what the evidence card reads.
+      ["agent", 10, 10],
+    ]);
+  });
+
+  it("slices the stream into exactly the turn's own file changes", () => {
+    const events = threeRounds();
+    const turns = turnsOf(events);
+    const sliceOf = (turn: Turn) =>
+      events.filter((event) => event.seq >= turn.fromSeq! && event.seq <= turn.toSeq!);
+
+    expect(extractChangedFiles(sliceOf(turns[1])).map((file) => file.path)).toEqual([
+      "internal/parse.go",
+    ]);
+    expect(extractChangedFiles(sliceOf(turns[3])).map((file) => file.path)).toEqual([
+      "docs/readme.md",
+    ]);
+    // Truncated at 10, and still complete: the path travels on the tool call.
+    expect(extractChangedFiles(sliceOf(turns[5])).map((file) => file.path)).toEqual([
+      "CHANGELOG.md",
+    ]);
+    // And the whole stream is all three, so no turn lost a file the others do not
+    // account for -- which is what makes a turn's card a slice rather than a guess.
+    expect(extractChangedFiles(events).map((file) => file.path).sort()).toEqual([
+      "CHANGELOG.md",
+      "docs/readme.md",
+      "internal/parse.go",
+    ]);
+  });
+
+  it("cannot see a file a shell command wrote, which is why the card says so", () => {
+    // The extractor reads file-tool payloads, so a turn that edits through the
+    // shell produces an empty list. This is the documented limit of the card --
+    // the workspace/PR panel stays the authority -- and it is asserted here so a
+    // later change cannot quietly start claiming otherwise.
+    const events: TaskEvent[] = [
+      userTurn(1, "bump the version"),
+      ev(2, "tool_use", {
+        name: "Bash",
+        tool_name: "Bash",
+        tool_use_id: "b1",
+        input: { command: "sed -i '' 's/1.2.3/1.2.4/' internal/version.go" },
+        summary: "Bash(sed -i)",
+        status: "running",
+        speaker: "kin",
+        visibility: { user: true, task: true },
+      }),
+      hostToolResult(3, "b1", "Bash"),
+    ];
+    const turns = turnsOf(events);
+    const slice = events.filter(
+      (event) => event.seq >= turns[1].fromSeq! && event.seq <= turns[1].toSeq!,
+    );
+
+    expect(extractChangedFiles(slice)).toEqual([]);
+  });
+
+  it("reaches work the chat column never showed, which is why a round is the unit", () => {
+    // A subagent's file tools are task-only: the projection drops them, so they
+    // leave no item and no step. They are still in the stream, and a round's
+    // range has to reach them -- otherwise the card for a round the host spent
+    // delegating reads as "changed nothing".
+    const events: TaskEvent[] = [
+      userTurn(1, "delegate the docs"),
+      ev(2, "tool_use", {
+        name: "write",
+        tool_name: "write",
+        tool_use_id: "w1",
+        input: { path: "docs/api.md" },
+        summary: "write docs/api.md",
+        status: "running",
+        speaker: "codex",
+        agent: "codex",
+        source: "codex",
+        execution_id: "exec-1",
+        execution_step: 1,
+        visibility: { user: false, task: true },
+      }),
+      ev(3, "tool_result", {
+        name: "write",
+        tool_name: "write",
+        tool_use_id: "w1",
+        ok: true,
+        output: "ok",
+        summary: "write done",
+        status: "done",
+        speaker: "codex",
+        agent: "codex",
+        source: "codex",
+        execution_id: "exec-1",
+        execution_step: 1,
+        visibility: { user: false, task: true },
+      }),
+      ev(4, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "docs delegated",
+        visibility: { user: true, task: true },
+      }),
+    ];
+    const turns = turnsOf(events);
+    // The chat column shows the host's answer and nothing of the worker's write.
+    expect(JSON.stringify(buildChatItems(events, "kin"))).not.toContain("docs/api.md");
+    expect(turns.map((turn) => turn.kind)).toEqual(["user", "agent"]);
+    expect(extractChangedFiles(events).map((file) => file.path)).toEqual(["docs/api.md"]);
+
+    // The round is both turns: the gap events fall on the user turn because that
+    // is the turn the gap was closed onto, so reading either turn alone gets this
+    // wrong in one direction or the other.
+    const from = turns[0].fromSeq!;
+    const to = Math.max(...turns.map((turn) => turn.toSeq ?? 0));
+    expect(extractChangedFiles(events.filter((e) => e.seq >= from && e.seq <= to))).toHaveLength(1);
+  });
+
+  it("leaves a turn with no range when nothing behind it carried a seq", () => {
+    // A streamed preview is one item built from many chunks: the projection
+    // deliberately gives a partial message no seq, so there is nothing to anchor
+    // the turn to. A range invented here would slice the stream at the wrong
+    // place, and "no range" is what tells the card to stay out of the way.
+    const turns = turnsOf([
+      ev(1, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "thinking out loud",
+        partial: true,
+        visibility: { user: true, task: true },
+      }),
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0].fromSeq).toBeUndefined();
+    expect(turns[0].toSeq).toBeUndefined();
+  });
+
+  it("anchors a step at the event that opened it, not the one that closed it", () => {
+    const items = buildChatItems(threeRounds(), "kin");
+    const progress = items.find((item): item is ProgressItem => item.kind === "progress");
+    expect(progress).toBeDefined();
+
+    // The call and its result are one step, anchored at the call: a result can
+    // arrive after an interrupt, in a different turn, and moving the step would
+    // move the turn's range with it. The turn's own range still reaches the
+    // result, because it is closed at the next turn rather than at its last step.
+    expect(chatItemSeqRange(progress!)).toEqual({ from: 2, to: 2 });
+    // Error and meta items carry no seq at all.
+    expect(chatItemSeqRange({ kind: "error", key: "e", message: "boom" })).toBeNull();
+    expect(chatItemSeqRange({ kind: "meta", key: "m", label: "note" })).toBeNull();
   });
 });
