@@ -11,9 +11,12 @@
  *
  * The file sets are close but not identical, and the difference is worth
  * knowing before trusting one for the other: the tests scan `content` from
- * `tailwind.config.ts` (which includes `index.html` and `*.js`/`*.jsx`), while
- * this config lints `src/**\/*.{ts,tsx}`, ignores `src/api/generated/**`, and
- * switches both of these rules off inside tests and `src/design/`. So a colour
+ * `tailwind.config.ts` (which includes `index.html` and `*.js`/`*.jsx`) with
+ * `.css` added, while this config lints `src/**\/*.{ts,tsx}` and ignores
+ * `src/api/generated/**`. Its two exemptions are not the same shape: tests
+ * switch both rules off, while `src/design/` switches off `no-undefined-token`
+ * and the colour-literal selector and leaves `no-arbitrary-literal` on — a
+ * `text-[13px]` written in the design layer is still a finding. So a colour
  * literal in `index.html` is a *test* guard's business and not this lint's.
  *
  * They are deliberately narrow. `typescript-eslint`'s recommended set is not

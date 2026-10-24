@@ -31,9 +31,10 @@ export default tseslint.config(
   {
     // Scoped to `src/**`, and that scope is load-bearing: these rules read every
     // string literal in a file they lint, and `eslint-rules/index.test.ts`
-    // spells invalid classes on purpose — 21 hits if this ever widens to all
-    // TypeScript. Those fixtures are the point of that file, so the answer is
-    // to keep it out here, not to teach the rules which strings are "real".
+    // spells invalid classes on purpose — 27 hits against the current 32 cases.
+    // That count tracks the case list, so re-measure it rather than trusting
+    // this line; those fixtures are the point of that file, so the answer is to
+    // keep it out here, not to teach the rules which strings are "real".
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,
@@ -61,7 +62,9 @@ export default tseslint.config(
        * check. Restricting the *directory* rather than listing the exceptions
        * is what keeps the rule from rotting: `src/design/` holds the token
        * layer, the ANSI palette for xterm, the heat ramp, the export
-       * stylesheet, and the gallery, and everything outside it is a call site.
+       * stylesheet, and the gallery's data, and everything outside it is a call
+       * site — the gallery's own page (`src/pages/DesignSystemPage.tsx`)
+       * included, which is why it is linted like any other page.
        *
        * Two selectors, because a literal has two spellings and they are
        * different node types: `Literal` is `"#fff"`, `TemplateElement` is the
@@ -80,9 +83,17 @@ export default tseslint.config(
        *   because `#300` is a valid three-digit hex and no pattern can tell the
        *   two apart. Reword rather than disable; the tree's only instance is in
        *   a comment, which is not linted.
+       * - A template quasi is matched on `value.raw`, so an escape-encoded hex
+       *   (`` `#fff` ``) is not seen. Contrived, and no such spelling
+       *   exists here — but it is the one hole a selector cannot close.
+       * - Conversely, a string that merely *reads* like source is reported: a
+       *   module path, a URL or a log line containing a `kin-*` class or
+       *   `text-[13px]`. That is the price of reading plain strings at all —
+       *   and reading them is what makes `className="…"` visible — so the
+       *   answer is to reword the string, not to narrow the selector.
        *
-       * `theme.css`'s header names those four boundaries and why each one is
-       * not a token.
+       * `theme.css`'s header names the four boundaries *inside* `src/design/`
+       * and why each one is not a token.
        */
       "no-restricted-syntax": [
         "error",
