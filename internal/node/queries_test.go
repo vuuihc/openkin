@@ -330,3 +330,31 @@ func TestAskReportsAFailedWrite(t *testing.T) {
 		t.Fatalf("%d questions were left open by a failed write", n)
 	}
 }
+
+// A publish is the one question whose answer arrives after the machine has already
+// changed something it cannot take back, and it contains a push and a gh call —
+// the latter allowed 30s of its own on that side (internal/github's ghTimeout).
+// The 15s a listing gets would give up on a machine that is still working, and the
+// ending is the worst one this protocol has: the branch is on the remote, the
+// person is told the machine did not answer, and nothing is written down here.
+//
+// It is deliberately not the clone's five minutes either. A clone is a transfer
+// this Hub asked for and can wait out; a publish is a sheet somebody just tapped,
+// and a wait longer than this one is a hung machine rather than a slow push.
+func TestAPublishWaitsForThePushAndTheForgeCallInsideIt(t *testing.T) {
+	budget := queryTimeout(worker.QueryPRPublish)
+	// The number is repeated rather than imported: this package is the Hub, and the
+	// gh timeout belongs to the machine's half of the wire.
+	if ghCall := 30 * time.Second; budget <= ghCall {
+		t.Fatalf("a publish waits %s, which is not longer than the gh call inside it (%s)", budget, ghCall)
+	}
+	if clone := queryTimeout(worker.QueryRepoPrepare); budget >= clone {
+		t.Fatalf("a publish waits %s, which is not shorter than a clone (%s)", budget, clone)
+	}
+	// A read that times out costs a retry and nothing else, so the listing budget
+	// stays where it was: this is the one method that leaves something behind.
+	if d := queryTimeout(worker.QueryPRObserve); d != 15*time.Second {
+		t.Fatalf("the read budget moved to %s; a slower read is a retry, not a"+
+			" half-done publish, and one number for both would hide that", d)
+	}
+}

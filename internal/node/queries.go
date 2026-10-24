@@ -226,6 +226,15 @@ func queryTimeout(method string) time.Duration {
 	switch method {
 	case worker.QueryRepoPrepare:
 		return 5 * time.Minute
+	case worker.QueryPRPublish:
+		// A publish is the one question whose answer arrives after something
+		// irreversible has already happened on the machine. It contains a push — an
+		// unbounded network transfer — and then a gh invocation this machine allows
+		// 30s of its own, so the 15s a listing gets would give up while the machine
+		// was still working: the Hub would report a machine that is not answering,
+		// and the branch would land anyway, with nothing recorded on this side. The
+		// person can wait; they are watching a sheet they just tapped.
+		return 2 * time.Minute
 	default:
 		return 15 * time.Second
 	}
