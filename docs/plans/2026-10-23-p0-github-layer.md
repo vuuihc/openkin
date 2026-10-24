@@ -697,11 +697,24 @@ path 的 chip），它现在由"只有一个状态量"这个结构保证，而�
 
 ### 12.6 未核实（agent 报的，我没读到证据，先不采信）
 
-- `internal/mcp` 的 `Holder` 与 `Scope.All` 是同一个判定的两份拷贝。
-- `internal/task/bus.go` 每条事件同步查一次 `TaskOwner`。
-- `leadObservation` 的规则在 Go 与 TS 各写一份（两侧注释都写明是"同一条规则的另一半"，
-  属于自觉重复；但仓库在 `task_scope.go` 里对同类重复的判词是"a rule copied into two
-  packages is a rule that drifts"，所以值得再看一眼）。
+**已核实（2026-10-24），三条都不是新缺陷**：
+
+- `internal/mcp` 的 `Holder` 与 `Scope.All`：**不是两份拷贝**。`Holder` 就是
+  `store.ActsForHolder(p)`，而它是 `ScopeForPrincipal(p).All` 的一行投影
+  （`task_scope.go:51`）；两者都由 `ScopeForPrincipal` 算出来，`auth.Holder` 全仓只有
+  一个读点（`mcp/server.go:557`，决定 `reachHolder` 那组工具）。想省掉这个字段是品味
+  问题，不是会漂的规则。
+- `internal/task/bus.go` 每条事件同步查 `TaskOwner`：**成立但已被写明的取舍**。
+  resolver 在 `engine.go:313` 注册（`bus.SetOwnerResolver(st.TaskOwner)`），实现是
+  `tasks` 主键单点查（`task_scope.go:116`）。它的注释把危险讲清楚了：连接池只有一条，
+  **不能在持有事务或 `*sql.Rows` 时调用**，并写明"every current caller publishes after
+  its store call has returned, which is the shape to keep"。这是有边界的设计，不是缺陷；
+  真要动的话，正确的动作是给事件带上 owner，而不是给这次审计加一条。
+- `leadObservation` 在 Go（`internal/github/service.go:592`）与 TS
+  （`ui/src/lib/prObservation.ts:75`）各写一份：**成立，且是有意保留的重复**。两侧注释
+  互相点名（"which is the other half of the same rule"），两侧都有测试。它现在是靠"改
+  一边会看到指路牌"来防漂，不是靠机制——如果哪天它真的漂了，正确的动作是加一份两边
+  共读的 fixture（同一张输入表，两边断言同一个 head_branch），而不是现在先造机制。
 
 修的时候按 12.1 → 12.2 → 12.3 → 12.4 → 12.5 的顺序，每条都要一个能红的测试
 （12.1 B、12.2 C/D/E/F、12.3 G/H、12.4 I/J 已按此办，各有能红的测试；12.5 K 没有组件
