@@ -148,6 +148,16 @@ type Server struct {
 	// /api/node, which is what a daemon that does not expect Nodes to dial in
 	// (a test, an embedder) wants.
 	Nodes *node.Connections
+	// Queries is where questions asked of those connections wait for their
+	// answers (see node.Queries). Nil disables every route that has to ask a
+	// machine something, because a question with nowhere to wait is a request
+	// that can only hang.
+	Queries *node.Queries
+	// LocalMachine answers questions about this daemon's own filesystem, in the
+	// same words a paired machine answers them about its own. Nil means this
+	// daemon has no directories to offer, which is the honest answer for a Hub
+	// that owns no workspaces.
+	LocalMachine *node.Responder
 	// NodeFrames routes a frame that arrived on a Node connection and is not
 	// part of the handshake or the heartbeat. The connection is the argument and
 	// not just its device: a turn belongs to the socket that dispatched it, so
@@ -287,6 +297,10 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
 		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
 		r.With(holderOnly).Get("/api/workers", s.handleListWorkers)
+		// A machine's own directories, for the console that has to pick one
+		// before it can start anything. Holder-only: a guest on someone's Hub
+		// runs its own tasks and has no business reading the holder's paths.
+		r.With(holderOnly).Get("/api/machines/{device}/dirs", s.handleMachineDirs)
 		r.With(operatorOnly).Post("/api/workers/{id}/revoke", s.handleRevokeWorker)
 		r.Post("/api/workers/register", s.handleRegisterWorker)
 		r.Post("/api/workers/heartbeat", s.handleHeartbeatWorker)

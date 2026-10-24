@@ -332,17 +332,18 @@ func (e *Executor) Has(turnID string) bool {
 // allowedCwd reports whether a dispatched working directory is one this machine
 // agreed to work in.
 //
-// The check is containment, not equality: a turn runs in a checkout *inside* a
-// root, and a root is what the operator declared. With no roots declared the
-// machine runs nothing — an empty declaration must not read as "anywhere".
+// The rule itself lives in rootSet, shared with the answers this machine gives
+// about its own directories: a listing that offered a directory a dispatch
+// would refuse is a person being sent to a wall.
 func (e *Executor) allowedCwd(cwd string) bool {
-	if len(e.Roots) == 0 {
+	roots := rootSet(e.Roots)
+	if len(roots) == 0 {
 		return false
 	}
 	// A dispatch with no cwd is the machine's own choice of directory, which is
 	// only meaningful when it has declared one.
 	if strings.TrimSpace(cwd) == "" {
-		return len(e.Roots) == 1
+		return len(roots) == 1
 	}
 	// The Hub speaks in paths on this machine, so it has to name one: a relative
 	// path would be resolved against whatever directory the daemon was started
@@ -350,20 +351,7 @@ func (e *Executor) allowedCwd(cwd string) bool {
 	if !filepath.IsAbs(cwd) {
 		return false
 	}
-	target, err := resolvePath(cwd)
-	if err != nil {
-		return false
-	}
-	for _, root := range e.Roots {
-		absRoot, err := resolvePath(root)
-		if err != nil {
-			continue
-		}
-		if target == absRoot || strings.HasPrefix(target, absRoot+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
+	return roots.contains(cwd)
 }
 
 // UnresolvedRoots lists declared roots this machine cannot resolve.

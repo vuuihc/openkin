@@ -36,7 +36,6 @@ import (
 	"github.com/vuuihc/openkin/internal/provider"
 	"github.com/vuuihc/openkin/internal/remote"
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
-	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/routing"
 	"github.com/vuuihc/openkin/internal/secret"
@@ -322,17 +321,31 @@ func ServeWith(version string, flags ServeFlags) error {
 	// asking, and both of those live in the engine.
 	var nodeTurns *node.Turns
 	var nodeApprovals *node.Approvals
+	// Questions this Hub has asked its machines wait here for their answers. The
+	// table is a field rather than a value from the start for the same reason as
+	// the two above: a connection ending has to reach it from inside this hook.
+	var nodeQueries *node.Queries
 	// A connection ending — dropped, or replaced by a newer one — ends whatever
 	// it was running, and says so in each transcript: the alternative is a turn
 	// that waits forever on a socket that no longer exists. It is scoped to that
 	// connection: a machine that reconnects while a turn is being dispatched must
 	// not have the new turn killed by the old socket's ending.
 	//
-	// The approvals go first, and the order matters: settling one can push its
-	// task out of waiting_approval and back into running, and failing the turn
-	// afterwards overwrites that with failed. The other order leaves a task that
-	// says running with no run loop behind it.
+	// A question in flight is settled first, and for a different reason: an
+	// answer cannot arrive on a connection that has ended, and whoever asked is
+	// waiting on it — an HTTP request, a phone, a person watching a spinner.
+	// Saying so now is the difference between a sentence and a timeout.
+	//
+	// The approvals go before the turns, and the order matters: settling one can
+	// push its task out of waiting_approval and back into running, and failing
+	// the turn afterwards overwrites that with failed. The other order leaves a
+	// task that says running with no run loop behind it.
 	nodeConns := node.NewConnections(func(ended node.Sender) {
+		if nodeQueries != nil {
+			for _, queryID := range nodeQueries.Abandon(ended) {
+				fmt.Fprintf(os.Stderr, "kin: warning: question %s ended with its device connection\n", queryID)
+			}
+		}
 		if nodeApprovals != nil {
 			for _, approvalID := range nodeApprovals.Abandon(ended) {
 				fmt.Fprintf(os.Stderr, "kin: warning: approval %s settled when its device disconnected\n", approvalID)
@@ -501,6 +514,14 @@ func ServeWith(version string, flags ServeFlags) error {
 	}
 	routineScheduler.StartLoop(context.Background(), routines.DefaultTickInterval)
 
+	// The directories this machine works in: its own projects, plus anything the
+	// operator adds by hand. One list, read by everything that decides where the
+	// boundary is — the executor that runs dispatched work in one of them, the
+	// answers this machine gives about its own filesystem, and the hello that
+	// tells a Hub which of them it may ask for.
+	machineRoots := nodeRoots(ctx, st, flags.NodeRoots)
+	nodeQueries = node.NewQueries()
+
 	srvAPI := &api.Server{
 		Store:      st,
 		Auth:       auth,
@@ -577,7 +598,13 @@ func ServeWith(version string, flags ServeFlags) error {
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,
 		Nodes:        nodeConns,
-		NodeFrames:   routeNodeFrame(nodeTurns, nodeApprovals),
+		Queries:      nodeQueries,
+		// This daemon is a machine too, and its own console picks directories on
+		// it. The answer comes from the same code that answers a Hub, with the
+		// same list of directories the executor works in, so a directory this
+		// console offers is a directory this machine will actually run in.
+		LocalMachine: &node.Responder{Roots: machineRoots, Warn: warnToStderr},
+		NodeFrames:   node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
 		Browser:      browser,
 		Eval:         evalRunner,
 		A2A:          &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},
@@ -888,6 +915,9 @@ func ServeWith(version string, flags ServeFlags) error {
 			Runners:   agentRunners{reg: reg},
 			AllowYOLO: flags.AllowYOLO,
 			Warn:      warnToStderr,
+			// The same list the console reads and the Hub is told about: what this
+			// machine offers to work in is what it will accept work in.
+			Roots: machineRoots,
 		}
 		defer executor.Stop()
 		// A permission question about a turn this machine took from its Hub goes
@@ -900,7 +930,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		}
 		srvAPI.ApprovalRelay = approvalRelay
 		go func() {
-			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay)
+			err := runNode(nodeCtx, version, flags, st, reg, executor, approvalRelay, srvAPI.LocalMachine)
 			// A canceled context is this daemon shutting down, not a failure.
 			if err != nil && nodeCtx.Err() == nil {
 				fmt.Fprintf(os.Stderr, "kin: node: %v\n", err)
@@ -1108,21 +1138,6 @@ func isActiveTaskStatus(status string) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-// routeNodeFrame sends a frame from a device to whichever half of the Hub asked
-// for it: the turns it is running, or the questions it is blocked on.
-//
-// Everything else is an error, so an unhandled frame is visible rather than
-// silently dropped. The api server turns that into a `turn.cancel` when it is
-// about a turn this Hub is not running.
-func routeNodeFrame(turns *node.Turns, approvals *node.Approvals) func(context.Context, node.Sender, worker.Frame) error {
-	return func(ctx context.Context, sender node.Sender, frame worker.Frame) error {
-		if frame.Kind == "approval.request" {
-			return approvals.Route(ctx, sender, frame)
-		}
-		return turns.RouteFrame(ctx, sender, frame)
 	}
 }
 

@@ -126,10 +126,11 @@ type Frame struct {
 
 // Frame kinds. The first line is the handshake and presence; the second is
 // turn traffic (see turn.go); the third is a turn's permission question (see
-// approval.go). `assignment`, `event`, the old `cancel`, and the lease/ack
-// bookkeeping nothing ever sent are gone: a kind that is registered but never
-// constructed is how `turn.started` came to be constructed but not registered,
-// and the two mistakes hid each other.
+// approval.go); the fourth is a question about the machine itself, and its
+// answer (see query.go). `assignment`, `event`, the old `cancel`, and the
+// lease/ack bookkeeping nothing ever sent are gone: a kind that is registered
+// but never constructed is how `turn.started` came to be constructed but not
+// registered, and the two mistakes hid each other.
 //
 // TestEveryFrameKindRoundTrips holds this map and the sample payloads together,
 // so a kind cannot be added here without also being proved to survive the
@@ -139,6 +140,7 @@ var allowedFrameKinds = map[string]bool{
 	"turn.dispatch": true, "turn.event": true, "turn.started": true,
 	"turn.finish": true, "turn.cancel": true,
 	"approval.request": true, "approval.status": true, "approval.decision": true,
+	"query": true, "query.result": true,
 }
 
 func (h Hello) Validate() error {

@@ -85,6 +85,13 @@ var frameSamples = map[string]any{
 	},
 	"approval.status":   ApprovalStatus{RequestID: "req-1", ApprovalID: "apr-1"},
 	"approval.decision": ApprovalDecision{RequestID: "req-1", Decision: ApprovalApproved},
+	"query": Query{
+		ID: "q-1", Method: QueryListDirs,
+		Params: json.RawMessage(`{"path":"/code/kin"}`),
+	},
+	"query.result": QueryResult{
+		ID: "q-1", Result: json.RawMessage(`{"path":"/code/kin","entries":["web"]}`),
+	},
 }
 
 // TestEveryFrameKindRoundTrips holds the registry of kinds and the samples
