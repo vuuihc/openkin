@@ -145,7 +145,7 @@ func TestSnapshotReadPathNeverQueries(t *testing.T) {
 	// The branch has been looked at and the attempt failed: the worst case for a
 	// rule that decides whether to ask again.
 	if err := st.RecordPRFailure(ctx, "github.com/owner/repo", branch, taskID,
-		"404: not found or not visible"); err != nil {
+		"404: not found or not visible", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -652,6 +652,142 @@ func TestReconcileDoesNotSpendBudgetOnRowsItSkips(t *testing.T) {
 	}
 }
 
+// heldRunner answers pull-request reads from a script, holding the first one open
+// until the test releases it. That is how a test puts two callers on the same
+// question at the same moment. Everything that is not the pull-request list —
+// check runs, commit statuses — answers empty: these tests are about which
+// answer reaches the row, not about what the answer contains.
+type heldRunner struct {
+	mu      sync.Mutex
+	pulls   []string // one body per pull-request read, in order
+	reads   int      // how many pull-request reads have been served
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *heldRunner) Name() string { return SourceAnonymous }
+
+func (r *heldRunner) apiGet(ctx context.Context, path string, query [][2]string) ([]byte, error) {
+	if !strings.HasSuffix(path, "/pulls") {
+		return []byte(`{}`), nil
+	}
+	r.mu.Lock()
+	index := r.reads
+	r.reads++
+	r.mu.Unlock()
+
+	if index == 0 && r.entered != nil {
+		close(r.entered)
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if index < len(r.pulls) {
+		return []byte(r.pulls[index]), nil
+	}
+	return []byte(`[]`), nil
+}
+
+func (r *heldRunner) pullReads() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.reads
+}
+
+// The phone and the desktop opening the same task is one question about one
+// branch, and it should cost one lookup: a lookup is a request against a quota
+// that is not per screen.
+func TestTwoCallersAskingTheSameQuestionMakeOneLookup(t *testing.T) {
+	reader := &heldRunner{
+		pulls:   []string{`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	svc, _ := newTestService(t, reader)
+	ctx := context.Background()
+	target := testTarget()
+
+	first := make(chan error, 1)
+	go func() {
+		_, err := svc.Observe(ctx, target)
+		first <- err
+	}()
+	<-reader.entered
+
+	// The second caller asks while the first question is still open. The release
+	// is on a timer so that this call returns either way: waiting for the shared
+	// answer, or having asked the question a second time and been answered.
+	time.AfterFunc(100*time.Millisecond, func() { close(reader.release) })
+	if _, err := svc.Observe(ctx, target); err != nil {
+		t.Fatalf("second caller: %v", err)
+	}
+	if err := <-first; err != nil {
+		t.Fatalf("first caller: %v", err)
+	}
+
+	if got := reader.pullReads(); got != 1 {
+		t.Fatalf("made %d lookups for one question, want 1", got)
+	}
+}
+
+// A tap and the background pass reading one branch at the same time are
+// deliberately not the same question — the tap may spend the anonymous budget and
+// the pass's read of a row last answered through gh may not — so both are asked,
+// and the row keeps the answer to the question asked last rather than the answer
+// that happened to arrive last.
+func TestASlowOlderAnswerDoesNotOverwriteANewerOne(t *testing.T) {
+	reader := &heldRunner{
+		pulls: []string{
+			`[{"number":7,"state":"open","head":{"sha":"abc"},"base":{"ref":"main"}}]`,
+			`[{"number":9,"state":"closed","head":{"sha":"def"},"base":{"ref":"main"}}]`,
+		},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	svc, st := newTestService(t, reader)
+	clock := newTestClock()
+	svc.SetClock(clock.Now)
+	ctx := context.Background()
+	target := testTarget()
+
+	// Asked first, answered last: the shape of a tap, which claims no budget.
+	older := make(chan store.PRObservation, 1)
+	go func() {
+		obs, _ := svc.observe(ctx, target, false)
+		older <- obs
+	}()
+	<-reader.entered
+
+	// Asked second, answered first: the shape of the background pass.
+	clock.Advance(2 * time.Second)
+	newer, err := svc.observe(ctx, target, true)
+	if err != nil {
+		t.Fatalf("newer question: %v", err)
+	}
+	if newer.Number == nil || *newer.Number != 9 {
+		t.Fatalf("newer question answered %v, want pull request 9", newer.Number)
+	}
+
+	close(reader.release)
+	stale := <-older
+	if stale.Number == nil || *stale.Number != 9 {
+		t.Fatalf("the older caller was handed %v, want the row's newer answer", stale.Number)
+	}
+
+	row, _, err := st.GetPRObservation(ctx, "github.com/owner/repo", target.Branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Number == nil || *row.Number != 9 || row.State != "closed" {
+		t.Fatalf("row = %+v, want the newer question's answer", row)
+	}
+	if want := clock.Now().UnixMilli(); row.ObservedAt == nil || *row.ObservedAt != want {
+		t.Fatalf("observed_at = %v, want the time the question was asked (%d)", row.ObservedAt, want)
+	}
+}
+
 func number(n int) *int { return &n }
 
 // A nil slice marshals to `null`, and the console types this field as an array.
@@ -732,7 +868,7 @@ func TestSnapshotKeepsAFailedAttemptOnItsRowNotInTheNotice(t *testing.T) {
 	// Then the branch query failed. A failure is recorded on its own path
 	// precisely so that it cannot erase the number it failed to refresh.
 	if err := st.RecordPRFailure(ctx, "github.com/owner/repo", branch, "t1",
-		"gh: not found or not visible"); err != nil {
+		"gh: not found or not visible", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 

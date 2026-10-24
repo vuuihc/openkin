@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 const (
@@ -70,7 +71,7 @@ func TestPRFailureDoesNotEraseASuccessfulObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "network is down"); err != nil {
+	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "network is down", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +102,7 @@ func TestPRFailureOnUnknownBranchCreatesARow(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "no credentials"); err != nil {
+	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "no credentials", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
@@ -150,6 +151,129 @@ func TestSuccessfulEmptyAnswerSupersedesAnOlderNumber(t *testing.T) {
 	}
 	if got.CIState != "" {
 		t.Fatalf("ci_state = %q, want cleared along with the pull request", got.CIState)
+	}
+}
+
+// Two questions can be in flight for one branch at once — the background pass
+// reading a row while someone taps refresh — and the answer that arrives last is
+// not necessarily the answer to the question asked last. The row follows the
+// question, so a slow read cannot walk the console backwards from merged to open.
+func TestAnOlderAnswerDoesNotOverwriteANewerOne(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute)
+
+	// Asked second, answered first.
+	later := base.Add(2 * time.Second).UnixMilli()
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(9), URL: "https://github.com/owner/repo/pull/9", State: "closed",
+		ObservedAt: &later, AttemptedAt: later,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Asked first, answered last, and it saw the pull request still open.
+	earlier := base.UnixMilli()
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(7), URL: "https://github.com/owner/repo/pull/7", State: "open",
+		ObservedAt: &earlier, AttemptedAt: earlier,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Number == nil || *got.Number != 9 || got.State != "closed" {
+		t.Fatalf("row = %+v, want the newer question's answer to stand", got)
+	}
+	if got.ObservedAt == nil || *got.ObservedAt != later {
+		t.Fatalf("observed_at = %v, want %d", got.ObservedAt, later)
+	}
+}
+
+// The two clocks on a row are independent, and the write that carries the newer
+// observation may still be older than the attempt already recorded. AttemptedAt
+// only moves forward, and a success only clears the error when it is also the
+// newest attempt — otherwise the row would claim the last attempt succeeded when
+// the last attempt is the one that failed.
+func TestASuccessOlderThanTheRecordedAttemptDoesNotClearItsError(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute)
+
+	first := base.Add(time.Second).UnixMilli()
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(1), State: "open", ObservedAt: &first, AttemptedAt: first,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A question asked after that one fails.
+	failed := base.Add(3 * time.Second)
+	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "network is down", failed); err != nil {
+		t.Fatal(err)
+	}
+
+	// A question asked between the two is answered last: newer than the recorded
+	// observation, older than the recorded attempt.
+	between := base.Add(2 * time.Second).UnixMilli()
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(2), State: "open", ObservedAt: &between, AttemptedAt: between,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Number == nil || *got.Number != 2 {
+		t.Fatalf("number = %v, want the middle question's answer", got.Number)
+	}
+	if got.ObservedAt == nil || *got.ObservedAt != between {
+		t.Fatalf("observed_at = %v, want %d", got.ObservedAt, between)
+	}
+	if got.AttemptedAt != failed.UnixMilli() {
+		t.Fatalf("attempted_at = %d, want the newest attempt at %d", got.AttemptedAt, failed.UnixMilli())
+	}
+	if got.LastError != "network is down" {
+		t.Fatalf("last_error = %q, want the newer attempt's failure to stand", got.LastError)
+	}
+}
+
+// A failure answering an older question has nothing newer to say, so it is
+// dropped rather than written over the attempt that came after it.
+func TestAnOlderFailureDoesNotOverwriteANewerAttempt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute)
+
+	newer := base.Add(2 * time.Second).UnixMilli()
+	if err := s.RecordPRObservation(ctx, PRObservation{
+		Repo: testPRRepo, HeadBranch: testPRBranch, TaskID: testPRTask,
+		Number: number(4), State: "open", ObservedAt: &newer, AttemptedAt: newer,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPRFailure(ctx, testPRRepo, testPRBranch, testPRTask, "stale failure", base); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := s.GetPRObservation(ctx, testPRRepo, testPRBranch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastError != "" {
+		t.Fatalf("last_error = %q, want the older failure to be dropped", got.LastError)
+	}
+	if got.AttemptedAt != newer {
+		t.Fatalf("attempted_at = %d, want %d", got.AttemptedAt, newer)
 	}
 }
 
@@ -228,7 +352,7 @@ func TestListOpenPRObservationsSelectsOnlyOpenPullRequests(t *testing.T) {
 		}
 	}
 	// A row that only ever saw a failure has state "" and must not be watched.
-	if err := s.RecordPRFailure(ctx, testPRRepo, "branch-failed", testPRTask, "x"); err != nil {
+	if err := s.RecordPRFailure(ctx, testPRRepo, "branch-failed", testPRTask, "x", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -284,7 +408,7 @@ func TestPRObservationRequiresKeys(t *testing.T) {
 	if err := s.RecordPRObservation(ctx, PRObservation{Repo: "x"}); err == nil {
 		t.Fatal("expected an error for a missing head_branch and task_id")
 	}
-	if err := s.RecordPRFailure(ctx, "x", "", "", "why"); err == nil {
+	if err := s.RecordPRFailure(ctx, "x", "", "", "why", time.Time{}); err == nil {
 		t.Fatal("expected an error for a missing head_branch")
 	}
 }

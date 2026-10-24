@@ -109,6 +109,11 @@ type Service struct {
 	anonLimitedUntil time.Time
 	anonWindow       time.Time
 	anonUsed         int
+
+	// inflight holds the questions being asked right now, so that a second
+	// caller asking the same one waits for it instead of paying for it again.
+	// Guarded by mu; never held across a query.
+	inflight map[observeKey]*inflight
 }
 
 // NewService builds the service with the machine's own credentials.
@@ -325,8 +330,81 @@ func (s *Service) Observe(ctx context.Context, t Target) (store.PRObservation, e
 	return s.observe(ctx, t, false)
 }
 
+// observeKey identifies a question rather than a row: the same branch asked about
+// by a caller who may spend the anonymous budget is a different question from the
+// same branch asked about by one who may not.
+type observeKey struct {
+	repo, branch string
+	maySpend     bool
+}
+
+// inflight is a question being asked right now. The caller who asks it publishes
+// the answer by closing done, and everyone waiting on that channel reads the two
+// fields below after it closes.
+type inflight struct {
+	done        chan struct{}
+	observation store.PRObservation
+	err         error
+}
+
 // observe is Observe with the background pass's budget attached.
+//
+// Callers asking the question that is already in flight wait for that answer
+// instead of asking it again. Two clients opening the same task at the same
+// moment is one question about one branch, and it should cost one lookup: the
+// phone and the desktop are both looking at the same pull request, and a lookup
+// is a request against a quota that is not per screen. Sharing the answer also
+// shares its askedAt, so the pair cannot write the row out of order — and the two
+// questions that legitimately differ here, a tap and the background pass, are the
+// pair the store's write ordering exists to keep straight.
 func (s *Service) observe(ctx context.Context, t Target, maySpendAnonymous bool) (store.PRObservation, error) {
+	key := observeKey{repo: t.Repo.Canonical(), branch: t.Branch, maySpend: maySpendAnonymous}
+	call, leader := s.claimObserve(key)
+	if !leader {
+		// The wait is on this caller's context: a client that has gone away does
+		// not have to sit out a lookup it is no longer waiting for.
+		select {
+		case <-call.done:
+			return call.observation, call.err
+		case <-ctx.Done():
+			return store.PRObservation{}, ctx.Err()
+		}
+	}
+
+	// The entry goes when this caller's answer is published, and it goes even if
+	// the query panics: waiters read the answer after done closes, so closing has
+	// to be last, and a question that is over must not stay in the map.
+	defer func() {
+		s.mu.Lock()
+		delete(s.inflight, key)
+		s.mu.Unlock()
+		close(call.done)
+	}()
+
+	askedAt := s.now()
+	call.observation, call.err = s.observeNow(ctx, t, maySpendAnonymous, askedAt)
+	return call.observation, call.err
+}
+
+// claimObserve joins the in-flight question for key, or registers this caller's
+// own and reports that it is the one who has to ask it.
+func (s *Service) claimObserve(key observeKey) (*inflight, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if call, ok := s.inflight[key]; ok {
+		return call, false
+	}
+	call := &inflight{done: make(chan struct{})}
+	if s.inflight == nil {
+		s.inflight = map[observeKey]*inflight{}
+	}
+	s.inflight[key] = call
+	return call, true
+}
+
+// observeNow does what observe promises, with the time of the question passed in
+// so that every row this attempt writes carries it.
+func (s *Service) observeNow(ctx context.Context, t Target, maySpendAnonymous bool, askedAt time.Time) (store.PRObservation, error) {
 	key := t.Repo.Canonical()
 	result, err := s.query(ctx, t.Repo, t.Branch, maySpendAnonymous)
 	if err != nil {
@@ -334,7 +412,7 @@ func (s *Service) observe(ctx context.Context, t Target, maySpendAnonymous bool)
 		// sentence onto the row that says the query failed when the truth is
 		// that it was never made, and the next read would show it to the user.
 		if !errors.Is(err, errBudgetSpent) {
-			if recErr := s.store.RecordPRFailure(ctx, key, t.Branch, t.TaskID, err.Error()); recErr != nil {
+			if recErr := s.store.RecordPRFailure(ctx, key, t.Branch, t.TaskID, err.Error(), askedAt); recErr != nil {
 				return store.PRObservation{}, recErr
 			}
 		}
@@ -345,7 +423,7 @@ func (s *Service) observe(ctx context.Context, t Target, maySpendAnonymous bool)
 		cached.Repo, cached.HeadBranch, cached.TaskID = key, t.Branch, t.TaskID
 		return cached, err
 	}
-	if err := s.record(ctx, t, result); err != nil {
+	if err := s.record(ctx, t, result, askedAt); err != nil {
 		return store.PRObservation{}, err
 	}
 	obs, _, err := s.store.GetPRObservation(ctx, key, t.Branch)
@@ -360,12 +438,18 @@ func (s *Service) observe(ctx context.Context, t Target, maySpendAnonymous bool)
 // A successful answer with no pull request writes Number as NULL. That is not
 // an erasure: it is a newer successful observation superseding an older one, and
 // it is the only thing allowed to do so.
-func (s *Service) record(ctx context.Context, t Target, res LookupResult) error {
+//
+// askedAt dates the question, and the store refuses the write if a newer question
+// has already been answered for this branch.
+func (s *Service) record(ctx context.Context, t Target, res LookupResult, askedAt time.Time) error {
+	at := askedAt.UnixMilli()
 	obs := store.PRObservation{
-		Repo:       t.Repo.Canonical(),
-		HeadBranch: t.Branch,
-		TaskID:     t.TaskID,
-		Source:     res.Source,
+		Repo:        t.Repo.Canonical(),
+		HeadBranch:  t.Branch,
+		TaskID:      t.TaskID,
+		Source:      res.Source,
+		ObservedAt:  &at,
+		AttemptedAt: at,
 	}
 	if pr := res.PR; pr != nil {
 		obs.Number = pr.Number

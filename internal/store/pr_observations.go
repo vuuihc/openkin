@@ -94,6 +94,26 @@ func scanPRObservation(row interface{ Scan(...any) error }) (PRObservation, erro
 // actually asked. A successful answer of "no pull request for this branch" is
 // information and supersedes an older number; a failed query is not, which is
 // why it goes through RecordPRFailure instead.
+//
+// ObservedAt and AttemptedAt are the caller's to set, and mean when the question
+// was asked rather than when the answer arrived. Together with the WHERE clause
+// below they make the row a function of the newest question asked rather than the
+// last answer to land: two questions can be in flight for one branch at once —
+// the background pass reading a row while someone taps refresh — and the answer
+// that arrives second is not necessarily the one that was asked second. Without
+// the guard, a slow read that saw an open pull request overwrites the merged
+// state a later read already recorded, and the console goes backwards.
+//
+// A tie applies: two answers to questions asked in the same millisecond are both
+// current, and the later write of the two says nothing older.
+//
+// The attempt columns are written differently from the observation ones on
+// purpose, because they are a different clock. AttemptedAt only ever moves
+// forward, and a success clears LastError only when it also answers the newest
+// attempt. The pair of them is what keeps this write — which is newer than the
+// recorded *observation* but may be older than the recorded *attempt* — from
+// erasing the failure of a question asked after it. Without that, the row would
+// say the last attempt succeeded when the last attempt is the one that failed.
 func (s *Store) RecordPRObservation(ctx context.Context, o PRObservation) error {
 	if o.Repo == "" || o.HeadBranch == "" || o.TaskID == "" {
 		return fmt.Errorf("pr observation needs repo, head_branch, and task_id")
@@ -121,8 +141,10 @@ ON CONFLICT(repo, head_branch) DO UPDATE SET
   ci_summary   = excluded.ci_summary,
   source       = excluded.source,
   observed_at  = excluded.observed_at,
-  attempted_at = excluded.attempted_at,
-  last_error   = ''`,
+  attempted_at = MAX(excluded.attempted_at, pr_observations.attempted_at),
+  last_error   = CASE WHEN excluded.attempted_at >= pr_observations.attempted_at
+                      THEN '' ELSE pr_observations.last_error END
+WHERE excluded.observed_at >= COALESCE(pr_observations.observed_at, 0)`,
 		o.Repo, o.HeadBranch, o.TaskID, o.Number, o.URL, o.Title, o.State,
 		o.IsDraft, o.BaseBranch, o.HeadOID, o.CIState, o.CISummary,
 		o.CommentsSeen, o.Source, o.ObservedAt, o.AttemptedAt)
@@ -138,18 +160,28 @@ ON CONFLICT(repo, head_branch) DO UPDATE SET
 // observation stays exactly as it was, which is what lets the console say
 // "last seen 12 minutes ago, this attempt failed: <why>" instead of losing the
 // pull request because the network blinked.
-func (s *Store) RecordPRFailure(ctx context.Context, repo, branch, taskID, reason string) error {
+//
+// attemptedAt is when the question was asked, not when the failure came back,
+// and a failure answering a question older than the attempt already recorded is
+// dropped: it has nothing newer to say than what is on the row. A question asked
+// in the same millisecond as the recorded attempt does apply — both are current,
+// and the reason is the more useful half of a tie.
+func (s *Store) RecordPRFailure(ctx context.Context, repo, branch, taskID, reason string, attemptedAt time.Time) error {
 	if repo == "" || branch == "" {
 		return fmt.Errorf("pr failure needs repo and head_branch")
 	}
-	now := time.Now().UnixMilli()
+	if attemptedAt.IsZero() {
+		attemptedAt = time.Now()
+	}
+	at := attemptedAt.UnixMilli()
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO pr_observations (repo, head_branch, task_id, attempted_at, last_error)
 VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(repo, head_branch) DO UPDATE SET
   attempted_at = excluded.attempted_at,
-  last_error   = excluded.last_error`,
-		repo, branch, taskID, now, reason)
+  last_error   = excluded.last_error
+WHERE excluded.attempted_at >= pr_observations.attempted_at`,
+		repo, branch, taskID, at, reason)
 	if err != nil {
 		return fmt.Errorf("record pr failure: %w", err)
 	}
