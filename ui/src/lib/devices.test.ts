@@ -8,6 +8,7 @@ import {
   cwdSuggestions,
   defaultAgentOn,
   findMachine,
+  folderPickable,
   machineLabelFor,
   machineList,
   machineRef,
@@ -273,5 +274,26 @@ describe("machineRef", () => {
     expect(machineRef("device-abc")).toBe("device-abc");
     // A device id is somebody else's string and ends up in a path.
     expect(machineRef("device/../abc")).toBe("device%2F..%2Fabc");
+  });
+});
+
+describe("folderPickable", () => {
+  const ok = { path: "/srv/app", loading: false, failed: false };
+
+  it("accepts a directory the machine has listed", () => {
+    expect(folderPickable(ok)).toBe(true);
+  });
+
+  it("refuses while the listing is still in flight", () => {
+    expect(folderPickable({ ...ok, loading: true })).toBe(false);
+  });
+
+  it("refuses a listing that failed, because the path is not known to be there", () => {
+    expect(folderPickable({ ...ok, failed: true })).toBe(false);
+  });
+
+  it("refuses an empty path, which is the machine's roots rather than a directory", () => {
+    expect(folderPickable({ ...ok, path: "" })).toBe(false);
+    expect(folderPickable({ ...ok, path: "   " })).toBe(false);
   });
 });

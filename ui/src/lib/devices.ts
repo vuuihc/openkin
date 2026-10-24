@@ -162,6 +162,24 @@ export function machineRef(device: string | undefined): string {
 }
 
 /**
+ * Whether a directory the browser walked to can be handed back as a working
+ * directory.
+ *
+ * Where the person walked to is not the same as what the machine has confirmed:
+ * `path` is only known to be a directory there because that machine listed it,
+ * and a listing that failed is exactly the case where it is not. Picking it
+ * anyway would pin a session to a directory that may not exist — and the console
+ * cannot tell, because that filesystem is not this one.
+ */
+export function folderPickable(state: {
+  path: string;
+  loading: boolean;
+  failed: boolean;
+}): boolean {
+  return state.path.trim() !== "" && !state.loading && !state.failed;
+}
+
+/**
  * Switching machines keeps whatever the user typed, and replaces a directory
  * that was only ever a suggestion from the previous machine — a path suggestion
  * carried across machines is exactly the quiet mistake this feature exists to

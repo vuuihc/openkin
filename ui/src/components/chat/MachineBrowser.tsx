@@ -7,6 +7,7 @@ import {
   type MachineRepoBranches,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { folderPickable } from "../../lib/devices";
 import { shortPath } from "../../lib/paths";
 
 type Tab = "folders" | "repo";
@@ -180,9 +181,29 @@ function FolderTab({
     [device, tr],
   );
 
-  // An empty path is not a directory: it is "where may I look at all", and the
-  // machine answers with its own roots. That is why this runs with no path —
-  // it is how the panel learns where to start.
+  // Where this machine may be looked at, learned separately from wherever the
+  // browser starts. The roots are the one listing that does not depend on where
+  // we were, and they have to survive the starting point being wrong: a
+  // directory that has since been deleted, or a path remembered from another
+  // machine, would otherwise be a dead end with nothing to tap — on the one
+  // client that cannot type its way out.
+  useEffect(() => {
+    let live = true;
+    void machineDirs(device, "").then(
+      (answer) => {
+        if (live) setRoots(answer.roots ?? []);
+      },
+      () => {
+        /* The listing below reports the failure; this only feeds the shortcuts. */
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [device]);
+
+  // An empty path is not a directory: it is "where may I look at all". Starting
+  // anywhere else is the same question asked from a place.
   useEffect(() => {
     void load(initialPath ?? "");
   }, [load, initialPath]);
@@ -203,42 +224,52 @@ function FolderTab({
           <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.loading")}</li>
         )}
         {!loading && error && (
-          <li className="px-3 py-2 text-[12px] text-kin-orange">{error}</li>
+          <li className="px-3 py-2 text-[12px] text-kin-orange">
+            <div>{tr("browse.loadFailed")}</div>
+            {/* The machine's own words, kept rather than replaced: a directory
+                this console cannot read may be gone, may be a file, may be
+                outside the roots that machine allows, or may be on a machine
+                that has since gone offline, and only the machine knows which. */}
+            <div className="mt-0.5 text-[11.5px] text-kin-muted">{error}</div>
+          </li>
         )}
-        {!loading && !error && (
+        {!loading && (
           <>
             {/* The roots are offered wherever you are, not only at the top: a
                 person who has tapped three levels down and wants the other
-                repository on this machine should not have to walk back up. */}
-            {roots.length > 1 &&
+                repository on this machine should not have to walk back up. With
+                one root there is nowhere else to go, so it is only worth a row
+                when it is also the way out of a listing that failed. */}
+            {(roots.length > 1 || Boolean(error)) &&
               roots.map((root) => (
                 <li key={`root:${root}`}>
                   <Row
                     label={shortPath(root, 40)}
                     hint={tr("browse.roots")}
-                    current={root === path}
+                    current={!error && root === path}
                     onClick={() => void load(root)}
                   />
                 </li>
               ))}
-            {parent && (
+            {!error && parent && (
               <li>
                 <Row label=".." hint={tr("browse.up")} onClick={() => void load(parent)} />
               </li>
             )}
-            {entries.map((name) => (
-              <li key={name}>
-                <Row
-                  label={name}
-                  folder
-                  onClick={() => void load(path ? `${path}/${name}` : name)}
-                />
-              </li>
-            ))}
-            {entries.length === 0 && (
+            {!error &&
+              entries.map((name) => (
+                <li key={name}>
+                  <Row
+                    label={name}
+                    folder
+                    onClick={() => void load(path ? `${path}/${name}` : name)}
+                  />
+                </li>
+              ))}
+            {!error && entries.length === 0 && (
               <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.empty")}</li>
             )}
-            {truncated && (
+            {!error && truncated && (
               <li className="px-3 py-2 text-[11px] text-kin-muted">
                 {tr("browse.truncated", { count: String(entries.length) })}
               </li>
@@ -250,7 +281,12 @@ function FolderTab({
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
         <button
           type="button"
-          disabled={!path || loading}
+          // Not pickable while the listing is in doubt: `path` is where the
+          // person walked to, and it is only known to be a directory on that
+          // machine because that machine listed it. A failed listing is exactly
+          // the case where it is not, and handing it back as a cwd would start a
+          // session somewhere that does not exist.
+          disabled={!folderPickable({ path, loading, failed: Boolean(error) })}
           onClick={() => onPick(path)}
           className={[
             "w-full rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
