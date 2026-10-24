@@ -38,6 +38,22 @@ export type ChangedFile = {
  * those fields off rather than filling them with an empty id that would read as
  * one.
  */
+/**
+ * The answer that belongs to this task, or null.
+ *
+ * A checkout's own list arrives a debounce after the task switched, so between
+ * the two there is a window where the state still holds the previous task's
+ * answer. Both readers of it — the list and the notice above the list — ask this
+ * one question rather than each testing the fields themselves, because two
+ * copies of "belongs to this task" is one copy too many.
+ */
+export function sourceChangesFor<T extends { taskId: string }>(
+  answer: T | null,
+  taskId: string,
+): T | null {
+  return answer !== null && answer.taskId === taskId ? answer : null;
+}
+
 export function changedFilesFromDiff(
   workspaceId: string | null,
   generation: number | null,

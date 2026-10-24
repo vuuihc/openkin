@@ -24,6 +24,7 @@ import {
   changedFilesFromDiff,
   extractChangedFiles,
   extractFileDiff,
+  sourceChangesFor,
   type ChangedFile,
   type FileDiffSnippet,
 } from "../../lib/changedFiles";
@@ -331,8 +332,9 @@ export default function WorkspacePanel({
     // Whatever the API last answered with is the source of truth: a generation's
     // diff when one is in view, git's own list for a shared checkout.
     if (viewedWorkspaceId && genDiffLoaded) return genDiffFiles;
-    if (!viewedWorkspaceId && sourceChanges?.taskId === taskId) {
-      return sourceChanges.files;
+    const mine = sourceChangesFor(sourceChanges, taskId);
+    if (!viewedWorkspaceId && mine) {
+      return mine.files;
     }
     if (changedFilesProp) return changedFilesProp;
     if (!events || events.length === 0) return [] as ChangedFile[];
@@ -537,7 +539,7 @@ export default function WorkspacePanel({
           </div>
           {sidebarTab === "changes" &&
             !viewedWorkspaceId &&
-            sourceChanges?.truncated === true && (
+            sourceChangesFor(sourceChanges, taskId)?.truncated === true && (
               // A list that stopped early has to say so: a machine caps how many
               // changes it will describe at once, and the rest of them are not
               // "no changes". It belongs to the changes tab, not to the panel:
