@@ -124,6 +124,8 @@ export default function CwdPicker({
         ].join(" ")}
       >
         <FolderIcon />
+        {/* The label keeps its width and the path tag beside it truncates: a
+            directory's own name is the part worth reading in a tight row. */}
         <span className="font-medium text-kin-secondary shrink-0">
           {projectLabel(cwd)}
         </span>

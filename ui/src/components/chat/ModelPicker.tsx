@@ -46,7 +46,15 @@ export default function ModelPicker({
     : status === "default_only" ? tr("modelPicker.defaultOnly") : "";
 
   return (
-    <div className={["flex items-center min-w-0", compact ? "gap-1.5" : "gap-2"].join(" ")}>
+    <div
+      className={[
+        "flex items-center",
+        // In a strip that scrolls, an item that can shrink shrinks to nothing
+        // first and then paints its contents over the chip beside it — the row
+        // has to overflow for the scroll to be the thing that gives.
+        compact ? "gap-1.5 flex-none" : "gap-2 min-w-0",
+      ].join(" ")}
+    >
       {!compact && (
         <span className="text-[11.5px] text-kin-muted flex-none">
           {tr("modelPicker.label")}

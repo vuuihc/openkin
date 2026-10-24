@@ -1111,6 +1111,10 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               onSubmit={onComposer}
               onStop={onStop}
             />
+            {/* One row, scrolled sideways when it does not fit — it has to overflow
+                for that: an item allowed to shrink is squeezed to nothing first
+                and paints its text over the chip next to it, which is what a
+                long path next to a repository name did on a phone. */}
             <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
               <PermissionModePicker
                 value={composerPermission}
@@ -1134,7 +1138,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 ·
               </span>
               <CwdPicker
-                className="min-w-0 max-w-[min(40%,18rem)]"
+                // The one item allowed to give way, because a path can be
+                // arbitrarily long: it shrinks to a readable floor and its path
+                // tag truncates inside that, rather than the row overflowing on
+                // a desktop window or the chip collapsing on a phone.
+                className="min-w-[6rem] max-w-[min(40%,18rem)]"
                 cwd={task.cwd}
                 locked
                 compact
