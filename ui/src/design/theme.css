@@ -42,15 +42,19 @@
     name below, reached through `tailwind.config.ts` — the three elevation
     colours included, which the config spells as geometry plus a token name, so
     a colour literal in the config is a test failure too. Since S6 the rule is
-    enforced rather than stated: `eslint.config.js` fails on a colour literal
-    anywhere under `src/` outside this directory. Three boundaries are known and
-    have moved in here to satisfy it, each with its reason in its own header:
+    enforced rather than stated: `eslint.config.js` fails on a colour literal in
+    any TypeScript file it lints outside this directory. What it does *not*
+    lint is worth knowing before quoting the rule: the scope is TypeScript
+    under `src/`, so the stylesheets and `index.html` are outside it, and the
+    `theme-color` meta there holds a literal — a case in `tokens.test.ts` pins
+    that one to `--kin-page` instead. Three boundaries are known and have moved
+    in here to satisfy the rule, each with its reason in its own header:
     `terminalTheme.ts` (an ANSI palette handed to xterm, which cannot read CSS
     variables and is a spec rather than a design decision), `heat.ts` (five
     literal greens on a fixed activity scale), and `exportDocument.ts` (the
     stylesheet of a shared transcript — its own document, with no tokens in it).
-    So every colour value in the console is now under `design/`, and this file
-    is the ones that are *tokens*;
+    So every colour value the TypeScript paints is under `design/`, and this
+    file is the ones that are *tokens*;
 
   The Tailwind side (`tailwind.config.ts`) holds the *scale* ladders — type,
   leading, tracking, elevation, radius (Tailwind's own six-step subset), and the

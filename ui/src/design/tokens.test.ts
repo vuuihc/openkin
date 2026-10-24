@@ -1185,7 +1185,13 @@ describe("design tokens", () => {
       // measured, and drawn by nothing). The page is read as source, so the
       // template's `${…}` is part of the segment the scan sees.
       const page = readFileSync(join(UI, "src/pages/DesignSystemPage.tsx"), "utf8");
-      const wears = strings(page).filter((s) => s.includes("bg-kin-elevated"));
+      // Anchored, because `includes("bg-kin-elevated")` is also true of
+      // `bg-kin-elevated-panel` — a name that is not a token and emits no CSS,
+      // so the loose test would have gone on passing while the sample wore
+      // nothing. The colour-class case above would catch the bogus name; this
+      // one should not need it to.
+      const wearsClass = /(?<![\w-])bg-kin-elevated(?![\w-])/;
+      const wears = strings(page).filter((s) => wearsClass.test(s));
       expect({
         wears: wears.length > 0,
         raises: wears.some((s) => s.includes("ELEVATION_CLASS")),
@@ -1221,7 +1227,11 @@ describe("design tokens", () => {
       );
       const hairline =
         /border(?:-[trblxy])?(?:-kin-hairline(?:-strong)?|-\[var\(--kin-hairline(?:-strong)?\)\])/;
-      const floats = /(?<![\w-])(?:absolute|fixed|sticky|z-\d+|z-\[)/;
+      // `z-*` is deliberately not in the list, though the rule this replaced
+      // had it: a `z-index` alone does not take an element out of flow, so
+      // exempting it exempted static cards that happened to stack. Only the
+      // three positional values actually float.
+      const floats = /(?<![\w-])(?:absolute|fixed|sticky)/;
       const both: string[] = [];
       for (const file of sourceFiles()) {
         const source = readFileSync(file, "utf8");

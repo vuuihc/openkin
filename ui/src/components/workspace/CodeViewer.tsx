@@ -116,7 +116,7 @@ export default function CodeViewer({
       setDraft(serverContent);
       if (saveState === "saved") setSaveState("idle");
     }
-  }, [serverContent]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [serverContent]); // eslint-disable-line react-hooks/exhaustive-deps -- reading `saveState` is the point: depending on it would re-sync the draft every time the save state moves, which is while the user is typing
 
   // Drop the ref when the path changes so stale goToDiff calls never target a disposed instance.
   useEffect(() => {

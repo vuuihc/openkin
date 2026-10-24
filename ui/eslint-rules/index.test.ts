@@ -56,6 +56,26 @@ tester.run("no-undefined-token", kin.rules["no-undefined-token"], {
     },
     // A dead name in prose is not a call site.
     { code: 'const doc = "write bg-kin-* here";', options: [{ colours }] },
+    // The three spellings of a class list, all read. The plain JSX attribute
+    // is the one that matters: it is how the tree spells a class list in the
+    // great majority of its call sites, and the first version of these rules
+    // read tokens, which made it invisible — `className="…"` is a `JSXText`
+    // token, not a `String` one, so only the braced spellings were checked.
+    {
+      code: 'const C = () => <button className="bg-kin-blue text-kin-muted" />;',
+      options: [{ colours }],
+    },
+    { code: 'const C = () => <button className={"bg-kin-blue"} />;', options: [{ colours }] },
+    {
+      code: "const C = () => <button className={`bg-kin-elevated/60 ${x}`} />;",
+      options: [{ colours }],
+    },
+    // The side-lettered form is the same axis, and every declared name that
+    // contains a dash has to survive the exact-name check.
+    {
+      code: 'const a = "border-t-kin-hairline-strong divide-x-kin-fill md:ring-kin-focus-ring";',
+      options: [{ colours }],
+    },
   ],
   invalid: [
     {
@@ -79,6 +99,24 @@ tester.run("no-undefined-token", kin.rules["no-undefined-token"], {
       options: [{ colours }],
       errors: [{ messageId: "undefined", data: { name: "from-kin-nowhere" } }],
     },
+    {
+      // The spelling the rule used to be blind to.
+      code: 'const C = () => <button className="flex bg-kin-purple" />;',
+      options: [{ colours }],
+      errors: [{ messageId: "undefined", data: { name: "bg-kin-purple" } }],
+    },
+    {
+      // Extending a declared name is the same defect: `blue` exists,
+      // `blue-foo` does not, and the class emits nothing either way.
+      code: 'const a = "text-kin-blue-foo";',
+      options: [{ colours }],
+      errors: [{ messageId: "undefined", data: { name: "text-kin-blue-foo" } }],
+    },
+    {
+      code: 'const a = "border-t-kin-nope";',
+      options: [{ colours }],
+      errors: [{ messageId: "undefined", data: { name: "border-t-kin-nope" } }],
+    },
   ],
 });
 
@@ -91,6 +129,9 @@ tester.run("no-arbitrary-literal", kin.rules["no-arbitrary-literal"], {
     { code: 'const a = "max-w-[min(100%,420px)]";' },
     // A `var()` is a token, and the axes that take one are read by name.
     { code: 'const a = "text-[var(--kin-text)]";' },
+    // The blind spot this rule shared with the one above, in its own axis: the
+    // plain JSX attribute is where a size is actually typed.
+    { code: 'const C = () => <div className="text-body leading-prose" />;' },
   ],
   invalid: [
     {
@@ -115,6 +156,10 @@ tester.run("no-arbitrary-literal", kin.rules["no-arbitrary-literal"], {
     {
       // The side-lettered form is the same axis.
       code: 'const a = "rounded-t-[3px]";',
+      errors: [{ messageId: "offLadder" }],
+    },
+    {
+      code: 'const C = () => <div className="p-3 text-[13px]" />;',
       errors: [{ messageId: "offLadder" }],
     },
   ],

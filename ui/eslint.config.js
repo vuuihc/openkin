@@ -39,11 +39,11 @@ export default tseslint.config(
       "kin/no-undefined-token": ["error", { colours }],
       "kin/no-arbitrary-literal": "error",
       // Not a design rule, and here for the opposite reason: the tree already
-      // carries five `eslint-disable-next-line react-hooks/exhaustive-deps`
-      // comments with their reasons, written when this config did not exist.
-      // A disable comment for a rule nobody defines is an error in ESLint 9 —
-      // which is how this came up — and the honest reading is that those
-      // comments were right and the plugin was missing.
+      // carries `eslint-disable-next-line react-hooks/exhaustive-deps`
+      // comments written when this config did not exist. A disable comment for
+      // a rule nobody defines is an error in ESLint 9 — which is how this came
+      // up — and the honest reading is that those comments were right and the
+      // plugin was missing.
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
       /**
@@ -58,6 +58,24 @@ export default tseslint.config(
        * layer, the ANSI palette for xterm, the heat ramp, the export
        * stylesheet, and the gallery, and everything outside it is a call site.
        *
+       * Two selectors, because a literal has two spellings and they are
+       * different node types: `Literal` is `"#fff"`, `TemplateElement` is the
+       * quasi of `` `#fff` `` or `` `rgba(0,0,0,${a})` ``. Matching only the
+       * first left the second — the spelling a computed colour is written in —
+       * entirely unchecked, which is the same hole in a different place.
+       *
+       * Three things this deliberately does not cover, so that "nowhere else"
+       * is not read as more than it is:
+       *
+       * - `ui/index.html` (the `theme-color` meta) and any `.css`. Only
+       *   `src/**\/*.{ts,tsx}` is linted. The meta is pinned to `--kin-page` by
+       *   a case in `tokens.test.ts` instead.
+       * - `src/design/**`, which is where the literals are supposed to be.
+       * - A `#` that starts a prose reference — `"see issue #300"` is reported,
+       *   because `#300` is a valid three-digit hex and no pattern can tell the
+       *   two apart. Reword rather than disable; the tree's only instance is in
+       *   a comment, which is not linted.
+       *
        * `theme.css`'s header names those four boundaries and why each one is
        * not a token.
        */
@@ -66,6 +84,12 @@ export default tseslint.config(
         {
           selector:
             "Literal[value=/(?:^|[^\\w])#[0-9a-fA-F]{3,8}\\b|rgba?\\(|hsla?\\(|oklch\\(|oklab\\(|lab\\(|lch\\(/]",
+          message:
+            "a colour literal belongs in `src/design/` — use a token (`var(--kin-…)` or a `kin-*` class), or add one there",
+        },
+        {
+          selector:
+            "TemplateElement[value.raw=/(?:^|[^\\w])#[0-9a-fA-F]{3,8}\\b|rgba?\\(|hsla?\\(|oklch\\(|oklab\\(|lab\\(|lch\\(/]",
           message:
             "a colour literal belongs in `src/design/` — use a token (`var(--kin-…)` or a `kin-*` class), or add one there",
         },
