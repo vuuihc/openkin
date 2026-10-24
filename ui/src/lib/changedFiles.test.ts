@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { TaskEvent } from "../api/client";
+import type { TaskEvent, WorkspaceChange } from "../api/client";
 import {
+  changedFilesFromDiff,
   countLines,
   extractChangedFiles,
   extractFileDiff,
@@ -147,6 +148,43 @@ describe("extractChangedFiles stats", () => {
     expect(extractChangedFiles(events)).toEqual([]);
   });
 
+});
+
+describe("changedFilesFromDiff", () => {
+  const changes: WorkspaceChange[] = [
+    { path: "src/a.ts", status: "modified", additions: 3, deletions: 1 },
+    { path: "src/b.ts", status: "added" },
+    { path: "old/name.ts", old_path: "new/name.ts", status: "renamed" },
+    { path: "gone.ts", status: "deleted" },
+    { path: "logo.png", status: "binary", binary: true },
+  ];
+
+  it("names the workspace a generation's diff belongs to", () => {
+    const files = changedFilesFromDiff("ws-1", 7, changes);
+    expect(files).toHaveLength(5);
+    expect(files[0]).toMatchObject({
+      path: "src/a.ts",
+      action: "write",
+      status: "modified",
+      additions: 3,
+      deletions: 1,
+      workspaceId: "ws-1",
+      generation: 7,
+    });
+    expect(files[2].oldPath).toBe("new/name.ts");
+    expect(files[3].action).toBe("delete");
+    expect(files[4].binary).toBe(true);
+  });
+
+  // A shared checkout has no generation to name, and a row carrying an empty
+  // workspace id would read as one that does.
+  it("leaves the workspace off a shared checkout's changes", () => {
+    const files = changedFilesFromDiff(null, null, changes);
+    expect(files).toHaveLength(5);
+    expect(files[0].workspaceId).toBeUndefined();
+    expect(files[0].generation).toBeUndefined();
+    expect(files[0].status).toBe("modified");
+  });
 });
 
 describe("extractFileDiff", () => {

@@ -31,10 +31,16 @@ export type ChangedFile = {
 /**
  * Convert API WorkspaceChange items into ChangedFile entries.
  * The API diff is the source of truth for generation-aware file browsing.
+ *
+ * Both identifiers are optional because two routes answer with this shape: a
+ * generation's diff, which names the workspace it belongs to, and a shared
+ * checkout's live changes, which has no workspace to name. Passing nulls leaves
+ * those fields off rather than filling them with an empty id that would read as
+ * one.
  */
 export function changedFilesFromDiff(
-  workspaceId: string,
-  generation: number,
+  workspaceId: string | null,
+  generation: number | null,
   changes: WorkspaceChange[],
 ): ChangedFile[] {
   return changes.map((c) => ({
@@ -44,8 +50,8 @@ export function changedFilesFromDiff(
     seq: 0,
     additions: c.additions,
     deletions: c.deletions,
-    workspaceId,
-    generation,
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(generation ? { generation } : {}),
     status: c.status,
     oldPath: c.old_path,
     binary: c.binary,

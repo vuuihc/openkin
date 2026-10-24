@@ -488,6 +488,7 @@ const zh = {
       collapse: "收起文件",
       noLineDelta: "行数未知",
       empty: "此任务还没有改动文件。",
+      truncated: "改动比一次回答能带的更多，列表到此为止。",
       write: "写",
       edit: "改",
       delete: "删",

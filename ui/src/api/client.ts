@@ -668,6 +668,12 @@ export type WorkspaceDiffResponse = {
   generation?: number | null;
   view: string;
   changes: WorkspaceChange[];
+  /**
+   * The list is the beginning of a longer one. Only a machine answering about
+   * its own filesystem sets this: it caps how much it will describe at once, and
+   * a list that stopped without saying so would read as the whole truth.
+   */
+  truncated?: boolean;
 };
 
 export function listTaskWorkspaces(
@@ -750,6 +756,23 @@ export function readTaskSourceFile(
   const q = new URLSearchParams({ path });
   return apiFetch<WorkspaceFileResponse>(
     `/api/tasks/${encodeURIComponent(taskId)}/source/file?${q.toString()}`,
+  );
+}
+
+/**
+ * What git in a task's checkout says is different from HEAD, uncommitted work
+ * and untracked files included.
+ *
+ * The generation route above answers the same question for an isolated
+ * workspace. This one is for a task whose files are a checkout: no base commit,
+ * no generation, and — when the task runs on another machine — a `git status`
+ * that machine has to run, because it is about that filesystem.
+ */
+export function getTaskSourceChanges(
+  taskId: string,
+): Promise<WorkspaceDiffResponse> {
+  return apiFetch<WorkspaceDiffResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/source/changes`,
   );
 }
 

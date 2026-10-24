@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   ApiError,
+  getTaskSourceChanges,
   getWorkspaceDiff,
   listTaskWorkspaces,
   type TaskEvent,
@@ -77,6 +78,13 @@ const SIDEBAR_WIDTH_KEY = "kin.workspace.sidebarWidth";
 const DEFAULT_SIDEBAR_WIDTH = 320;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 560;
+/**
+ * How long a burst of file-touching events is allowed to settle before the
+ * source view asks the machine for git's answer. Long enough that one turn's
+ * edits are one question, short enough that the list is there by the time
+ * somebody looks up from the transcript.
+ */
+const SOURCE_CHANGES_DEBOUNCE_MS = 400;
 
 type DragState = {
   pointerId: number;
@@ -208,6 +216,11 @@ export default function WorkspacePanel({
   const [dismissedPaths, setDismissedPaths] = useState<Set<string>>(() => new Set());
   const [genDiffFiles, setGenDiffFiles] = useState<ChangedFile[]>([]);
   const [genDiffLoaded, setGenDiffLoaded] = useState(false);
+  const [sourceChanges, setSourceChanges] = useState<{
+    taskId: string;
+    files: ChangedFile[];
+    truncated: boolean;
+  } | null>(null);
   const requestRef = useRef(0);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
@@ -268,13 +281,71 @@ export default function WorkspacePanel({
     };
   }, [taskId, viewedWorkspaceId]);
 
+  // A signal that changes when the agent reports touching a file, rather than on
+  // every token of a streamed answer. The source fetch below is a `git status`
+  // run by the machine holding the checkout — cheap, but not something to ask
+  // for once per token.
+  const mutationKey = useMemo(() => {
+    const files = changedFilesProp ?? extractChangedFiles(events ?? []);
+    let newest = 0;
+    for (const touched of files) {
+      if (touched.seq > newest) newest = touched.seq;
+    }
+    return `${files.length}:${newest}`;
+  }, [changedFilesProp, events]);
+
+  // Fetch the live changes of a shared checkout, which is what the source view
+  // shows: git's own answer about the task's directory, asked afresh as the
+  // agent reports work. The event stream's reconstruction of the same thing is
+  // what the agent said it touched — a good record, and not what the checkout
+  // looks like — so it is the fallback here rather than the source.
+  //
+  // The debounce is what keeps that honest without being expensive: an agent
+  // writing twenty files in a burst asks once, not twenty times.
+  useEffect(() => {
+    if (viewedWorkspaceId) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getTaskSourceChanges(taskId)
+        .then((res) => {
+          if (cancelled) return;
+          setSourceChanges({
+            taskId,
+            files: changedFilesFromDiff(null, null, res.changes),
+            truncated: res.truncated === true,
+          });
+        })
+        .catch(() => {
+          // The last answer stands, and before any answer the event stream's
+          // list is what there is. A checkout git cannot describe — not a
+          // repository, or a machine that is away — is not an empty checkout.
+        });
+    }, SOURCE_CHANGES_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [taskId, viewedWorkspaceId, mutationKey]);
+
   const changedFiles = useMemo(() => {
-    // When a workspace is selected, prefer the API diff as source of truth.
+    // Whatever the API last answered with is the source of truth: a generation's
+    // diff when one is in view, git's own list for a shared checkout.
     if (viewedWorkspaceId && genDiffLoaded) return genDiffFiles;
+    if (!viewedWorkspaceId && sourceChanges?.taskId === taskId) {
+      return sourceChanges.files;
+    }
     if (changedFilesProp) return changedFilesProp;
     if (!events || events.length === 0) return [] as ChangedFile[];
     return extractChangedFiles(events);
-  }, [changedFilesProp, events, viewedWorkspaceId, genDiffFiles, genDiffLoaded]);
+  }, [
+    changedFilesProp,
+    events,
+    viewedWorkspaceId,
+    genDiffFiles,
+    genDiffLoaded,
+    sourceChanges,
+    taskId,
+  ]);
 
   const visibleChangedFiles = useMemo(
     () =>
@@ -338,6 +409,7 @@ export default function WorkspacePanel({
     setLoading(false);
     setError(null);
     setGenDiffFiles([]);
+    setSourceChanges(null);
     userPickedTab.current = false;
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
@@ -463,6 +535,17 @@ export default function WorkspacePanel({
               label={tr("workspace.tabFiles")}
             />
           </div>
+          {sidebarTab === "changes" &&
+            !viewedWorkspaceId &&
+            sourceChanges?.truncated === true && (
+              // A list that stopped early has to say so: a machine caps how many
+              // changes it will describe at once, and the rest of them are not
+              // "no changes". It belongs to the changes tab, not to the panel:
+              // the tree has its own answer and its own notice.
+              <div className="flex-none px-3 py-1.5 text-[11px] text-kin-muted border-b border-[var(--kin-hairline)]">
+                {tr("workspace.changed.truncated")}
+              </div>
+            )}
           <div className="flex-1 min-h-0">
             {sidebarTab === "changes" ? (
               <ChangedFilesList

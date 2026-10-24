@@ -498,6 +498,7 @@ const en: MessageTree = {
       collapse: "Hide files",
       noLineDelta: "size unknown",
       empty: "No changed files in this task yet.",
+      truncated: "More changes than one answer holds — the list stops here.",
       write: "write",
       edit: "edit",
       delete: "del",
