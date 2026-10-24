@@ -7,7 +7,12 @@ import {
   type MachineRepoBranches,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
-import { folderPickable } from "../../lib/devices";
+import {
+  emptyFolderNotice,
+  folderPickable,
+  repoAnswerFor,
+  rootRowsVisible,
+} from "../../lib/devices";
 import { shortPath } from "../../lib/paths";
 
 type Tab = "folders" | "repo";
@@ -58,9 +63,19 @@ export default function MachineBrowser({
   const [tab, setTab] = useState<Tab>("folders");
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Escape and the opening focus belong to the panel being open, not to every
+  // render. `onClose` is a fresh closure each time the parent renders — a
+  // keystroke in the repo box is one — so an effect keyed on it re-arms the
+  // focus timer on every keystroke and takes focus out of the input the person
+  // is typing in. Holding the newest closure in a ref lets the effect run once.
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeRef.current();
     };
     document.addEventListener("keydown", onKey);
     const t = window.setTimeout(() => panelRef.current?.focus(), 20);
@@ -68,7 +83,7 @@ export default function MachineBrowser({
       document.removeEventListener("keydown", onKey);
       window.clearTimeout(t);
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
@@ -238,9 +253,12 @@ function FolderTab({
             {/* The roots are offered wherever you are, not only at the top: a
                 person who has tapped three levels down and wants the other
                 repository on this machine should not have to walk back up. With
-                one root there is nowhere else to go, so it is only worth a row
-                when it is also the way out of a listing that failed. */}
-            {(roots.length > 1 || Boolean(error)) &&
+                one root and a directory under it there is nowhere else to go, so
+                it is only worth a row when it is also the way out of a listing
+                that failed — but at the roots question itself the roots are the
+                answer, and the single root a fresh machine declares is the only
+                way in. See rootRowsVisible. */}
+            {rootRowsVisible({ path, roots, failed: Boolean(error) }) &&
               roots.map((root) => (
                 <li key={`root:${root}`}>
                   <Row
@@ -253,7 +271,11 @@ function FolderTab({
               ))}
             {!error && parent && (
               <li>
-                <Row label=".." hint={tr("browse.up")} onClick={() => void load(parent)} />
+                <Row
+                  label={tr("browse.parent")}
+                  hint={tr("browse.up")}
+                  onClick={() => void load(parent)}
+                />
               </li>
             )}
             {!error &&
@@ -266,7 +288,12 @@ function FolderTab({
                   />
                 </li>
               ))}
-            {!error && entries.length === 0 && (
+            {emptyFolderNotice({
+              path,
+              roots,
+              entries,
+              failed: Boolean(error),
+            }) && (
               <li className="px-3 py-2 text-[12px] text-kin-muted">{tr("browse.empty")}</li>
             )}
             {!error && truncated && (
@@ -304,42 +331,62 @@ function FolderTab({
 function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) => void }) {
   const tr = useT();
   const [repo, setRepo] = useState("");
-  const [found, setFound] = useState<MachineRepoBranches | null>(null);
+  const [looked, setLooked] = useState<{ named: string; found: MachineRepoBranches } | null>(null);
   const [branch, setBranch] = useState("");
-  const [busy, setBusy] = useState(false);
+  // Asking for branches and fetching a repository are two different waits with
+  // two different answers, and the buttons have to say which one is happening:
+  // one flag for both left the fetch button reading "Fetching…" while the
+  // machine was only being asked what branches exist, and left the lookup with
+  // no sign that anything was happening at all.
+  const [finding, setFinding] = useState(false);
+  const [fetching, setFetching] = useState(false);
   const [error, setError] = useState("");
 
+  const named = repo.trim();
+  const busy = finding || fetching;
+  // What the machine answered about, if the box still names that repository:
+  // see repoAnswerFor. Everything below reads this, so the branch list and the
+  // fetch can only ever be about the text that is on screen now.
+  const found = repoAnswerFor(looked, named);
+
   async function find() {
-    const named = repo.trim();
     if (!named || busy) return;
-    setBusy(true);
+    setFinding(true);
     setError("");
-    setFound(null);
+    setLooked(null);
+    setBranch("");
     try {
       const answer = await machineRepoBranches(device, named);
-      setFound(answer);
+      setLooked({ named, found: answer });
       setBranch(answer.default_branch ?? answer.branches?.[0] ?? "");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : tr("browse.fetchFailed"));
     } finally {
-      setBusy(false);
+      setFinding(false);
     }
   }
 
   async function fetchIt() {
-    if (busy) return;
-    setBusy(true);
+    if (busy || !named) return;
+    setFetching(true);
     setError("");
     try {
       // The repository is asked for in the words the machine answered with, not
       // the words that were typed: the machine decided what the name means on
-      // itself, and this is that decision handed back.
-      const prepared = await prepareMachineRepo(device, found?.clone_url ?? repo.trim(), branch);
+      // itself, and this is that decision handed back. Only while the answer is
+      // about the text still in the box — once the text has moved on, the
+      // machine's words name a repository the person has stopped asking for, and
+      // the branch that was chosen belongs to that other repository's answer.
+      const prepared = await prepareMachineRepo(
+        device,
+        found?.clone_url ?? named,
+        found ? branch : undefined,
+      );
       onPick(prepared.path);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : tr("browse.fetchFailed"));
     } finally {
-      setBusy(false);
+      setFetching(false);
     }
   }
 
@@ -373,11 +420,11 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
             />
             <button
               type="button"
-              disabled={busy || !repo.trim()}
+              disabled={busy || !named}
               onClick={() => void find()}
               className="flex-none text-[12px] font-medium text-kin-blue disabled:opacity-40"
             >
-              {tr("browse.findBranches")}
+              {finding ? tr("browse.finding") : tr("browse.findBranches")}
             </button>
           </div>
         </div>
@@ -420,11 +467,11 @@ function RepoTab({ device, onPick }: { device?: string; onPick: (path: string) =
       <div className="flex-none border-t border-[var(--kin-hairline)] px-3 py-2">
         <button
           type="button"
-          disabled={busy || !repo.trim()}
+          disabled={busy || !named}
           onClick={() => void fetchIt()}
           className="w-full rounded-lg px-3 py-2 text-[13px] font-medium bg-kin-blue text-white disabled:opacity-40"
         >
-          {busy ? tr("browse.fetching") : tr("browse.fetch")}
+          {fetching ? tr("browse.fetching") : tr("browse.fetch")}
         </button>
       </div>
     </>

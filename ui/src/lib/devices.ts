@@ -1,13 +1,14 @@
-import type { AgentInfo, DeviceInfo } from "../api/client";
+import type { AgentInfo, MachineInfo, MachineRepoBranches } from "../api/client";
 import { agentDisplayName } from "./agentMention";
 
 /**
  * One machine the console can send work to.
  *
  * Two sources answer different halves of the question: `/api/version` says which
- * machine this console is talking to, `/api/devices` says which other machines
- * have dialled in. Neither alone is enough — a Hub with no Nodes still has one
- * machine, and the device list is not guaranteed to include the daemon itself.
+ * machine this console is talking to, `/api/machines` says which machines there
+ * are to send work to. Neither alone is enough — a Hub with no Nodes still has
+ * one machine, and the machine list is not guaranteed to include the daemon
+ * itself.
  */
 export type Machine = {
   id: string;
@@ -38,7 +39,7 @@ export type SelfIdentity = { id: string; name: string };
  * machine that is down and one that was never paired.
  */
 export function machineList(
-  devices: DeviceInfo[],
+  machines: MachineInfo[],
   self: SelfIdentity,
   localAgents: AgentInfo[],
 ): Machine[] {
@@ -56,7 +57,10 @@ export function machineList(
       isDefault: a.default,
     })),
   };
-  const elsewhere = devices
+  const elsewhere = machines
+    // The server already leaves revoked machines out of this list; this stays as
+    // the shape the picker understands, so a Hub that reports one — an older
+    // daemon, a proxy, a fixture — is still refused here rather than offered.
     .filter((d) => d.id !== here.id && !d.revoked_at)
     .map<Machine>((d) => ({
       id: d.id,
@@ -131,6 +135,13 @@ export function cwdSuggestions(machine: Machine | undefined, localDirs: string[]
  * An empty id and the literal "self" both mean here — the API accepts either for
  * the same thing, and a form that only knows "some machine" should not have to
  * know which kind it has.
+ *
+ * The server has a third spelling for here — its own desktop id — which this
+ * does not know, because it is the one spelling no form can hold: the picker
+ * renders this machine as "self" (see `machineRef`), and a draft keeps the id it
+ * was given. A request that did send it would be read as local by every endpoint
+ * and as remote by the helpers below, which is why they do not share a spelling
+ * with the server rather than sharing a wrong one.
  */
 export function isRemoteDevice(device: string | undefined): boolean {
   const id = (device ?? "").trim();
@@ -192,6 +203,105 @@ export function folderPickable(state: {
   failed: boolean;
 }): boolean {
   return state.path.trim() !== "" && !state.loading && !state.failed;
+}
+
+/**
+ * Whether the roots are worth a row in the folder browser.
+ *
+ * An empty path is not a directory: it is the question "where may I look at
+ * all", and the machine answers it with its own roots. So at that question the
+ * roots *are* the rows — and with exactly one root, which is what a machine that
+ * has not been configured declares, that row is the only way in. Hiding it
+ * leaves a phone with an empty panel, a disabled "use this folder", and hand
+ * typing an absolute path as the only way out, which is the entire cost this
+ * control exists to remove.
+ *
+ * Anywhere else the roots are a shortcut, not the answer, and one root is
+ * nowhere else to go: inside a directory there is still only one place to work,
+ * and a row that goes nowhere is noise. A failed listing is the exception — the
+ * way out of a place that cannot be read is worth a row even when it is the
+ * only one.
+ */
+export function rootRowsVisible(state: {
+  path: string;
+  roots: string[];
+  failed: boolean;
+}): boolean {
+  if (state.roots.length === 0) return false;
+  if (state.failed) return true;
+  if (state.path.trim() === "") return true;
+  return state.roots.length > 1;
+}
+
+/**
+ * Whether the browser should say there is nothing here.
+ *
+ * The sentence is about a listing: the machine looked inside this directory and
+ * found no subdirectories. At the roots question there is no listing to report
+ * on — the answer is the roots themselves — so printing "no folders inside"
+ * beside the one root a fresh machine declared contradicts the row above it.
+ * With nothing declared at all it is still the truth, and still worth saying.
+ */
+export function emptyFolderNotice(state: {
+  path: string;
+  roots: string[];
+  entries: string[];
+  failed: boolean;
+}): boolean {
+  if (state.failed || state.entries.length > 0) return false;
+  return !(state.roots.length > 0 && state.path.trim() === "");
+}
+
+/**
+ * The question a branch answer is an answer about: this directory, on this
+ * machine.
+ *
+ * A branch name is not an answer on its own. "main" is a fact about one checkout
+ * of one repository on one machine, and the same path can exist on two machines
+ * with different branches in it — which is the whole reason the question carries
+ * a device at all. Two answers can also arrive out of order: switching machines
+ * asks a second question while the first is still in the air, and on a phone the
+ * slower one is the machine that was just switched away from.
+ *
+ * Both are the same mistake on screen — a chip describing a checkout nobody
+ * asked about — so both are answered by keying the answer to the question it
+ * belongs to.
+ */
+export function branchQuestion(cwd: string, device: string | undefined): string {
+  // A NUL cannot occur in a path, so a path cannot be spelled to look like a
+  // device id (or the reverse) and match a question it was not asked for.
+  return `${cwd.trim()}\u0000${(device ?? "").trim()}`;
+}
+
+/** Whether an answer about a checkout still answers the question on screen. */
+export function branchAnswerApplies(
+  answer: { cwd: string; device?: string } | null,
+  question: { cwd: string; device?: string },
+): boolean {
+  return (
+    answer !== null &&
+    branchQuestion(answer.cwd, answer.device) ===
+      branchQuestion(question.cwd, question.device)
+  );
+}
+
+/**
+ * What the machine answered about a repository, if the box still names it.
+ *
+ * The machine's answer says which remote it understood the typed name to be —
+ * `acme/api` is not the same string as `git@github.example.com:acme/api.git` —
+ * and the fetch has to ask in the machine's words, because it is the machine
+ * that decides what a name means on itself. But that answer is about the text it
+ * was given. Once the text has moved on, a typo being fixed or a different
+ * repository being considered, the answer describes something nobody is asking
+ * for, and fetching with it would clone the repository the person just stopped
+ * naming.
+ */
+export function repoAnswerFor(
+  looked: { named: string; found: MachineRepoBranches } | null,
+  named: string,
+): MachineRepoBranches | null {
+  return looked && looked.named === named ? looked.found : null;
 }
 
 /**

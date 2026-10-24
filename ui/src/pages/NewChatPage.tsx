@@ -544,7 +544,14 @@ export default function NewChatPage() {
             locked={false}
             compact
             suggestions={cwdDirs}
-            device={machine && !machine.isSelf ? machine.id : undefined}
+            // The id that was chosen, not the machine record behind it, for the
+            // same reason the branch control below passes it: a machine that has
+            // gone away (revoked, or the list read failed) leaves `machine`
+            // undefined, and the folder panel would then be answering a question
+            // about that machine's path with this machine's directories. The
+            // daemon's own desktop id is read as "here" by the machine
+            // endpoints, so naming this machine is not a special case.
+            device={machineId || undefined}
             onChange={(v) => {
               setCwd(v);
               setDraftCwd(v);

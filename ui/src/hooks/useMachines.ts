@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import {
   listAgents,
-  listDevices,
+  listMachines,
   serverVersion,
   type AgentInfo,
-  type DeviceInfo,
+  type MachineInfo,
 } from "../api/client";
 import { machineList, type Machine, type SelfIdentity } from "../lib/devices";
 
@@ -57,9 +57,9 @@ function getSnapshot(): Snapshot {
 }
 
 async function load(mine: number): Promise<void> {
-  const [version, devices] = await Promise.all([
+  const [version, machines] = await Promise.all([
     serverVersion().catch(() => null),
-    listDevices().catch(() => null),
+    listMachines().catch(() => null),
   ]);
   if (mine !== generation) return;
 
@@ -67,17 +67,17 @@ async function load(mine: number): Promise<void> {
     id: version?.desktop_id ?? "",
     name: version?.desktop_name ?? "",
   };
-  const list: DeviceInfo[] = devices ?? [];
+  const list: MachineInfo[] = machines ?? [];
   // Which machine this is, and which machines exist, are the whole answer for
   // naming one. Publish that now: the agent inventory can wait on a CLI probe
   // or a provider, and until it lands a task that names this very machine would
   // read as one that has gone away.
   emit({
-    // A console that cannot read the device list still knows which machine it is
-    // talking to, so it degrades to one machine instead of to none.
+    // A console that cannot read the machine list still knows which machine it
+    // is talking to, so it degrades to one machine instead of to none.
     machines: machineList(list, self, snapshot.agents),
     agents: snapshot.agents,
-    failed: devices === null || version === null,
+    failed: machines === null || version === null,
     loaded: true,
     at: Date.now(),
   });
@@ -107,7 +107,7 @@ export type MachinesState = {
   /** The local agent registry, from the same read as the machine list. */
   agents: AgentInfo[];
   loading: boolean;
-  /** The device list could not be read; only this machine is known. */
+  /** The machine list could not be read; only this machine is known. */
   failed: boolean;
   refresh: () => void;
 };

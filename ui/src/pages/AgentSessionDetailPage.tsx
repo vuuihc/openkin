@@ -306,6 +306,11 @@ export default function AgentSessionDetailPage() {
               </span>
               <BranchPicker
                 cwd={session.cwd}
+                // The session's directory is on the machine that owns it, so
+                // the branches are that machine's. Without this the chip reads
+                // this machine's checkout of the same path — the same trap the
+                // task strip avoids, and silent rather than wrong-looking.
+                device={session.device_id}
                 locked
                 compact
                 className="flex-none"

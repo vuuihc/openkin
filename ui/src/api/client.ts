@@ -385,8 +385,8 @@ export function listAgents(): Promise<AgentInfo[]> {
   return apiFetch<AgentInfo[]>("/api/agents");
 }
 
-/** One agent runtime as the machine itself reported it. */
-export type DeviceAgentInfo = {
+/** One agent runtime on one machine, as that machine itself reported it. */
+export type MachineAgentInfo = {
   id: string;
   installed: boolean;
   available: boolean;
@@ -397,25 +397,38 @@ export type DeviceAgentInfo = {
   is_default?: boolean;
 };
 
-/** A machine the Hub knows: the daemon itself, or a Node that dialled in. */
-export type DeviceInfo = {
+/** One machine work can be sent to, as the console sending it sees it. */
+export type MachineInfo = {
   id: string;
   label?: string;
-  platform?: string;
-  arch?: string;
-  role?: string;
-  kin_version?: string;
   reachability: string;
-  last_seen_at?: number;
-  created_at: number;
-  revoked_at?: number;
-  agents: DeviceAgentInfo[];
+  agents: MachineAgentInfo[];
   /** Directories this machine said it works in. Paths, not secrets. */
   workspace_roots?: string[];
+  /**
+   * Absent from this route's answer: the server drops revoked machines instead
+   * of reporting them. Declared because the picker still refuses one.
+   */
+  revoked_at?: number;
 };
 
-export function listDevices(): Promise<DeviceInfo[]> {
-  return apiFetch<DeviceInfo[]>("/api/devices");
+/**
+ * The machines work can be sent to.
+ *
+ * This is the *machine* list, not the *device* management list at
+ * `/api/devices`, and the difference is who may read it. Enrollment — which
+ * hardware was paired, when it was last seen, revoking it — is the operator's.
+ * Choosing where a piece of work runs is not: every console that arrives through
+ * a pairing link is a device principal, because the pairing exchange mints a
+ * device token, so a picker built on the operator-only list collapses to the one
+ * machine serving the page — which is exactly the machine the person is already
+ * on, and therefore no choice at all.
+ *
+ * The answer is already scoped: a machine that was revoked on this Hub is not in
+ * it, because a machine that was taken off the Hub is not a place work can go.
+ */
+export function listMachines(): Promise<MachineInfo[]> {
+  return apiFetch<MachineInfo[]>("/api/machines");
 }
 
 export type ServerVersion = {

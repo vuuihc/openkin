@@ -6,7 +6,7 @@ import {
   type GitBranchStatus,
 } from "../../api/client";
 import { useT } from "../../i18n/react";
-import { isDirtyRefusal } from "../../lib/devices";
+import { branchAnswerApplies, isDirtyRefusal } from "../../lib/devices";
 import { useAppStore } from "../../store/appStore";
 
 /**
@@ -43,6 +43,14 @@ type Props = {
   className?: string;
 };
 
+/** One answer about one checkout, kept together with the question it answered. */
+type Answered = {
+  cwd: string;
+  device?: string;
+  status: GitBranchStatus | null;
+  unreadable: string;
+};
+
 /**
  * Git branch display + switcher next to the working-directory control.
  * Hidden when cwd is empty or not a git repository.
@@ -50,8 +58,7 @@ type Props = {
 export default function BranchPicker({ cwd, device, locked, compact, className }: Props) {
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
-  const [status, setStatus] = useState<GitBranchStatus | null>(null);
-  const [unreadable, setUnreadable] = useState("");
+  const [answered, setAnswered] = useState<Answered | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
@@ -59,25 +66,39 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
   const triggerRef = useRef<HTMLButtonElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
+  /**
+   * Which question is the current one.
+   *
+   * Two answers can be in the air at once — the machine is switched while the
+   * first question is still out — and the machine that answers last is not
+   * necessarily the machine that was asked last. A counter, not a flag: an
+   * answer is only the answer if nothing has been asked since.
+   */
+  const asked = useRef(0);
 
   const load = useCallback(
     async (path: string) => {
+      const seq = (asked.current += 1);
       if (!path.trim()) {
-        setStatus(null);
-        setUnreadable("");
+        setAnswered(null);
         return;
       }
       try {
         const st = await listGitBranches(path.trim(), device);
-        setStatus(st);
-        setUnreadable("");
+        if (seq !== asked.current) return;
+        setAnswered({ cwd: path, device, status: st, unreadable: "" });
       } catch (e) {
-        setStatus(null);
+        if (seq !== asked.current) return;
         // Kept, not dropped. "This directory is not a repository" and "the
         // machine holding it did not answer" draw the same way on screen — as
         // nothing — and only one of them is a fact. On a phone the second is
         // the common one: the machine was switched, or went to sleep.
-        setUnreadable(e instanceof ApiError ? e.message : tr("branch.unreadableHint"));
+        setAnswered({
+          cwd: path,
+          device,
+          status: null,
+          unreadable: e instanceof ApiError ? e.message : tr("branch.unreadableHint"),
+        });
       }
     },
     [device, tr],
@@ -88,6 +109,15 @@ export default function BranchPicker({ cwd, device, locked, compact, className }
     setOpen(false);
     setFilter("");
   }, [cwd, load]);
+
+  // An answer is only good for the checkout it was about. While the new question
+  // is in flight — another directory, or the same path on another machine —
+  // there is nothing to draw yet, and drawing the previous answer would describe
+  // a checkout nobody asked about: on a path that exists on both machines, that
+  // is a branch name with no error and no reason to doubt it.
+  const live = answered && branchAnswerApplies(answered, { cwd, device }) ? answered : null;
+  const status = live?.status ?? null;
+  const unreadable = live?.unreadable ?? "";
 
   useEffect(() => {
     if (!open) return;

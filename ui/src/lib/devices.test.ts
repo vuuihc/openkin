@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { AgentInfo, DeviceInfo } from "../api/client";
+import type { AgentInfo, MachineInfo, MachineRepoBranches } from "../api/client";
 import {
+  branchAnswerApplies,
+  branchQuestion,
   canRunTasks,
   catalogFor,
   cwdAfterMachineChange,
   cwdPickerMode,
   cwdSuggestions,
   defaultAgentOn,
+  emptyFolderNotice,
   findMachine,
   folderPickable,
   isDirtyRefusal,
@@ -14,6 +17,8 @@ import {
   machineList,
   machineRef,
   remoteMachine,
+  repoAnswerFor,
+  rootRowsVisible,
 } from "./devices";
 
 function agent(over: Partial<AgentInfo> = {}): AgentInfo {
@@ -29,12 +34,11 @@ function agent(over: Partial<AgentInfo> = {}): AgentInfo {
   };
 }
 
-function device(over: Partial<DeviceInfo> = {}): DeviceInfo {
+function device(over: Partial<MachineInfo> = {}): MachineInfo {
   return {
     id: "node-1",
     label: "studio",
     reachability: "online",
-    created_at: 1,
     agents: [
       { id: "codex", installed: true, available: true, is_default: true },
       { id: "grok", installed: true, available: false, reason: "not signed in" },
@@ -296,6 +300,116 @@ describe("folderPickable", () => {
   it("refuses an empty path, which is the machine's roots rather than a directory", () => {
     expect(folderPickable({ ...ok, path: "" })).toBe(false);
     expect(folderPickable({ ...ok, path: "   " })).toBe(false);
+  });
+});
+
+describe("rootRowsVisible", () => {
+  it("offers the one root a machine declared, because it is the only way in", () => {
+    // The browser starts at the roots question (an empty path), where the
+    // machine answers with its roots and no entries. A fresh machine declares
+    // exactly one, so this is the default configuration, not an edge case.
+    expect(rootRowsVisible({ path: "", roots: ["/srv/app"], failed: false })).toBe(true);
+  });
+
+  it("offers every root once inside a directory, where they are a shortcut", () => {
+    expect(
+      rootRowsVisible({ path: "/srv/app", roots: ["/srv/app", "/srv/other"], failed: false }),
+    ).toBe(true);
+  });
+
+  it("keeps a lone root out of the way inside a directory, where it goes nowhere", () => {
+    // Same single root, a real directory: there is nowhere else to work, so the
+    // row is noise rather than a way out.
+    expect(rootRowsVisible({ path: "/srv/app", roots: ["/srv/app"], failed: false })).toBe(false);
+  });
+
+  it("offers the roots as the way out of a listing that failed", () => {
+    expect(rootRowsVisible({ path: "/gone", roots: ["/srv/app"], failed: true })).toBe(true);
+  });
+
+  it("offers nothing when the machine declared no roots", () => {
+    expect(rootRowsVisible({ path: "", roots: [], failed: false })).toBe(false);
+    expect(rootRowsVisible({ path: "/srv/app", roots: [], failed: true })).toBe(false);
+  });
+});
+
+describe("emptyFolderNotice", () => {
+  it("stays quiet beside the roots a machine declared", () => {
+    // "No folders inside" is about a listing; at the roots question the answer
+    // is the roots, and the sentence would contradict the row above it.
+    expect(emptyFolderNotice({ path: "", roots: ["/srv/app"], entries: [], failed: false })).toBe(
+      false,
+    );
+  });
+
+  it("says it when the machine declared nothing at all", () => {
+    expect(emptyFolderNotice({ path: "", roots: [], entries: [], failed: false })).toBe(true);
+  });
+
+  it("says it about a directory with nothing inside it", () => {
+    expect(
+      emptyFolderNotice({ path: "/srv/app", roots: ["/srv/app"], entries: [], failed: false }),
+    ).toBe(true);
+  });
+
+  it("stays quiet when there are entries, or when the listing failed", () => {
+    expect(
+      emptyFolderNotice({ path: "/srv/app", roots: [], entries: ["src"], failed: false }),
+    ).toBe(false);
+    // A failure has its own row, with the machine's own words in it.
+    expect(emptyFolderNotice({ path: "/gone", roots: [], entries: [], failed: true })).toBe(false);
+  });
+});
+
+describe("branchAnswerApplies", () => {
+  const here = { cwd: "/srv/app", device: undefined };
+
+  it("applies to the directory it was asked about, on the machine it was asked of", () => {
+    expect(branchAnswerApplies({ ...here }, here)).toBe(true);
+  });
+
+  it("does not apply to the same path on another machine", () => {
+    // The path exists on both, and that is the point: the branch there is not
+    // the branch here.
+    expect(branchAnswerApplies({ cwd: "/srv/app", device: "node-1" }, here)).toBe(false);
+    expect(branchAnswerApplies(here, { cwd: "/srv/app", device: "node-1" })).toBe(false);
+  });
+
+  it("does not apply to another directory on the same machine", () => {
+    expect(branchAnswerApplies({ cwd: "/srv/other", device: undefined }, here)).toBe(false);
+  });
+
+  it("applies to nothing when no answer has arrived", () => {
+    expect(branchAnswerApplies(null, here)).toBe(false);
+  });
+
+  it("reads a path and a device as a pair, not as a concatenation", () => {
+    // A path cannot contain a NUL, so a device id cannot be forged out of one.
+    expect(branchQuestion("  /srv/app ", undefined)).toBe(branchQuestion("/srv/app", ""));
+    expect(branchQuestion("/srv/app\u0000node-1", undefined)).not.toBe(
+      branchQuestion("/srv/app", "node-1"),
+    );
+  });
+});
+
+describe("repoAnswerFor", () => {
+  const found: MachineRepoBranches = { clone_url: "git@github.example.com:acme/api.git" };
+  const looked = { named: "acme/api", found };
+
+  it("hands back the machine's words while the box still names that repository", () => {
+    expect(repoAnswerFor(looked, "acme/api")).toEqual(found);
+  });
+
+  it("drops the answer once the text has moved on", () => {
+    // The typo case: branches were listed for acme/api, the box now says
+    // acme/web, and fetching with the old answer would clone acme/api.
+    expect(repoAnswerFor(looked, "acme/web")).toBeNull();
+    // And a prefix is not the same repository.
+    expect(repoAnswerFor(looked, "acme/apix")).toBeNull();
+  });
+
+  it("has nothing to hand back when nothing was looked up", () => {
+    expect(repoAnswerFor(null, "acme/api")).toBeNull();
   });
 });
 
