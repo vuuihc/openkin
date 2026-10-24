@@ -42,6 +42,10 @@ type Responder struct {
 	// a working directory outside the roots is one the Executor refuses. That is
 	// enforced rather than assumed: see repoPrepare.
 	CheckoutRoot string
+	// Workspace reads checkouts on this machine: the branches a directory has,
+	// and switching between them. Nil means the two git questions are refused —
+	// a machine with no git has no answers about branches.
+	Workspace *workspace.Manager
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -168,6 +172,26 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, prepared)
+	case worker.QueryGitBranches:
+		var asked worker.GitBranchesParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		found, err := r.gitBranches(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, found)
+	case worker.QueryGitCheckout:
+		var asked worker.GitCheckoutParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		switched, err := r.gitCheckout(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, switched)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}
@@ -227,6 +251,110 @@ func (r *Responder) repoPrepare(ctx context.Context, asked worker.RepoPreparePar
 		Branch: prepared.Branch,
 		Cloned: prepared.Cloned,
 	}, nil
+}
+
+// gitBranches answers what is checked out in one of this machine's directories,
+// and what else could be. It is a read of a directory that is here, which is
+// what separates it from repo.branches: that one asks a remote, this one looks.
+func (r *Responder) gitBranches(ctx context.Context, asked worker.GitBranchesParams) (worker.GitBranchesResult, error) {
+	path, err := r.own(asked.Path)
+	if err != nil {
+		return worker.GitBranchesResult{}, err
+	}
+	git, err := r.workspaceFor()
+	if err != nil {
+		return worker.GitBranchesResult{}, err
+	}
+	status, err := git.ListBranches(ctx, path)
+	if err != nil {
+		return worker.GitBranchesResult{}, err
+	}
+	result := worker.GitBranchesResult{
+		Cwd:      status.Cwd,
+		IsGit:    status.IsGit,
+		Current:  status.Current,
+		Detached: status.Detached,
+		Dirty:    status.Dirty,
+		// Never nil: a console reading this answer reads it as a list, and a
+		// directory that is not a repository has an empty one rather than a
+		// missing one.
+		Branches: []worker.GitBranch{},
+		Reason:   status.Reason,
+	}
+	// Bounded where the answer is built, on the same reasoning as the repo
+	// listing: how many branches a checkout has is not this machine's to decide,
+	// but how many fit in one answer is.
+	branches := status.Branches
+	if len(branches) > worker.MaxBranches {
+		branches = branches[:worker.MaxBranches]
+	}
+	for _, b := range branches {
+		result.Branches = append(result.Branches, worker.GitBranch{Name: b.Name, Current: b.Current})
+	}
+	return result, nil
+}
+
+// gitCheckout switches one of this machine's directories to a branch.
+//
+// The directory is one the person chose, so it is checked against the roots
+// before anything is written in it — the same boundary a dispatched turn is
+// held to, and the reason this cannot be used to rearrange a machine's files
+// from a phone. What is inside that boundary is still the machine's business:
+// a dirty checkout is refused by the workspace manager, not here.
+func (r *Responder) gitCheckout(ctx context.Context, asked worker.GitCheckoutParams) (worker.GitCheckoutResult, error) {
+	path, err := r.own(asked.Path)
+	if err != nil {
+		return worker.GitCheckoutResult{}, err
+	}
+	git, err := r.workspaceFor()
+	if err != nil {
+		return worker.GitCheckoutResult{}, err
+	}
+	if err := git.CheckoutBranch(ctx, path, strings.TrimSpace(asked.Branch)); err != nil {
+		return worker.GitCheckoutResult{}, err
+	}
+	// Read back rather than echo: the branch that is checked out is a fact about
+	// the directory, and git is the one that knows it. A switch that named a
+	// remote branch, for one, ends up somewhere other than where it was asked to
+	// go.
+	status, err := git.ListBranches(ctx, path)
+	if err != nil {
+		return worker.GitCheckoutResult{Cwd: path, Current: strings.TrimSpace(asked.Branch)}, nil
+	}
+	current := status.Current
+	if current == "" {
+		current = strings.TrimSpace(asked.Branch)
+	}
+	return worker.GitCheckoutResult{Cwd: status.Cwd, Current: current}, nil
+}
+
+// own resolves a path this machine was asked about and refuses one it does not
+// work in.
+//
+// Both halves matter. Resolving first is what makes the check meaningful: a
+// symlink planted inside a root would otherwise name a directory outside it
+// while reading as though it were inside. And the check is the whole reason a
+// Hub may not simply be believed — it names paths on a filesystem it does not
+// own, and the only party that knows where this machine's boundary is, is this
+// machine.
+func (r *Responder) own(path string) (string, error) {
+	real, err := resolvePath(path)
+	if err != nil {
+		return "", fmt.Errorf("there is no %s on this machine", strings.TrimSpace(path))
+	}
+	if !withinRoots(real, rootSet(r.Roots).resolved()) {
+		return "", outsideRoots(path)
+	}
+	return path, nil
+}
+
+// workspaceFor is the git this machine reads its own checkouts with, or the
+// reason it has none.
+func (r *Responder) workspaceFor() (*workspace.Manager, error) {
+	if r.Workspace == nil {
+		return nil, errors.New("this machine has no git, so it cannot say what a directory has checked out")
+	}
+	return r.Workspace, nil
 }
 
 // checkouts is where this machine fetches into, or the reason it does not.

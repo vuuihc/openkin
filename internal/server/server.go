@@ -619,7 +619,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		// it. The answer comes from the same code that answers a Hub, with the
 		// same list of directories the executor works in, so a directory this
 		// console offers is a directory this machine will actually run in.
-		LocalMachine: &node.Responder{Roots: machineRoots, CheckoutRoot: checkoutRoot, Warn: warnToStderr},
+		LocalMachine: &node.Responder{Roots: machineRoots, CheckoutRoot: checkoutRoot, Workspace: wsMgr, Warn: warnToStderr},
 		NodeFrames:   node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
 		Browser:      browser,
 		Eval:         evalRunner,

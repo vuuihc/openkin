@@ -31,6 +31,25 @@ const QueryRepoBranches = "repo.branches"
 // and to say where it put it.
 const QueryRepoPrepare = "repo.prepare"
 
+// QueryGitBranches asks what is checked out in one directory on the machine, and
+// what else could be.
+//
+// It is the same question repo.branches answers, asked about a different thing:
+// that one asks a remote what it offers, this one reads a checkout the machine
+// already has. They are separate methods because they are separate errands —
+// one reaches the network with this machine's credentials, the other reads a
+// directory — and because the answers mean different things: a name from a
+// remote is not a name that is here.
+const QueryGitBranches = "git.branches"
+
+// QueryGitCheckout asks the machine to switch one of its own checkouts to a
+// branch.
+//
+// It is a write, and the only one in this table that lands in a directory the
+// person chose rather than one the machine derived. What it can reach is
+// therefore bounded the same way a dispatched turn is (see Responder).
+const QueryGitCheckout = "git.checkout"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -174,15 +193,11 @@ type ListDirsResult struct {
 // question this protocol accepts. It would be resolved against whatever
 // directory that daemon was started in, which is not a choice the Hub gets to
 // make.
+//
+// The path is not required here: an empty one is the question "where may I look
+// at all", which is a question.
 func (p ListDirsParams) Validate() error {
-	path := strings.TrimSpace(p.Path)
-	if len(path) > MaxCwd {
-		return fmt.Errorf("path exceeds %d bytes", MaxCwd)
-	}
-	if path != "" && !isAbsNodePath(path) {
-		return fmt.Errorf("path %q is not absolute", path)
-	}
-	return nil
+	return directory("path", p.Path, false)
 }
 
 // argument checks a value that is about to become an argument to git.
@@ -259,6 +274,102 @@ type RepoPrepareResult struct {
 	// finding it already present. It is the difference between "this took a
 	// minute" and "this machine already had it", which a phone cannot see.
 	Cloned bool `json:"cloned,omitempty"`
+}
+
+// GitBranchesParams asks about one directory on the machine.
+type GitBranchesParams struct {
+	Path string `json:"path"`
+}
+
+// GitBranch is one local branch, in the shape the console already draws: the
+// answer a local read gives and the answer a machine gives have to be the same
+// thing, because the control showing them is the same control.
+type GitBranch struct {
+	Name    string `json:"name"`
+	Current bool   `json:"current"`
+}
+
+// GitBranchesResult is one directory's branches.
+//
+// Its fields are workspace.BranchStatus's, name for name, because the console
+// draws one control from whichever answer it gets: it asked about a machine,
+// not about a code path, and an answer that had to be read differently
+// depending on which machine gave it would be two controls pretending to be
+// one.
+type GitBranchesResult struct {
+	// Cwd is the directory that was read, as this machine resolved it.
+	Cwd string `json:"cwd"`
+	// IsGit is false for a directory that is not a checkout, which is not an
+	// error: most directories are not, and the person who picked this one is
+	// looking at a list of names that did not say.
+	IsGit bool `json:"is_git"`
+	// Current is the checked-out branch, empty when detached or unknown.
+	Current  string      `json:"current,omitempty"`
+	Detached bool        `json:"detached,omitempty"`
+	Dirty    bool        `json:"dirty,omitempty"`
+	Branches []GitBranch `json:"branches"`
+	// Reason says why the answer is what it is, in this machine's words.
+	Reason string `json:"reason,omitempty"`
+}
+
+// GitCheckoutParams asks a machine to switch one of its own checkouts.
+type GitCheckoutParams struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch"`
+}
+
+// GitCheckoutResult is where that directory stands after the switch, in
+// gitCheckoutResponse's shape for the same reason GitBranchesResult is in
+// BranchStatus's.
+type GitCheckoutResult struct {
+	Cwd string `json:"cwd"`
+	// Current is what is checked out there now.
+	Current string `json:"current"`
+}
+
+func (p GitBranchesParams) Validate() error {
+	return directory("path", p.Path, true)
+}
+
+func (p GitCheckoutParams) Validate() error {
+	if err := directory("path", p.Path, true); err != nil {
+		return err
+	}
+	// A branch is not optional here, unlike repo.prepare's: that one means "the
+	// remote's default", and a checkout has no equivalent — asking to switch to
+	// nothing is not a request this can carry out.
+	branch := strings.TrimSpace(p.Branch)
+	if err := bounded("branch", branch, MaxBranch); err != nil {
+		return err
+	}
+	if branch == "" {
+		return fmt.Errorf("branch is required")
+	}
+	return argument("branch", branch)
+}
+
+// directory checks a path that names a directory on the machine being asked.
+//
+// It holds the same rule Executor.allowedCwd states for a dispatch, and for the
+// same reason: the Hub speaks in paths on the machine it is talking to, so a
+// relative path is not a question this protocol accepts — it would be resolved
+// against whatever directory that daemon was started in, which is not a choice
+// the Hub gets to make.
+func directory(field, path string, required bool) error {
+	path = strings.TrimSpace(path)
+	if len(path) > MaxCwd {
+		return fmt.Errorf("%s exceeds %d bytes", field, MaxCwd)
+	}
+	if path == "" {
+		if required {
+			return fmt.Errorf("%s is required", field)
+		}
+		return nil
+	}
+	if !isAbsNodePath(path) {
+		return fmt.Errorf("%s %q is not absolute", field, path)
+	}
+	return nil
 }
 
 func (p RepoBranchesParams) Validate() error {
