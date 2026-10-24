@@ -86,6 +86,7 @@ import {
   setSessionScroll,
 } from "../lib/sessionScroll";
 import { modelsForAgent } from "../lib/agentModels";
+import { toggleOverlay, type Overlay } from "../lib/overlay";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -148,10 +149,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [limitBusy, setLimitBusy] = useState<string | null>(null);
   const [focusIdx, setFocusIdx] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [filesOpen, setFilesOpen] = useState(false);
-  // The two panels are both full-bleed overlays at the same z-index, so only
-  // one can be open: opening one closes the other rather than stacking.
-  const [prOpen, setPrOpen] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const filesOpen = overlay === "files";
+  const prOpen = overlay === "pr";
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
@@ -198,7 +198,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setUsage(null);
     setLimitWait(null);
     setWorkerSteps([]);
-    setFilesOpen(false);
+    setOverlay(null);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
     setSelectedWorkspaceId(undefined);
@@ -744,7 +744,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       pushToast(tr("workspace.outsideWorkspace"), "error");
       return;
     }
-    setFilesOpen(true);
+    setOverlay("files");
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
     setWorkspaceOpenNonce((n) => n + 1);
@@ -753,13 +753,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
 
   function openFilesPanel() {
-    setPrOpen(false);
-    setFilesOpen(true);
+    setOverlay("files");
   }
 
   function togglePrPanel() {
-    setFilesOpen(false);
-    setPrOpen((open) => !open);
+    setOverlay((open) => toggleOverlay(open, "pr"));
   }
 
   async function onKeepAllChanges() {
@@ -918,8 +916,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             <button
               type="button"
               onClick={() => {
-                setPrOpen(false);
-                setFilesOpen((open) => !open);
+                setOverlay((open) => toggleOverlay(open, "files"));
               }}
               className={[
                 "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition-colors",
@@ -1212,14 +1209,18 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               reviewActions={terminal}
               onDiscardAll={onDiscardAllChanges}
               actionsBusy={reviewBusy}
-              onClose={() => setFilesOpen(false)}
+              onClose={() => setOverlay(null)}
             />
           </div>
         </div>
       )}
 
       {prOpen && (
-        <PullRequestPanel taskId={task.id} onClose={() => setPrOpen(false)} />
+        <PullRequestPanel
+          taskId={task.id}
+          active={active}
+          onClose={() => setOverlay(null)}
+        />
       )}
     </div>
   );

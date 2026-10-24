@@ -29,6 +29,11 @@ import {
 
 type Props = {
   taskId: string;
+  /**
+   * Whether this task's pane is the one on screen. The host keeps recent tasks
+   * mounted and hides the rest, so a panel can be open and invisible.
+   */
+  active?: boolean;
   onClose?: () => void;
 };
 
@@ -44,7 +49,11 @@ type Props = {
  * degraded read is the sentence in `notice`; which binary was missing is an
  * implementation detail they cannot act on from this screen.
  */
-export default function PullRequestPanel({ taskId, onClose }: Props) {
+export default function PullRequestPanel({
+  taskId,
+  active = true,
+  onClose,
+}: Props) {
   const tr = useT();
   const [snapshot, setSnapshot] = useState<TaskPullRequestSnapshot | null>(
     null,
@@ -104,11 +113,18 @@ export default function PullRequestPanel({ taskId, onClose }: Props) {
 
   // The age is computed while rendering, so a panel left open would go on
   // saying "just now" about an observation that is hours old.
+  //
+  // Only while the panel is on screen: a task the user navigated away from
+  // stays mounted and hidden, and eight hidden panels ticking once a second is
+  // a re-render per second of DOM nobody is looking at. Coming back re-renders
+  // this panel, which is what makes the age correct again the moment it is
+  // visible.
   const [, setTick] = useState(0);
   useEffect(() => {
+    if (!active) return;
     const id = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [active]);
 
   // Escape closes, as it does for the console's other overlays.
   useEffect(() => {
