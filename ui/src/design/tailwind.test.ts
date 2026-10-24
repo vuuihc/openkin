@@ -58,8 +58,13 @@ describe("scale ladders through Tailwind", () => {
     ["leading-prose", "line-height: 1.625"],
     ["leading-flush", "line-height: 1"],
     ["leading-4", "line-height: 1rem"],
-    ["shadow-e1", "0 1px 2px rgba(0, 0, 0, 0.24)"],
-    ["shadow-e3", "0 40px 90px -20px rgba(0, 0, 0, 0.7)"],
+    // The colour is not pinned here any more: since S5 it is a token, so the
+    // declaration ends at the `var()` and how dark the value is belongs to
+    // `tokens.test.ts`, which measures it in both schemes. What this still
+    // proves is the half that only a build can: the step resolves, and the
+    // geometry the ladder declares is the geometry that ships.
+    ["shadow-e1", "0 1px 2px var(--kin-shadow-1)"],
+    ["shadow-e3", "0 40px 90px -20px var(--kin-shadow-3)"],
     ["min-h-11", "min-height: 2.75rem"],
     ["w-sidebar", "width: 248px"],
     ["max-w-conversation", "max-width: 720px"],

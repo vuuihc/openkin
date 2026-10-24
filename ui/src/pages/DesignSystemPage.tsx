@@ -144,6 +144,28 @@ function FocusSample({ name, value, ink }: { name: string; value: string; ink: s
 }
 
 /**
+ * An elevation step only reads as one once something is raised off something
+ * else, so the sample is the raised surface with the drop under it. The chip is
+ * `--kin-elevated` because that is what floats in this console; the frame is the
+ * gallery's own, and the value shown is the colour the drop is drawn in.
+ */
+function ElevationSample({ name, value }: { name: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--kin-hairline)] p-4">
+      <div
+        className="h-14 rounded-md"
+        style={{ background: cssValue("--kin-elevated-rgb"), boxShadow: cssValue(name) }}
+      />
+      {/* Two lines, not `name · value`: a black `rgba()` is long enough that
+          the alpha — the whole point of the pair — was the part `truncate` cut
+          off, and the alpha is what the two schemes are compared on. */}
+      <div className="mt-3 truncate font-mono text-caption text-kin-muted">{name}</div>
+      <div className="truncate font-mono text-caption text-kin-muted">{value || "—"}</div>
+    </div>
+  );
+}
+
+/**
  * The type ladder, rendered from the same array `tailwind.config.ts` assigns to
  * `theme.fontSize` — so a role that exists is a role that is shown here.
  */
@@ -235,6 +257,12 @@ export default function DesignSystemPage() {
                         ink={pair.ink}
                         inkValue={values[pair.ink] ?? ""}
                       />
+                    ))}
+                  </div>
+                ) : group.kind === "elevation" ? (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {group.tokens.map((name) => (
+                      <ElevationSample key={name} name={name} value={values[name] ?? ""} />
                     ))}
                   </div>
                 ) : (

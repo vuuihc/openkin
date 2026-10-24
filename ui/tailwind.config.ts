@@ -71,9 +71,12 @@ export default {
     // which is a second way to say what the card's border and its ink already
     // say. The halo became a ring on the status fill and the glow became `e2`.
     boxShadow: {
-      e1: "0 1px 2px rgba(0, 0, 0, 0.24)",
-      e2: "0 8px 24px -12px rgba(0, 0, 0, 0.45)",
-      e3: "0 40px 90px -20px rgba(0, 0, 0, 0.7)",
+      // Geometry only: the colour is `--kin-shadow-n`, because how dark a
+      // shadow has to be is a function of the scheme and the offsets are a
+      // function of the level. See the note on those tokens.
+      e1: "0 1px 2px var(--kin-shadow-1)",
+      e2: "0 8px 24px -12px var(--kin-shadow-2)",
+      e3: "0 40px 90px -20px var(--kin-shadow-3)",
     },
     // Assigned, not extended: Tailwind's own palette is off, so `text-zinc-400`
     // — which the tree used 132 times, and which does not switch with the

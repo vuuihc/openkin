@@ -400,6 +400,84 @@ describe("design tokens", () => {
     }
   });
 
+  /**
+   * The elevation colour is the scheme's, the geometry is the level's.
+   *
+   * Until S5 one pair of black alphas served both schemes: a drop tuned on the
+   * dark backdrop and drawn unchanged under a light modal, where 70% black is a
+   * bruise. The fix moved the colour out of the config and into the token layer,
+   * so these four hold the two halves apart — the config's list and the theme's
+   * list are the same list, no colour is written where the geometry is, the
+   * levels ascend, and the light alphas are the dark ones *by measurement*
+   * rather than by eye.
+   */
+  const SHADOW_LEVELS = Object.keys(DARK)
+    .filter((name) => name.startsWith("--kin-shadow-"))
+    .sort();
+
+  /** The alpha of an elevation token, which is a black `rgba()` by construction. */
+  function shadowAlpha(tokens: Record<string, string>, name: string, scheme: string): number {
+    const value = tokens[name];
+    const alpha = /^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*([0-9.]+)\s*\)$/.exec(value ?? "");
+    if (!alpha) {
+      throw new Error(`${scheme} ${name} is ${value}, and an elevation colour is a black rgba()`);
+    }
+    return Number(alpha[1]);
+  }
+
+  it("points every elevation step at an elevation token, and every token at a step", () => {
+    const referenced = [
+      ...new Set(
+        Object.values(theme.boxShadow).flatMap((value) =>
+          [...value.matchAll(/var\((--kin-shadow-[0-9]+)\)/g)].map((m) => m[1]),
+        ),
+      ),
+    ].sort();
+    // The count floor is what keeps two empty lists from agreeing.
+    expect(SHADOW_LEVELS.length).toBeGreaterThan(0);
+    expect(SHADOW_LEVELS.length).toBe(Object.keys(theme.boxShadow).length);
+    expect(referenced).toEqual(SHADOW_LEVELS);
+  });
+
+  it("keeps a colour literal out of the elevation geometry", () => {
+    // A literal in the config renders in both schemes and belongs to no gallery
+    // group, which is exactly how the pair this replaced stayed wrong for three
+    // slices: it was visible in neither the page nor the tokens.
+    const literals = Object.entries(theme.boxShadow)
+      .filter(([, value]) => /#[0-9a-f]{3,8}|\brgba?\(|\bhsla?\(|\b(?:black|white)\b/i.test(value))
+      .map(([name]) => name);
+    expect(literals).toEqual([]);
+  });
+
+  it("keeps the elevation levels ascending, and the light scheme's the lighter one", () => {
+    for (const [scheme, tokens] of SCHEMES) {
+      const alphas = SHADOW_LEVELS.map((name) => shadowAlpha(tokens, name, scheme));
+      const ascending = alphas.every((alpha, i) => i === 0 || alpha > alphas[i - 1]);
+      expect({ scheme, ascending }).toEqual({ scheme, ascending: true });
+      for (const name of SHADOW_LEVELS) {
+        // Light inverts the backdrop, so "less alpha" is the only direction the
+        // two schemes can be compared in directly; how much less is the case
+        // below, which is the claim that actually matters.
+        expect(shadowAlpha(LIGHT, name, "light")).toBeLessThan(shadowAlpha(DARK, name, "dark"));
+      }
+    }
+  });
+
+  it("darkens each scheme's backdrop by the same amount at every elevation level", () => {
+    // The light alphas are not taste: each is the value that drops its own
+    // backdrop by the L* its dark counterpart drops. Two schemes, one drop.
+    for (const name of SHADOW_LEVELS) {
+      const drops = SCHEMES.map(([scheme, tokens]) => {
+        const bg = colour(tokens, "--kin-bg", scheme);
+        return lightness(bg) - lightness(over([0, 0, 0], bg, shadowAlpha(tokens, name, scheme)));
+      });
+      expect({ name, within1L: Math.abs(drops[0] - drops[1]) < 1 }).toEqual({
+        name,
+        within1L: true,
+      });
+    }
+  });
+
   it("keeps every ink step above 4.5:1 on the surfaces it is drawn on", () => {
     for (const [scheme, tokens] of SCHEMES) {
       for (const name of TOKEN_GROUPS.filter((g) => g.kind === "ink").flatMap((g) => [

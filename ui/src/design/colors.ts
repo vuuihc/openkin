@@ -36,9 +36,10 @@ export type TokenGroup = {
   /**
    * How the page draws it, and what the test can therefore assume:
    * `ink` is measured against the surfaces, `focus` is drawn as a ring on them,
-   * `on-fill` is drawn on the fills it is paired with, `swatch` is a chip.
+   * `on-fill` is drawn on the fills it is paired with, `elevation` is a card
+   * raised off a surface, `swatch` is a chip.
    */
-  kind: "swatch" | "ink" | "focus" | "on-fill";
+  kind: "swatch" | "ink" | "focus" | "on-fill" | "elevation";
   /** These tokens are pigments a foreground is drawn on, so each needs a pairing. */
   fills?: boolean;
   /** These tokens are surfaces a colour is measured against. */
@@ -139,6 +140,16 @@ export const TOKEN_GROUPS: readonly TokenGroup[] = [
     noteKey: "design.noteOnFill",
     kind: "on-fill",
     tokens: ["--kin-on-status", "--kin-on-brand"],
+  },
+  {
+    // The elevation colour, one per level. The offsets and blurs are Tailwind's
+    // (`e1`/`e2`/`e3`), because they are a function of the level; the colour is
+    // a function of the scheme, which is why it is a token and not a literal in
+    // the config, where it sat for three slices.
+    labelKey: "design.groupElevation",
+    noteKey: "design.noteElevation",
+    kind: "elevation",
+    tokens: ["--kin-shadow-1", "--kin-shadow-2", "--kin-shadow-3"],
   },
 ];
 

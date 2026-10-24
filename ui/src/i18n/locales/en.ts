@@ -1377,6 +1377,9 @@ const en: MessageTree = {
     groupOnFill: "Text on a fill",
     noteOnFill:
       "Each fill takes exactly one of these two, assigned in design/colors.ts and measured in tokens.test.ts — and drawn here on every fill it was assigned to, so the decision is visible rather than buried.",
+    groupElevation: "Elevation",
+    noteElevation:
+      "The drop under a raised surface, one level per step. The offsets are the same in both themes; how dark that drop has to be is not — each alpha here darkens its own backdrop by the same measured amount, which is why 70% black under a dark modal is 8% under a light one.",
     groupType: "Type ladder",
     noteType:
       "Seven roles, each shown at its own size. The size is binding; the weight and ink are what the role should look like, aligned by review.",

@@ -39,7 +39,10 @@
     enough for it (≈#b4b4b9 in dark) would leave it indistinguishable from
     `secondary`. That is the muted step's own review, and P2's;
   - no component writes a colour literal: every colour the console paints is a
-    name below, reached through `tailwind.config.ts`. Three boundaries are known
+    name below, reached through `tailwind.config.ts` — the three elevation
+    colours included, which the config spells as geometry plus a token name, so
+    a colour literal in the config is a test failure too. Three boundaries are
+    known
     and outside this file: `components/terminal/terminalTheme.ts` (an ANSI
     palette handed to xterm, which cannot read CSS variables and is a spec
     rather than a design decision), `components/project/Heatmap.tsx` (five
@@ -111,6 +114,17 @@ html[data-theme="light"] {
   --kin-inspector: #222226; /* L* 13.4 */
   --kin-elevated-rgb: 44 44 46; /* L* 18.1 — cards, popovers, the active tab */
   --kin-panel-rgb: 44 44 46; /* L* 18.1 — sheets and modals */
+
+  /* Elevation. The offsets and blurs live in the Tailwind scale, because they
+     are a function of the level; what is a function of the scheme is how dark a
+     drop has to be to register at all. These were one pair of black values
+     for both schemes until S5 — 70% black under a light modal is a bruise, and
+     the light scheme's are matched to these by measurement rather than taste:
+     each alpha below composites over `--kin-bg` to the same L* drop as its
+     counterpart here (3.0 / 5.3 / 7.1), which lands at 0.03 / 0.06 / 0.08. */
+  --kin-shadow-1: rgba(0, 0, 0, 0.24);
+  --kin-shadow-2: rgba(0, 0, 0, 0.45);
+  --kin-shadow-3: rgba(0, 0, 0, 0.7);
 
   /* Ink, three steps. Contrast on --kin-bg / --kin-elevated: text 16.0/12.8,
      secondary 10.3/8.3, muted 6.1/4.9. `muted` is the step that carries
@@ -193,6 +207,12 @@ html[data-theme="light"] {
   --kin-inspector: #ebebf0; /* L* 93.2 */
   --kin-elevated-rgb: 244 244 246; /* L* 96.2 */
   --kin-panel-rgb: 255 255 255; /* L* 100 — a sheet is separated by its scrim */
+
+  /* The same three levels as the dark block, at the alpha that darkens this
+     scheme's `--kin-bg` by the same L* — see the note there. */
+  --kin-shadow-1: rgba(0, 0, 0, 0.03);
+  --kin-shadow-2: rgba(0, 0, 0, 0.06);
+  --kin-shadow-3: rgba(0, 0, 0, 0.08);
 
   /* 17.0/15.5, 11.4/10.3, 6.6/6.1 on --kin-bg / --kin-elevated, and 5.6 on the
      sidebar. The dark steps would be 1.0–2.2:1 here, which is why these
