@@ -158,6 +158,61 @@ func (s *Server) handleAuthBootstrap(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleAuthInvite mints a one-time invitation. The route is operator-gated, so
+// reaching this handler already means the caller owns this machine; the code is
+// returned in plaintext exactly once, because only its hash is stored.
+func (s *Server) handleAuthInvite(w http.ResponseWriter, r *http.Request) {
+	if !s.accountsEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "accounts are not enabled"})
+		return
+	}
+	invite, err := s.Accounts.IssueInvite(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create an invitation"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"code":       invite.Code,
+		"expires_at": invite.ExpiresAt.UnixMilli(),
+	})
+}
+
+type joinRequest struct {
+	Code        string `json:"code"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+}
+
+// handleAuthJoin creates a member account from an invitation. It is the only
+// unauthenticated route that writes a user, so it is rate limited and reports
+// every rejection through the same indistinguishable error.
+func (s *Server) handleAuthJoin(w http.ResponseWriter, r *http.Request) {
+	if !s.accountsEnabled() {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "accounts are not enabled"})
+		return
+	}
+	if !s.Auth.AllowAttempt(r) {
+		writeJSON(w, http.StatusTooManyRequests, authErrorBody("rate_limited", "too many attempts"))
+		return
+	}
+	var req joinRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	session, err := s.Accounts.RedeemInvite(r.Context(), req.Code, req.Email, req.Password, req.DisplayName, sessionMeta(r))
+	if err != nil {
+		s.Auth.NoteFailure(r)
+		writeJSON(w, http.StatusBadRequest, authError(err))
+		return
+	}
+	s.setSessionCookie(w, r, session)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":       s.authUserView(r, session.User),
+		"expires_at": session.ExpiresAt.UnixMilli(),
+	})
+}
+
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -328,6 +383,8 @@ func authErrorMessage(err error) string {
 		return "email or password is incorrect"
 	case errors.Is(err, auth.ErrBootstrapUnavailable):
 		return "that claim code is not valid or has expired"
+	case errors.Is(err, auth.ErrInviteUnavailable):
+		return "that invitation is not valid or has expired"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "this hub already has an owner; sign in instead"
 	case errors.Is(err, auth.ErrWeakPassword):
@@ -348,6 +405,8 @@ func authErrorCode(err error) string {
 		return "invalid_credentials"
 	case errors.Is(err, auth.ErrBootstrapUnavailable):
 		return "claim_code_invalid"
+	case errors.Is(err, auth.ErrInviteUnavailable):
+		return "invite_invalid"
 	case errors.Is(err, auth.ErrRegistrationClosed):
 		return "registration_closed"
 	case errors.Is(err, auth.ErrWeakPassword):

@@ -267,6 +267,7 @@ func (s *Server) Handler() http.Handler {
 	// obtains a session in the first place. Each applies its own attempt limit.
 	r.Get("/api/auth/status", s.handleAuthStatus)
 	r.Post("/api/auth/bootstrap", s.handleAuthBootstrap)
+	r.Post("/api/auth/join", s.handleAuthJoin)
 	r.Post("/api/auth/login", s.handleAuthLogin)
 	r.Post("/api/auth/logout", s.handleAuthLogout)
 	r.Get("/api/auth/me", s.handleAuthMe)
@@ -294,6 +295,10 @@ func (s *Server) Handler() http.Handler {
 			})
 		}
 		r.With(operatorOnly).Post("/api/pairing/sessions", s.handleCreatePairingSession)
+		// Inviting a second person is administering this daemon: the invitation
+		// is what lets an account exist here at all, so minting one is the
+		// owner's call and not a device's.
+		r.With(operatorOnly).Post("/api/auth/invite", s.handleAuthInvite)
 		r.With(operatorOnly).Get("/api/devices", s.handleListDevices)
 		r.With(operatorOnly).Post("/api/devices/{id}/revoke", s.handleRevokeDevice)
 		r.With(holderOnly).Get("/api/workers", s.handleListWorkers)

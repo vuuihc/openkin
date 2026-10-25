@@ -20,6 +20,11 @@ const (
 	DefaultSessionTTL   = 30 * 24 * time.Hour
 	DefaultBootstrapTTL = 24 * time.Hour
 
+	// DefaultInviteTTL is longer than a claim code's day. A claim code is read
+	// off a terminal on the machine in front of you; an invitation is sent to
+	// someone who may not open it until the weekend.
+	DefaultInviteTTL = 7 * 24 * time.Hour
+
 	// minPasswordLen is a floor, not a policy. The Hub is single-owner and
 	// reachable from the internet, so a trivially short password is worth
 	// rejecting outright; beyond that, length is the user's call.
@@ -30,6 +35,15 @@ const (
 	bootstrapAlphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789"
 	bootstrapGroups   = 2
 	bootstrapGroupLen = 5
+
+	// inviteGroups is twice the claim code's length on purpose. A claim code is
+	// guarded by the Hub being unowned -- it can be spent once, by whoever gets
+	// there first, and the machine it was printed on is usually the one being
+	// claimed. An invitation is redeemed at an unauthenticated endpoint that
+	// faces the internet, and guessing is the only attack it has, so the search
+	// space is what has to carry it: 31^20 rather than 31^10.
+	inviteGroups   = 4
+	inviteGroupLen = 5
 )
 
 // ErrRegistrationClosed is returned when an unknown federated identity tries to
@@ -41,6 +55,12 @@ var ErrRegistrationClosed = errors.New("auth: this hub already has an owner")
 // ErrBootstrapUnavailable means the supplied claim code is unknown, expired, or
 // already spent. The three cases are intentionally indistinguishable.
 var ErrBootstrapUnavailable = errors.New("auth: claim code is not valid")
+
+// ErrInviteUnavailable means the supplied invitation is unknown, expired,
+// already spent, or offered to a Hub that still has no owner. The cases are
+// intentionally indistinguishable, for the same reason ErrBootstrapUnavailable
+// gives: an unauthenticated caller must not be able to probe which codes exist.
+var ErrInviteUnavailable = errors.New("auth: invitation is not valid")
 
 // ErrWeakPassword means the password failed the length floor.
 var ErrWeakPassword = fmt.Errorf("auth: password must be at least %d characters", minPasswordLen)
@@ -78,6 +98,7 @@ type Session struct {
 type Config struct {
 	SessionTTL   time.Duration
 	BootstrapTTL time.Duration
+	InviteTTL    time.Duration
 	Now          func() time.Time
 }
 
@@ -94,6 +115,9 @@ func New(st *store.Store, cfg Config) *Service {
 	}
 	if cfg.BootstrapTTL <= 0 {
 		cfg.BootstrapTTL = DefaultBootstrapTTL
+	}
+	if cfg.InviteTTL <= 0 {
+		cfg.InviteTTL = DefaultInviteTTL
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -190,8 +214,8 @@ func (s *Service) ClaimWithIdentity(ctx context.Context, code string, ident Exte
 	}, meta)
 }
 
-// claim is the shared body of the two bootstrap paths: it spends the code,
-// creates the account and its first credential, and opens a session.
+// claim is the shared body of the two bootstrap paths: it checks the Hub is
+// still unowned, spends the code, and creates the account that now owns it.
 func (s *Service) claim(
 	ctx context.Context,
 	code string,
@@ -206,19 +230,117 @@ func (s *Service) claim(
 	if !needs {
 		return Session{}, ErrRegistrationClosed
 	}
-	now := s.now()
-	if err := s.store.ConsumeBootstrapToken(ctx, HashToken(NormalizeCode(code)), now.UnixMilli()); err != nil {
+	if err := s.store.ConsumeBootstrapToken(ctx, HashToken(NormalizeCode(code)), s.now().UnixMilli()); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return Session{}, ErrBootstrapUnavailable
 		}
 		return Session{}, err
 	}
-
-	user.ID = ulid.Make().String()
-	user.CreatedAt = now.UnixMilli()
 	// Claiming the Hub is what makes an account its owner, so the role is set
 	// here rather than by either caller: both bootstrap paths mean the same thing.
-	user.Role = store.RoleOwner
+	return s.createAccount(ctx, user, store.RoleOwner, buildIdentity, meta)
+}
+
+// Invitation is a freshly minted invitation. Code is the only time the raw
+// secret exists in memory; storage keeps its hash. ExpiresAt travels with the
+// code rather than being recomputed by the caller, so the lifetime an owner is
+// shown is the one that was actually written.
+type Invitation struct {
+	Code      string
+	ExpiresAt time.Time
+}
+
+// IssueInvite mints a one-time invitation. Outstanding invitations are left
+// alone: an owner hands these out one per person, so minting one must not
+// revoke another.
+func (s *Service) IssueInvite(ctx context.Context) (Invitation, error) {
+	code, err := newInviteCode()
+	if err != nil {
+		return Invitation{}, err
+	}
+	now := s.now()
+	expiresAt := now.Add(s.cfg.InviteTTL)
+	if err := s.store.IssueInviteToken(ctx, HashToken(NormalizeCode(code)),
+		now.UnixMilli(), expiresAt.UnixMilli()); err != nil {
+		return Invitation{}, err
+	}
+	return Invitation{Code: code, ExpiresAt: expiresAt}, nil
+}
+
+// RedeemInvite creates a member account from an owner-issued invitation. It is
+// the second and only other way an account comes into being.
+func (s *Service) RedeemInvite(
+	ctx context.Context,
+	code, email, password, displayName string,
+	meta SessionMeta,
+) (Session, error) {
+	if err := validatePassword(password); err != nil {
+		return Session{}, err
+	}
+	email = NormalizeEmail(email)
+	if email == "" {
+		return Session{}, fmt.Errorf("auth: email is required")
+	}
+	if strings.TrimSpace(displayName) == "" {
+		displayName = email
+	}
+	// An invitation is only meaningful on a Hub that already has an owner: it is
+	// issued *by* that owner. Refusing here is what keeps a redeemable row from
+	// producing a member where an owner should be -- the Hub would then count a
+	// user, stop offering to be claimed, and leave no account able to issue
+	// another invitation. That state has no way back through the API, so the
+	// check is worth a query on a path this rare.
+	needs, err := s.NeedsBootstrap(ctx)
+	if err != nil {
+		return Session{}, err
+	}
+	if needs {
+		return Session{}, ErrInviteUnavailable
+	}
+	if err := s.store.ConsumeInviteToken(ctx, HashToken(NormalizeCode(code)), s.now().UnixMilli()); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return Session{}, ErrInviteUnavailable
+		}
+		return Session{}, err
+	}
+	return s.createAccount(ctx, store.User{
+		Email:         email,
+		EmailVerified: false,
+		EmailSource:   store.ProviderPassword,
+		DisplayName:   displayName,
+	}, store.RoleMember, func(userID string, now time.Time) (store.UserIdentity, error) {
+		hash, err := HashPassword(password)
+		if err != nil {
+			return store.UserIdentity{}, err
+		}
+		return store.UserIdentity{
+			ID:         ulid.Make().String(),
+			UserID:     userID,
+			Provider:   store.ProviderPassword,
+			Subject:    email,
+			SecretHash: hash,
+			Label:      "password",
+			CreatedAt:  now.UnixMilli(),
+		}, nil
+	}, meta)
+}
+
+// createAccount writes the account and its first credential and opens a
+// session. The role is a parameter because the two ways in confer different
+// ones, and each caller names it next to the token it just spent -- so which
+// token produces which role is one line to read per token, rather than a
+// decision made here on the caller's behalf.
+func (s *Service) createAccount(
+	ctx context.Context,
+	user store.User,
+	role string,
+	buildIdentity func(userID string, now time.Time) (store.UserIdentity, error),
+	meta SessionMeta,
+) (Session, error) {
+	now := s.now()
+	user.ID = ulid.Make().String()
+	user.CreatedAt = now.UnixMilli()
+	user.Role = role
 	identity, err := buildIdentity(user.ID, now)
 	if err != nil {
 		return Session{}, err
@@ -409,15 +531,22 @@ func HashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func newBootstrapCode() (string, error) {
-	total := bootstrapGroups * bootstrapGroupLen
+func newBootstrapCode() (string, error) { return newCode(bootstrapGroups, bootstrapGroupLen) }
+
+func newInviteCode() (string, error) { return newCode(inviteGroups, inviteGroupLen) }
+
+// newCode builds a grouped code from the shared alphabet. Both kinds of code
+// are read aloud and typed by hand, so they are the same shape and differ only
+// in length.
+func newCode(groups, groupLen int) (string, error) {
+	total := groups * groupLen
 	raw := make([]byte, total)
 	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("auth: generate claim code: %w", err)
+		return "", fmt.Errorf("auth: generate code: %w", err)
 	}
 	var b strings.Builder
 	for i := 0; i < total; i++ {
-		if i > 0 && i%bootstrapGroupLen == 0 {
+		if i > 0 && i%groupLen == 0 {
 			b.WriteByte('-')
 		}
 		// The modulo bias over a 31-character alphabet is negligible and does

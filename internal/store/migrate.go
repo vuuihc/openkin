@@ -2342,7 +2342,49 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureSessionRefProvenanceSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureInviteSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
+}
+
+// ensureInviteSchema creates the invitation table, on every open, for databases
+// written before it existed.
+//
+// This is the table's only definition, which is what makes it different from
+// the ensure functions around it: those reconcile tables some other part of the
+// schema owns, so they check for the table first and do nothing when it is
+// absent. Nothing else creates invite_tokens, so this function has to, and a
+// second copy in the base schema would only be a way for the two to disagree
+// about what the table is.
+//
+// It is reconciled rather than versioned for the reason the column functions
+// give: a thing that only ever needs to exist is cheaper to assert on every
+// open than to version, and every path out of migrate() already ends in
+// ensureCurrentSchema, so a fresh install and an upgraded one arrive here the
+// same way.
+//
+// An invitation is the second way an account can come into being. A bootstrap
+// code claims an unowned Hub and therefore makes an owner; an invitation is
+// issued by that owner to a specific person and makes a member. They are
+// deliberately separate rows rather than a flag on one table: `bootstrap_tokens`
+// answers "does this Hub still need claiming?", which drives the login surface's
+// choice between "claim this hub" and "sign in" -- so an outstanding invitation
+// recorded there would make a claimed Hub offer itself for claiming again.
+func (s *Store) ensureInviteSchema() error {
+	if _, err := s.db.Exec(`
+CREATE TABLE IF NOT EXISTS invite_tokens (
+  token_hash TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_invite_tokens_active
+  ON invite_tokens(expires_at, used_at);
+`); err != nil {
+		return fmt.Errorf("create invite_tokens: %w", err)
+	}
+	return nil
 }
 
 // ensureSessionRefProvenanceSchema adds the column that records which machine

@@ -376,6 +376,15 @@ func TestDeviceTokenCannotReachOperatorRoutes(t *testing.T) {
 //
 // The role is left unset on purpose: an account that never had one recorded has
 // to land on the unprivileged side rather than inherit the claim.
+// joinMember writes a member account straight through the store and signs it
+// in. It fabricates the row rather than going through a route because there was
+// no route to go through when it was written, and it keeps doing so because
+// these tests are about what a member may reach, not about how one comes to
+// exist -- and controlling the id makes the task fixtures readable.
+//
+// The route that does create one is covered by joinedMember in
+// accounts_join_test.go, which is the file to extend if the question is how an
+// account is made rather than what it can do.
 func joinMember(t *testing.T, s *Server, handler http.Handler, id, email string) *authClient {
 	t.Helper()
 	const password = "hunter2hunter2"

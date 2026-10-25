@@ -332,6 +332,75 @@ func (s *Store) IssueBootstrapToken(ctx context.Context, tokenHash string, now, 
 	return nil
 }
 
+// IssueInviteToken stores a one-time invitation by hash.
+//
+// Unlike IssueBootstrapToken this does not invalidate what came before it. An
+// owner hands these out one per person, and revoking everyone else's because a
+// new one was minted would make the second invitation break the first.
+func (s *Store) IssueInviteToken(ctx context.Context, tokenHash string, now, expiresAt int64) error {
+	if tokenHash == "" || expiresAt <= now {
+		return fmt.Errorf("invalid invite token")
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO invite_tokens (token_hash, created_at, expires_at) VALUES (?, ?, ?)`,
+		tokenHash, now, expiresAt); err != nil {
+		return fmt.Errorf("insert invite token: %w", err)
+	}
+	return nil
+}
+
+// ConsumeInviteToken atomically spends an invitation. It returns ErrNotFound
+// for unknown, expired, or already-used tokens so callers cannot distinguish
+// them.
+//
+// Single use is enforced twice -- the read refuses a row that already carries a
+// used_at, and the UPDATE only matches a row that does not -- and each alone is
+// enough, which is deliberate rather than leftover. The read is the same shape
+// ConsumeBootstrapToken uses; the conditional UPDATE is what still holds if the
+// read and the write ever stop being one transaction, which is what the pool
+// being capped at one connection quietly guarantees today. Neither is dead: a
+// mutation that removes both is the only one the test notices, and that is the
+// point at which the behaviour is genuinely gone.
+func (s *Store) ConsumeInviteToken(ctx context.Context, tokenHash string, now int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin consume invite token: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var expiresAt int64
+	var usedAt sql.NullInt64
+	err = tx.QueryRowContext(ctx,
+		`SELECT expires_at, used_at FROM invite_tokens WHERE token_hash = ?`, tokenHash).
+		Scan(&expiresAt, &usedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("read invite token: %w", err)
+	}
+	if usedAt.Valid || expiresAt <= now {
+		return ErrNotFound
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE invite_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL`,
+		now, tokenHash)
+	if err != nil {
+		return fmt.Errorf("consume invite token: %w", err)
+	}
+	// The row was read unspent a moment ago inside this transaction, so a zero
+	// here means something outside it spent the same code in between. Reporting
+	// that as "not found" is the same answer an already-used code gets, which is
+	// the point: the caller must not be able to tell the two apart.
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit consume invite token: %w", err)
+	}
+	return nil
+}
+
 // ConsumeBootstrapToken atomically spends a bootstrap code. It returns
 // ErrNotFound for unknown, expired, or already-used codes so callers cannot
 // distinguish them.
