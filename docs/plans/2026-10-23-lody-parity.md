@@ -498,6 +498,7 @@ LODY 的心智模型（`site-docs/content/docs/zh/(core-concepts)/concepts.mdx`�
 | 验收 | **同时开 3 个会话**，各自标签之间切换不丢状态；`Cmd+.` 能一键清屏 |
 | 依赖 | P0（pr 面板）、P2 |
 | 大小 | M |
+| 进展 | **开工**。形状、切片、守卫与现状实测见 `2026-10-25-p3-shell.md`。开工前的结论有两条改变了这一片的大小：keep-alive 多会话**已经在树里**（`TaskSessionHost` 挂 8 个 pane 并 CSS 隐藏非活动者），所以多标签缺的只是「标签栏 + 顺序持久化」；终端也**已经全套建好**（UI + Go + WS），所以「面板扩到 terminal」是收编而不是新建 |
 
 ### P3b — 手机端（你的主入口）
 
