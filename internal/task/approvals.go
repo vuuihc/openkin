@@ -530,11 +530,23 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 // regardless of the failure. A failed *read* of the queue leaves the message where
 // it is and the task usually running, so the sender-side caller stays quiet and a
 // later turn delivers it.
+//
+// The report is the last thing standing between an unanswered message and silence,
+// so its own failure cannot be swallowed: it goes into the drop ledger the persist
+// diagnostic reads (noteDroppedEvent). Not criticalPersistFail, which is what an
+// `error` event written through the run-scoped writer would set: that flag is read
+// by the *next* run to finish, and both callers here arrive when there is no run
+// left to score -- the cancel that refused the message either ended the task or is
+// about to, and the finalizer's canceled branch returns before it consults the flag.
+// Parking it there would fail some later, unrelated turn of the same task.
 func (e *Engine) reportUndelivered(ctx context.Context, id string, cause error) {
 	payload, _ := json.Marshal(map[string]string{"message": cause.Error()})
-	if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
-		e.bus.PublishEvent(ev)
+	ev, err := e.store.AppendEvent(ctx, id, "error", payload)
+	if err != nil {
+		e.noteDroppedEvent(id, err)
+		return
 	}
+	e.bus.PublishEvent(ev)
 }
 
 // deliveryIntent says what a delivery does when the task it is delivering into was

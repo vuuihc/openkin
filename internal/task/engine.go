@@ -2660,8 +2660,13 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	// Interrupted with a steerable follow-up: re-queue instead of staying canceled.
 	if hasFollowUp {
 		if workspaceErr != nil {
+			// The follow-up is dropped here, and every other drop this round names
+			// the message it is about, so this one does too: "the follow-up could
+			// not be delivered" without saying which one is a sentence the user
+			// cannot act on when they sent several.
 			payload, _ := json.Marshal(map[string]string{
-				"message": "workspace finalization failed before follow-up: " + workspaceErr.Error(),
+				"message": fmt.Sprintf("the follow-up %s was not delivered: workspace finalization failed: %s",
+					messageLabel(pf.req.Prompt), workspaceErr.Error()),
 			})
 			if ev, err := e.persistRunEvent(ctx, id, exec.ID, "error", payload); err == nil {
 				e.bus.PublishEvent(ev)
