@@ -31,6 +31,13 @@ jobs:
           npm test
           npx vite build
 
+      # The build above is what this measures. It reads the files index.html
+      # names — the entry chunk and the stylesheet — rather than the source, so
+      # a dependency that quietly joins the first screen is a number here and
+      # not a surprise on a phone.
+      - name: Console first-screen budget
+        run: ./scripts/check-bundle-budget.sh
+
       - name: Relay test + syntax check
         working-directory: relay
         run: |
