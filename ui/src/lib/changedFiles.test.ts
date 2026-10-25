@@ -144,6 +144,33 @@ describe("extractChangedFiles stats", () => {
     ];
     expect(extractChangedFiles(events)).toEqual([]);
   });
+
+  // The label a round evidence card and the workspace list both show. The two
+  // families overlap in one direction — `str_replace_editor`, `notebook_edit`
+  // and `apply_patch` read like writes and are edits — and the classifier used
+  // to answer "write" for every one of them, which is wrong on a card whose
+  // whole job is saying what happened.
+  it("tells an edit from a write by the tool, not by whether it sounds like one", () => {
+    const classified = (name: string) =>
+      extractChangedFiles([
+        toolUse(1, name, { path: "src/a.ts", old_string: "a", new_string: "b" }),
+      ])[0]?.action ?? "none";
+    for (const name of [
+      "Edit",
+      "edit_file",
+      "str_replace",
+      "str_replace_editor",
+      "apply_patch",
+      "notebook_edit",
+      "file_change",
+    ]) {
+      expect({ name, action: classified(name) }).toEqual({ name, action: "edit" });
+    }
+    for (const name of ["Write", "write_file", "create_file"]) {
+      expect({ name, action: classified(name) }).toEqual({ name, action: "write" });
+    }
+    expect(classified("delete_file")).toBe("delete");
+  });
 });
 
 describe("changedFilesFromDiff", () => {

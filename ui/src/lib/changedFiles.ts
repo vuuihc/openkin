@@ -90,24 +90,6 @@ function gitStatusToAction(status: string): ChangedFileAction {
   }
 }
 
-/** Tools that mutate (or clearly target) workspace files. */
-const WRITE_TOOLS = new Set([
-  "write_file",
-  "write",
-  "edit",
-  "edit_file",
-  "apply_patch",
-  "strreplace",
-  "str_replace",
-  "str_replace_editor",
-  "delete",
-  "delete_file",
-  "remove",
-  "create_file",
-  "notebookedit",
-  "notebook_edit",
-]);
-
 const READ_TOOLS = new Set(["read_file", "read", "view"]);
 
 /**
@@ -191,11 +173,18 @@ function actionForTool(name: string, _path: string, input: unknown): ChangedFile
   if (n.includes("delete") || n.includes("remove") || n === "rm") {
     return "delete";
   }
-  if (WRITE_TOOLS.has(n) || n.includes("write") || n.includes("create")) {
-    return "write";
-  }
+  // The edit family is asked before the write family, because the names overlap
+  // in one direction only: everything in it that reads like a write —
+  // `str_replace_editor`, `notebook_edit`, `apply_patch` — is an edit, while
+  // nothing that reads like an edit is one. A single set holding both families
+  // answered "write" for all of them (it was tested first), so every `Edit` an
+  // agent made was labelled as a fresh file write in the workspace list and in
+  // the round evidence card.
   if (n.includes("edit") || n.includes("replace") || n.includes("patch") || n === "file_change") {
     return "edit";
+  }
+  if (n.includes("write") || n.includes("create")) {
+    return "write";
   }
   // Codex-style file_change items often carry a changes array with kind.
   const rec = asRecord(input);
@@ -562,6 +551,25 @@ export function extractFileDiff(events: TaskEvent[], filePath: string): FileDiff
 
 function normalizePathKey(p: string): string {
   return p.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+/** The before/after pair one tool input describes, with no file attached to it. */
+export type ToolInputDiff = {
+  original: string;
+  modified: string;
+  source: FileDiffSnippet["source"];
+};
+
+/**
+ * The change a single tool input would make, or null when its payload has no
+ * reconstructible body.
+ *
+ * `extractFileDiff` answers the same question about a file in a stream; this is
+ * the one-payload form, for a caller that holds the input and nothing else —
+ * an approval, which has not run yet and so has no stream to search.
+ */
+export function toolInputDiff(toolName: string, input: unknown): ToolInputDiff | null {
+  return diffFromToolInput(toolName, input);
 }
 
 function diffFromToolInput(
