@@ -14,6 +14,7 @@ import { agentAvatarMeta } from "../../lib/agentMention";
 import { useAppStore } from "../../store/appStore";
 import { IconCopy, IconDownload, IconShare } from "../icons";
 import Markdown from "../Markdown";
+import RoundEvidenceCard from "./RoundEvidenceCard";
 import { formatSharedHTML, formatSharedText, type SharedMessage } from "./shareExport";
 import {
   buildChatItems,
@@ -25,6 +26,7 @@ import {
   noteNeedsAttribution,
   normalizeModel,
   prettyToolName,
+  roundEvidenceByTurn,
   shouldShowGenericThinking,
   summarizeProgressDetails,
   summarizeProgressStatus,
@@ -32,6 +34,7 @@ import {
   type NoteStep,
   type ProgressItem,
   type ToolStep,
+  type Turn,
 } from "./transcriptProjection";
 
 /** One empty set, shared: the default for a stream that has no queue to show. */
@@ -116,6 +119,9 @@ export default function ChatStream({
     () => findSpeakerModel(events, hostSpeaker) ?? normalizeModel(hostModel),
     [events, hostSpeaker, hostModel],
   );
+  // What each round changed, keyed by the turn it ends on — the one the card is
+  // drawn under. The join itself is a projection rule and lives with the others.
+  const evidenceByTurn = useMemo(() => roundEvidenceByTurn(events, turns), [turns, events]);
   const hasUserMsg = items.some((i) => i.kind === "message" && i.speaker === "user");
   const selectableMessages = useMemo(
     () =>
@@ -210,6 +216,68 @@ export default function ChatStream({
   const loadingInsideAgent = showLoading && lastTurn?.kind === "agent";
   const loadingStandalone = showLoading && !loadingInsideAgent;
 
+  /**
+   * One turn, drawn. A function rather than an inline switch so a round's
+   * evidence card can be placed after the turn that round ends on without
+   * wrapping that turn's own markup in an element of its own.
+   */
+  function renderTurn(turn: Turn, turnIdx: number): ReactNode {
+    switch (turn.kind) {
+      case "user":
+        return (
+          <MessageRow
+            key={turn.item.key}
+            speaker={turn.item.speaker}
+            text={turn.item.text}
+            partial={turn.item.partial}
+            queued={isMessageQueued(turn.item.seq, queuedSeqs ?? EMPTY_QUEUED)}
+            selectionMode={sharing}
+            selected={selectedKeys.has(turn.item.key)}
+            onToggleSelection={() => toggleSelection(turn.item.key)}
+          />
+        );
+      case "standalone":
+        return (
+          <StandaloneRow
+            key={turn.item.key}
+            item={turn.item}
+            slot={
+              turn.item.kind === "meta" ? pendingSlots?.[turn.item.pending?.id ?? ""] : undefined
+            }
+          />
+        );
+      case "agent": {
+        const isLast = turnIdx === turns.length - 1;
+        const withThinking = isLast && loadingInsideAgent;
+        return (
+          <AgentTurn
+            key={`turn-${turn.items[0]?.key ?? turnIdx}`}
+            speaker={turn.speaker}
+            model={turn.model}
+            items={turn.items}
+            hostSpeaker={hostSpeaker}
+            pendingSlots={pendingSlots}
+            loading={loading}
+            allItems={items}
+            showThinking={withThinking}
+            showMessageActions={showMessageActions}
+            actionsBusy={actionsBusy}
+            onRetry={onRetry}
+            onFork={onFork}
+            onSaveArtifact={onSaveArtifact}
+            onOpenPath={onOpenPath}
+            selectionMode={sharing}
+            selectedKeys={selectedKeys}
+            onToggleSelection={toggleSelection}
+            onCopyMessage={(text) => void copyMessage(text)}
+            onShareMessage={startSharing}
+          />
+        );
+      }
+    }
+    return null;
+  }
+
   return (
     <div className="max-w-conversation w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4">
       {sharing && (
@@ -228,61 +296,17 @@ export default function ChatStream({
       )}
 
       {turns.map((turn, turnIdx) => {
-        switch (turn.kind) {
-          case "user":
-            return (
-              <MessageRow
-                key={turn.item.key}
-                speaker={turn.item.speaker}
-                text={turn.item.text}
-                partial={turn.item.partial}
-                queued={isMessageQueued(turn.item.seq, queuedSeqs ?? EMPTY_QUEUED)}
-                selectionMode={sharing}
-                selected={selectedKeys.has(turn.item.key)}
-                onToggleSelection={() => toggleSelection(turn.item.key)}
-              />
-            );
-          case "standalone":
-            return (
-              <StandaloneRow
-                key={turn.item.key}
-                item={turn.item}
-                slot={
-                  turn.item.kind === "meta"
-                    ? pendingSlots?.[turn.item.pending?.id ?? ""]
-                    : undefined
-                }
-              />
-            );
-          case "agent": {
-            const isLast = turnIdx === turns.length - 1;
-            const withThinking = isLast && loadingInsideAgent;
-            return (
-              <AgentTurn
-                key={`turn-${turn.items[0]?.key ?? turnIdx}`}
-                speaker={turn.speaker}
-                model={turn.model}
-                items={turn.items}
-                hostSpeaker={hostSpeaker}
-                pendingSlots={pendingSlots}
-                loading={loading}
-                allItems={items}
-                showThinking={withThinking}
-                showMessageActions={showMessageActions}
-                actionsBusy={actionsBusy}
-                onRetry={onRetry}
-                onFork={onFork}
-                onSaveArtifact={onSaveArtifact}
-                onOpenPath={onOpenPath}
-                selectionMode={sharing}
-                selectedKeys={selectedKeys}
-                onToggleSelection={toggleSelection}
-                onCopyMessage={(text) => void copyMessage(text)}
-                onShareMessage={startSharing}
-              />
-            );
-          }
-        }
+        const rendered = renderTurn(turn, turnIdx);
+        const evidence = evidenceByTurn.get(turn);
+        if (!evidence) return rendered;
+        // A keyed fragment, so the card is the turn's sibling rather than its
+        // child: nothing inside the turn changes to make room for it.
+        return (
+          <Fragment key={`round-${turnIdx}`}>
+            {rendered}
+            <RoundEvidenceCard evidence={evidence} onOpenPath={onOpenPath} />
+          </Fragment>
+        );
       })}
 
       {loadingStandalone && <ThinkingRow speaker={loadingSpeaker} model={resolvedHostModel} />}

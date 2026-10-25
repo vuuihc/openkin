@@ -8,6 +8,7 @@ import {
   resolveSpeaker,
 } from "./eventMeta";
 import { displayUserPrompt } from "../../lib/attachments";
+import { roundEvidence, type RoundEvidence } from "../../lib/roundEvidence";
 import type { PendingRef } from "../../lib/needsYou";
 
 export type ToolStep = {
@@ -1202,6 +1203,30 @@ export function roundsOf(turns: Turn[]): Round[] {
     if (to.length) round.toSeq = Math.max(...to);
   }
   return rounds;
+}
+
+/**
+ * What each round changed, keyed by the turn that round ends on.
+ *
+ * The key is the placement: a round's range is a slice of the stream, so the
+ * card that reports it belongs under the turn carrying the last event of that
+ * slice — which is where the reader has just finished reading about the work.
+ * A round is routinely more than one ask (see `roundsOf`), and when it is, the
+ * card reports the whole of it: the ask that never got its own answer and the
+ * one that arrived on top of it are the same piece of work, so splitting their
+ * files between two cards would be inventing a boundary the transcript does not
+ * have.
+ *
+ * Absent means no card: a round nothing carried a seq for, and a round that
+ * changed nothing through a file tool, are both nothing to report.
+ */
+export function roundEvidenceByTurn(events: TaskEvent[], turns: Turn[]): Map<Turn, RoundEvidence> {
+  const byTurn = new Map<Turn, RoundEvidence>();
+  for (const round of roundsOf(turns)) {
+    const evidence = roundEvidence(events, round);
+    if (evidence) byTurn.set(round.turns[round.turns.length - 1], evidence);
+  }
+  return byTurn;
 }
 
 export function shouldShowGenericThinking(items: ChatItem[], loading: boolean): boolean {

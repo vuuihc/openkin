@@ -299,6 +299,17 @@ const zh = {
       step: "步骤 {n}",
       lines: "{n} 行",
     },
+    diff: {
+      truncated: "差异过长，只显示前 {count} 行",
+    },
+    evidence: {
+      title: "这一轮改了什么",
+      files: "{count} 个文件",
+      moreFiles: "另有 {count} 个文件未列出",
+      noPreview: "这次改动没有可还原的内容",
+      scope:
+        "只统计 agent 用文件工具（写/改/删）改的内容，shell 命令改的看不到；完整差异在工作区与 PR 面板。",
+    },
   },
   task: {
     notFound: "任务不存在",

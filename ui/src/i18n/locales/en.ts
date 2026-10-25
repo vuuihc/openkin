@@ -311,6 +311,17 @@ const en: MessageTree = {
       step: "Step {n}",
       lines: "{n} lines",
     },
+    diff: {
+      truncated: "Long diff, showing the first {count} lines",
+    },
+    evidence: {
+      title: "What this round changed",
+      files: "{count} files",
+      moreFiles: "{count} more files not listed",
+      noPreview: "Nothing reconstructible for this change",
+      scope:
+        "Counts only what the agent changed with file tools (write/edit/delete); shell commands are invisible here. The full diff is in the workspace and PR panels.",
+    },
   },
   task: {
     notFound: "Task not found",

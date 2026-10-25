@@ -12,6 +12,7 @@ import {
   isProgressCardRunning,
   mergeProcessRuns,
   pendingRefSeqs,
+  roundEvidenceByTurn,
   roundsOf,
   shouldShowGenericThinking,
   summarizeProgressDetails,
@@ -2477,6 +2478,66 @@ describe("turn seq ranges", () => {
     // Error and meta items carry no seq at all.
     expect(chatItemSeqRange({ kind: "error", key: "e", message: "boom" })).toBeNull();
     expect(chatItemSeqRange({ kind: "meta", key: "m", label: "note" })).toBeNull();
+  });
+
+  it("draws a round's card under the turn that answered it", () => {
+    const events = threeRounds();
+    const turns = turnsOf(events);
+
+    const carried = turns.map(
+      (turn) =>
+        roundEvidenceByTurn(events, turns)
+          .get(turn)
+          ?.files.map((file) => file.path) ?? null,
+    );
+    expect(carried).toEqual([
+      null, // the ask itself
+      ["internal/parse.go"], // the turn that answered it
+      null,
+      null,
+      null,
+      // The ask at 6 was never answered, so the ask at 9 is the same round: one
+      // card at the end of it, reporting the work of both.
+      ["CHANGELOG.md", "docs/readme.md"],
+    ]);
+  });
+
+  it("has no card for a round that only asked, or only read", () => {
+    const events: TaskEvent[] = [
+      userTurn(1, "what does this do?"),
+      hostToolUse(2, "r1", "read", "internal/parse.go"),
+      hostToolResult(3, "r1", "read"),
+      ev(4, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "it parses",
+        visibility: { user: true, task: true },
+      }),
+    ];
+    const turns = turnsOf(events);
+
+    expect(roundEvidenceByTurn(events, turns).size).toBe(0);
+  });
+
+  it("has no card for a round with no seq behind it", () => {
+    // A turn whose items are all streamed previews: nothing carries a seq, so
+    // there is no slice to read and the card must not guess at one. The events
+    // are here and would match, which is what makes this a test.
+    const turns: Turn[] = [
+      {
+        kind: "user",
+        item: {
+          kind: "message",
+          key: "u1",
+          speaker: "user",
+          text: "do it",
+          partial: false,
+        },
+      },
+    ];
+    const events: TaskEvent[] = [hostToolUse(1, "t1", "write", "src/a.ts")];
+
+    expect(roundEvidenceByTurn(events, turns).size).toBe(0);
   });
 });
 

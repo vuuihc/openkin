@@ -1,7 +1,10 @@
 import { type Approval, parseApprovalPayload } from "../../api/client";
+import { toolInputDiff } from "../../lib/changedFiles";
+import { previewFromTexts } from "../../lib/diffPreview";
 import { shortPath } from "../../lib/paths";
 import { formatApprovalAttribution } from "../../lib/approvalAttribution";
 import { useT } from "../../i18n/react";
+import PreviewLines from "../PreviewLines";
 import { IconAlert, IconFile } from "../icons";
 
 type Props = {
@@ -11,8 +14,6 @@ type Props = {
   onApprove: () => void;
   onDeny: () => void;
   onOpenPath?: (path: string) => void;
-  /** Optional path/diff snippet lines. */
-  previewLines?: { type: "add" | "del" | "ctx"; text: string }[];
 };
 
 export default function ApprovalCard({
@@ -22,7 +23,6 @@ export default function ApprovalCard({
   onApprove,
   onDeny,
   onOpenPath,
-  previewLines,
 }: Props) {
   const tr = useT();
   const { toolName, input } = parseApprovalPayload(approval.payload);
@@ -41,6 +41,16 @@ export default function ApprovalCard({
       : typeof input.cmd === "string"
         ? input.cmd
         : "";
+  // What this request would change, when the payload says. An approval that
+  // writes or edits a file is the one place a reader is being asked to decide
+  // about a change, so it is worth showing the change rather than the JSON that
+  // describes it — and where the payload cannot be reconstructed (a shell
+  // command, a tool whose body is elsewhere) the JSON below is still the honest
+  // answer.
+  const diff = toolInputDiff(toolName, input);
+  const preview = diff
+    ? previewFromTexts(diff.original, diff.modified, { maxLines: 24, context: 2 })
+    : null;
 
   return (
     <div
@@ -89,27 +99,14 @@ export default function ApprovalCard({
           )}
         </div>
 
-        {previewLines && previewLines.length > 0 && (
-          <div className="mt-2.5 rounded-lg overflow-hidden border border-[var(--kin-hairline)] font-mono text-caption leading-prose">
-            {previewLines.map((line, i) => (
-              <div
-                key={i}
-                className={
-                  line.type === "add"
-                    ? "px-2.5 py-0.5 bg-kin-green/10 text-kin-green-ink"
-                    : line.type === "del"
-                      ? "px-2.5 py-0.5 bg-kin-red/10 text-kin-red-ink"
-                      : "px-2.5 py-0.5 text-kin-secondary"
-                }
-              >
-                {line.type === "add" ? "+ " : line.type === "del" ? "- " : "  "}
-                {line.text}
-              </div>
-            ))}
-          </div>
+        {preview && <PreviewLines lines={preview.lines} className="mt-2.5" />}
+        {preview && preview.hidden > 0 && (
+          <p className="mt-1 text-caption text-kin-muted">
+            {tr("chat.diff.truncated", { count: preview.hidden })}
+          </p>
         )}
 
-        {!previewLines && Object.keys(input).length > 0 && (
+        {!preview && Object.keys(input).length > 0 && (
           <pre className="mt-2.5 max-h-28 overflow-auto rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] p-2 text-caption font-mono text-kin-secondary">
             {JSON.stringify(input, null, 2)}
           </pre>
