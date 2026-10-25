@@ -76,8 +76,9 @@ function stringsIn(source: string, fileName: string): string[] {
 const sources = sourceFiles().map((file) => {
   const rel = relative(UI, file);
   const source = readFileSync(file, "utf8");
+  const strings = stringsIn(source, rel);
   // Split once: a class list is one string, and both flags are classes in one.
-  return { rel, source, classes: stringsIn(source, rel).flatMap((s) => s.split(/\s+/)) };
+  return { rel, source, strings, classes: strings.flatMap((s) => s.split(/\s+/)) };
 });
 
 const withMarker = () =>
@@ -116,9 +117,36 @@ describe("zen", () => {
       .filter(({ classes }) => classes.includes(ROOT_FLAG))
       .map(({ rel }) => rel);
     expect(flags).toEqual(["src/components/layout/AppShell.tsx"]);
-    const stored = sources
-      .filter(({ source }) => /localStorage[^\n]*zen|zen[^\n]*localStorage/i.test(source))
-      .map(({ rel }) => rel);
-    expect(stored).toEqual([]);
+    // The word "zen" in a *string*, anywhere, other than the two class names:
+    // a storage key, a cookie name, a query parameter, a persist name. Matching
+    // `localStorage` next to `zen` on one line missed the shape this actually
+    // takes (`sessionStorage.setItem("kin_zen", …)` in one function, the
+    // initializer read in another), so the check is on the name instead.
+    const leaked = sources.flatMap(({ rel, strings }) =>
+      strings
+        .flatMap((s) => s.split(/\s+/))
+        .filter((word) => /zen/i.test(word) && word !== MARKER && word !== ROOT_FLAG)
+        .map((word) => `${rel}: ${word}`),
+    );
+    expect(leaked).toEqual([]);
+  });
+
+  // The three cases above fix the marker set, the rule and the absence of a
+  // preference — and every one of them still passes if zen can never be turned
+  // on, or can never be turned off again: delete the handler and make the flag a
+  // literal `true`, and the chrome is hidden for good with the suite green. So
+  // this is the case that says zen is a *toggle*: something sets it, the keyboard
+  // is what sets it, and the class is derived from it rather than written out.
+  it("is a toggle: a state, a key that flips it, and a class derived from both", () => {
+    const shell = sources.find(({ rel }) => rel === "src/components/layout/AppShell.tsx")?.source;
+    expect(shell).toBeDefined();
+    const source = shell ?? "";
+    expect({ sets: /setZen\s*\(/.test(source), flips: /setZen\s*\(\s*\(?v/.test(source) }).toEqual({
+      sets: true,
+      flips: true,
+    });
+    expect({ chord: /e\.key\s*===\s*"\."/.test(source) }).toEqual({ chord: true });
+    // Derived, not constant: the flag is one arm of a conditional on that state.
+    expect({ derived: /zen\s*\?\s*"kin-zen"/.test(source) }).toEqual({ derived: true });
   });
 });
