@@ -53,10 +53,14 @@ func (h *fakeHandle) Cancel() error {
 	return nil
 }
 
+// overlappingRunAdapter runs twice. The first run's stream stays open until the
+// test releases firstResult, so a test can choose the order between the run it is
+// retiring and the cancel or retry that retires it.
 type overlappingRunAdapter struct {
 	mu            sync.Mutex
 	starts        int
 	firstRelease  chan struct{}
+	firstResult   chan struct{}
 	secondRelease chan struct{}
 }
 
@@ -72,8 +76,10 @@ func (a *overlappingRunAdapter) Start(context.Context, adapter.TaskSpec) (adapte
 	a.starts++
 	start := a.starts
 	release := a.firstRelease
+	holdResult := a.firstResult
 	if start > 1 {
 		release = a.secondRelease
+		holdResult = nil
 	}
 	a.mu.Unlock()
 
@@ -90,6 +96,12 @@ func (a *overlappingRunAdapter) Start(context.Context, adapter.TaskSpec) (adapte
 			"role": "assistant", "content": []map[string]string{{"type": "text", "text": text}},
 		})
 		ch <- adapter.Event{Type: "message", Payload: payload}
+		// The result is the event that ends the run. A test that needs the run retired
+		// before it can finish holds it here -- on a channel, not on an engine lock --
+		// so the cancel it is being retired by still gets through.
+		if holdResult != nil {
+			<-holdResult
+		}
 		ch <- adapter.Event{Type: "result", Payload: json.RawMessage(`{"is_error":false}`)}
 	}()
 	return &nonCancelingHandle{ch: ch}, nil
@@ -449,6 +461,7 @@ func TestNewQueueAttemptClearsStaleCancellation(t *testing.T) {
 func TestRetiredRunCannotOverwriteRunningRetry(t *testing.T) {
 	ad := &overlappingRunAdapter{
 		firstRelease:  make(chan struct{}),
+		firstResult:   make(chan struct{}),
 		secondRelease: make(chan struct{}),
 	}
 	e, st := testEngine(t, 2, ad)
@@ -487,6 +500,10 @@ func TestRetiredRunCannotOverwriteRunningRetry(t *testing.T) {
 	if err := <-cancelResult; err != nil {
 		t.Fatal(err)
 	}
+	// The cancel had to win this outright. The run it retires is still holding its
+	// own result, so a task that ends up canceled is the cancel landing, not a race
+	// the run happened to lose after it had already finished on its own.
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 2*time.Second)
 	restoreFiles := false
 	if _, err := e.Retry(ctx, task.ID, RetryRequest{RestoreFiles: &restoreFiles}); err != nil {
 		t.Fatal(err)
@@ -496,6 +513,10 @@ func TestRetiredRunCannotOverwriteRunningRetry(t *testing.T) {
 		t.Fatalf("retry epoch=%d want 1", retried.EventEpoch)
 	}
 
+	// Now the retired run gets to say it succeeded. That is the whole point: it is
+	// late, the epoch it belongs to is gone, and it must not reach the task the
+	// retry is running.
+	close(ad.firstResult)
 	time.Sleep(100 * time.Millisecond)
 	stillRunning, err := e.Get(ctx, task.ID)
 	if err != nil {
