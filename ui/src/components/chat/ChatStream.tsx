@@ -3,7 +3,7 @@
  * One user message → one agent reply column (single left avatar). Intermediate
  * multi-agent / tool steps remain as a complete, ordered execution record.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TaskEvent } from "../../api/client";
 import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
@@ -261,6 +261,7 @@ export default function ChatStream({
                 speaker={turn.speaker}
                 model={turn.model}
                 items={turn.items}
+                pendingSlots={pendingSlots}
                 loading={loading}
                 allItems={items}
                 showThinking={withThinking}
@@ -293,6 +294,7 @@ function AgentTurn({
   speaker,
   model,
   items,
+  pendingSlots,
   loading,
   allItems,
   showThinking,
@@ -311,6 +313,8 @@ function AgentTurn({
   speaker: string;
   model?: string;
   items: ChatItem[];
+  /** Pending cards by id: an asking event inside this column draws its own. */
+  pendingSlots?: Record<string, ReactNode>;
   loading: boolean;
   allItems: ChatItem[];
   showThinking: boolean;
@@ -466,12 +470,19 @@ function AgentTurn({
                   {item.message}
                 </div>
               );
-            case "meta":
+            case "meta": {
+              // An asking event almost never starts a turn of its own: the agent
+              // narrates, then stops to ask, so the grouping folds it into the
+              // column above. The card has to be drawn here too, or the one place
+              // it was anchored is the one place it never appears.
+              const slot = item.pending ? pendingSlots?.[item.pending.id] : undefined;
+              if (slot) return <Fragment key={item.key}>{slot}</Fragment>;
               return (
                 <p key={item.key} className="text-caption text-kin-muted">
                   {item.label}
                 </p>
               );
+            }
           }
         })}
 
