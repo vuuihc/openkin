@@ -615,7 +615,9 @@ export default function Composer({
                   onClick={() => {
                     submitIntent.current = "queue";
                   }}
-                  disabled={disabled || busy || stopping}
+                  // uploading is in here for the same reason as on the two buttons
+                  // above: a send that cannot happen yet must not be armable.
+                  disabled={disabled || busy || stopping || uploading}
                   className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
                   aria-label={tr("composer.send")}
                   title={tr("composer.sendQueuedHint")}
