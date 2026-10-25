@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -43,6 +44,26 @@ type authClient struct {
 	h      http.Handler
 	cookie *http.Cookie
 	master string
+}
+
+// registerProject makes a fresh directory a project on this Hub and returns it.
+//
+// Creating a project is an operator action, and it is also what bounds where a
+// member may start work: a member's task outside every registered project is
+// refused before it is enqueued. So a test that needs a member to create a task
+// at all needs a project first, and it needs the directory to be real -- the
+// containment check resolves the path, and what cannot be resolved is inside
+// nothing.
+func registerProject(t *testing.T, s *Server, id string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := s.Store.InsertProject(context.Background(), store.Project{
+		ID: id, Name: id, Mode: store.ProjectModeShip, Status: "active",
+		OnePagerRel: "ONEPAGER.md",
+	}, []string{dir}); err != nil {
+		t.Fatalf("register project %s: %v", id, err)
+	}
+	return dir
 }
 
 func (c *authClient) do(method, path, body string) *httptest.ResponseRecorder {
@@ -718,7 +739,8 @@ func TestMemberAccountCannotReachTheOwnersTasks(t *testing.T) {
 	// Two members do not see each other either: this is not a role check that
 	// merely separates "the owner" from "everyone else".
 	other := joinMember(t, s, handler, "scope-other", "other@example.com")
-	rec = member.post("/api/tasks", `{"agent":"claude-code","cwd":"/tmp/member","prompt":"member work"}`)
+	memberDir := registerProject(t, s, "member-project")
+	rec = member.post("/api/tasks", `{"agent":"claude-code","cwd":"`+memberDir+`","prompt":"member work"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("member creating a task: %d %s", rec.Code, rec.Body.String())
 	}
@@ -860,6 +882,68 @@ func TestAMemberCannotReadTheMachinesOwnRecords(t *testing.T) {
 	for _, path := range []string{"/api/projects", "/api/routines", "/api/artifacts", "/api/agent-sessions"} {
 		if rec := device.get(path); rec.Code == http.StatusForbidden {
 			t.Fatalf("a paired device was refused %s: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestAMemberCannotReachTheRoutesThatCreateAnUnownedTask is the other half of
+// the cwd bound, and it is the half that does not live in the engine.
+//
+// requireCwdForNonHolder confines a task by the account on its request, and an
+// empty account means no bound at all. That is the right reading for a master
+// token or a paired phone, but a task with no account also comes out of rows
+// nobody typed: a routine firing on a timer, an eval case, and an attach to a
+// recorded session each build their request from storage, and the cwd on it is
+// whatever was stored. So a member who could reach one of these routes could
+// author a cwd that the engine would never see an owner for — the bound would
+// still be in the code and no longer in the way.
+//
+// Each entry says what it would create, because that is the argument for the
+// gate rather than an assertion that one exists. The route a member does use to
+// create work, POST /api/tasks, is deliberately absent: it carries the account,
+// and TestAMemberCannotStartWorkInTheHoldersHome is that half.
+func TestAMemberCannotReachTheRoutesThatCreateAnUnownedTask(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	handler := s.Handler()
+
+	owner := &authClient{t: t, h: handler}
+	claimOwner(t, owner, code)
+	owner.master = ""
+
+	member := joinMember(t, s, handler, "unowned-member", "unowned@example.com")
+
+	cases := []struct{ method, path, creates string }{
+		{http.MethodPost, "/api/routines",
+			"a routine, whose firing creates an ownerless task in the cwd it carries"},
+		{http.MethodPatch, "/api/routines/routine-1",
+			"the cwd on that routine, which is the same thing one edit earlier"},
+		{http.MethodPost, "/api/routines/routine-1/run-now",
+			"that ownerless task, without waiting for the timer"},
+		{http.MethodPost, "/api/evals/runs",
+			"eval tasks, each in the cwd its case definition carries"},
+		{http.MethodPost, "/api/evals/routines",
+			"a routine over those cases, which is the same task on a timer"},
+		{http.MethodPost, "/api/agent-sessions/import",
+			"recorded sessions, which is what attach reads its cwd from"},
+		{http.MethodPost, "/api/agent-sessions/session-1/attach",
+			"an ownerless task in the cwd recorded on the session"},
+		{http.MethodPost, "/api/projects",
+			"a project, which is the thing the bound is made of"},
+	}
+	for _, tc := range cases {
+		if rec := member.do(tc.method, tc.path, ""); rec.Code != http.StatusForbidden {
+			t.Fatalf("member reached %s %s, which creates %s: %d %s, want 403",
+				tc.method, tc.path, tc.creates, rec.Code, rec.Body.String())
+		}
+	}
+
+	// The holder reaches all of them, so the 403s above are the gate and not a
+	// route that answers nobody. Asserted as "not refused" rather than "200": an
+	// empty body on a create route is a 400 and a fabricated id is a 404, and
+	// neither is what this test is about.
+	for _, tc := range cases {
+		if rec := owner.do(tc.method, tc.path, ""); rec.Code == http.StatusForbidden {
+			t.Fatalf("the holder was refused %s %s: %d %s", tc.method, tc.path, rec.Code, rec.Body.String())
 		}
 	}
 }

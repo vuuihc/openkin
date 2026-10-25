@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/auth"
@@ -550,4 +551,165 @@ func TestJoiningWithAnEmailThatAlreadyExistsKeepsTheInvitation(t *testing.T) {
 	if n != 3 {
 		t.Fatalf("users after the retry = %d, want 3 (owner + two members)", n)
 	}
+}
+
+// S2's acceptance criterion, through the routes a person actually uses.
+//
+// The hole was that creating a task is running an agent in a directory, and a
+// member could name any directory on the holder's disk. The bound is the
+// projects the holder registered, which needs no new entity: creating a project
+// is already an operator action. Both halves are asserted together, because a
+// bound that also refuses the registered project is a broken picker rather than
+// a boundary, and the owner's arm is asserted because confining the holder would
+// close the hole by breaking the product.
+func TestAMemberCannotStartWorkInTheHoldersHome(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+	member := joinedMember(t, s, invite(t, owner), "joiner@example.com")
+
+	// Stand-ins for the two directories the criterion names. They are real, so
+	// the only thing separating them is whether the holder registered one.
+	holderHome := t.TempDir()
+	project := registerProject(t, s, "project-1")
+
+	refused := member.post("/api/tasks",
+		`{"agent":"claude-code","cwd":"`+holderHome+`","prompt":"look around the machine"}`)
+	if refused.Code == http.StatusCreated {
+		t.Fatalf("a member started a task in the holder's directory: %s", refused.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(refused.Body.Bytes(), &body); err != nil {
+		t.Fatalf("the refusal is not the typed error shape: %v (%s)", err, refused.Body.String())
+	}
+	// The message has to name what would fix it. "invalid cwd" leaves a person
+	// unable to tell a boundary from a bug, and they ask for the wrong fix.
+	if !strings.Contains(body.Error, "project") {
+		t.Fatalf("the refusal does not say what would make it work: %q", body.Error)
+	}
+
+	allowed := member.post("/api/tasks",
+		`{"agent":"claude-code","cwd":"`+project+`","prompt":"the real work"}`)
+	if allowed.Code != http.StatusCreated {
+		t.Fatalf("a member was refused a registered project: %d %s", allowed.Code, allowed.Body.String())
+	}
+	// The holder is not a guest on their own machine.
+	if rec := owner.post("/api/tasks",
+		`{"agent":"claude-code","cwd":"`+holderHome+`","prompt":"my own directory"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("the owner was confined to the project list: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestTheHubsOwnDeviceIDIsNotAWayOutForAMember covers the one device id a
+// member can learn without asking anyone: `/api/version` answers with the Hub's
+// own desktop id for any authenticated caller. Naming it back is the cheapest
+// attempt at turning "send this elsewhere" into a way around the cwd bound, and
+// the bound has to hold.
+//
+// The two ids that decide this live in two places. ValidateExecutingDevice
+// compares the requested device against Server.DesktopID; the engine decides
+// "another machine" from the id SetRemoteRunner was given. In production both
+// are identity.ID (internal/server/server.go), and nothing but this test says
+// they have to stay that way. Set only Server.DesktopID and the request passes
+// validation while the engine reads it as a machine elsewhere — which skips the
+// bound outright rather than refusing anything.
+//
+// Both refusals are a 400, so the message is the only thing that says which rule
+// applied. That is why this asserts on it: the drift above does not answer
+// nothing, it answers with the wrong rule.
+func TestTheHubsOwnDeviceIDIsNotAWayOutForAMember(t *testing.T) {
+	const hubDevice = "desktop-hub-1"
+	s, _, code := newAuthTestServer(t)
+	s.DesktopID = hubDevice
+	s.Engine.SetRemoteRunner(hubDevice, nil)
+
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+	member := joinedMember(t, s, invite(t, owner), "hub-device@example.com")
+
+	holderHome := t.TempDir()
+	project := registerProject(t, s, "hub-device-project")
+
+	refused := member.post("/api/tasks",
+		`{"agent":"claude-code","cwd":"`+holderHome+`","prompt":"look around",`+
+			`"executing_device_id":"`+hubDevice+`"}`)
+	if refused.Code != http.StatusBadRequest {
+		t.Fatalf("a member naming this Hub's own device for the holder's directory: %d %s, want 400",
+			refused.Code, refused.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(refused.Body.Bytes(), &body); err != nil {
+		t.Fatalf("the refusal is not the typed error shape: %v (%s)", err, refused.Body.String())
+	}
+	if !strings.Contains(body.Error, "not inside a project") {
+		t.Fatalf("the cwd bound is not what refused this: %q", body.Error)
+	}
+
+	// And the same id inside a registered project is ordinary work — without
+	// this half, a Hub that refused every device id would satisfy the refusal
+	// above for the wrong reason.
+	allowed := member.post("/api/tasks",
+		`{"agent":"claude-code","cwd":"`+project+`","prompt":"the real work",`+
+			`"executing_device_id":"`+hubDevice+`"}`)
+	if allowed.Code != http.StatusCreated {
+		t.Fatalf("a member naming this Hub's own device inside a project: %d %s",
+			allowed.Code, allowed.Body.String())
+	}
+}
+
+// TestAMembersRerunStaysTheirs covers the other way a task gets created with no
+// account on the request, and it is not one of the holder-gated ones.
+//
+// A rerun copies the source's directory, agent and machine into a fresh create
+// request, and it did not copy the owner. The effect was worse than an
+// ownership bug: an unowned task matches no account's scope, so the member's
+// rerun vanished from the list of the person who asked for it and turned up in
+// the holder's. It also stepped around the cwd bound, which reads an empty
+// account as "no guest to defend against" — nothing escaped, because the
+// source's directory had already been checked when the member created it, but
+// the rule the guard documents was not the rule that was holding.
+//
+// Rerun sits behind the task scope rather than behind a role, so any caller who
+// can see a task can rerun it; this is that path from the member's side.
+func TestAMembersRerunStaysTheirs(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+	member := joinedMember(t, s, invite(t, owner), "rerun@example.com")
+	project := registerProject(t, s, "rerun-project")
+
+	rec := member.post("/api/tasks",
+		`{"agent":"claude-code","cwd":"`+project+`","prompt":"the first run"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("member creates a task: %d %s", rec.Code, rec.Body.String())
+	}
+	var source store.Task
+	if err := json.Unmarshal(rec.Body.Bytes(), &source); err != nil || source.ID == "" {
+		t.Fatalf("create response: %v (%s)", err, rec.Body.String())
+	}
+
+	rec = member.post("/api/tasks/"+source.ID+"/replay", `{"mode":"rerun"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("member reruns their own task: %d %s", rec.Code, rec.Body.String())
+	}
+	var replay struct {
+		Task store.Task `json:"task"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &replay); err != nil || replay.Task.ID == "" {
+		t.Fatalf("replay response: %v (%s)", err, rec.Body.String())
+	}
+
+	// The assertion is the user-visible one: whoever asked for the rerun can
+	// still see it. A task nobody owns is a task no account's list contains.
+	seen := visibleTaskIDs(t, member)
+	for _, id := range seen {
+		if id == replay.Task.ID {
+			return
+		}
+	}
+	t.Fatalf("the member's rerun is missing from their own task list: %v", seen)
 }

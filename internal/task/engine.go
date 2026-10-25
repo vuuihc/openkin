@@ -1402,6 +1402,15 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	if req.Cwd == "" {
 		return store.Task{}, fmt.Errorf("cwd is required")
 	}
+	// A task that runs on another machine names a path on that machine, and that
+	// machine refuses a working directory outside its own roots before it runs a
+	// turn (ADR 0022, internal/node). Checking such a path against *this*
+	// machine's projects would refuse a directory that is perfectly valid where
+	// the task will actually run — so the guard defers, but only for a caller who
+	// could have chosen that machine in the first place.
+	if err := e.requireCwdForNonHolder(ctx, req.Cwd, req.OwnerUserID, req.ExecutingDeviceID); err != nil {
+		return store.Task{}, err
+	}
 	if req.Prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
 	}

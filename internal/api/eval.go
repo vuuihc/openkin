@@ -233,6 +233,14 @@ func (s *Server) handleReplayTask(w http.ResponseWriter, r *http.Request) {
 			Model: original.Model, PermissionMode: original.PermissionMode,
 			ProjectID: original.ProjectID, Dispatch: body.Dispatch,
 			Title: stringPtr("Replay · " + original.Title),
+			// The rerun belongs to whoever owned the source, for the same reason a
+			// fork does: a rerun is the same work asked for again, not a new task
+			// the caller gets to adopt. Leaving this empty was worse than an
+			// ownership bug — an unowned task is one no account's scope matches,
+			// so a member's rerun vanished from their own list and reappeared only
+			// for the holder. It also stepped around the cwd bound, which reads an
+			// empty owner as "no guest to defend against".
+			OwnerUserID: original.OwnerUserID,
 			// A rerun is the same work again: same directory, same machine. Without
 			// the device it would run here, at a path that belongs to the other
 			// machine — which is the failure this whole mechanism exists to stop.
