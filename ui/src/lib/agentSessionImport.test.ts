@@ -169,9 +169,7 @@ describe("importTargets", () => {
   });
 
   it("asks this machine even when the machine list has not loaded", () => {
-    expect(importTargets([], "This machine")).toEqual([
-      { deviceId: "", label: "This machine" },
-    ]);
+    expect(importTargets([], "This machine")).toEqual([{ deviceId: "", label: "This machine" }]);
   });
 
   it("asks a machine that reads as offline", () => {
@@ -229,8 +227,8 @@ describe("importTargetsFor", () => {
 // the failure can be a machine rather than a provider, and the message has to
 // be able to say so.
 describe("importToast", () => {
-
-  it("reports the count when nothing failed", () => {    const toast = importToast({ imported: 7, providers: {} }, tr);
+  it("reports the count when nothing failed", () => {
+    const toast = importToast({ imported: 7, providers: {} }, tr);
     expect(toast).toEqual({
       message: 'settings.localAgents.imported {"imported":7}',
       kind: "info",
@@ -269,9 +267,9 @@ describe("importToast", () => {
     // The sessions that did arrive are in the count and the toast is still a
     // warning: a person who is not told will believe the list is the whole of
     // their sessions.
-    expect(importToast({ imported: 12, providers: {}, errors: { codex: "no catalog" } }, tr).kind).toBe(
-      "error",
-    );
+    expect(
+      importToast({ imported: 12, providers: {}, errors: { codex: "no catalog" } }, tr).kind,
+    ).toBe("error");
   });
 
   it("still reads as a sentence when the failure came with no reason", () => {
