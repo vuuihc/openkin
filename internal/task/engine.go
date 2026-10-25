@@ -1225,6 +1225,76 @@ func (e *Engine) sessionRefResumable(t store.Task) bool {
 	return owner == e.sessionRefOwner(t)
 }
 
+// sessionRefOriginLabel names the machine that minted a task's native session
+// ref, for a sentence a person reads. The device's own label when it has one,
+// its id otherwise: an id is opaque, but it is not wrong, and a sentence that
+// cannot say which machine is a sentence that only says "somewhere else".
+func (e *Engine) sessionRefOriginLabel(ctx context.Context, t store.Task) string {
+	if t.SessionRefDeviceID == nil {
+		return ""
+	}
+	device := strings.TrimSpace(*t.SessionRefDeviceID)
+	if device == "" {
+		return ""
+	}
+	if e.store != nil {
+		if d, err := e.store.GetDevice(ctx, device); err == nil {
+			if label := strings.TrimSpace(d.Label); label != "" {
+				return label
+			}
+		}
+	}
+	return device
+}
+
+// noteForeignSessionRef says, in the transcript, that this turn is continuing a
+// session this machine cannot resume.
+//
+// The opposite of a silent context restart is not an error, it is a sentence.
+// Using the same task from two machines is ordinary, and the second machine
+// carrying on from what it can see is the right answer; what is not right is the
+// reader finding out from a reply that has forgotten the conversation
+// (ADR 0022 D6). A notice for that reason -- nothing has gone wrong.
+//
+// Written through the same channel an adapter uses to say it could not reload
+// the agent's context, so it lands in the transcript where it happened rather
+// than in a diagnostics corner.
+func (e *Engine) noteForeignSessionRef(ctx context.Context, id string, t store.Task) {
+	origin := e.sessionRefOriginLabel(ctx, t)
+	if origin == "" {
+		origin = "another machine"
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"severity": "info",
+		"title":    "context rebuilt",
+		"message": "this task's agent session was started on " + origin +
+			"; Kin continued from its own transcript instead of resuming it.",
+		"session_ref_device_id": strings.TrimSpace(derefString(t.SessionRefDeviceID)),
+	})
+	w := e.eventWriter()
+	if w == nil {
+		return
+	}
+	ev, err := w.AppendEvent(ctx, id, "notice", payload)
+	if err != nil {
+		// The turn is still going ahead without the ref, which is the part that
+		// matters, but a notice that vanishes is the silence it was written to
+		// break: it goes in the ledger a later write turns into a diagnostic,
+		// as a loss belonging to no run (see noteDroppedEvent).
+		e.noteDroppedEvent(id, err)
+		return
+	}
+	e.bus.PublishEvent(ev)
+}
+
+// derefString reads an optional string column as a plain one, blank when absent.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // remoteFor reports the adapter for a task that runs somewhere else, and
 // whether it runs somewhere else at all.
 func (e *Engine) remoteFor(t store.Task, executionID string) (adapter.Adapter, bool, error) {
