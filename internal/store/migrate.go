@@ -185,6 +185,7 @@ CREATE TABLE tasks (
   prompt      TEXT NOT NULL,
   model       TEXT,
   session_ref TEXT,
+  session_ref_device_id TEXT,
   status      TEXT NOT NULL,
   exit_code   INTEGER,
   tokens_in   INTEGER NOT NULL DEFAULT 0,
@@ -2338,7 +2339,47 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureTaskScopeSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureSessionRefProvenanceSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
+}
+
+// ensureSessionRefProvenanceSchema adds the column that records which machine
+// produced `tasks.session_ref`, to databases written before it existed.
+//
+// Not a numbered migration, for the reason ensureTaskScopeSchema gives: a column
+// that only ever needs to exist is cheaper to assert on every open than to
+// version, and a versioned step would make every hand-built fixture replay the
+// chain to be correct.
+//
+// The column is the difference between "this native session id belongs to the
+// device about to run the turn" and "it belongs to another machine, whose agent
+// is the only one that can resolve it". `session_ref` alone cannot express that,
+// which is how a ref produced on one machine came to be handed to another
+// machine's adapter -- five of them accept a resume ref and none can tell whose
+// it is (ADR 0022 D6). Empty means "written before this column existed", and the
+// resume path reads that as local, which is what those rows were.
+func (s *Store) ensureSessionRefProvenanceSchema() error {
+	present, err := s.tableExists("tasks")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	q := `SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?`
+	if err := s.db.QueryRow(q, "session_ref_device_id").Scan(&exists); err != nil {
+		return fmt.Errorf("inspect tasks.session_ref_device_id: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(`ALTER TABLE tasks ADD COLUMN session_ref_device_id TEXT`); err != nil {
+		return fmt.Errorf("add tasks.session_ref_device_id: %w", err)
+	}
+	return nil
 }
 
 // ensurePendingPromptSchema reconciles the queue table's shape on every open, the

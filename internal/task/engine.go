@@ -50,15 +50,21 @@ type CreateRequest struct {
 	// SessionRef is set by the local Agent session attach flow. It is kept out
 	// of the public task-create contract so ordinary callers cannot impersonate
 	// a provider-owned session.
-	SessionRef     string                  `json:"-"`
-	Agent          string                  `json:"agent"`
-	Cwd            string                  `json:"cwd"`
-	Prompt         string                  `json:"prompt"`
-	Model          *string                 `json:"model,omitempty"`
-	Title          *string                 `json:"title,omitempty"`
-	PermissionMode string                  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
-	WorkspaceMode  workspace.RequestedMode `json:"workspace_mode,omitempty"`  // auto | shared | worktree
-	ProjectID      string                  `json:"project_id,omitempty"`      // optional project link (ADR 0008)
+	SessionRef string `json:"-"`
+	// SessionRefDeviceID names the machine whose agent owns SessionRef. The
+	// attach flow reads it off the session row it is claiming, which is the only
+	// place that knows: a session imported from another machine's catalog can be
+	// attached to a task that runs here, and this is what stops this daemon
+	// handing that ref to a local adapter that cannot resolve it (ADR 0022 D6).
+	SessionRefDeviceID string                  `json:"-"`
+	Agent              string                  `json:"agent"`
+	Cwd                string                  `json:"cwd"`
+	Prompt             string                  `json:"prompt"`
+	Model              *string                 `json:"model,omitempty"`
+	Title              *string                 `json:"title,omitempty"`
+	PermissionMode     string                  `json:"permission_mode,omitempty"` // default | accept_edits | yolo
+	WorkspaceMode      workspace.RequestedMode `json:"workspace_mode,omitempty"`  // auto | shared | worktree
+	ProjectID          string                  `json:"project_id,omitempty"`      // optional project link (ADR 0008)
 	// RoutineID tags the task as a routine run (ADR 0011). Empty = interactive.
 	RoutineID string `json:"routine_id,omitempty"`
 	// UserPrompt is the original user text shown in the chat timeline when Prompt
@@ -1168,6 +1174,26 @@ func (e *Engine) RunsElsewhere(t store.Task) bool {
 	return e.isRemoteDevice(t.ExecutingDeviceID)
 }
 
+// sessionRefOwner names the machine whose agent produced a turn's native session
+// ref, and so the only machine that can resume it.
+//
+// It has to be recorded when the ref is stored, because it cannot be recovered
+// afterwards: `agent_sessions` only ever holds this daemon's own catalog — the
+// import endpoint stamps every row with this machine's id — so a ref produced
+// elsewhere has no row there to look up. Without this, the ref travels on
+// device-less and the resume path hands it to whatever adapter runs next, which
+// is how a machine ends up passing its own session id to another machine's CLI
+// (ADR 0022 D6).
+//
+// Empty means this daemon has no device id, which is also what `isRemoteDevice`
+// reads as "here"; the two agree on every row.
+func (e *Engine) sessionRefOwner(t store.Task) string {
+	if e.isRemoteDevice(t.ExecutingDeviceID) {
+		return strings.TrimSpace(t.ExecutingDeviceID)
+	}
+	return e.selfDevice()
+}
+
 // remoteFor reports the adapter for a task that runs somewhere else, and
 // whether it runs somewhere else at all.
 func (e *Engine) remoteFor(t store.Task, executionID string) (adapter.Adapter, bool, error) {
@@ -1378,6 +1404,12 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	}
 	if sessionRef := strings.TrimSpace(req.SessionRef); sessionRef != "" {
 		t.SessionRef = &sessionRef
+		// Stored with the ref in the same breath. An attached session keeps the
+		// device it was recorded on, which is what the resume path compares
+		// against the machine about to run the turn.
+		if device := strings.TrimSpace(req.SessionRefDeviceID); device != "" {
+			t.SessionRefDeviceID = &device
+		}
 	}
 
 	// Resolve workspace mode and policy.
@@ -2497,7 +2529,7 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		e.mu.Unlock()
 	}
 
-	e.runLoop(id, h, t.Agent, model, execRef, runMeta)
+	e.runLoop(id, h, t.Agent, model, execRef, runMeta, e.sessionRefOwner(t))
 }
 
 func (e *Engine) failStart(ctx context.Context, id, msg string) (store.Task, error) {
@@ -2570,13 +2602,28 @@ func (e *Engine) failStartWithExecution(
 	return t, err
 }
 
-func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, exec adapter.ExecutionRef, runMeta adapter.RunMetadata) {
+func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, exec adapter.ExecutionRef, runMeta adapter.RunMetadata, sessionRefDevice string) {
 	ctx := context.Background()
 	var sawResult bool
 	var sawUsage bool
 	var resultIsError bool
 	if speaker == "" {
 		speaker = "assistant"
+	}
+
+	// Recording the ref and its provenance is one write, in both places a turn
+	// can report one. Storing a ref without saying which machine can resolve it
+	// is the debt this column exists to close, so the two are never set apart.
+	recordSessionRef := func(sid string) {
+		patch := store.TaskPatch{SessionRef: &sid}
+		if sessionRefDevice != "" {
+			patch.SessionRefDeviceID = &sessionRefDevice
+		}
+		e.mu.Lock()
+		if e.activeRuns[id] == exec.ID {
+			_ = e.store.UpdateTask(ctx, id, patch)
+		}
+		e.mu.Unlock()
 	}
 
 	for ev := range h.Events() {
@@ -2684,11 +2731,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		case "task_started":
 			if semanticErr == nil && semantic.SessionRef != "" {
 				sid := semantic.SessionRef
-				e.mu.Lock()
-				if e.activeRuns[id] == exec.ID {
-					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
-				}
-				e.mu.Unlock()
+				recordSessionRef(sid)
 				e.syncNativeSessionBinding(ctx, id, speaker, sid)
 				if t, err := e.store.GetTask(ctx, id); err == nil {
 					e.bus.PublishTask(t)
@@ -2703,11 +2746,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			resultIsError = semantic.Result.IsError
 			if semantic.SessionRef != "" {
 				sid := semantic.SessionRef
-				e.mu.Lock()
-				if e.activeRuns[id] == exec.ID {
-					_ = e.store.UpdateTask(ctx, id, store.TaskPatch{SessionRef: &sid})
-				}
-				e.mu.Unlock()
+				recordSessionRef(sid)
 				e.syncNativeSessionBinding(ctx, id, speaker, sid)
 			}
 		}

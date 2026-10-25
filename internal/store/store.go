@@ -72,22 +72,28 @@ func (s *Store) DB() *sql.DB { return s.db }
 
 // Task is a row in the tasks table.
 type Task struct {
-	ID             string   `json:"id"`
-	Title          string   `json:"title"`
-	Agent          string   `json:"agent"`
-	Cwd            string   `json:"cwd"`
-	Prompt         string   `json:"prompt"`
-	Model          *string  `json:"model,omitempty"`
-	SessionRef     *string  `json:"session_ref,omitempty"`
-	PermissionMode string   `json:"permission_mode,omitempty"`
-	Status         string   `json:"status"`
-	ExitCode       *int     `json:"exit_code,omitempty"`
-	TokensIn       int      `json:"tokens_in"`
-	TokensOut      int      `json:"tokens_out"`
-	CostUSD        *float64 `json:"cost_usd,omitempty"`
-	CreatedAt      int64    `json:"created_at"`
-	StartedAt      *int64   `json:"started_at,omitempty"`
-	FinishedAt     *int64   `json:"finished_at,omitempty"`
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	Agent      string  `json:"agent"`
+	Cwd        string  `json:"cwd"`
+	Prompt     string  `json:"prompt"`
+	Model      *string `json:"model,omitempty"`
+	SessionRef *string `json:"session_ref,omitempty"`
+	// SessionRefDeviceID names the machine whose agent produced SessionRef. A
+	// native session id is only resumable on the machine that made it, so a ref
+	// without its provenance is a ref the resume path cannot check — see
+	// ensureSessionRefProvenanceSchema and ADR 0022 D6. Empty means the row
+	// predates the column, which is read as local.
+	SessionRefDeviceID *string  `json:"session_ref_device_id,omitempty"`
+	PermissionMode     string   `json:"permission_mode,omitempty"`
+	Status             string   `json:"status"`
+	ExitCode           *int     `json:"exit_code,omitempty"`
+	TokensIn           int      `json:"tokens_in"`
+	TokensOut          int      `json:"tokens_out"`
+	CostUSD            *float64 `json:"cost_usd,omitempty"`
+	CreatedAt          int64    `json:"created_at"`
+	StartedAt          *int64   `json:"started_at,omitempty"`
+	FinishedAt         *int64   `json:"finished_at,omitempty"`
 
 	// Workspace isolation (ADR 0005). Cwd remains user-selected project path.
 	WorkspaceMode       string `json:"workspace_mode"`
@@ -313,7 +319,7 @@ func scanTask(scanner interface {
 	Scan(dest ...any) error
 }) (Task, error) {
 	var t Task
-	var model, sessionRef sql.NullString
+	var model, sessionRef, sessionRefDevice sql.NullString
 	var exitCode sql.NullInt64
 	var costUSD sql.NullFloat64
 	var startedAt, finishedAt sql.NullInt64
@@ -330,7 +336,7 @@ func scanTask(scanner interface {
 	var ownerUserID sql.NullString
 	if err := scanner.Scan(
 		&t.ID, &t.Title, &t.Agent, &t.Cwd, &t.Prompt,
-		&model, &sessionRef, &permissionMode, &t.Status,
+		&model, &sessionRef, &sessionRefDevice, &permissionMode, &t.Status,
 		&exitCode, &t.TokensIn, &t.TokensOut, &costUSD,
 		&t.CreatedAt, &startedAt, &finishedAt,
 		&workspaceMode, &sourceRoot, &workspaceRoot, &executionCwd,
@@ -397,6 +403,9 @@ func scanTask(scanner interface {
 	if sessionRef.Valid {
 		t.SessionRef = &sessionRef.String
 	}
+	if sessionRefDevice.Valid {
+		t.SessionRefDeviceID = &sessionRefDevice.String
+	}
 	if exitCode.Valid {
 		v := int(exitCode.Int64)
 		t.ExitCode = &v
@@ -419,7 +428,7 @@ func scanTask(scanner interface {
 	return t, nil
 }
 
-const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id`
+const taskColumns = `id, title, agent, cwd, prompt, model, session_ref, session_ref_device_id, permission_mode, status, exit_code, tokens_in, tokens_out, cost_usd, created_at, started_at, finished_at, workspace_mode, workspace_source_root, workspace_root, execution_cwd, workspace_scope, workspace_base_oid, workspace_branch, workspace_repo, project_id, routine_id, routine_noteworthy, routine_tldr, routine_unread, workspace_policy, current_workspace_id, event_epoch, dispatch, executing_device_id, workspace_anchor_id, hub_seq, owner_user_id`
 
 // escapeLike escapes \, %, and _ so user input is treated as a literal substring.
 func escapeLike(s string) string {
@@ -772,12 +781,18 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 
 // InsertTask inserts a new task row. Status should be "queued".
 func (s *Store) InsertTask(ctx context.Context, t Task) error {
-	var model, sessionRef any
+	var model, sessionRef, sessionRefDevice any
 	if t.Model != nil {
 		model = *t.Model
 	}
 	if t.SessionRef != nil {
 		sessionRef = *t.SessionRef
+	}
+	// Written together with the ref, never apart: a ref whose provenance is
+	// missing reads as "local", which is a claim about a machine and not
+	// something to leave to a caller's memory.
+	if t.SessionRefDeviceID != nil {
+		sessionRefDevice = *t.SessionRefDeviceID
 	}
 	perm := t.PermissionMode
 	if perm == "" {
@@ -836,7 +851,7 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO tasks (
-			id, title, agent, cwd, prompt, model, session_ref, permission_mode, status,
+			id, title, agent, cwd, prompt, model, session_ref, session_ref_device_id, permission_mode, status,
 			exit_code, tokens_in, tokens_out, cost_usd,
 			created_at, started_at, finished_at,
 			workspace_mode, workspace_source_root, workspace_root, execution_cwd,
@@ -844,9 +859,9 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 			routine_id, routine_noteworthy, routine_tldr, routine_unread,
 				workspace_policy, current_workspace_id, event_epoch, dispatch,
 			executing_device_id, workspace_anchor_id, hub_seq, owner_user_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
-		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, perm, t.Status,
+		t.ID, t.Title, t.Agent, t.Cwd, t.Prompt, model, sessionRef, sessionRefDevice, perm, t.Status,
 		t.ExitCode, t.TokensIn, t.TokensOut, t.CostUSD,
 		t.CreatedAt, t.StartedAt, t.FinishedAt,
 		wsMode, t.WorkspaceSourceRoot, t.WorkspaceRoot, t.ExecutionCwd,
@@ -874,28 +889,32 @@ func dispatchJSON(d json.RawMessage) any {
 
 // TaskPatch is a partial update applied by the engine.
 type TaskPatch struct {
-	Status            *string
-	Title             *string
-	Agent             *string
-	SessionRef        *string
-	ClearSessionRef   bool // sets session_ref NULL (handoff across agents)
-	Prompt            *string
-	Model             *string // set task model for subsequent turns
-	ClearModel        bool    // sets model NULL
-	PermissionMode    *string
-	ExitCode          *int
-	ClearExitCode     bool
-	TokensIn          *int
-	TokensOut         *int
-	CostUSD           *float64
-	StartedAt         *int64
-	FinishedAt        *int64
-	ClearFinishedAt   bool
-	ProjectID         *string // set or clear (empty string clears)
-	RoutineID         *string // set or clear (empty string clears)
-	RoutineNoteworthy *bool
-	RoutineTLDR       *string
-	RoutineUnread     *bool
+	Status     *string
+	Title      *string
+	Agent      *string
+	SessionRef *string
+	// SessionRefDeviceID is written in the same patch as SessionRef. Setting it
+	// alone describes a machine for a ref that is not there, which is why
+	// ClearSessionRef clears both.
+	SessionRefDeviceID *string
+	ClearSessionRef    bool // sets session_ref and its provenance NULL (handoff across agents or devices)
+	Prompt             *string
+	Model              *string // set task model for subsequent turns
+	ClearModel         bool    // sets model NULL
+	PermissionMode     *string
+	ExitCode           *int
+	ClearExitCode      bool
+	TokensIn           *int
+	TokensOut          *int
+	CostUSD            *float64
+	StartedAt          *int64
+	FinishedAt         *int64
+	ClearFinishedAt    bool
+	ProjectID          *string // set or clear (empty string clears)
+	RoutineID          *string // set or clear (empty string clears)
+	RoutineNoteworthy  *bool
+	RoutineTLDR        *string
+	RoutineUnread      *bool
 	// ExecutingDeviceID moves the task to another machine. Empty means this
 	// daemon; a task cannot be moved while a turn is in flight.
 	ExecutingDeviceID *string
@@ -941,10 +960,27 @@ func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseSt
 		args = append(args, *p.Agent)
 	}
 	if p.ClearSessionRef {
-		sets = append(sets, "session_ref = NULL")
+		// Both together. A row with a provenance and no ref reads as "the ref is
+		// still over on that machine", which is a worse answer than "there is no
+		// ref" -- the resume path would go looking for one.
+		sets = append(sets, "session_ref = NULL", "session_ref_device_id = NULL")
 	} else if p.SessionRef != nil {
-		sets = append(sets, "session_ref = ?")
+		// The provenance is written on every ref replacement, including when the
+		// caller has none to give. Leaving the old one in place would attach the
+		// previous machine's name to a ref it never produced, which is worse than
+		// having no provenance at all: "unknown" reads as local, "another
+		// machine" sends the resume path down the handoff branch.
+		sets = append(sets, "session_ref = ?", "session_ref_device_id = ?")
 		args = append(args, *p.SessionRef)
+		if p.SessionRefDeviceID != nil {
+			args = append(args, *p.SessionRefDeviceID)
+		} else {
+			args = append(args, nil)
+		}
+	} else if p.SessionRefDeviceID != nil {
+		// A ref that is already stored, with its provenance now known.
+		sets = append(sets, "session_ref_device_id = ?")
+		args = append(args, *p.SessionRefDeviceID)
 	}
 	if p.Prompt != nil {
 		sets = append(sets, "prompt = ?")

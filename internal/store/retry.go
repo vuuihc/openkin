@@ -396,7 +396,8 @@ func applyRetryMutationTx(
 	res, err := tx.ExecContext(ctx, `
 		UPDATE tasks
 		SET event_epoch = event_epoch + 1, status = 'queued', prompt = ?,
-		    exit_code = NULL, finished_at = NULL, session_ref = NULL
+		    exit_code = NULL, finished_at = NULL,
+		    session_ref = NULL, session_ref_device_id = NULL
 		WHERE id = ? AND event_epoch = ? AND `+predicate, args...)
 	if err != nil {
 		return RetryMutationResult{}, err

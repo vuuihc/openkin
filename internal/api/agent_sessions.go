@@ -364,11 +364,17 @@ func (s *Server) handleAttachAgentSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 	req := task.CreateRequest{
-		Agent:          row.AgentID,
-		Cwd:            cwd,
-		Prompt:         prompt,
-		SessionRef:     row.ExternalRef,
-		PermissionMode: body.PermissionMode,
+		Agent:      row.AgentID,
+		Cwd:        cwd,
+		Prompt:     prompt,
+		SessionRef: row.ExternalRef,
+		// The device the session was recorded on, which is not necessarily this
+		// one: the row is fetched by id with no device filter, so a session
+		// imported from another machine can be attached to a task that runs
+		// here. Carrying it lets the resume path notice that this daemon's
+		// adapters cannot resolve the ref, instead of handing it over blind.
+		SessionRefDeviceID: row.DeviceID,
+		PermissionMode:     body.PermissionMode,
 	}
 	if title := strings.TrimSpace(body.Title); title != "" {
 		req.Title = &title
@@ -433,9 +439,19 @@ func (s *Server) handleAttachToExistingTask(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ref := row.ExternalRef
-	if err := s.Store.UpdateTask(r.Context(), current.ID, store.TaskPatch{SessionRef: &ref}); err != nil {
+	// The ref and the machine that can resolve it move together, in the write and
+	// in both restores below: a restore that put the ref back without its
+	// provenance would relabel another machine's session as this one's, which is
+	// the state the resume path now checks for.
+	attached := store.TaskPatch{SessionRef: &ref, SessionRefDeviceID: &row.DeviceID}
+	if err := s.Store.UpdateTask(r.Context(), current.ID, attached); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	previous := store.TaskPatch{ClearSessionRef: true}
+	if current.SessionRef != nil {
+		prior := strings.TrimSpace(*current.SessionRef)
+		previous = store.TaskPatch{SessionRef: &prior, SessionRefDeviceID: current.SessionRefDeviceID}
 	}
 	binding, err := s.Store.InsertTaskAgentSession(r.Context(), store.TaskAgentSession{
 		TaskID:         current.ID,
@@ -444,37 +460,28 @@ func (s *Server) handleAttachToExistingTask(w http.ResponseWriter, r *http.Reque
 		State:          "attached",
 	})
 	if err != nil {
-		restore := store.TaskPatch{ClearSessionRef: true}
-		if current.SessionRef != nil {
-			previous := strings.TrimSpace(*current.SessionRef)
-			restore = store.TaskPatch{SessionRef: &previous}
-		}
-		_ = s.Store.UpdateTask(r.Context(), current.ID, restore)
+		_ = s.Store.UpdateTask(r.Context(), current.ID, previous)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "session binding failed"})
 		return
 	}
-	attached, err := s.Engine.Get(r.Context(), current.ID)
+	attachedTask, err := s.Engine.Get(r.Context(), current.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	if strings.TrimSpace(body.Prompt) != "" {
-		attached, err = s.Engine.FollowUpWith(r.Context(), attached.ID, task.FollowUpRequest{
+		attachedTask, err = s.Engine.FollowUpWith(r.Context(), attachedTask.ID, task.FollowUpRequest{
 			Prompt: strings.TrimSpace(body.Prompt),
 		})
 		if err != nil {
 			_ = s.Store.DetachTaskAgentSessions(r.Context(), current.ID, "attach follow-up failed")
-			restore := store.TaskPatch{ClearSessionRef: true}
-			if current.SessionRef != nil {
-				previous := strings.TrimSpace(*current.SessionRef)
-				restore = store.TaskPatch{SessionRef: &previous}
-			}
-			_ = s.Store.UpdateTask(r.Context(), current.ID, restore)
+			_ = s.Store.UpdateTask(r.Context(), current.ID, previous)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
+
 		}
 	}
-	writeJSON(w, http.StatusOK, agentSessionAttachResponse{Task: attached, Binding: binding})
+	writeJSON(w, http.StatusOK, agentSessionAttachResponse{Task: attachedTask, Binding: binding})
 }
 
 func (s *Server) activeTaskAgentSession(ctx context.Context, taskID, agentSessionID string) (store.TaskAgentSession, error) {
