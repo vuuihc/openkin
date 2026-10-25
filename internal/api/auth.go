@@ -391,6 +391,8 @@ func authErrorMessage(err error) string {
 		return err.Error()
 	case errors.Is(err, auth.ErrIdentityTaken):
 		return "that login is already linked to another account"
+	case errors.Is(err, auth.ErrEmailTaken):
+		return "that email already has an account here; sign in instead"
 	default:
 		return "sign-in failed"
 	}
@@ -413,6 +415,8 @@ func authErrorCode(err error) string {
 		return "weak_password"
 	case errors.Is(err, auth.ErrIdentityTaken):
 		return "identity_taken"
+	case errors.Is(err, auth.ErrEmailTaken):
+		return "email_taken"
 	default:
 		return "sign_in_failed"
 	}
@@ -467,8 +471,13 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
-// clientIPOf returns the request's peer address. middleware.RealIP has already
-// folded X-Forwarded-For into RemoteAddr by the time handlers run.
+// clientIPOf returns the address to record as this session's origin.
+//
+// It goes through remote.ClientIP rather than reading RemoteAddr, because
+// middleware.RealIP has folded X-Forwarded-For into RemoteAddr by the time
+// handlers run -- so reading it directly would write whatever address the caller
+// asked to be recorded as into the session row. The same helper backs the auth
+// attempt limiter; there is one answer to "who is asking" and this is it.
 func clientIPOf(r *http.Request) string {
-	return r.RemoteAddr
+	return remote.ClientIP(r)
 }

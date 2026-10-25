@@ -349,6 +349,30 @@ func (s *Store) IssueInviteToken(ctx context.Context, tokenHash string, now, exp
 	return nil
 }
 
+// InviteTokenActive reports whether one invitation is still redeemable, without
+// spending it.
+//
+// It exists so a caller can refuse a code that cannot work before asking
+// anything else. A join that checked the address first would answer differently
+// for a registered and an unregistered address, which on an unauthenticated
+// route is a way to ask which addresses have accounts here: one query per guess,
+// no invitation required. Answering the code first means a caller who cannot
+// present a live one never reaches the question.
+//
+// The read is deliberately not the authority on spending. ConsumeInviteToken
+// stays the single place that decides, so a code spent between this read and
+// that write is refused exactly as an unknown one is.
+func (s *Store) InviteTokenActive(ctx context.Context, tokenHash string, now int64) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM invite_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`,
+		tokenHash, now).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("count invite tokens: %w", err)
+	}
+	return n > 0, nil
+}
+
 // ConsumeInviteToken atomically spends an invitation. It returns ErrNotFound
 // for unknown, expired, or already-used tokens so callers cannot distinguish
 // them.

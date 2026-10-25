@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,6 +46,15 @@ type authClient struct {
 }
 
 func (c *authClient) do(method, path, body string) *httptest.ResponseRecorder {
+	return c.from("", method, path, body)
+}
+
+// from is do with the peer address chosen by the test. Two clients on one Hub
+// are modelled by giving the second a different address, because the auth
+// attempt limit keys on it -- and a test that needs both callers to arrive from
+// *one* address, which is what a Hub behind a tunnel that does not preserve the
+// peer sees, deliberately leaves it alone.
+func (c *authClient) from(peer, method, path, body string) *httptest.ResponseRecorder {
 	c.t.Helper()
 	var reader *bytes.Reader
 	if body == "" {
@@ -54,6 +64,9 @@ func (c *authClient) do(method, path, body string) *httptest.ResponseRecorder {
 	}
 	req := httptest.NewRequest(method, path, reader)
 	req.Header.Set("Content-Type", "application/json")
+	if peer != "" {
+		req.RemoteAddr = peer
+	}
 	if c.cookie != nil {
 		req.AddCookie(c.cookie)
 	}
@@ -848,5 +861,54 @@ func TestAMemberCannotReadTheMachinesOwnRecords(t *testing.T) {
 		if rec := device.get(path); rec.Code == http.StatusForbidden {
 			t.Fatalf("a paired device was refused %s: %d %s", path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// authErrorCode is the half clients translate; authErrorMessage is the fallback
+// for a client that does not recognize the code. They are two separate switches,
+// and nothing makes them move together -- which is how email_taken came to have a
+// code and no message. The console reads the code, so the gap was invisible
+// until a client that only shows messages hit it.
+//
+// The uniqueness half is the part that earns its keep: collapsing two codes onto
+// one message is the same failure as omitting the message, because the message is
+// the only thing such a client has to go on.
+func TestEveryAuthErrorHasItsOwnCodeAndMessage(t *testing.T) {
+	cases := []struct {
+		err  error
+		code string
+	}{
+		{auth.ErrInvalidCredentials, "invalid_credentials"},
+		{auth.ErrBootstrapUnavailable, "claim_code_invalid"},
+		{auth.ErrInviteUnavailable, "invite_invalid"},
+		{auth.ErrRegistrationClosed, "registration_closed"},
+		{auth.ErrWeakPassword, "weak_password"},
+		{auth.ErrIdentityTaken, "identity_taken"},
+		{auth.ErrEmailTaken, "email_taken"},
+	}
+	genericMessage := authErrorMessage(errors.New("something nothing maps"))
+	byMessage := make(map[string]string, len(cases))
+	for _, tc := range cases {
+		if got := authErrorCode(tc.err); got != tc.code {
+			t.Errorf("authErrorCode(%v) = %q, want %q", tc.err, got, tc.code)
+		}
+		msg := authErrorMessage(tc.err)
+		if msg == "" || msg == genericMessage {
+			t.Errorf("authErrorMessage(%v) = %q, which is the generic fallback; the code has no message of its own", tc.err, msg)
+			continue
+		}
+		if other, dup := byMessage[msg]; dup {
+			t.Errorf("%v and %v both answer %q; a client that only shows messages cannot tell them apart", other, tc.err, msg)
+		}
+		byMessage[msg] = tc.err.Error()
+	}
+
+	// Anything unrecognized has to collapse rather than leak detail.
+	unknown := errors.New("internal detail a caller must not read")
+	if got := authErrorCode(unknown); got != "sign_in_failed" {
+		t.Errorf("authErrorCode(unknown) = %q, want sign_in_failed", got)
+	}
+	if body := authError(unknown); body["error"] != genericMessage {
+		t.Errorf("authError(unknown) message = %q, want %q", body["error"], genericMessage)
 	}
 }

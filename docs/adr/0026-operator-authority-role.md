@@ -94,3 +94,8 @@ second account existing.
 middleware rather than a change to this rule. ADR 0027 records why spending a
 node's GitHub query quota is not administering it, and why a paired device may
 do the first and still not the second.
+
+*2026-10-26:* the condition this ADR was written for has arrived. ADR 0028 adds
+the invitation route that creates a member account, which retires the closing
+note above — the role column has two values in practice now, and the guard is
+exercised by an account that was made the way the product makes one.

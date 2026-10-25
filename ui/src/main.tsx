@@ -3,9 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { bootstrapTokenFromURL, getToken } from "./api/client";
-import { refreshAccount } from "./api/account";
-import { gateFor } from "./lib/accountGate";
-import { useAppStore } from "./store/appStore";
+import { applyVisitGate, refreshAccount } from "./api/account";
 import { initTheme } from "./lib/theme";
 import "./index.css";
 
@@ -25,12 +23,8 @@ if (!root) {
  * flash by, and a standalone daemon never sees a login form it cannot serve.
  */
 void Promise.all([bootstrapTokenFromURL(), refreshAccount()]).then(() => {
-  const store = useAppStore.getState();
   // A device token still works on a Hub, so it wins when one is present.
-  if (store.account.enabled && !store.account.authenticated && !getToken()) {
-    const gate = gateFor(store.account);
-    store.requireAccount(gate === "claim" ? "claim" : "login");
-  }
+  if (!getToken()) applyVisitGate();
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>

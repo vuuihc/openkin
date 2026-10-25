@@ -1,5 +1,5 @@
 import { apiFetch, ApiError } from "./client";
-import type { AuthErrorCode } from "../lib/accountGate";
+import { gateForVisit, type AuthErrorCode } from "../lib/accountGate";
 import {
   NO_ACCOUNT,
   useAppStore,
@@ -74,6 +74,36 @@ export async function refreshAccount(): Promise<AccountState> {
   return state;
 }
 
+/**
+ * Decide which gate this visit faces and put it in the store.
+ *
+ * Both entry points call this rather than assembling the answer themselves:
+ * `main.tsx` before the first render, `App.tsx` on mount. They have to agree,
+ * because the second answer overwrites the first -- and assembling the inputs
+ * separately is exactly how an invitation link turned into a sign-in screen.
+ * One caller read the Hub's state and the address bar, the other read only the
+ * Hub, so the URL-blind answer won.
+ */
+export function applyVisitGate(): void {
+  const { account, requireAccount } = useAppStore.getState();
+  if (!account.enabled) return;
+  if (account.authenticated) {
+    // Somebody who is already signed in has nothing to do with an invitation,
+    // and an unspent one is a live credential for the next seven days. Left in
+    // the address bar it is also left in the history and in whatever gets
+    // bookmarked from this page, so it goes. Only `invite`: a token or a
+    // pairing code in the URL may be the reason this visit is authenticated.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("invite")) {
+      url.searchParams.delete("invite");
+      window.history.replaceState({}, "", url.toString());
+    }
+    return;
+  }
+  const gate = gateForVisit(account, window.location.search);
+  if (gate !== "token") requireAccount(gate);
+}
+
 export async function signIn(email: string, password: string): Promise<void> {
   try {
     await apiFetch("/api/auth/login", {
@@ -86,14 +116,21 @@ export async function signIn(email: string, password: string): Promise<void> {
   }
 }
 
-export async function claimOwner(input: {
-  code: string;
-  email: string;
-  password: string;
-  displayName: string;
-}): Promise<void> {
+/**
+ * Create an account from a code.
+ *
+ * Both enrolled routes take the same body and differ only in which kind of code
+ * is in it: bootstrap makes the Hub's owner, join makes a member. They share
+ * one function because a divergence between them would be a divergence in what
+ * an account is -- and the role, which is the part that matters, is decided by
+ * the route and never sent from here.
+ */
+async function enrol(
+  path: string,
+  input: { code: string; email: string; password: string; displayName: string },
+): Promise<void> {
   try {
-    await apiFetch("/api/auth/bootstrap", {
+    await apiFetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -106,6 +143,24 @@ export async function claimOwner(input: {
   } catch (err) {
     throw toAuthError(err);
   }
+}
+
+export function claimOwner(input: {
+  code: string;
+  email: string;
+  password: string;
+  displayName: string;
+}): Promise<void> {
+  return enrol("/api/auth/bootstrap", input);
+}
+
+export function joinHub(input: {
+  code: string;
+  email: string;
+  password: string;
+  displayName: string;
+}): Promise<void> {
+  return enrol("/api/auth/join", input);
 }
 
 export async function signOut(): Promise<void> {

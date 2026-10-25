@@ -211,10 +211,12 @@ type CloudflareRelayStatus struct {
 	LastError     string `json:"cloudflare.relay_last_error,omitempty"`
 }
 
-// peerAddrKey stores the TCP peer before RealIP rewrites RemoteAddr.
-// Internal approval routes must authorize the real connection, not X-Forwarded-For.
-type peerAddrKey struct{}
-
+// The TCP peer is captured before RealIP rewrites RemoteAddr. It is recorded
+// through remote.WithPeerAddr rather than a key of this package's own because
+// two callers need it -- /internal/* authorizes the real connection, and the
+// auth attempt limiter keys on it -- and a second copy of the key would be a
+// second thing to keep in step.
+//
 // Handler returns the root chi router.
 func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
@@ -246,11 +248,12 @@ func (s *Server) Handler() http.Handler {
 		})
 	}
 	r.Use(middleware.RequestID)
-	// Capture true peer before RealIP so /internal/* can enforce loopback safely.
+	// Capture the true peer before RealIP so anything that keys on the caller --
+	// loopback enforcement under /internal/*, and the auth attempt limiter --
+	// reads the connection rather than a header. See remote.WithPeerAddr.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			ctx := req.Context()
-			ctx = context.WithValue(ctx, peerAddrKey{}, req.RemoteAddr)
+			ctx := remote.WithPeerAddr(req.Context(), req.RemoteAddr)
 			next.ServeHTTP(w, req.WithContext(ctx))
 		})
 	})
@@ -515,7 +518,7 @@ func loopbackOnly(next http.Handler) http.Handler {
 		// Prefer the TCP peer captured before RealIP (X-Forwarded-For must not
 		// unlock or block the local MCP approve bridge).
 		addr := r.RemoteAddr
-		if v, ok := r.Context().Value(peerAddrKey{}).(string); ok && v != "" {
+		if v := remote.PeerAddr(r.Context()); v != "" {
 			addr = v
 		}
 		if !isLoopbackRemote(addr) {

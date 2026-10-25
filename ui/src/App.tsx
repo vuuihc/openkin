@@ -24,7 +24,7 @@ import RoutinesPage from "./pages/RoutinesPage";
 import AgentSessionDetailPage from "./pages/AgentSessionDetailPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AccountScreen from "./components/AccountScreen";
-import { gateFor } from "./lib/accountGate";
+import { applyVisitGate } from "./api/account";
 import { dispatchWS, useAppStore, type AuthState } from "./store/appStore";
 import { clearSessionViewed } from "./lib/sessionViewed";
 
@@ -52,8 +52,10 @@ export default function App() {
       // gate when the daemon has no account system to offer instead.
       const account = useAppStore.getState().account;
       if (account.enabled && !account.authenticated) {
-        const gate = gateFor(account);
-        useAppStore.getState().requireAccount(gate === "claim" ? "claim" : "login");
+        // The same call main.tsx makes before the first render. It is made
+        // twice because this effect also runs on paths that did not come
+        // through there, and both answers have to be the same one.
+        applyVisitGate();
         return;
       }
       if (!account.enabled) {

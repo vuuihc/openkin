@@ -34,8 +34,16 @@ dev:
 test:
 	go test ./...
 	go vet ./...
+	$(MAKE) devhub-build
 	cd ui && npm ci && npm run check:api && npx tsc --noEmit && npm test
 	cd relay && npm test && npm run build
+
+# The browser-check fixture (docs/plans/2026-10-26-p5-hosted.md §7.1) lives in
+# _devhub, which the leading underscore hides from `go build ./...` and
+# `go vet ./...` on purpose -- it is not product code. Compiling it here is what
+# keeps it from rotting into something a later slice cannot run.
+devhub-build:
+	go build -o /dev/null ./_devhub
 
 # Offline durable-log gate: seq gaps / empty transcripts / approval attribution.
 # Default DB: ~/.kin/kin.db  (override: make stream-health KIN_DB=/path)

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/auth"
+	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -275,27 +277,201 @@ func TestJoiningIsRateLimited(t *testing.T) {
 	// machine; note that callers sharing an address (behind a proxy that sets no
 	// forwarding header) share one budget, which is the same failure by another
 	// route and is why RealIP has to be configured for a Hub behind a tunnel.
-	if rec := postFrom(t, s.Handler(), owner, "198.51.100.7:5000", "/api/auth/invite", ""); rec.Code != http.StatusOK {
+	if rec := owner.from("198.51.100.7:5000", http.MethodPost, "/api/auth/invite", ""); rec.Code != http.StatusOK {
 		t.Fatalf("a stranger's failed joins denied the owner their own machine: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-// postFrom sends an authenticated POST while claiming to come from a given
-// peer, so a test can be two clients rather than one.
-func postFrom(t *testing.T, h http.Handler, c *authClient, peer, path, body string) *httptest.ResponseRecorder {
+// The attempt limit keys on an address, and the address is not necessarily the
+// caller's: a Hub behind a tunnel that does not preserve the peer sees every
+// visitor as a single one. So the limit must not be able to spend somebody
+// else's access. A caller presenting a valid credential is not guessing, and
+// this pins that a flood of failures cannot turn their own session, or the
+// machine's master token, into a 429 on a route they are entitled to.
+//
+// It is the companion to the test above: that one says the budget belongs to the
+// caller, this one says an address that has spent its budget still cannot spend
+// a credential it does not own.
+func TestAStrangersFailedGuessesDoNotDenyAValidCredential(t *testing.T) {
+	s, master, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+
+	// Both callers arrive from one address from here on.
+	const shared = "198.51.100.7:5000"
+	h := s.Handler()
+	blocked := false
+	for i := 0; i < 40 && !blocked; i++ {
+		blocked = postJoinFrom(t, h, shared, "").Code == http.StatusTooManyRequests
+	}
+	if !blocked {
+		t.Fatal("40 failed joins from one address were all answered; the limit is not applied to this peer at all")
+	}
+	// From here every request shares the address that has just been blocked, which
+	// is the situation being tested.
+	if rec := postJoinFrom(t, h, shared, ""); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("a blocked address was served: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := owner.from(shared, http.MethodGet, "/api/tasks", ""); rec.Code != http.StatusOK {
+		t.Fatalf("the owner's session got %d from the blocked address, want 200: %s", rec.Code, rec.Body.String())
+	}
+	machine := &authClient{t: t, h: h, master: master}
+	if rec := machine.from(shared, http.MethodGet, "/api/tasks", ""); rec.Code != http.StatusOK {
+		t.Fatalf("the master token got %d from the blocked address, want 200: %s", rec.Code, rec.Body.String())
+	}
+	// And the block is still real: an unauthenticated caller from that address is
+	// refused rather than merely unauthorized, so the limit was not traded away
+	// for the two assertions above.
+	if rec := (&authClient{t: t, h: h}).from(shared, http.MethodGet, "/api/tasks", ""); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("an unauthenticated caller from a blocked address got %d, want 429: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The join route is reachable by anyone, so it must not answer questions about
+// which addresses have accounts here.
+//
+// The check that improves the message for a fixable mistake -- "that email
+// already has an account, sign in instead" -- necessarily answers differently
+// for a registered and an unregistered address. Answered before the code is
+// looked at, that difference is an oracle: a stranger holding no invitation at
+// all reads off the Hub's account list one guess at a time, and the list is who
+// to target for password guessing.
+//
+// Both halves are asserted together. A "fix" that stopped saying email_taken to
+// anyone would pass the equality alone while destroying the property the message
+// exists for, which is that an invited person who already has an account is not
+// left burning one replacement link after another.
+func TestJoinDoesNotAnswerWhetherAnAddressHasAnAccount(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+	joinedMember(t, s, invite(t, owner), "joiner@example.com")
+
+	anonymous := &authClient{t: t, h: s.Handler()}
+	refusals := make(map[string]string)
+	for _, email := range []string{"joiner@example.com", "nobody@example.com"} {
+		rec := anonymous.post("/api/auth/join",
+			`{"code":"AAAAA-BBBBB-CCCCC-DDDDD","email":"`+email+`","password":"hunter2hunter2"}`)
+		var body struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("join refusal is not JSON: %v (%s)", err, rec.Body.String())
+		}
+		refusals[email] = body.Code
+	}
+	if refusals["joiner@example.com"] != "invite_invalid" {
+		t.Fatalf("an invented invitation answers %q for a registered address, want invite_invalid (%s)",
+			refusals["joiner@example.com"], refusals["joiner@example.com"])
+	}
+	if refusals["joiner@example.com"] != refusals["nobody@example.com"] {
+		t.Fatalf("an invented invitation answers %q for a registered address and %q for an unregistered one; "+
+			"the route tells an anonymous caller which addresses have accounts here",
+			refusals["joiner@example.com"], refusals["nobody@example.com"])
+	}
+	// And a live invitation still gets the message that names the problem, so the
+	// refusal above is about the code rather than about the message having been
+	// deleted everywhere.
+	live := &authClient{t: t, h: s.Handler()}
+	rec := live.post("/api/auth/join",
+		`{"code":"`+invite(t, owner)+`","email":"joiner@example.com","password":"hunter2hunter2"}`)
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("join refusal is not JSON: %v (%s)", err, rec.Body.String())
+	}
+	if body.Code != "email_taken" {
+		t.Fatalf("a live invitation for an address that already has an account answers %q, want email_taken (%s)",
+			body.Code, rec.Body.String())
+	}
+}
+
+// postJoinFrom sends an anonymous join from a given peer, optionally claiming to
+// be forwarded on behalf of somebody else.
+func postJoinFrom(t *testing.T, h http.Handler, peer, forwardedFor string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/join", bytes.NewReader([]byte(
+		`{"code":"AAAAA-BBBBB-CCCCC-DDDDD","email":"joiner@example.com","password":"hunter2hunter2"}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = peer
-	if c.cookie != nil {
-		req.AddCookie(c.cookie)
-	}
-	if c.master != "" {
-		req.Header.Set("Authorization", "Bearer "+c.master)
+	if forwardedFor != "" {
+		req.Header.Set("X-Forwarded-For", forwardedFor)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// The auth attempt limiter has to key on the connection, not on a header.
+//
+// The test above models a second client by giving the request a second peer
+// address, which is only a model of "two clients" if a real client cannot pick
+// its own address -- and middleware.RealIP rewrites RemoteAddr from
+// X-Forwarded-For, which any caller can set. Without the peer captured ahead of
+// it, one attacker gets unlimited guesses by varying the header, and the cap the
+// test above asserts is decoration.
+func TestAForwardedForHeaderDoesNotBuyAFreshBudget(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+
+	h := s.Handler()
+	limited := false
+	for i := 0; i < 40 && !limited; i++ {
+		rec := postJoinFrom(t, h, "198.51.100.7:5000", fmt.Sprintf("203.0.113.%d", i))
+		switch rec.Code {
+		case http.StatusTooManyRequests:
+			limited = true
+		case http.StatusBadRequest:
+			// Still guessing. Keep going.
+		default:
+			t.Fatalf("unexpected status from a wrong code: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	if !limited {
+		t.Fatal("a forged X-Forwarded-For bought a fresh budget every request; the limit keys on a caller-supplied value")
+	}
+}
+
+// The session row records where the sign-in came from, and that column is audit
+// data: it has to say where the connection was, not where the caller said it
+// was. The same helper backs the limiter, so this is the other half of the test
+// above -- a limiter keyed on the connection with an audit column keyed on the
+// header would be the fix applied to one of the two readers.
+func TestASessionRecordsThePeerNotAForwardedHeader(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/join", bytes.NewReader([]byte(
+		`{"code":"`+invite(t, owner)+`","email":"joiner@example.com","password":"hunter2hunter2"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", "203.0.113.9")
+	req.RemoteAddr = "198.51.100.7:5000"
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("join: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var token string
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == remote.SessionCookieName {
+			token = c.Value
+		}
+	}
+	if token == "" {
+		t.Fatal("joining did not open a session")
+	}
+	session, _, err := s.Store.AuthenticateSession(t.Context(), remote.HashToken(token), store.NowMilli())
+	if err != nil {
+		t.Fatalf("read the session back: %v", err)
+	}
+	if session.IP != "198.51.100.7" {
+		t.Fatalf("session recorded IP %q, want the peer 198.51.100.7; a forwarded header must not choose the audit column",
+			session.IP)
+	}
 }
 
 // An invitation is issued by an owner, so a Hub that has none cannot have one.
@@ -327,4 +503,51 @@ func TestAnInvitationCannotClaimAnUnownedHubOverHTTP(t *testing.T) {
 		t.Fatalf("issue bootstrap code: %v", err)
 	}
 	claimOwner(t, anonymous, fresh)
+}
+
+// An invitation is not spent by a join that could not have succeeded.
+//
+// The person this happens to is one who was invited twice, or who lost their
+// session and clicked the link again: they already have an account, so the join
+// cannot create one. Answering that by consuming the code first would turn a
+// fixable mistake into a dead link -- the retry says "not valid", so they cannot
+// tell a spent invitation from a wrong one, and every replacement the owner
+// sends dies the same way.
+func TestJoiningWithAnEmailThatAlreadyExistsKeepsTheInvitation(t *testing.T) {
+	s, _, code := newAuthTestServer(t)
+	owner := &authClient{t: t, h: s.Handler()}
+	claimOwner(t, owner, code)
+
+	joinedMember(t, s, invite(t, owner), "joiner@example.com")
+
+	second := invite(t, owner)
+	again := &authClient{t: t, h: s.Handler()}
+	rec := again.post("/api/auth/join",
+		`{"code":"`+second+`","email":"joiner@example.com","password":"hunter2hunter2","display_name":"Joiner"}`)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("a second account was created for an address that already had one: %s", rec.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("join refusal is not JSON: %v (%s)", err, rec.Body.String())
+	}
+	if body.Code != "email_taken" {
+		t.Fatalf("join with an existing email = %q, want email_taken (%s)", body.Code, rec.Body.String())
+	}
+
+	// The invitation has to still be spendable, by somebody else. This is the
+	// half that separates "the code survived" from "the code was burned and the
+	// message merely improved".
+	joinedMember(t, s, second, "somebody-else@example.com")
+
+	// And nothing extra was written along the way: owner, and two members.
+	n, err := s.Store.CountUsers(t.Context())
+	if err != nil {
+		t.Fatalf("count users: %v", err)
+	}
+	if n != 3 {
+		t.Fatalf("users after the retry = %d, want 3 (owner + two members)", n)
+	}
 }

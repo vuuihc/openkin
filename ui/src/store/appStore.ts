@@ -3,11 +3,20 @@ import type { WSMessage } from "../api/contract";
 import { closeOpenPanel, nextOpenPanel, type OpenPanel, type PanelId } from "../lib/panels";
 import type { LensPick, WorkspaceLens } from "../lib/workspaceLens";
 
+/**
+ * Which way in an unauthenticated visitor is offered.
+ *
+ * "claim" takes the code printed on a Hub that has no owner yet, "join" takes
+ * an invitation to a Hub somebody else owns, and "login" takes credentials for
+ * an account that already exists.
+ */
+export type AccountMode = "claim" | "join" | "login";
+
 /** Auth gate: session is usable until a 401 (or missing token) forces reconnect. */
 export type AuthState =
   | { status: "ok" }
   | { status: "need_token"; reason: "missing" | "unauthorized" }
-  | { status: "need_account"; mode: "claim" | "login" };
+  | { status: "need_account"; mode: AccountMode };
 
 /** One sign-in method offered by the Hub. Empty on a standalone daemon. */
 export type AccountProvider = {
@@ -104,7 +113,7 @@ type AppState = {
   pickWorkspaceLens: (taskId: string, view: string, lens: WorkspaceLens) => void;
   setAuthOk: () => void;
   requireToken: (reason: "missing" | "unauthorized") => void;
-  requireAccount: (mode: "claim" | "login") => void;
+  requireAccount: (mode: AccountMode) => void;
   setAccount: (account: AccountState) => void;
   setWSStatus: (s: WSStatus) => void;
   noteReconnect: () => void;

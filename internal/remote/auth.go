@@ -224,11 +224,6 @@ func (a *Auth) Token() string {
 // Middleware rejects unauthenticated requests with 401.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
-		if a.fail.blocked(ip) {
-			http.Error(w, `{"error":"too many auth failures"}`, http.StatusTooManyRequests)
-			return
-		}
 		principal, credential, ok := a.resolve(r)
 		if ok {
 			ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
@@ -236,13 +231,22 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		{
-			a.fail.record(ip)
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		// Resolve first, and check the block only for callers it refused. A
+		// caller presenting a valid credential is not guessing -- and the address
+		// being counted is one they need not own: behind a tunnel that does not
+		// preserve the peer, every visitor to the Hub shares a single one. Doing
+		// this the other way round lets one stranger's failed guesses lock the
+		// owner out of their own machine, which is the same failure as a global
+		// counter and arrives by a shorter route.
+		ip := ClientIP(r)
+		if a.fail.blocked(ip) {
+			http.Error(w, `{"error":"too many auth failures"}`, http.StatusTooManyRequests)
 			return
 		}
+		a.fail.record(ip)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("WWW-Authenticate", `Bearer realm="kin"`)
+		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 	})
 }
 
@@ -287,12 +291,12 @@ func (a *Auth) resolve(r *http.Request) (Principal, string, bool) {
 // Interactive endpoints (login, claim) use it so password guessing trips the
 // same per-IP window as token guessing.
 func (a *Auth) AllowAttempt(r *http.Request) bool {
-	return !a.fail.blocked(clientIP(r))
+	return !a.fail.blocked(ClientIP(r))
 }
 
 // NoteFailure records one failed attempt against the request's peer IP.
 func (a *Auth) NoteFailure(r *http.Request) {
-	a.fail.record(clientIP(r))
+	a.fail.record(ClientIP(r))
 }
 
 func extractToken(r *http.Request) string {
@@ -334,10 +338,50 @@ func HashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+// peerAddrKey stores the address of the connection a request actually arrived
+// on, before any middleware has rewritten RemoteAddr from a forwarding header.
+type peerAddrKey struct{}
+
+// WithPeerAddr records the TCP peer. The server installs this ahead of
+// middleware.RealIP, because RealIP rewrites RemoteAddr from X-Forwarded-For,
+// X-Real-IP or True-Client-IP -- all caller-supplied -- and anything that keys
+// on "who is asking" must not be a value the asker chooses.
+func WithPeerAddr(ctx context.Context, addr string) context.Context {
+	return context.WithValue(ctx, peerAddrKey{}, addr)
+}
+
+// PeerAddr returns the recorded TCP peer, or "" when nothing recorded one.
+func PeerAddr(ctx context.Context) string {
+	addr, _ := ctx.Value(peerAddrKey{}).(string)
+	return addr
+}
+
+// ClientIP is the address a per-caller decision is made about, and the one
+// recorded as a session's origin.
+//
+// It prefers the peer captured by WithPeerAddr over RemoteAddr, because
+// middleware.RealIP rewrites RemoteAddr from a header the caller chooses. The
+// cost is real and belongs in the open: a Hub behind a tunnel that does not
+// preserve the peer address sees every caller as one address, so they share one
+// budget. That is a trusted-proxy setting waiting to be written, not a reason to
+// trust the header -- trusting it is what makes the limit unenforceable, and the
+// limit guards password guessing as well as invitation guessing. The middleware
+// answers the obvious follow-up -- so one stranger can deny the owner their own
+// machine -- by resolving credentials before consulting the limiter, so a caller
+// holding a valid one is never counted against a shared budget.
+//
+// It is exported because there is exactly one answer to this question. A second
+// helper that read RemoteAddr directly, with a comment explaining that RealIP
+// had already folded the header in, is how the session audit column came to
+// record whatever address the caller asked to be recorded as.
+func ClientIP(r *http.Request) string {
+	addr := r.RemoteAddr
+	if peer := PeerAddr(r.Context()); peer != "" {
+		addr = peer
+	}
+	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return r.RemoteAddr
+		return addr
 	}
 	return host
 }

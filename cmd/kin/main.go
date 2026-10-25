@@ -113,11 +113,19 @@ func runMCP(ctx context.Context, args []string) error {
 
 func runHub(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: kin hub claim-code | kin hub node-token [--domain HOST] [--label NAME]")
+		return fmt.Errorf("usage: kin hub claim-code | kin hub invite [--domain HOST] | kin hub node-token [--domain HOST] [--label NAME]")
 	}
 	switch args[0] {
 	case "claim-code":
 		return server.RunHubClaimCode()
+	case "invite":
+		fs := flag.NewFlagSet("hub invite", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		domain := fs.String("domain", "", "this hub's public hostname, used only to print the link")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return server.RunHubInvite(*domain)
 	case "node-token":
 		fs := flag.NewFlagSet("hub node-token", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
@@ -128,7 +136,7 @@ func runHub(args []string) error {
 		}
 		return server.RunHubNodeToken(*label, *domain)
 	default:
-		return fmt.Errorf("unknown hub subcommand %q (want: claim-code, node-token)", args[0])
+		return fmt.Errorf("unknown hub subcommand %q (want: claim-code, invite, node-token)", args[0])
 	}
 }
 
@@ -214,6 +222,7 @@ Usage:
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin mcp              public MCP client bridge for local hosts
   kin hub claim-code  print a fresh owner claim code for an unclaimed hub
+  kin hub invite      mint a one-time invitation for a second person to join
   kin hub node-token  mint a device token for another machine to run kin node
   kin version         print version
   kin help            show this help

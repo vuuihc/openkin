@@ -40,6 +40,13 @@ jobs:
       - name: Go vet
         run: go vet ./...
 
+      # _devhub's leading underscore is what keeps it out of ./... , so vet and
+      # test above never see it. It still has to compile: it is the fixture the
+      # Hub's browser flows are checked against, and a package that only breaks
+      # when somebody tries to use it is worse than no fixture.
+      - name: Go build (dev hub fixture)
+        run: go build -o /dev/null ./_devhub
+
       - name: Go test
         run: go test ./...
 

@@ -18,7 +18,7 @@ Thumbs.db
 *.key
 
 # Dependencies & build
-node_modules/
+node_modules
 ui/dist/
 build/
 out/

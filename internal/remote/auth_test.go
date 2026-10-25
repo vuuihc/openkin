@@ -141,3 +141,56 @@ func TestPrincipalIdentitySeparatesAccounts(t *testing.T) {
 		t.Fatalf("master identity = %q, want empty", master.Identity())
 	}
 }
+
+// ClientIP backs both the auth attempt limit and the session audit column, so it
+// is the single answer to "who is asking". The property that makes it worth
+// having is that the answer cannot be chosen by the caller: middleware.RealIP
+// rewrites RemoteAddr from X-Forwarded-For, so the peer captured ahead of it is
+// the only trustworthy half. These tests pin the preference and both fallbacks,
+// because each fallback is a path a request can actually arrive on.
+func TestClientIPPrefersTheRecordedPeer(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	// What RealIP left behind after folding in a header the caller chose.
+	req.RemoteAddr = "203.0.113.9:5000"
+	ctx := WithPeerAddr(req.Context(), "198.51.100.7:41234")
+	if got := ClientIP(req.WithContext(ctx)); got != "198.51.100.7" {
+		t.Fatalf("ClientIP = %q, want the recorded peer 198.51.100.7; a forwarded header must not choose the answer", got)
+	}
+}
+
+func TestClientIPFallsBackToRemoteAddr(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.RemoteAddr = "198.51.100.7:41234"
+	if got := ClientIP(req); got != "198.51.100.7" {
+		t.Fatalf("ClientIP = %q, want 198.51.100.7 from RemoteAddr", got)
+	}
+	// An empty recorded peer is the same as none: it is what a caller that
+	// captured nothing hands over, and it must not blank the answer out.
+	ctx := WithPeerAddr(req.Context(), "")
+	if got := ClientIP(req.WithContext(ctx)); got != "198.51.100.7" {
+		t.Fatalf("ClientIP with an empty peer = %q, want the RemoteAddr fallback", got)
+	}
+}
+
+// Some requests arrive with a RemoteAddr that has no port to split off. The
+// address is returned unchanged rather than dropped: a strange-looking key still
+// limits the caller it names, whereas "" would file every such request under one
+// shared bucket -- which is a global counter by another name, and the failure the
+// limiter is most careful to avoid.
+func TestClientIPWithNoPortReturnsTheAddressUnchanged(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	req.RemoteAddr = "unix-socket"
+	if got := ClientIP(req); got != "unix-socket" {
+		t.Fatalf("ClientIP = %q, want the address unchanged", got)
+	}
+}
+
+func TestPeerAddrIsEmptyWithoutACapture(t *testing.T) {
+	if got := PeerAddr(context.Background()); got != "" {
+		t.Fatalf("PeerAddr on a bare context = %q, want empty", got)
+	}
+	ctx := WithPeerAddr(context.Background(), "198.51.100.7:41234")
+	if got := PeerAddr(ctx); got != "198.51.100.7:41234" {
+		t.Fatalf("PeerAddr = %q, want the address that was recorded, port included", got)
+	}
+}

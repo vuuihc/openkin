@@ -147,3 +147,80 @@ func RunHubClaimCode() error {
 	printNewBootstrapCode(ctx, accounts)
 	return nil
 }
+
+// RunHubInvite implements `kin hub invite`, which mints a one-time invitation
+// for one other person to create their own account on this Hub.
+//
+// It runs in a shell on the Hub for the reason claim-code and node-token do --
+// the operator already has one -- and for one more: an invitation is a
+// credential, and the operator already has a private channel to the person they
+// are inviting. Putting it on a screen instead would route it through a
+// clipboard and a screenshot.
+//
+// domain, when given, is the Hub's public hostname (the same one `kin serve
+// --domain` was started with). It only shapes the link printed at the end.
+func RunHubInvite(domain string) error {
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(stateDir, "kin.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	accounts := authsvc.New(st, authsvc.Config{})
+	needs, err := accounts.NeedsBootstrap(ctx)
+	if err != nil {
+		return err
+	}
+	// An invitation is issued *by* the account that owns this Hub, so on a Hub
+	// with no owner there is nobody to issue one -- and RedeemInvite refuses
+	// there anyway. Saying so here names the command that fixes it instead of
+	// handing the operator a code that cannot be spent.
+	if needs {
+		return fmt.Errorf("this hub has no owner yet; claim it with `kin hub claim-code` before inviting anyone")
+	}
+	invite, err := accounts.IssueInvite(ctx)
+	if err != nil {
+		return fmt.Errorf("issue invitation: %w", err)
+	}
+	printInvite(invite, domain)
+	return nil
+}
+
+// printInvite prints the code, and the link that carries it when the Hub's
+// hostname is known.
+//
+// Both are shown because they fail differently. The link is what a phone can
+// open without typing twenty characters; the code is what still works when a
+// chat client has mangled the link.
+func printInvite(invite authsvc.Invitation, domain string) {
+	fmt.Println()
+	fmt.Printf("  Invitation code:  %s\n\n", invite.Code)
+	if link := inviteLink(domain, invite.Code); link != "" {
+		fmt.Printf("  Send this link:   %s\n\n", link)
+	}
+	fmt.Printf("  It expires %s and can be used once, by one person.\n",
+		invite.ExpiresAt.Local().Format("2006-01-02 15:04 MST"))
+	fmt.Println("  They choose their own email and password; the account it creates can")
+	fmt.Println("  drive this Hub's machines but cannot administer them.")
+	fmt.Println()
+}
+
+// inviteLink builds the URL that opens the join screen with the code already in
+// it, or "" when this Hub's public hostname is unknown.
+//
+// hubOrigin's fallback is a sentence for a human to read, not a URL -- pasting
+// it into a link would produce something that looks right and resolves nowhere.
+// With no domain the code is printed alone and the operator appends it to a URL
+// they already know. The code's alphabet is uppercase letters, digits and
+// dashes, so it needs no escaping in a query string.
+func inviteLink(domain, code string) string {
+	if strings.TrimSpace(domain) == "" {
+		return ""
+	}
+	return hubOrigin(domain) + "/?invite=" + code
+}

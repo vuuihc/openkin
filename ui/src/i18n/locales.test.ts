@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { en, zh } from "./index";
+import { AUTH_ERROR_CODES } from "../lib/accountGate";
 
 /**
  * Every path in one catalog, so the two can be compared.
@@ -41,6 +42,24 @@ describe("locale catalogs", () => {
         return typeof cur !== "string" || cur.trim() === "";
       });
       expect({ locale: name, blank }).toEqual({ locale: name, blank: [] });
+    }
+  });
+
+  it("translate every auth error code the Hub can send", () => {
+    // The key-parity tests above only compare the two catalogs to each other, so
+    // a code that is in neither -- because Go learned a new one and the console
+    // did not -- passes both. This is the other direction: every code in the
+    // union has a row in both languages. Missing one is quiet rather than loud,
+    // because `authErrorText` falls back to the server's English prose.
+    for (const code of AUTH_ERROR_CODES) {
+      expect({ code, en: en.account.errors[code] }).toEqual({
+        code,
+        en: expect.any(String),
+      });
+      expect({ code, zh: zh.account.errors[code] }).toEqual({
+        code,
+        zh: expect.any(String),
+      });
     }
   });
 });
