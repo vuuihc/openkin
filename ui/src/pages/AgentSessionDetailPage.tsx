@@ -59,10 +59,16 @@ export default function AgentSessionDetailPage() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyCut, setHistoryCut] = useState(false);
   const [attachBusy, setAttachBusy] = useState(false);
   const historyEvents = useMemo(
-    () => (session ? agentSessionHistoryToTaskEvents(items, session.id, session.agent_id) : []),
-    [items, session],
+    () =>
+      session
+        ? agentSessionHistoryToTaskEvents(items, session.id, session.agent_id, {
+            truncatedNotice: tr("agentSession.messageTruncated"),
+          })
+        : [],
+    [items, session, tr],
   );
   const slow = useSlowHint(loading);
 
@@ -75,6 +81,7 @@ export default function AgentSessionDetailPage() {
       setSession(await getAgentSession(id));
       setItems([]);
       setNextCursor("");
+      setHistoryCut(false);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return;
       setSession(null);
@@ -96,6 +103,10 @@ export default function AgentSessionDetailPage() {
         });
         setItems((previous) => (cursor ? [...previous, ...page.items] : page.items));
         setNextCursor(page.next_cursor ?? "");
+        // A page that was cut has no cursor, so without this the reading simply
+        // ends and the transcript looks complete — which is the one thing the
+        // flag exists to prevent.
+        setHistoryCut(Boolean(page.truncated) && !page.next_cursor);
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) return;
         setHistoryError(
@@ -277,6 +288,17 @@ export default function AgentSessionDetailPage() {
               {tr("agentSession.loadMore")}
             </button>
           </div>
+        )}
+        {!historyLoading && !nextCursor && historyCut && (
+          /* The reading stops here and there is nothing to tap for more, so the
+             page says which of the two that is: the end of the session, or the
+             end of what the machine holding it could send. */
+          <p
+            className="max-w-conversation mx-auto px-4 sm:px-7 py-3 text-center text-caption text-kin-muted"
+            role="status"
+          >
+            {tr("agentSession.historyTruncated")}
+          </p>
         )}
       </div>
 

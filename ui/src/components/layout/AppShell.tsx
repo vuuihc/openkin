@@ -4,7 +4,6 @@ import {
   deleteTask,
   getSettings,
   getUsageSummary,
-  importAgentSessions,
   listAgents,
   listAgentSessionsPage,
   type AgentInfo,
@@ -15,6 +14,8 @@ import {
 import { liveResources } from "../../api/liveResources";
 import { useTaskList, useTaskResource } from "../../api/useLiveResources";
 import { DRAFT_PATH, setDraftCwd, getDraftCwd, subscribeDraft } from "../../lib/draftChat";
+import { importToast } from "../../lib/agentSessionImport";
+import { useAgentSessionImport, importsInFlight } from "../../hooks/useAgentSessionImport";
 import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
@@ -155,10 +156,34 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const autoImportInFlight = useRef(false);
   const externalRefreshInFlight = useRef(false);
   const externalRefreshQueued = useRef(false);
-  const [importingExternalSessions, setImportingExternalSessions] = useState(false);
   const [draftCwdLocal, setDraftCwdLocal] = useState<string>("");
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
+  // Read here rather than beside the task panel below, because the session sync
+  // needs the machine list too: importing a session means asking the machine
+  // that holds it, and the list of machines is what says which those are.
+  const { machines } = useMachines();
+  // The fan-out itself lives in the hook, because the settings section offers
+  // the same errand under the same label and must ask the same machines. The
+  // hook also owns the busy flag, so the sidebar's control and the settings
+  // page's disable each other: two fan-outs a second apart would report counts
+  // that are each other's duplicates.
+  const { importing: importingExternalSessions, importEveryMachine } = useAgentSessionImport();
+
+  /**
+   * Import the sessions of this machine and every other one, and say what came
+   * back.
+   *
+   * The refresh loop below is deliberately dependency-free — it holds a 30s
+   * interval and re-subscribing it on every machine-list update would restart
+   * the clock — so the sync reads the current import through a ref instead of
+   * capturing the first one, which would be the one built before any machine
+   * was known.
+   */
+  const importEveryMachineRef = useRef(importEveryMachine);
+  useEffect(() => {
+    importEveryMachineRef.current = importEveryMachine;
+  }, [importEveryMachine]);
 
   const loadExternalSessions = useCallback(async (skipAutoImport = false) => {
     if (externalRefreshInFlight.current) {
@@ -177,10 +202,17 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         });
       if (!skipAutoImport && !autoImportInFlight.current) {
         const settings = await getSettings().catch(() => null);
-        if (settings?.["agent_sessions.auto_import_mode"] === "enabled") {
+        // A manual import in flight is the person's own errand, and it already
+        // imports from every machine: the tick has nothing to add and would only
+        // make the count wrong. The flag above cannot see it — that one is only
+        // ever set here — so this asks the hook's counter, and it asks now
+        // rather than before the settings read: that read is an await, and an
+        // import that starts while the tick waits for settings is still one that
+        // started first.
+        if (settings?.["agent_sessions.auto_import_mode"] === "enabled" && !importsInFlight()) {
           autoImportInFlight.current = true;
           try {
-            const result = await importAgentSessions();
+            const result = await importEveryMachineRef.current();
             publishAgentSessionSync(result);
           } catch (error) {
             publishAgentSessionSync({
@@ -221,27 +253,21 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const importExternalSessions = useCallback(
     async (agents?: string[]) => {
       if (importingExternalSessions) return;
-      setImportingExternalSessions(true);
       try {
-        const result = await importAgentSessions(agents);
+        const result = await importEveryMachine(agents);
         await loadExternalSessions(true);
-        const errorCount = Object.keys(result.errors ?? {}).length;
-        pushToast(
-          errorCount > 0
-            ? tr("settings.localAgents.importPartial", {
-                imported: result.imported,
-                errors: errorCount,
-              })
-            : tr("settings.localAgents.imported", { imported: result.imported }),
-          errorCount > 0 ? "error" : "info",
-        );
+        const toast = importToast(result, tr);
+        pushToast(toast.message, toast.kind);
       } catch (e) {
+        // Unreachable today — the hook answers every failure with a result,
+        // including a machine that never replied. It stays because the button
+        // is the only thing a person can press: if a later change to the hook
+        // makes it throw, the alternative is a control that looks like it did
+        // nothing at all.
         pushToast(tr("settings.localAgents.importFailed"), "error");
-      } finally {
-        setImportingExternalSessions(false);
       }
     },
-    [importingExternalSessions, loadExternalSessions, pushToast, tr],
+    [importingExternalSessions, importEveryMachine, loadExternalSessions, pushToast, tr],
   );
 
   useEffect(() => {
@@ -403,7 +429,6 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   // The terminal is a shell on *this* machine. A task running on another machine
   // has a cwd that means something only over there, so it must not become this
   // shell's starting directory; the panel says why instead.
-  const { machines } = useMachines();
   const remoteTask = remoteMachine(machines, openTask?.executing_device_id);
   const terminalCwd = localTerminalCwd(
     openTask,

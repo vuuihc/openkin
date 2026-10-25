@@ -9,7 +9,6 @@ import {
   deleteProvider,
   deployCloudflareRelay,
   getSettings,
-  importAgentSessions,
   listCloudflareAccounts,
   listCloudflareZones,
   listAgentProviders,
@@ -30,6 +29,8 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { importToast } from "../lib/agentSessionImport";
+import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import {
   isAutoImportSnapshot,
   LocalAgentSettingsSection,
@@ -106,7 +107,10 @@ export default function SettingsPage() {
   const [limitPolicy, setLimitPolicy] = useState("wait");
   const [limitFallbackText, setLimitFallbackText] = useState("[]");
   const [autoImportMode, setAutoImportMode] = useState<"prompt" | "enabled" | "disabled">("prompt");
-  const [importingSessions, setImportingSessions] = useState(false);
+  // One flag for every control that starts an import, from the hook rather than
+  // from this page: the sidebar offers the same errand, and a page-local flag
+  // left that button live while this one was already importing.
+  const { importing: importingEveryMachine, importEveryMachine } = useAgentSessionImport();
   const [refreshingAgentCatalog, setRefreshingAgentCatalog] = useState(false);
   const [providers, setProviders] = useState<ProviderEntry[]>([]);
   const [activeProviderId, setActiveProviderId] = useState("");
@@ -300,56 +304,44 @@ export default function SettingsPage() {
   };
 
   const importSessions = async () => {
-    setImportingSessions(true);
     setError(null);
     try {
-      const result = await importAgentSessions();
+      // Every machine, not only this one: the sidebar offers the same errand
+      // under the same label, and a person on a phone who tapped this one
+      // instead would otherwise get a session list that silently means "here".
+      const result = await importEveryMachine();
       window.dispatchEvent(
         new CustomEvent("kin:agent-sessions-changed", {
           detail: { skipAutoImport: true },
         }),
       );
-      const errorCount = Object.keys(result.errors ?? {}).length;
-      pushToast(
-        errorCount > 0
-          ? tr("settings.localAgents.importPartial", {
-              imported: result.imported,
-              errors: errorCount,
-            })
-          : tr("settings.localAgents.imported", { imported: result.imported }),
-        errorCount > 0 ? "error" : "info",
-      );
+      const toast = importToast(result, tr);
+      pushToast(toast.message, toast.kind);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setImportingSessions(false);
     }
   };
 
+  // One provider's sessions on this machine, which is the machine whose
+  // provider rows these are: the list above is read from this daemon's
+  // registry, so a provider id in it means this machine's provider. That rule
+  // lives in the import hook (importTargetsFor) rather than here, so this row
+  // and the sidebar's per-provider rows cannot come to disagree about it — and
+  // going through the same import is also what makes the two buttons disable
+  // each other while one of them runs.
   const importProviderSessions = async (agentId: string) => {
-    setImportingSessions(true);
     setError(null);
     try {
-      const result = await importAgentSessions([agentId]);
+      const result = await importEveryMachine([agentId]);
       window.dispatchEvent(
         new CustomEvent("kin:agent-sessions-changed", {
           detail: { skipAutoImport: true },
         }),
       );
-      const errorCount = Object.keys(result.errors ?? {}).length;
-      pushToast(
-        errorCount > 0
-          ? tr("settings.localAgents.importPartial", {
-              imported: result.imported,
-              errors: errorCount,
-            })
-          : tr("settings.localAgents.imported", { imported: result.imported }),
-        errorCount > 0 ? "error" : "info",
-      );
+      const toast = importToast(result, tr);
+      pushToast(toast.message, toast.kind);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setImportingSessions(false);
     }
   };
 
@@ -925,7 +917,7 @@ export default function SettingsPage() {
         active={activeTab === "agents"}
         agentProviders={agentProviders}
         refreshingAgentCatalog={refreshingAgentCatalog}
-        importingSessions={importingSessions}
+        importingSessions={importingEveryMachine}
         autoImportMode={autoImportMode}
         lastAutoImport={lastAutoImport}
         settingsBusy={busy}

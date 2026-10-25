@@ -87,12 +87,34 @@ async function load(mine: number): Promise<void> {
   emit({ ...snapshot, machines: machineList(list, self, agents), agents });
 }
 
-function refresh(): void {
-  if (inflight) return;
+function refreshOnce(): Promise<void> {
+  if (inflight) return inflight;
   const run = load(generation).finally(() => {
     if (inflight === run) inflight = null;
   });
   inflight = run;
+  return run;
+}
+
+function refresh(): void {
+  void refreshOnce();
+}
+
+/**
+ * The machine list as it is now, with a load waited for.
+ *
+ * A caller about to *name* a machine cannot use the hook's state: that is a
+ * snapshot from whenever a consumer last mounted, and a laptop paired a minute
+ * ago is not in it. An import that asks each machine is exactly that caller —
+ * with a stale list it asks the machines that existed when the page opened,
+ * finds no error anywhere, and reports a count as if the errand were complete.
+ *
+ * A load already in flight is waited for rather than duplicated, so a console
+ * with several reasons to refresh at once still makes one request.
+ */
+export async function refreshMachines(): Promise<Machine[]> {
+  await refreshOnce();
+  return snapshot.loaded ? snapshot.machines : [];
 }
 
 /** Forget the cached machine list. Tests only; the page keeps it warm. */

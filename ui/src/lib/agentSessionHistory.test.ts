@@ -104,4 +104,67 @@ describe("mergeAgentSessionMessageChunks", () => {
     expect(merged[0].text).toBe("first\n\nsecond");
     expect(merged[1].text).toBe("new turn");
   });
+
+  it("carries the cut flag from any chunk of a merged message", () => {
+    // One message, two records, and the machine could not send the second whole:
+    // the reader is reading one message, so the warning belongs to the whole of
+    // it rather than to a fragment they cannot see.
+    const merged = mergeAgentSessionMessageChunks([
+      item("a1:0", "assistant", "first half"),
+      { ...item("a1:1", "assistant", "second half"), truncated: true },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].truncated).toBe(true);
+  });
+});
+
+// A message the machine could not send whole looks finished. The marker after it
+// is the only thing that says otherwise, so it has to be in the transcript at the
+// point where the reader stops reading, and it has to be absent when there is
+// nothing to report.
+describe("truncated history", () => {
+  const cut = (id: string, text: string): AgentSessionHistoryItem => ({
+    ...item(id, "assistant", text),
+    truncated: true,
+  });
+
+  it("says so after the message that was cut", () => {
+    const events = agentSessionHistoryToTaskEvents(
+      [item("u1", "user", "Long question"), cut("a1", "An answer that stops")],
+      "agent-session-1",
+      "claude-code",
+      { truncatedNotice: "cut off" },
+    );
+
+    const kinds = events.map((event) => event.type);
+    expect(kinds).toEqual(["message", "message", "notice", "result"]);
+    const notice = events.find((event) => event.type === "notice");
+    expect(notice?.payload).toMatchObject({ message: "cut off" });
+    // Third, which is after the message that was cut and before the turn's
+    // result: the reader learns why the text stopped once they have read as far
+    // as it goes.
+    expect(kinds.indexOf("notice")).toBe(2);
+  });
+
+  it("says nothing when the caller has nowhere to show it", () => {
+    const events = agentSessionHistoryToTaskEvents(
+      [cut("a1", "An answer that stops")],
+      "agent-session-1",
+      "claude-code",
+    );
+
+    expect(events.some((event) => event.type === "notice")).toBe(false);
+  });
+
+  it("says nothing about a message that arrived whole", () => {
+    const events = agentSessionHistoryToTaskEvents(
+      [item("a1", "assistant", "All of it")],
+      "agent-session-1",
+      "claude-code",
+      { truncatedNotice: "cut off" },
+    );
+
+    expect(events.some((event) => event.type === "notice")).toBe(false);
+  });
 });

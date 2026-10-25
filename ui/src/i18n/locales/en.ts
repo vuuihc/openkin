@@ -505,6 +505,13 @@ const en: MessageTree = {
     toolResult: "Tool result",
     reasoning: "Reasoning",
     loadMore: "Load more",
+    // Shown after one message the machine could not send whole. The message
+    // looks finished either way, so this is the only thing that says it is not.
+    messageTruncated: "This message was cut off when it was sent.",
+    // Shown where the reading stops with nothing left to tap. An empty cursor
+    // means both "the end" and "the machine stopped", and the reader is entitled
+    // to know which one this is.
+    historyTruncated: "The machine holding this session could not send the rest of it.",
     continueTitle: "Continue with {agent}",
     continueDescription:
       "Calls the local {agent} directly and keeps the original session context; no cloud Provider binding is required.",
@@ -874,8 +881,8 @@ const en: MessageTree = {
       deleted: "Provider removed",
     },
     localAgents: {
-      heading: "Local Agent sessions",
-      desc: "Index existing local Agent sessions and read their source history from Kin without copying transcripts into Kin.",
+      heading: "Agent sessions",
+      desc: "Index Agent sessions on this machine and on the machines paired with it, and read their source history from Kin without copying transcripts into Kin.",
       autoImport: "Auto-import",
       modePrompt: "Ask before indexing",
       modeEnabled: "Enabled",
@@ -890,7 +897,18 @@ const en: MessageTree = {
       importing: "Importing…",
       save: "Save session settings",
       imported: "Indexed {imported} sessions",
-      importPartial: "Indexed {imported} sessions; {errors} providers unavailable",
+      // Every import asks every machine, so a failure here can also be a
+      // machine that did not answer — which is not a provider, and is the one
+      // the reader can actually do something about. So the failure is named
+      // rather than counted.
+      importPartialSource: "Indexed {imported} sessions; {source} did not sync: {reason}",
+      importPartialSources: "Indexed {imported} sessions; {errors} did not sync, including {source}",
+      // A machine had more sessions than one import carries. Nothing failed, so
+      // it is a sentence beside the count rather than a failure — but a count
+      // alone reads as the whole of them. It does not offer to fetch the rest:
+      // the listing has no cursor, so importing again reads the same newest
+      // page rather than continuing past it.
+      importTruncated: "One machine has more sessions than a single import carries, so this is the newest of them.",
       importFailed: "Failed to import Agent sessions",
       providersHeading: "Detected local Agents",
       refresh: "Refresh detection",

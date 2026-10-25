@@ -489,6 +489,13 @@ const zh = {
     toolResult: "工具结果",
     reasoning: "推理过程",
     loadMore: "加载更多",
+    // Shown after one message the machine could not send whole. The message
+    // looks finished either way, so this is the only thing that says it is not.
+    messageTruncated: "这条消息在发送时被截断。",
+    // Shown where the reading stops with nothing left to tap. An empty cursor
+    // means both "the end" and "the machine stopped", and the reader is entitled
+    // to know which one this is.
+    historyTruncated: "持有该会话的机器无法发送剩余内容。",
     continueTitle: "使用 {agent} 继续",
     continueDescription: "直接调用本机 {agent}，保留原会话上下文；不需要绑定云端 Provider。",
     continueUnavailable: "这个源会话没有记录工作目录，当前只能查看历史，无法从原 Agent 继续。",
@@ -841,8 +848,8 @@ const zh = {
       deleted: "Provider 已删除",
     },
     localAgents: {
-      heading: "本机 Agent 会话",
-      desc: "索引本机已有的 Agent 会话，并在 Kin 中直接读取源历史，不复制 transcript。",
+      heading: "Agent 会话",
+      desc: "索引本机以及已配对机器上的 Agent 会话，并在 Kin 中直接读取源历史，不复制 transcript。",
       autoImport: "自动导入",
       modePrompt: "导入前询问",
       modeEnabled: "开启",
@@ -857,7 +864,16 @@ const zh = {
       importing: "导入中…",
       save: "保存会话设置",
       imported: "已索引 {imported} 个会话",
-      importPartial: "已索引 {imported} 个会话；{errors} 个 Provider 不可用",
+      // Every import asks every machine, so a failure here can also be a
+      // machine that did not answer — which is not a provider, and is the one
+      // the reader can actually do something about. So the failure is named
+      // rather than counted.
+      importPartialSource: "已索引 {imported} 个会话；{source} 未同步：{reason}",
+      importPartialSources: "已索引 {imported} 个会话；{errors} 项未同步，包括 {source}",
+      // 一台机器的会话多到一次导入装不下。这不是错误（拿到的那部分是真的），
+      // 但只报条数会让人以为这就是全部。也不承诺「再导一次能拿到剩下的」——
+      // 这个列表没有游标，再导一次拿到的还是同一批最新的。
+      importTruncated: "有一台机器的会话多到一次导入装不下，这里只是其中最新的一部分。",
       importFailed: "导入 Agent 会话失败",
       providersHeading: "已检测的本机 Agent",
       refresh: "刷新检测",

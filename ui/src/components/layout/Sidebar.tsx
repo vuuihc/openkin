@@ -416,11 +416,16 @@ export default function Sidebar({
             <button
               type="button"
               role="menuitem"
+              // An import that is already running cannot be started again — one
+              // fan-out at a time, which is the hook's rule and not this menu's.
+              // Disabled rather than ignored, because a menu item that closes
+              // the menu and does nothing is a tap that looks like it worked.
+              disabled={importingExternalSessions}
               onClick={() => {
                 setImportMenuOpen(false);
                 onImportExternalSessions?.();
               }}
-              className="w-full text-left px-3 py-2 text-body text-kin-text hover:bg-[var(--kin-fill-strong)]"
+              className="w-full text-left px-3 py-2 text-body text-kin-text hover:bg-[var(--kin-fill-strong)] disabled:opacity-50"
             >
               {tr("nav.importAllAgents")}
             </button>
@@ -431,11 +436,12 @@ export default function Sidebar({
                   key={provider.id}
                   type="button"
                   role="menuitem"
+                  disabled={importingExternalSessions}
                   onClick={() => {
                     setImportMenuOpen(false);
                     onImportExternalSessions?.([provider.id]);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50"
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-kin-blue" />
                   <span className="truncate">{provider.name || provider.id}</span>
