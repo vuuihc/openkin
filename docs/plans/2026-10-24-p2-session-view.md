@@ -344,6 +344,20 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 被过滤掉的事件（worker 工具、`raw_output`）不产生 item，落在两轮之间的空隙里，
 只读可见 item 的区间会把「这一轮 host 全程在派活」读成「什么都没改」。
 
+**区间是切片，不是划分**（S1c 复审的修正：原文写的「每个事件恰好属于一轮」是错的）。
+两条实测形状都不满足它：
+
+- 一条被 adapter 回显的 `role:"user"` 消息（`stampSpeaker` 把它标成 task-only）会再产生一个
+  user turn，于是**两次提问夹着**中间那段工作：那一段只属于**先开着的**那一轮，
+  后一个 user turn 的 `fromSeq` 已经在它之后了。
+- 流式 message 在 `partial` 时**不带 seq**（`flushStream` 有意省略），所以它可能一个区间都没有。
+
+所以「一轮」在代码里是一条**规则**（`roundsOf(turns)`，`transcriptProjection.ts`），不是一句散文：
+在 user turn 上开一轮，已经在开着的一轮**并进去**（两个 user turn 同属一轮），
+在**第一个已定稿的 agent 消息**上关闭；`fromSeq`/`toSeq` 取成员轮区间的 min/max。
+5 条测试钉住它（两个 user turn 归一次提问、夹在中间的工作算这一轮、
+提问早于回答仍同轮、回答处闭合所以下一次提问另开一轮、第一问之前的 turn 不进任何轮）。
+
 所以卡片的措辞只能是「这一轮**通过文件工具**改了什么」，权威视图仍是工作区/PR 面板。
 
 ## 7. 风险与未决
@@ -352,11 +366,14 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 |---|---|
 | 逐轮 diff 的上游是有损的（8000 字节 / 64KB / 结构化 diff 被拍平） | S1c 先算「用现有数据能拼到什么程度」：结论是够用，表见 §6.2，不补 store |
 | 流式 note 与「折叠进 note 的 message」这两条路的 `seq` **没有测试钉住** | 它们只会让区间**更早/更准**，不会让区间变错：真正决定卡片内容的是文件工具事件的 `seq`，而文件类 `tool_use` 一律产生 step（有 `seq`），所以漏的只可能是「本轮更早的一段文本事件」。不编脆弱的 fixture 去盖它，记在这里 |
-| 队列落成**独立小表**，没动 `tasks` | 判据（§3.1）是「要不要按序查询」，队列是尾插头取，所以是表不是列。`schemaVersion` 38 → 39；新表在 `migration001` 的拼装串里（空库）与 039 块（满库）各出现一次，两条路同形，各有测试 |
+| 队列落成**独立小表**，没动 `tasks` | 判据（§3.1）是「要不要按序查询」，队列是尾插头取，所以是表不是列。`schemaVersion` 38 → 39；新表在 `migration001` 的拼装串里（空库）与 039 块（满库）各出现一次，两条路同形，各有测试。**「v39 但没有这张表」的库不存在**，所以 `ensurePendingPromptSchema` 在表缺失时直接返回是对的：`git log -S "schemaVersion = 39" -- internal/store/migrate.go` 只有 `d590e87` 一条，它在同一次提交里既升版本又建了表 |
 | **投递是「先出队、后应用」，中间崩溃会丢一条已可见的消息** | 未闭合的窗口，代价写在这里：丢的是**投递**不是消息——那条话仍在聊天里、用户能看见也能重发，且与「重启后由 `Recover` 补齐」的窗口相比小得多（毫秒级，同库两次写之间）。不上 `task_limit_waits` 那套租约状态，收益不抵复杂度 |
 | 排队中的消息可能等不到轮末（agent 卡在审批/提问上） | 有意的：审批卡与问题就在聊天里可答，答完这一轮就会结束并投递；逃生口是显式打断（`interrupt: true`）与 `Cancel`（清队并报告丢了几条，不静默） |
 | 宽度阶梯会碰 28 个文件（清点后从 11 修正） | 独立成片（S7），按家族再切，不和功能片混 |
 | 手机上「排队中」的状态不明显 | chip 已落地（S2b，`abebb7a`）。**尚未在手机或窄屏上看过**：本机只有浏览器工具，真机验收仍卡在 NAS Hub 部署。残留风险记在这里，不用推理代替截图 |
+| **S2b/S3 的新形态还没有定点截图**（§6 要求的两张：等待中的 chip、顶替输入框的审批卡 + 输入框上方的 bar） | 未做，不是「不必做」。顺序上的取舍：定点截图需要一套假数据夹具（页面读的是 store，store 读 `/api`），而这套夹具要**一次性**覆盖 P2 全部新形态（S4 折叠的思考、S5 逐轮 diff 卡、S7 宽度档位都在后面），所以放在 S4–S7 落地后一起拍，避免同一套夹具搭两遍。**P2 分支在截图对照完成前不合入 `main`**——这是本片唯一的阻塞项，记在明面上 |
+| `TestRetiredRunCannotOverwriteRunningRetry` 偶发红（merge base 上 40 次红 3 次） | **已修**（`7bbc7d7`）：`persistRunEvent` 让事件写持着引擎锁，于是 `Cancel` 排在它后面；而假 run 的终局事件原本紧跟在被放行的写之后，run 自己的完成若先拿到锁，任务就已 `succeeded`，cancel 随即报「already terminal」。改成假 run 把终局事件**握在测试手里**，cancel 先落地成为构造性事实，终局事件改在 retry 已经在跑之后才到——这才是这个测试名字所指的危险。100 次全绿 |
+| `internal/adapter/droid` 的 `TestAdapterCancelAndProcessExit` 与 `internal/github` 的 `TestRunDoesNotWaitForAProcessThatOutlivesGH` 在全量跑时偶发红（单跑必绿） | **先于本片存在**，且都在 P2 从未碰过的包里（P2 的 diff 不含这两个包）：两条都是进程生命周期测试，对机器负载敏感（当时同时在跑别的构建）。记为**负载敏感的既有 flake**，不在本片修，也不当作本片的红 |
 | 引入 DOM 测试环境的诱惑 | 见 §6：先论证哪些断言抽不出来 |
 | `Cancel` 与「轮末投递」之间那个窄窗（复审 nit 6） | 已修：`runLoop` 的投递条件补上 `!wasCanceled`（orchestrated 路径本来就先查）。**没写测试**——窗口是「cancel 落在 pop 与 apply 之间」，靠 sleep 去撞只会得到一条会飘的测试；记在这里而不是假装盖住了 |
 | `Cancel` 清队失败时错误被忽略（同一处） | 有意留着：清队失败只影响「丢了几条」的报数，不影响状态机；这条路径上的任何 `return err` 都会让「取消」这个动作本身失败，比少报一个数更糟 |
@@ -371,7 +388,9 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 | S1a 引擎 | `317d18a` | 非终态 ⇒ 入队 + **立刻**写 user-guide 事件（否则手机上发完什么都不显示）；轮末投递，adapter 路径与 orchestrated 路径各一处，取队首、`interrupted=false`（保留会话续跑，不谎报「上一轮被打断」）；`Recover` 投递重启时孤儿任务留下的队列；`Cancel` 清队并报告条数；打断变成显式 `interrupt: true` | 4 条新测试：排队**不碰**那三步（审批仍 pending、提问仍未答、任务状态不变）、多条按序逐轮投递、重启不丢、取消即清且有报错事件。四条都按「删掉机制看它变红」验过——red 1 的报错正是 `pending approvals = []`，也就是今天这条路上待批审批被拒光的实证。5 条旧测试改成显式打断（它们本来就是打断路径的测试） |
 | S1a API | `0236670` | `interrupt` 进 `FollowUpRequest`（含 openapi 说明）；新增 `GET /api/tasks/{id}/prompts` 回答「哪些看得见的消息还没被回答」。**additive**：任务读、任务列表、prompt 响应形状都没变 | 3 条 API 测试：等待中的消息可见且有序（含 `user_seq`）、404/401、`interrupt` 在**线上**的行为差异（不带 = 任务仍 running，带 = 重新排队）。red：json tag 改成 `interrupts` 后第三条报错。`scripts/check-openapi.sh` 通过，生成的 TS 类型随同一提交更新 |
 | S1b | `07a06a2` | **决定片，引擎零改动**：结论与依据见 §3.6。`visibility.user` = 「属于 host 聊天栏」；worker 事件保持 `{user:false, task:true}`；面板的活动来自已在流上的 worker 工具事件，计划结构来自 `worker-steps`，连接键 `execution_id`+`execution_step` | 两条守卫（都是补今天缺的那半）：① worker 的 message/tool_use/tool_result/raw_output **四种形状**都不得 `user:true`——Go 侧 1 条（4 个子用例）钉住盖章，console 侧 1 条钉住投影（`isUserFacingEvent` 被改成恒真即红）。② worker 叙述不得进入 host handoff，同时 orchestrator 的总结**必须**进得去（`summarizeEvent` 只认 message/error/result/raw_output，且跳过非 orchestrator 的 `visibility.user=false`）——Go 1 条，两条断言写在同一个测试里，好让「干脆全静音」这种修法也红。两条守卫都按删机制验红、按 sha256 逐字节还原 |
-| S1c | `0e9a09a` | 决定片 + 一条投影改动（**不渲染**）：`ToolStep`/`NoteStep` 带 `seq`，且锚在**打开它的那个事件**上（不是最后合并进来的那个——结果可能在打断之后、在另一轮里到达）；`groupIntoTurns` 吐 `fromSeq`/`toSeq`，**闭合在下一轮开始前一个事件**，所以每个事件恰好属于一轮。消费单位是**一轮 = user turn + 紧随的 agent turn** | 表见 §6.2（结论：够用，不补 turn-diff store）。**5 条新测试** + **3 个机制删掉验红**（闭合那趟、步的 seq、不许结果挪步），全部按 sha256 逐字节还原。`npm run build` 后 `web/dist/index.html` 随源码同一提交 |
+| S1c | `0e9a09a` | 决定片 + 一条投影改动（**不渲染**）：`ToolStep`/`NoteStep` 带 `seq`，且锚在**打开它的那个事件**上（不是最后合并进来的那个——结果可能在打断之后、在另一轮里到达）；`groupIntoTurns` 吐 `fromSeq`/`toSeq`，**闭合在下一轮开始前一个事件**。消费单位是**一轮 = user turn + 紧随的 agent turn** | 表见 §6.2（结论：够用，不补 turn-diff store）。**6 条新测试** + **3 个机制删掉验红**（闭合那趟、步的 seq、不许结果挪步），全部按 sha256 逐字节还原。`npm run build` 后 `web/dist/index.html` 随源码同一提交。**两处订正**（复审时改）：① 原文「所以每个事件恰好属于一轮」**是错的**，`fromSeq`/`toSeq` 是切片不是划分，两条实测形状都不满足（adapter 回显产生第二个 user turn、partial message 不带 seq），真正的消费规则已落成 `roundsOf`，见 §6.2；② 新测试是 6 条不是 5 条 |
 | S1a 复审 | `4c21404` `d906ef3` | `@claude` 对抗复审（blocker/major/nit 分级）提了 5 major + 4 nit + 5 处测试缺口，逐条核过后**全部成立**，已修（`4c21404` 是其中的 schema 自愈）；另修了复审没提但被测试当场抓到的一处：把三个 reconcile 收进 `ensureCurrentSchema` 后才发现「已是最新版本」那条早退路径**根本没跑**任何 reconcile——也就是说 d590e87 写下的 v39 库永远不会被修 | 6 条新测试（读不了队列≠空队列、workspace 失败要报告且消息保留、retry 带走被删消息的队列、投递只答一次且锚在自己的消息上、打断锚在自己的消息上、waiting_input 的队列要活过重启）+ 2 条 store（队列表缺锚列自愈、`TasksWithPendingPrompts`）+ 2 条 API（空队答 `[]`、`user_seq` 恒在）。**8 个机制逐个删掉验红，全部按 sha256 逐字节还原**。`scripts/check-openapi.sh` 通过（`user_seq` 去掉 omitempty 不改 schema 的 required） |
 | S2a 控制台 | `dc9fee4` | `Composer` 运行中的语义翻转成**默认排队**：蓝键 = 发送（占位文案「本轮结束后回答」），旁边多一个橙键 = 打断并立即发送；`followUpPrompt` 只有显式意图才带 `interrupt: true`。toast 按实际发生的事说话（排队 / 打断），不再一律宣称「已打断」 | 3 条新测试钉住请求体：不带意图时**没有** `interrupt` 字段、带意图时才有、原有 model/permission 字段没被顺手改掉。red 两处（默认改成带 `interrupt`、意图分支失效），sha256 逐字节还原。这条同时修掉一个**比旧行为更糟的谎**：引擎默认翻成排队后，控制台从不发 `interrupt`，却仍在 toast 里说「已打断本轮」——用户以为停住的轮次其实还在跑 |
-| S2b 排队中 | `abebb7a` | 消息在入队时就写进 transcript（引擎那一半），所以队列是**唯一变化的东西**：哪些 seq 还在等。`GET /api/tasks/{id}/prompts` 报它们，页面在事件落地时重读 + 3s 慢轮询（只有「某条被答了」变化时也追得上），等待中的 user 气泡标签行长出一枚 chip。`QueuedPrompt.user_seq` 升为契约 required——分不清「没锚」与「字段缺失」的客户端无法决定标什么 | 3 条纯函数测试（收集、`user_seq=0` 不标、空队/无 seq 不标）+ 2 处删机制验红、sha256 还原。`npx tsc --noEmit` 0、`vitest run` 57 文件 572 用例全绿、`npm run build` 后 `web/dist/index.html` 随源码同一提交 |
+| S2b 排队中 | `abebb7a` | 消息在入队时就写进 transcript（引擎那一半），所以队列是**唯一变化的东西**：哪些 seq 还在等。`GET /api/tasks/{id}/prompts` 报它们，页面在事件落地时重读 + 3s 慢轮询（只有「某条被答了」变化时也追得上），等待中的 user 气泡标签行长出一枚 chip。`QueuedPrompt.user_seq` 升为契约 required——分不清「没锚」与「字段缺失」的客户端无法决定标什么 | 3 条纯函数测试（收集、`user_seq=0` 不标、空队/无 seq 不标）+ 2 处删机制验红、sha256 还原。`npx tsc --noEmit` 0、`vitest run` 57 文件 572 用例全绿、`npm run build` 后 `web/dist/index.html` 随源码同一提交。**定点截图未拍**：见 §7 |
+| S3 控制台 | `9a845e7` | 审批卡不再一律贴在底部：`approval_requested`/`user_question_requested` 带上被问者的 id，投影把卡挂在**提问事件**上，流就画在那里；只有提问事件滚出已加载窗口时才回落到流尾，且两处**只有一处**会画（一个决定不会长出两套按钮）。`j`/`k` 按提问的 seq 走、无锚的排最后（光标落在看不见的地方比没有光标更糟）。输入框上方一条 bar 说明在等什么并能跳过去——这才是「不该靠打字才发现有待批」 | 4 条投影测试 + 5 条顺序测试（`needsYou.test.ts`）+ 既有测试保持绿。**定点截图未拍**：见 §7 |
+| S1a/S1c 复审修复 | `b4e4faa` `2d8cadf` `0e52508` `7bbc7d7` `3729d41` | 复审的 4 个 major + nits 逐条落地：① 打断的 user-guide 事件在「发布 pendingFollowUp 项」**之前**写下并带锚（原来中间那一瞬别人读到的是 0＝「还没人写」，投递于是把用户的话写了第二遍）；② **丢弃报告与丢弃同事务**（retry 的 rewind 与 cancel 各一处：`DiscardEvent` / `DiscardPendingPrompts`），调用方只 publish——进程死在中间也不能「消息没了而记录里什么都不说」；③ worker 可见性守卫改成驱动 `forwardWorkerEvents`（原来只钉住 `stampWorker`，转发器改坏了守卫照样绿）；④ 「一轮」的契约落成可执行的 `roundsOf`，见 §6.2；nit：投递失败要**点名**那条消息（引号、单行、48 字截断）、`deliverQueuedAfterRestart` 的措辞、`wasCanceled` 的注释收窄 | **11 个机制逐个删掉验红**（全部 sha256 逐字节还原）：retry 报告改到提交之后写、cancel 报告改到提交之后写、重放路径不报告、投递错误不带名字、`userSeq` 归零（当场报 `user copies = 2, want 1`）、守卫只驱动 stamper、把一轮当划分… 新增 5 条 Go + 5 条 UI 测试。**这一片没有 `web/dist` 提交是对的**：`roundsOf` 目前还没有消费者（S5 才用），被 tree-shake 掉了，`npm run build` 产物与已提交的 `index.html` 逐字节相同（入口仍是 `index-B59owEAr.js`）。另修掉一条**先于本片存在**的 flake（见 §7） |
