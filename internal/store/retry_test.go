@@ -56,6 +56,61 @@ func TestApplyRetryMutationRollsBackOnWorkspaceFailure(t *testing.T) {
 	}
 }
 
+// The retry rewind drops the queued prompts whose own message it just deleted,
+// and reports that loss. The report is written inside the same transaction as the
+// delete it reports: a retry that could not say what it dropped has to come back,
+// or the message is gone from the queue and from the transcript both.
+func TestAFailedRetryDiscardReportTakesTheRetryBack(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	task := Task{
+		ID: "01RETRYDISCARD0000000000001", Title: "retry", Agent: "codex",
+		Cwd: "/tmp", Prompt: "start", Status: "succeeded", CreatedAt: NowMilli(),
+	}
+	if err := st.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(`{"role":"user","text":"start"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Anchored at the message the rewind deletes, so it is the one this retry takes
+	// with it and the one the report has to name.
+	if _, err := st.AppendPendingPrompt(ctx, PendingPrompt{
+		TaskID: task.ID, Prompt: "and the changelog", UserSeq: first.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	failErrorEventWrites(t, st)
+
+	if _, err := st.ApplyRetryMutation(ctx, RetryMutation{
+		TaskID:      task.ID,
+		FromSeq:     first.Seq,
+		Prompt:      "start",
+		UserPayload: json.RawMessage(`{"role":"user","text":"start"}`),
+	}); err == nil {
+		t.Fatal("the retry succeeded while its discard report could not be written")
+	}
+	left, err := st.ListPendingPrompts(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("the queued message went without a report: %+v", left)
+	}
+	events, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Seq != first.Seq {
+		t.Fatalf("events changed after rollback: %+v", events)
+	}
+}
+
 func TestApplyRetryMutationRejectsStaleEpoch(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(filepath.Join(t.TempDir(), "kin.db"))

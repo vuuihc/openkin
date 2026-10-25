@@ -10,6 +10,24 @@ import (
 	"time"
 )
 
+// failErrorEventWrites makes every write of an "error" event fail inside
+// whatever transaction attempts it, the way a busy or closed database would.
+// RAISE(ABORT) fails the statement and leaves the transaction open, so the
+// caller's rollback is the thing under test rather than the failure itself.
+//
+// An error event is what the two discard reports are written as, and nothing else
+// in these tests writes one, which is what makes the injection specific enough to
+// prove the report is inside the transaction that did the discarding.
+func failErrorEventWrites(t *testing.T, s *Store) {
+	t.Helper()
+	if _, err := s.DB().ExecContext(context.Background(), `
+		CREATE TRIGGER injected_error_event_failure BEFORE INSERT ON events
+		WHEN NEW.type = 'error'
+		BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpenAndMigrate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kin.db")

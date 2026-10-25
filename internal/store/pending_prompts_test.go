@@ -263,6 +263,39 @@ func TestClearingAQueueReportsWhatItDiscarded(t *testing.T) {
 	}
 }
 
+// The delete and its report are one transaction, and this is the test that says
+// so: when the report cannot be written, the messages stay where they were. The
+// alternative -- a queue gone with nothing in the transcript saying so -- is the
+// exact state the report exists to prevent, and a process that dies between two
+// writes reaches it just as surely as a failed insert does.
+func TestAFailedDiscardReportLeavesTheQueueAlone(t *testing.T) {
+	ctx := context.Background()
+	s := openQueueStore(t)
+	insertQueueTask(t, s, "task-keep")
+	if _, err := s.AppendPendingPrompt(ctx, PendingPrompt{TaskID: "task-keep", Prompt: "still mine"}); err != nil {
+		t.Fatal(err)
+	}
+	failErrorEventWrites(t, s)
+
+	if report, err := s.DiscardPendingPrompts(ctx, "task-keep"); err == nil {
+		t.Fatalf("the discard succeeded (%+v) while its report could not be written", report)
+	}
+	left, err := s.ListPendingPrompts(ctx, "task-keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 {
+		t.Fatalf("the message went without a report: %+v", left)
+	}
+	events, err := s.ListEvents(ctx, "task-keep", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("an event survived a rolled-back discard: %+v", events)
+	}
+}
+
 func TestAnEmptyMessageIsNotQueued(t *testing.T) {
 	ctx := context.Background()
 	s := openQueueStore(t)
