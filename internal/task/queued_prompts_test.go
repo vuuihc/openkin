@@ -988,7 +988,7 @@ func TestACancelThatWinsTheRaceIsNotUndoneByTheDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, ok, err := e.deliverQueuedPrompt(ctx, task.ID, respectCancel); !ok {
+	if _, ok, err := e.deliverQueuedPrompt(ctx, task.ID); !ok {
 		t.Fatal("nothing was waiting: the setup is wrong, not the guard")
 	} else if !errors.Is(err, store.ErrTaskCanceled) {
 		t.Fatalf("delivery into a canceled task = %v, want store.ErrTaskCanceled", err)
@@ -1018,7 +1018,7 @@ func TestACancelThatWinsTheRaceIsNotUndoneByTheDelivery(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	revived, ok, err := e.deliverQueuedPrompt(ctx, task.ID, reviveCanceled)
+	revived, ok, err := e.deliverQueuedPromptReviving(ctx, task.ID)
 	if err != nil || !ok {
 		t.Fatalf("the user's own follow-up to a canceled task = ok %v, err %v, want it delivered", ok, err)
 	}
@@ -1109,7 +1109,7 @@ func TestARefusedDeliveryIsReportedAfterTheCancelClearedTheRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, ok, err := e.deliverQueuedPrompt(ctx, task.ID, respectCancel)
+	_, ok, err := e.deliverQueuedPrompt(ctx, task.ID)
 	if !ok || !errors.Is(err, store.ErrTaskCanceled) {
 		t.Fatalf("delivery into a canceled task = ok %v, err %v, want a refusal", ok, err)
 	}
@@ -1138,4 +1138,190 @@ func TestARefusedDeliveryIsReportedAfterTheCancelClearedTheRun(t *testing.T) {
 		}
 	}
 	t.Fatal("the refused delivery left no report in the transcript saying which message went unanswered")
+}
+
+// An interrupt is a delivery, and a delivery does not get to revive a task the user
+// canceled. The interrupt reads the task as alive and parks its message before it
+// writes, so a cancel that lands in that window is the last word -- and the message
+// it drops is named in the transcript.
+//
+// The state this drives is the one the race leaves behind: the task is neither in
+// the start queue nor holding a handle, which is what the interrupt finds when the
+// cancel got there first.
+func TestAnInterruptCannotReviveATaskTheUserCanceled(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: liveRunEvents(), runFor: 30 * time.Second}
+	e, st := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	// The sender's read of the row, taken while the task still looked alive: this is
+	// the value the interrupt acts on.
+	live, err := e.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 2*time.Second)
+
+	_, err = e.interruptAndFollowUp(ctx, task.ID, live, FollowUpRequest{Prompt: "and the tests too"})
+	if !errors.Is(err, store.ErrTaskCanceled) {
+		t.Fatalf("an interrupt into a canceled task = %v, want store.ErrTaskCanceled", err)
+	}
+	if !strings.Contains(err.Error(), `"and the tests too"`) {
+		t.Fatalf("the refusal does not name the message it dropped: %v", err)
+	}
+	if got, err := e.Get(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	} else if got.Status != StatusCanceled {
+		t.Fatalf("status after the refused interrupt = %s, want %s", got.Status, StatusCanceled)
+	}
+	e.mu.Lock()
+	queued := len(e.queue)
+	e.mu.Unlock()
+	if queued != 0 {
+		t.Fatalf("the start queue holds %d task(s) after the refused interrupt, want none", queued)
+	}
+	if n := reportsNaming(t, st, task.ID, 0, `"and the tests too"`); n == 0 {
+		t.Fatal("the dropped interrupt left no report in the transcript saying which message went unanswered")
+	}
+}
+
+// The other interrupt site: the task was still waiting to start, so the interrupt
+// takes it out of the start queue and re-queues it with the new message. A cancel
+// that wrote the row while the interrupt was between its unlock and its write must
+// not be written over by it.
+//
+// The cancel is written through the store rather than through Cancel because that
+// is what the race looks like from this side -- the row says canceled and the
+// interrupt has already read the start queue. Cancel would also take the task out
+// of that queue, which is the one thing this branch is allowed to race on.
+func TestAnInterruptOfAWaitingTaskCannotReviveACanceledRow(t *testing.T) {
+	ctx := context.Background()
+	// One at a time, so the second task waits in the start queue instead of running.
+	ad := &fakeAdapter{events: liveRunEvents(), runFor: 30 * time.Second}
+	e, st := testEngine(t, 1, ad)
+	busy, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, busy.ID, StatusRunning, 2*time.Second)
+	waiting, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, waiting.ID, StatusQueued, 2*time.Second)
+	e.mu.Lock()
+	inStartQueue := false
+	for _, qid := range e.queue {
+		inStartQueue = inStartQueue || qid == waiting.ID
+	}
+	e.mu.Unlock()
+	if !inStartQueue {
+		t.Fatal("the second task never reached the start queue, so this test is not driving the branch it names")
+	}
+
+	canceled := StatusCanceled
+	if err := st.UpdateTask(ctx, waiting.ID, store.TaskPatch{Status: &canceled}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = e.interruptAndFollowUp(ctx, waiting.ID, waiting, FollowUpRequest{Prompt: "answer this instead"})
+	if !errors.Is(err, store.ErrTaskCanceled) {
+		t.Fatalf("an interrupt of a task canceled behind it = %v, want store.ErrTaskCanceled", err)
+	}
+	if !strings.Contains(err.Error(), `"answer this instead"`) {
+		t.Fatalf("the refusal does not name the message it dropped: %v", err)
+	}
+	if got, err := e.Get(ctx, waiting.ID); err != nil {
+		t.Fatal(err)
+	} else if got.Status != StatusCanceled {
+		t.Fatalf("status after the refused interrupt = %s, want the cancel to stand", got.Status)
+	}
+	e.mu.Lock()
+	requeued := false
+	for _, qid := range e.queue {
+		requeued = requeued || qid == waiting.ID
+	}
+	e.mu.Unlock()
+	if requeued {
+		t.Fatal("the refused interrupt left the canceled task in the start queue, so a turn would run for it")
+	}
+	if n := reportsNaming(t, st, waiting.ID, 0, `"answer this instead"`); n == 0 {
+		t.Fatal("the dropped interrupt left no report in the transcript saying which message went unanswered")
+	}
+}
+
+// A cancel that lands between an interrupt and the end of the turn it cut short
+// deletes the parked follow-up, and the message it deletes has been in the
+// transcript since the interrupt. Deleting it is what stops it from being
+// delivered, so the cancel is the last thing that can say it will not be answered.
+//
+// The run has to outlive the kill for this to be the state under test, which is why
+// this uses an adapter whose Cancel does nothing: with a handle that dies at once,
+// the turn ends inside the interrupt and takes the parked message with it -- that
+// delivery is the other test's subject, not this one.
+func TestACancelSaysWhatItDidToTheInterruptItDropped(t *testing.T) {
+	ctx := context.Background()
+	ad := &overlappingRunAdapter{firstRelease: make(chan struct{}), firstResult: make(chan struct{})}
+	e, st := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	// Let the run start producing, then hold its result: the turn is in flight and
+	// stays that way, which is the window the interrupt parks in.
+	close(ad.firstRelease)
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{Prompt: "and the tests too", Interrupt: true}); err != nil {
+		t.Fatal(err)
+	}
+	e.mu.Lock()
+	_, parked := e.pendingFollowUp[task.ID]
+	e.mu.Unlock()
+	if !parked {
+		t.Fatal("the interrupt did not park its follow-up, so this test is not driving what it claims")
+	}
+
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 2*time.Second)
+	if n := reportsNaming(t, st, task.ID, 0, `"and the tests too"`); n == 0 {
+		t.Fatal("the cancel dropped the parked interrupt without saying which message went unanswered")
+	}
+}
+
+// liveRunEvents is a run whose stream never retires it: the fake emits these and
+// then holds its channel open for runFor, so the turn is still in flight for as
+// long as a test needs. successEvents ends in `result`, which ends the run -- the
+// difference is what every test below needs a live handle for.
+func liveRunEvents() []adapter.Event { return successEvents()[:2] }
+
+// reportsNaming counts the transcript's error events that name a message, which is
+// how every dropped delivery is told to the user.
+func reportsNaming(t *testing.T, st *store.Store, taskID string, sinceSeq int, needle string) int {
+	t.Helper()
+	events, err := st.ListEvents(context.Background(), taskID, sinceSeq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, ev := range events {
+		if ev.Type != "error" {
+			continue
+		}
+		var m map[string]string
+		if err := json.Unmarshal(ev.Payload, &m); err != nil {
+			continue
+		}
+		if strings.Contains(m["message"], needle) {
+			n++
+		}
+	}
+	return n
 }

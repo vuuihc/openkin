@@ -1820,8 +1820,20 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	}
 	h := e.handles[id]
 	group := e.handleGroups[id]
+	// A parked follow-up is a message the interrupt already wrote into the
+	// transcript, so deleting it here is the moment it stops having a deliverer --
+	// and the delete has to happen in this critical section, or the run loop could
+	// take the parked value and deliver it after the cancel. What the cancel owes
+	// in return is the sentence saying so; taken out of the map here and reported
+	// just below, outside the lock, because a report publishes to the bus.
+	dropped, hadDropped := e.pendingFollowUp[id]
 	delete(e.pendingFollowUp, id) // pure cancel must not re-queue a steerable follow-up
 	e.mu.Unlock()
+
+	if hadDropped {
+		e.reportUndelivered(ctx, id, fmt.Errorf("the follow-up %s could not be delivered: %w",
+			messageLabel(dropped.req.Prompt), store.ErrTaskCanceled))
+	}
 
 	if h != nil || len(group) > 0 {
 		if h != nil {
@@ -2661,7 +2673,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	// there first (store.UpdateTaskUnlessCanceled), so the claim a new turn starts
 	// with sees `canceled` and refuses to run it.
 	if workspaceErr == nil && !wasCanceled {
-		if _, ok, err := e.deliverQueuedPrompt(ctx, id, respectCancel); err != nil {
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
 			// err before ok: a failed attempt is not an empty queue, and treating it
 			// as one is how a message the user can see stops being delivered without
 			// anything saying so. The report goes to the store directly rather than

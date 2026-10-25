@@ -747,12 +747,15 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 	// A prompt queued during this turn is delivered now, the same way the adapter
 	// loop delivers one: an orchestrated turn ends just as much at a turn boundary.
 	if workspaceErr == nil {
-		if _, ok, err := e.deliverQueuedPrompt(ctx, id, respectCancel); err != nil {
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
 			// err before ok: a failed attempt is not an empty queue (see
 			// deliverQueuedPrompt), and this is the only place that would say so.
 			// The error already names the message it lost; a prefix here would
-			// say it twice.
-			e.emitError(ctx, id, executionID, err.Error())
+			// say it twice. Store-direct for the same reason as the adapter loop's
+			// twin (engine.go): the cancel that refused the write also cleared the
+			// active-run entry, so a run-scoped report would be dropped by the one
+			// reader waiting for it.
+			e.reportUndelivered(ctx, id, err)
 			_, _ = e.finishRun(ctx, id, executionID, e.endStatusForDelivery(err), nil, nil)
 			e.pump()
 			return
