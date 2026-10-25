@@ -32,14 +32,17 @@
 先做 UI 必返工，所以它们排进 S1（数据面切片，无 UI）：
 
 - **subagent 活动**：事件在源头被标成 `VisibilityTaskOnly()`
-  （`internal/task/orchestrate.go:1041-1058` → `internal/task/event_meta.go:56-58`），
+  （`internal/task/orchestrate.go:1016,1072` → 两处调用在 `:1024`/`:1075` →
+  `internal/task/event_meta.go:43-45`），
   控制台再按 `visibility.user` 丢掉（`ui/src/components/chat/transcriptProjection.ts:461-465,491-493`）。
   属性字段 `execution` 已经解出来没人用（`ui/src/components/chat/eventMeta.ts:161-171`）。
   今天订阅方式是 250ms REST 轮询 `GET /api/tasks/{id}/workers`：只有终态、没有工具细节。
 
   **S1b 核过之后这条要改口**：数据不是没有，是没人说清哪块面料归谁。见 §3.6。
-  端点名也写错了，是 `GET /api/tasks/{id}/worker-steps`（`internal/api/worker_steps.go:13`），
-  而且它只服务**计划表**，不是活动。
+  这一行的**路径**一开始写对了（`/workers`），中途被「订正」成 `worker-steps` 是错的：
+  路由就是 `GET /api/tasks/{id}/workers`（`internal/api/api.go:360`，handler 叫
+  `handleListWorkerSteps`，在 `internal/api/worker_steps.go`）——`worker-steps` 是 handler
+  与表的名字，不是 URL。而且它只服务**计划表**，不是活动。
 - **逐轮 diff 的锚**：投影里 `ToolStep`/`NoteStep`/`ProgressItem` 没有 `seq`
   （`transcriptProjection.ts:7-37`），只有 message 有；`groupIntoTurns`
   （`:792-824`）不给轮边界。所以「这一轮的 diff」今天**算不出来**。
@@ -140,8 +143,9 @@ API 形状：`FollowUpRequest`（`internal/task/engine.go:94-99`：`prompt` / `a
 
 ### 3.5 宽度不是一条轴；先分家族，再定名（S7 订正了家族数）
 
-P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还是字面量」。
-**清点之后这个数字要改**——`src/` 里有 **28 个文件**含任意值宽度工具类，
+P1 留给 P2 的活，原话是「容器宽度另有 5 个值（`600`/`640`/`760`/`920`/`1100`）没有名字，
+是 P2 的活」（`docs/plans/2026-10-24-p1-design-system.md:403`）。
+**清点之后这个数字要改**——`src/` 里有 **28 个文件**含任意值宽度工具类（56 处），
 而它们不是一条轴（`grep -rnoE "(max-w|min-w|w|basis)-\[[^]]*px\]" src`）：
 
 | 家族 | 值 | 是什么 | 现状 |
@@ -211,7 +215,7 @@ P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还
 | 事实 | 从哪来 | 为什么不是另一个 |
 |---|---|---|
 | 某个 worker **正在干什么**（工具调用与结果） | 现有 SSE `GET /api/events`：worker 事件本来就在这条流上，本来就在客户端按 seq 合并、有断档补齐（`?since_seq=`），服务端**不过滤** visibility（`handleListEvents` → `Engine.Events` 原样返回） | `worker-steps` 表里**没有**工具细节 |
-| 每个 worker 被**要求**做什么（`role`/`depends_on`/`access`/`step_index`/`attempt`/`result_summary`） | `GET /api/tasks/{id}/worker-steps`（250ms 轮询保留，但它只服务这张表） | 事件流里**没有** `depends_on`/`access` |
+| 每个 worker 被**要求**做什么（`role`/`depends_on`/`access`/`step_index`/`attempt`/`result_summary`） | `GET /api/tasks/{id}/workers`（250ms 轮询保留，但它只服务这张表） | 事件流里**没有** `depends_on`/`access` |
 
 **连接键**：事件 `execution_id` + `execution_step` ↔ 行 `execution_id` + `step_index`
 （`applyExecutionMeta`，`orchestrate.go:1110`；表的 PK `(task_id, execution_id, step_index)`，
@@ -247,12 +251,12 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 **不要**把它拉进聊天（`Markdown.tsx:26-38` 的围栏今天是纯文本）。
 选一个轻量高亮器，**体积要量出来**并写进证据。
 
-**落地（S8，`2c6af75`）。** 选的是 **highlight.js**：core 加 24 个手挑语法，藏在
+**落地（S8，`2c6af75`）。** 选的是 **highlight.js**：core 加 23 个手挑语法，藏在
 **一个**动态 import 后面（`CodeBlock.tsx` 的单例，与 Mermaid 同形）。量出来的数：
 
 | | 原始 | gzip |
 |---|---|---|
-| `codeHighlight-*.js`（core + 24 个语法，懒加载） | 107.33 kB | **35.17 kB** |
+| `codeHighlight-*.js`（core + 23 个语法，懒加载） | 107.33 kB | **35.17 kB** |
 | 入口 chunk 的增量（`CodeBlock` 的接线） | +0.41 kB | +0.13 kB |
 | 对照：Monaco 的 `CodeViewer-*.js`（工作区编辑器） | 3,359.22 kB | 865.01 kB |
 
@@ -271,7 +275,7 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 - **chunk 对任何带标签的围栏都加载**，包括我们不认识的标签。替代方案是在**入口**
   chunk 里再放一张语言名表来提前判断「值不值得加载」，而那张表是各语法自己已经声明的
   `aliases` 的副本——就是「颜色词表从 config 读」要避免的那种重复。名字表会漂移，
-  45KB 只取一次不会。
+  35.17 kB（gzip）只取一次不会。
 
 **颜色表在 `design/syntax.css`，而其中一条是量出来的、看起来更「对」的那个赋值是错的。**
 围栏不是画在表面上，是画在 `--kin-fill` 上：深色 scheme 下 6% 白盖过 `--kin-elevated`
@@ -316,7 +320,8 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 **落地时的两处订正**：
 
 - 表里的 `summary` 那一档**不成立**。`phase: "summary"` 的消息不是 note：它是 process run
-  的定稿消息、`mergeProcessRun` 找的那个锚点（`transcriptProjection.ts:847`），
+  的定稿消息、`mergeProcessRun` 找的那个锚点（`transcriptProjection.ts:918`，形状查找在
+  `:924-926`），
   所以没有任何 note 会带 `source: "summary"`。来源因此只有三档：`reasoning` / `plan` / `note`，
   行标签也只对应三个 key（`thinking` / `plan` / `note`）。
 - 归属**不能只比字符串**。夹具第一版就把 host 自己的 note 画成了「Kin · claude-sonnet-5-5」：
@@ -345,8 +350,10 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
   不吐 seq 区间，而 `ToolStep`/`NoteStep`/`ProgressItem` 里没有 `seq`
   （`:7-37`）——这两处就是 S1c 的全部改动面，**不需要** turn-diff store。
 
-  必须写明的边界：这两个函数只认**文件类工具**（`EDIT_TOOLS` 那个集合，
-  `changedFiles.ts:100-108`），走 shell 改的文件（`sed -i`、`git apply`）
+  必须写明的边界：这两个函数只认**文件类工具**（判据是 `actionForTool`，
+  `changedFiles.ts:171-199`：按名字家族先判删除、再判编辑家族、再判写家族；
+  `EDIT_TOOLS` 那个集合在 `aa40a38` 已经不存在，只剩 `READ_TOOLS` `:93`），
+  走 shell 改的文件（`sed -i`、`git apply`）
   看不见。所以证据卡是"这一轮**通过文件工具**改了什么"，**不是**工作区的
   权威 diff——权威视图仍是工作区/PR 面板。这条要写在卡片的措辞里，
   别让用户以为它是全量。
@@ -424,6 +431,11 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 - **宽度轴**：定名后进 `eslint-rules`（现在故意不含它）。
 - **审批锚点**：`focusIdx` 按 seq 之后，「键盘位置 == 可见位置」是可测的纯函数。
 - 删掉的死面加一条**反向守卫**：`Transcript.tsx` 不再存在、三个 i18n key 不再悬空。
+  **没落地**（P2 复审 N7 复核）：`Transcript.tsx` 确实已删、三个 key 确实没有引用者，
+  但那是**一次核对**，没有任何测试或脚本在断言它；`locales.test.ts` 只查两份语言文件的
+  键集一致与空白，不查「某个 key 还有没有人用」。真正的守卫是 P3 计划里的源码级检查
+  （`docs/plans/2026-10-25-p3-shell.md` §4；那份计划开在 `feat/p3-shell` 分支上，
+  还没并进 `main`），届时一并覆盖。
 
 ## 6. 验证方法
 
@@ -468,7 +480,7 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 
 | 输入 | `extractChangedFiles` 按区间切流后 | 依据 |
 |---|---|---|
-| 文件类工具（`EDIT_TOOLS`：`edit`/`write`/`str_replace`…） | ✅ 路径 + 动作 + 行数增量 | 「slices the stream into exactly the turn's own file changes」 |
+| 文件类工具（`actionForTool` 认出的写/改/删家族：`edit`/`write`/`str_replace`…） | ✅ 路径 + 动作 + 行数增量 | 「slices the stream into exactly the turn's own file changes」 |
 | **subagent/worker 的文件工具**（`visibility.user=false`，聊天栏里根本看不到） | ✅ 事件在流上，抽取器不看 visibility；这一条正是**区间**（而不是可见 item）才是正确边界的证明 | 「reaches work the chat column never showed」 |
 | shell 改的文件（`sed -i`、`git apply`） | ❌ 只认文件类工具，`Bash` 的 `command` 不是路径 | 「cannot see a file a shell command wrote, which is why the card says so」 |
 | 一轮里没有任何带 seq 的 item（纯 partial 流） | ❌ 没有区间可用，卡片应当**不出现**而不是瞎猜 | 「leaves a turn with no range…」 |
@@ -529,7 +541,7 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 | 「谁需要署名」这条规则**没有单测能替截图作证的部分** | `noteNeedsAttribution` 有 1 条测试钉住四个名字（自己的名字、`kin`、`orchestrator`、别的 agent），但「这张卡上画了什么」仍然只有截图。第一版就是测试全绿而画错的——记在这里，别把它当成已覆盖 |
 | 原位审批卡在窄屏比「兜底位置」窄 38px（320 vs 358） | 有意的：卡片留在 agent 那一列里（拆轮会多画一个头像），实测卡本身不溢出（320=320，按钮 70–358），只有 JSON 预览横向滚动（586>286）。两处宽度不同、两处都只画一次 |
 | 一轮**从没被回答**时（第一问只落了过程记录），第二问并进同一轮，证据卡于是画在第二问下面、报的是两问的合集 | 有意的（§6.2 的合并规则 + 其末的 S5 补记）：这是投影认定的「同一件工作」，拆成两张卡才是无中生有的边界。由「draws a round's card under the turn that answered it」钉住，并在夹具上定点截图确认过读起来不歧义 |
-| 文件动作的**归类**（写/改/删）此前没有测试，于是 `Edit` 一直被当成 `write` | **已修**（`aa40a38`）：`WRITE_TOOLS` 一个集合装着两个家族又被先判，`edit` 分支对集合里的每个名字都不可达——工作区列表、改动条、审查卡因此把每一次编辑都标成「写」（连颜色和排序权重一起错）。改成先判编辑家族，并补上分类表测试（把旧顺序放回去，全仓只有这一条测试变红）。**教训**：这是上一行那类缺口在纯函数层的版本——标签错了，而没有任何测试在问标签 |
+| 文件动作的**归类**（写/改/删）此前没有测试，于是 `Edit` 一直被当成 `write` | **已修**（`aa40a38`）：原来有一个 `WRITE_TOOLS` 集合装着「写」和「改」两个家族又被先判，于是 `edit` 分支对集合里的每个名字都不可达——工作区列表、改动条、审查卡因此把每一次编辑都标成「写」（连颜色和排序权重一起错）。改成先判编辑家族，**那个集合随之删除**（今天只剩 `changedFiles.ts:93` 的 `READ_TOOLS`，写/改/删三家的判断都在 `actionForTool` 里按名字逐个问，没有集合了），并补上分类表测试（把旧顺序放回去，全仓只有这一条测试变红）。**教训**：这是上一行那类缺口在纯函数层的版本——标签错了，而没有任何测试在问标签 |
 | 面板**长出了实时内容，位置却还在一段会自己滚到底的滚动区顶端** | S6 让面板开始显示「正在干什么」，而它和聊天共用一个 `overflow-y-auto` 容器，容器在有新事件时 `scrollToBottom`——于是任务跑起来的那一刻，最该看的那块正好在屏幕上方外面。**没有在本片顺手挪位置**：位置是 P1/P2 定下的（计划在读之前、在它所解释的消息之前），挪它要重新想「一轮的产出属于谁」，不该夹在 S6 里做。手机 dogfood 正是回答这个的地方，记在这里 |
 | 「提问事件落在哪一栏」这条渲染连线**没有测试** | 按 §6.1 没有 DOM 环境，抽不出纯函数（投影那一半有测试：锚点、seq、只画一次）。守卫就是 §6 的定点截图——这条 bug 正是它抓到的，所以不假装用单测盖住。**S5 同理**：证据卡的**位置规则**（`roundEvidenceByTurn`）现在有测试，但「卡片真的画出来了、画成了什么样」仍然只有截图 |
 | S8 的**接线**（chunk 到了之后真的换成了上色那一支、不认识的标签真的退回纯文本那一支）没有单测 | 按 §6.1 没有 DOM 环境，而这片能抽的全抽了：标签解析、转义、tokenize 三条纯函数各有测试。剩下的是**条件渲染**，守卫仍与 S3/S5 同一条——定点截图，只是这次多用了 `$B js` 量计算色与**逐块数 span**，因为「上色了没有」是一个能数出来的事实，比看图更硬。**教训沿用 S3 的**：纯函数全绿不等于那一支会被走到 |
@@ -537,16 +549,20 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 | `TestRetiredRunCannotOverwriteRunningRetry` 偶发红（merge base 上 40 次红 3 次） | **已修**（`7bbc7d7`）：`persistRunEvent` 让事件写持着引擎锁，于是 `Cancel` 排在它后面；而假 run 的终局事件原本紧跟在被放行的写之后，run 自己的完成若先拿到锁，任务就已 `succeeded`，cancel 随即报「already terminal」。改成假 run 把终局事件**握在测试手里**，cancel 先落地成为构造性事实，终局事件改在 retry 已经在跑之后才到——这才是这个测试名字所指的危险。100 次全绿 |
 | `internal/adapter/droid` 的 `TestAdapterCancelAndProcessExit` 与 `internal/github` 的 `TestRunDoesNotWaitForAProcessThatOutlivesGH` 在全量跑时偶发红（单跑必绿） | **先于本片存在**，且都在 P2 从未碰过的包里（P2 的 diff 不含这两个包）：两条都是进程生命周期测试，对机器负载敏感（当时同时在跑别的构建）。记为**负载敏感的既有 flake**，不在本片修，也不当作本片的红 |
 | 引入 DOM 测试环境的诱惑 | 见 §6：先论证哪些断言抽不出来 |
-| `Cancel` 与「轮末投递」之间那个窄窗（复审 nit 6） | **只关了一半**（P2 复审 N4 订正）：`runLoop` 的投递条件补上的 `!wasCanceled` 读的是 **pop 之前**的那个标志，所以它治的是「turn 退出时取消已经记下」那一半——turn 已经决定不投了。**「cancel 落在 pop 与 apply 之间」仍然开着**：投递的 `UpdateTask(status=queued)` 只有 `WHERE id = ?`（没有状态谓词，`FinishTask` 才有），会盖掉刚提交的 `FinishTask(canceled)`。代价是**状态陈旧 + 一条消息没被答**，不是跑飞的 agent：下一次 run 起跑时的 cancel 检查立刻把它收掉，而那条消息仍在聊天里可见可重发。**没写测试**：靠 sleep 去撞只会得到一条会飘的测试；记在这里而不是假装盖住了 |
+| `Cancel` 与「轮末投递」之间那个窄窗（复审 nit 6，P2 复审的 blocker 正是它） | **两半都关上了**（P2 复审 N4 说只关了一半；前一版本 `281cd6e` 关的是第一半，剩下那半由第三轮复审的 `cec96dc` 关掉）。① 第一半：`runLoop` 的投递条件加 `!wasCanceled`，治「turn 退出时取消已经记下」。② 第二半（`cec96dc`，第三轮复审的 blocker）——**「cancel 落在读标志之后、写之前」**：写这一侧全部改成**谓词在语句里**的 `UpdateTaskUnlessCanceled`（`internal/store/store.go:921`），投递（`deliverQueuedPrompt` → `applyFollowUpPrepared`，`approvals.go:600`）、重启补投（`:627`）、被打断那一轮的延迟投递（`:788`，这条原先传的是 `reviveCanceled`，也就是**故意**允许把取消翻回来——复审的 blocker）、惰性提升（`engine.go:2710`）四处都是。**读一次标志再写**关不掉这个窗（取消不持有本 goroutine 会拿的那把锁），所以修法是谓词而不是第二次检查。③ 被拒的那条消息**要在聊天里说出来**：`reportUndelivered` 直写 store 而不是走 `emitError`，因为取消已经清掉 `activeRuns` 那一格，run 作用域的写会返回冲突——也就是说唯一一句「这条消息没被答」本来会被自己丢掉。**残余**：拒绝这件事由 `TestACancelRefusesTheInterruptsDeferredFollowUp`（拒绝 + 报错里点名那条消息 + 状态保持 canceled + 队列空）与 `TestARefusedDeliveryIsReportedAfterTheCancelClearedTheRun`（先证明 gated 写此刻确实返回冲突，再要求报告落地）各钉一半，但 `engine.go:2664`/`:2710` **那两行本身没有被测试驱动**，它们的正确性是靠「谓词在语句里」这个论证，不是靠一次红；惰性提升那一格连报告都没有（提升被拒就落到下面的状态重读，按取消收尾） |
 | `Cancel` 清队失败时错误被忽略（同一处） | 有意留着：清队失败只影响「丢了几条」的报数，不影响状态机；这条路径上的任何 `return err` 都会让「取消」这个动作本身失败，比少报一个数更糟 |
-| A2A 对端没有任何打断手段（复审 nit 8 的另一半） | MCP 那一半已补（`send_task_message` 声明 `interrupt` 并把「忙任务会排队」写进描述）。A2A 走 `Engine.FollowUp`（无 interrupt），**没改**：那是对外协议面，改它要另开一片并定语义。今天 A2A 对端发消息=排队等轮末 |
+| A2A 对端没有任何打断手段（复审 nit 8 的另一半） | **已补**（`1758995`，第三轮复审升为 major）：`followUpRequest` 加 `interrupt`（`internal/a2a/server.go:95`，`omitempty`），路由把 `task.FollowUpRequest{Prompt, Interrupt}` 交给引擎。**additive**：不带这个字段的对端拿到的还是排队，也就是它今天的行为；语义与 MCP 的 `send_task_message` 同一开关（字段注释里写明打断会拒掉待批审批并代答待回问题，因为那个进程要被杀）。`TestA2AFollowUpInterruptIsOptIn` 同时钉住两半：不带 = 任务仍跑着原来的 prompt，带 = 新消息成为那一轮（断言是**包含**不是相等——打断会给消息套一层交接前言，那是引擎的事） |
 | 重启后 `waiting_input` 任务上的提问已经「过期」 | **先于本片存在**：进程死了，等的那个 waiter 也没了，答上去也到不了模型（`AnswerUserQuestion` 只把状态推回 running，不重启 run）。本片只保证队列有投递者（消息会被回答）；「重启后提问怎么续」是 P3「审批/提问顶替输入框」那片的范围 |
+| 无 body 的删除原本报 **±0**，与另外两张脸说的「大小未知」互相矛盾 | **已修**（`1c1498e`）：`delete_file` 只带 `path` 时 `lineDeltaFromTool` 返回 `null`——`changedFiles.ts` 的契约是「payload 重建不出来的数**缺席**，不是 0」，工作区条对同一个文件本来就写「大小未知」，只有聊天卡把它读成「这个文件没改任何东西」。**行为变化要写在这里**：以前拿到 `{additions:0,deletions:0}` 的消费方现在拿到 `null`。新测试「a delete with no recorded body is unknown, not zero」同时钉两侧（无 body → `null`；带 body → `{0, 2}` 仍然照算） |
+| 打断键的意图**可能在一次被拒的发送上被留到下一次** | **已修**（`ccb50c5`）：`Composer` 原先在几个早退分支之后才读 `submitIntent.current`，于是一次上传失败/空输入之后，那枚 `interrupt` 还挂着，而下一次通常是普通回车——它会把这**一轮**剪短，顺带替用户拒掉这一轮正在等的审批、代答它正在等的问题。改成进函数就先读并立刻复位成 `"queue"`。同一批：打断键在 `busy/stopping/uploading` 期间 `disabled`（原先只有发送键灰着，打断键可点但点了没意义） |
+| 三处**只有渲染连线**的修（没有 DOM 测试可给） | 三处都是「值对了但画错了」，都属于 §6.1 那类抽不出纯函数的：① 改动卡与审批卡的截断提示把 `hidden`（被切掉的行数）当成总行数印出来（`RoundEvidenceCard` / `ApprovalCard`，改成 `preview.lines.length`，`67dbd45`）；② 面板里的工具调用窗口少算了自己的起点，6 次调用画 4 行时编号是 1-4（`WorkerTimeline` 改成 `hidden + idx + 1`，`def22e4`）；③ `Composer` 的意图复位（`ccb50c5`，见上一行）。守卫仍是 §6 的定点截图，不假装单测盖住 |
+| `internal/task` 有三个测试文件在 HEAD 上就是 **gofmt 不干净**的 | 先于本片存在（`kin_resume_test.go`、`orchestrate_summary_test.go`、`user_questions_test.go`，都是多余空行）。仓里没有 CI 在跑 `gofmt -l`，本批不去顺手重排别人的文件（AGENTS.md：不做 drive-by cleanup），记在这里以便哪天开 `gofmt -l` 门禁时知道会有 3 个既有命中 |
 
 ## 8. 进展
 
 | 片 | 提交 | 内容 | 证据 |
 |---|---|---|---|
-| S1a 存储 | `d590e87` | `task_pending_prompts` 有序列（表，不是任务行上的列）：尾插头取、`ON DELETE CASCADE`、`model`/`permission_mode` 可空（「没说」≠「说清空」）、`user_seq` 指向那条可见消息。**没有写者**，引擎那一半在下一提交 | 10 条 store 测试（顺序、逐条出队、空队非错误、重启还在、按任务隔离、删任务带走队列、清队报数、空消息不收、未知任务不收）。两条定点 red：列改 `NOT NULL`（「没说」与「清空」塌成一种 → 插入即报错）、`ORDER BY id ASC` 改 `DESC`（先出队变成后出队）。空库/满库两条迁移路各一条测试 |
+| S1a 存储 | `d590e87` | `task_pending_prompts` 有序列（表，不是任务行上的列）：尾插头取、`ON DELETE CASCADE`、`model`/`permission_mode` 可空（「没说」≠「说清空」）、`user_seq` 指向那条可见消息。**没有写者**，引擎那一半在下一提交 | **11 条 store 测试**（顺序、逐条出队后队空、可空设置「没说」≠「清空」、重启还在、按任务隔离、删任务带走队列、清队报数、空消息不收、未知任务不收这 9 条行为测试，加空库/满库两条迁移路各一条；`git show d590e87:internal/store/pending_prompts_test.go \| grep -c '^func Test'` = 11）。两句定点 red：列改 `NOT NULL`（「没说」与「清空」塌成一种 → 插入即报错）、`ORDER BY id ASC` 改 `DESC`（先出队变成后出队） |
 | S1a 引擎 | `317d18a` | 非终态 ⇒ 入队 + **立刻**写 user-guide 事件（否则手机上发完什么都不显示）；轮末投递，adapter 路径与 orchestrated 路径各一处，取队首、`interrupted=false`（保留会话续跑，不谎报「上一轮被打断」）；`Recover` 投递重启时孤儿任务留下的队列；`Cancel` 清队并报告条数；打断变成显式 `interrupt: true` | 4 条新测试：排队**不碰**那三步（审批仍 pending、提问仍未答、任务状态不变）、多条按序逐轮投递、重启不丢、取消即清且有报错事件。四条都按「删掉机制看它变红」验过——red 1 的报错正是 `pending approvals = []`，也就是今天这条路上待批审批被拒光的实证。5 条旧测试改成显式打断（它们本来就是打断路径的测试） |
 | S1a API | `0236670` | `interrupt` 进 `FollowUpRequest`（含 openapi 说明）；新增 `GET /api/tasks/{id}/prompts` 回答「哪些看得见的消息还没被回答」。**additive**：任务读、任务列表、prompt 响应形状都没变 | 3 条 API 测试：等待中的消息可见且有序（含 `user_seq`）、404/401、`interrupt` 在**线上**的行为差异（不带 = 任务仍 running，带 = 重新排队）。red：json tag 改成 `interrupts` 后第三条报错。`scripts/check-openapi.sh` 通过，生成的 TS 类型随同一提交更新 |
 | S1b | `07a06a2` | **决定片，引擎零改动**：结论与依据见 §3.6。`visibility.user` = 「属于 host 聊天栏」；worker 事件保持 `{user:false, task:true}`；面板的活动来自已在流上的 worker 工具事件，计划结构来自 `worker-steps`，连接键 `execution_id`+`execution_step`（**订正见 §3.6**：和 `step_index` 差 1，不是等值） | 两条守卫（都是补今天缺的那半）：① worker 的 message/tool_use/tool_result/raw_output **四种形状**都不得 `user:true`——Go 侧 1 条（4 个子用例）钉住盖章，console 侧 1 条钉住投影（`isUserFacingEvent` 被改成恒真即红）。② worker 叙述不得进入 host handoff，同时 orchestrator 的总结**必须**进得去（`summarizeEvent` 只认 message/error/result/raw_output，且跳过非 orchestrator 的 `visibility.user=false`）——Go 1 条，两条断言写在同一个测试里，好让「干脆全静音」这种修法也红。两条守卫都按删机制验红、按 sha256 逐字节还原 |
@@ -557,9 +573,10 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 | S3 控制台 | `9a845e7` | 审批卡不再一律贴在底部：`approval_requested`/`user_question_requested` 带上被问者的 id，投影把卡挂在**提问事件**上，流就画在那里；只有提问事件滚出已加载窗口时才回落到流尾，且两处**只有一处**会画（一个决定不会长出两套按钮）。`j`/`k` 按提问的 seq 走、无锚的排最后（光标落在看不见的地方比没有光标更糟）。输入框上方一条 bar 说明在等什么并能跳过去——这才是「不该靠打字才发现有待批」 | 4 条投影测试 + 5 条顺序测试（`needsYou.test.ts`）+ 既有测试保持绿。**行内卡片第一次拍就发现主路径不画**——补丁见上一行。定点截图见 §7（S2b 的 chip 与 S3 的卡都已逐张看过） |
 | S3 补丁 | `0a1be50` | 定点截图抓到 S3 在**主路径上是死的**：`groupIntoTurns` 把带 `pending` 的 meta 项折进它打断的那一轮（对的），但只有 `standalone` 轮拿得到 `pendingSlots`，于是「agent 先说一句、然后停下来问」这个最常见的形状里卡片被丢掉，屏幕上只剩「需要你的审批 ↓」这行字。修在渲染处（`AgentTurn` 也认这张卡），不改投影：拆轮会为一段连续回答多画一个头像。审批与提问两种都一样 | 390×844 / 1440×900 各两个定点（审批卡在原位、排队 chip 在第二条 user 气泡上）**逐张看过**，并实测卡片几何：卡 320px 不溢出、按钮 70–358、JSON 预览 `scrollWidth 586 > 286` 属设计内滚动。`vitest run` 58 文件 586 用例全绿、`tsc --noEmit` 0、`npm run build` 后 `web/dist/index.html` 随源码同一提交（入口 `index-D4qUdRy8.js`）。**这片的教训**：投影有测试而渲染连线没有（§6.1 无 DOM），所以「锚点算对了」与「卡片画出来了」是两件事，只有截图能证明后者 |
 | S4 活动分组 | `7b4fcc9` | 每个 note 带上**来源**（`NoteSource`：`reasoning`/`plan`/`note`），造 note 的那一刻从 `role` 与 canonical `phase` 读出——不猜文本；行标签按来源选（`chat.progress.thinking` / `chat.progress.plan` / 今天的 `chat.progress.note`）。`speaker`/`model` 只在**不是 host 自己的声音**时才画（`noteNeedsAttribution` → `isHostVoice`：`kin`/host/`orchestrator` 是同一列的三个名字）。三个悬空 key 结清 | 6 条新测试（来源表、标签映射 + 两个语言都能解析、流式与定稿同一来源、工具调用结束流式后来源还在、plan 事件与 plan 消息同档、worker 的话算叙述但保留 speaker）+ 归属规则 1 条。**4 处删机制验红**、全部 sha256 逐字节还原。定点截图 390×844 / 1440×900 四张（收起态「已收起 5 步」、展开态五行：计划 / 思考 / Read / 过程 / 过程+`Codex · gpt-5`）**逐张看过**——第一版就是靠它发现 host 自己的 note 被署了名 |
-| S1a/S1c 复审修复 | `b4e4faa` `2d8cadf` `0e52508` `7bbc7d7` `3729d41` | 复审的 4 个 major + nits 逐条落地：① 打断的 user-guide 事件在「发布 pendingFollowUp 项」**之前**写下并带锚（原来中间那一瞬别人读到的是 0＝「还没人写」，投递于是把用户的话写了第二遍）；② **丢弃报告与丢弃同事务**（retry 的 rewind 与 cancel 各一处：`DiscardEvent` / `DiscardPendingPrompts`），调用方只 publish——进程死在中间也不能「消息没了而记录里什么都不说」；③ worker 可见性守卫改成驱动 `forwardWorkerEvents`（原来只钉住 `stampWorker`，转发器改坏了守卫照样绿）；④ 「一轮」的契约落成可执行的 `roundsOf`，见 §6.2；nit：投递失败要**点名**那条消息（引号、单行、48 字截断）、`deliverQueuedAfterRestart` 的措辞、`wasCanceled` 的注释收窄 | **11 个机制逐个删掉验红**（全部 sha256 逐字节还原）：retry 报告改到提交之后写、cancel 报告改到提交之后写、重放路径不报告、投递错误不带名字、`userSeq` 归零（当场报 `user copies = 2, want 1`）、守卫只驱动 stamper、把一轮当划分… 新增 5 条 Go + 5 条 UI 测试。**订正（P2 复审 N1）**：这两条「报告改到提交之后写」当时**没有复现**——测试钉的是「有报告」，不是「报告与删除同事务」，所以那一格当时是读 diff 得出的结论而不是验过的红；现在由 `TestAFailedDiscardReportLeavesTheQueueAlone` 与 `TestAFailedRetryDiscardReportTakesTheRetryBack` 钉住（`18618e0`）。**这一片没有 `web/dist` 提交是对的**：`roundsOf` 目前还没有消费者（S5 才用），被 tree-shake 掉了，`npm run build` 产物与已提交的 `index.html` 逐字节相同（入口仍是 `index-B59owEAr.js`）。另修掉一条**先于本片存在**的 flake（见 §7） |
+| S1a/S1c 复审修复 | `b4e4faa` `2d8cadf` `0e52508` `7bbc7d7` `3729d41` | 复审的 4 个 major + nits 逐条落地：① 打断的 user-guide 事件在「发布 pendingFollowUp 项」**之前**写下并带锚（原来中间那一瞬别人读到的是 0＝「还没人写」，投递于是把用户的话写了第二遍）；② **丢弃报告与丢弃同事务**（retry 的 rewind 与 cancel 各一处：`DiscardEvent` / `DiscardPendingPrompts`），调用方只 publish——进程死在中间也不能「消息没了而记录里什么都不说」；③ worker 可见性守卫改成驱动 `forwardWorkerEvents`（原来只钉住 `stampWorker`，转发器改坏了守卫照样绿）；④ 「一轮」的契约落成可执行的 `roundsOf`，见 §6.2；nit：投递失败要**点名**那条消息（引号、单行、48 字截断）、`deliverQueuedAfterRestart` 的措辞、`wasCanceled` 的注释收窄 | **11 个机制逐个删掉验红**（全部 sha256 逐字节还原）：retry 报告改到提交之后写、cancel 报告改到提交之后写、重放路径不报告、投递错误不带名字、`userSeq` 归零（当场报 `user copies = 2, want 1`）、守卫只驱动 stamper、把一轮当划分… 新增 4 条 Go + 5 条 UI 测试（`git diff b4e4faa^..3729d41 -- '*.go' \| grep -c '^+func Test'` = 4，UI 侧 `it(` 5 条），另改写 2 条既有 Go 测试：③ 那条守卫从钉 `stampWorker` 改成驱动 `forwardWorkerEvents`，`TestRetiredRunCannotOverwriteRunningRetry` 改成把终局事件握在手里（两者都不新增函数，所以按 `func Test` 数不出来）。**订正（P2 复审 N1）**：这两条「报告改到提交之后写」当时**没有复现**——测试钉的是「有报告」，不是「报告与删除同事务」，所以那一格当时是读 diff 得出的结论而不是验过的红；现在由 `TestAFailedDiscardReportLeavesTheQueueAlone` 与 `TestAFailedRetryDiscardReportTakesTheRetryBack` 钉住（`18618e0`）。**这一片没有 `web/dist` 提交是对的**：`roundsOf` 目前还没有消费者（S5 才用），被 tree-shake 掉了，`npm run build` 产物与已提交的 `index.html` 逐字节相同（入口仍是 `index-B59owEAr.js`）。另修掉一条**先于本片存在**的 flake（见 §7） |
 | P2 复审 nit 批 | `67bd94f` `028e3ea` `95d532a` `18618e0` | 第二轮 `@claude`（同档）复审 S1c/S4 区间：**0 blocker / 0 major / 7 nit**，逐条处置——**N5**（这一轮的工作以错误收场时那一轮不闭合，下一次提问于是并进来）正好落在 S5 要用的 `roundsOf` 上，改掉 + 3 条测试，§6.2 的规则描述与条数同步；**N6** 投递失败的前缀说了两遍（`err` 自己已经点名了那条消息）；**N3/N4** 两条注释引了代码里不存在的检查（`cancelTask` 是先解锁再调 store；`UpdateTask` 的谓词只有 id），换成真的那个理由；**N1** 两条「报告改到提交之后写」当时**没复现**，补两条失败注入测试把同事务钉住；**N2** §7 那行改成「只有两种结果」；**N7** 是已披露的「渲染连线没有测试」，无需动作（§7 有行） | **3 个新 UI 测试各自被一处不同的变异弄红**（删掉规则 / 不做前瞻 / 用「含 error」代替「停在 error 上」），逐字节还原；**2 个新 store 测试**用触发器中止 `error` 事件写，把删除提前提交即变红，逐字节还原；`go test ./internal/store/... ./internal/task/...` 全绿、`tsc --noEmit` 0、`vitest run` 58 文件 596 用例全绿；`npm run build` 后 `web/dist/index.html` **未变**（`roundsOf` 仍被 tree-shake，入口还是 `index-C7chGWCf.js`），所以这一批没有 `web/dist` 提交 |
 | S5 逐轮 diff 证据卡 | `31b52a0` `aa40a38` `636d01a` | 一轮干了什么，现在在聊天里就能看到：卡片画在**这一轮结束的那个 turn** 下面，列出本轮**通过文件工具**改的文件、+/− 行数，点开某个文件看改动本身（有界、超出报数），并能跳到工作区。两条纯库担全部规则——`diffPreview`（裁掉两端未变的行、两侧共有的行留作上下文、整块有上限）与 `roundEvidence`（按区间读一轮的切片；没有区间或没有文件工具改动 ⇒ `null` ⇒ 不画）。卡片底部**常驻**一行小字说明它只是文件工具的账、权威差异在工作区/PR；**有意不嵌 Monaco**（尽力还原 + 并排编辑器 = 看起来和真 diff 一样权威，正是那行小字要防的）。顺手结清：`ApprovalCard.previewLines` 这个从没人用过的槽**接上**（审批写/改文件时直接画改动，而不是画 JSON），`Transcript.tsx` 删除，工作区两份 `DeltaInline`/动作标签合成 `changedFileFace` | `vitest run` **60 文件 617 用例**全绿、`tsc --noEmit` 0、prettier 逐文件过；**6 处删机制验红**（卡片挂到提问而不是回答上；缺区间时读全流；把编辑判成写；不裁两端未变的行；预览不设上限；文件列表不设上限），全部 sha256 逐字节还原（三条被改的库各自 `shasum -c` 通过）。定点截图 430×932 与 1280×900 **逐张看过**（含展开的逐文件 diff、审批卡的改动预览）。**顺带抓到一个先于本片存在的真 bug**：`Edit` 一直被标成「写」（见 §7 与 `aa40a38`）。`web/dist/index.html` 随源码同一提交——`roundsOf` 终于有了消费者，入口 chunk 从 `index-C7chGWCf.js` 变成 `index-BlRFnNu6.js` |
-| S7 容器宽度阶梯 | `47db3b1` `1d919cc` | 树里 54 个任意宽度工具类分布在 28 个文件，但能归到**容器**的只有 21 个（13 个文件）；其余是截断上限与控制件尺寸，按决定留在字面量里。这一片只给**容器**定名：页面栏（640/920/1100）、面板（右栏 300、命令面板 600）、浮层（菜单 240、弹出层 340、分发层 320）与**下限**（表格 980、正文里的表 240、单元格 160、浮层的 240/168）；截断上限（220/260/280、百分比、rem 值）与控制件尺寸（44/22/26/28px）**按决定留在字面量里**，界线写在 `tailwind.config.ts` 的 `width` 上。唯一进阶梯的文本上限是**路径**，因为它在两处被截断且两处必须一致（240→280）。五个值真的移动了，全是地板或天花板而不是度量：两个菜单的下限共用一个 168（148 与 200），AgentsPage 同列的两个单元格从 140/160 统一到 160，分发层桌面端上限 320 并入弹出层的 340。守卫**按步**：`eslint-rules` 拒「值已被某一步命名」的字面量（阶梯由 config 读入，与调色板同路，两种单位都认），`tokens.test.ts` 多一条 `min-w` 名字轴并让「不许写出已有名字的值」这条守卫**从 config 派生**而不是手列。**「居中栏」不是状态**：不动 `AppState`、不加语言键、不做用户可调宽度档位（理由见 §3.5） | `vitest run` **61 文件 637 用例**全绿、`tsc --noEmit` 0、`eslint .` 0 error（16 条既有 warning）、prettier 干净；**4 处删机制验红**（把 `max-w-page` 写回 `max-w-[920px]` → lint 与守卫同时红；同一宽度写成 `max-w-[57.5rem]` → 两条都红（单位换算这条路是真的）；`min-w-tabl` 拼错 → 名字轴红；把阶梯读成空 → lint **抛错**而不是放行），全部 sha256 逐字节还原。构建产物里 **14 个名字各自 emit 一次 CSS**（`min-w-popover` 只在 `sm:` 下，而这是它唯一的用法），这一步同时证明没有一步是白写的。浏览器实测（夹具，430×932 与 1280×900/1680×1000）：三个页面栏实测 640/920/1100 且居中（x=444 / 304 / 248）、表格 980 落在 `overflow-x-auto` 里、单元格 160、右栏（≥1600px）300、路径上限 280、侧栏排序菜单正好 168（截图看过）、分发层实测 240（内容撑到下限，天花板 340 根本没碰到）；**430px 下 8 条路由的 `documentElement.scrollWidth` 都等于 430**——窄屏不溢出这条验收句是量出来的，不是看出来的 |
+| S7 容器宽度阶梯 | `47db3b1` `1d919cc` | 树里 56 个任意宽度工具类分布在 28 个文件（口径见 §3.5 那条 `grep -rnoE "(max-w\|min-w\|w\|basis)-\[[^]]*px\]" src`，在 `47db3b1^` 上数是 56 处 / 28 文件），但能归到**容器**的只有 21 个（13 个文件）；其余是截断上限与控制件尺寸，按决定留在字面量里。这一片只给**容器**定名：页面栏（640/920/1100）、面板（右栏 300、命令面板 600）、浮层（菜单 240、弹出层 340、分发层 320）与**下限**（表格 980、正文里的表 240、单元格 160、浮层的 240/168）；截断上限（220/260/280、百分比、rem 值）与控制件尺寸（44/22/26/28px）**按决定留在字面量里**，界线写在 `tailwind.config.ts` 的 `width` 上。唯一进阶梯的文本上限是**路径**，因为它在两处被截断且两处必须一致（240→280）。五个值真的移动了，全是地板或天花板而不是度量：两个菜单的下限共用一个 168（148 与 200），AgentsPage 同列的两个单元格从 140/160 统一到 160，分发层桌面端上限 320 并入弹出层的 340。守卫**按步**：`eslint-rules` 拒「值已被某一步命名」的字面量（阶梯由 config 读入，与调色板同路，两种单位都认），`tokens.test.ts` 多一条 `min-w` 名字轴并让「不许写出已有名字的值」这条守卫**从 config 派生**而不是手列。**「居中栏」不是状态**：不动 `AppState`、不加语言键、不做用户可调宽度档位（理由见 §3.5） | `vitest run` **61 文件 637 用例**全绿、`tsc --noEmit` 0、`eslint .` 0 error（16 条既有 warning）、prettier 干净；**4 处删机制验红**（把 `max-w-page` 写回 `max-w-[920px]` → lint 与守卫同时红；同一宽度写成 `max-w-[57.5rem]` → 两条都红（单位换算这条路是真的）；`min-w-tabl` 拼错 → 名字轴红；把阶梯读成空 → lint **抛错**而不是放行），全部 sha256 逐字节还原。构建产物里 **14 个名字各自 emit 一次 CSS**（`min-w-popover` 只在 `sm:` 下，而这是它唯一的用法），这一步同时证明没有一步是白写的。浏览器实测（夹具，430×932 与 1280×900/1680×1000）：三个页面栏实测 640/920/1100 且居中（x=444 / 304 / 248）、表格 980 落在 `overflow-x-auto` 里、单元格 160、右栏（≥1600px）300、路径上限 280、侧栏排序菜单正好 168（截图看过）、分发层实测 240（内容撑到下限，天花板 340 根本没碰到）；**430px 下 8 条路由的 `documentElement.scrollWidth` 都等于 430**——窄屏不溢出这条验收句是量出来的，不是看出来的 |
 | S6 subagent 面板 | `4e324c1` `56d4ad6` | 每个 worker **正在干什么**，现在长在「它被要求做什么」下面：面板读它已经拿到的两份事实（计划表来自 `/workers` 轮询，工具调用来自同一条 SSE），按 `step_index === execution_step - 1` 归到行上；行的活动直接复用 host 进度框那张脸（`ToolStepRow` 从 `ChatStream` 原样抽出，两边同一个组件，展开就是输入/输出）。**只有还在跑的那一行默认展开**——面板的全部意义是回答「现在怎么了」，这件事不能藏在一次点击后面；已结束的行折成一行，所以跑完的计划还是原来那么高。**计划表里没有这一步时也画**（`unplanned`）：事件先到而轮询后到（首次轮询在 250ms 后），轮询失败则整轮都是空列表——这时候把有活动的步骤丢掉，等于在读者最需要它的时候把面板清空。顺手：`eventMeta.readExecution` 这个唯一解码入口导出 | `vitest run` **61 文件 630 用例**全绿、`tsc --noEmit` 0、`eslint .` 0 error、prettier 逐文件过；**5 处删机制验红**（步号偏移改成 0；不要求步号——host 事件于是并进来；丢掉无行的步骤；结果覆盖调用自己的 summary；上限改成留头部），全部 sha256 逐字节还原。定点截图 430×932 与 1280×900 **逐张看过**：live 行自动展开 + 「还有 1 次更早的调用未显示」、孤立步骤画成失败行、展开一次调用的输入/输出、host 进度框在抽取后仍正常（`HOSTONLYTOOL` 只出现在聊天栏、worker 的 7 次调用一次都没进去）。夹具（不进仓）加了第三个任务与 `/workers` |
-| S8 聊天内代码高亮 | `2c6af75` | 围栏不再是一块纯文本：`CodeBlock` 把 `pre>code` 原样搬出来（三态同一份 markup，所以 chunk 到达的那一帧不重排），颜色表在 `design/syntax.css`，语法与 core 藏在一个动态 import 后面（`codeHighlight.ts` 的单例，与 Mermaid 同形）。**量出来的数**：`codeHighlight-*.js` 107.33 kB / **gzip 35.17 kB**（24 个手挑语法），入口只涨 0.41 kB（314.38→314.51 gzip），Monaco 那个 3,359.22 kB 的 chunk 一动不动——比它替代掉的编辑器小 24.6 倍。三个决定：语言表**手挑**（自动识别要全量语法且答案是猜的）、**不认识的标签是 `null` 不是异常**（highlight.js 对未注册名字抛错，所以先问再调）、**chunk 对任何带标签的围栏都加载**（否则要在入口放一张各语法 `aliases` 的副本，正是从 config 读色表要避免的重复）。颜色是 **4 个色相 + 2 个中性色**：关键字走蓝、名字与数字走橙、字符串与 diff 新增行走绿、diff 删除行走红（红色只此一处）、要找的调用名走满墨；注释是 `--kin-secondary` + 斜体，**因为 `--kin-muted` 在围栏自绘的合成底色上只有 4.01:1**（裸表面 4.9:1，所以它到处合规、在这里不合规——这条是量出来的，不是挑出来的） | `vitest run` **62 文件 645 用例**全绿、`tsc --noEmit` 0、`eslint .` 0 error（16 条既有 warning）、prettier 干净；**4 处删机制验红**（注释改回 `--kin-muted` → 新守卫红且报出是哪个 ink 哪个表面；从 `GRAMMARS` 拿掉 `go` → 3 条红；`SPAN_ONLY` 收成 `/^[^<]*$/` → 4 条红，证明这道形状检查真的在拦真实输出；标签切分只按空白 → 标签那条红），全部 `cmp` 逐字节还原。构建产物里 `index-*.css` 含 **45 条 `.kin-code .hljs-*` 规则**（含 `color:var(--kin-secondary);font-style:italic`），`index.html` 指向新入口 `index-6oVOdiSG.js`。浏览器实测（夹具，1440×900 与 430×932）：7 个围栏逐个点数 span——go 26 / diff 5 / json 19 / bash 1 / **无标签 0** / **`brainfuck` 0** / html 8（退化是看得见的），计算色 `func`→`rgb(108,178,255)`、注释→`rgb(199,199,204)` + italic、字符串→`rgb(141,228,160)`、数字→`rgb(255,179,64)`、新增→绿、删除→`rgb(255,138,128)`、调用名→`rgb(245,245,247)`，底色实测 `rgba(255,255,255,0.06)`（正是守卫建模的那个合成），**装有 `<a onclick>`/`<script>`/`<img onerror>` 的 html 围栏产生 0 个 a、0 个 img**；430px 下 `scrollWidth == innerWidth == 430` 而 7 个代码块各自在 `overflow` 里滚 |
+| S8 聊天内代码高亮 | `2c6af75` | 围栏不再是一块纯文本：`CodeBlock` 把 `pre>code` 原样搬出来（三态同一份 markup，所以 chunk 到达的那一帧不重排），颜色表在 `design/syntax.css`，语法与 core 藏在一个动态 import 后面（`codeHighlight.ts` 的单例，与 Mermaid 同形）。**量出来的数**：`codeHighlight-*.js` 107.33 kB / **gzip 35.17 kB**（23 个手挑语法），入口只涨 **0.41 kB 原始**（vite 报 1,129.25→1,129.66 kB）／**+0.13 kB gzip**（vite 报 314.38→314.51 kB）——这一格原先把两个数并成「入口只涨 0.41 kB（314.38→314.51 gzip）」，把原始那一档挂到了 gzip 上；两对数本身没错（都是 vite 自己报的，见构建日志），错的是哪个数属于哪条流，**订正（P2 复审 N8）**，Monaco 那个 3,359.22 kB 的 chunk 一动不动——比它替代掉的编辑器小 24.6 倍。三个决定：语言表**手挑**（自动识别要全量语法且答案是猜的）、**不认识的标签是 `null` 不是异常**（highlight.js 对未注册名字抛错，所以先问再调）、**chunk 对任何带标签的围栏都加载**（否则要在入口放一张各语法 `aliases` 的副本，正是从 config 读色表要避免的重复）。颜色是 **4 个色相 + 2 个中性色**：关键字走蓝、名字与数字走橙、字符串与 diff 新增行走绿、diff 删除行走红（红色只此一处）、要找的调用名走满墨；注释是 `--kin-secondary` + 斜体，**因为 `--kin-muted` 在围栏自绘的合成底色上只有 4.01:1**（裸表面 4.9:1，所以它到处合规、在这里不合规——这条是量出来的，不是挑出来的） | `vitest run` **62 文件 645 用例**全绿、`tsc --noEmit` 0、`eslint .` 0 error（16 条既有 warning）、prettier 干净；**4 处删机制验红**（注释改回 `--kin-muted` → 新守卫红且报出是哪个 ink 哪个表面；从 `GRAMMARS` 拿掉 `go` → 3 条红；`SPAN_ONLY` 收成 `/^[^<]*$/` → 4 条红，证明这道形状检查真的在拦真实输出；标签切分只按空白 → 标签那条红），全部 `cmp` 逐字节还原。构建产物里 `index-*.css` 含 **45 条 `.kin-code .hljs-*` 规则**（含 `color:var(--kin-secondary);font-style:italic`），`index.html` 指向新入口 `index-6oVOdiSG.js`。浏览器实测（夹具，1440×900 与 430×932）：7 个围栏逐个点数 span——go 26 / diff 5 / json 19 / bash 1 / **无标签 0** / **`brainfuck` 0** / html 8（退化是看得见的），计算色 `func`→`rgb(108,178,255)`、注释→`rgb(199,199,204)` + italic、字符串→`rgb(141,228,160)`、数字→`rgb(255,179,64)`、新增→绿、删除→`rgb(255,138,128)`、调用名→`rgb(245,245,247)`，底色实测 `rgba(255,255,255,0.06)`（正是守卫建模的那个合成），**装有 `<a onclick>`/`<script>`/`<img onerror>` 的 html 围栏产生 0 个 a、0 个 img**；430px 下 `scrollWidth == innerWidth == 430` 而 7 个代码块各自在 `overflow` 里滚 |
+| P2 第三轮复审（blocker 批） | `cec96dc` `1758995` `ccb50c5` `67dbd45` `def22e4` `1c1498e` `e86cd53` | 第三轮 `@claude`（同档）对 S8 之后的全量 diff 复审，提了 **1 blocker + 4 major + 若干 nit**，逐条核过后**全部成立**，全部落地。**blocker**：`Cancel` 落在「被打断那一轮收尾」的窗口里会被那次延迟投递翻回来（`applyPendingFollowUp` 传的是 `reviveCanceled`，也就是**故意**允许取消被撤销）——两半现在都关上了，机制与残余写在 §7 那一行。**major** ①取消拒掉的那条消息**在聊天里不说**（run 作用域的写会被已清掉的 `activeRuns` 挡下，所以「这条没被答」这句唯一的交代本来会被自己丢掉 → `reportUndelivered` 直写 store）；②A2A 对端没有任何打断手段（REST 的 S1a API 与 MCP 的 `send_task_message` 都有 `interrupt`，只有 A2A 走的是不带它的 `Engine.FollowUp` → 补上，additive）；③三处 UI 把值画错了（截断提示印 `hidden` 而不是屏上的行数、工具窗口编号从 1 数而不是从窗口起点数、`Composer` 的打断意图可能在一次被拒的发送上留到下一次）。**顺手同族的两处**（复审没点名，改 blocker 时看到的）：被拒的 run 用 `endStatusForDelivery` 收尾而不是一律 `failed`，惰性提升那处写也换成带取消谓词的 `UpdateTaskUnlessCanceled` | **证据**：`go test ./internal/task/ ./internal/store/ ./internal/a2a/ ./internal/api/` 全绿（12.8s / 3.6s / 1.2s / 42.4s）、`go vet` 干净、改动过的 6 个 `.go` 文件 `gofmt -l` 空、`tsc --noEmit` 0、`vitest run` **62 文件 646 用例**全绿（原 645）、`eslint .` 0 error（16 条既有 warning）、prettier 干净、`npm run build` 复现同一入口 `index-WIi88Hsl.js`（1,129.65 kB / gzip 314.51 kB，与提交的 `index.html` 一致，`web/dist/assets/` 未提交）。**两处 Go 修按删机制验红**（`respectCancel` 改回 `reviveCanceled` → 新测试红且报出是哪个任务；把 store-direct 的报告换回 run 作用域的 `emitError` → 报告那条红，且**第一次变异是空转**：用空 execution id 时 `activeRuns[taskID]` 也是空，`"" != ""` 为假于是守卫放行——换成非空 id 才红，这条记下来因为它正是「测试可能为错的原因变绿」的样本），全部 `sha256` 逐字节还原。**复审留下的残余**见 §7 末几行（`engine.go:2664`/`:2710` 两行没被测试驱动、跨进程丢一条投递、两处负载敏感的既有 flake、3 个既有 gofmt 脏文件） |
