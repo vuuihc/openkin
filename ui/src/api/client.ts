@@ -1822,12 +1822,19 @@ export type AgentSessionHistoryItem = {
   text: string;
   occurred_at: number;
   source_rev: string;
+  /** text is the beginning of a longer message, cut by the length limit of the
+   *  machine that sent it — the rest of this message is not in this item. */
+  truncated?: boolean;
 };
 
 export type AgentSessionHistoryPage = {
   items: AgentSessionHistoryItem[];
   next_cursor?: string;
   source_rev?: string;
+  /** This page is not the whole rest of the transcript, and there is no cursor
+   *  to continue from: the machine that holds the session could not send more
+   *  than this in one answer. */
+  truncated?: boolean;
 };
 
 export type AgentSessionListPage = {
@@ -1893,28 +1900,56 @@ export type AgentSessionImportResult = {
   imported: number;
   providers: Record<string, number>;
   errors?: Record<string, string>;
+  /**
+   * A machine had more sessions than one import carries, so the list is not all
+   * of them. It is a separate field rather than an entry in `errors`: nothing
+   * failed, and a caller counting failures must not be told that something did.
+   */
+  truncated?: boolean;
 };
 
 let agentSessionImportTail: Promise<void> = Promise.resolve();
 const agentSessionImportInFlight = new Map<string, Promise<AgentSessionImportResult>>();
 
-export function importAgentSessions(agents?: string[]): Promise<AgentSessionImportResult> {
-  const key = agents?.length
-    ? [...agents]
-        .map((agent) => agent.trim())
-        .filter(Boolean)
-        .sort()
-        .join(",")
-    : "*";
+/**
+ * Import provider sessions, from this machine or from one this Hub can ask.
+ *
+ * `deviceId` names the machine whose sessions to read. Absent or "self" is the
+ * daemon serving this console, which is what every caller meant before the
+ * parameter existed; another machine's id makes the Hub ask that machine and
+ * land the rows under its id, so the session list can show a Mac's sessions on
+ * a phone.
+ *
+ * The two are one call rather than two because they are one question — "read
+ * the sessions on that machine and remember them" — and because the console
+ * reads one result shape either way.
+ */
+export function importAgentSessions(
+  agents?: string[],
+  deviceId?: string,
+): Promise<AgentSessionImportResult> {
+  const key =
+    (deviceId?.trim() || "*") +
+    "|" +
+    (agents?.length
+      ? [...agents]
+          .map((agent) => agent.trim())
+          .filter(Boolean)
+          .sort()
+          .join(",")
+      : "*");
   const existing = agentSessionImportInFlight.get(key);
   if (existing) {
     return existing;
   }
+  const body: { agents?: string[]; device_id?: string } = {};
+  if (agents?.length) body.agents = agents;
+  if (deviceId?.trim()) body.device_id = deviceId.trim();
   const promise = agentSessionImportTail.then(() =>
     apiFetch<AgentSessionImportResult>("/api/agent-sessions/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(agents?.length ? { agents } : {}),
+      body: JSON.stringify(body),
     }),
   );
   agentSessionImportInFlight.set(key, promise);

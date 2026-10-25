@@ -1126,16 +1126,22 @@ export interface components {
         };
         AgentSessionImportRequest: {
             agents?: string[];
+            /** @description How many sessions one provider may contribute. The default is the maximum, and an out-of-range value is clamped to the nearest bound rather than refused — this is a ceiling on one import, not a parameter a caller can be wrong about. */
             limit?: number;
+            /** @description The paired machine whose sessions to import. Omitted or this machine's own id imports this machine's catalogs; naming another machine asks it over its channel, and the rows are recorded under that machine because the session refs are namespaced by the machine that minted them. */
+            device_id?: string;
         };
         AgentSessionImportResponse: {
             imported: number;
             providers: {
                 [key: string]: number;
             };
+            /** @description Keyed by provider id, in the answering machine's own words. One provider that cannot be read does not stop the others from being imported. A console importing from several machines keys these by machine as well, because the same provider can fail on two of them for different reasons; this Hub does not, because every answer it returns here is one machine's. */
             errors?: {
                 [key: string]: string;
             };
+            /** @description A machine had more sessions than one import carries, so the rows indexed are the newest of them rather than all of them. Nothing failed: it is reported here rather than in errors so that a caller counting failures is not told that something did. Only a session listing read from another machine can set it — this machine's own scan has no way to tell "exactly this many" from "at most this many". */
+            truncated?: boolean;
         };
         AgentSessionAttachRequest: {
             task_id?: string;
@@ -1171,13 +1177,18 @@ export interface components {
             role: "user" | "assistant" | "tool";
             tool_name?: string;
             text: string;
+            /** @description When the message was recorded, in milliseconds since the Unix epoch. Zero means the provider does not record a time for it — a sentinel rather than a date, and the same one whether the session was read on this machine or on another one. */
             occurred_at: number;
             source_rev: string;
+            /** @description text is the beginning of a longer message: the machine that read the provider's record could not send all of it. The message looks finished either way, so a client that renders text without this has no way to tell a message that ended from one that was stopped. */
+            truncated?: boolean;
         };
         AgentSessionHistoryPage: {
             items: components["schemas"]["AgentSessionHistoryItem"][];
             next_cursor?: string;
             source_rev?: string;
+            /** @description This page is not the whole rest of the transcript, and there is no cursor to continue from: the machine holding the session could not send more than this in one answer. An empty next_cursor means both "the end" and "the machine stopped", and this is which one it is. Not an error — the page was read successfully and simply is not all of it. */
+            truncated?: boolean;
         };
         Settings: {
             "notify.bark_url": string;
@@ -2093,11 +2104,54 @@ export interface operations {
                     "application/json": components["schemas"]["AgentSessionImportResponse"];
                 };
             };
+            /** @description More agents than one import carries, or the named device_id is not a machine this Hub can reach — unknown, or revoked. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The named machine is paired but not connected, so there is nothing to ask. Every other machine's sessions are unaffected; a console that imports from several machines treats this as one failure among them. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine answered and this Hub could not read the answer. That is a disagreement between the two sides about the protocol, not anything the caller did. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine read the question and declined it — usually because it runs an older build that has never heard of it. Its own sentence is the response body. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This Hub has no channel to the machine it was told to ask, or it cannot read its own catalogs. Nothing was asked, so nothing was imported. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine was asked and did not answer in time. */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getAgentSessionHistory: {
         parameters: {
             query?: {
+                /** @description Opaque continuation from the previous page, at most 512 bytes — bytes rather than characters, because it is the bound the wire carries. A longer one is refused with 400 whichever machine holds the session, so the same transcript does not page one way here and another way through a paired machine. */
                 cursor?: string;
                 limit?: number;
             };
@@ -2118,6 +2172,13 @@ export interface operations {
                     "application/json": components["schemas"]["AgentSessionHistoryPage"];
                 };
             };
+            /** @description The limit is out of range, or the cursor is longer than one cursor may be (512 bytes). Both are checked the same way whether the session lives on this machine or on another one, so the same page is readable through either path. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Indexed session not found */
             404: {
                 headers: {
@@ -2125,8 +2186,36 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Provider history is not supported */
+            /** @description The session lives on a paired machine that is not connected, so there is nothing to ask. Only sessions read from another machine answer this. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine that holds the session answered and this Hub could not read the answer — a disagreement between the two sides about the protocol, not anything the caller did. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Provider history is not supported — by this machine's catalog, or by the machine holding the session, which declined the question (usually an older build that has never heard of it). */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The session lives on a paired machine and this Hub has no channel to it, or this Hub cannot read its own catalogs. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The machine was asked and did not answer in time. */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

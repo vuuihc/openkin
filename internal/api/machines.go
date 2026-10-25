@@ -37,6 +37,20 @@ var errNoAnswer = errors.New("the machine did not answer")
 // connection table, or nothing wired to keep track of the answers.
 var errNoMachineChannel = errors.New("this hub cannot ask machines questions")
 
+// errUnreadableAnswer means a machine answered and this Hub could not read what
+// it said — a shape the two sides disagree about, which is a bug here rather
+// than anything the caller did.
+var errUnreadableAnswer = errors.New("the machine's answer could not be read")
+
+// errMachineRefused means a machine read the question and declined it.
+//
+// It is its own sentinel because a refusal is not the caller's mistake, and the
+// likeliest reason for one is that this Hub is newer than the machine: a
+// question this side knows and that side has never heard of. Answering that
+// with a bad request blames the person for a version skew — and the skew is the
+// normal state of a Mac that has been updated and a NAS that has not.
+var errMachineRefused = errors.New("the machine declined to answer")
+
 // handleMachineDirs answers what directories are inside a path on one machine.
 //
 // {device} is a machine this Hub knows: its own id, the literal "self", or a
@@ -197,9 +211,20 @@ func (s *Server) askDeviceQuietly(ctx context.Context, device, method string, pa
 		return err
 	}
 	if result.Error != "" {
-		return errors.New(result.Error)
+		// The machine's own sentence is kept: it is the only thing that says
+		// which question it did not recognize, and a person reading it is
+		// usually looking at two versions of this daemon.
+		return fmt.Errorf("%w: %s", errMachineRefused, result.Error)
 	}
-	return result.Into(out)
+	if err := result.Into(out); err != nil {
+		// An answer that cannot be read is this Hub's bug, not the caller's, and
+		// it is wrapped as such: the quiet helper's caller has no status code to
+		// choose, so the reason has to carry its own kind — otherwise a version
+		// skew between this Hub and a machine is reported to a phone as a bad
+		// request, with a decoder's sentence as the explanation.
+		return fmt.Errorf("%w: decode the answer to %s: %v", errUnreadableAnswer, method, err)
+	}
+	return nil
 }
 
 // localDevice reports whether a device name means the daemon answering this
@@ -267,6 +292,16 @@ func writeMachineQueryError(w http.ResponseWriter, err error) {
 		// Nothing timed out: this Hub has no way to ask any machine at all. That
 		// is a service that is not up rather than a door that did not open.
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+	case errors.Is(err, errUnreadableAnswer):
+		// The machine answered and this Hub could not read it. The caller's
+		// request was fine, so telling them it was not sends them to fix
+		// something that is not broken.
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	case errors.Is(err, errMachineRefused):
+		// The machine read the question and declined it. Not implemented is the
+		// status for that, and it is the honest one for a version skew: the
+		// question is real, this machine's build is older than this Hub's.
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": err.Error()})
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}

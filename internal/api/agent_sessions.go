@@ -9,10 +9,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -45,6 +47,12 @@ type agentSessionHistoryResponse struct {
 	Items      []agentHistoryItem `json:"items"`
 	NextCursor string             `json:"next_cursor,omitempty"`
 	SourceRev  string             `json:"source_rev,omitempty"`
+	// Truncated says this page is not the whole rest of the transcript and
+	// following NextCursor will not get the rest: the machine that read it hit
+	// its own frame budget. Without it, a page that stopped early and a
+	// transcript that ended are the same answer, and the console draws the same
+	// short list for both.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type agentSessionAttachRequest struct {
@@ -53,6 +61,23 @@ type agentSessionAttachRequest struct {
 	Cwd            string `json:"cwd,omitempty"`
 	Title          string `json:"title,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
+}
+
+// agentSessionImportResponse is what one import did: how many rows it wrote,
+// how many per provider, and the providers that could not be read, in the
+// machine's own words.
+//
+// Both import paths answer with it — this machine's own scan and one asked of
+// another machine — because the console asks either one and reads one shape.
+type agentSessionImportResponse struct {
+	Imported  int               `json:"imported"`
+	Providers map[string]int    `json:"providers"`
+	Errors    map[string]string `json:"errors,omitempty"`
+	// Truncated reports that a machine had more sessions than one import
+	// carries. It is its own field and not an entry in Errors, because nothing
+	// went wrong: a caller counting failures would otherwise be told that
+	// something had, and would look for a provider to fix.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 type agentSessionAttachResponse struct {
@@ -70,6 +95,29 @@ type agentHistoryItem struct {
 	Text        string `json:"text"`
 	OccurredAt  int64  `json:"occurred_at"`
 	SourceRev   string `json:"source_rev"`
+	// Truncated says Text is the beginning of a longer message. It comes from
+	// whoever read the transcript — this machine's catalog, or the machine that
+	// answered — and this route's only job with it is not to lose it: a message
+	// shown as complete when it was cut is a transcript that lies about what the
+	// agent said, and it lies differently depending on which machine the reader
+	// happened to ask.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// sessionMessageTime is a message's time as both history paths state it:
+// milliseconds since the epoch, and zero for a provider that records no time.
+//
+// Zero rather than the zero time's UnixMilli — -62135596800000, which is the
+// year 1 and is what this route used to answer for such a message. A number
+// nobody can explain is worse than a sentinel a reader can be told about, and
+// the wire already says zero for the same message (internal/node/sessions.go),
+// so the two paths disagreed about one transcript when "this provider does not
+// record when" has to read the same from either of them.
+func sessionMessageTime(at time.Time) int64 {
+	if at.IsZero() {
+		return 0
+	}
+	return at.UnixMilli()
 }
 
 func (s *Server) handleListAgentSessions(w http.ResponseWriter, r *http.Request) {
@@ -190,13 +238,14 @@ func parseAgentSessionLimit(raw string, fallback, maximum int) (int, error) {
 }
 
 func (s *Server) handleImportAgentSessions(w http.ResponseWriter, r *http.Request) {
-	if s.Agents == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent session discovery is unavailable"})
-		return
-	}
 	var body struct {
 		Agents []string `json:"agents,omitempty"`
 		Limit  int      `json:"limit,omitempty"`
+		// DeviceID names the machine whose sessions to import. Absent or "self"
+		// is this one, which is what every caller before this field existed
+		// meant, and what a console that has not thought about machines still
+		// means.
+		DeviceID string `json:"device_id,omitempty"`
 	}
 	if r.Body != nil {
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body); err != nil &&
@@ -207,6 +256,19 @@ func (s *Server) handleImportAgentSessions(w http.ResponseWriter, r *http.Reques
 				return
 			}
 		}
+	}
+	// The scan below is a scan of *this* filesystem: it walks the catalogs of
+	// the CLIs installed here. Running it for another machine's id would land
+	// that machine's name on this machine's sessions, which is the state the
+	// device column exists to prevent — so a named machine is asked, not
+	// scanned.
+	if !s.localDevice(body.DeviceID) {
+		s.importDeviceSessions(w, r, strings.TrimSpace(body.DeviceID), body.Agents, body.Limit)
+		return
+	}
+	if s.Agents == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent session discovery is unavailable"})
+		return
 	}
 	ids := body.Agents
 	explicitAgents := len(ids) > 0
@@ -221,11 +283,7 @@ func (s *Server) handleImportAgentSessions(w http.ResponseWriter, r *http.Reques
 	if limit <= 0 || limit > 500 {
 		limit = 500
 	}
-	result := struct {
-		Imported  int               `json:"imported"`
-		Providers map[string]int    `json:"providers"`
-		Errors    map[string]string `json:"errors,omitempty"`
-	}{Providers: map[string]int{}, Errors: map[string]string{}}
+	result := agentSessionImportResponse{Providers: map[string]int{}, Errors: map[string]string{}}
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
@@ -258,11 +316,121 @@ func (s *Server) handleImportAgentSessions(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Request) {
-	if s.Agents == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent session history is unavailable"})
+// importDeviceSessions asks one machine this Hub can reach for its sessions and
+// lands them under that machine's id.
+//
+// The device id is the whole of the bookkeeping: a row is keyed by
+// (device, agent, ref), so a session read from a Mac and a session read here
+// with a coincidentally equal ref are two rows rather than one overwriting the
+// other. It is also what one session's history is read back with, and what an
+// attach records as the ref's provenance — the two columns P4 added for the
+// task that runs here on a transcript that was written there.
+//
+// A named agent is asked for by name, one question per name, because that is
+// what the name means: this machine's list of providers is the console's own,
+// and a Hub that passed the whole list on would be asking the other machine to
+// report failures for CLIs it has never heard of.
+func (s *Server) importDeviceSessions(w http.ResponseWriter, r *http.Request, device string, agents []string, limit int) {
+	if len(agents) > 32 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agents must contain at most 32 ids"})
 		return
 	}
+	if limit <= 0 || limit > worker.MaxAgentQuery {
+		limit = worker.MaxAgentQuery
+	}
+	ids := agents
+	if len(ids) == 0 {
+		// One question with no agent is "every provider you have", which is the
+		// same question the scan above asks this machine's registry.
+		ids = []string{""}
+	}
+	result := agentSessionImportResponse{Providers: map[string]int{}, Errors: map[string]string{}}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		// An empty name inside a list of names is not "every provider": the list
+		// is what the caller chose, and a blank entry in it is nothing they can
+		// have meant. The scan above skips these for the same reason — and here
+		// the difference is not cosmetic, because a blank name that travels is
+		// read by the other machine as "all of mine".
+		if id == "" && len(agents) > 0 {
+			continue
+		}
+		var answer worker.AgentSessionsResult
+		params := worker.AgentSessionsParams{Agent: id, Limit: limit}
+		if err := params.Validate(); err != nil {
+			// A name no catalog can be asked about is not worth asking another
+			// machine, and sending it anyway is how a caller's mistake comes back
+			// as the machine's refusal — the phone blames a Mac for a name this
+			// Hub could see was too long. The scan above answers the same problem
+			// the same way: the provider is reported beside the others rather
+			// than replacing the whole import.
+			result.Errors[id] = err.Error()
+			continue
+		}
+		if err := s.askDeviceQuietly(r.Context(), device, worker.QueryAgentSessions, params, &answer); err != nil {
+			// A machine that is away, or that has no session catalog at all, is
+			// an answer about the machine rather than about one provider of it.
+			writeMachineQueryError(w, err)
+			return
+		}
+		for provider, reason := range answer.Errors {
+			result.Errors[provider] = reason
+		}
+		for _, session := range answer.Sessions {
+			row, err := s.Store.UpsertAgentSession(r.Context(), fromAgentSession(agentSessionFromWire(session), device))
+			if err != nil {
+				result.Errors[session.AgentID] = err.Error()
+				continue
+			}
+			result.Imported++
+			result.Providers[row.AgentID]++
+		}
+		if answer.Truncated {
+			// Not a failure: the import did what it said and this machine has
+			// more. The scan above has no way to know the same thing about
+			// itself — a catalog that returns exactly its limit looks like a
+			// catalog with exactly that many sessions, which is why this is the
+			// wire's answer to give and not a rule this route invents.
+			result.Truncated = true
+		}
+	}
+	if len(result.Errors) == 0 {
+		result.Errors = nil
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// agentSessionFromWire reads one session out of a machine's answer, in the
+// shape this package's own catalog produces.
+//
+// It goes through agent.SessionInfo rather than straight to the store so that
+// there is one mapping from a catalog row to a stored row: a field added to the
+// store's columns is then added in one place, and a session imported from
+// another machine lands the same way one scanned here does.
+func agentSessionFromWire(session worker.AgentSession) agent.SessionInfo {
+	out := agent.SessionInfo{
+		AgentID:       session.AgentID,
+		ExternalRef:   session.ExternalRef,
+		SourceURI:     session.SourceURI,
+		Title:         session.Title,
+		Cwd:           session.Cwd,
+		Status:        session.Status,
+		SourceCursor:  session.SourceCursor,
+		ContentDigest: session.ContentDigest,
+	}
+	for _, capability := range session.Capabilities {
+		out.Capabilities = append(out.Capabilities, agent.Capability(capability))
+	}
+	if session.CreatedAt != 0 {
+		out.CreatedAt = time.UnixMilli(session.CreatedAt)
+	}
+	if session.UpdatedAt != 0 {
+		out.UpdatedAt = time.UnixMilli(session.UpdatedAt)
+	}
+	return out
+}
+
+func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Request) {
 	row, err := s.Store.GetAgentSessionByID(r.Context(), chi.URLParam(r, "id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "agent session not found"})
@@ -272,17 +440,39 @@ func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > 100 {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "limit must be between 1 and 100"})
-			return
-		}
-		limit = n
+	// A session is only readable where it was recorded. The ref is namespaced by
+	// the machine that minted it, so reading another machine's ref through this
+	// machine's catalog would answer about a different conversation that happens
+	// to share a name, or about nothing at all -- and the difference between
+	// those two is invisible from here.
+	if !s.localDevice(row.DeviceID) {
+		s.handleDeviceAgentSessionHistory(w, r, row)
+		return
+	}
+	if s.Agents == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "agent session history is unavailable"})
+		return
+	}
+	limit, err := parseAgentSessionLimit(r.URL.Query().Get("limit"), 50, worker.MaxAgentHistoryItems)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	// The same bound the wire applies to a cursor, for the same reason it exists
+	// there: the value is the provider's, and the only thing this route can say
+	// about it is how long it may be. Applying it here too is what keeps one
+	// session readable through either path — a cursor this route accepted and a
+	// paired machine refused would be the same transcript paging differently
+	// depending on where it was read from.
+	cursor := r.URL.Query().Get("cursor")
+	if len(cursor) > worker.MaxAgentHistoryCursor {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("cursor must be at most %d bytes", worker.MaxAgentHistoryCursor),
+		})
+		return
 	}
 	page, err := s.Agents.ReadSessionHistory(r.Context(), row.AgentID, row.ExternalRef, agent.HistoryQuery{
-		Cursor: r.URL.Query().Get("cursor"),
+		Cursor: cursor,
 		Limit:  limit,
 	})
 	if err != nil {
@@ -299,11 +489,75 @@ func (s *Server) handleGetAgentSessionHistory(w http.ResponseWriter, r *http.Req
 			AgentID: item.AgentID, ExternalRef: item.ExternalRef,
 			MessageID: item.MessageID, Kind: item.Kind, Role: item.Role,
 			ToolName: item.ToolName, Text: item.Text,
-			OccurredAt: item.OccurredAt.UnixMilli(), SourceRev: item.SourceRev,
+			OccurredAt: sessionMessageTime(item.OccurredAt), SourceRev: item.SourceRev,
+			Truncated: item.Truncated,
 		})
 	}
 	writeJSON(w, http.StatusOK, agentSessionHistoryResponse{
 		Items: items, NextCursor: page.NextCursor, SourceRev: page.SourceRev,
+	})
+}
+
+// handleDeviceAgentSessionHistory reads one page of a session that lives on
+// another machine, by asking that machine for it.
+//
+// The page is asked for exactly as a local one is — the same default of 50 and
+// the same ceiling — because the same session read from a phone and read from
+// the machine it lives on is the same session, and a reader that got fewer
+// messages from one of them would be reading a different transcript depending on
+// where it happened to live. The ceiling is worker.MaxAgentHistoryItems rather
+// than a number of this route's own because the wire is what makes it real: the
+// answering machine has to fit the page in one frame.
+//
+// What a page this machine's own frame budget could not carry looks like is the
+// answering machine's to say, and it says it by leaving NextCursor empty: a
+// reader sees the end of what it can read rather than a page that silently
+// skipped the messages it dropped.
+//
+// The source revision comes back from the machine that read it, so a console
+// can tell a transcript that changed from one that did not, exactly as it does
+// for a session read here.
+func (s *Server) handleDeviceAgentSessionHistory(w http.ResponseWriter, r *http.Request, row store.AgentSession) {
+	limit, err := parseAgentSessionLimit(r.URL.Query().Get("limit"), 50, worker.MaxAgentHistoryItems)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	params := worker.AgentHistoryParams{
+		Agent:  row.AgentID,
+		Ref:    row.ExternalRef,
+		Cursor: r.URL.Query().Get("cursor"),
+		Limit:  limit,
+	}
+	if err := params.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	var answer worker.AgentHistoryResult
+	if err := s.askDeviceQuietly(r.Context(), row.DeviceID, worker.QueryAgentHistory, params, &answer); err != nil {
+		// Offline and timed-out are told apart from refused here, which is more
+		// than the local path can say: that one has a catalog that either
+		// answers or does not, while this one has a machine that may simply be
+		// away.
+		writeMachineQueryError(w, err)
+		return
+	}
+	items := make([]agentHistoryItem, 0, len(answer.Items))
+	for _, item := range answer.Items {
+		items = append(items, agentHistoryItem{
+			AgentID: row.AgentID, ExternalRef: row.ExternalRef,
+			MessageID: item.MessageID, Kind: item.Kind, Role: item.Role,
+			ToolName: item.ToolName, Text: item.Text,
+			OccurredAt: item.OccurredAt, SourceRev: item.SourceRev,
+			Truncated: item.Truncated,
+		})
+	}
+	writeJSON(w, http.StatusOK, agentSessionHistoryResponse{
+		Items: items, NextCursor: answer.NextCursor, SourceRev: answer.SourceRev,
+		// The answering machine's page budget is the reader's answer, not a
+		// detail of the wire: it is the difference between "this session has
+		// twelve messages" and "this session has more than I could send you".
+		Truncated: answer.Truncated,
 	})
 }
 
@@ -507,6 +761,16 @@ func hasSessionCapability(capabilities []string, want string) bool {
 }
 
 func (s *Server) agentSessionResponse(r *http.Request, row store.AgentSession) agentSessionResponse {
+	// The project is resolved from the path, on every machine, and that is
+	// deliberate: the registry is this Hub's, and a session read from a paired
+	// machine is still one this person's work is about — their machines mirror
+	// the same checkouts, so the name they filed that directory under is the name
+	// they know the work by. What keeps the heuristic honest is that it is only
+	// ever a label: no route filters by a session's project and nothing links to
+	// one, so a path that means different things on two machines produces a
+	// wrong-looking name and never a wrong action. A machine's own answer is what
+	// a directory question is asked of (see askMachine); this is a name for a
+	// heading.
 	projectID, _ := s.Store.ResolveProjectIDForCwd(r.Context(), row.Cwd)
 	label := ""
 	if projectID != "" {
