@@ -1194,6 +1194,37 @@ func (e *Engine) sessionRefOwner(t store.Task) string {
 	return e.selfDevice()
 }
 
+// sessionRefResumable reports whether this task's stored native session ref was
+// produced by the machine about to run the turn — the only machine whose agent
+// can resolve it.
+//
+// A row with no provenance reads as resumable, and that is deliberate: those
+// rows were written before the column existed, every one of them by this daemon,
+// and refusing them would throw away the context of every existing conversation
+// on upgrade. "Unknown" has to mean local, or the fix breaks what it fixes. A
+// blank value counts as no provenance for the same reason a NULL does — it names
+// no machine, and reading it as one would make the answer depend on whether this
+// daemon happens to have a device id of its own.
+//
+// A ref that fails this is not cleared — the binding is still true, that machine
+// still has that session, and a task that runs there again should resume it. The
+// callers decline to *use* it here and rebuild from Kin's own transcript
+// instead, which is the mechanism that already exists for crossing agents
+// (ADR 0022 D6).
+func (e *Engine) sessionRefResumable(t store.Task) bool {
+	if t.SessionRef == nil || strings.TrimSpace(*t.SessionRef) == "" {
+		return false
+	}
+	if t.SessionRefDeviceID == nil {
+		return true
+	}
+	owner := strings.TrimSpace(*t.SessionRefDeviceID)
+	if owner == "" {
+		return true
+	}
+	return owner == e.sessionRefOwner(t)
+}
+
 // remoteFor reports the adapter for a task that runs somewhere else, and
 // whether it runs somewhere else at all.
 func (e *Engine) remoteFor(t store.Task, executionID string) (adapter.Adapter, bool, error) {
@@ -2440,8 +2471,12 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 			model = d.ForAgent(t.Agent, BuiltinCatalog())
 		}
 	}
+	// The adapter is the last place the ref could leak: whatever the follow-up
+	// path decided, a ref produced by another machine's agent is not something
+	// this one can resolve, and handing it over blind is how a CLI ends up
+	// resuming nothing while reporting success (ADR 0022 D6).
 	sessionRef := ""
-	if t.SessionRef != nil {
+	if e.sessionRefResumable(t) {
 		sessionRef = *t.SessionRef
 	}
 	execRef := adapter.ExecutionRef{

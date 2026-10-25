@@ -928,13 +928,18 @@ func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req
 	hasManagedHistory := managedTranscript && e.hostTranscriptNonEmpty(ctx, id)
 	// Model switch clears session continuity: adapters must see TaskSpec.Model on a
 	// fresh Start rather than a resume that silently keeps the old model.
+	// A native session ref is only resumable on the machine whose agent produced
+	// it. When this task's ref came from somewhere else, resuming is not on the
+	// table here — and the turn must not quietly run bare either, so the ref
+	// counts as "no continuity" everywhere a fresh start is decided below.
+	foreignSessionRef := t.SessionRef != nil && strings.TrimSpace(*t.SessionRef) != "" && !e.sessionRefResumable(t)
 	sameAgentResume := !handoff && !interrupted && !orchestrate && !modelSwitch && canResume && fromAgent == targetAgent
 	if managedTranscript {
 		// Resume only when private transcript has history. Empty after orchestrate
 		// clear (or never seeded) must rebuild a sealed pack from events.
 		sameAgentResume = sameAgentResume && hasManagedHistory
 	} else {
-		sameAgentResume = sameAgentResume && t.SessionRef != nil && *t.SessionRef != ""
+		sameAgentResume = sameAgentResume && e.sessionRefResumable(t)
 	}
 	if sameAgentResume {
 		// Live user turn only; CLI resumes via session_ref / Kin loads private messages.
@@ -942,8 +947,8 @@ func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req
 	} else {
 		ctxBlock := e.handoffContext(ctx, id)
 		needContext := handoff || interrupted || orchestrate || modelSwitch || managedTranscript ||
-			t.SessionRef == nil || *t.SessionRef == ""
-		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript || modelSwitch) {
+			foreignSessionRef || t.SessionRef == nil || *t.SessionRef == ""
+		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript || modelSwitch || foreignSessionRef) {
 			runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
 			if interrupted {
 				runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
