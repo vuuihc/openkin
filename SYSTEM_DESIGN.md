@@ -4,7 +4,7 @@
 
 **Status:** Draft v0.4 — direction, not an API contract
 **Project / brand:** OpenKin · **Product subject:** Kin · **CLI:** `kin` (alias: `ok`)
-**Based on:** [PRINCIPLE.md](./PRINCIPLE.md) · [中文](./PRINCIPLE.zh.md) — console-first §12; v0.4 records the 2026-10-23 scope cut (see §7)
+**Based on:** [PRINCIPLE.md](./PRINCIPLE.md) · [中文](./PRINCIPLE.zh.md) — console-first §12; v0.4 records the 2026-10-23 scope cut (see §2)
 **Promise:** Your agents. Your machines. Any device.
 
 Exploratory drafts and implementation diaries do not live in this repo. This is a **public** architecture snapshot: enough to decide whether OpenKin is for you—not an internal working memo.
@@ -158,7 +158,7 @@ Three rules keep this simple, and they are the whole design:
 
 End-to-end encryption and conflict resolution are **not** offered. See [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md).
 
-Accounts exist so that a second device can see the first device's work. A Hub is single-owner by default, and both halves of opening it to other people are implemented: per-account isolation of tasks, artifacts, and the live event stream (`store.ScopeForPrincipal` is the single rule; REST, MCP, WebSocket, SSE, the change feed, and A2A all apply it), and the registration that lets a second person have an account at all — a holder issues an invitation, the invited person redeems it (`POST /api/auth/invite`, `POST /api/auth/join`; [ADR 0028](./docs/adr/0028-invitation-makes-a-member.md)). What a member may *do* is bounded by the projects the holder registered ([ADR 0029](./docs/adr/0029-a-member-works-inside-the-projects.md)). What is still missing is discovery: `GET /api/projects` is holder-only, so a member can work inside a registered project but cannot ask which ones exist. See `docs/plans/2026-10-26-p5-hosted.md`.
+Accounts exist so that a second device can see the first device's work. A Hub is single-owner by default, and both halves of opening it to other people are implemented: per-account isolation of tasks, artifacts, and the live event stream (`store.ScopeForPrincipal` is the single rule; REST, MCP, WebSocket, SSE, and the change feed apply it, while A2A authorizes its own routes with `store.IsA2ATaskOwner` and stamps the owner on the tasks it creates), and the registration that lets a second person have an account at all — a holder issues an invitation, the invited person redeems it (`POST /api/auth/invite`, `POST /api/auth/join`; [ADR 0028](./docs/adr/0028-invitation-makes-a-member.md)). What a member may *do* is bounded by the projects the holder registered ([ADR 0029](./docs/adr/0029-a-member-works-inside-the-projects.md)). What is still missing is discovery: `GET /api/projects` is holder-only, so a member can work inside a registered project but cannot ask which ones exist. See `docs/plans/2026-10-26-p5-hosted.md`.
 
 ---
 
