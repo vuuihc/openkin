@@ -550,27 +550,36 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setFollowUpDraft(id, { prompt, attachments });
   }
 
-  async function onComposer(text: string) {
+  async function onComposer(text: string, opts?: { interrupt?: boolean }) {
     if (!task) return;
     setSending(true);
     setAwaitingReply(true);
     const requestRevision = liveResources.currentRevision();
+    const wasRunning = !isTerminal(task.status);
     try {
-      // Non-terminal: backend interrupts the current turn then re-queues with this guide.
-      // Send model / permission only when the picker differs from the task.
+      // A running task queues the message and answers it when the round ends;
+      // `interrupt` is the explicit second action that cuts the round short
+      // instead. Send model / permission only when the picker differs from the task.
       const picked = composerModel.trim();
       const current = (task.model || "").trim();
       const currentPerm = normalizePermissionMode(task.permission_mode);
-      const opts: { model?: string; permission_mode?: string } = {};
-      if (picked !== current) opts.model = picked;
-      if (composerPermission !== currentPerm) opts.permission_mode = composerPermission;
-      const t = await followUpPrompt(task.id, text, Object.keys(opts).length ? opts : undefined);
+      const send: { model?: string; permission_mode?: string; interrupt?: boolean } = {};
+      if (picked !== current) send.model = picked;
+      if (composerPermission !== currentPerm) send.permission_mode = composerPermission;
+      if (opts?.interrupt) send.interrupt = true;
+      const t = await followUpPrompt(task.id, text, Object.keys(send).length ? send : undefined);
       liveResources.applyTaskSnapshot(t, requestRevision);
       clearFollowUpDraft(task.id);
       draftPromptRef.current = "";
       draftAttachmentsRef.current = [];
-      if (!isTerminal(task.status)) {
-        pushToast(tr("task.interruptedGuide"), "info");
+      if (wasRunning) {
+        // Say which of the two things happened. The queue is the default, so
+        // claiming an interrupt here would be a lie the user only discovers when
+        // the round they thought they had stopped keeps going.
+        pushToast(
+          tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"),
+          "info",
+        );
       }
     } catch (err) {
       // Re-throw so Composer restores the cleared input + draft, and shows the toast.
@@ -1050,7 +1059,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               initialAttachments={followUpDraft.attachments}
               placeholder={
                 !terminal
-                  ? tr("composer.guideWhileRunning")
+                  ? tr("composer.queuedWhileRunning")
                   : tr("composer.followUpPlaceholder", { name: hostAgentName })
               }
               onValueChange={(v) => persistFollowUpDraft(v)}

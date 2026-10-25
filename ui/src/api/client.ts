@@ -826,10 +826,19 @@ export function deleteTask(id: string): Promise<void> {
   });
 }
 
+/**
+ * Send a message to a running or finished task.
+ *
+ * A running task keeps the message in its queue and answers it when the current
+ * round ends; `interrupt` cuts the round short instead, and that path also
+ * denies the task's pending approvals and answers its pending questions, because
+ * the process it was talking to is about to be killed. So the field is only set
+ * when the caller asks for it.
+ */
 export function followUpPrompt(
   id: string,
   prompt: string,
-  opts?: { agent?: string; model?: string; permission_mode?: string },
+  opts?: { agent?: string; model?: string; permission_mode?: string; interrupt?: boolean },
 ): Promise<Task> {
   const body: FollowUpRequest = { prompt };
   if (opts?.agent) body.agent = opts.agent;
@@ -841,6 +850,7 @@ export function followUpPrompt(
   if (opts?.permission_mode !== undefined) {
     body.permission_mode = opts.permission_mode;
   }
+  if (opts?.interrupt) body.interrupt = true;
   return apiFetch<Task>(`/api/tasks/${encodeURIComponent(id)}/prompt`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

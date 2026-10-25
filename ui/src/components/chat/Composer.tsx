@@ -11,7 +11,7 @@ import { useT } from "../../i18n/react";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
-import { IconFile, IconImage, IconSend, IconSpinner, IconStop, IconX } from "../icons";
+import { IconAlert, IconFile, IconImage, IconSend, IconSpinner, IconStop, IconX } from "../icons";
 
 type Props = {
   placeholder?: string;
@@ -33,7 +33,12 @@ type Props = {
   agents?: AgentInfo[];
   /** Current session host; used only for mention role labels. */
   hostAgentId?: string;
-  onSubmit: (text: string) => void | Promise<void>;
+  /**
+   * Fired on send. `interrupt` asks the daemon to cut the running round short and
+   * answer this message next instead of at the turn boundary — which also denies
+   * the round's pending approvals, so it is only ever set by the explicit action.
+   */
+  onSubmit: (text: string, opts?: { interrupt?: boolean }) => void | Promise<void>;
 };
 
 type Attachment = Upload & {
@@ -73,6 +78,10 @@ export default function Composer({
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Which of the two send buttons was pressed. Both are submit buttons in one
+  // form, and the form's submit event does not say which — Enter lands here too,
+  // and Enter means the default action, which is queueing.
+  const submitIntent = useRef<"queue" | "interrupt">("queue");
 
   useEffect(() => {
     if (initialValue) setValue(initialValue);
@@ -190,9 +199,14 @@ export default function Composer({
   async function submit(e?: FormEvent) {
     e?.preventDefault();
     const text = value.trim();
-    // Allow send while running (insert guide / interrupt). Only hard-disable when parent says so.
+    // Allow send while running: a running task queues the message and answers it
+    // when the round ends. Only hard-disable when parent says so.
     // Sending is allowed with only attachments (no text), but never mid-upload.
     if ((!text && attachments.length === 0) || disabled || busy || stopping || uploading) return;
+    // Read and clear before the await: the intent belongs to the send that is
+    // happening now, and a later Enter must not inherit the interrupt.
+    const interrupt = submitIntent.current === "interrupt";
+    submitIntent.current = "queue";
     const payload = withAttachments(text);
     // Snapshot so a failed send can restore the composer + draft persistence.
     const prevValue = value;
@@ -209,7 +223,7 @@ export default function Composer({
     setAttachments([]);
     onAttachmentsChange?.([]);
     try {
-      await onSubmit(payload);
+      await onSubmit(payload, interrupt ? { interrupt: true } : undefined);
     } catch (err) {
       // Restore text/attachments so the user does not lose a failed follow-up.
       // Drop blob previews (already revoked); remote upload urls still work.
@@ -574,19 +588,39 @@ export default function Composer({
               </button>
             )}
             {running && value.trim() ? (
-              <button
-                type="submit"
-                disabled={disabled || busy || stopping}
-                className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
-                aria-label={tr("composer.sendGuide")}
-                title={tr("composer.sendGuide")}
-              >
-                {busy ? (
-                  <IconSpinner size={15} strokeWidth={2} />
-                ) : (
-                  <IconSend size={15} strokeWidth={2} />
-                )}
-              </button>
+              <>
+                {/* Explicit, and second: cutting the round short also denies the
+                    approvals it is waiting on, so it is never the easy accident
+                    next to the default send. */}
+                <button
+                  type="submit"
+                  onClick={() => {
+                    submitIntent.current = "interrupt";
+                  }}
+                  disabled={disabled || busy || stopping}
+                  className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg border border-kin-orange/40 bg-kin-orange/15 text-kin-orange-ink flex items-center justify-center disabled:opacity-40"
+                  aria-label={tr("composer.interruptSend")}
+                  title={tr("composer.interruptSend")}
+                >
+                  <IconAlert size={13} strokeWidth={2} />
+                </button>
+                <button
+                  type="submit"
+                  onClick={() => {
+                    submitIntent.current = "queue";
+                  }}
+                  disabled={disabled || busy || stopping}
+                  className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
+                  aria-label={tr("composer.send")}
+                  title={tr("composer.sendQueuedHint")}
+                >
+                  {busy ? (
+                    <IconSpinner size={15} strokeWidth={2} />
+                  ) : (
+                    <IconSend size={15} strokeWidth={2} />
+                  )}
+                </button>
+              </>
             ) : null}
           </div>
         </div>
