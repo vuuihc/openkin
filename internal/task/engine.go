@@ -2545,9 +2545,17 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 	// path decided, a ref produced by another machine's agent is not something
 	// this one can resolve, and handing it over blind is how a CLI ends up
 	// resuming nothing while reporting success (ADR 0022 D6).
+	//
+	// The sentence goes here rather than in the follow-up path because this is
+	// the exit every turn passes through. A task created with a ref attached
+	// from elsewhere arrives at the same gate and has no context pack to explain
+	// itself, so announcing it where the pack is built would leave that one
+	// silent. One refusal, one sentence, whichever path arrived at it.
 	sessionRef := ""
 	if e.sessionRefResumable(t) {
 		sessionRef = *t.SessionRef
+	} else if t.SessionRef != nil && strings.TrimSpace(*t.SessionRef) != "" {
+		e.noteForeignSessionRef(ctx, id, t)
 	}
 	execRef := adapter.ExecutionRef{
 		Agent: t.Agent,

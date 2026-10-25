@@ -950,12 +950,6 @@ func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req
 			foreignSessionRef || t.SessionRef == nil || *t.SessionRef == ""
 		if needContext && (handoff || interrupted || ctxBlock != "" || orchestrate || managedTranscript || modelSwitch || foreignSessionRef) {
 			runPrompt = formatHandoffPrompt(fromAgent, targetAgent, ctxBlock, prompt)
-			if foreignSessionRef {
-				// The pack tells the agent what it is continuing. The person is
-				// told here, because the alternative is an answer that has
-				// forgotten the conversation with nothing saying why.
-				e.noteForeignSessionRef(ctx, id, t)
-			}
 			if interrupted {
 				runPrompt = "The previous turn was interrupted by the user. Treat the request below as the new guidance.\n\n" + runPrompt
 			}

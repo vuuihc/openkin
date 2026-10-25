@@ -73,10 +73,10 @@ func TestACrossDeviceRebuildIsAnnouncedInTheTranscript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := e.applyFollowUp(ctx, row.ID, row,
-		FollowUpRequest{Prompt: "second"}, false, 0, respectCancel); err != nil {
+	if _, err := e.FollowUpWith(ctx, row.ID, FollowUpRequest{Prompt: "second"}); err != nil {
 		t.Fatal(err)
 	}
+	waitStatus(t, e, row.ID, StatusSucceeded, 2*time.Second)
 
 	notices := noticesIn(t, st, row.ID)
 	if len(notices) != 1 {
@@ -99,6 +99,86 @@ func TestACrossDeviceRebuildIsAnnouncedInTheTranscript(t *testing.T) {
 	}
 	if n["session_ref_device_id"] != "other-machine" {
 		t.Fatalf("the notice does not carry the raw origin: %+v", n)
+	}
+}
+
+// The same refusal on the create path, and the reason the sentence is written
+// where the ref is refused rather than where the pack is built.
+//
+// A task created with a session attached from another machine has nothing to
+// rebuild from, so it takes no pack and never enters that branch. It is still
+// the same thing happening to the same person: the session they attached is not
+// the one this turn continues.
+func TestAnAttachedForeignRefIsAnnouncedOnTheFirstTurn(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	e.SetRemoteRunner("this-machine", nil)
+
+	created, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "carry on",
+		SessionRef: "other-session", SessionRefDeviceID: "other-machine",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, created.ID, StatusSucceeded, 2*time.Second)
+
+	ad.mu.Lock()
+	spec := ad.lastSpec
+	ad.mu.Unlock()
+	if spec.SessionRef != "" {
+		t.Fatalf("the adapter was handed %q from another machine", spec.SessionRef)
+	}
+	notices := noticesIn(t, st, created.ID)
+	if len(notices) != 1 {
+		t.Fatalf("got %d notices, want 1: %+v", len(notices), notices)
+	}
+	message, _ := notices[0]["message"].(string)
+	if !strings.Contains(message, "other-machine") {
+		t.Fatalf("the notice names no machine: %q", message)
+	}
+}
+
+// A row can hold a ref that is present and blank. Nothing enforces a non-empty
+// external ref at the store, so a catalog row with an empty one attaches as
+// exactly that. It is not a session, and saying a session started on another
+// machine would be a statement about something that does not exist.
+func TestABlankRefIsNotAnnounced(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents()}
+	e, st := testEngine(t, 4, ad)
+	e.SetRemoteRunner("this-machine", nil)
+
+	row := store.Task{
+		ID:                 "01TESTNOTICEBLANK0000000000",
+		Title:              "attached nothing",
+		Agent:              "claude-code",
+		Cwd:                "/tmp",
+		Prompt:             "first",
+		Status:             StatusSucceeded,
+		CreatedAt:          store.NowMilli(),
+		SessionRef:         strPtr("   "),
+		SessionRefDeviceID: strPtr("other-machine"),
+	}
+	if err := st.InsertTask(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.Get(ctx, row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionRef == nil {
+		t.Fatal("fixture is wrong: the ref did not survive the round trip")
+	}
+
+	if _, err := e.FollowUpWith(ctx, row.ID, FollowUpRequest{Prompt: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, row.ID, StatusSucceeded, 2*time.Second)
+
+	if notices := noticesIn(t, st, row.ID); len(notices) != 0 {
+		t.Fatalf("a task with no session was announced as resuming one: %+v", notices)
 	}
 }
 
@@ -132,10 +212,10 @@ func TestTheAnnouncementFallsBackToTheDeviceID(t *testing.T) {
 	ctx := context.Background()
 	e, st, row := foreignRefEngine(t)
 
-	if _, err := e.applyFollowUp(ctx, row.ID, row,
-		FollowUpRequest{Prompt: "second"}, false, 0, respectCancel); err != nil {
+	if _, err := e.FollowUpWith(ctx, row.ID, FollowUpRequest{Prompt: "second"}); err != nil {
 		t.Fatal(err)
 	}
+	waitStatus(t, e, row.ID, StatusSucceeded, 2*time.Second)
 
 	notices := noticesIn(t, st, row.ID)
 	if len(notices) != 1 {
