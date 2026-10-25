@@ -1254,6 +1254,12 @@ func TestAnInterruptOfAWaitingTaskCannotReviveACanceledRow(t *testing.T) {
 	if n := reportsNaming(t, st, waiting.ID, 0, `"answer this instead"`); n == 0 {
 		t.Fatal("the dropped interrupt left no report in the transcript saying which message went unanswered")
 	}
+	// The other half of the same invariant: the report explains a bubble, so the
+	// bubble has to be there. The message was written before the guarded write that
+	// refused it, which is why a refusal cannot take it back.
+	if n := userEventsNaming(t, st, waiting.ID, "answer this instead"); n != 1 {
+		t.Fatalf("the transcript holds %d copies of the refused message, want the one the user sent", n)
+	}
 }
 
 // A cancel that lands between an interrupt and the end of the turn it cut short
@@ -1273,7 +1279,11 @@ func TestACancelSaysWhatItDidToTheInterruptItDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	// The handle, not the status: a cancel that arrives before it is registered
+	// takes the "not started yet" branch instead of the running one this test is
+	// about, and would still write a report -- so waiting on the status alone would
+	// let this pass while driving something else.
+	waitHandle(t, e, task.ID, 2*time.Second)
 	// Let the run start producing, then hold its result: the turn is in flight and
 	// stays that way, which is the window the interrupt parks in.
 	close(ad.firstRelease)
@@ -1301,6 +1311,55 @@ func TestACancelSaysWhatItDidToTheInterruptItDropped(t *testing.T) {
 // long as a test needs. successEvents ends in `result`, which ends the run -- the
 // difference is what every test below needs a live handle for.
 func liveRunEvents() []adapter.Event { return successEvents()[:2] }
+
+// waitHandle blocks until the run has registered its handle. That registration is
+// what decides whether a cancel takes the running branch or one of the two
+// "not started yet" branches, and it lands after the task row says `running`, so a
+// test that cancels on the status alone can drive a branch it does not name.
+func waitHandle(t *testing.T, e *Engine, taskID string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		e.mu.Lock()
+		_, registered := e.handles[taskID]
+		active := e.activeRuns[taskID]
+		e.mu.Unlock()
+		if registered {
+			return
+		}
+		if active == "" {
+			t.Fatalf("task %s has no active run, so no handle is coming", taskID)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("the run never registered a handle, so a cancel here would not take the running branch")
+}
+
+// userEventsNaming counts the user's own messages in the transcript that carry a
+// text. A message an interrupt wrote before the guarded write refused it is still a
+// bubble the user can see, so "which message went unanswered" and "the message is
+// there at all" are two separate things to check.
+func userEventsNaming(t *testing.T, st *store.Store, taskID, needle string) int {
+	t.Helper()
+	events, err := st.ListEvents(context.Background(), taskID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, ev := range events {
+		if ev.Type != "message" || !strings.Contains(string(ev.Payload), needle) {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(ev.Payload, &m); err != nil {
+			continue
+		}
+		if m["role"] == "user" || m["speaker"] == "user" {
+			n++
+		}
+	}
+	return n
+}
 
 // reportsNaming counts the transcript's error events that name a message, which is
 // how every dropped delivery is told to the user.
