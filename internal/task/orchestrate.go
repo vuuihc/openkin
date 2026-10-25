@@ -726,8 +726,11 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 			return
 		}
 		if _, err := e.applyPendingFollowUp(ctx, id, pf); err != nil {
-			e.emitError(ctx, id, executionID, "follow-up after interrupt failed: "+err.Error())
-			_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
+			// Store-direct, not emitError: a cancel that refused this delivery has
+			// already cleared the active-run entry, and a run-scoped write returns
+			// ErrConflict there -- the refusal would be reported to nobody.
+			e.reportUndelivered(ctx, id, err)
+			_, _ = e.finishRun(ctx, id, executionID, e.endStatusForDelivery(err), nil, nil)
 		} else {
 			e.clearActiveRun(id, executionID)
 		}

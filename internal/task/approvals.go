@@ -514,18 +514,22 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 }
 
 // reportUndelivered records, in the task's own transcript, that a message the
-// user can see will never be answered. It is for the deliveries whose caller is
-// not a turn: the sender still hears the error and can send the message again,
+// user can see will never be answered. Two kinds of caller need it: a delivery no
+// turn asked for (the sender still hears the error and can send the message again,
 // but a second device -- or this console after a reload -- would otherwise see a
-// bubble with no reason it went unanswered.
+// bubble with no reason it went unanswered), and a turn boundary whose delivery was
+// refused, where the cancel that refused it has already cleared the run entry.
 //
-// Only for a refusal that consumed a queue row (ok from deliverQueuedPrompt): a
-// failed read of the queue leaves the message where it is, and reporting that as
-// an undelivered message would be a lie the next turn makes obvious.
+// Written with the store directly rather than through emitError, because both
+// callers can arrive after the run entry is gone: the delivery that would have
+// started the turn is the one that just failed, and on the refusal path the cancel
+// deleted the entry itself. There is no execution id left to stamp an event with.
 //
-// Written with the store directly rather than through emitError, because this
-// path has no run: the delivery that would have started the turn is the one that
-// just failed, so there is no execution id to stamp the event with.
+// A caller reports when nothing else will answer the message: a delivery that
+// consumed its queue row (ok from deliverQueuedPrompt), or a turn that is ending
+// regardless of the failure. A failed *read* of the queue leaves the message where
+// it is and the task usually running, so the sender-side caller stays quiet and a
+// later turn delivers it.
 func (e *Engine) reportUndelivered(ctx context.Context, id string, cause error) {
 	payload, _ := json.Marshal(map[string]string{"message": cause.Error()})
 	if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
@@ -584,7 +588,7 @@ func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string, intent deli
 		return store.Task{}, false, nil
 	}
 	failed := func(cause error) error {
-		return fmt.Errorf("the queued message %s could not be delivered: %w", queuedPromptLabel(p), cause)
+		return fmt.Errorf("the queued message %s could not be delivered: %w", messageLabel(p.Prompt), cause)
 	}
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
@@ -600,11 +604,12 @@ func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string, intent deli
 	return t2, true, nil
 }
 
-// queuedPromptLabel quotes a queued message for an error a user reads. One line,
-// cut short: the whole message can be a pasted stack trace, and the error only has
-// to say which one it was.
-func queuedPromptLabel(p store.PendingPrompt) string {
-	text := strings.Join(strings.Fields(p.Prompt), " ")
+// messageLabel quotes a message for an error a user reads -- a queued one or a
+// follow-up, either way a message they can see that did not reach the agent. One
+// line, cut short: the whole message can be a pasted stack trace, and the error
+// only has to say which one it was.
+func messageLabel(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
 	if text == "" {
 		return "(a message with no text)"
 	}
@@ -773,7 +778,18 @@ func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pending
 	// captured then rather than looked up here: a queued message sent while the
 	// interrupt wound down would otherwise be the newest user message and steal the
 	// checkpoint anchor.
-	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, pf.userSeq, reviveCanceled)
+	//
+	// respectCancel, not reviveCanceled: this message is delivered late, at the end of
+	// the turn it interrupted, and cancelTask deletes the pending follow-up precisely
+	// so that a cancel stops it. That delete cannot reach this call -- the caller read
+	// the follow-up into a value before the window this runs in -- so the guarded
+	// write is what lets the cancel win. The refusal names the message: it is in the
+	// transcript, and nothing else will say why it went unanswered.
+	t2, err := e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, pf.userSeq, respectCancel)
+	if errors.Is(err, store.ErrTaskCanceled) {
+		return t2, fmt.Errorf("the follow-up %s could not be delivered: %w", messageLabel(pf.req.Prompt), err)
+	}
+	return t2, err
 }
 
 // applyFollowUpPrepared patches the task prompt/agent and re-queues it.

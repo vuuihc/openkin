@@ -312,7 +312,7 @@ func TestAQueueThatCannotBeReadIsReportedNotTreatedAsEmpty(t *testing.T) {
 // trimming still has to be named as something.
 func TestAQueuedMessageIsNamedInOneLine(t *testing.T) {
 	label := func(prompt string) string {
-		return queuedPromptLabel(store.PendingPrompt{Prompt: prompt})
+		return messageLabel(prompt)
 	}
 
 	if got := label("  and the docs too\n"); got != `"and the docs too"` {
@@ -1027,4 +1027,115 @@ func TestACancelThatWinsTheRaceIsNotUndoneByTheDelivery(t *testing.T) {
 	if revived.Status == StatusCanceled {
 		t.Fatal("the task is still canceled after the user's own follow-up was delivered")
 	}
+}
+
+// A steer sent with an interrupt is applied at the end of the turn it cut short, and
+// the run loop reads it into a value before the workspace finalization window opens.
+// A cancel landing in that window therefore has nothing to delete: cancelTask drops
+// the pending follow-up so that it does not fire, but the copy in hand is unaffected.
+// The guarded write is what makes the cancel win there -- and the refusal has to name
+// the message, because the message is in the transcript and nothing else says why it
+// went unanswered.
+func TestACancelRefusesTheInterruptsDeferredFollowUp(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents(), runFor: 30 * time.Second}
+	e, _ := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 2*time.Second)
+
+	// The steer as the run loop holds it: a value read before the cancel landed.
+	_, err = e.applyPendingFollowUp(ctx, task.ID, pendingFollowUp{
+		req:         FollowUpRequest{Prompt: "and the tests too"},
+		fromAgent:   "claude-code",
+		interrupted: true,
+	})
+	if !errors.Is(err, store.ErrTaskCanceled) {
+		t.Fatalf("a deferred follow-up into a canceled task = %v, want store.ErrTaskCanceled", err)
+	}
+	if !strings.Contains(err.Error(), `"and the tests too"`) {
+		t.Fatalf("the refusal does not name the message it dropped: %v", err)
+	}
+	if got, err := e.Get(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	} else if got.Status != StatusCanceled {
+		t.Fatalf("status after the refused follow-up = %s, want %s", got.Status, StatusCanceled)
+	}
+	e.mu.Lock()
+	queued := len(e.queue)
+	e.mu.Unlock()
+	if queued != 0 {
+		t.Fatalf("the queue holds %d task(s) after the refused follow-up, want none", queued)
+	}
+}
+
+// The report of a refused delivery cannot go through the run gate. The cancel that
+// refuses it is the same write that clears the active-run entry, so a run-scoped
+// append returns ErrConflict: the one event that says why the user's message went
+// unanswered would be dropped by the very race it describes.
+//
+// This does not drive the turn boundary -- it pins the two writes that boundary
+// chooses between, which is what the choice rests on.
+func TestARefusedDeliveryIsReportedAfterTheCancelClearedTheRun(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents(), runFor: 30 * time.Second}
+	e, st := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	e.mu.Lock()
+	execID := e.activeRuns[task.ID]
+	e.mu.Unlock()
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 2*time.Second)
+
+	userEvent, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"one more thing"}],"partial":false,"agent":"user","speaker":"user","source":"follow_up"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "one more thing", UserSeq: userEvent.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, ok, err := e.deliverQueuedPrompt(ctx, task.ID, respectCancel)
+	if !ok || !errors.Is(err, store.ErrTaskCanceled) {
+		t.Fatalf("delivery into a canceled task = ok %v, err %v, want a refusal", ok, err)
+	}
+
+	// The write the branch must not use: gated on a run entry the cancel deleted.
+	payload, _ := json.Marshal(map[string]string{"message": err.Error()})
+	if _, gated := e.persistRunEvent(ctx, task.ID, execID, "error", payload); !errors.Is(gated, store.ErrConflict) {
+		t.Fatalf("a run-scoped report after the cancel = %v, want store.ErrConflict", gated)
+	}
+
+	e.reportUndelivered(ctx, task.ID, err)
+	events, err := st.ListEvents(ctx, task.ID, userEvent.Seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range events {
+		if ev.Type != "error" {
+			continue
+		}
+		var m map[string]string
+		if err := json.Unmarshal(ev.Payload, &m); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(m["message"], `"one more thing"`) {
+			return
+		}
+	}
+	t.Fatal("the refused delivery left no report in the transcript saying which message went unanswered")
 }

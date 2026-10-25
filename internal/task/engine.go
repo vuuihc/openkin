@@ -2634,11 +2634,11 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			return
 		}
 		if _, err := e.applyPendingFollowUp(ctx, id, pf); err != nil {
-			payload, _ := json.Marshal(map[string]string{"message": "follow-up after interrupt failed: " + err.Error()})
+			payload, _ := json.Marshal(map[string]string{"message": "after the interrupt, " + err.Error()})
 			if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
 				e.bus.PublishEvent(ev)
 			}
-			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+			_, _ = e.finishRun(ctx, id, exec.ID, e.endStatusForDelivery(err), nil, nil)
 		} else {
 			e.clearActiveRun(id, exec.ID)
 		}
@@ -2664,11 +2664,13 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 		if _, ok, err := e.deliverQueuedPrompt(ctx, id, respectCancel); err != nil {
 			// err before ok: a failed attempt is not an empty queue, and treating it
 			// as one is how a message the user can see stops being delivered without
-			// anything saying so.
-			payload, _ := json.Marshal(map[string]string{"message": err.Error()})
-			if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
-				e.bus.PublishEvent(ev)
-			}
+			// anything saying so. The report goes to the store directly rather than
+			// through persistRunEvent, because the failure it describes is a cancel
+			// that landed between the pop and the write -- and that cancel already
+			// cleared the active-run entry a run-scoped write is gated on, so the one
+			// report of a lost message would itself be dropped. The turn ends either
+			// way, so this is the last chance to say it.
+			e.reportUndelivered(ctx, id, err)
 			_, _ = e.finishRun(ctx, id, exec.ID, e.endStatusForDelivery(err), nil, nil)
 			e.pump()
 			return
@@ -2697,15 +2699,21 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	if runMeta.WorkspaceAccess == adapter.AccessSourceReadOnly && !wasCanceled && !hasFollowUp {
 		ws, wsErr := e.store.GetCurrentWorkspace(ctx, id)
 		if wsErr == nil && ws.State == store.WorkspaceReady {
-			// Re-queue: set status back to queued so pump picks it up.
+			// Re-queue: set status back to queued so pump picks it up. The guarded
+			// write is what keeps a cancel that landed since `wasCanceled` was read
+			// from being overwritten by a promotion nobody asked for any more; the
+			// flag is a snapshot taken before the finalization window. A refusal falls
+			// through to the status re-read below, which ends the run the way the
+			// cancel asked.
 			status := StatusQueued
 			patch := store.TaskPatch{Status: &status, ClearExitCode: true, ClearFinishedAt: true}
-			_ = e.store.UpdateTask(ctx, id, patch)
-			e.mu.Lock()
-			e.enqueueLocked(id)
-			e.mu.Unlock()
-			e.pump()
-			return
+			if err := e.store.UpdateTaskUnlessCanceled(ctx, id, patch); err == nil {
+				e.mu.Lock()
+				e.enqueueLocked(id)
+				e.mu.Unlock()
+				e.pump()
+				return
+			}
 		}
 	}
 
