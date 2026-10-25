@@ -2622,8 +2622,9 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	// wasCanceled is the cancel that was already recorded when this turn exited, so a
 	// task the user stopped does not hand its queued message to a new run on its way
 	// out. A cancel that lands after this read is a different race, and this flag is
-	// not what keeps that one honest: the cancel clears the queue and both writers
-	// carry a status predicate, so the store decides which of them wins.
+	// not what keeps that one honest: whichever of the two runs second finds the work
+	// already claimed, because the delivery pops the row the cancel's transaction
+	// takes, and the cancel stops the run the delivery just started.
 	if workspaceErr == nil && !wasCanceled {
 		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
 			// err before ok: a failed attempt is not an empty queue, and treating it
