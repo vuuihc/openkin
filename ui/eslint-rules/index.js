@@ -83,6 +83,39 @@ const OFF_LADDER = [
 ];
 
 /**
+ * The width ladder, turned into one literal per step.
+ *
+ * The width axis is the half of this rule that cannot be a pattern. The axes
+ * above are vocabularies — *every* arbitrary value on them is a finding — but
+ * the widths are a ladder: most of the numbers in the tree are a label's
+ * truncation cap or a control's size and are supposed to stay literals, so what
+ * the rule refuses is one shape only, **a value the ladder already names**. That
+ * is a fact about the config, not about the class string, so the list is read
+ * out of `tailwind.config.ts` by `eslint.config.js` and passed in, the same way
+ * the colour vocabulary is.
+ *
+ * Tailwind's content scan reads a class name, so a value is spelled without
+ * spaces (`min(100%,420px)`) — but the config writes it the readable way
+ * (`min(100%, 420px)`), and one value has two spellings in px and rem. Both
+ * normalisations are here rather than in the caller: an entry that silently
+ * failed to match would be a step nobody is held to.
+ */
+export function widthLiterals(axis, value) {
+  const literal = (v) => `${axis}-[${v.replace(/\s+/g, "")}]`;
+  const spellings = new Set([literal(value)]);
+  const px = /^([\d.]+)px$/.exec(value);
+  const rem = /^([\d.]+)rem$/.exec(value);
+  if (px) {
+    const remValue = Number(px[1]) / 16;
+    if (Number.isFinite(remValue)) spellings.add(literal(`${Number(remValue.toFixed(4))}rem`));
+  } else if (rem) {
+    const pxValue = Number(rem[1]) * 16;
+    if (Number.isFinite(pxValue)) spellings.add(literal(`${Number(pxValue.toFixed(4))}px`));
+  }
+  return [...spellings];
+}
+
+/**
  * Every string in a file that can hold a class list, as `{ node, value }`.
  *
  * Read from **nodes, not tokens**, and that is the whole point of this
@@ -172,17 +205,66 @@ const noUndefinedToken = {
   },
 };
 
-/** Refuse an arbitrary value on an axis the ladder has a word for. */
+/**
+ * Refuse an arbitrary value on an axis the ladder has a word for.
+ *
+ * Two halves, and they fail for the same reason in different ways. The static
+ * patterns are the axes where *every* value has a word; the width ladder is the
+ * one axis where only the named values do — see `widthLiterals` for why that
+ * cannot be a pattern. Both report the same defect: a class that renders, so it
+ * looks right, and that no ladder can find again.
+ */
 const noArbitraryLiteral = {
   meta: {
     type: "problem",
     docs: {
       description: "no arbitrary value on a ladder that has a word for every value in the tree",
     },
-    schema: [],
-    messages: { offLadder: "{{value}} — {{reason}}." },
+    schema: [
+      {
+        type: "object",
+        properties: {
+          widths: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                axis: { type: "string" },
+                name: { type: "string" },
+                value: { type: "string" },
+              },
+              required: ["axis", "name", "value"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["widths"],
+        additionalProperties: false,
+      },
+    ],
+    messages: {
+      offLadder: "{{value}} — {{reason}}.",
+      named: "{{value}} — this width already has a name: `{{name}}`. Use it, or add a step.",
+    },
   },
   create(context) {
+    const widths = context.options[0]?.widths ?? [];
+    // As with the colours: no ladder is a misconfiguration, not a free pass.
+    // `eslint.config.js` reads it out of the Tailwind config, so an empty list
+    // means that read failed — and a width rule that quietly passed every class
+    // would be worse than no width rule.
+    if (widths.length === 0) {
+      throw new Error("kin/no-arbitrary-literal needs `widths` — see eslint.config.js");
+    }
+    const named = widths.map(({ axis, name, value }) => ({
+      name,
+      pattern: new RegExp(
+        `(?<![\\w-])${widthLiterals(axis, value)
+          .map((literal) => literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join("|")}(?![\\w-])`,
+        "g",
+      ),
+    }));
     return {
       Program() {
         for (const segment of classSegments(context)) {
@@ -193,6 +275,16 @@ const noArbitraryLiteral = {
                 node: segment.node,
                 messageId: "offLadder",
                 data: { value, reason: message },
+              });
+            }
+          }
+          for (const { name, pattern } of named) {
+            pattern.lastIndex = 0;
+            for (const [value] of segment.value.matchAll(pattern)) {
+              context.report({
+                node: segment.node,
+                messageId: "named",
+                data: { value, name: `${name}` },
               });
             }
           }

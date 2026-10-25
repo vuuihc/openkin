@@ -14,6 +14,10 @@ import kin from "./eslint-rules/index.js";
  *   tests read, so a colour added to the config is a colour the rule knows
  *   about, and a name that stops existing is a name the rule starts reporting.
  *   A list written here would be the fourth copy of the palette.
+ * - **The width ladder is read the same way**, and for a stronger reason: the
+ *   rule refuses a width literal *because a step names that value*, so an
+ *   unread ladder is not a stricter rule, it is a different one. It is read off
+ *   `extend` and not off the resolved theme — see the note on `widths` below.
  * - **Test files are out of scope for the two project rules.** A test that
  *   asserts *about* a shape has to spell the shape: `tokens.test.ts` contains
  *   the patterns for the very literals it forbids, and `design/`'s render guard
@@ -25,6 +29,18 @@ const jiti = createJiti(import.meta.url);
 const config = await jiti.import("./tailwind.config.ts", { default: true });
 const theme = resolveConfig(config).theme;
 const colours = Object.keys(theme.colors.kin).sort();
+// The width ladder, in the shape the rule needs: one entry per step, with the
+// utility prefix that spends it. Read from `extend` rather than from the
+// resolved theme on purpose — the resolved `maxWidth` is mostly Tailwind's own
+// scale (`max-w-xs` and friends), and those are not steps we are holding anyone
+// to. See `widthLiterals` in `eslint-rules/index.js` for the other half.
+const widths = [
+  ["w", config.theme?.extend?.width],
+  ["max-w", config.theme?.extend?.maxWidth],
+  ["min-w", config.theme?.extend?.minWidth],
+].flatMap(([axis, steps]) =>
+  Object.entries(steps ?? {}).map(([name, value]) => ({ axis, name: `${axis}-${name}`, value })),
+);
 
 export default tseslint.config(
   { ignores: ["dist/**", "node_modules/**", "src/api/generated/**"] },
@@ -43,7 +59,7 @@ export default tseslint.config(
     plugins: { kin, "react-hooks": reactHooks },
     rules: {
       "kin/no-undefined-token": ["error", { colours }],
-      "kin/no-arbitrary-literal": "error",
+      "kin/no-arbitrary-literal": ["error", { widths }],
       // Not a design rule, and here for the opposite reason: the tree already
       // carries `eslint-disable-next-line react-hooks/exhaustive-deps`
       // comments written when this config did not exist. A disable comment for
