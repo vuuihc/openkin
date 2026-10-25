@@ -75,7 +75,7 @@ export default function SessionTabs({ tabs, activeId, onSelect, onClose, onMove 
 
   return (
     <div
-      className="hidden md:flex flex-none items-stretch overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] kin-scroll"
+      className="hidden md:flex flex-none items-stretch overflow-x-auto border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] kin-scroll kin-zen-hide"
       role="tablist"
       aria-label={tr("tabs.label")}
     >

@@ -73,7 +73,7 @@ export default function MobileTabBar({ pendingCount }: Props) {
       with dead space under it.
     */
     <nav
-      className="md:hidden flex-none flex items-stretch border-t border-[var(--kin-hairline)] bg-[var(--kin-page)]"
+      className="md:hidden flex-none flex items-stretch border-t border-[var(--kin-hairline)] bg-[var(--kin-page)] kin-zen-hide"
       aria-label={tr("nav.primary")}
     >
       {tabs.map((tab) => (

@@ -145,6 +145,10 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Zen: chrome out of the way, session untouched. State, not a preference —
+  // nothing writes it anywhere, so a reload is always back to the shell (P3 plan
+  // §2.3). What it hides is decided in `index.css` by the `kin-zen-hide` marker.
+  const [zen, setZen] = useState(false);
   const [externalSessions, setExternalSessions] = useState<AgentSession[]>([]);
   const [agentCatalog, setAgentCatalog] = useState<AgentInfo[]>([]);
   const agentCatalogRequest = useRef(0);
@@ -355,7 +359,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     });
   }, []);
 
-  // ⌘N new chat · ⌘K command palette · Ctrl+Backquote toggle terminal
+  // ⌘N new chat · ⌘K command palette · Ctrl+Backquote toggle terminal · ⌘. zen
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
@@ -365,6 +369,10 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen((v) => !v);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+        e.preventDefault();
+        setZen((v) => !v);
       }
       if (terminalAvailable && isTerminalToggle(e)) {
         e.preventDefault();
@@ -414,7 +422,11 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
       the phone uses to reach everything the three tabs do not cover, and both
       sit outside <main>. See index.css.
     */
-    <div className="touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad">
+    <div
+      className={`touch-lg h-[100dvh] flex bg-[var(--kin-page)] text-kin-text overflow-hidden safe-pad ${
+        zen ? "kin-zen" : ""
+      }`}
+    >
       <Sidebar
         tasks={tasks}
         selectedTaskId={selectedTaskId}
@@ -454,9 +466,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             remember `pt-safe`, and getting it wrong puts a title under the
             sensor housing.
           */
-          <div className="md:hidden flex-none pt-safe" />
+          <div className="md:hidden flex-none pt-safe kin-zen-hide" />
         ) : (
-          <div className="md:hidden flex items-center gap-2 px-3 min-h-12 pt-safe border-b border-[var(--kin-hairline)] flex-none">
+          <div className="md:hidden flex items-center gap-2 px-3 min-h-12 pt-safe border-b border-[var(--kin-hairline)] flex-none kin-zen-hide">
             {draftActive ? (
               <button
                 type="button"

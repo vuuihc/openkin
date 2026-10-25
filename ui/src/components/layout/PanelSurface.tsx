@@ -35,7 +35,7 @@ export default function PanelSurface({
   return (
     <div
       className={[
-        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad",
+        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad kin-zen-hide",
         hidden ? "hidden" : "",
         className ?? "",
       ]

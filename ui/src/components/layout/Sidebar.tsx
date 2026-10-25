@@ -631,7 +631,7 @@ export default function Sidebar({
   return (
     <>
       {/* Desktop */}
-      <div className="hidden md:flex h-full shrink-0">{panel}</div>
+      <div className="hidden md:flex h-full shrink-0 kin-zen-hide">{panel}</div>
 
       {/* Mobile drawer */}
       {mobileOpen && (

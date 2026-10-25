@@ -240,3 +240,27 @@ body {
 .kin-md .kin-mermaid {
   margin: 0.25rem 0;
 }
+
+/*
+  Zen: everything that is navigation, hidden from one flag on the shell root.
+
+  A class on the root plus a marker class on each chrome surface, rather than a
+  prop or a store read in each of them, because the set is a *visual* one — the
+  sidebar, the two mobile bars, the session tabs, the panel — and the rule that
+  hides them is the same for all of them. The alternative was passing `zen` into
+  five components, four of which are rendered from three different call sites,
+  and each of which would then be one more place to forget.
+
+  The marker is opt-in and the guard (`components/layout/zen.test.ts`) names the
+  files that carry it, so "what does zen hide" is answerable by grep.
+
+  Two things deliberately stay: the reconnecting banner (a status, not chrome —
+  hiding the reason nothing is updating is the opposite of focus) and everything
+  inside the session (that is what zen is for).
+
+  Specificity, not `!important`: 0-2-0 beats the `md:flex` it has to override on
+  the sidebar and the tab strip.
+*/
+.kin-zen .kin-zen-hide {
+  display: none;
+}
