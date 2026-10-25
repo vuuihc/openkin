@@ -1986,7 +1986,7 @@ components:
             are answered on the user's behalf so the process can exit.
     QueuedPrompt:
       type: object
-      required: [id, prompt, queued_at]
+      required: [id, prompt, user_seq, queued_at]
       properties:
         id:
           type: integer
@@ -2002,7 +2002,9 @@ components:
           type: integer
           description: |
             Seq of the message event written when this prompt was accepted. Zero
-            when that write failed, in which case the delivery writes it.
+            when that write failed, in which case the delivery writes it. Always
+            present: a client that cannot tell "no anchor" from "field absent"
+            cannot decide what to mark as waiting.
         queued_at:
           type: integer
     ReplayRequest:

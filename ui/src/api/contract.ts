@@ -6,6 +6,7 @@ export type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type FollowUpRequest = components["schemas"]["FollowUpRequest"];
 export type ApprovalDecisionRequest = components["schemas"]["ApprovalDecisionRequest"];
 export type Approval = components["schemas"]["Approval"];
+export type QueuedPrompt = components["schemas"]["QueuedPrompt"];
 export type UserQuestionOption = components["schemas"]["UserQuestionOption"];
 export type UserQuestionPayload = components["schemas"]["UserQuestionPayload"];
 export type UserQuestionResponse = components["schemas"]["UserQuestionResponse"];

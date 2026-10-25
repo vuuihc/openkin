@@ -9,6 +9,7 @@ import { extractPrimaryToolPath } from "../../lib/changedFiles";
 import { shortPath } from "../../lib/paths";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
+import { isMessageQueued } from "../../lib/queuedPrompts";
 import { agentAvatarMeta } from "../../lib/agentMention";
 import { useAppStore } from "../../store/appStore";
 import { IconCopy, IconDownload, IconShare } from "../icons";
@@ -31,6 +32,9 @@ import {
   type ToolStep,
 } from "./transcriptProjection";
 
+/** One empty set, shared: the default for a stream that has no queue to show. */
+const EMPTY_QUEUED: Set<number> = new Set();
+
 type Props = {
   events: TaskEvent[];
   /** Fallback first user bubble when create hasn't seeded events yet. */
@@ -52,6 +56,11 @@ type Props = {
   hostSpeaker?: string;
   /** Selected main-agent model; adapter events may replace it with the reported model. */
   hostModel?: string | null;
+  /**
+   * Seqs of the messages that are still waiting for a turn (the daemon's queue).
+   * A message in here is in the transcript already; this only marks it.
+   */
+  queuedSeqs?: Set<number>;
   /** When true, show Retry / Fork on user messages (terminal tasks). */
   showMessageActions?: boolean;
   /** Busy flag while retry/fork request is in flight. */
@@ -72,6 +81,7 @@ export default function ChatStream({
   loadingSpeaker = "",
   hostSpeaker = "",
   hostModel,
+  queuedSeqs,
   showMessageActions = false,
   actionsBusy = false,
   onRetry,
@@ -217,6 +227,7 @@ export default function ChatStream({
                 speaker={turn.item.speaker}
                 text={turn.item.text}
                 partial={turn.item.partial}
+                queued={isMessageQueued(turn.item.seq, queuedSeqs ?? EMPTY_QUEUED)}
                 selectionMode={sharing}
                 selected={selectedKeys.has(turn.item.key)}
                 onToggleSelection={() => toggleSelection(turn.item.key)}
@@ -823,6 +834,7 @@ function MessageRow({
   speaker,
   text,
   partial,
+  queued = false,
   selectionMode = false,
   selected = false,
   onToggleSelection,
@@ -830,6 +842,8 @@ function MessageRow({
   speaker: string;
   text: string;
   partial?: boolean;
+  /** Still waiting for a turn: the daemon has it queued, not answered. */
+  queued?: boolean;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelection?: () => void;
@@ -856,7 +870,15 @@ function MessageRow({
               onToggle={onToggleSelection ?? (() => undefined)}
             />
           )}
-          <div className="text-caption font-medium text-kin-muted px-1">{meta.label}</div>
+          <div className="flex items-center gap-1.5 px-1">
+            <div className="text-caption font-medium text-kin-muted">{meta.label}</div>
+            {queued && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink">
+                <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
+                {tr("chat.queued")}
+              </span>
+            )}
+          </div>
           <div
             className="max-w-full min-w-0 px-3.5 py-2.5 rounded-2xl rounded-br-md text-strong sm:text-subtitle leading-prose whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
             style={{

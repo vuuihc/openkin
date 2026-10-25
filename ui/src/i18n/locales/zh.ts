@@ -250,6 +250,7 @@ const zh = {
   chat: {
     thinking: "思考中…",
     streaming: "生成中",
+    queued: "排队中",
     canceled: "已取消",
     timedOut: "已超时",
     task: "任务",

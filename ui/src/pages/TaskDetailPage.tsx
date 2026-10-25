@@ -26,12 +26,14 @@ import {
   isTerminal,
   listAgents,
   listEvents,
+  listQueuedPrompts,
   listWorkerSteps,
   limitContinue,
   restoreTaskWorkspace,
   retryTask,
   type AgentInfo,
   type LimitHit,
+  type QueuedPrompt,
   type TaskUsage,
   type TaskLimitWait,
   type Upload,
@@ -58,6 +60,7 @@ import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import { extractChangedFiles } from "../lib/changedFiles";
+import { queuedMessageSeqs } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
@@ -115,6 +118,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [usage, setUsage] = useState<TaskUsage | null>(null);
   const [limitWait, setLimitWait] = useState<TaskLimitWait | null>(null);
   const [workerSteps, setWorkerSteps] = useState<WorkerStep[]>([]);
+  const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   const [usageLoading, setUsageLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [awaitingReply, setAwaitingReply] = useState(false);
@@ -179,6 +183,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setUsage(null);
     setLimitWait(null);
     setWorkerSteps([]);
+    setQueuedPrompts([]);
     setOverlay(null);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
@@ -206,6 +211,33 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       window.clearTimeout(timer);
     };
   }, [id, task?.id, task?.status, events.length]);
+
+  // The queue drains at the turn boundary, which the event stream reports — so
+  // re-read it whenever events land, and keep a slow poll for the case where the
+  // only thing that changed is that a waiting message got answered.
+  useEffect(() => {
+    if (!id || !task) return;
+    let active = true;
+    const load = () => {
+      listQueuedPrompts(id)
+        .then((prompts) => {
+          if (active) setQueuedPrompts(prompts);
+        })
+        .catch(() => {
+          if (active) setQueuedPrompts([]);
+        });
+    };
+    const timer = window.setTimeout(load, 250);
+    const interval = isTerminal(task.status) ? undefined : window.setInterval(load, 3000);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      if (interval !== undefined) window.clearInterval(interval);
+    };
+  }, [id, task?.id, task?.status, events.length]);
+
+  // Stable identity, so the stream only re-renders when the queue really changed.
+  const queuedSeqs = useMemo(() => queuedMessageSeqs(queuedPrompts), [queuedPrompts]);
 
   useEffect(() => {
     if (!task) return;
@@ -985,6 +1017,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}
             hostModel={task.model}
+            queuedSeqs={queuedSeqs}
             showMessageActions={terminal}
             actionsBusy={actionBusy}
             onRetry={(seq) => void onRetry(seq)}

@@ -1331,9 +1331,11 @@ export interface components {
             model?: string;
             permission_mode?: string;
             /** @description Seq of the message event written when this prompt was accepted. Zero
-             *     when that write failed, in which case the delivery writes it.
+             *     when that write failed, in which case the delivery writes it. Always
+             *     present: a client that cannot tell "no anchor" from "field absent"
+             *     cannot decide what to mark as waiting.
              *      */
-            user_seq?: number;
+            user_seq: number;
             queued_at: number;
         };
         ReplayRequest: {

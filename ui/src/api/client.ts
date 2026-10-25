@@ -18,6 +18,7 @@ import {
   type TaskEvent,
   type TaskPullRequestSnapshot,
   type PublishReport,
+  type QueuedPrompt,
   type UserQuestion,
   type UserQuestionOption,
   type UserQuestionPayload,
@@ -28,6 +29,7 @@ export type {
   Approval,
   Task,
   TaskEvent,
+  QueuedPrompt,
   UserQuestion,
   UserQuestionOption,
   UserQuestionPayload,
@@ -920,6 +922,18 @@ export async function getTaskLimitWait(id: string): Promise<TaskLimitWait | null
 export function listApprovals(status?: string): Promise<Approval[]> {
   const q = status ? `?status=${encodeURIComponent(status)}` : "";
   return apiFetch<Approval[]>(`/api/approvals${q}`);
+}
+
+/**
+ * Messages accepted for this task that are still waiting for a turn, oldest
+ * first. An empty list means everything the user sent has been answered.
+ *
+ * Each item's `user_seq` is the seq of the message event written when it was
+ * accepted, which is what the transcript marks as still waiting — the message is
+ * already in the transcript, so the queue is the only thing that changes.
+ */
+export function listQueuedPrompts(id: string): Promise<QueuedPrompt[]> {
+  return apiFetch<QueuedPrompt[]>(`/api/tasks/${encodeURIComponent(id)}/prompts`);
 }
 
 /**

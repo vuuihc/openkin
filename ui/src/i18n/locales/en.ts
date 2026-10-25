@@ -262,6 +262,7 @@ const en: MessageTree = {
   chat: {
     thinking: "thinking…",
     streaming: "streaming",
+    queued: "Queued",
     canceled: "Canceled",
     timedOut: "Timed out",
     task: "task",
