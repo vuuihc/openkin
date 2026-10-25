@@ -2,7 +2,7 @@ import { useState } from "react";
 import { shortPath } from "../../lib/paths";
 import { evidenceFilePreview, type RoundEvidence } from "../../lib/roundEvidence";
 import { useT } from "../../i18n/react";
-import DeltaInline, { FileSize, actionDotClass, actionLabelKey } from "../changedFileFace";
+import { FileSize, actionDotClass, actionLabelKey } from "../changedFileFace";
 import PreviewLines from "../PreviewLines";
 import { IconChevron, IconFile } from "../icons";
 
@@ -48,11 +48,16 @@ export default function RoundEvidenceCard({
         <span className="flex-none text-caption tabular-nums text-kin-muted">
           {tr("chat.evidence.files", { count: evidence.totalFiles })}
         </span>
-        {evidence.hasStats && (
-          <span className="flex-none text-caption tabular-nums">
-            <DeltaInline additions={evidence.additions} deletions={evidence.deletions} />
-          </span>
-        )}
+        {/* The same face the rows below use, from the same component: a round whose
+            payloads carried no counts says "size unknown" here too, rather than
+            going quiet in the header while its own rows say it. */}
+        <span className="flex-none text-caption tabular-nums">
+          <FileSize
+            additions={evidence.hasStats ? evidence.additions : null}
+            deletions={evidence.hasStats ? evidence.deletions : null}
+            label={tr("workspace.changed.noLineDelta")}
+          />
+        </span>
         <span className="flex-none text-caption text-kin-muted">
           {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
         </span>
