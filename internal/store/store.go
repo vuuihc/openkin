@@ -790,8 +790,11 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	}
 	// Written together with the ref, never apart: a ref whose provenance is
 	// missing reads as "local", which is a claim about a machine and not
-	// something to leave to a caller's memory.
-	if t.SessionRefDeviceID != nil {
+	// something to leave to a caller's memory. The rule runs in the other
+	// direction too, so a provenance with no ref is dropped rather than stored --
+	// it would name a machine for a session that is not there. updateTask holds
+	// the same line; see the comment there.
+	if t.SessionRef != nil && strings.TrimSpace(*t.SessionRef) != "" && t.SessionRefDeviceID != nil {
 		sessionRefDevice = *t.SessionRefDeviceID
 	}
 	perm := t.PermissionMode
@@ -895,7 +898,8 @@ type TaskPatch struct {
 	SessionRef *string
 	// SessionRefDeviceID is written in the same patch as SessionRef. Setting it
 	// alone describes a machine for a ref that is not there, which is why
-	// ClearSessionRef clears both.
+	// ClearSessionRef clears both and why a patch that sets it alone is refused
+	// rather than stored.
 	SessionRefDeviceID *string
 	ClearSessionRef    bool // sets session_ref and its provenance NULL (handoff across agents or devices)
 	Prompt             *string
@@ -970,17 +974,26 @@ func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseSt
 		// previous machine's name to a ref it never produced, which is worse than
 		// having no provenance at all: "unknown" reads as local, "another
 		// machine" sends the resume path down the handoff branch.
+		//
+		// A blank ref is no ref, so it clears the provenance the same way
+		// ClearSessionRef does. Storing a machine beside a blank ref is the state
+		// the branch below refuses, and it should not be reachable by arriving
+		// from this side instead.
 		sets = append(sets, "session_ref = ?", "session_ref_device_id = ?")
 		args = append(args, *p.SessionRef)
-		if p.SessionRefDeviceID != nil {
-			args = append(args, *p.SessionRefDeviceID)
-		} else {
+		if strings.TrimSpace(*p.SessionRef) == "" || p.SessionRefDeviceID == nil {
 			args = append(args, nil)
+		} else {
+			args = append(args, *p.SessionRefDeviceID)
 		}
 	} else if p.SessionRefDeviceID != nil {
-		// A ref that is already stored, with its provenance now known.
-		sets = append(sets, "session_ref_device_id = ?")
-		args = append(args, *p.SessionRefDeviceID)
+		// A patch that names a machine and no ref asks for a row reading "the ref
+		// is over on that machine" while holding no ref at all, which is a state
+		// the resume path has no answer for. Refused rather than dropped: every
+		// caller that has provenance to record has the ref to record with it (see
+		// InsertTask), so reaching here is a bug in the caller, and a provenance
+		// that quietly never lands is the kind of bug that costs an afternoon.
+		return fmt.Errorf("update task %s: a session ref device was given with no session ref", id)
 	}
 	if p.Prompt != nil {
 		sets = append(sets, "prompt = ?")

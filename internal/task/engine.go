@@ -1206,11 +1206,16 @@ func (e *Engine) sessionRefOwner(t store.Task) string {
 // no machine, and reading it as one would make the answer depend on whether this
 // daemon happens to have a device id of its own.
 //
-// A ref that fails this is not cleared — the binding is still true, that machine
-// still has that session, and a task that runs there again should resume it. The
-// callers decline to *use* it here and rebuild from Kin's own transcript
-// instead, which is the mechanism that already exists for crossing agents
-// (ADR 0022 D6).
+// A ref that fails this is not cleared by this judgement, which is about whether
+// *this* turn on *this* machine may use it, not about the row. The row keeps it,
+// and a task that runs on the originating machine again can still resume it.
+//
+// "Can still", not "will". A turn that runs here goes on to mint its own ref, and
+// recordSessionRef replaces both columns with it -- so after one local turn the
+// row names this machine's session, and the originating machine will find a ref
+// it did not mint and rebuild. One task holds one current session and the newest
+// turn is it; the alternative is a row that means different things to different
+// machines, which is the ambiguity this column exists to remove.
 func (e *Engine) sessionRefResumable(t store.Task) bool {
 	if t.SessionRef == nil || strings.TrimSpace(*t.SessionRef) == "" {
 		return false
@@ -1259,6 +1264,14 @@ func (e *Engine) sessionRefOriginLabel(ctx context.Context, t store.Task) string
 // Written through the same channel an adapter uses to say it could not reload
 // the agent's context, so it lands in the transcript where it happened rather
 // than in a diagnostics corner.
+//
+// The sentence names only what is true at this gate, because two different paths
+// arrive here. A follow-up continues from a context pack Kin built out of its own
+// transcript; a task created with a session attached from elsewhere has no
+// transcript at all and starts from the prompt that was just typed. A sentence
+// promising a transcript would be false for the second one, so this one reports
+// the refusal -- which is the fact the reader needs, since it is the difference
+// between an agent that forgot and an agent that never had it.
 func (e *Engine) noteForeignSessionRef(ctx context.Context, id string, t store.Task) {
 	origin := e.sessionRefOriginLabel(ctx, t)
 	if origin == "" {
@@ -1266,9 +1279,9 @@ func (e *Engine) noteForeignSessionRef(ctx context.Context, id string, t store.T
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"severity": "info",
-		"title":    "context rebuilt",
+		"title":    "session not resumed",
 		"message": "this task's agent session was started on " + origin +
-			"; Kin continued from its own transcript instead of resuming it.",
+			"; this machine cannot resume it, so this turn does not continue that session.",
 		"session_ref_device_id": strings.TrimSpace(derefString(t.SessionRefDeviceID)),
 	})
 	w := e.eventWriter()

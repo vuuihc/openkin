@@ -178,3 +178,79 @@ func TestRetryClearsTheRefProvenanceToo(t *testing.T) {
 		t.Fatalf("retry kept the ref provenance without the ref: %v", *got.SessionRefDeviceID)
 	}
 }
+
+// The rule both writers share: a ref and its provenance are one write, and it
+// runs in both directions. The forward direction is tested above. This is the
+// backward one -- a provenance with no ref -- which is not a state the resume
+// path can interpret: the row would say "the ref is over on that machine" while
+// holding no ref, and the reader has no answer for that.
+func TestAProvenanceWithoutARefIsNeverStored(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	// Insert drops it. There is no ref for the machine to have produced, so the
+	// provenance describes a session that does not exist.
+	orphan := "node-abc"
+	if err := st.InsertTask(ctx, Task{
+		ID: "task-orphan-provenance", Title: "seeded", Agent: "claudecode",
+		Cwd: "/tmp/project", Prompt: "hello", Status: "succeeded", CreatedAt: NowMilli(),
+		SessionRefDeviceID: &orphan,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetTask(ctx, "task-orphan-provenance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionRefDeviceID != nil {
+		t.Fatalf("an insert with no ref stored a provenance anyway: %v", *got.SessionRefDeviceID)
+	}
+
+	// Update refuses it. The patch below carries a second field on purpose: an
+	// empty patch is rejected for being empty, which would let this test pass
+	// while proving nothing about provenance.
+	seedTaskWithSession(t, st, "task-patch-provenance", "sess-1", "node-abc")
+	moved := "node-elsewhere"
+	title := "renamed"
+	err = st.UpdateTask(ctx, "task-patch-provenance", TaskPatch{
+		Title: &title, SessionRefDeviceID: &moved,
+	})
+	if err == nil {
+		t.Fatal("a patch naming a machine and no ref was accepted; the provenance would read as a route to nowhere")
+	}
+	// And the row is untouched: a refused write that half-lands is worse than one
+	// that lands, because the caller has been told it did not.
+	after, err := st.GetTask(ctx, "task-patch-provenance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.SessionRefDeviceID == nil || *after.SessionRefDeviceID != "node-abc" {
+		t.Fatalf("the refused patch changed the provenance: %v", after.SessionRefDeviceID)
+	}
+	if after.Title != "seeded" {
+		t.Fatalf("the refused patch changed the title to %q", after.Title)
+	}
+
+	// And the same rule holds arriving from the replacement side, which is the
+	// way around it: a blank ref is no ref, so it clears the provenance rather
+	// than storing a machine beside nothing. The attach handler's rollback builds
+	// exactly this patch from a row whose ref is blank, so it is a shape that
+	// occurs rather than one that could.
+	blank := "   "
+	if err := st.UpdateTask(ctx, "task-patch-provenance", TaskPatch{
+		SessionRef: &blank, SessionRefDeviceID: &moved,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	blanked, err := st.GetTask(ctx, "task-patch-provenance")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blanked.SessionRefDeviceID != nil {
+		t.Fatalf("a blank ref kept a provenance: %v", *blanked.SessionRefDeviceID)
+	}
+}

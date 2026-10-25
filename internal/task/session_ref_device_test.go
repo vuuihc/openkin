@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -133,9 +134,17 @@ func TestFollowUpOnARefFromAnotherMachineRebuildsInsteadOfRunningBare(t *testing
 	}
 }
 
-// Refusing to *use* the ref here is not the same as forgetting it. The binding
-// is still true — that machine still holds that session, and a task that runs
-// there again should pick it back up.
+// Refusing to *use* the ref here is not the same as clearing it. The judgement is
+// about this turn on this machine, not about the row, and the refusal leaves both
+// columns alone — which is what lets the task resume its own session when it is
+// next dispatched to the machine that minted it.
+//
+// How long that lasts is the second half of this test, and it is the part the
+// paragraph above must not overstate: the local turn below mints a ref of its own
+// and recordSessionRef replaces both columns with it, so after one local turn the
+// row names this machine and the originating machine finds a ref it did not mint.
+// One task holds one current session and the newest turn is it — but "that machine
+// can still resume it" has a shelf life, and the assertions below are where it ends.
 func TestARefFromAnotherMachineSurvivesALocalTurn(t *testing.T) {
 	ctx := context.Background()
 	ad := &fakeAdapter{events: successEvents()}
@@ -271,5 +280,66 @@ func TestAFollowUpOnThisMachinesOwnRefStillResumes(t *testing.T) {
 	}
 	if strings.Contains(spec.Prompt, "Continue this Kin task.") {
 		t.Fatalf("a resumable ref was rebuilt into a pack: %q", spec.Prompt)
+	}
+}
+
+// A dispatched turn reports its session id back to this daemon, and this daemon
+// writes the provenance. The agent that minted the ref ran on the other machine,
+// so that is the machine the row has to name.
+//
+// Stamping it with the local id instead would assert the ref is resolvable here,
+// which is the one thing it is not: the next turn would hand it to a local CLI,
+// watch that CLI start a fresh conversation it cannot tell apart from a resumed
+// one, and report success. Comment above recordSessionRef says the ref and its
+// provenance are never set apart; this is the test that holds it to that.
+//
+// This writer is also the only one that can produce a foreign provenance in
+// practice, which is why the test lives at the dispatch boundary rather than
+// next to the predicate.
+func TestARefFromATurnOnAnotherMachineIsStampedWithThatMachine(t *testing.T) {
+	ctx := context.Background()
+	local := &fakeAdapter{events: successEvents()}
+	e, _ := testEngine(t, 4, local)
+
+	remote := &fakeAdapter{events: successEvents()}
+	e.SetRemoteRunner("this-machine", func(store.Task, string) (adapter.Adapter, error) {
+		return remote, nil
+	})
+
+	created, err := e.Create(ctx, CreateRequest{
+		Agent: "claude-code", Cwd: "/tmp", Prompt: "run over there",
+		ExecutingDeviceID: "other-machine",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, created.ID, StatusSucceeded, 5*time.Second)
+
+	// The turn really did run over there. Without this the test would pass by
+	// never reaching the writer it is about, which is the failure mode a
+	// provenance assertion is least likely to notice.
+	remote.mu.Lock()
+	ranRemote := remote.started
+	remote.mu.Unlock()
+	local.mu.Lock()
+	ranLocal := local.started
+	local.mu.Unlock()
+	if ranRemote != 1 || ranLocal != 0 {
+		t.Fatalf("the turn ran %d times remotely and %d times locally, want 1 and 0",
+			ranRemote, ranLocal)
+	}
+
+	stored, err := e.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SessionRef == nil || *stored.SessionRef != "s1" {
+		t.Fatalf("session_ref = %v, want s1", stored.SessionRef)
+	}
+	if stored.SessionRefDeviceID == nil {
+		t.Fatal("the ref was written with no provenance, so it now reads as resolvable here")
+	}
+	if got := *stored.SessionRefDeviceID; got != "other-machine" {
+		t.Fatalf("provenance = %q, want other-machine: this daemon's adapters cannot resolve that ref", got)
 	}
 }

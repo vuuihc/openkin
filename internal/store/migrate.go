@@ -2358,8 +2358,11 @@ func (s *Store) ensureCurrentSchema() error {
 // is the only one that can resolve it". `session_ref` alone cannot express that,
 // which is how a ref produced on one machine came to be handed to another
 // machine's adapter -- five of them accept a resume ref and none can tell whose
-// it is (ADR 0022 D6). Empty means "written before this column existed", and the
-// resume path reads that as local, which is what those rows were.
+// it is (ADR 0022 D6). Empty means "no machine named", which the resume path
+// reads as local. Rows written before this column existed are the bulk of those
+// and were local, which is why that reading is the right one; a blank device id
+// on a daemon that has no device identity of its own lands in the same place, and
+// wants the same answer for the same reason.
 func (s *Store) ensureSessionRefProvenanceSchema() error {
 	present, err := s.tableExists("tasks")
 	if err != nil {

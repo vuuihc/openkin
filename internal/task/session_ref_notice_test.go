@@ -138,6 +138,13 @@ func TestAnAttachedForeignRefIsAnnouncedOnTheFirstTurn(t *testing.T) {
 	if !strings.Contains(message, "other-machine") {
 		t.Fatalf("the notice names no machine: %q", message)
 	}
+	// This task is brand new, so there is no Kin transcript and the agent got
+	// nothing but the prompt above. A sentence saying Kin continued from its own
+	// transcript would name a mechanism that never ran, which is the kind of
+	// quiet untruth this slice exists to remove.
+	if strings.Contains(message, "transcript") {
+		t.Fatalf("the notice claims a transcript this task never had: %q", message)
+	}
 }
 
 // A row can hold a ref that is present and blank. Nothing enforces a non-empty
