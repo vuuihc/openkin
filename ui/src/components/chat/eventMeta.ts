@@ -136,6 +136,17 @@ function readVisibility(p: Record<string, unknown>): EventVisibility | undefined
   };
 }
 
+/**
+ * The speakers that are the host column's own voice: the product name (legacy
+ * rows), the host agent itself, and the orchestrator that speaks for it. The
+ * names are aliases for one column, so anything that has to tell "the host
+ * said this" from "someone else did" has to ask here rather than compare
+ * strings.
+ */
+export function isHostVoice(speaker: string, hostSpeaker: string): boolean {
+  return speaker === "kin" || speaker === hostSpeaker || speaker === "orchestrator";
+}
+
 function legacyVisibilityFor(
   speaker: string,
   hostSpeaker: string,
@@ -143,9 +154,7 @@ function legacyVisibilityFor(
 ): EventVisibility {
   if (
     speaker === "user" ||
-    speaker === "kin" ||
-    speaker === hostSpeaker ||
-    speaker === "orchestrator" ||
+    isHostVoice(speaker, hostSpeaker) ||
     origin === "orchestrator" ||
     origin === "delegate"
   ) {

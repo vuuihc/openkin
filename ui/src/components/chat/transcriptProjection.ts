@@ -1,7 +1,12 @@
 import type { TaskEvent } from "../../api/client";
 import { isCancelNoise } from "../../lib/friendlyError";
 import { t } from "../../i18n";
-import { decodeCanonicalEventMeta, isProgressMessageMeta, resolveSpeaker } from "./eventMeta";
+import {
+  decodeCanonicalEventMeta,
+  isHostVoice,
+  isProgressMessageMeta,
+  resolveSpeaker,
+} from "./eventMeta";
 import { displayUserPrompt } from "../../lib/attachments";
 import type { PendingRef } from "../../lib/needsYou";
 
@@ -19,6 +24,14 @@ export type ToolStep = {
   seq?: number;
 };
 
+/**
+ * Where a note came from: the model's own thinking, the plan line, or
+ * narration. Read from the event's role and canonical phase at the moment the
+ * note is made -- never guessed from the words, which is why the last case is
+ * a category rather than a heuristic.
+ */
+export type NoteSource = "reasoning" | "plan" | "note";
+
 export type NoteStep = {
   kind: "note";
   key: string;
@@ -26,9 +39,43 @@ export type NoteStep = {
   model?: string;
   text: string;
   status: "running" | "done" | "error";
+  source: NoteSource;
   /** Source event seq, when an event is behind this step. */
   seq?: number;
 };
+
+/**
+ * Where a note came from, from the fields that decided it would be a note at
+ * all (`isProgressMessageMeta`): a reasoning role is the model thinking to
+ * itself, a plan phase is the plan line, everything else is narration.
+ */
+export function noteSourceOf(meta: { role?: string; phase?: string }): NoteSource {
+  if (meta.role === "reasoning") return "reasoning";
+  if (meta.phase === "plan") return "plan";
+  return "note";
+}
+
+/**
+ * Whether a note's row has to say whose it is. The host's own column needs no
+ * attribution -- and neither does a legacy row that names the host by another
+ * of its names, which is the difference between a label and noise on a phone.
+ */
+export function noteNeedsAttribution(note: NoteStep, hostSpeaker: string): boolean {
+  return !isHostVoice(note.speaker, hostSpeaker);
+}
+
+/**
+ * The wording a note row carries. The source is the only thing that decides
+ * it: thinking and narration read the same, and a step that was labelled by
+ * guessing at the prose would be wrong exactly when it mattered.
+ */
+export function noteLabelKey(
+  source: NoteSource,
+): "chat.progress.thinking" | "chat.progress.plan" | "chat.progress.note" {
+  if (source === "reasoning") return "chat.progress.thinking";
+  if (source === "plan") return "chat.progress.plan";
+  return "chat.progress.note";
+}
 
 export type ProgressStep = ToolStep | NoteStep;
 
@@ -182,6 +229,9 @@ export function buildChatItems(
   let streamKey = "stream";
   let streamProgress = false;
   let streamRole = "";
+  // Why the buffer being streamed is a note at all, carried to the note it
+  // becomes: the reasoning chunks and the narration chunks arrive the same way.
+  let streamSource: NoteSource = "note";
   let canceledRound = false;
   const modelsBySpeaker = new Map<string, string>();
   if (streamModel) modelsBySpeaker.set(hostSpeaker, streamModel);
@@ -211,6 +261,7 @@ export function buildChatItems(
       streamNoteKey = null;
       streamProgress = false;
       streamRole = "";
+      streamSource = "note";
       return;
     }
     if (streamProgress) {
@@ -231,6 +282,7 @@ export function buildChatItems(
             streamBuf,
             streamKey,
             progressStatus,
+            streamSource,
             streamFromSeq || undefined,
           );
         }
@@ -241,6 +293,7 @@ export function buildChatItems(
           streamBuf,
           streamKey,
           progressStatus,
+          streamSource,
           streamFromSeq || undefined,
         );
       }
@@ -264,6 +317,7 @@ export function buildChatItems(
     streamFromSeq = 0;
     streamNoteKey = null;
     streamRole = "";
+    streamSource = "note";
   };
 
   const ensureProgress = (speaker: string): ProgressItem => {
@@ -310,6 +364,7 @@ export function buildChatItems(
       model,
       text,
       status: "running",
+      source: "plan",
       seq,
     };
     ensureProgress(hostSpeaker).steps.push(note);
@@ -322,6 +377,7 @@ export function buildChatItems(
     text: string,
     key: string,
     status: NoteStep["status"],
+    source: NoteSource,
     seq?: number,
   ) => {
     const prog = ensureProgress(hostSpeaker);
@@ -363,6 +419,7 @@ export function buildChatItems(
       model,
       text,
       status,
+      source,
       seq,
     });
   };
@@ -444,6 +501,7 @@ export function buildChatItems(
       case "message": {
         const partial = Boolean(p.partial);
         const role = typeof p.role === "string" ? p.role : "";
+        const phase = typeof p.phase === "string" ? p.phase : undefined;
         // Speaker is authoritative: resolveSpeaker already maps real/legacy
         // user turns to "user". A stamped worker/host echo carries role:"user"
         // on brief echoes, tool_results, and skill preambles but keeps its agent
@@ -510,7 +568,16 @@ export function buildChatItems(
             streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = true;
             streamRole = role;
-            pushNote(sp, model, streamBuf, streamNoteKey ?? streamKey, "running", ev.seq);
+            streamSource = noteSourceOf({ role, phase });
+            pushNote(
+              sp,
+              model,
+              streamBuf,
+              streamNoteKey ?? streamKey,
+              "running",
+              streamSource,
+              ev.seq,
+            );
           } else {
             // User-facing stream closes the progress group.
             if (!streamBuf) {
@@ -524,6 +591,7 @@ export function buildChatItems(
             streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = false;
             streamRole = role;
+            streamSource = noteSourceOf({ role, phase });
           }
         } else {
           if (sp !== "user") {
@@ -567,7 +635,15 @@ export function buildChatItems(
           if (!text.trim()) break;
           if (asProgress) {
             if (!messageKey || !replaceProgressNote(messageKey, sp, model, text)) {
-              pushNote(sp, model, text, messageKey || `note-${ev.seq}`, "done", ev.seq);
+              pushNote(
+                sp,
+                model,
+                text,
+                messageKey || `note-${ev.seq}`,
+                "done",
+                noteSourceOf({ role, phase }),
+                ev.seq,
+              );
             }
           } else {
             progressRef.current = null;
@@ -886,6 +962,10 @@ function mergeProcessRun(run: ProcessRunItem[]): ChatItem[] {
           model: item.model,
           text: item.text,
           status: "done",
+          // A message only lands here when it was not a progress message to
+          // begin with, which leaves the plan phase as the one source a
+          // still-visible message can carry into the card.
+          source: noteSourceOf({ phase: item.phase }),
           seq: item.seq,
         });
       }
@@ -1235,12 +1315,7 @@ function isUserFacingEvent(p: Record<string, unknown>, speaker: string, hostSpea
   if (meta.visibility && typeof meta.visibility.user === "boolean") {
     return meta.visibility.user;
   }
-  return (
-    meta.speaker === "user" ||
-    meta.speaker === "kin" ||
-    meta.speaker === hostSpeaker ||
-    meta.speaker === "orchestrator"
-  );
+  return meta.speaker === "user" || isHostVoice(meta.speaker, hostSpeaker);
 }
 
 function isProgressMessage(

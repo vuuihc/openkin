@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { TaskEvent } from "../../api/client";
 import { extractChangedFiles } from "../../lib/changedFiles";
+import { setLocale, t } from "../../i18n";
 import {
   buildChatItems,
   chatItemSeqRange,
   groupIntoTurns,
+  noteLabelKey,
+  noteNeedsAttribution,
+  noteSourceOf,
   isProgressCardRunning,
   mergeProcessRuns,
   pendingRefSeqs,
@@ -13,6 +17,7 @@ import {
   summarizeProgressDetails,
   summarizeProgressStatus,
   type ChatItem,
+  type NoteStep,
   type ProgressItem,
   type Turn,
 } from "./transcriptProjection";
@@ -79,6 +84,9 @@ describe("transcriptProjection", () => {
         steps: [
           {
             kind: "note",
+            // Not narration: the event says `role: "reasoning"`, which is the
+            // whole reason this row can be labelled as thinking at all.
+            source: "reasoning" as const,
             speaker: "kin",
             text: "reasoning complete",
             status: "done",
@@ -679,6 +687,7 @@ describe("transcriptProjection", () => {
         steps: [
           {
             kind: "note",
+            source: "note" as const,
             speaker: "worker",
             text: "Worker completed its subtask.",
           },
@@ -1224,6 +1233,7 @@ describe("transcriptProjection", () => {
         steps: [
           {
             kind: "note",
+            source: "note" as const,
             speaker: "future-agent",
             text: "worker scratch notes",
           },
@@ -1312,6 +1322,7 @@ describe("transcriptProjection", () => {
         steps: [
           {
             kind: "note",
+            source: "note" as const,
             speaker: "claude-code",
             text: "→ delegated worker",
           },
@@ -1485,6 +1496,7 @@ describe("mergeProcessRuns", () => {
         },
         ...notes.map((text, i) => ({
           kind: "note" as const,
+          source: "note" as const,
           key: `${key}-n${i}`,
           speaker: "kin",
           text,
@@ -1623,7 +1635,14 @@ describe("mergeProcessRuns", () => {
       speaker: "kin",
       steps: [
         { kind: "tool", key: "a-t", speaker: "kin", name: "bash", summary: "bash", status: "done" },
-        { kind: "note", key: "a-n", speaker: "kin", text: "mid note", status: "done" },
+        {
+          kind: "note",
+          key: "a-n",
+          speaker: "kin",
+          text: "mid note",
+          status: "done",
+          source: "note",
+        },
       ],
     };
     const b: ProgressItem = {
@@ -1892,7 +1911,14 @@ describe("summarizeProgressDetails", () => {
           summary: "read",
           status: "done",
         },
-        { kind: "note", key: "n1", speaker: "kin", text: "Inspecting files", status: "done" },
+        {
+          kind: "note",
+          key: "n1",
+          speaker: "kin",
+          text: "Inspecting files",
+          status: "done",
+          source: "note",
+        },
         { kind: "tool", key: "g1", speaker: "kin", name: "glob", summary: "glob", status: "done" },
         {
           kind: "tool",
@@ -1904,12 +1930,13 @@ describe("summarizeProgressDetails", () => {
         },
         {
           kind: "note",
+          source: "note" as const,
           key: "n2",
           speaker: "kin",
           text: "  Located\nrendering path.  ",
           status: "done",
         },
-        { kind: "note", key: "n3", speaker: "kin", text: " \n ", status: "done" },
+        { kind: "note", key: "n3", speaker: "kin", text: " \n ", status: "done", source: "note" },
         { kind: "tool", key: "b1", speaker: "kin", name: "bash", summary: "bash", status: "done" },
       ],
     };
@@ -1931,6 +1958,7 @@ describe("summarizeProgressStatus", () => {
       steps: [
         {
           kind: "note",
+          source: "note" as const,
           key: "note",
           speaker: "kin",
           text: "Attempt finished.",
@@ -1992,6 +2020,7 @@ describe("summarizeProgressStatus", () => {
     const steps: ProgressItem["steps"] = [
       {
         kind: "note",
+        source: "note" as const,
         key: "reasoning",
         speaker: "kin",
         text: "Provider reasoning before failure.",
@@ -2431,6 +2460,163 @@ describe("pending anchors", () => {
       ["standalone", undefined, undefined],
       ["standalone", undefined, undefined],
       ["agent", 4, 4],
+    ]);
+  });
+});
+
+describe("note sources", () => {
+  const reasoning = (seq: number, text: string, partial = false, key = `m${seq}`) =>
+    ev(seq, "message", {
+      role: "reasoning",
+      speaker: "kin",
+      content: [{ type: "text", text }],
+      partial,
+      message_id: key,
+      index: 0,
+    });
+  const narration = (seq: number, text: string, extra: Record<string, unknown> = {}) =>
+    ev(seq, "message", {
+      role: "assistant",
+      speaker: "kin",
+      content: [{ type: "text", text }],
+      ...extra,
+    });
+
+  const notesOf = (events: TaskEvent[]) =>
+    buildChatItems(events, "kin")
+      .filter((item): item is ProgressItem => item.kind === "progress")
+      .flatMap((item) => item.steps.filter((step): step is NoteStep => step.kind === "note"));
+
+  it("reads the reason a message is a note at all, not the words in it", () => {
+    // The table is the whole mechanism: a role and a phase, both of which the
+    // event states outright. Nothing here looks at the text.
+    expect(noteSourceOf({ role: "reasoning" })).toBe("reasoning");
+    expect(noteSourceOf({ phase: "plan" })).toBe("plan");
+    expect(noteSourceOf({ role: "assistant", phase: "progress" })).toBe("note");
+    expect(noteSourceOf({})).toBe("note");
+    // A reasoning block that carries a plan phase is still the model thinking,
+    // which is the more specific of the two facts.
+    expect(noteSourceOf({ role: "reasoning", phase: "plan" })).toBe("reasoning");
+  });
+
+  it("labels every source with a key that resolves in both locales", () => {
+    // The design's table, spelled out: each source names its own wording.
+    expect((["reasoning", "plan", "note"] as const).map(noteLabelKey)).toEqual([
+      "chat.progress.thinking",
+      "chat.progress.plan",
+      "chat.progress.note",
+    ]);
+    // Nothing typechecks an i18n path, and a missing one renders itself: the
+    // label would read "chat.progress.thinking" on screen.
+    for (const source of ["reasoning", "plan", "note"] as const) {
+      const key = noteLabelKey(source);
+      for (const locale of ["zh", "en"] as const) {
+        setLocale(locale);
+        expect(t(key)).not.toBe(key);
+      }
+    }
+    setLocale("zh");
+  });
+
+  it("marks the model's own thinking, streamed or settled", () => {
+    const streamed = notesOf([reasoning(1, "checking who calls this", true)]);
+    expect(streamed.map((note) => [note.source, note.text])).toEqual([
+      ["reasoning", "checking who calls this"],
+    ]);
+
+    // The streamed note is settled by the same block arriving whole: one note,
+    // and the source survives the handoff between the two shapes.
+    const settled = notesOf([
+      reasoning(1, "checking who", true, "m1"),
+      reasoning(2, "checking who calls this", false, "m1"),
+    ]);
+    expect(settled.map((note) => [note.source, note.text])).toEqual([
+      ["reasoning", "checking who calls this"],
+    ]);
+  });
+
+  it("keeps the source when a tool call settles the thinking behind it", () => {
+    // The flush path: a partial reasoning chunk becomes a note when the next
+    // event closes the stream, and nothing about that event is a reasoning
+    // role. The source has to travel with the buffer.
+    const notes = notesOf([
+      reasoning(1, "reading the parser first", true),
+      ev(2, "tool_use", {
+        name: "read",
+        tool_name: "read",
+        tool_use_id: "t1",
+        input: { path: "internal/parse.go" },
+        speaker: "kin",
+        visibility: { user: true, task: true },
+      }),
+    ]);
+
+    expect(notes.map((note) => [note.source, note.text])).toEqual([
+      ["reasoning", "reading the parser first"],
+    ]);
+  });
+
+  it("marks the plan line, from the plan event and from a plan message alike", () => {
+    const fromEvent = buildChatItems(
+      [
+        ev(1, "plan", {
+          speaker: "kin",
+          entries: [{ content: "read the parser", status: "in_progress" }],
+        }),
+      ],
+      "kin",
+    );
+    const planSteps = fromEvent
+      .filter((item): item is ProgressItem => item.kind === "progress")
+      .flatMap((item) => item.steps.filter((step): step is NoteStep => step.kind === "note"));
+    expect(planSteps.map((step) => step.source)).toEqual(["plan"]);
+
+    const fromMessage = notesOf([narration(1, "1. read the parser", { phase: "plan" })]);
+    expect(fromMessage.map((note) => note.source)).toEqual(["plan"]);
+  });
+
+  it("attributes a note only when it is not the host's own voice", () => {
+    const note = (speaker: string, model?: string): NoteStep => ({
+      kind: "note",
+      key: "n",
+      speaker,
+      model,
+      text: "…",
+      status: "done",
+      source: "note",
+    });
+
+    // A delegated agent's note has to say whose it is.
+    expect(noteNeedsAttribution(note("codex", "gpt-5"), "claude-code")).toBe(true);
+    // The host's own, under its own name, needs nothing.
+    expect(noteNeedsAttribution(note("claude-code"), "claude-code")).toBe(false);
+    // And under the names the same column has carried: the product name on
+    // legacy rows, and the orchestrator that speaks for the host. Without
+    // these two the row would label the host's own thinking as someone
+    // else's -- which is what the first screenshot of this change showed.
+    expect(noteNeedsAttribution(note("kin"), "claude-code")).toBe(false);
+    expect(noteNeedsAttribution(note("orchestrator"), "claude-code")).toBe(false);
+    expect(noteNeedsAttribution(note("kin"), "kin")).toBe(false);
+  });
+
+  it("calls the rest narration, including a worker's own words", () => {
+    const notes = notesOf([
+      narration(1, "The script rsyncs over the live directory.", { phase: "progress" }),
+      ev(2, "message", {
+        role: "assistant",
+        speaker: "claude-code",
+        agent: "claude-code",
+        model: "claude-sonnet-5-5",
+        content: [{ type: "text", text: "I can take the smoke suite." }],
+        visibility: { user: false, task: true },
+      }),
+    ]);
+
+    expect(notes.map((note) => [note.source, note.speaker])).toEqual([
+      ["note", "kin"],
+      // The worker's note keeps its speaker -- that is what the row draws when
+      // it is not the card's own -- while staying a note by source.
+      ["note", "claude-code"],
     ]);
   });
 });

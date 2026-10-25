@@ -21,6 +21,8 @@ import {
   groupIntoTurns,
   isProgressCardRunning,
   mergeProcessRuns,
+  noteLabelKey,
+  noteNeedsAttribution,
   normalizeModel,
   prettyToolName,
   shouldShowGenericThinking,
@@ -261,6 +263,7 @@ export default function ChatStream({
                 speaker={turn.speaker}
                 model={turn.model}
                 items={turn.items}
+                hostSpeaker={hostSpeaker}
                 pendingSlots={pendingSlots}
                 loading={loading}
                 allItems={items}
@@ -294,6 +297,7 @@ function AgentTurn({
   speaker,
   model,
   items,
+  hostSpeaker,
   pendingSlots,
   loading,
   allItems,
@@ -313,6 +317,8 @@ function AgentTurn({
   speaker: string;
   model?: string;
   items: ChatItem[];
+  /** The session's host agent, which is what a step's attribution compares to. */
+  hostSpeaker: string;
   /** Pending cards by id: an asking event inside this column draws its own. */
   pendingSlots?: Record<string, ReactNode>;
   loading: boolean;
@@ -456,6 +462,7 @@ function AgentTurn({
                 <ProgressCard
                   key={item.key}
                   item={item}
+                  hostSpeaker={hostSpeaker}
                   running={isProgressCardRunning(allItems, item, loading)}
                   onOpenPath={onOpenPath}
                 />
@@ -573,10 +580,12 @@ function ThinkingDots() {
 /** Full execution transcript. Avatar and identity are owned by AgentTurn. */
 function ProgressCard({
   item,
+  hostSpeaker,
   running,
   onOpenPath,
 }: {
   item: ProgressItem;
+  hostSpeaker: string;
   running: boolean;
   onOpenPath?: (path: string) => void;
 }) {
@@ -668,7 +677,13 @@ function ProgressCard({
           )}
         </span>
         <span className="flex-none text-caption font-normal text-kin-muted">
-          {collapsed ? tr("chat.progress.expand") : tr("chat.progress.hide")}
+          {/* What is behind the fold and how much of it, rather than the bare
+              word "expand": the button already says it is a toggle. */}
+          {collapsed
+            ? steps.length > 0
+              ? tr("chat.progress.collapsed", { count: steps.length })
+              : tr("chat.progress.expand")
+            : tr("chat.progress.hide")}
         </span>
       </button>
       {!collapsed && (
@@ -696,7 +711,7 @@ function ProgressCard({
                 onToggle={() => setOpenStep((cur) => (cur === step.key ? null : step.key))}
               />
             ) : (
-              <NoteStepRow key={step.key} note={step} index={idx + 1} />
+              <NoteStepRow key={step.key} note={step} index={idx + 1} hostSpeaker={hostSpeaker} />
             ),
           )}
         </div>
@@ -705,7 +720,16 @@ function ProgressCard({
   );
 }
 
-function NoteStepRow({ note, index }: { note: NoteStep; index: number }) {
+function NoteStepRow({
+  note,
+  index,
+  hostSpeaker,
+}: {
+  note: NoteStep;
+  index: number;
+  /** The session's host agent: a note that is not its voice says whose it is. */
+  hostSpeaker: string;
+}) {
   const tr = useT();
   const statusDot =
     // A status dot is a pigment, and the failure branch has to be one: the
@@ -716,13 +740,30 @@ function NoteStepRow({ note, index }: { note: NoteStep; index: number }) {
       : note.status === "running"
         ? "bg-kin-blue animate-breathe"
         : "bg-kin-green";
+  // Where it came from, not what it reads like: thinking and narration are the
+  // same shape of text, and only the event that carried them says which is which.
+  const label = tr(noteLabelKey(note.source));
+  const attribution = noteNeedsAttribution(note, hostSpeaker)
+    ? [agentAvatarMeta(note.speaker).label, note.model].filter(Boolean).join(" · ")
+    : "";
   return (
     <div className="flex items-start gap-2 px-3 py-1.5 text-body">
-      <span className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5">{index}</span>
-      <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
-      <span className="font-mono text-caption text-kin-muted flex-none pt-px">
-        {tr("chat.progress.note")}
+      <span
+        aria-hidden="true"
+        className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
+      >
+        {index}
       </span>
+      <span className="sr-only">{tr("chat.progress.step", { n: index })}</span>
+      <span className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`} />
+      <span className="font-mono text-caption text-kin-muted flex-none pt-px">{label}</span>
+      {attribution && (
+        // No width of its own: the row's text keeps `flex-1`, so a long
+        // attribution truncates itself rather than squeezing the note.
+        <span className="min-w-0 truncate text-caption text-kin-muted pt-px" title={attribution}>
+          {attribution}
+        </span>
+      )}
       <span className="flex-1 min-w-0 whitespace-pre-wrap break-words text-kin-secondary">
         {note.text}
       </span>
