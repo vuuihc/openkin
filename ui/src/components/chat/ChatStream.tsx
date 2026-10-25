@@ -61,6 +61,12 @@ type Props = {
    * A message in here is in the transcript already; this only marks it.
    */
   queuedSeqs?: Set<number>;
+  /**
+   * Cards to render in the conversation, keyed by the id of the request they
+   * answer. A request whose event is in this list is drawn where it was asked
+   * instead of at the end of the stream.
+   */
+  pendingSlots?: Record<string, ReactNode>;
   /** When true, show Retry / Fork on user messages (terminal tasks). */
   showMessageActions?: boolean;
   /** Busy flag while retry/fork request is in flight. */
@@ -82,6 +88,7 @@ export default function ChatStream({
   hostSpeaker = "",
   hostModel,
   queuedSeqs,
+  pendingSlots,
   showMessageActions = false,
   actionsBusy = false,
   onRetry,
@@ -234,7 +241,17 @@ export default function ChatStream({
               />
             );
           case "standalone":
-            return <StandaloneRow key={turn.item.key} item={turn.item} />;
+            return (
+              <StandaloneRow
+                key={turn.item.key}
+                item={turn.item}
+                slot={
+                  turn.item.kind === "meta"
+                    ? pendingSlots?.[turn.item.pending?.id ?? ""]
+                    : undefined
+                }
+              />
+            );
           case "agent": {
             const isLast = turnIdx === turns.length - 1;
             const withThinking = isLast && loadingInsideAgent;
@@ -464,8 +481,16 @@ function AgentTurn({
   );
 }
 
-function StandaloneRow({ item }: { item: Extract<ChatItem, { kind: "error" | "meta" }> }) {
+function StandaloneRow({
+  item,
+  slot,
+}: {
+  item: Extract<ChatItem, { kind: "error" | "meta" }>;
+  /** The card this event asked for, when the console still holds one. */
+  slot?: ReactNode;
+}) {
   const tr = useT();
+  if (slot) return <>{slot}</>;
   if (item.kind === "error") {
     return (
       <div className="rounded-xl border border-kin-red/30 bg-kin-red/10 px-3.5 py-2.5 text-strong text-kin-red-ink">

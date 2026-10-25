@@ -316,6 +316,7 @@ const zh = {
     historySection: "历史",
     roundBusy: "当前轮次还在跑 — 可停止或插入新引导",
     interruptedGuide: "已打断当前轮次，这条现在就发",
+    waitingOnYou: "{count} 项在等你处理 · 点这里回答",
     queuedGuide: "已排队：本轮结束后回答",
     stopped: "已停止当前轮次",
     stopping: "停止中…",

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -45,13 +46,21 @@ import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
+import { pendingRefSeqs } from "../components/chat/transcriptProjection";
 import Composer from "../components/chat/Composer";
 import BranchPicker from "../components/chat/BranchPicker";
 import RepoChip from "../components/chat/RepoChip";
 import CwdPicker from "../components/chat/CwdPicker";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import ModelPicker from "../components/chat/ModelPicker";
-import { IconBack, IconMachine, IconPanel, IconPullRequest, IconTrash } from "../components/icons";
+import {
+  IconAlert,
+  IconBack,
+  IconMachine,
+  IconPanel,
+  IconPullRequest,
+  IconTrash,
+} from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
@@ -60,6 +69,7 @@ import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import { extractChangedFiles } from "../lib/changedFiles";
+import { anchoredPendingIds, orderPending } from "../lib/needsYou";
 import { queuedMessageSeqs } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
@@ -463,20 +473,31 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }, [task?.id, task?.status, latestLimitHit?.seq]);
 
   const needsYou = useMemo(() => {
+    // Where each card was asked. A card whose asking event has scrolled out of
+    // the loaded window has no place in the conversation and sorts last — that
+    // is the difference between "drawn at the point the agent stopped" and
+    // "drawn at the end of the stream".
+    const anchors = pendingRefSeqs(events);
     const a = approvals.map((item) => ({
       kind: "approval" as const,
       id: item.id,
       created_at: item.created_at,
+      seq: anchors.get(item.id) ?? null,
       item,
     }));
     const q = userQuestions.map((item) => ({
       kind: "question" as const,
       id: item.id,
       created_at: item.created_at,
+      seq: anchors.get(item.id) ?? null,
       item,
     }));
-    return [...a, ...q].sort((x, y) => x.created_at - y.created_at);
-  }, [approvals, userQuestions]);
+    // Chronological first, then by anchor: `orderPending` is stable, so two
+    // cards with no anchor keep the order they were asked in.
+    return orderPending([...a, ...q].sort((x, y) => x.created_at - y.created_at));
+  }, [approvals, userQuestions, events]);
+
+  type NeedsYouEntry = (typeof needsYou)[number];
 
   useEffect(() => {
     if (!active) return;
@@ -608,10 +629,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         // Say which of the two things happened. The queue is the default, so
         // claiming an interrupt here would be a lie the user only discovers when
         // the round they thought they had stopped keeps going.
-        pushToast(
-          tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"),
-          "info",
-        );
+        pushToast(tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"), "info");
       }
     } catch (err) {
       // Re-throw so Composer restores the cleared input + draft, and shows the toast.
@@ -832,6 +850,66 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }
 
   const terminal = isTerminal(task.status);
+  // One card, one place: a card whose request is in the loaded window is drawn
+  // at the point the agent stopped, and only the ones with no place left (their
+  // event scrolled out) fall back to the end of the stream. Rendering both would
+  // put two sets of Approve/Deny buttons for the same decision on screen.
+  const anchoredIds = anchoredPendingIds(needsYou);
+  const pendingSlots: Record<string, ReactNode> = {};
+  for (const entry of needsYou) {
+    if (anchoredIds.has(entry.id)) pendingSlots[entry.id] = renderPendingCard(entry);
+  }
+  const unanchored = needsYou.filter((entry) => !anchoredIds.has(entry.id));
+
+  function renderPendingCard(entry: NeedsYouEntry) {
+    const focused = needsYou[focusIdx]?.id === entry.id;
+    return (
+      <div data-pending-id={entry.id}>
+        {entry.kind === "approval" ? (
+          <ApprovalCard
+            approval={entry.item}
+            focused={focused}
+            busy={busy[entry.id] ?? null}
+            onApprove={() => void onDecide(entry.id, "approved")}
+            onDeny={() => void onDecide(entry.id, "denied")}
+            onOpenPath={onOpenWorkspacePath}
+          />
+        ) : (
+          <UserQuestionCard
+            question={entry.item}
+            focused={focused}
+            busy={Boolean(answerBusy[entry.id])}
+            onAnswer={(body) => void onAnswer(entry.id, body)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Bring the next thing that is waiting on the user into view, and put the
+  // keyboard cursor on it. On a phone the transcript is often scrolled up, and
+  // an approval the user never saw is the same as no approval at all.
+  function revealFirstPending() {
+    const first = needsYou[0];
+    if (!first) return;
+    setFocusIdx(0);
+    const el = scrollRef.current;
+    if (!el) return;
+    if (first.seq === null) {
+      // No anchor: the card is painted at the end of the stream.
+      el.scrollTop = el.scrollHeight;
+      stickToBottomRef.current = true;
+      savedScrollTopRef.current = el.scrollTop;
+      if (id) setSessionScroll(id, el.scrollTop);
+      return;
+    }
+    for (const node of el.querySelectorAll("[data-pending-id]")) {
+      if (node.getAttribute("data-pending-id") !== first.id) continue;
+      node.scrollIntoView({ block: "nearest" });
+      stickToBottomRef.current = false;
+      return;
+    }
+  }
   const machine = remoteMachine(machines, task.executing_device_id);
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
@@ -1018,6 +1096,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             hostSpeaker={task.agent || "kin"}
             hostModel={task.model}
             queuedSeqs={queuedSeqs}
+            pendingSlots={pendingSlots}
             showMessageActions={terminal}
             actionsBusy={actionBusy}
             onRetry={(seq) => void onRetry(seq)}
@@ -1025,25 +1104,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             onSaveArtifact={(text) => void onSaveArtifact(text)}
             trailing={
               <>
-                {needsYou.map((entry, i) => (
+                {unanchored.map((entry) => (
                   <div key={`${entry.kind}-${entry.id}`} className="mt-1">
-                    {entry.kind === "approval" ? (
-                      <ApprovalCard
-                        approval={entry.item}
-                        focused={i === focusIdx && needsYou.length > 0}
-                        busy={busy[entry.id] ?? null}
-                        onApprove={() => void onDecide(entry.id, "approved")}
-                        onDeny={() => void onDecide(entry.id, "denied")}
-                        onOpenPath={onOpenWorkspacePath}
-                      />
-                    ) : (
-                      <UserQuestionCard
-                        question={entry.item}
-                        focused={i === focusIdx && needsYou.length > 0}
-                        busy={Boolean(answerBusy[entry.id])}
-                        onAnswer={(body) => void onAnswer(entry.id, body)}
-                      />
-                    )}
+                    {renderPendingCard(entry)}
                   </div>
                 ))}
                 {latestLimitHit && task && (
@@ -1080,6 +1143,16 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
         <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
           <div className="max-w-conversation mx-auto space-y-1.5">
+            {needsYou.length > 0 && (
+              <button
+                type="button"
+                onClick={revealFirstPending}
+                className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-kin-orange/40 bg-kin-orange/15 px-3 py-2 text-subtitle font-medium text-kin-orange-ink outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
+              >
+                <IconAlert className="w-4 h-4 flex-none" />
+                {tr("task.waitingOnYou", { count: String(needsYou.length) })}
+              </button>
+            )}
             <Composer
               key={task.id}
               agents={agents}

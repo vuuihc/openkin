@@ -3,6 +3,7 @@ import { isCancelNoise } from "../../lib/friendlyError";
 import { t } from "../../i18n";
 import { decodeCanonicalEventMeta, isProgressMessageMeta, resolveSpeaker } from "./eventMeta";
 import { displayUserPrompt } from "../../lib/attachments";
+import type { PendingRef } from "../../lib/needsYou";
 
 export type ToolStep = {
   kind: "tool";
@@ -54,7 +55,41 @@ export type ChatItem =
     }
   | ProgressItem
   | { kind: "error"; key: string; message: string }
-  | { kind: "meta"; key: string; label: string };
+  | { kind: "meta"; key: string; label: string; pending?: PendingRef };
+
+/** The pending card an event asks for, if it is one of the two asking kinds. */
+export function pendingRefOf(ev: TaskEvent): PendingRef | null {
+  const p = (ev.payload ?? {}) as Record<string, unknown>;
+  if (ev.type === "approval_requested") {
+    const id = p.approval_id;
+    if (typeof id === "string" && id) return { kind: "approval", id };
+    return null;
+  }
+  if (ev.type === "user_question_requested") {
+    const id = p.question_id;
+    if (typeof id === "string" && id) return { kind: "question", id };
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Seq of the event each pending card was asked at, by card id.
+ *
+ * Read from the same place the projection reads it, so a card that was asked for
+ * inside the loaded window can be told apart from one whose event has scrolled
+ * out of it — the second has no place in the conversation to render at and has
+ * to fall back to the end of the stream.
+ */
+export function pendingRefSeqs(events: TaskEvent[]): Map<string, number> {
+  const seqs = new Map<string, number>();
+  for (const ev of events) {
+    if (typeof ev.seq !== "number") continue;
+    const ref = pendingRefOf(ev);
+    if (ref) seqs.set(ref.id, ev.seq);
+  }
+  return seqs;
+}
 
 type ProcessRunItem = Extract<ChatItem, { kind: "message" | "progress" }>;
 
@@ -691,15 +726,21 @@ export function buildChatItems(
         break;
       }
       case "approval_requested":
+      case "user_question_requested": {
         flushStream();
         streamNoteKey = null;
         progressRef.current = null;
+        // The card goes where the asking happened. Two requests never share an
+        // anchor — each event has its own seq — so a card renders exactly once.
+        const pending = pendingRefOf(ev);
         items.push({
           kind: "meta",
-          key: `ar-${ev.seq}`,
-          label: t("chat.needsApproval"),
+          key: `${ev.type === "approval_requested" ? "ar" : "uq"}-${ev.seq}`,
+          label: t(ev.type === "approval_requested" ? "chat.needsApproval" : "question.cardTitle"),
+          ...(pending ? { pending } : {}),
         });
         break;
+      }
       case "limit_hit":
         // Rendered as LimitCard in TaskDetailPage, not as transcript text.
         break;
@@ -928,7 +969,8 @@ function assignTurnSeqRanges(turns: Turn[], items: ChatItem[]): void {
     if (range) ranges.set(item, range);
   }
   const own = (turn: Turn): { from: number; to: number } | null => {
-    const held = turn.kind === "standalone" ? [turn.item] : turn.kind === "user" ? [turn.item] : turn.items;
+    const held =
+      turn.kind === "standalone" ? [turn.item] : turn.kind === "user" ? [turn.item] : turn.items;
     let from = Infinity;
     let to = -Infinity;
     for (const item of held) {

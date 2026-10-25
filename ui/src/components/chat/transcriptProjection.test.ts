@@ -7,6 +7,7 @@ import {
   groupIntoTurns,
   isProgressCardRunning,
   mergeProcessRuns,
+  pendingRefSeqs,
   shouldShowGenericThinking,
   summarizeProgressDetails,
   summarizeProgressStatus,
@@ -1279,9 +1280,7 @@ describe("transcriptProjection", () => {
       "kin",
     );
 
-    expect(items).toMatchObject([
-      { kind: "message", speaker: "kin", text: "host answer" },
-    ]);
+    expect(items).toMatchObject([{ kind: "message", speaker: "kin", text: "host answer" }]);
     expect(JSON.stringify(items)).not.toContain("pnpm build");
   });
 
@@ -2102,11 +2101,11 @@ describe("turn seq ranges", () => {
     ]);
     // And the whole stream is all three, so no turn lost a file the others do not
     // account for -- which is what makes a turn's card a slice rather than a guess.
-    expect(extractChangedFiles(events).map((file) => file.path).sort()).toEqual([
-      "CHANGELOG.md",
-      "docs/readme.md",
-      "internal/parse.go",
-    ]);
+    expect(
+      extractChangedFiles(events)
+        .map((file) => file.path)
+        .sort(),
+    ).toEqual(["CHANGELOG.md", "docs/readme.md", "internal/parse.go"]);
   });
 
   it("cannot see a file a shell command wrote, which is why the card says so", () => {
@@ -2226,5 +2225,59 @@ describe("turn seq ranges", () => {
     // Error and meta items carry no seq at all.
     expect(chatItemSeqRange({ kind: "error", key: "e", message: "boom" })).toBeNull();
     expect(chatItemSeqRange({ kind: "meta", key: "m", label: "note" })).toBeNull();
+  });
+});
+
+describe("pending anchors", () => {
+  const asked = [
+    ev(1, "message", { role: "user", text: "go" }),
+    ev(2, "approval_requested", { approval_id: "ap-1", kind: "exec", payload: {} }),
+    ev(3, "user_question_requested", { question_id: "uq-1", payload: {} }),
+    ev(4, "message", { role: "assistant", text: "done" }),
+  ];
+
+  it("anchors an approval and a question where each was asked", () => {
+    const items = buildChatItems(asked, "kin");
+
+    const metas = items.filter((item) => item.kind === "meta");
+
+    expect(metas.map((item) => item.pending)).toEqual([
+      { kind: "approval", id: "ap-1" },
+      { kind: "question", id: "uq-1" },
+    ]);
+    expect(metas.map((item) => item.key)).toEqual(["ar-2", "uq-3"]);
+  });
+
+  it("keeps the asking event's seq, so the card has somewhere to sit", () => {
+    // The page reads this to tell a card it can place from one whose event has
+    // scrolled out of the window — the second has to fall back to the end of the
+    // stream, and a card nobody can see is a card nobody answers.
+    const seqs = pendingRefSeqs(asked);
+
+    expect(seqs.get("ap-1")).toBe(2);
+    expect(seqs.get("uq-1")).toBe(3);
+  });
+
+  it("still writes the caption for a request it cannot identify", () => {
+    // A payload without an id cannot be matched to a card; the caption is what
+    // is left, and it must not turn into a crash or a silently dropped event.
+    const items = buildChatItems([ev(1, "approval_requested", { kind: "exec" })], "kin");
+
+    expect(items).toEqual([{ kind: "meta", key: "ar-1", label: expect.any(String) }]);
+    expect(pendingRefSeqs([ev(1, "approval_requested", { kind: "exec" })]).size).toBe(0);
+  });
+
+  it("does not split the turn it interrupted", () => {
+    // The meta items carry no seq of their own, so an approval asked mid-turn
+    // lands inside the turn it stopped — the round still reads as one round, and
+    // the asking events belong to exactly one turn like every other event.
+    const turns = groupIntoTurns(buildChatItems(asked, "kin"), "kin");
+
+    expect(turns.map((turn) => [turn.kind, turn.fromSeq, turn.toSeq])).toEqual([
+      ["user", 1, 3],
+      ["standalone", undefined, undefined],
+      ["standalone", undefined, undefined],
+      ["agent", 4, 4],
+    ]);
   });
 });

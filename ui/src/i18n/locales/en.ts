@@ -328,6 +328,7 @@ const en: MessageTree = {
     historySection: "Earlier",
     roundBusy: "Current round still running — stop it or insert new guidance",
     interruptedGuide: "Interrupted the current round and sent this now",
+    waitingOnYou: "{count} waiting on you · tap to answer",
     queuedGuide: "Queued — answered when the current round ends",
     stopped: "Stopped current round",
     stopping: "Stopping…",
