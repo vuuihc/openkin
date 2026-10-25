@@ -99,7 +99,9 @@ export function SettingsLayout({
 
   // Measured, not assumed from a tab count: whether the strip overflows depends
   // on the labels, the language and the width, and the answer changes when any
-  // of them does. ResizeObserver covers the window and the font both.
+  // of them does. The observer watches the strip *and* one tab — the strip's own
+  // box only moves with the window, while a relabelled tab moves the content
+  // (the tabs are `shrink-0`), which is what a language switch does.
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
@@ -111,6 +113,8 @@ export function SettingsLayout({
     el.addEventListener("scroll", measure, { passive: true });
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    const firstTab = el.firstElementChild;
+    if (firstTab) observer.observe(firstTab);
     return () => {
       el.removeEventListener("scroll", measure);
       observer.disconnect();
@@ -122,8 +126,19 @@ export function SettingsLayout({
   // that tab may be scrolled out of the strip, which then shows no selected tab
   // at all. `nearest` moves the strip only when it has to, so a tab that is
   // already visible stays exactly where it is.
+  const mounted = useRef(false);
   useEffect(() => {
-    tabRefs.current[activeTab]?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    const tab = tabRefs.current[activeTab];
+    tab?.scrollIntoView({ inline: "nearest", block: "nearest" });
+    // Selecting a tab from *outside* the strip loses focus: the panel holding
+    // the button that did it is about to be `hidden`, which blurs to `<body>`.
+    // The strip's own arrow-key path already moves focus with the selection
+    // (`onKeyDown` below), so this one does too — but only when focus was
+    // actually lost, because on a click the tab already has it, and only after
+    // mount, so opening settings does not land on a tab nobody aimed at.
+    const lost = mounted.current && document.activeElement === document.body;
+    mounted.current = true;
+    if (lost && tab) tab.focus({ preventScroll: true });
   }, [activeTab]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
