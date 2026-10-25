@@ -294,7 +294,7 @@ export default function CommandPalette({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[600px] rounded-2xl overflow-hidden bg-kin-panel/90 backdrop-blur-[50px] shadow-e3">
+      <div className="w-full max-w-palette rounded-2xl overflow-hidden bg-kin-panel/90 backdrop-blur-[50px] shadow-e3">
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--kin-hairline)]">
           <IconSearch size={18} className="text-kin-muted flex-none" />
           <input

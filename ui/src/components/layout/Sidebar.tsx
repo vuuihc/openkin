@@ -354,7 +354,7 @@ export default function Sidebar({
             {sortMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1 z-50 min-w-[148px] rounded-lg bg-kin-elevated shadow-e3 py-1"
+                className="absolute right-0 top-full mt-1 z-50 min-w-menu rounded-lg bg-kin-elevated shadow-e3 py-1"
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setSortMenuOpen(false);
                 }}

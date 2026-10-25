@@ -114,7 +114,7 @@ export default function ApprovalsPage() {
 
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
-      <div className="max-w-[640px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="max-w-page-narrow mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* One nav bar per phone screen: the shell's header carries this title
             there (and is a heading itself), so the page does not repeat it a
             step larger underneath. `md`, not `sm`: the shell header is

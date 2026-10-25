@@ -186,7 +186,7 @@ export default function ProjectsPage() {
                         {modeLabel(p.mode, tr)}
                       </span>
                       {p.roots?.[0] && (
-                        <span className="truncate max-w-[240px]" title={p.roots[0]}>
+                        <span className="truncate max-w-path" title={p.roots[0]}>
                           {p.roots[0]}
                         </span>
                       )}

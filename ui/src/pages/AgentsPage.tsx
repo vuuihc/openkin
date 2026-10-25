@@ -410,7 +410,7 @@ export default function AgentsPage() {
 
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
-      <div className="max-w-[1100px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h1 className="text-hero font-semibold tracking-tight">{tr("agents.title")}</h1>
           <div className="flex flex-wrap items-center gap-2">
@@ -515,7 +515,7 @@ export default function AgentsPage() {
 
         {agents !== null && (
           <div className="mt-6 overflow-x-auto rounded-xl bg-kin-elevated">
-            <table className="w-full min-w-[980px] text-left text-strong">
+            <table className="w-full min-w-table text-left text-strong">
               <thead className="bg-[var(--kin-fill)] text-caption uppercase tracking-label text-kin-muted">
                 <tr>
                   <SortTh colKey="name">{tr("agents.colName")}</SortTh>
@@ -588,7 +588,7 @@ export default function AgentsPage() {
                     usage && usage.cacheEligible > 0 ? usage.cacheRead / usage.cacheEligible : null;
                   return (
                     <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]">
-                      <td className="px-3 py-3 min-w-[160px]">
+                      <td className="px-3 py-3 min-w-cell">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-medium text-kin-text">{a.name}</span>
                           {a.default ? (
@@ -646,7 +646,7 @@ export default function AgentsPage() {
                           ? formatTokenCount(usage.tokens / usage.tasks)
                           : "—"}
                       </td>
-                      <td className="px-3 py-3 min-w-[140px]">
+                      <td className="px-3 py-3 min-w-cell">
                         <div className="flex flex-col gap-1">
                           {spendProgress && limitStatus?.limit_spend_usd != null ? (
                             <span

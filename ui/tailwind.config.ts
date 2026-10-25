@@ -19,9 +19,11 @@ import { FONT_SIZE } from "./src/design/type.ts";
  * Two ladders are the exception, each for its own reason. Radius is Tailwind's
  * own scale, not ours — S3's rule was no new numbers and no new names, so the
  * six steps the tree uses are a *subset* of the defaults, checked by name in the
- * guard rather than restated here. The layout widths are `extend`ed onto
- * Tailwind's `width`/`maxWidth`, because the literals they replace are the only
- * ones the ladder covers so far and the column ladder is P2's.
+ * guard rather than restated here. The container widths are `extend`ed onto
+ * Tailwind's `width`/`maxWidth`/`minWidth`, because Tailwind's own scale already
+ * covers the control chrome (`w-5` is a 20px icon box) and the ladder S7 wrote is
+ * one name per *container*, not a ruler — the comment on `width` below says
+ * where the line is.
  *
  * The mechanisms fail differently, which is worth knowing when reading a
  * failure: an assigned ladder says "this name is on no step", a subset of
@@ -151,16 +153,70 @@ export default {
         ],
         mono: ["ui-monospace", "SF Mono", "Menlo", "monospace"],
       },
-      // The page columns that more than one screen measures itself against.
-      // The rest of the widths in the tree are still literal (P2 picks the
-      // column ladder); these four are the ones a second caller already needs.
+      // The container widths. Four were named in P1 because a second caller
+      // already needed them; S7 named the rest from the same inventory, and the
+      // line they draw is worth knowing before adding a step.
+      //
+      // What belongs here is a *container*: a page's column, a floating panel, a
+      // rail, a floor under a table that scrolls rather than squeezes. What is
+      // deliberately not here is every number that caps **text** (`max-w-[160px]`
+      // on a label, `max-w-[220px]` on a chip, `max-w-[45%]` on a bubble) and
+      // every number that sizes a **control** (the 44px touch floor, the
+      // 22/26/28px icon boxes). Those are tuned against a font size or a finger,
+      // not against a column; a name would file them under the wrong ruler, and
+      // the column ladder would start pretending to be three ladders.
+      //
+      // The floors are the reason `minWidth` is a separate axis here. A table's
+      // minimum is not a measure anyone reads at — it is the width below which
+      // the table scrolls instead of crushing its columns, and it is spent on a
+      // wrapper rather than on the column itself.
       width: {
         sidebar: "248px",
+        // The task page's session rail: usage and diffs, floating over the chat
+        // rather than squeezing it, and only where there is room for it
+        // (≥1600px). It is not `max-w-inspector`, which reads like the same
+        // thing and is not — that step caps the cwd tag in the composer strip,
+        // a path that gives way rather than a rail.
+        rail: "300px",
+        // A floating panel on a phone: 20rem of content, never wider than the
+        // screen inside the margins it is anchored by.
+        popover: "min(20rem, calc(100vw - 2rem))",
       },
       maxWidth: {
         conversation: "720px",
         sheet: "min(100%, 420px)",
         inspector: "min(40%, 18rem)",
+        // A page's reading column, narrowest to widest: the approvals list, the
+        // settings form, the agents table.
+        "page-narrow": "640px",
+        page: "920px",
+        "page-wide": "1100px",
+        // Overlays, widest to narrowest: the command palette, a panel with
+        // fields in it, a list of items.
+        palette: "600px",
+        popover: "340px",
+        menu: "240px",
+        // A path is the one text cap that is here, and it is the exception that
+        // shows the rule above: it is truncated in two places (the cwd popover
+        // and a project root) and the two have to agree, so the value is shared
+        // rather than tuned. The one-off caps — a chip's 220, a label's 160, a
+        // select's 260 — stay literals, because nothing else has to match them.
+        path: "280px",
+      },
+      minWidth: {
+        // A page's data table, a table inside a prose body, and one cell. The
+        // two AgentsPage cells were 140 and 160; cells in one column align or
+        // they are not a column, so both take the wider step.
+        table: "980px",
+        prose: "240px",
+        cell: "160px",
+        // The floors the two overlay shapes need: a panel with fields in it, and
+        // a list of rows that must not wrap. `prose` and `popover` are the same
+        // number and stay two steps: a table inside prose and a panel with
+        // fields in it are different objects, and one name would tie a change to
+        // one of them to the other.
+        popover: "240px",
+        menu: "168px",
       },
       keyframes: {
         breathe: {

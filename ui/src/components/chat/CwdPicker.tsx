@@ -377,14 +377,14 @@ function PathHoverTag({ cwd, compact }: { cwd: string; compact?: boolean }) {
       {rect &&
         createPortal(
           <span
-            className="fixed z-50 flex max-w-[340px] items-center gap-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-2 py-1 shadow-e2"
+            className="fixed z-50 flex max-w-popover items-center gap-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-kin-panel px-2 py-1 shadow-e2"
             style={{ left: rect.left, bottom: rect.bottom }}
             onMouseEnter={cancelHide}
             onMouseLeave={scheduleHide}
             onFocus={cancelHide}
             onBlur={scheduleHide}
           >
-            <span className="max-w-[280px] truncate font-mono text-caption text-kin-secondary">
+            <span className="max-w-path truncate font-mono text-caption text-kin-secondary">
               {cwd}
             </span>
             <button

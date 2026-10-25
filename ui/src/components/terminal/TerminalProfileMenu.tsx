@@ -91,7 +91,7 @@ export default function TerminalProfileMenu({
       ref={menuRef}
       role="menu"
       aria-label={tr("terminal.new")}
-      className="absolute right-0 top-full mt-1 z-50 min-w-[168px] max-w-[240px] rounded-lg bg-kin-elevated shadow-e3 py-1"
+      className="absolute right-0 top-full mt-1 z-50 min-w-menu max-w-menu rounded-lg bg-kin-elevated shadow-e3 py-1"
     >
       {profiles.map((profile, idx) => {
         const focused = idx === focusedIdx;

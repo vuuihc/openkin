@@ -721,6 +721,7 @@ describe("design tokens", () => {
       },
       { axis: "min-h", label: "min-h", names: Object.keys(theme.minHeight) },
       { axis: "max-w", label: "max-w", names: Object.keys(theme.maxWidth) },
+      { axis: "min-w", label: "min-w", names: Object.keys(theme.minWidth) },
       { axis: "w", label: "w", names: Object.keys(theme.width) },
     ];
 
@@ -827,22 +828,47 @@ describe("design tokens", () => {
       expect(bad).toEqual([]);
     });
 
-    it("does not spell out a layout value the ladder already names", () => {
-      // The four arbitrary values the layout names replaced. Assembled from
-      // their prefixes: this file is inside the tree being searched, and a
-      // guard that fails on its own source is a guard nobody keeps.
-      const renamed = [
-        ["w-", "[248px]", "w-sidebar"],
-        ["max-w-", "[720px]", "max-w-conversation"],
-        ["max-w-", "[min(100%,420px)]", "max-w-sheet"],
-        ["max-w-", "[min(40%,18rem)]", "max-w-inspector"],
+    it("does not spell out a container width the ladder already names", () => {
+      // The widths are the one axis whose ladder is not a complete vocabulary.
+      // A label's truncation cap and a control's box are supposed to stay
+      // literals — see the note on `width` in `tailwind.config.ts` — so this
+      // guard cannot be "no arbitrary width", the way the three axes above are.
+      // What it can be is per *step*: a value the ladder names has exactly one
+      // spelling in the tree, and it is the name.
+      //
+      // Every part of that is a fact about the config, which is the point. The
+      // four names S7 started from were written out here; the thirteen it ended
+      // with are read, so adding a step is what puts the tree under the rule and
+      // a step whose value stopped matching its call sites is what this fails
+      // on. Nothing in this case spells a width, so it cannot trip itself.
+      //
+      // Both spellings, because a value has two: the config writes px for every
+      // step today, and the same width in rem is the same width.
+      const spellings = (value: string): string[] => {
+        const stripped = value.replace(/\s+/g, "");
+        const px = /^([\d.]+)px$/.exec(stripped);
+        const rem = /^([\d.]+)rem$/.exec(stripped);
+        if (px) return [stripped, `${Number(px[1]) / 16}rem`];
+        if (rem) return [stripped, `${Number(rem[1]) * 16}px`];
+        return [stripped];
+      };
+      const ladder: [string, Record<string, string>][] = [
+        ["w", config.theme.extend.width],
+        ["max-w", config.theme.extend.maxWidth],
+        ["min-w", config.theme.extend.minWidth],
       ];
       const bad: string[] = [];
       for (const file of sourceFiles()) {
         const source = readFileSync(file, "utf8");
-        for (const [axis, value, name] of renamed) {
-          if (source.includes(axis + value))
-            bad.push(`${relative(UI, file)}: ${axis + value} → ${name}`);
+        for (const [axis, steps] of ladder) {
+          for (const [name, value] of Object.entries(steps)) {
+            for (const spelling of spellings(value)) {
+              const literal = `${axis}-[${spelling}]`;
+              if (source.includes(literal)) {
+                bad.push(`${relative(UI, file)}: ${literal} → ${axis}-${name}`);
+              }
+            }
+          }
         }
       }
       expect(bad).toEqual([]);

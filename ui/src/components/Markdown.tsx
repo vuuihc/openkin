@@ -89,7 +89,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
         if (b.type === "table") {
           return (
             <div key={i} className="overflow-x-auto rounded-lg border border-[var(--kin-hairline)]">
-              <table className="w-full min-w-[240px] border-collapse text-left text-strong">
+              <table className="w-full min-w-prose border-collapse text-left text-strong">
                 <thead className="bg-[var(--kin-fill)]">
                   <tr>
                     {b.header.map((cell, j) => (
