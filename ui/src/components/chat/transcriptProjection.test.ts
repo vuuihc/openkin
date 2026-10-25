@@ -8,6 +8,7 @@ import {
   isProgressCardRunning,
   mergeProcessRuns,
   pendingRefSeqs,
+  roundsOf,
   shouldShowGenericThinking,
   summarizeProgressDetails,
   summarizeProgressStatus,
@@ -2212,6 +2213,157 @@ describe("turn seq ranges", () => {
     expect(turns[0].toSeq).toBeUndefined();
   });
 
+  /**
+   * The ACP shape: the agent echoes the prompt it was given, and the echo lands
+   * late enough that the work it prompted has already started.
+   */
+  const echoedPrompt = (): TaskEvent[] => [
+    // The echo, streamed. A streamed message is one item built from many chunks
+    // and gets no seq; the tool call below flushes the buffer into an item.
+    ev(1, "message", {
+      role: "user",
+      speaker: "user",
+      text: "rename the field",
+      partial: true,
+      visibility: { user: true, task: true },
+    }),
+    ev(2, "message", {
+      role: "user",
+      speaker: "user",
+      text: ", and the docs",
+      partial: true,
+      visibility: { user: true, task: true },
+    }),
+    hostToolUse(3, "t1", "edit", "a.go"),
+    // The copy that carries the seq, arriving after the work started.
+    userTurn(4, "rename the field, and the docs"),
+    hostToolResult(5, "t1", "edit"),
+    ev(6, "message", {
+      role: "assistant",
+      speaker: "kin",
+      text: "renamed",
+      visibility: { user: true, task: true },
+    }),
+  ];
+
+  it("gives a round with two user turns to the ask that was still open", () => {
+    // Two user turns and an agent turn between them: the ask reached the
+    // transcript twice, and the projection cannot tell a second copy from a
+    // second question. The round is the ask that was open, not the copy.
+    const turns = turnsOf(echoedPrompt());
+
+    expect(turns.map((turn) => [turn.kind, turn.fromSeq, turn.toSeq])).toEqual([
+      ["user", undefined, undefined],
+      ["agent", 3, 3],
+      ["user", 4, 5],
+      ["agent", 6, 6],
+    ]);
+    const rounds = roundsOf(turns);
+
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].user).toBe(turns[0]);
+    expect([rounds[0].fromSeq, rounds[0].toSeq]).toEqual([3, 6]);
+  });
+
+  it("reads the work between the two copies as the round's own", () => {
+    // This is the whole point of naming the owning ask: read the round as the
+    // copy that carries the seq and its range starts at 4, which is after the
+    // only event that says which file changed.
+    const events = echoedPrompt();
+    const rounds = roundsOf(turnsOf(events));
+    // No fallbacks: a round whose range went missing has to fail here rather than
+    // quietly widen to the whole stream and find the file anyway.
+    const slice = (from: number, to: number) =>
+      extractChangedFiles(events.filter((event) => event.seq >= from && event.seq <= to)).map(
+        (file) => file.path,
+      );
+
+    expect(slice(rounds[0].fromSeq!, rounds[0].toSeq!)).toEqual(["a.go"]);
+    expect(slice(4, 6)).toEqual([]);
+  });
+
+  it("keeps an ask that arrives before the agent answered in the same round", () => {
+    // A message sent while the task was working is queued, and its event is
+    // written when it is accepted — before the agent has said anything about the
+    // first one. One agent column follows, so the round is both asks together.
+    const events = [
+      userTurn(1, "fix the parser"),
+      userTurn(2, "and the changelog"),
+      hostToolUse(3, "t1", "edit", "internal/parse.go"),
+      hostToolResult(4, "t1", "edit"),
+      ev(5, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "both done",
+        visibility: { user: true, task: true },
+      }),
+    ];
+    const turns = turnsOf(events);
+    const rounds = roundsOf(turns);
+
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].user).toBe(turns[0]);
+    expect([rounds[0].fromSeq, rounds[0].toSeq]).toEqual([1, 5]);
+  });
+
+  it("closes the round at the answer, so the next ask opens its own", () => {
+    const rounds = roundsOf(
+      turnsOf([
+        userTurn(1, "fix the parser"),
+        hostToolUse(2, "t1", "edit", "internal/parse.go"),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "parser fixed",
+          visibility: { user: true, task: true },
+        }),
+        userTurn(4, "now the docs"),
+        hostToolUse(5, "t2", "write", "docs/readme.md"),
+        ev(6, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "docs written",
+          visibility: { user: true, task: true },
+        }),
+      ]),
+    );
+
+    expect(rounds.map((round) => [round.user.fromSeq, round.fromSeq, round.toSeq])).toEqual([
+      [1, 1, 3],
+      [4, 4, 6],
+    ]);
+  });
+
+  it("leaves the turns before the first ask out of every round", () => {
+    // A window that opens mid-round: the agent's tail is there and the ask that
+    // started it is not. An invented round for those turns would put the work
+    // under an ask nobody can see.
+    const turns = turnsOf([
+      hostToolUse(1, "t1", "edit", "a.go"),
+      ev(2, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "carrying on",
+        visibility: { user: true, task: true },
+      }),
+      userTurn(3, "next thing"),
+      ev(4, "message", {
+        role: "assistant",
+        speaker: "kin",
+        text: "done",
+        visibility: { user: true, task: true },
+      }),
+    ]);
+    // One agent column before the ask: that tail's own items merged into a single
+    // agent turn, so the ask is the second turn, not the third.
+    expect(turns.map((turn) => turn.kind)).toEqual(["agent", "user", "agent"]);
+    const rounds = roundsOf(turns);
+
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].user).toBe(turns[1]);
+    expect([rounds[0].fromSeq, rounds[0].toSeq]).toEqual([3, 4]);
+  });
+
   it("anchors a step at the event that opened it, not the one that closed it", () => {
     const items = buildChatItems(threeRounds(), "kin");
     const progress = items.find((item): item is ProgressItem => item.kind === "progress");
@@ -2269,8 +2421,9 @@ describe("pending anchors", () => {
 
   it("does not split the turn it interrupted", () => {
     // The meta items carry no seq of their own, so an approval asked mid-turn
-    // lands inside the turn it stopped — the round still reads as one round, and
-    // the asking events belong to exactly one turn like every other event.
+    // lands inside the turn it stopped and the round still reads as one round.
+    // The asking events themselves (2 and 3) are in no turn at all: a range is a
+    // slice of the stream, not a partition of it.
     const turns = groupIntoTurns(buildChatItems(asked, "kin"), "kin");
 
     expect(turns.map((turn) => [turn.kind, turn.fromSeq, turn.toSeq])).toEqual([

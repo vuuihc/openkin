@@ -96,21 +96,27 @@ type ProcessRunItem = Extract<ChatItem, { kind: "message" | "progress" }>;
 /**
  * The event seq range a turn was built from, when it has one.
  *
- * `toSeq` runs to the event before the next turn begins, so every event lands in
- * exactly one turn: the events between two turns were produced by the earlier
- * one. Read it as "the events this turn's visible content came from" rather than
- * as an authority. A turn whose items all came from seq-less events (a streamed
- * preview) has no range; one whose first item has no seq starts later than the
- * turn really did; and the last turn has no next turn to close it, so it ends at
- * the newest event any of its items came from — a step is anchored at the event
- * that opened it, so a trailing result of the newest call can sit outside it.
+ * `toSeq` runs to the event before the next turn begins, so the events between
+ * two turns were produced by the earlier one. Read it as "the events this turn's
+ * visible content came from" rather than as an authority. A turn whose items all
+ * came from seq-less events (a streamed preview) has no range; one whose first
+ * item has no seq starts later than the turn really did; and the last turn has no
+ * next turn to close it, so it ends at the newest event any of its items came
+ * from — a step is anchored at the event that opened it, so a trailing result of
+ * the newest call can sit outside it.
  *
- * A round — what the user asked for and everything done about it — is a user
- * turn plus the agent turn after it, and its range is those two turns' ranges
- * together. That union is the boundary to read when asking "what did this round
- * change": work that the chat column never showed (a subagent's file tools, a
- * filtered event) produces no item at all, so it falls in the gap and belongs to
- * whichever turn the gap was closed onto rather than to the item it is nearest.
+ * Not every event lands in a turn. A turn with no range covers none of them, the
+ * events before the first turn and after the last turn's newest event are in no
+ * turn either, and a card built on a round is a slice of the transcript rather
+ * than a partition of it.
+ *
+ * A round — what the user asked for and everything done about it — is a user turn
+ * plus the agent turn that answers it, and its range is those turns' ranges
+ * together (see `roundsOf`). That union is the boundary to read when asking "what
+ * did this round change": work that the chat column never showed (a subagent's
+ * file tools, a filtered event) produces no item at all, so it falls in the gap
+ * and belongs to whichever turn the gap was closed onto rather than to the item
+ * it is nearest.
  */
 export type TurnSeqRange = {
   fromSeq?: number;
@@ -1003,6 +1009,70 @@ function assignTurnSeqRanges(turns: Turn[], items: ChatItem[]): void {
       break;
     }
   }
+}
+
+/** One round: the ask, everything done about it, and the slice of stream behind it. */
+export type Round = {
+  /** The user turn the round is an answer to. */
+  user: Extract<Turn, { kind: "user" }>;
+  /** The round read as turns: the ask, and what followed until it was answered. */
+  turns: Turn[];
+  fromSeq?: number;
+  toSeq?: number;
+};
+
+/**
+ * Split turns into rounds: what the user asked for, and everything done about it.
+ *
+ * A round opens at a user turn and closes at the agent turn that answers it — a
+ * turn carrying a settled (non-partial) message. A user turn that arrives while a
+ * round is still open does not open another one. That is the case this exists for:
+ * the same ask can reach the transcript twice, as a streamed copy that was flushed
+ * into its own item and the final copy that carries the seq, and an ACP agent
+ * echoes the prompt it was given at all — late enough that the work it prompted
+ * has already started, which puts an agent turn *between* the two copies. The
+ * projection cannot tell either apart from a second question, and the work in
+ * flight is the work the open round asked for, so the open round keeps it rather
+ * than the new user turn taking it: narrowing a round to whichever user turn
+ * carries a seq is how "what did this round change" comes back empty while the
+ * file it changed sits at the seq before it.
+ *
+ * A round may open with turns that belong to no round before it and close with
+ * the stream still going, so its range comes from the turns that have one and is
+ * absent when none of them do. It is a slice, not a partition: see
+ * `TurnSeqRange`.
+ */
+export function roundsOf(turns: Turn[]): Round[] {
+  const rounds: Round[] = [];
+  let open: Round | null = null;
+  for (const turn of turns) {
+    if (turn.kind === "user") {
+      if (open) {
+        open.turns.push(turn);
+      } else {
+        open = { user: turn, turns: [turn] };
+        rounds.push(open);
+      }
+      continue;
+    }
+    // An agent turn with no round open — the tail of a round that started before
+    // the loaded window — belongs to no round rather than to an invented one.
+    if (!open) continue;
+    open.turns.push(turn);
+    if (
+      turn.kind === "agent" &&
+      turn.items.some((item) => item.kind === "message" && !item.partial)
+    ) {
+      open = null;
+    }
+  }
+  for (const round of rounds) {
+    const from = round.turns.map((turn) => turn.fromSeq).filter((seq) => seq !== undefined);
+    const to = round.turns.map((turn) => turn.toSeq).filter((seq) => seq !== undefined);
+    if (from.length) round.fromSeq = Math.min(...from);
+    if (to.length) round.toSeq = Math.max(...to);
+  }
+  return rounds;
 }
 
 export function shouldShowGenericThinking(items: ChatItem[], loading: boolean): boolean {
