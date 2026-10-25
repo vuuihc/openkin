@@ -158,7 +158,7 @@ Hub 保存某个账户的会话，并以一个单调递增的游标把它们提�
 
 端到端加密与冲突解决**不**在提供之列。见 [ADR 0022](./docs/adr/0022-hub-node-multi-device-sessions.md)。
 
-账户的存在，是为了让第二台设备能看到第一台设备的工作。Hub 默认只有一个所有者；向他人开放注册需要先按账户隔离任务、产物与实时事件流，而这一点尚未实现。
+账户的存在，是为了让第二台设备能看到第一台设备的工作。Hub 默认只有一个所有者；向他人开放的两半现在都已实现：按账户隔离任务、产物与实时事件流（`store.ScopeForPrincipal` 是唯一规则，REST、MCP、WebSocket、SSE、变更流和 A2A 都走它），以及让第二个人能拥有账户的注册本身 —— 持有者发出邀请，被邀请的人兑换（`POST /api/auth/invite`、`POST /api/auth/join`；见 [ADR 0028](./docs/adr/0028-invitation-makes-a-member.md)）。成员能做什么，由持有者登记的项目界定（见 [ADR 0029](./docs/adr/0029-a-member-works-inside-the-projects.md)）。仍然缺的是「发现」：`GET /api/projects` 只对持有者开放，成员能在已登记的项目里工作，却问不出有哪些项目。见 `docs/plans/2026-10-26-p5-hosted.md`。
 
 ---
 
