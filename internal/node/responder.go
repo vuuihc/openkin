@@ -71,6 +71,14 @@ type Responder struct {
 	// at all — a credential helper, an ssh agent, a gh that is logged in — is
 	// decided where the machine is built, not inside the question.
 	Publish PublishFunc
+	// Sessions is the agent sessions that live on this machine. Nil means it
+	// has none to speak of, and the two session questions are refused.
+	//
+	// It is a field because a session catalog is a property of the machine —
+	// which CLIs are installed, and where each of them keeps its history — and
+	// because the Hub's own import reads the same thing through the same
+	// interface on itself.
+	Sessions SessionCatalog
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -287,6 +295,26 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, published)
+	case worker.QueryAgentSessions:
+		var asked worker.AgentSessionsParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		found, err := r.sessions(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, found)
+	case worker.QueryAgentHistory:
+		var asked worker.AgentHistoryParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		read, err := r.sessionHistory(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, read)
 	default:
 		return refused(id, fmt.Errorf("this machine does not know the question %q", method))
 	}

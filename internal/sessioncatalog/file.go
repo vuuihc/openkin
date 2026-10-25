@@ -816,6 +816,10 @@ func historyItem(
 	toolName string,
 	text string,
 ) agent.HistoryItem {
+	// The cap is this layer's, so this layer is the one that knows it was met:
+	// a reader who is shown the first 64 Ki characters of a message and nothing
+	// else has been told the message ends there.
+	text, cut := truncateMarked(text, maxHistoryText)
 	return agent.HistoryItem{
 		AgentID:     info.AgentID,
 		ExternalRef: info.ExternalRef,
@@ -823,9 +827,10 @@ func historyItem(
 		Kind:        kind,
 		Role:        role,
 		ToolName:    toolName,
-		Text:        truncate(text, maxHistoryText),
+		Text:        text,
 		OccurredAt:  info.UpdatedAt,
 		SourceRev:   rev,
+		Truncated:   cut,
 	}
 }
 
@@ -1078,15 +1083,23 @@ func firstNonEmpty(values ...string) string {
 }
 
 func truncate(value string, max int) string {
+	cut, _ := truncateMarked(value, max)
+	return cut
+}
+
+// truncateMarked is truncate for the callers that have to say whether they lost
+// anything, which is the message text: a title or a tool summary is a label, and
+// a reader who sees a short label has lost nothing they were reading.
+func truncateMarked(value string, max int) (string, bool) {
 	value = strings.TrimSpace(value)
 	runes := []rune(value)
 	if len(runes) <= max {
-		return value
+		return value, false
 	}
 	if max <= 1 {
-		return string(runes[:max])
+		return string(runes[:max]), true
 	}
-	return string(runes[:max-1]) + "…"
+	return string(runes[:max-1]) + "…", true
 }
 
 func boundedTitle(value, fallback string) string {

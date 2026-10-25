@@ -84,6 +84,11 @@ type Entry struct {
 	Status        func(context.Context) Status
 	Models        func(context.Context) ModelList
 	LazyWorkspace func(context.Context) LazyWorkspaceSupport
+	// Catalog is the provider's session catalog, for an entry that has one.
+	// It is here rather than only on Registration because a caller building a
+	// registry directly — a test standing in for a machine with recorded
+	// sessions — has no other way to give an entry a history to read.
+	Catalog SessionCatalog
 }
 
 // NewRegistry builds a registry from explicit entries (tests / migration).
@@ -128,6 +133,7 @@ func NewRegistry(entries ...Entry) (*Registry, error) {
 			Runner:        wrapRunner(e.Runner),
 			Controller:    e.Controller,
 			Sessions:      e.Sessions,
+			Catalog:       e.Catalog,
 			Status:        status,
 			Models:        e.Models,
 			LazyWorkspace: e.LazyWorkspace,

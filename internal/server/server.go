@@ -618,11 +618,20 @@ func ServeWith(version string, flags ServeFlags) error {
 		// it. The answer comes from the same code that answers a Hub, with the
 		// same list of directories the executor works in, so a directory this
 		// console offers is a directory this machine will actually run in.
-		LocalMachine: &node.Responder{Roots: machineRoots, CheckoutRoot: checkoutRoot, Workspace: wsMgr, Warn: warnToStderr},
-		NodeFrames:   node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
-		Browser:      browser,
-		Eval:         evalRunner,
-		A2A:          &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},
+		//
+		// The session catalog is handed over for the same reason and in the same
+		// spirit: the sessions that live here are read by the console's own
+		// import and by a Hub asking this machine, and both go through the
+		// registry so that a provider this machine cannot read is reported the
+		// same way wherever the question came from.
+		LocalMachine: &node.Responder{
+			Roots: machineRoots, CheckoutRoot: checkoutRoot, Workspace: wsMgr,
+			Sessions: reg, Warn: warnToStderr,
+		},
+		NodeFrames: node.RouteFrame(nodeTurns, nodeApprovals, nodeQueries),
+		Browser:    browser,
+		Eval:       evalRunner,
+		A2A:        &a2a.Server{Store: st, Engine: eng, Version: version, Enabled: strings.EqualFold(os.Getenv("KIN_A2A_ENABLED"), "1")},
 		ProviderResolve: func(c context.Context) (provider.Client, provider.Config, error) {
 			cfg, err := provider.LoadConfig(c, st)
 			if err != nil {

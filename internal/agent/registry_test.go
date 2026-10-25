@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/adapter"
@@ -236,5 +238,117 @@ func TestGetRunnableKeepsTheAdaptersOwnAnswers(t *testing.T) {
 			t.Fatalf("AutoApprovesAll(%q) through the registry = %v, want %v (runner is %T)",
 				mode, got, want, reg.Runner)
 		}
+	}
+}
+
+// recordingCatalog is a provider catalog that answers with one session and
+// remembers what it was asked.
+type recordingCatalog struct {
+	mu       sync.Mutex
+	asked    []SessionQuery
+	askedRef []string
+}
+
+func (c *recordingCatalog) List(_ context.Context, q SessionQuery) ([]SessionInfo, error) {
+	c.mu.Lock()
+	c.asked = append(c.asked, q)
+	c.mu.Unlock()
+	return []SessionInfo{{AgentID: "provider", ExternalRef: "ref-1"}}, nil
+}
+
+func (c *recordingCatalog) ReadHistory(_ context.Context, ref string, _ HistoryQuery) (HistoryPage, error) {
+	c.mu.Lock()
+	c.askedRef = append(c.askedRef, ref)
+	c.mu.Unlock()
+	return HistoryPage{Items: []HistoryItem{{Text: "hello"}}}, nil
+}
+
+func (c *recordingCatalog) Inspect(_ context.Context, ref string) (SessionInfo, error) {
+	c.mu.Lock()
+	c.askedRef = append(c.askedRef, ref)
+	c.mu.Unlock()
+	return SessionInfo{AgentID: "provider", ExternalRef: ref}, nil
+}
+
+// The remote node walks every registered agent and asks each one for its
+// sessions, then skips the ones that answer "I have no catalog" so that a Mac
+// with one session-aware provider does not report an error per provider that
+// has none. That skip is only correct while two things stay true: a provider
+// without a catalog is still *listed* here, and its refusal is this sentinel.
+// Both are properties of this package, so they are pinned here rather than
+// only in the node that reads them.
+func TestAProviderWithNoCatalogRefusesWithTheSentinelItIsStillListedUnder(t *testing.T) {
+	catalog := &recordingCatalog{}
+	ctx := context.Background()
+	reg, err := Build(ctx,
+		stubFactory{
+			desc: Descriptor{
+				ID: "with-catalog", Name: "With Catalog", Priority: 1,
+				Capabilities: []Capability{CapabilityRun, CapabilitySessionList, CapabilitySessionHistoryRead},
+			},
+			reg: Registration{
+				Runner: stubAdapter{}, Catalog: catalog,
+				Status: func(context.Context) Status { return Status{Installed: true, Available: true} },
+			},
+		},
+		stubFactory{
+			desc: Descriptor{
+				ID: "no-catalog", Name: "No Catalog", Priority: 2,
+				Capabilities: []Capability{CapabilityRun},
+			},
+			reg: Registration{
+				Runner: stubAdapter{},
+				Status: func(context.Context) Status { return Status{Installed: true, Available: true} },
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ids := reg.IDs()
+	if len(ids) != 2 {
+		t.Fatalf("IDs() = %v, want both providers: a caller cannot skip what it is not shown", ids)
+	}
+
+	for _, call := range []struct {
+		name string
+		run  func() error
+	}{
+		{"ListSessions", func() error { _, err := reg.ListSessions(ctx, "no-catalog", SessionQuery{}); return err }},
+		{"ReadSessionHistory", func() error {
+			_, err := reg.ReadSessionHistory(ctx, "no-catalog", "ref-1", HistoryQuery{})
+			return err
+		}},
+		{"InspectSession", func() error { _, err := reg.InspectSession(ctx, "no-catalog", "ref-1"); return err }},
+	} {
+		err := call.run()
+		if !errors.Is(err, ErrSessionCatalogUnavailable) {
+			t.Fatalf("%s on a catalog-less provider = %v, want ErrSessionCatalogUnavailable", call.name, err)
+		}
+		// The node's message reaches a person on another machine, and the whole
+		// point of skipping unnamed providers is that when one *is* named the
+		// answer has to say which provider could not answer.
+		if !strings.Contains(err.Error(), "no-catalog") {
+			t.Fatalf("%s = %q, want the provider named", call.name, err)
+		}
+	}
+
+	// The provider that does have one is not collateral damage: the same
+	// registry serves both, and the query travels unchanged.
+	if _, err := reg.ListSessions(ctx, "with-catalog", SessionQuery{Limit: 7, Query: "auth"}); err != nil {
+		t.Fatalf("ListSessions on a provider with a catalog: %v", err)
+	}
+	if len(catalog.asked) != 1 || catalog.asked[0].Limit != 7 || catalog.asked[0].Query != "auth" {
+		t.Fatalf("the catalog was asked %+v, want the caller's query", catalog.asked)
+	}
+
+	// An agent id nobody registered is refused the same way, and deliberately:
+	// the node's unnamed loop walks IDs(), so it never asks about an id that is
+	// not there, and its skip rule keys on the sentinel rather than on whether
+	// the provider exists. A distinct error here would be a new case for that
+	// loop to handle, not a fix.
+	if err := func() error { _, err := reg.ListSessions(ctx, "nobody", SessionQuery{}); return err }(); !errors.Is(err, ErrSessionCatalogUnavailable) {
+		t.Fatalf("ListSessions on an unregistered id = %v, want ErrSessionCatalogUnavailable", err)
 	}
 }

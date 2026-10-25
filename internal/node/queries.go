@@ -222,6 +222,18 @@ func questionKey(deviceID, id string) string {
 // directory, a clone is a network transfer — so one number would be wrong for
 // one of them: too short and a slow clone is reported as a missing machine, too
 // long and a machine that is not answering holds a phone's screen.
+//
+// The session questions (QueryAgentSessions, QueryAgentHistory) were considered
+// for a budget of their own and deliberately keep this one, on a measurement
+// rather than an estimate: listing all three of a real machine's catalogs —
+// claude-code, codex and droid, 1,975 files and 1.7 GB of transcripts between
+// them, at the widest page the wire allows — takes 1.8s, and one history page
+// 0.9s, repeatably. That is eight times the headroom this budget leaves, and the
+// work is bounded by the catalog's own file and line caps rather than by how
+// much history a person has. What would change the answer is a provider whose
+// files are pathological rather than numerous, which the catalog layer would
+// have to bound by the requested limit; that is recorded in the S4 notes rather
+// than paid for here with a minute of a phone's screen.
 func queryTimeout(method string) time.Duration {
 	switch method {
 	case worker.QueryRepoPrepare:

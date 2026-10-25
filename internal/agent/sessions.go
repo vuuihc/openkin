@@ -66,6 +66,12 @@ type HistoryItem struct {
 	Text        string
 	OccurredAt  time.Time
 	SourceRev   string
+	// Truncated reports that Text is the beginning of a longer message: the
+	// provider's own cap was reached, so the rest of what the agent wrote is not
+	// in this item. It is a property of the message rather than of the page — a
+	// page with no cursor is a page to stop reading, while a message cut short is
+	// a fact about that message that a reader is entitled to.
+	Truncated bool
 }
 
 // SessionCatalog is an optional provider integration for discovery and

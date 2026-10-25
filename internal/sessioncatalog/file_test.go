@@ -411,3 +411,52 @@ func TestFileCatalogDroidDerivesRefFromSessionFilename(t *testing.T) {
 		t.Fatalf("sessions=%+v", sessions)
 	}
 }
+
+// A message this layer had to cut says so, and one it did not says nothing.
+//
+// The flag is the difference between a transcript that ends and one that was
+// stopped: a reader shown the first 64 Ki characters of a message has no other
+// way to tell, because the text that arrives looks complete either way. The cap
+// is counted in runes here, so the flag has to be raised against the same unit —
+// a message of 64 Ki Chinese characters is a whole message and not a cut one.
+func TestFileCatalogMarksTheMessagesItHadToCut(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "session.jsonl")
+	long := strings.Repeat("deep", maxHistoryText)
+	wide := strings.Repeat("深", maxHistoryText)
+	content := fmt.Sprintf(
+		`{"payload":{"type":"session_meta","session_id":"codex-1","cwd":"/tmp/project"}}
+{"payload":{"type":"message","session_id":"codex-1","role":"user","content":"short"}}
+{"payload":{"type":"message","session_id":"codex-1","role":"assistant","content":%q}}
+{"payload":{"type":"message","session_id":"codex-1","role":"user","content":%q}}
+`, long, wide)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := &FileCatalog{AgentID: "codex", Format: FormatCodex, Roots: []string{root}}
+	page, err := catalog.ReadHistory(context.Background(), "codex-1", agent.HistoryQuery{Limit: 10})
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("items=%d, want the three messages", len(page.Items))
+	}
+	if page.Items[0].Truncated {
+		t.Fatalf("a message that fits was marked as cut: %+v", page.Items[0])
+	}
+	if !page.Items[1].Truncated {
+		t.Fatal("a message three times the cap was not marked as cut")
+	}
+	if got := len([]rune(page.Items[1].Text)); got != maxHistoryText {
+		t.Fatalf("the cut message is %d runes, want the cap %d", got, maxHistoryText)
+	}
+	if !strings.HasPrefix(long, strings.TrimSuffix(page.Items[1].Text, "…")) {
+		t.Fatal("the cut message is not the beginning of what the provider recorded")
+	}
+	// Counted in runes, not bytes: the same number of characters in Chinese is
+	// three times the bytes and still one whole message.
+	if page.Items[2].Truncated {
+		t.Fatalf("a message at the cap in characters was treated as bytes: %+v", page.Items[2])
+	}
+}

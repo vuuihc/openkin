@@ -138,6 +138,37 @@ const QueryPRObserve = "pr.observe"
 // that did not, because the remote now holds something nobody agreed to.
 const QueryPRPublish = "pr.publish"
 
+// QueryAgentSessions asks a machine which agent sessions it has on it.
+//
+// A session is a thing that lives on one machine: a CLI's own record of a
+// conversation, under that machine's home directory, named by a ref only that
+// machine's agent can resolve. The Hub's session list is a table, and the rows
+// in it are written by whoever scanned a filesystem — so a Hub that only ever
+// scanned its own can show a person the sessions of the machine they are
+// sitting at and nothing else. This is how the list learns about the rest.
+//
+// What comes back is metadata and not transcripts: what the session is called,
+// where it ran, how far along it is, and whether its provider can be attached
+// to. Reading one is a separate question (agent.history), so that a machine
+// with a thousand sessions answers a list with a thousand names rather than a
+// thousand files.
+const QueryAgentSessions = "agent.sessions"
+
+// QueryAgentHistory asks a machine for the transcript of one of its own agent
+// sessions.
+//
+// It is asked of the machine that holds the session and not of the machine the
+// person is looking at, because a ref is resolvable only where it was minted: a
+// Hub that read its *own* history for a ref belonging to another machine would
+// be answering about a different conversation that happens to share a name, or
+// about nothing.
+//
+// The answer is a page, in the provider's own order, with the provider's own
+// cursor to continue from. Nothing is normalized beyond bound and shape: this
+// is one machine's record of one conversation, and a Hub that rewrote it would
+// be inventing a transcript.
+const QueryAgentHistory = "agent.history"
+
 // Bounds on one question.
 const (
 	MaxQueryID     = 128
@@ -194,6 +225,48 @@ const (
 	// still.
 	MaxPRTitle = 256
 	MaxPRBody  = 32 << 10
+	// MaxAgentSessions bounds one session listing, counted across every
+	// provider the machine walked. The number is sessioncatalog's own default
+	// (500 files per provider) because the two answer the same question — how
+	// many of a person's sessions are worth putting in a list — but the scope
+	// is not the same: a machine with three catalogs indexes up to three times
+	// this into its own list, while one answer over a wire carries this many.
+	// That difference is the frame's, not a judgement, and it is reported rather
+	// than silent: internal/node/sessions.go sets AgentSessionsResult.Truncated
+	// when it stops here, and the Hub's import carries the flag on to the
+	// console.
+	MaxAgentSessions = 500
+	// MaxAgentQuery bounds the per-provider limit a Hub may ask for. It is the
+	// local import route's own ceiling (api/agent_sessions.go), for the reason
+	// MaxAgentSessions is sessioncatalog's: the same list, asked over a wire.
+	MaxAgentQuery = 500
+	// MaxAgentHistoryItems and MaxAgentHistoryText bound one page of history.
+	//
+	// Both are the numbers the Hub's own history route already uses
+	// (api/agent_sessions.go: a default of 50, a ceiling of 100), because the
+	// same session read from a phone and read from the machine it lives on is
+	// the same session, and a reader that got a shorter page or a shorter
+	// message from one of them would be reading a different transcript
+	// depending on where it happened to live. MaxAgentHistoryText is
+	// sessioncatalog's own per-message cap for the same reason — 64 Ki
+	// **runes**, which is the unit that cap counts in. A byte bound here would
+	// cut a Chinese message at a third of the length the provider kept and
+	// would cut it silently, since the provider's own cap had not been reached.
+	//
+	// The page size is not the frame's: a page of 100 whole messages is
+	// megabytes of worst case, so an answer is bounded by measuring what it
+	// built rather than by these two numbers, and MaxAgentHistoryItems is what
+	// the measurement can never exceed. See internal/node/sessions.go.
+	MaxAgentHistoryItems = 100
+	MaxAgentHistoryText  = 64 << 10
+	// MaxAgentHistoryCursor bounds a provider's own continuation token. It is
+	// opaque, so the only honest bound is a generous one: 512 bytes is more than
+	// every cursor this module produces today (they are line numbers or file
+	// offsets) and small enough that a machine cannot use one to pad a frame.
+	//
+	// The agent id and the session ref are bounded by MaxAgentID and
+	// MaxSessionRef, which a dispatch already uses for the same two things.
+	MaxAgentHistoryCursor = 512
 )
 
 // Query is one question about the machine it is sent to.
@@ -886,4 +959,153 @@ func repoName(repo string) (string, error) {
 		return "", err
 	}
 	return repo, nil
+}
+
+// AgentSessionsParams asks what sessions one machine has, or one provider's on
+// it.
+//
+// An empty Agent is every provider that has a catalog — the same question the
+// Hub's own import asks its own registry when nobody names an agent, and for
+// the same reason: the person pressed "import my sessions", not "import Claude
+// Code's". A named agent is exact, and a machine with no catalog for it refuses
+// rather than answering with an empty list, because "I have none" and "I cannot
+// tell you" are different answers to a question about a specific provider.
+type AgentSessionsParams struct {
+	Agent string `json:"agent,omitempty"`
+	// Limit is per provider, not in total: how many sessions one catalog is
+	// asked for. Zero means the machine's own default.
+	Limit int `json:"limit,omitempty"`
+}
+
+// AgentSession is one session, as it crosses the wire.
+//
+// It carries the same fields as a catalog row and is still a type of this
+// protocol's own, for WorkspaceChange's reason (ADR 0025 D5): what a Hub and a
+// Node agree on is written here, so a field the catalog layer renames is a
+// change this file makes on purpose.
+//
+// The ref is opaque and namespaced by the agent that minted it, which is why it
+// travels beside the agent id rather than instead of it. Timestamps are
+// milliseconds since the epoch, the unit both the store's columns and the
+// console's rendering already use.
+type AgentSession struct {
+	AgentID       string   `json:"agent_id"`
+	ExternalRef   string   `json:"external_ref"`
+	SourceURI     string   `json:"source_uri,omitempty"`
+	Title         string   `json:"title,omitempty"`
+	Cwd           string   `json:"cwd,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
+	SourceCursor  string   `json:"source_cursor,omitempty"`
+	ContentDigest string   `json:"content_digest,omitempty"`
+	CreatedAt     int64    `json:"created_at,omitempty"`
+	UpdatedAt     int64    `json:"updated_at,omitempty"`
+}
+
+// AgentSessionsResult is one machine's sessions.
+type AgentSessionsResult struct {
+	// Sessions is never nil: a console reading this reads it as a list, and a
+	// machine with no sessions has an empty one rather than a missing one.
+	Sessions []AgentSession `json:"sessions"`
+	// Errors is per provider, in the machine's own words. One CLI whose catalog
+	// cannot be read does not stop the others from being listed, and a person
+	// who asked for every session did not ask about that one — so it is reported
+	// beside the answer instead of replacing it. It is the same shape the Hub's
+	// own import returns, because it is the same answer about a different
+	// machine.
+	Errors map[string]string `json:"errors,omitempty"`
+	// Truncated reports that the listing stopped at MaxAgentSessions across all
+	// providers, or that it reached the frame's budget. It is a flag rather than
+	// a cursor because a session list is read newest-first and what a person
+	// wants from it is the recent end.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+func (p AgentSessionsParams) Validate() error {
+	agentID := strings.TrimSpace(p.Agent)
+	if agentID != "" {
+		if err := bounded("agent", agentID, MaxAgentID); err != nil {
+			return err
+		}
+	}
+	// A negative limit is not "the default": it is a request no catalog can
+	// honour, and answering it with a default would be answering a different
+	// question than the one asked.
+	if p.Limit < 0 {
+		return errors.New("limit must not be negative")
+	}
+	if p.Limit > MaxAgentQuery {
+		return fmt.Errorf("limit exceeds %d", MaxAgentQuery)
+	}
+	return nil
+}
+
+// AgentHistoryParams asks for one page of one session's transcript.
+type AgentHistoryParams struct {
+	Agent string `json:"agent"`
+	// Ref names the session on the machine being asked, in that machine's own
+	// namespace. It is required and it is checked for shape only: whether the
+	// ref resolves is the machine's answer to give.
+	Ref    string `json:"ref"`
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+// AgentHistoryItem is one message, as it crosses the wire.
+type AgentHistoryItem struct {
+	MessageID string `json:"message_id,omitempty"`
+	// Kind is the provider's own classification of the item, empty when it has
+	// none. Role is the coarser one the console groups by.
+	Kind     string `json:"kind,omitempty"`
+	Role     string `json:"role,omitempty"`
+	ToolName string `json:"tool_name,omitempty"`
+	Text     string `json:"text,omitempty"`
+	// OccurredAt is milliseconds since the epoch, zero when the provider does
+	// not record one.
+	OccurredAt int64  `json:"occurred_at,omitempty"`
+	SourceRev  string `json:"source_rev,omitempty"`
+	// Truncated reports that this message was longer than MaxAgentHistoryText
+	// and the answer carries its beginning. It is per item and not per page
+	// because a page cut short is a page to continue from, while a message cut
+	// short is a fact about that message.
+	//
+	// A machine's own catalogs already cap a message at this number, so this is
+	// normally false — it is the flag for the provider that does not.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// AgentHistoryResult is one page of one session's transcript.
+type AgentHistoryResult struct {
+	Items []AgentHistoryItem `json:"items"`
+	// NextCursor is the provider's own continuation token, empty at the end of
+	// the transcript.
+	NextCursor string `json:"next_cursor,omitempty"`
+	// SourceRev is the provider's revision for what was read, so a caller can
+	// tell a transcript that changed from one that did not.
+	SourceRev string `json:"source_rev,omitempty"`
+	// Truncated reports that this machine's own frame budget cut the page, so
+	// the empty NextCursor above means "the reader has reached the end of what
+	// this machine can send", not "this is the end of the transcript". Without
+	// it the two are the same answer on the wire and the reader is shown a
+	// short transcript as the whole one.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+func (p AgentHistoryParams) Validate() error {
+	if err := bounded("agent", strings.TrimSpace(p.Agent), MaxAgentID); err != nil {
+		return err
+	}
+	if err := bounded("ref", strings.TrimSpace(p.Ref), MaxSessionRef); err != nil {
+		return err
+	}
+	if err := optional("cursor", p.Cursor, MaxAgentHistoryCursor); err != nil {
+		return err
+	}
+	if p.Limit < 0 {
+		return errors.New("limit must not be negative")
+	}
+	if p.Limit > MaxAgentHistoryItems {
+		return fmt.Errorf("limit exceeds %d", MaxAgentHistoryItems)
+	}
+	return nil
 }
