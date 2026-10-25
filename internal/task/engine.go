@@ -1230,6 +1230,35 @@ func (e *Engine) sessionRefResumable(t store.Task) bool {
 	return owner == e.sessionRefOwner(t)
 }
 
+// resumeUsesNativeRef reports whether this agent's continuity runs through the
+// session ref Kin stores for it at all.
+//
+// It is the distinction the follow-up path already makes when it decides whether
+// a foreign ref means "no continuity" (approvals.go: an agent with SessionHooks
+// keeps its own transcript and resumes from that, not from the native ref), said
+// once here so that the notice beside the adapter agrees with the decision made
+// where the prompt is built.
+//
+// It matters because the sentence below the adapter is a claim about this
+// machine: "this machine cannot resume it". For an agent that keeps its own
+// transcript that claim is false in both directions — nothing refused, and the
+// context does survive the move — so firing there reports a refusal that did not
+// happen, on the one kind of agent whose continuity is not in the ref.
+//
+// An agent this daemon does not know answers true. The turn fails a few lines
+// later with a sentence about the unknown agent, and hiding a refusal because
+// its agent could not be classified is the wrong way to be quiet.
+func (e *Engine) resumeUsesNativeRef(agentID string) bool {
+	if e.agents == nil {
+		return true
+	}
+	reg, ok := e.agents.Get(agentID)
+	if !ok {
+		return true
+	}
+	return reg.Sessions == nil
+}
+
 // sessionRefOriginLabel names the machine that minted a task's native session
 // ref, for a sentence a person reads. The device's own label when it has one,
 // its id otherwise: an id is opaque, but it is not wrong, and a sentence that
@@ -2573,10 +2602,17 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 	// from elsewhere arrives at the same gate and has no context pack to explain
 	// itself, so announcing it where the pack is built would leave that one
 	// silent. One refusal, one sentence, whichever path arrived at it.
+	//
+	// The agent is asked first, because the sentence is about this machine and
+	// is only true of an agent whose continuity is in the ref. Handing the ref
+	// over is refused for either kind (a managed-transcript agent is given it
+	// too -- it is the same field), but only the kind that reads it has been
+	// told no.
 	sessionRef := ""
-	if e.sessionRefResumable(t) {
+	switch {
+	case e.sessionRefResumable(t):
 		sessionRef = *t.SessionRef
-	} else if t.SessionRef != nil && strings.TrimSpace(*t.SessionRef) != "" {
+	case e.resumeUsesNativeRef(t.Agent) && t.SessionRef != nil && strings.TrimSpace(*t.SessionRef) != "":
 		e.noteForeignSessionRef(ctx, id, t)
 	}
 	execRef := adapter.ExecutionRef{

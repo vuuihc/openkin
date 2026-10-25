@@ -3,10 +3,14 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/agent"
 	"github.com/vuuihc/openkin/internal/store"
 )
 
@@ -231,5 +235,164 @@ func TestTheAnnouncementFallsBackToTheDeviceID(t *testing.T) {
 	message, _ := notices[0]["message"].(string)
 	if !strings.Contains(message, "other-machine") {
 		t.Fatalf("the notice names no machine: %q", message)
+	}
+}
+
+// fakeSessionHooks is an agent that keeps Kin's own transcript. Reset is the
+// only thing the interface asks for, and the engine calls it when it rebuilds a
+// sealed context pack instead of resuming.
+type fakeSessionHooks struct {
+	mu     sync.Mutex
+	resets int
+}
+
+func (h *fakeSessionHooks) Reset(context.Context, string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.resets++
+	return nil
+}
+
+// managedTranscriptEngine is an engine whose agent keeps its own transcript,
+// which is the kind the notice was wrong about: its continuity does not run
+// through the native session ref at all.
+func managedTranscriptEngine(t *testing.T, hooks agent.SessionHooks) (*Engine, *store.Store, *fakeAdapter) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ad := &fakeAdapter{events: successEvents()}
+	reg, err := agent.NewRegistry(agent.Entry{
+		ID: "kin", Name: "Kin", Kind: agent.KindCLI,
+		Caps:   []agent.Capability{agent.CapabilityRun, agent.CapabilityResume},
+		Runner: ad, Sessions: hooks,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(st, reg, NewBus(), 1)
+	t.Cleanup(e.Close)
+	if err := e.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return e, st, ad
+}
+
+// An agent that keeps its own transcript is not told its session was refused.
+//
+// The sentence this suppresses is a claim about this machine — "this machine
+// cannot resume it" — and for an agent whose continuity runs through Kin's
+// transcript rather than through the ref, it is false in both directions:
+// nothing refused the ref, and the conversation does survive the move. Firing
+// anyway reports a refusal that did not happen, on the one kind of agent whose
+// continuity is not in the ref, and a person reading it goes looking for a
+// context that was dropped when nothing was.
+//
+// The ref is withheld from the adapter either way, which is asserted beside it:
+// the two decisions are separate, and the notice is the only one this test is
+// about.
+func TestAManagedTranscriptAgentIsNotToldItsSessionWasRefused(t *testing.T) {
+	ctx := context.Background()
+	hooks := &fakeSessionHooks{}
+	e, st, ad := managedTranscriptEngine(t, hooks)
+	e.SetRemoteRunner("this-machine", nil)
+
+	created, err := e.Create(ctx, CreateRequest{
+		Agent: "kin", Cwd: "/tmp", Prompt: "carry on",
+		SessionRef: "other-session", SessionRefDeviceID: "other-machine",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, created.ID, StatusSucceeded, 2*time.Second)
+	// Both paths to the gate, because the notice is written where every turn
+	// exits and the two arrive there differently: a first turn with a session
+	// attached from elsewhere, and a follow-up that rebuilds a context pack out
+	// of Kin's own transcript.
+	if _, err := e.FollowUpWith(ctx, created.ID, FollowUpRequest{Prompt: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, created.ID, StatusSucceeded, 2*time.Second)
+
+	if notices := noticesIn(t, st, created.ID); len(notices) != 0 {
+		t.Fatalf("an agent that keeps its own transcript was told its session was refused: %+v", notices)
+	}
+	ad.mu.Lock()
+	specs := append([]adapter.TaskSpec(nil), ad.specs...)
+	started := ad.started
+	ad.mu.Unlock()
+	// Every turn, not the last one: the second turn mints a session of its own
+	// and legitimately resumes that, so looking only at the end would miss the
+	// hand-over this is about.
+	for i, spec := range specs {
+		if spec.SessionRef == "other-session" {
+			t.Fatalf("turn %d handed the adapter %q, a ref another machine's agent minted", i+1, spec.SessionRef)
+		}
+	}
+	// The turns really ran, and the second one really rebuilt rather than
+	// resumed: without this the test passes for the reason it is meant to
+	// exclude — a turn that failed before it could have said anything.
+	if started != 2 {
+		t.Fatalf("the adapter ran %d turns, want 2", started)
+	}
+	hooks.mu.Lock()
+	resets := hooks.resets
+	hooks.mu.Unlock()
+	if resets == 0 {
+		t.Fatal("no context pack was rebuilt on the follow-up, so the ref was not actually refused there")
+	}
+}
+
+// The control for the test above, and the reason the predicate may not simply
+// answer "managed" for everything: the same engine, the same foreign ref, an
+// agent of the other kind — and the person is told.
+func TestAnAgentWhoseContinuityIsTheRefIsStillTold(t *testing.T) {
+	ctx := context.Background()
+	e, st, _ := managedTranscriptEngine(t, nil)
+	e.SetRemoteRunner("this-machine", nil)
+
+	created, err := e.Create(ctx, CreateRequest{
+		Agent: "kin", Cwd: "/tmp", Prompt: "carry on",
+		SessionRef: "other-session", SessionRefDeviceID: "other-machine",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, e, created.ID, StatusSucceeded, 2*time.Second)
+
+	if notices := noticesIn(t, st, created.ID); len(notices) != 1 {
+		t.Fatalf("got %d notices, want 1: %+v", len(notices), notices)
+	}
+}
+
+// The predicate itself, which is where the two tests above get their answer.
+//
+// An agent this daemon cannot classify answers true, and that direction is
+// deliberate: the turn fails a few lines later with a sentence about the unknown
+// agent, and suppressing a refusal because its agent could not be looked up is
+// the wrong way to be quiet.
+func TestResumeUsesNativeRefIsAboutWhetherTheAgentKeepsItsOwnTranscript(t *testing.T) {
+	managed, _, _ := managedTranscriptEngine(t, &fakeSessionHooks{})
+	plain, _ := testEngine(t, 4, &fakeAdapter{events: successEvents()})
+
+	cases := []struct {
+		name  string
+		on    *Engine
+		agent string
+		want  bool
+	}{
+		{name: "an agent with a managed transcript", on: managed, agent: "kin", want: false},
+		{name: "an agent without one", on: plain, agent: "claude-code", want: true},
+		{name: "an agent this daemon does not know", on: managed, agent: "nobody", want: true},
+		{name: "an engine with no registry at all", on: &Engine{}, agent: "kin", want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.on.resumeUsesNativeRef(tc.agent); got != tc.want {
+				t.Fatalf("resumeUsesNativeRef(%q) = %v, want %v", tc.agent, got, tc.want)
+			}
+		})
 	}
 }
