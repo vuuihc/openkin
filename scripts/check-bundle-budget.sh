@@ -33,9 +33,17 @@ if [ ! -f "$index" ]; then
   exit 1
 fi
 
-# Every asset the document references. The match is on the path shape rather
-# than on the tags, so a changed attribute order or a new tag type does not
-# quietly empty this list.
+# Every /assets/ script and stylesheet the document references. The match is on
+# the path shape rather than on the tags, so a changed attribute order or a new
+# tag type does not quietly empty this list.
+#
+# What it cannot see, and why that is the right trade here: a first screen that
+# grows through something that is not an /assets/ .js or .css — today's
+# manifest.webmanifest and icons/icon.svg are the only ones, and a font would be
+# the next. Those are outside the parse by construction, so a font added later
+# would ship on the first screen with this number unmoved. Widening the match to
+# "every URL in the document" would mean counting the icons as budget, which
+# they are not.
 #
 # `|| true` because of pipefail: a grep that matches nothing would otherwise end
 # the script right here, with a bare exit 1 and no line saying why — and the
