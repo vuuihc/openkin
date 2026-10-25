@@ -16,7 +16,11 @@ import { displayUserPrompt } from "../lib/attachments";
 import { taskCardStatusView } from "../lib/taskCardStatus";
 import { formatRelativeTime } from "../lib/relativeTime";
 import { groupSessions, type SessionBucketKey } from "../lib/sessionBuckets";
-import { isSessionViewed, markSessionViewed, sessionStatusDotClass } from "../lib/sessionViewed";
+import {
+  getViewedSessionIds,
+  markSessionViewed,
+  sessionStatusDotClass,
+} from "../lib/sessionViewed";
 import { useT } from "../i18n/react";
 
 /**
@@ -134,6 +138,10 @@ export default function SessionsPage() {
   // a session, so it re-reads on the way back anyway (the sidebar needs the
   // live subscription; it never unmounts).
   const now = Date.now();
+  // Read once per render, not once per row: `isSessionViewed` re-parses the
+  // whole stored map, and this list holds up to a hundred rows on every live
+  // update.
+  const viewedIds = new Set(getViewedSessionIds());
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
@@ -180,6 +188,7 @@ export default function SessionsPage() {
                     key={row.key}
                     row={row}
                     now={now}
+                    viewedIds={viewedIds}
                     onOpen={() => {
                       if (!row.task) {
                         navigate(`/agent-sessions/${encodeURIComponent(row.session!.id)}`);
@@ -209,16 +218,19 @@ export default function SessionsPage() {
   );
 }
 
-type RowProps = { row: Row; now: number; onOpen: () => void };
+type RowProps = {
+  row: Row;
+  now: number;
+  viewedIds: ReadonlySet<string>;
+  onOpen: () => void;
+};
 
-function SessionRow({ row, now, onOpen }: RowProps) {
+function SessionRow({ row, now, viewedIds, onOpen }: RowProps) {
   const tr = useT();
   // The sidebar's dot, on the phone: green means a run finished and has not
   // been opened, blue means it is still going. Null (nothing drawn) is the
   // common case, so the list is not a field of dots.
-  const dot = row.task
-    ? sessionStatusDotClass(row.task.status, isSessionViewed(row.task.id))
-    : null;
+  const dot = row.task ? sessionStatusDotClass(row.task.status, viewedIds.has(row.task.id)) : null;
   return (
     <button
       type="button"
