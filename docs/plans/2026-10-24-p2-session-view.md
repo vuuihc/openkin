@@ -192,8 +192,20 @@ P1 留给 P2 的活，原话是「五个没名字的宽度在 11 个文件里还
 
 **连接键**：事件 `execution_id` + `execution_step` ↔ 行 `execution_id` + `step_index`
 （`applyExecutionMeta`，`orchestrate.go:1110`；表的 PK `(task_id, execution_id, step_index)`，
-`migrate.go:1928-1946`）。两边都已经打上，**不用新增字段**；`eventMeta.ts:161-171`
-那个没人用的 `readExecution` 正好是 UI 侧的解码入口。
+`migrate.go:1928-1946`）。两边都已经打上，**不用新增字段**；`eventMeta.ts` 那个没人用的
+`readExecution` 正好是 UI 侧的解码入口（S6 已导出）。
+
+**订正（S6 落地时发现）：这两个字段不是同一个数。** 原文把它写成等值连接，实际是
+**差 1**：`execution_step` 是 `si + 1`（`orchestrate.go:261`，给人看的步号），
+`step_index` 是 `si`（`orchestrate.go:542`，`plan.Steps` 的下标）。等值连接会让
+**每一条 worker 事件都落不到任何一行上**——面板不报错，只是空的。所以连接写成
+`step_index === execution_step - 1`，那个 1 是具名常量（`WORKER_STEP_OFFSET`）而不是
+裸的 `- 1`。
+
+同一个字段还兼着**第二个守卫**：**没有 `execution_step` 的事件不进面板**。host 自己的
+run 也有 `execution_id`（`engine.go:2279` 给 host 的 `ExecutionRef` 只有 `Agent`/`Model`/`ID`，
+**没有 `Step`**），所以「必须有步号」正是把 host 的工具调用挡在面板外面的那条规则——
+只按 `execution_id` 连接会把 host 跑过的命令记到某个 worker 头上。
 
 **三、所以 S6 是纯渲染**：面板读它**已经拿到**的事件，按 `execution_step` 归到计划行上。
 S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被后来的改动悄悄推翻：
@@ -303,10 +315,16 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
   并排编辑器里，正是卡片底部那句「权威差异在工作区」要防的错觉。工作区的
   `DiffEditor` 一行没动。
 
-### S6 — subagent 面板
+### S6 — subagent 面板（已落地，见 §8）
 
 接 S1b。`WorkerTimeline`（`TaskDetailPage.tsx:970`，`max-w-[760px]`）今天和聊天栏
 **不在同一把尺子上**，S7 的宽度阶梯要先落地。
+
+**落地时把这个次序解开了，且没有先做 S7。** 面板住在聊天栏**自己的滚动区里**，
+所以它不需要「一条自己的宽度」，它需要的是**已经有过名字的那一条**：
+`max-w-[760px]` → `max-w-conversation`（720）+ 聊天栏自己的 `px-4 sm:px-7`。
+760 本来也不在 §3.5 的四家族里——这是一处漏网的孤值。于是 S6 是**少一个字面量**
+而不是多一个家族，S7 也就不必当前置。
 
 ### S7 — 居中栏与宽度档位
 
@@ -438,6 +456,7 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 | 原位审批卡在窄屏比「兜底位置」窄 38px（320 vs 358） | 有意的：卡片留在 agent 那一列里（拆轮会多画一个头像），实测卡本身不溢出（320=320，按钮 70–358），只有 JSON 预览横向滚动（586>286）。两处宽度不同、两处都只画一次 |
 | 一轮**从没被回答**时（第一问只落了过程记录），第二问并进同一轮，证据卡于是画在第二问下面、报的是两问的合集 | 有意的（§6.2 的合并规则 + 其末的 S5 补记）：这是投影认定的「同一件工作」，拆成两张卡才是无中生有的边界。由「draws a round's card under the turn that answered it」钉住，并在夹具上定点截图确认过读起来不歧义 |
 | 文件动作的**归类**（写/改/删）此前没有测试，于是 `Edit` 一直被当成 `write` | **已修**（`aa40a38`）：`WRITE_TOOLS` 一个集合装着两个家族又被先判，`edit` 分支对集合里的每个名字都不可达——工作区列表、改动条、审查卡因此把每一次编辑都标成「写」（连颜色和排序权重一起错）。改成先判编辑家族，并补上分类表测试（把旧顺序放回去，全仓只有这一条测试变红）。**教训**：这是上一行那类缺口在纯函数层的版本——标签错了，而没有任何测试在问标签 |
+| 面板**长出了实时内容，位置却还在一段会自己滚到底的滚动区顶端** | S6 让面板开始显示「正在干什么」，而它和聊天共用一个 `overflow-y-auto` 容器，容器在有新事件时 `scrollToBottom`——于是任务跑起来的那一刻，最该看的那块正好在屏幕上方外面。**没有在本片顺手挪位置**：位置是 P1/P2 定下的（计划在读之前、在它所解释的消息之前），挪它要重新想「一轮的产出属于谁」，不该夹在 S6 里做。手机 dogfood 正是回答这个的地方，记在这里 |
 | 「提问事件落在哪一栏」这条渲染连线**没有测试** | 按 §6.1 没有 DOM 环境，抽不出纯函数（投影那一半有测试：锚点、seq、只画一次）。守卫就是 §6 的定点截图——这条 bug 正是它抓到的，所以不假装用单测盖住。**S5 同理**：证据卡的**位置规则**（`roundEvidenceByTurn`）现在有测试，但「卡片真的画出来了、画成了什么样」仍然只有截图 |
 | `TestRetiredRunCannotOverwriteRunningRetry` 偶发红（merge base 上 40 次红 3 次） | **已修**（`7bbc7d7`）：`persistRunEvent` 让事件写持着引擎锁，于是 `Cancel` 排在它后面；而假 run 的终局事件原本紧跟在被放行的写之后，run 自己的完成若先拿到锁，任务就已 `succeeded`，cancel 随即报「already terminal」。改成假 run 把终局事件**握在测试手里**，cancel 先落地成为构造性事实，终局事件改在 retry 已经在跑之后才到——这才是这个测试名字所指的危险。100 次全绿 |
 | `internal/adapter/droid` 的 `TestAdapterCancelAndProcessExit` 与 `internal/github` 的 `TestRunDoesNotWaitForAProcessThatOutlivesGH` 在全量跑时偶发红（单跑必绿） | **先于本片存在**，且都在 P2 从未碰过的包里（P2 的 diff 不含这两个包）：两条都是进程生命周期测试，对机器负载敏感（当时同时在跑别的构建）。记为**负载敏感的既有 flake**，不在本片修，也不当作本片的红 |
@@ -454,7 +473,7 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 | S1a 存储 | `d590e87` | `task_pending_prompts` 有序列（表，不是任务行上的列）：尾插头取、`ON DELETE CASCADE`、`model`/`permission_mode` 可空（「没说」≠「说清空」）、`user_seq` 指向那条可见消息。**没有写者**，引擎那一半在下一提交 | 10 条 store 测试（顺序、逐条出队、空队非错误、重启还在、按任务隔离、删任务带走队列、清队报数、空消息不收、未知任务不收）。两条定点 red：列改 `NOT NULL`（「没说」与「清空」塌成一种 → 插入即报错）、`ORDER BY id ASC` 改 `DESC`（先出队变成后出队）。空库/满库两条迁移路各一条测试 |
 | S1a 引擎 | `317d18a` | 非终态 ⇒ 入队 + **立刻**写 user-guide 事件（否则手机上发完什么都不显示）；轮末投递，adapter 路径与 orchestrated 路径各一处，取队首、`interrupted=false`（保留会话续跑，不谎报「上一轮被打断」）；`Recover` 投递重启时孤儿任务留下的队列；`Cancel` 清队并报告条数；打断变成显式 `interrupt: true` | 4 条新测试：排队**不碰**那三步（审批仍 pending、提问仍未答、任务状态不变）、多条按序逐轮投递、重启不丢、取消即清且有报错事件。四条都按「删掉机制看它变红」验过——red 1 的报错正是 `pending approvals = []`，也就是今天这条路上待批审批被拒光的实证。5 条旧测试改成显式打断（它们本来就是打断路径的测试） |
 | S1a API | `0236670` | `interrupt` 进 `FollowUpRequest`（含 openapi 说明）；新增 `GET /api/tasks/{id}/prompts` 回答「哪些看得见的消息还没被回答」。**additive**：任务读、任务列表、prompt 响应形状都没变 | 3 条 API 测试：等待中的消息可见且有序（含 `user_seq`）、404/401、`interrupt` 在**线上**的行为差异（不带 = 任务仍 running，带 = 重新排队）。red：json tag 改成 `interrupts` 后第三条报错。`scripts/check-openapi.sh` 通过，生成的 TS 类型随同一提交更新 |
-| S1b | `07a06a2` | **决定片，引擎零改动**：结论与依据见 §3.6。`visibility.user` = 「属于 host 聊天栏」；worker 事件保持 `{user:false, task:true}`；面板的活动来自已在流上的 worker 工具事件，计划结构来自 `worker-steps`，连接键 `execution_id`+`execution_step` | 两条守卫（都是补今天缺的那半）：① worker 的 message/tool_use/tool_result/raw_output **四种形状**都不得 `user:true`——Go 侧 1 条（4 个子用例）钉住盖章，console 侧 1 条钉住投影（`isUserFacingEvent` 被改成恒真即红）。② worker 叙述不得进入 host handoff，同时 orchestrator 的总结**必须**进得去（`summarizeEvent` 只认 message/error/result/raw_output，且跳过非 orchestrator 的 `visibility.user=false`）——Go 1 条，两条断言写在同一个测试里，好让「干脆全静音」这种修法也红。两条守卫都按删机制验红、按 sha256 逐字节还原 |
+| S1b | `07a06a2` | **决定片，引擎零改动**：结论与依据见 §3.6。`visibility.user` = 「属于 host 聊天栏」；worker 事件保持 `{user:false, task:true}`；面板的活动来自已在流上的 worker 工具事件，计划结构来自 `worker-steps`，连接键 `execution_id`+`execution_step`（**订正见 §3.6**：和 `step_index` 差 1，不是等值） | 两条守卫（都是补今天缺的那半）：① worker 的 message/tool_use/tool_result/raw_output **四种形状**都不得 `user:true`——Go 侧 1 条（4 个子用例）钉住盖章，console 侧 1 条钉住投影（`isUserFacingEvent` 被改成恒真即红）。② worker 叙述不得进入 host handoff，同时 orchestrator 的总结**必须**进得去（`summarizeEvent` 只认 message/error/result/raw_output，且跳过非 orchestrator 的 `visibility.user=false`）——Go 1 条，两条断言写在同一个测试里，好让「干脆全静音」这种修法也红。两条守卫都按删机制验红、按 sha256 逐字节还原 |
 | S1c | `0e9a09a` | 决定片 + 一条投影改动（**不渲染**）：`ToolStep`/`NoteStep` 带 `seq`，且锚在**打开它的那个事件**上（不是最后合并进来的那个——结果可能在打断之后、在另一轮里到达）；`groupIntoTurns` 吐 `fromSeq`/`toSeq`，**闭合在下一轮开始前一个事件**。消费单位是**一轮 = user turn + 紧随的 agent turn** | 表见 §6.2（结论：够用，不补 turn-diff store）。**6 条新测试** + **3 个机制删掉验红**（闭合那趟、步的 seq、不许结果挪步），全部按 sha256 逐字节还原。`npm run build` 后 `web/dist/index.html` 随源码同一提交。**两处订正**（复审时改）：① 原文「所以每个事件恰好属于一轮」**是错的**，`fromSeq`/`toSeq` 是切片不是划分，两条实测形状都不满足（adapter 回显产生第二个 user turn、partial message 不带 seq），真正的消费规则已落成 `roundsOf`，见 §6.2；② 新测试是 6 条不是 5 条 |
 | S1a 复审 | `4c21404` `d906ef3` | `@claude` 对抗复审（blocker/major/nit 分级）提了 5 major + 4 nit + 5 处测试缺口，逐条核过后**全部成立**，已修（`4c21404` 是其中的 schema 自愈）；另修了复审没提但被测试当场抓到的一处：把三个 reconcile 收进 `ensureCurrentSchema` 后才发现「已是最新版本」那条早退路径**根本没跑**任何 reconcile——也就是说 d590e87 写下的 v39 库永远不会被修 | 6 条新测试（读不了队列≠空队列、workspace 失败要报告且消息保留、retry 带走被删消息的队列、投递只答一次且锚在自己的消息上、打断锚在自己的消息上、waiting_input 的队列要活过重启）+ 2 条 store（队列表缺锚列自愈、`TasksWithPendingPrompts`）+ 2 条 API（空队答 `[]`、`user_seq` 恒在）。**8 个机制逐个删掉验红，全部按 sha256 逐字节还原**。`scripts/check-openapi.sh` 通过（`user_seq` 去掉 omitempty 不改 schema 的 required） |
 | S2a 控制台 | `dc9fee4` | `Composer` 运行中的语义翻转成**默认排队**：蓝键 = 发送（占位文案「本轮结束后回答」），旁边多一个橙键 = 打断并立即发送；`followUpPrompt` 只有显式意图才带 `interrupt: true`。toast 按实际发生的事说话（排队 / 打断），不再一律宣称「已打断」 | 3 条新测试钉住请求体：不带意图时**没有** `interrupt` 字段、带意图时才有、原有 model/permission 字段没被顺手改掉。red 两处（默认改成带 `interrupt`、意图分支失效），sha256 逐字节还原。这条同时修掉一个**比旧行为更糟的谎**：引擎默认翻成排队后，控制台从不发 `interrupt`，却仍在 toast 里说「已打断本轮」——用户以为停住的轮次其实还在跑 |
@@ -465,3 +484,4 @@ turn 下面，列出这一轮**通过文件工具**改的文件、行数增量�
 | S1a/S1c 复审修复 | `b4e4faa` `2d8cadf` `0e52508` `7bbc7d7` `3729d41` | 复审的 4 个 major + nits 逐条落地：① 打断的 user-guide 事件在「发布 pendingFollowUp 项」**之前**写下并带锚（原来中间那一瞬别人读到的是 0＝「还没人写」，投递于是把用户的话写了第二遍）；② **丢弃报告与丢弃同事务**（retry 的 rewind 与 cancel 各一处：`DiscardEvent` / `DiscardPendingPrompts`），调用方只 publish——进程死在中间也不能「消息没了而记录里什么都不说」；③ worker 可见性守卫改成驱动 `forwardWorkerEvents`（原来只钉住 `stampWorker`，转发器改坏了守卫照样绿）；④ 「一轮」的契约落成可执行的 `roundsOf`，见 §6.2；nit：投递失败要**点名**那条消息（引号、单行、48 字截断）、`deliverQueuedAfterRestart` 的措辞、`wasCanceled` 的注释收窄 | **11 个机制逐个删掉验红**（全部 sha256 逐字节还原）：retry 报告改到提交之后写、cancel 报告改到提交之后写、重放路径不报告、投递错误不带名字、`userSeq` 归零（当场报 `user copies = 2, want 1`）、守卫只驱动 stamper、把一轮当划分… 新增 5 条 Go + 5 条 UI 测试。**订正（P2 复审 N1）**：这两条「报告改到提交之后写」当时**没有复现**——测试钉的是「有报告」，不是「报告与删除同事务」，所以那一格当时是读 diff 得出的结论而不是验过的红；现在由 `TestAFailedDiscardReportLeavesTheQueueAlone` 与 `TestAFailedRetryDiscardReportTakesTheRetryBack` 钉住（`18618e0`）。**这一片没有 `web/dist` 提交是对的**：`roundsOf` 目前还没有消费者（S5 才用），被 tree-shake 掉了，`npm run build` 产物与已提交的 `index.html` 逐字节相同（入口仍是 `index-B59owEAr.js`）。另修掉一条**先于本片存在**的 flake（见 §7） |
 | P2 复审 nit 批 | `67bd94f` `028e3ea` `95d532a` `18618e0` | 第二轮 `@claude`（同档）复审 S1c/S4 区间：**0 blocker / 0 major / 7 nit**，逐条处置——**N5**（这一轮的工作以错误收场时那一轮不闭合，下一次提问于是并进来）正好落在 S5 要用的 `roundsOf` 上，改掉 + 3 条测试，§6.2 的规则描述与条数同步；**N6** 投递失败的前缀说了两遍（`err` 自己已经点名了那条消息）；**N3/N4** 两条注释引了代码里不存在的检查（`cancelTask` 是先解锁再调 store；`UpdateTask` 的谓词只有 id），换成真的那个理由；**N1** 两条「报告改到提交之后写」当时**没复现**，补两条失败注入测试把同事务钉住；**N2** §7 那行改成「只有两种结果」；**N7** 是已披露的「渲染连线没有测试」，无需动作（§7 有行） | **3 个新 UI 测试各自被一处不同的变异弄红**（删掉规则 / 不做前瞻 / 用「含 error」代替「停在 error 上」），逐字节还原；**2 个新 store 测试**用触发器中止 `error` 事件写，把删除提前提交即变红，逐字节还原；`go test ./internal/store/... ./internal/task/...` 全绿、`tsc --noEmit` 0、`vitest run` 58 文件 596 用例全绿；`npm run build` 后 `web/dist/index.html` **未变**（`roundsOf` 仍被 tree-shake，入口还是 `index-C7chGWCf.js`），所以这一批没有 `web/dist` 提交 |
 | S5 逐轮 diff 证据卡 | `31b52a0` `aa40a38` `636d01a` | 一轮干了什么，现在在聊天里就能看到：卡片画在**这一轮结束的那个 turn** 下面，列出本轮**通过文件工具**改的文件、+/− 行数，点开某个文件看改动本身（有界、超出报数），并能跳到工作区。两条纯库担全部规则——`diffPreview`（裁掉两端未变的行、两侧共有的行留作上下文、整块有上限）与 `roundEvidence`（按区间读一轮的切片；没有区间或没有文件工具改动 ⇒ `null` ⇒ 不画）。卡片底部**常驻**一行小字说明它只是文件工具的账、权威差异在工作区/PR；**有意不嵌 Monaco**（尽力还原 + 并排编辑器 = 看起来和真 diff 一样权威，正是那行小字要防的）。顺手结清：`ApprovalCard.previewLines` 这个从没人用过的槽**接上**（审批写/改文件时直接画改动，而不是画 JSON），`Transcript.tsx` 删除，工作区两份 `DeltaInline`/动作标签合成 `changedFileFace` | `vitest run` **60 文件 617 用例**全绿、`tsc --noEmit` 0、prettier 逐文件过；**6 处删机制验红**（卡片挂到提问而不是回答上；缺区间时读全流；把编辑判成写；不裁两端未变的行；预览不设上限；文件列表不设上限），全部 sha256 逐字节还原（三条被改的库各自 `shasum -c` 通过）。定点截图 430×932 与 1280×900 **逐张看过**（含展开的逐文件 diff、审批卡的改动预览）。**顺带抓到一个先于本片存在的真 bug**：`Edit` 一直被标成「写」（见 §7 与 `aa40a38`）。`web/dist/index.html` 随源码同一提交——`roundsOf` 终于有了消费者，入口 chunk 从 `index-C7chGWCf.js` 变成 `index-BlRFnNu6.js` |
+| S6 subagent 面板 | `4e324c1` `56d4ad6` | 每个 worker **正在干什么**，现在长在「它被要求做什么」下面：面板读它已经拿到的两份事实（计划表来自 `/workers` 轮询，工具调用来自同一条 SSE），按 `step_index === execution_step - 1` 归到行上；行的活动直接复用 host 进度框那张脸（`ToolStepRow` 从 `ChatStream` 原样抽出，两边同一个组件，展开就是输入/输出）。**只有还在跑的那一行默认展开**——面板的全部意义是回答「现在怎么了」，这件事不能藏在一次点击后面；已结束的行折成一行，所以跑完的计划还是原来那么高。**计划表里没有这一步时也画**（`unplanned`）：事件先到而轮询后到（首次轮询在 250ms 后），轮询失败则整轮都是空列表——这时候把有活动的步骤丢掉，等于在读者最需要它的时候把面板清空。顺手：`eventMeta.readExecution` 这个唯一解码入口导出 | `vitest run` **61 文件 630 用例**全绿、`tsc --noEmit` 0、`eslint .` 0 error、prettier 逐文件过；**5 处删机制验红**（步号偏移改成 0；不要求步号——host 事件于是并进来；丢掉无行的步骤；结果覆盖调用自己的 summary；上限改成留头部），全部 sha256 逐字节还原。定点截图 430×932 与 1280×900 **逐张看过**：live 行自动展开 + 「还有 1 次更早的调用未显示」、孤立步骤画成失败行、展开一次调用的输入/输出、host 进度框在抽取后仍正常（`HOSTONLYTOOL` 只出现在聊天栏、worker 的 7 次调用一次都没进去）。夹具（不进仓）加了第三个任务与 `/workers` |
