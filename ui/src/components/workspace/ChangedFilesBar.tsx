@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { summarizeChangedFiles, type ChangedFile } from "../../lib/changedFiles";
 import { useT } from "../../i18n/react";
+import DeltaInline from "../changedFileFace";
 import { IconCheck, IconChevron, IconX } from "../icons";
 
 type Props = {
@@ -296,18 +297,5 @@ export default function ChangedFilesBar({
         )}
       </div>
     </div>
-  );
-}
-
-function DeltaInline({ additions, deletions }: { additions: number; deletions: number }) {
-  if (additions === 0 && deletions === 0) {
-    return <span className="text-kin-muted">±0</span>;
-  }
-  return (
-    <span>
-      {additions > 0 && <span className="text-kin-green-ink">+{additions}</span>}
-      {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
-      {deletions > 0 && <span className="text-kin-red-ink">−{deletions}</span>}
-    </span>
   );
 }

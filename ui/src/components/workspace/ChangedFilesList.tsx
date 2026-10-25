@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { shortPath } from "../../lib/paths";
 import type { ChangedFile } from "../../lib/changedFiles";
 import { useT } from "../../i18n/react";
+import DeltaInline, { actionDotClass, actionLabelKey } from "../changedFileFace";
 import { IconFile } from "../icons";
 
 type Props = {
@@ -67,9 +68,10 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
                 ].join(" ")}
               >
                 <span
-                  className={["mt-1 w-1.5 h-1.5 rounded-full flex-none", actionDot(f.action)].join(
-                    " ",
-                  )}
+                  className={[
+                    "mt-1 w-1.5 h-1.5 rounded-full flex-none",
+                    actionDotClass(f.action),
+                  ].join(" ")}
                   aria-hidden
                 />
                 <IconFile size={13} className="mt-0.5 flex-none opacity-80" />
@@ -78,7 +80,7 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
                     {shortPath(f.path, 36)}
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5 text-micro uppercase tracking-label opacity-70">
-                    <span>{actionLabel(f.action, t)}</span>
+                    <span>{t(actionLabelKey(f.action))}</span>
                     {(f.additions != null || f.deletions != null) && (
                       <span className="normal-case tabular-nums tracking-normal">
                         <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
@@ -97,49 +99,4 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
 
 function normalizeKey(p: string): string {
   return p.trim().replace(/\\/g, "/").replace(/^\.\//, "");
-}
-
-function actionDot(action: ChangedFile["action"]): string {
-  // The fill tier, like every other status dot in the console: an `-ink` value
-  // is a *foreground* — dark in the light scheme, where a dot wants the
-  // status family's own pigment.
-  switch (action) {
-    case "write":
-      return "bg-kin-green";
-    case "edit":
-      return "bg-kin-blue";
-    case "delete":
-      return "bg-kin-red";
-    default:
-      return "bg-kin-muted";
-  }
-}
-
-function actionLabel(
-  action: ChangedFile["action"],
-  t: (path: string, params?: Record<string, string | number | null | undefined>) => string,
-): string {
-  switch (action) {
-    case "write":
-      return t("workspace.changed.write");
-    case "edit":
-      return t("workspace.changed.edit");
-    case "delete":
-      return t("workspace.changed.delete");
-    default:
-      return t("workspace.changed.other");
-  }
-}
-
-function DeltaInline({ additions, deletions }: { additions: number; deletions: number }) {
-  if (additions === 0 && deletions === 0) {
-    return <span className="text-kin-muted">±0</span>;
-  }
-  return (
-    <span>
-      {additions > 0 && <span className="text-kin-green-ink">+{additions}</span>}
-      {additions > 0 && deletions > 0 && <span className="text-kin-muted"> </span>}
-      {deletions > 0 && <span className="text-kin-red-ink">−{deletions}</span>}
-    </span>
-  );
 }
