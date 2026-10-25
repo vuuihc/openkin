@@ -55,6 +55,14 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           toggle(opt.label);
         }
       } else if (e.key === "Enter") {
+        // Enter belongs to whatever control the person is standing on. A button
+        // or a link activates on Enter, and this listener is on `window`, so
+        // `preventDefault` here would cancel that activation and answer the
+        // question instead. Reachable because a link can arm this card from
+        // `/inbox?focus=…`, where the page around it is full of buttons.
+        const ownsEnter =
+          t instanceof Element && t.closest("button, a[href], select, [role='button']") !== null;
+        if (ownsEnter) return;
         e.preventDefault();
         submit();
       }

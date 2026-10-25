@@ -8,6 +8,7 @@ import RunningTaskCard from "../components/cards/RunningTaskCard";
 import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
+import { inboxKeyAction } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
@@ -73,27 +74,32 @@ export default function ApprovalsPage() {
     el.scrollIntoView({ block: "center" });
   }, [hitId, loading, focus]);
 
-  // A deep link that named a question takes the cursor off the approvals: the
-  // ring has to mean one thing, and `a`/`d` have to act on the card they ring.
-  const approvalsKeyboardLive = focus.kind !== "question";
+  // A deep link that named a question parks the inbox's keyboard cursor: the
+  // ring has to mean one thing, and `a`/`d` act on the card they ring — so until
+  // someone moves the cursor themselves, nothing is ringed and `a`/`d` do
+  // nothing. `j`/`k` are navigation, not a decision, and they take it back.
+  const [cursorTakenOver, setCursorTakenOver] = useState(false);
+  const approvalsKeyboardLive = focus.kind !== "question" || cursorTakenOver;
+
+  // The ids this page decided or answered itself. A link that named one of them
+  // is spent, not stale, and the page should not answer the notification it just
+  // carried out with "that one is not waiting any more".
+  const handledHere = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      if (!items.length) return;
-      // Nothing is ringed while a question holds the focus, and approving the
-      // first approval instead would be the worst kind of surprise.
-      if (!approvalsKeyboardLive) return;
-      if (e.key === "j" || e.key === "J") setFocusIdx((i) => Math.min(items.length - 1, i + 1));
-      else if (e.key === "k" || e.key === "K") setFocusIdx((i) => Math.max(0, i - 1));
-      else if (e.key === "a" || e.key === "A") {
-        const a = items[focusIdx] ?? items[0];
-        if (a) void onDecide(a.id, "approved");
-      } else if (e.key === "d" || e.key === "D") {
-        const a = items[focusIdx] ?? items[0];
-        if (a) void onDecide(a.id, "denied");
+      const action = inboxKeyAction(e.key, items, {
+        focusIdx,
+        armed: approvalsKeyboardLive,
+      });
+      if (action.kind === "move") {
+        if (action.takesOver) setCursorTakenOver(true);
+        setFocusIdx(action.idx);
+      } else if (action.kind === "decide") {
+        void onDecide(action.id, action.decision);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -101,6 +107,7 @@ export default function ApprovalsPage() {
   }, [items, focusIdx, approvalsKeyboardLive]);
 
   async function onDecide(id: string, decision: PendingDecision) {
+    handledHere.current.add(id);
     setBusy((b) => ({ ...b, [id]: decision }));
     try {
       const updated = await decideApproval(id, decision);
@@ -122,6 +129,7 @@ export default function ApprovalsPage() {
   }
 
   async function onAnswer(id: string, body: { selected: string[]; other_text: string }) {
+    handledHere.current.add(id);
     setAnswerBusy((b) => ({ ...b, [id]: true }));
     try {
       const updated = await answerUserQuestion(id, body);
@@ -158,8 +166,9 @@ export default function ApprovalsPage() {
         </p>
 
         {/* The landing page explains a link that no longer names anything. Not
-            an error — a handled item is the normal end of a notification. */}
-        {!loading && !error && focus.kind === "missing" && (
+            an error — a handled item is the normal end of a notification, and
+            one this page handled itself is not worth explaining at all. */}
+        {!loading && !error && focus.kind === "missing" && !handledHere.current.has(focus.id) && (
           <div
             className="mt-4 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong leading-5 text-kin-secondary"
             data-testid="inbox-focus-missing"

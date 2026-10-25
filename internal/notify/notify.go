@@ -93,8 +93,8 @@ func (s *Sender) DeepLink(ctx context.Context, path string) string {
 // difference between "something needs you" and "this one needs you": the inbox
 // draws the card it names with a ring, scrolls to it, and says so when the id is
 // no longer there. An empty id falls back to the page itself — `?focus=` with
-// nothing after it is a link that claims to name an item and names nothing,
-// which the page can only report as "that item is gone".
+// nothing after it is a link that claims to name an item and names nothing, and
+// a plain inbox is the honest thing to send when there is no item to name.
 func (s *Sender) inboxFocusLink(ctx context.Context, id string) string {
 	if id == "" {
 		return s.DeepLink(ctx, "/inbox")
