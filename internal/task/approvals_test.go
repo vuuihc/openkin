@@ -1,6 +1,7 @@
 package task
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -563,4 +564,129 @@ func (a *capturingAdapter) Start(ctx context.Context, spec adapter.TaskSpec) (ad
 		}
 	}()
 	return &fakeHandle{ch: ch, cancelCh: make(chan struct{})}, nil
+}
+
+// gateAdapter's first Start hangs until the test opens the gate, then ends the
+// turn on its own. That is what lets a test end a turn at a chosen instant
+// rather than waiting for a cancel.
+type gateAdapter struct {
+	mu      sync.Mutex
+	starts  int
+	release chan struct{}
+}
+
+func (a *gateAdapter) Start(_ context.Context, _ adapter.TaskSpec) (adapter.RunHandle, error) {
+	a.mu.Lock()
+	a.starts++
+	n := a.starts
+	a.mu.Unlock()
+	ch := make(chan adapter.Event, 8)
+	h := &fakeHandle{ch: ch, cancelCh: make(chan struct{})}
+	go func() {
+		defer close(ch)
+		ch <- adapter.Event{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1","subtype":"init"}`)}
+		if n == 1 {
+			<-a.release
+		}
+		ch <- adapter.Event{Type: "message", Payload: json.RawMessage(`{"role":"assistant","content":[{"type":"text","text":"ok"}],"partial":false}`)}
+		ch <- adapter.Event{Type: "result", Payload: json.RawMessage(`{"cost_usd":0.01,"total_cost_usd":0.01,"tokens_in":10,"tokens_out":5,"is_error":false}`)}
+	}()
+	return h, nil
+}
+
+// heldGuideWriter holds the first user-guide write open, so the turn can end
+// while that write is still in flight -- the window in which the interrupt's two
+// halves used to be observable apart. Later writes pass straight through, which
+// is what makes the difference visible: a delivery that believes nobody wrote
+// the message yet writes a second copy.
+type heldGuideWriter struct {
+	inner   eventWriter
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *heldGuideWriter) AppendEvent(ctx context.Context, taskID, typ string, payload json.RawMessage) (store.Event, error) {
+	if typ == "message" && bytes.Contains(payload, []byte(`"source":"interrupt"`)) {
+		w.once.Do(func() {
+			close(w.entered)
+			<-w.release
+		})
+	}
+	return w.inner.AppendEvent(ctx, taskID, typ, payload)
+}
+
+func (w *heldGuideWriter) AppendUsageEvent(ctx context.Context, taskID, typ string, payload json.RawMessage, record store.UsageRecord) (store.Event, store.Task, error) {
+	return w.inner.AppendUsageEvent(ctx, taskID, typ, payload, record)
+}
+
+// A turn can end on its own while the interrupt is still writing the user's
+// message. The delivery then has to know the write happened, or it writes the
+// message again: two copies of one prompt in the transcript, and a checkpoint
+// anchored on whichever copy the delivery wrote rather than the one the user was
+// looking at.
+func TestInterruptDeliversOneCopyOfTheGuideWhenTheTurnEndsUnderIt(t *testing.T) {
+	ctx := context.Background()
+	gate := &gateAdapter{release: make(chan struct{})}
+	e, _ := testEngine(t, 4, gate)
+	writer := &heldGuideWriter{
+		inner:   e.eventWriter(),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	e.setEventWriter(writer)
+
+	t1, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusRunning, 2*time.Second)
+
+	interrupted := make(chan error, 1)
+	go func() {
+		_, err := e.FollowUpWith(ctx, t1.ID, FollowUpRequest{Prompt: "stop and do Y", Interrupt: true})
+		interrupted <- err
+	}()
+
+	<-writer.entered
+	// Both halves of an interrupt -- writing the user's message, and publishing
+	// the entry that carries its seq -- belong to one critical section, and a
+	// delivery reads that entry under the same lock. Getting in here while the
+	// write is open means a delivery can get in too, and the zero it would find
+	// means "nobody wrote it yet": the message gets written a second time beside
+	// the first. Finding no entry at all is no better -- the turn could end right
+	// here, and the guide would never be delivered.
+	if e.mu.TryLock() {
+		pf, held := e.pendingFollowUp[t1.ID]
+		e.mu.Unlock()
+		if held {
+			t.Fatalf("pending follow-up readable mid-write, userSeq=%d", pf.userSeq)
+		}
+		t.Fatal("no pending follow-up readable mid-write: a turn ending here drops the guide")
+	}
+	close(gate.release)   // the turn ends while the guide write is open
+	close(writer.release) // and the write finishes
+	if err := <-interrupted; err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, t1.ID, StatusSucceeded, 3*time.Second)
+
+	evs, err := e.Events(ctx, t1.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copies := 0
+	for _, ev := range evs {
+		if ev.Type != "message" {
+			continue
+		}
+		var m map[string]any
+		_ = json.Unmarshal(ev.Payload, &m)
+		if m["source"] == "interrupt" {
+			copies++
+		}
+	}
+	if copies != 1 {
+		t.Fatalf("user copies of the interrupt message = %d, want 1", copies)
+	}
 }

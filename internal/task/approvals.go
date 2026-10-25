@@ -621,24 +621,27 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 	h := e.handles[id]
 	group := e.handleGroups[id]
 	e.canceled[id] = true
-	e.pendingFollowUp[id] = pendingFollowUp{
-		req:         req,
-		fromAgent:   t.Agent,
-		interrupted: true,
-	}
-	e.mu.Unlock()
 
-	// Surface the user guide immediately so the chat is not locked waiting for process death.
-	userSeq := e.appendUserGuideEvent(ctx, id, t, req, true /*interrupted*/)
+	// Surface the user guide immediately so the chat is not locked waiting for
+	// process death -- and insert the entry carrying its seq in the same critical
+	// section, because the run loop and the orchestrated finisher read that entry
+	// under this lock and take the anchor from it. An entry they could see before
+	// the write returned would carry the zero that means "nobody wrote it yet",
+	// and the delivery would write the user's message a second time beside the
+	// first. The write is a store call under the engine lock, which is what the
+	// cancel path below already does.
+	//
 	// The anchor travels with the struct instead of being re-derived at delivery
 	// time. A message the user sends while this interrupt winds down is queued and
 	// writes a *newer* user event, so "the newest user message" stops meaning "the
 	// message being applied" -- and a turn anchored past its own prompt restores to
 	// the wrong point.
-	e.mu.Lock()
-	if pf, ok := e.pendingFollowUp[id]; ok {
-		pf.userSeq = userSeq
-		e.pendingFollowUp[id] = pf
+	userSeq := e.appendUserGuideEvent(ctx, id, t, req, true /*interrupted*/)
+	e.pendingFollowUp[id] = pendingFollowUp{
+		req:         req,
+		fromAgent:   t.Agent,
+		interrupted: true,
+		userSeq:     userSeq,
 	}
 	e.mu.Unlock()
 
@@ -908,7 +911,14 @@ func (e *Engine) appendUserGuideEvent(ctx context.Context, id string, t store.Ta
 		meta["source"] = "orchestrate"
 	}
 	evPayload, _ := json.Marshal(meta)
-	if ev, err := e.store.AppendEvent(ctx, id, "message", evPayload); err == nil {
+	// Through the engine's writer, not the store: one place writing events behind
+	// the writer's back is how a test (or a mirrored writer) ends up blind to a
+	// write it needs to see.
+	w := e.eventWriter()
+	if w == nil {
+		return 0
+	}
+	if ev, err := w.AppendEvent(ctx, id, "message", evPayload); err == nil {
 		e.bus.PublishEvent(ev)
 		return ev.Seq
 	}
