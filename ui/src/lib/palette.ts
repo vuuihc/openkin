@@ -52,6 +52,14 @@ export type PaletteEntry =
  * list. Availability is asked, not assumed: `availablePanels` is the same call
  * that decides whether the panel's own toggle is drawn, so the palette cannot
  * offer something the header refuses to.
+ *
+ * What the *shell* asks with is the shell's own context — no session in front —
+ * so in the running app the panel half of the list is the terminal and nothing
+ * else: `files` and `pr` need a session, `publish` needs one running elsewhere.
+ * Session panels are opened from the session's own header, which is where the
+ * view key that owns them is known; a palette row carries a `PanelId`, not the
+ * view to open it in, so offering one from here would open it in the shell's view
+ * where no session page is listening.
  */
 export function paletteEntries(ctx: PanelContext): PaletteEntry[] {
   const places: PaletteEntry[] = PLACES.map((p) => ({

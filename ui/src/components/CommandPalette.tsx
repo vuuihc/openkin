@@ -61,9 +61,11 @@ function highlight(text: string, q: string): ReactNode {
  * The Actions section is not written here. It is `paletteEntries(panelCtx)` — every
  * place the shell can go, then every panel this context offers — so a place or a
  * panel added to its table turns up in this list by existing, rather than by being
- * remembered. What stays local is what a table cannot hold: the copy (asked of the
- * locale by the key the table names), the icons (`placeIcons`), and the two
- * closures a row needs to actually go somewhere.
+ * remembered. The context is the shell's (no session in front), so the panel rows
+ * here are the shell's panels; a session's own are opened from its header, for the
+ * reason `paletteEntries` gives. What stays local is what a table cannot hold: the
+ * copy (asked of the locale by the key the table names), the icons (`placeIcons`),
+ * and the two closures a row needs to actually go somewhere.
  */
 export default function CommandPalette({
   open,

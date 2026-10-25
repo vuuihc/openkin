@@ -274,7 +274,13 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   // still rendered unconditionally on desktop and told whether to be open, even
   // though a closed panel is invisible: `TerminalPanel` mounts its PTY on first
   // open and keeps it, and unmounting on close would kill the shell.
-  const shellCtx: PanelContext = { taskId: null, remote: false, desktop };
+  //
+  // Memoised on `desktop` alone: a fresh object here would rebuild the command
+  // palette's row list on every render (the shell re-renders on each WS tick).
+  const shellCtx: PanelContext = useMemo(
+    () => ({ taskId: null, remote: false, desktop }),
+    [desktop],
+  );
   // Asked of the table rather than of `desktop` directly, so "where is there a
   // terminal" has one answer and the shortcut, the panel and the palette cannot
   // disagree about it.
@@ -362,6 +368,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   // ⌘N new chat · ⌘K command palette · Ctrl+Backquote toggle terminal · ⌘. zen
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // A held key is one press: `isTerminalToggle` already refuses repeats, and
+      // without this the two chords that toggle a surface (⌘K, ⌘.) strobe.
+      if (e.repeat) return;
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
         openNewChat();
@@ -370,7 +379,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+      // Not while the palette is up: it is a modal surface with its own key
+      // handling, and hiding the chrome behind it is a change nobody asked for.
+      if ((e.metaKey || e.ctrlKey) && e.key === "." && !paletteOpen) {
         e.preventDefault();
         setZen((v) => !v);
       }
@@ -382,7 +393,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [terminalAvailable, openNewChat, toggleTerminal]);
+  }, [terminalAvailable, openNewChat, toggleTerminal, paletteOpen]);
 
   // Which machine the open task runs on. Read from the task resource the page
   // itself uses, not from the sidebar list: that list is capped and filtered by
