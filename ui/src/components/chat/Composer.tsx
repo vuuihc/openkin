@@ -199,14 +199,17 @@ export default function Composer({
   async function submit(e?: FormEvent) {
     e?.preventDefault();
     const text = value.trim();
+    // Read and clear before anything can return: the intent belongs to the send that
+    // is happening now, and a refused send must not leave `interrupt` armed for the
+    // next one. The next one is usually a plain Enter, which carries no intent of its
+    // own -- it would cut the round short and, along with it, deny the approvals and
+    // answer the questions the round was waiting on, on the user's behalf.
+    const interrupt = submitIntent.current === "interrupt";
+    submitIntent.current = "queue";
     // Allow send while running: a running task queues the message and answers it
     // when the round ends. Only hard-disable when parent says so.
     // Sending is allowed with only attachments (no text), but never mid-upload.
     if ((!text && attachments.length === 0) || disabled || busy || stopping || uploading) return;
-    // Read and clear before the await: the intent belongs to the send that is
-    // happening now, and a later Enter must not inherit the interrupt.
-    const interrupt = submitIntent.current === "interrupt";
-    submitIntent.current = "queue";
     const payload = withAttachments(text);
     // Snapshot so a failed send can restore the composer + draft persistence.
     const prevValue = value;
@@ -597,7 +600,10 @@ export default function Composer({
                   onClick={() => {
                     submitIntent.current = "interrupt";
                   }}
-                  disabled={disabled || busy || stopping}
+                  // uploading is in here for the same reason as on the send button
+                  // above: a send that cannot happen yet must not be armable, or the
+                  // intent outlives the click that set it.
+                  disabled={disabled || busy || stopping || uploading}
                   className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg border border-kin-orange/40 bg-kin-orange/15 text-kin-orange-ink flex items-center justify-center disabled:opacity-40"
                   aria-label={tr("composer.interruptSend")}
                   title={tr("composer.interruptSend")}
