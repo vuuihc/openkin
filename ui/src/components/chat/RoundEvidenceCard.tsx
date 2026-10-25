@@ -112,7 +112,10 @@ export default function RoundEvidenceCard({
                     )}
                     {preview && preview.hidden > 0 && (
                       <p className="text-caption text-kin-muted">
-                        {tr("chat.diff.truncated", { count: preview.hidden })}
+                        {/* lines.length, not hidden: what is drawn above is what the
+                            caption is talking about. hidden is the count that did not
+                            fit, and the two differ by the whole preview. */}
+                        {tr("chat.diff.truncated", { count: preview.lines.length })}
                       </p>
                     )}
                     {onOpenPath && (

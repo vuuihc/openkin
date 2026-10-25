@@ -102,7 +102,10 @@ export default function ApprovalCard({
         {preview && <PreviewLines lines={preview.lines} className="mt-2.5" />}
         {preview && preview.hidden > 0 && (
           <p className="mt-1 text-caption text-kin-muted">
-            {tr("chat.diff.truncated", { count: preview.hidden })}
+            {/* The caption describes the box above it, so it counts what is drawn:
+                hidden is how many lines were cut, which for a 60-line diff capped at
+                24 would caption 24 lines as "the first 36". */}
+            {tr("chat.diff.truncated", { count: preview.lines.length })}
           </p>
         )}
 
