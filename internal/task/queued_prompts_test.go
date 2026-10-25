@@ -172,6 +172,8 @@ func TestCancelDiscardsQueuedPromptsAndSaysSo(t *testing.T) {
 	if _, err := e.FollowUp(ctx, task.ID, "never mind"); err != nil {
 		t.Fatal(err)
 	}
+	live := e.bus.Subscribe()
+	defer e.bus.Unsubscribe(live)
 
 	if _, err := e.Cancel(ctx, task.ID); err != nil {
 		t.Fatal(err)
@@ -187,7 +189,7 @@ func TestCancelDiscardsQueuedPromptsAndSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var told bool
+	var told, streamed bool
 	for _, ev := range evs {
 		if ev.Type == "error" && strings.Contains(string(ev.Payload), "queued prompt") {
 			told = true
@@ -195,6 +197,20 @@ func TestCancelDiscardsQueuedPromptsAndSaysSo(t *testing.T) {
 	}
 	if !told {
 		t.Fatal("the discarded prompts were not reported in the transcript")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !streamed && time.Now().Before(deadline) {
+		select {
+		case msg := <-live:
+			ev, ok := msg.Data.(store.Event)
+			if ok && ev.Type == "error" && strings.Contains(string(ev.Payload), "queued prompt") {
+				streamed = true
+			}
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if !streamed {
+		t.Fatal("the reported drop was written to the transcript but never sent to a watching console")
 	}
 }
 
@@ -291,6 +307,95 @@ func TestAQueueThatCannotBeReadIsReportedNotTreatedAsEmpty(t *testing.T) {
 	}
 }
 
+// The label is one line and one line only: a pasted stack trace must not turn the
+// error into a wall of text in the chat, and a message with no words left after
+// trimming still has to be named as something.
+func TestAQueuedMessageIsNamedInOneLine(t *testing.T) {
+	label := func(prompt string) string {
+		return queuedPromptLabel(store.PendingPrompt{Prompt: prompt})
+	}
+
+	if got := label("  and the docs too\n"); got != `"and the docs too"` {
+		t.Fatalf("label = %s", got)
+	}
+	if got := label("line one\nline two"); got != `"line one line two"` {
+		t.Fatalf("label = %s", got)
+	}
+	long := strings.Repeat("x", 60)
+	if got := label(long); got != `"`+strings.Repeat("x", 48)+`…"` {
+		t.Fatalf("label = %s", got)
+	}
+	if got := label("   "); !strings.Contains(got, "no text") {
+		t.Fatalf("a message with no words was named %s", got)
+	}
+}
+
+// A delivery failure names the message it lost. Several can be waiting at once and
+// "a queued prompt" does not tell the user which one to write again -- the message
+// is gone from the queue by then, so the report is all they have to go on.
+func TestAFailedDeliveryNamesTheMessageItLost(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{
+		events: []adapter.Event{
+			{Type: "task_started", Payload: json.RawMessage(`{"session_id":"s1"}`)},
+		},
+		runFor: 400 * time.Millisecond,
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{
+		"claude-code": ad, "kin": ad,
+	}, NewBus(), 4)
+	t.Cleanup(e.Close)
+	if err := e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	// A hand-off, accepted while the task is busy: the message is queued, and the
+	// boundary that hands it over is the one that fails.
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{
+		Prompt: "send it to the other one", Agent: "kin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The write the hand-off needs is the one that fails. Dropping a table is the
+	// cheapest way to fail a store write the way a busy or closed database does;
+	// what matters here is that the failure happens after the message was taken
+	// off the queue, which is why the report is the only trace of it left.
+	if _, err := st.DB().ExecContext(ctx, `DROP TABLE task_agent_sessions`); err != nil {
+		t.Fatal(err)
+	}
+
+	// The report is what is left of the message: it came off the queue before the
+	// hand-off failed, so nothing else in the system knows it existed.
+	var told string
+	deadline := time.Now().Add(5 * time.Second)
+	for told == "" && time.Now().Before(deadline) {
+		evs, err := e.Events(ctx, task.ID, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ev := range evs {
+			if ev.Type == "error" && strings.Contains(string(ev.Payload), "could not be delivered") {
+				told = string(ev.Payload)
+			}
+		}
+		if told == "" {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	if !strings.Contains(told, "send it to the other one") {
+		t.Fatalf("the failed delivery does not say which message was lost: %s", told)
+	}
+}
+
 // A run that ends with the workspace unmerged delivers nothing, and says so: the
 // messages stay queued for whatever the user does next (a prompt, a retry), but
 // nothing should look like it is still on its way.
@@ -379,6 +484,11 @@ func TestRetryDropsQueuedPromptsWhoseMessageItDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A console watching this task is told, not left to notice on its next fetch
+	// that a sequence number went by without a message.
+	live := e.bus.Subscribe()
+	defer e.bus.Unsubscribe(live)
+
 	// Retrying from the first turn deletes that message along with everything after it.
 	firstSeq := firstUserSeq(t, st, task.ID)
 	if _, err := e.Retry(ctx, task.ID, RetryRequest{FromSeq: firstSeq}); err != nil {
@@ -392,7 +502,7 @@ func TestRetryDropsQueuedPromptsWhoseMessageItDeleted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var told bool
+	var told, streamed bool
 	for _, ev := range evs {
 		if ev.Type == "error" && strings.Contains(string(ev.Payload), "queued prompt(s) discarded") {
 			told = true
@@ -400,6 +510,104 @@ func TestRetryDropsQueuedPromptsWhoseMessageItDeleted(t *testing.T) {
 	}
 	if !told {
 		t.Fatal("the retry dropped a queued message without saying so")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !streamed && time.Now().Before(deadline) {
+		select {
+		case msg := <-live:
+			ev, ok := msg.Data.(store.Event)
+			if ok && ev.Type == "error" &&
+				strings.Contains(string(ev.Payload), "queued prompt(s) discarded") {
+				streamed = true
+			}
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	if !streamed {
+		t.Fatal("the reported drop was written to the transcript but never sent to a watching console")
+	}
+}
+
+// The retry's report that it dropped a queued message is written with the drop, in
+// the same transaction. Writing it afterwards leaves a window where the process can
+// die having taken the user's message and said nothing about it -- and the window is
+// unclosable from outside, because the count of what was dropped exists only inside
+// that transaction. A restart cannot reconstruct it; it can only find it, which is
+// what this test does.
+func TestTheRetryDiscardReportSurvivesAProcessThatDiesBeforePublishingIt(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+
+	task := store.Task{
+		ID: "01RETRYDISCARDREPORT0001", Title: "retry", Agent: "kin",
+		Cwd: t.TempDir(), Prompt: "first turn", Status: StatusFailed,
+		CreatedAt: store.NowMilli(),
+	}
+	if err := st.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	first, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"first turn"}],"speaker":"user"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The state a failed finalization leaves behind: a message that was accepted,
+	// written to the transcript, and never answered -- so it is still queued.
+	payload, _ := json.Marshal(map[string]any{
+		"role": "user", "content": []map[string]string{{"type": "text", "text": "never answered"}},
+		"partial": false, "agent": "user", "speaker": "user", "source": "follow_up",
+	})
+	queued, err := st.AppendEvent(ctx, task.ID, "message", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "never answered", UserSeq: queued.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	intent := store.RetryRestoreIntent{
+		TaskID: task.ID, FromSeq: first.Seq, Prompt: "after",
+		UserPayload: json.RawMessage(`{"role":"user","content":[{"type":"text","text":"after"}]}`),
+	}
+	if err := st.BeginRetryRestore(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CompleteRetryRestore(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	// The process dies here: the retry committed, and nothing has published it.
+
+	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 0 {
+		t.Fatalf("queue after the retry = %+v (err %v), want it cleared", left, err)
+	}
+
+	// A new process comes up on the same database and replays the retry.
+	ad := &fakeAdapter{events: successEvents()}
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"kin": ad}, NewBus(), 1)
+	defer e.Close()
+	if err := e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 3*time.Second)
+
+	evs, err := st.ListEvents(ctx, task.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var told bool
+	for _, ev := range evs {
+		if ev.Type == "error" && strings.Contains(string(ev.Payload), "queued prompt(s) discarded") {
+			told = true
+		}
+	}
+	if !told {
+		t.Fatal("the transcript lost the message and the record of why, across the restart")
 	}
 }
 

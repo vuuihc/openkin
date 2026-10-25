@@ -1735,15 +1735,11 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 
 	// Queued prompts go with the task they were queued for. Cancel means stop, and
 	// a queue that outlived it would answer messages the user just walked away
-	// from -- the count is reported so the drop is not silent.
-	if n, err := e.store.ClearPendingPrompts(ctx, id); err == nil && n > 0 {
-		payload, _ := json.Marshal(map[string]any{
-			"message": fmt.Sprintf("%d queued prompt(s) discarded with the canceled task", n),
-			"count":   n,
-		})
-		if ev, appendErr := e.store.AppendEvent(ctx, id, "error", payload); appendErr == nil {
-			e.bus.PublishEvent(ev)
-		}
+	// from. The report of the drop is written with it, in the store's transaction,
+	// so a process that dies in between cannot take the messages and leave the
+	// transcript saying nothing about where they went; this only publishes it.
+	if report, err := e.store.DiscardPendingPrompts(ctx, id); err == nil && report != nil {
+		e.bus.PublishEvent(*report)
 	}
 
 	// Deny any pending approvals so MCP waiters unblock.
@@ -2623,17 +2619,17 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	// to finalize -- the same reason an interrupted follow-up is skipped -- because
 	// the task is about to finish and the message should not be handed to an agent
 	// whose files are mid-flight.
-	// wasCanceled is checked here as well as below: a cancel that lands between the
-	// pop and the apply would otherwise re-queue a task the user just stopped, after
-	// telling them the queued prompts went with it.
+	// wasCanceled is the cancel that was already recorded when this turn exited, so a
+	// task the user stopped does not hand its queued message to a new run on its way
+	// out. A cancel that lands after this read is a different race, and this flag is
+	// not what keeps that one honest: the cancel clears the queue and both writers
+	// carry a status predicate, so the store decides which of them wins.
 	if workspaceErr == nil && !wasCanceled {
 		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
 			// err before ok: a failed attempt is not an empty queue, and treating it
 			// as one is how a message the user can see stops being delivered without
 			// anything saying so.
-			payload, _ := json.Marshal(map[string]string{
-				"message": "queued prompt could not be delivered: " + err.Error(),
-			})
+			payload, _ := json.Marshal(map[string]string{"message": err.Error()})
 			if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
 				e.bus.PublishEvent(ev)
 			}

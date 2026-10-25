@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -231,15 +232,34 @@ func TestClearingAQueueReportsWhatItDiscarded(t *testing.T) {
 		}
 	}
 
-	n, err := s.ClearPendingPrompts(ctx, "task-clear")
+	report, err := s.DiscardPendingPrompts(ctx, "task-clear")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
-		t.Fatalf("cleared %d messages, want 2", n)
+	if report == nil {
+		t.Fatal("two messages were dropped without a report")
 	}
-	if n, err = s.ClearPendingPrompts(ctx, "task-clear"); err != nil || n != 0 {
-		t.Fatalf("second clear = (%d, %v), want (0, nil)", n, err)
+	if report.Seq != 1 || report.Type != "error" {
+		t.Fatalf("discard report = %+v, want the first event of the task", report)
+	}
+	events, err := s.ListEvents(ctx, "task-clear", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Seq != report.Seq {
+		t.Fatalf("the report is not in the transcript: %+v", events)
+	}
+	var payload struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(report.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Count != 2 {
+		t.Fatalf("cleared %d messages, want 2", payload.Count)
+	}
+	if second, err := s.DiscardPendingPrompts(ctx, "task-clear"); err != nil || second != nil {
+		t.Fatalf("second clear = (%+v, %v), want (nil, nil)", second, err)
 	}
 }
 
@@ -253,8 +273,8 @@ func TestAnEmptyMessageIsNotQueued(t *testing.T) {
 	if _, err := s.AppendPendingPrompt(ctx, PendingPrompt{Prompt: "no task"}); err == nil {
 		t.Fatal("a message with no task was queued")
 	}
-	if n, err := s.ClearPendingPrompts(ctx, "task-blank"); err != nil || n != 0 {
-		t.Fatalf("rejected messages left rows behind: %d, %v", n, err)
+	if report, err := s.DiscardPendingPrompts(ctx, "task-blank"); err != nil || report != nil {
+		t.Fatalf("rejected messages left rows behind: %+v, %v", report, err)
 	}
 }
 

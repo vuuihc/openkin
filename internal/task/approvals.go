@@ -517,23 +517,49 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 // case ok is false too and means nothing about whether a message was waiting.
 //
 // The message is taken off the queue before it is applied, so a failure here
-// means the prompt is gone from the queue and the caller owes the user an
-// error event naming it: it was visible in the chat, and it will not be
-// answered by anything else.
+// means the prompt is gone from the queue and the caller owes the user an error
+// event: it was visible in the chat, and nothing else will answer it. The error
+// returned names the message, because a phone sends several and "a queued
+// prompt" does not say which one to write again.
 func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string) (store.Task, bool, error) {
 	p, ok, err := e.store.PopPendingPrompt(ctx, id)
-	if err != nil || !ok {
-		return store.Task{}, false, err
+	if err != nil {
+		// The queue itself could not be read, so there is no row to name -- but a
+		// message the user can see went unanswered, and that is what has to be said.
+		return store.Task{}, false, fmt.Errorf("a queued message could not be delivered: %w", err)
+	}
+	if !ok {
+		return store.Task{}, false, nil
+	}
+	failed := func(cause error) error {
+		return fmt.Errorf("the queued message %s could not be delivered: %w", queuedPromptLabel(p), cause)
 	}
 	t, err := e.store.GetTask(ctx, id)
 	if err != nil {
-		return store.Task{}, true, err
+		return store.Task{}, true, failed(err)
 	}
 	// interrupted=false on purpose: this message did not cut anything short, and
 	// telling the agent that its previous turn was interrupted by the user would
 	// make it re-read context it does not need and drop the session it can resume.
 	t2, err := e.applyFollowUpPrepared(ctx, id, t, followUpRequestFrom(p), false /*interrupted*/, p.UserSeq)
-	return t2, true, err
+	if err != nil {
+		return t2, true, failed(err)
+	}
+	return t2, true, nil
+}
+
+// queuedPromptLabel quotes a queued message for an error a user reads. One line,
+// cut short: the whole message can be a pasted stack trace, and the error only has
+// to say which one it was.
+func queuedPromptLabel(p store.PendingPrompt) string {
+	text := strings.Join(strings.Fields(p.Prompt), " ")
+	if text == "" {
+		return "(a message with no text)"
+	}
+	if runes := []rune(text); len(runes) > 48 {
+		text = string(runes[:48]) + "…"
+	}
+	return fmt.Sprintf("%q", text)
 }
 
 // deliverQueuedAfterRestart delivers the oldest prompt a task had waiting when
@@ -546,7 +572,7 @@ func (e *Engine) deliverQueuedAfterRestart(ctx context.Context, id string) {
 	// reporting it as one leaves the message with no deliverer and no trace.
 	if err != nil {
 		payload, _ := json.Marshal(map[string]string{
-			"message": "queued prompt could not be delivered after the restart: " + err.Error(),
+			"message": "after the restart, " + err.Error(),
 		})
 		if ev, appendErr := e.store.AppendEvent(ctx, id, "error", payload); appendErr == nil {
 			e.bus.PublishEvent(ev)
@@ -1123,18 +1149,12 @@ func (e *Engine) publishCompletedRetry(
 	e.bus.PublishEvent(result.UserEvent)
 
 	// A queued message whose own user event this retry deleted cannot be delivered:
-	// there would be nothing in the transcript for the agent to answer. Reported
-	// after the rewind so it lands in the transcript the user is looking at.
-	if result.ClearedQueuedPrompts > 0 {
-		payload, _ := json.Marshal(map[string]any{
-			"message": fmt.Sprintf(
-				"%d queued prompt(s) discarded: retrying from this turn removed the message they were waiting on",
-				result.ClearedQueuedPrompts),
-			"count": result.ClearedQueuedPrompts,
-		})
-		if ev, err := e.store.AppendEvent(resumeCtx, t.ID, "error", payload); err == nil {
-			e.bus.PublishEvent(ev)
-		}
+	// there would be nothing in the transcript for the agent to answer. The report
+	// came out of the retry's own transaction, so it is published rather than
+	// written -- the row is already there, on every path that reaches this point,
+	// including the one that replays a retry the process died in the middle of.
+	if result.DiscardEvent != nil {
+		e.bus.PublishEvent(*result.DiscardEvent)
 	}
 
 	if captureFiles {

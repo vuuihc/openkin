@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -173,18 +174,48 @@ func (s *Store) PopPendingPrompt(ctx context.Context, taskID string) (PendingPro
 	return p, true, nil
 }
 
-// ClearPendingPrompts drops a task's whole queue and reports how many messages
-// were discarded, so a caller can say so instead of dropping them silently.
-func (s *Store) ClearPendingPrompts(ctx context.Context, taskID string) (int, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM task_pending_prompts WHERE task_id = ?`, taskID)
+// DiscardPendingPrompts drops a task's whole queue and writes the transcript report
+// that says how many messages went with it, returning the event for the caller to
+// publish. Nil means the queue was empty.
+//
+// The delete and the report are one transaction, and the count is why: nobody
+// outside this transaction ever learns how many messages were dropped, so a report
+// written afterwards is one the process can die before making -- leaving a user whose
+// messages are gone with nothing that says so. The retry that rewinds a transcript
+// writes its own discard report the same way, for the same reason.
+func (s *Store) DiscardPendingPrompts(ctx context.Context, taskID string) (*Event, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("clear pending prompts: %w", err)
+		return nil, fmt.Errorf("discard pending prompts: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM task_pending_prompts WHERE task_id = ?`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("clear pending prompts: %w", err)
 	}
 	changed, err := res.RowsAffected()
 	if err != nil {
-		return 0, fmt.Errorf("clear pending prompts count: %w", err)
+		return nil, fmt.Errorf("clear pending prompts count: %w", err)
 	}
-	return int(changed), nil
+	if changed == 0 {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("discard pending prompts: %w", err)
+		}
+		return nil, nil
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"message": fmt.Sprintf("%d queued prompt(s) discarded with the canceled task", changed),
+		"count":   int(changed),
+	})
+	ev, err := appendEventTx(ctx, tx, taskID, "error", payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("discard pending prompts: %w", err)
+	}
+	return &ev, nil
 }
 
 func nullableStringPtr(v sql.NullString) *string {

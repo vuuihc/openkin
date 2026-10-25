@@ -27,9 +27,15 @@ type RetryMutationResult struct {
 	Task           Task
 	UserEvent      Event
 	WorkspaceEvent *Event
-	// ClearedQueuedPrompts counts queued prompts dropped because this retry deleted
-	// the user message they were anchored to.
-	ClearedQueuedPrompts int
+	// DiscardEvent is the report that queued prompts were dropped because this
+	// retry deleted the user message they were anchored to, written in the same
+	// transaction as the drop. Nil when nothing was dropped.
+	//
+	// It is written here, and not by the caller after the commit, because the
+	// count exists only inside this transaction: a report written afterwards is
+	// one the process can die before making, and the user then finds a message
+	// they sent gone with nothing in the transcript to explain it.
+	DiscardEvent *Event
 }
 
 // RetryRestoreIntent is the write-ahead record and durable resume marker for a retry.
@@ -499,9 +505,23 @@ func applyRetryMutationTx(
 		TaskID: m.TaskID, EventEpoch: task.EventEpoch, Seq: seq,
 		TS: now, Type: "message", Payload: m.UserPayload,
 	}
+	var discardEvent *Event
+	if clearedQueued > 0 {
+		note, _ := json.Marshal(map[string]any{
+			"message": fmt.Sprintf(
+				"%d queued prompt(s) discarded: retrying from this turn removed the message they were waiting on",
+				clearedQueued),
+			"count": int(clearedQueued),
+		})
+		ev, err := appendEventTx(ctx, tx, m.TaskID, "error", note)
+		if err != nil {
+			return RetryMutationResult{}, err
+		}
+		discardEvent = &ev
+	}
 	return RetryMutationResult{
 		Task: task, UserEvent: userEvent, WorkspaceEvent: workspaceEvent,
-		ClearedQueuedPrompts: int(clearedQueued),
+		DiscardEvent: discardEvent,
 	}, nil
 }
 
