@@ -63,3 +63,32 @@ export default function DeltaInline({
     </span>
   );
 }
+
+/**
+ * One file's size, or the fact that nobody knows it.
+ *
+ * The third face of the same contract as `DeltaInline`: a count that never
+ * arrived is absent, and absent has to be *said*, not drawn as blank. Both
+ * counts missing is the bodyless delete and anything else whose payload only
+ * named a path; "size unknown" is what the round card has always printed there,
+ * and the workspace bar printing nothing instead is how one file read as two
+ * different things depending on where it was looked at.
+ *
+ * `t` is passed in rather than read here so this stays usable from the places
+ * that already hold a translator.
+ */
+export function FileSize({
+  additions,
+  deletions,
+  label,
+}: {
+  additions?: number | null;
+  deletions?: number | null;
+  /** The translated "size unknown" text. */
+  label: string;
+}) {
+  if (additions == null && deletions == null) {
+    return <span className="text-kin-muted">{label}</span>;
+  }
+  return <DeltaInline additions={additions ?? 0} deletions={deletions ?? 0} />;
+}

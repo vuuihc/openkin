@@ -2,7 +2,7 @@ import { useState } from "react";
 import { shortPath } from "../../lib/paths";
 import { evidenceFilePreview, type RoundEvidence } from "../../lib/roundEvidence";
 import { useT } from "../../i18n/react";
-import DeltaInline, { actionDotClass, actionLabelKey } from "../changedFileFace";
+import DeltaInline, { FileSize, actionDotClass, actionLabelKey } from "../changedFileFace";
 import PreviewLines from "../PreviewLines";
 import { IconChevron, IconFile } from "../icons";
 
@@ -65,7 +65,6 @@ export default function RoundEvidenceCard({
             // Read on demand: one file's payload is rebuilt when it is opened,
             // not six when the card is drawn.
             const preview = expanded ? evidenceFilePreview(evidence, file.path) : null;
-            const known = file.additions != null || file.deletions != null;
             return (
               <div key={`${file.action}:${file.path}`}>
                 <button
@@ -86,14 +85,11 @@ export default function RoundEvidenceCard({
                     {tr(actionLabelKey(file.action))}
                   </span>
                   <span className="flex-none text-caption tabular-nums">
-                    {known ? (
-                      <DeltaInline
-                        additions={file.additions ?? 0}
-                        deletions={file.deletions ?? 0}
-                      />
-                    ) : (
-                      <span className="text-kin-muted">{tr("workspace.changed.noLineDelta")}</span>
-                    )}
+                    <FileSize
+                      additions={file.additions}
+                      deletions={file.deletions}
+                      label={tr("workspace.changed.noLineDelta")}
+                    />
                   </span>
                   <IconChevron
                     size={12}
