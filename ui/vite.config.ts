@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
@@ -28,5 +29,13 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, "../web/dist"),
     emptyOutDir: true,
+  },
+  test: {
+    // The environment stays node. Most of this suite is pure logic — reducers,
+    // formatters, the keyboard state machine — and runs in milliseconds there.
+    // A test that needs a document asks for one itself, with a
+    // `// @vitest-environment jsdom` docblock at the top of the file, so the
+    // cost of a DOM is paid by the files that use it and by no others.
+    setupFiles: ["src/test/setup.ts"],
   },
 });
