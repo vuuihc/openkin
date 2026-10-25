@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nextSettingsTabId,
+  offscreenEdges,
   settingsTabFromSearch,
   type SettingsTabItem,
 } from "./SettingsPrimitives";
@@ -38,5 +39,32 @@ describe("settingsTabFromSearch", () => {
   it("opens Remote for Cloudflare and Relay callback params", () => {
     expect(settingsTabFromSearch("?cloudflare=connected")).toBe("remote");
     expect(settingsTabFromSearch("?relay=connected")).toBe("remote");
+  });
+});
+
+describe("offscreenEdges", () => {
+  it("fades nothing when every tab fits", () => {
+    expect(offscreenEdges(0, 700, 700)).toEqual({ start: false, end: false });
+  });
+
+  it("fades only the far edge at the start of an overflowing strip", () => {
+    // The state the settings page opens in: seven tabs, the selected one can be
+    // half-cut at the right, and nothing says there is more.
+    expect(offscreenEdges(0, 358, 451)).toEqual({ start: false, end: true });
+  });
+
+  it("fades both edges in the middle", () => {
+    expect(offscreenEdges(50, 358, 451)).toEqual({ start: true, end: true });
+  });
+
+  it("fades only the near edge at the end", () => {
+    expect(offscreenEdges(93, 358, 451)).toEqual({ start: true, end: false });
+  });
+
+  it("tolerates fractional scroll positions", () => {
+    // A trackpad or a zoomed page reports positions like 0.5 and 92.9999, which
+    // would otherwise leave a fade showing at an edge with nothing behind it.
+    expect(offscreenEdges(0.5, 358, 451)).toEqual({ start: false, end: true });
+    expect(offscreenEdges(92.7, 358, 451)).toEqual({ start: true, end: false });
   });
 });

@@ -1,4 +1,11 @@
-import { type ButtonHTMLAttributes, type KeyboardEvent, type ReactNode, useRef } from "react";
+import {
+  type ButtonHTMLAttributes,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 export type SettingsTabId =
   "general" | "agents" | "providers" | "routing" | "remote" | "notifications" | "advanced";
@@ -30,6 +37,27 @@ export function nextSettingsTabId(
   const direction = key === "ArrowRight" || key === "ArrowDown" ? 1 : -1;
   const next = (current + direction + tabs.length) % tabs.length;
   return tabs[next]?.id ?? activeId;
+}
+
+/**
+ * Which ends of a horizontally scrolling strip have something off-screen.
+ *
+ * The tab strip at a phone width holds about five of its seven tabs, and iOS
+ * draws no persistent scrollbar, so "there is a seventh tab" had no way of being
+ * visible — the selected tab could sit half-cut at the edge and read as the last
+ * one. The strip fades at whichever edge still has tabs behind it, and this is
+ * the whole of the decision, kept as a function so it can be tested without a
+ * layout engine. The 1px slack is for fractional scroll positions.
+ */
+export function offscreenEdges(
+  scrollLeft: number,
+  clientWidth: number,
+  scrollWidth: number,
+): { start: boolean; end: boolean } {
+  return {
+    start: scrollLeft > 1,
+    end: scrollLeft + clientWidth < scrollWidth - 1,
+  };
 }
 
 export function settingsTabFromSearch(search: string): SettingsTabId {
@@ -66,6 +94,37 @@ export function SettingsLayout({
   children: ReactNode;
 }) {
   const tabRefs = useRef<Partial<Record<SettingsTabId, HTMLButtonElement | null>>>({});
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+
+  // Measured, not assumed from a tab count: whether the strip overflows depends
+  // on the labels, the language and the width, and the answer changes when any
+  // of them does. ResizeObserver covers the window and the font both.
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const measure = () => {
+      const next = offscreenEdges(el.scrollLeft, el.clientWidth, el.scrollWidth);
+      setEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, []);
+
+  // A tab can become active without anyone clicking it: the phone block jumps
+  // to Remote or Notifications, and `?tab=` opens one directly. At a phone width
+  // that tab may be scrolled out of the strip, which then shows no selected tab
+  // at all. `nearest` moves the strip only when it has to, so a tab that is
+  // already visible stays exactly where it is.
+  useEffect(() => {
+    tabRefs.current[activeTab]?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [activeTab]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const next = nextSettingsTabId(tabs, activeTab, event.key);
@@ -88,8 +147,11 @@ export function SettingsLayout({
         <div
           role="tablist"
           aria-label={title}
+          ref={stripRef}
+          data-more-start={edges.start ? "true" : "false"}
+          data-more-end={edges.end ? "true" : "false"}
           onKeyDown={onKeyDown}
-          className="flex max-w-full gap-2 overflow-x-auto rounded-xl bg-kin-elevated/50 p-1 kin-scroll"
+          className="kin-tabs-fade flex max-w-full gap-2 overflow-x-auto rounded-xl bg-kin-elevated/50 p-1 kin-scroll"
         >
           {tabs.map((tab) => {
             const selected = tab.id === activeTab;
@@ -108,7 +170,9 @@ export function SettingsLayout({
                 title={tab.description}
                 onClick={() => onTabChange(tab.id)}
                 className={classes(
-                  "min-h-11 shrink-0 rounded-lg px-3 text-strong font-medium outline-none transition sm:min-h-10",
+                  // `scroll-margin-inline` keeps the fade (see `.kin-tabs-fade`)
+                  // from landing on top of the tab the strip just scrolled to.
+                  "min-h-11 shrink-0 rounded-lg px-3 text-strong font-medium outline-none transition sm:min-h-10 [scroll-margin-inline:var(--tabs-fade)]",
                   "focus-visible:ring-2 focus-visible:ring-kin-focus-ring",
                   selected
                     ? "bg-kin-blue text-kin-on-brand"

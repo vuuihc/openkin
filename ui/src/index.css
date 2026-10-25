@@ -126,6 +126,57 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* A horizontally scrolling strip that says so.
+   The settings tab strip holds seven tabs and a phone shows about five of them;
+   iOS draws no persistent scrollbar, so the sixth and seventh were invisible and
+   a half-cut tab at the edge read as the last one. The strip is faded at
+   whichever edge has tabs behind it — which the component measures and reports
+   as `data-more-*`, because whether it overflows depends on the labels, the
+   language and the width.
+
+   A mask rather than a gradient overlay: the strip's own background is
+   translucent and themed, so an overlay would have to match a colour it cannot
+   know, while a mask is alpha-only and fades whatever is there. Both the
+   standard and the `-webkit-` property are written out; Safari (the phone this
+   exists for) still needs the prefix.
+
+   `--tabs-fade` is the one number in this: the mask draws that much fade,
+   and the tab buttons reserve the same width as `scroll-margin-inline` so that a
+   tab brought into view by the keyboard — or by the phone block's jump to
+   Remote/Notifications — never comes to rest underneath its own fade. Inherited
+   from the strip, so the buttons only have to name the variable.
+
+   Not a `--kin-` name on purpose: that namespace is the design tokens, and
+   `design/tokens.test.ts` is right to insist that every `--kin-*` the code
+   references resolves to one. This is a measurement of this component. */
+.kin-tabs-fade {
+  --tabs-fade: 2rem;
+}
+.kin-tabs-fade[data-more-end="true"] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--tabs-fade)), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--tabs-fade)), transparent);
+}
+.kin-tabs-fade[data-more-start="true"]:not([data-more-end="true"]) {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - var(--tabs-fade)), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - var(--tabs-fade)), transparent);
+}
+.kin-tabs-fade[data-more-start="true"][data-more-end="true"] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--tabs-fade),
+    #000 calc(100% - var(--tabs-fade)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--tabs-fade),
+    #000 calc(100% - var(--tabs-fade)),
+    transparent
+  );
+}
+
 /* Thin scrollbar matching design mockups */
 .kin-scroll {
   scrollbar-width: thin;

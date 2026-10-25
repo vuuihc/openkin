@@ -882,6 +882,22 @@ const zh = {
       light: "浅色",
       dark: "深色",
     },
+    phone: {
+      heading: "手机",
+      blurb:
+        "这个网页就是手机上的 Kin —— 加到主屏幕就全屏打开。能不能在手机上干活，取决于下面三件事。",
+      pairLabel: "配对",
+      pairHint:
+        "通知里的链接只在跟本节点配对过的浏览器里有效；没配对过的浏览器打开会落到连接说明页。每个浏览器是一份独立存储，所以「添加到主屏幕」的图标也要自己配对一次。",
+      openPairing: "打开连接二维码",
+      landLabel: "通知落点",
+      landHint: "审批和提问都落在收件箱，并且直接滚到你收到的那一条。",
+      noBaseUrl:
+        "还没设置 UI base URL：通知里的链接是相对路径，手机点开无处可去。在「通知」里填一个。",
+      channelLabel: "推送通道",
+      channelHint: "Bark 或 ntfy，填一个或都填，测试按钮在同一个页面。任务结束也是走这里。",
+      openNotify: "打开通知设置",
+    },
     account: {
       heading: "账户",
       blurb: "这台 Hub 的登录账户。退出后需要重新登录才能访问。",

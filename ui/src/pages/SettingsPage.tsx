@@ -37,6 +37,7 @@ import {
 } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
+import { PhoneSection } from "../components/settings/PhoneSection";
 import { relayPrimaryAction } from "../components/settings/RelayGuidance";
 import {
   RoutingDefaultsSection,
@@ -937,6 +938,10 @@ export default function SettingsPage() {
 
       {/* Appearance (design 3c / 3e) */}
       <SettingsTabPanel id="general" active={activeTab === "general"}>
+        {/* First, and on the first tab, because this is the tab a phone opens
+            and because the question it answers — how do I use this from here —
+            was the one the console could not answer at all. */}
+        <PhoneSection baseUrl={settings["ui.base_url"] ?? ""} onOpenTab={setActiveTab} />
         <SettingsSection title={tr("settings.appearance.heading")}>
           <div className="flex flex-wrap gap-2">
             {(["system", "light", "dark"] as const).map((value) => (

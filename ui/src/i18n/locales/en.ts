@@ -915,6 +915,28 @@ const en: MessageTree = {
       light: "Light",
       dark: "Dark",
     },
+    // How to use this console from a phone. Every line here was already true and
+    // none of it was written where someone holding the phone would look, which
+    // made a working push notification look broken: the link opens a page about
+    // tokens instead of the approval.
+    phone: {
+      heading: "Phone",
+      blurb:
+        "This console is the phone app — add it to your home screen and it opens full screen. Three things decide whether it can work for you from there.",
+      pairLabel: "Pairing",
+      pairHint:
+        "A link in a notification only works in a browser that has been paired with this node. In one that has not, it opens the connection page instead. Every browser is a separate store, so a phone added to the home screen has to be paired once of its own.",
+      openPairing: "Open the connection QR",
+      landLabel: "Where notifications land",
+      landHint:
+        "Approvals and questions both land on the inbox, scrolled to the item the notification named.",
+      noBaseUrl:
+        "No UI base URL yet: notification links carry a bare path, which a phone has nothing to open. Set one under Notifications.",
+      channelLabel: "Push channel",
+      channelHint:
+        "Bark or ntfy, either or both, with a test button on the same page. Terminal task updates go out the same way.",
+      openNotify: "Open notification settings",
+    },
     account: {
       heading: "Account",
       blurb: "The account this Hub signs you in with. Signing out requires signing in again.",
