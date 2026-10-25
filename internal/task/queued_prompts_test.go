@@ -832,3 +832,199 @@ func waitForStarts(t *testing.T, ad *fakeAdapter, want int, timeout time.Duratio
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// A restart can want the same task twice: the retry it is resuming, and the
+// message that was queued while the task was away. However many of those arrive,
+// the run queue has to end up holding one copy of the task.
+//
+// A second copy is not a second turn -- a turn is claimed by one queued-to-running
+// update, so the later start loses the claim and aborts -- but the loser still
+// runs its exit path with its own execution id, and that path clears the active-run
+// entry. Clearing the winner's entry is the harm: a run with no active-run entry
+// cannot persist its own events or its terminal status.
+func TestARestartQueuesATaskOnceWhenBothRecoveriesWantIt(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+
+	task := store.Task{
+		ID: "01ONERECOVERYQUEUE00000001", Title: "retry", Agent: "kin",
+		Cwd: t.TempDir(), Prompt: "first turn", Status: StatusFailed,
+		CreatedAt: store.NowMilli(),
+	}
+	if err := st.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"first turn"}],"speaker":"user"}`)); err != nil {
+		t.Fatal(err)
+	}
+	// A message the user sent while that first turn was still going. Its own event
+	// is anchored before the retry point, so the retry leaves the row alone: it is
+	// still waiting after the restart, and it is the second recovery's reason to
+	// want this task.
+	queued, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"never answered"}],"partial":false,"agent":"user","speaker":"user","source":"follow_up"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "never answered", UserSeq: queued.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A retry that got as far as committing and no further: the intent is still
+	// recorded, the task is queued, and the process died before publishing it.
+	intent := store.RetryRestoreIntent{
+		TaskID: task.ID, FromSeq: queued.Seq + 1, Prompt: "after",
+		UserPayload: json.RawMessage(`{"role":"user","content":[{"type":"text","text":"after"}]}`),
+	}
+	if err := st.BeginRetryRestore(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CompleteRetryRestore(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The adapter holds the turn open, so the queue can be read while the run the
+	// restart decided on is still in flight.
+	ad := &fakeAdapter{gate: make(chan struct{}), events: successEvents()}
+	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{"kin": ad}, NewBus(), 1)
+	defer e.Close()
+	if err := e.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	copies := 0
+	for _, qid := range e.queue {
+		if qid == task.ID {
+			copies++
+		}
+	}
+	e.mu.Unlock()
+	if copies != 0 {
+		t.Fatalf("the run queue holds %d copies of the task, want none: the run already going owns it", copies)
+	}
+
+	close(ad.gate)
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 5*time.Second)
+	specs := waitForStarts(t, ad, 1, 5*time.Second)
+	if len(specs) != 1 {
+		t.Fatalf("adapter started %d run(s), want 1", len(specs))
+	}
+	if !strings.Contains(specs[0].Prompt, "never answered") {
+		t.Fatalf("the resumed turn was asked for %q, want the message that was still waiting", specs[0].Prompt)
+	}
+	if left, err := st.ListPendingPrompts(ctx, task.ID); err != nil || len(left) != 0 {
+		t.Fatalf("queue after the restart = %+v (err %v), want the message delivered exactly once", left, err)
+	}
+}
+
+// An orchestrated turn ends at a turn boundary like any other one, so a message
+// queued while it ran is delivered to a new turn rather than waiting for the next
+// thing the user happens to send.
+func TestAnOrchestratedTurnEndDeliversItsQueuedMessage(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{gate: make(chan struct{}), events: successEvents()}
+	e, _ := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e.FollowUp(ctx, task.ID, "also check the logs"); err != nil {
+		t.Fatal(err)
+	}
+
+	e.mu.Lock()
+	executionID := e.activeRuns[task.ID]
+	e.mu.Unlock()
+	if executionID == "" {
+		t.Fatal("no run is active: the setup is wrong, not the delivery")
+	}
+	e.finishOrchestrated(ctx, task.ID, executionID, false)
+
+	specs := waitForStarts(t, ad, 2, 5*time.Second)
+	if !strings.Contains(specs[1].Prompt, "also check the logs") {
+		t.Fatalf("the turn started at the boundary was asked for %q, want the queued message", specs[1].Prompt)
+	}
+	close(ad.gate)
+	_ = waitStatus(t, e, task.ID, StatusSucceeded, 5*time.Second)
+}
+
+// A cancel and a delivery write the same row and hold no lock against each other,
+// so one of them lands second. When the cancel lands first it has to win: a turn
+// that starts for a task the console shows as stopped spends tokens and writes
+// output nobody asked for.
+func TestACancelThatWinsTheRaceIsNotUndoneByTheDelivery(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: successEvents(), runFor: 30 * time.Second}
+	e, st := testEngine(t, 4, ad)
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
+	if _, err := e.Cancel(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusCanceled, 2*time.Second)
+
+	// Stand where the delivery stands: the message is off the queue and in hand,
+	// and the cancel committed in between.
+	userEvent, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"are you there?"}],"partial":false,"agent":"user","speaker":"user","source":"follow_up"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "are you there?", UserSeq: userEvent.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok, err := e.deliverQueuedPrompt(ctx, task.ID, respectCancel); !ok {
+		t.Fatal("nothing was waiting: the setup is wrong, not the guard")
+	} else if !errors.Is(err, store.ErrTaskCanceled) {
+		t.Fatalf("delivery into a canceled task = %v, want store.ErrTaskCanceled", err)
+	}
+	if got, err := e.Get(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	} else if got.Status != StatusCanceled {
+		t.Fatalf("status after the refused delivery = %s, want %s", got.Status, StatusCanceled)
+	}
+	e.mu.Lock()
+	queued := len(e.queue)
+	e.mu.Unlock()
+	if queued != 0 {
+		t.Fatalf("the queue holds %d task(s) after the refused delivery, want none", queued)
+	}
+
+	// The other half, and the reason the guard is not a blanket refusal: the user's
+	// own message is what revives a task they can see is stopped. Refusing that one
+	// too would take away the only way back.
+	again, err := st.AppendEvent(ctx, task.ID, "message", json.RawMessage(
+		`{"role":"user","content":[{"type":"text","text":"actually, keep going"}],"partial":false,"agent":"user","speaker":"user","source":"follow_up"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AppendPendingPrompt(ctx, store.PendingPrompt{
+		TaskID: task.ID, Prompt: "actually, keep going", UserSeq: again.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revived, ok, err := e.deliverQueuedPrompt(ctx, task.ID, reviveCanceled)
+	if err != nil || !ok {
+		t.Fatalf("the user's own follow-up to a canceled task = ok %v, err %v, want it delivered", ok, err)
+	}
+	// Whether the new turn has already claimed the row is a race with the run
+	// itself; what matters is that it is no longer stopped.
+	if revived.Status == StatusCanceled {
+		t.Fatal("the task is still canceled after the user's own follow-up was delivered")
+	}
+}

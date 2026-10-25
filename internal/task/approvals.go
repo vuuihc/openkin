@@ -504,9 +504,61 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 	if !deliverNow {
 		return e.store.GetTask(ctx, id)
 	}
-	t2, _, err := e.deliverQueuedPrompt(ctx, id)
+	// The user's own message is the one delivery that may revive a canceled task;
+	// every other delivery respects the cancel. See deliveryIntent.
+	t2, ok, err := e.deliverQueuedPrompt(ctx, id, reviveCanceled)
+	if err != nil && ok {
+		e.reportUndelivered(ctx, id, err)
+	}
 	return t2, err
 }
+
+// reportUndelivered records, in the task's own transcript, that a message the
+// user can see will never be answered. It is for the deliveries whose caller is
+// not a turn: the sender still hears the error and can send the message again,
+// but a second device -- or this console after a reload -- would otherwise see a
+// bubble with no reason it went unanswered.
+//
+// Only for a refusal that consumed a queue row (ok from deliverQueuedPrompt): a
+// failed read of the queue leaves the message where it is, and reporting that as
+// an undelivered message would be a lie the next turn makes obvious.
+//
+// Written with the store directly rather than through emitError, because this
+// path has no run: the delivery that would have started the turn is the one that
+// just failed, so there is no execution id to stamp the event with.
+func (e *Engine) reportUndelivered(ctx context.Context, id string, cause error) {
+	payload, _ := json.Marshal(map[string]string{"message": cause.Error()})
+	if ev, err := e.store.AppendEvent(ctx, id, "error", payload); err == nil {
+		e.bus.PublishEvent(ev)
+	}
+}
+
+// deliveryIntent says what a delivery does when the task it is delivering into was
+// canceled -- by the user, between the moment the message was taken off the queue
+// and the moment the write that answers it lands.
+//
+// The window is real because two goroutines write the same row and neither holds a
+// lock the other takes: a cancel writes `canceled`, this delivery writes `queued`,
+// and the start of a turn trusts whatever is there when it claims the row. So what
+// the delivery writes is the difference between "the user stopped this task" and "a
+// turn is running for a task the console shows as stopped" -- the second one spends
+// tokens and writes output nobody asked for.
+//
+// Callers name a constant rather than passing a bool: the two cases differ by who is
+// asking, and a bare `true` at a call site does not say which one that is.
+type deliveryIntent bool
+
+const (
+	// respectCancel is for a delivery nobody asked for at this moment: a turn
+	// boundary handing over the next queued message, or a queue drained after a
+	// restart. A message that arrives in a canceled task is dropped, and the caller
+	// reports it.
+	respectCancel deliveryIntent = false
+	// reviveCanceled is for the one sender who can revive a task on purpose: the
+	// user, sending a message right now to a task they can see is canceled. The
+	// message is the revival, and refusing it would take the follow-up away.
+	reviveCanceled deliveryIntent = true
+)
 
 // deliverQueuedPrompt starts the turn that answers the oldest message a task has
 // waiting. ok is false when nothing was waiting, which is a normal outcome at a
@@ -521,7 +573,7 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 // event: it was visible in the chat, and nothing else will answer it. The error
 // returned names the message, because a phone sends several and "a queued
 // prompt" does not say which one to write again.
-func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string) (store.Task, bool, error) {
+func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string, intent deliveryIntent) (store.Task, bool, error) {
 	p, ok, err := e.store.PopPendingPrompt(ctx, id)
 	if err != nil {
 		// The queue itself could not be read, so there is no row to name -- but a
@@ -541,7 +593,7 @@ func (e *Engine) deliverQueuedPrompt(ctx context.Context, id string) (store.Task
 	// interrupted=false on purpose: this message did not cut anything short, and
 	// telling the agent that its previous turn was interrupted by the user would
 	// make it re-read context it does not need and drop the session it can resume.
-	t2, err := e.applyFollowUpPrepared(ctx, id, t, followUpRequestFrom(p), false /*interrupted*/, p.UserSeq)
+	t2, err := e.applyFollowUpPrepared(ctx, id, t, followUpRequestFrom(p), false /*interrupted*/, p.UserSeq, intent)
 	if err != nil {
 		return t2, true, failed(err)
 	}
@@ -567,7 +619,7 @@ func queuedPromptLabel(p store.PendingPrompt) string {
 // failure is reported as a task event; the rest of the queue stays where it is,
 // to be delivered by the turn this one starts (or by the next restart).
 func (e *Engine) deliverQueuedAfterRestart(ctx context.Context, id string) {
-	t, ok, err := e.deliverQueuedPrompt(ctx, id)
+	t, ok, err := e.deliverQueuedPrompt(ctx, id, respectCancel)
 	// err first: a queue that could not be read is not an empty queue, and
 	// reporting it as one leaves the message with no deliverer and no trace.
 	if err != nil {
@@ -640,7 +692,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 			if err != nil {
 				return store.Task{}, err
 			}
-			return e.applyFollowUpPrepared(ctx, id, t2, req, true /*interrupted*/, 0 /*write the user event*/)
+			return e.applyFollowUpPrepared(ctx, id, t2, req, true /*interrupted*/, 0 /*write the user event*/, reviveCanceled)
 		}
 	}
 
@@ -697,7 +749,7 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 			}
 			// The user event was appended above, so the checkpoint anchors there
 			// rather than to whatever happens to be the newest user message.
-			return e.applyFollowUpPrepared(ctx, id, t2, pf.req, true /*interrupted*/, userSeq)
+			return e.applyFollowUpPrepared(ctx, id, t2, pf.req, true /*interrupted*/, userSeq, reviveCanceled)
 		}
 	}
 
@@ -721,7 +773,7 @@ func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pending
 	// captured then rather than looked up here: a queued message sent while the
 	// interrupt wound down would otherwise be the newest user message and steal the
 	// checkpoint anchor.
-	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, pf.userSeq)
+	return e.applyFollowUpPrepared(ctx, id, t, pf.req, pf.interrupted, pf.userSeq, reviveCanceled)
 }
 
 // applyFollowUpPrepared patches the task prompt/agent and re-queues it.
@@ -732,7 +784,11 @@ func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pending
 // into, or queued while the previous turn was still running. The distinction is
 // the checkpoint anchor: a turn that claims a newer message than the one it is
 // answering restores to the wrong point.
-func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool, userSeq int) (store.Task, error) {
+//
+// intent decides whether the status written below may revive a canceled task; see
+// deliveryIntent. It has to reach the statement rather than be read just before it,
+// because the cancel it guards against is written by another goroutine.
+func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool, userSeq int, intent deliveryIntent) (store.Task, error) {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
 		return store.Task{}, fmt.Errorf("prompt is required")
@@ -867,7 +923,14 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 			patch.ClearSessionRef = true
 		}
 	}
-	if err := e.store.UpdateTask(ctx, id, patch); err != nil {
+	// The write a cancel races. `intent` picks the guarded form, whose predicate is
+	// in the statement: a read here would leave open the window it is closing, since
+	// the cancel that lands in it holds no lock this goroutine takes.
+	write := e.store.UpdateTask
+	if intent == respectCancel {
+		write = e.store.UpdateTaskUnlessCanceled
+	}
+	if err := write(ctx, id, patch); err != nil {
 		return store.Task{}, err
 	}
 	if handoff {
@@ -891,7 +954,7 @@ func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.T
 	}
 
 	e.mu.Lock()
-	e.queue = append(e.queue, id)
+	e.enqueueLocked(id)
 	e.mu.Unlock()
 	e.pump()
 
@@ -1164,7 +1227,7 @@ func (e *Engine) publishCompletedRetry(
 	}
 
 	e.mu.Lock()
-	e.queue = append(e.queue, t.ID)
+	e.enqueueLocked(t.ID)
 	e.mu.Unlock()
 	if start {
 		e.pump()
@@ -1498,7 +1561,7 @@ func (e *Engine) Fork(ctx context.Context, id string, req ForkRequest) (store.Ta
 
 	if runNow {
 		e.mu.Lock()
-		e.queue = append(e.queue, newID)
+		e.enqueueLocked(newID)
 		e.mu.Unlock()
 		e.pump()
 		return e.store.GetTask(ctx, newID)

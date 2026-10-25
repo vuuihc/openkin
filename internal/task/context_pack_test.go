@@ -140,11 +140,16 @@ func TestWorkerNarrationStaysOutOfTheHostHandoffContext(t *testing.T) {
 		"content":    []map[string]string{{"type": "text", "text": "WORKER_NARRATION_I_AM_READING_THE_PARSER_NOW"}},
 		"visibility": map[string]bool{"user": false, "task": true},
 	})
-	// What the host is meant to see instead.
+	// What the host is meant to see instead -- stamped task-only, which is the shape
+	// the exemption in summarizeEvent exists for: the orchestrator's own summary is
+	// the host's memory of the turn, so a visibility filter must not take it out of
+	// the context pack being built for that host. (emitSpeakerMessage stamps
+	// orchestrator messages user-facing, so this is the harder of the two cases, and
+	// the one that keeps the exemption from being unreachable code.)
 	appendMsg(map[string]any{
 		"role": "assistant", "speaker": "kin", "source": "orchestrator", "partial": false,
 		"content":    []map[string]string{{"type": "text", "text": "ORCHESTRATOR_SUMMARY_worker_fixed_the_parser"}},
-		"visibility": map[string]bool{"user": true, "task": true},
+		"visibility": map[string]bool{"user": false, "task": true},
 	})
 
 	e := NewEngineFromAdapters(st, map[string]adapter.Adapter{}, NewBus(), 1)

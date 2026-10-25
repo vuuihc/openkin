@@ -1553,7 +1553,7 @@ func (e *Engine) Create(ctx context.Context, req CreateRequest) (store.Task, err
 	}
 
 	e.mu.Lock()
-	e.queue = append(e.queue, id)
+	e.enqueueLocked(id)
 	e.mu.Unlock()
 	e.pump()
 
@@ -2045,6 +2045,39 @@ func applyWorkspaceGeneration(t *store.Task, ws store.WorkspaceGeneration) {
 	t.WorkspaceScope = ws.Scope
 	t.WorkspaceBaseOID = ws.BaseOID
 	t.WorkspaceBranch = ws.WorkspaceBranch
+}
+
+// enqueueLocked puts a task at the tail of the run queue unless it is already
+// there. Callers hold e.mu.
+//
+// It is idempotent because the paths that enqueue are not disjoint: on restart,
+// Recover delivers a task's waiting message and recoverRetryRestores restarts the
+// same task's retry, and both arrive here. A task runs one turn at a time -- the
+// claim is a single queued-to-running update -- so a second copy of an id is never
+// a second turn; it is one turn and one start that loses the claim. What the loser
+// leaves behind is not a no-op either: it aborts through clearActiveRun with its own
+// execution id, which can delete the active-run entry the winner is still writing
+// to, and a run with no active-run entry cannot persist its own events or its
+// terminal status.
+func (e *Engine) enqueueLocked(id string) {
+	for _, qid := range e.queue {
+		if qid == id {
+			return
+		}
+	}
+	e.queue = append(e.queue, id)
+}
+
+// endStatusForDelivery is the status a turn ends with when handing its queued
+// message to the next one failed. Normally that is a failure -- the message is lost
+// -- except when the task was canceled while the handover was in flight: then the
+// cancel is what the user asked for, and writing `failed` over it would be the
+// console disagreeing with the button they pressed.
+func (e *Engine) endStatusForDelivery(err error) string {
+	if errors.Is(err, store.ErrTaskCanceled) {
+		return StatusCanceled
+	}
+	return StatusFailed
 }
 
 // pump starts queued tasks up to maxConcurrent.
@@ -2621,12 +2654,14 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 	// whose files are mid-flight.
 	// wasCanceled is the cancel that was already recorded when this turn exited, so a
 	// task the user stopped does not hand its queued message to a new run on its way
-	// out. A cancel that lands after this read is a different race, and this flag is
-	// not what keeps that one honest: whichever of the two runs second finds the work
-	// already claimed, because the delivery pops the row the cancel's transaction
-	// takes, and the cancel stops the run the delivery just started.
+	// out. A cancel that lands *after* this read is a different race, and it is not
+	// this flag that keeps it honest -- popping the queue row does not, either, since
+	// the cancel's transaction only takes the rows still in the queue. The delivery
+	// closes it: the write that would re-queue the task is refused when the cancel got
+	// there first (store.UpdateTaskUnlessCanceled), so the claim a new turn starts
+	// with sees `canceled` and refuses to run it.
 	if workspaceErr == nil && !wasCanceled {
-		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
+		if _, ok, err := e.deliverQueuedPrompt(ctx, id, respectCancel); err != nil {
 			// err before ok: a failed attempt is not an empty queue, and treating it
 			// as one is how a message the user can see stops being delivered without
 			// anything saying so.
@@ -2634,7 +2669,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			if ev, appendErr := e.persistRunEvent(ctx, id, exec.ID, "error", payload); appendErr == nil {
 				e.bus.PublishEvent(ev)
 			}
-			_, _ = e.finishRun(ctx, id, exec.ID, StatusFailed, nil, nil)
+			_, _ = e.finishRun(ctx, id, exec.ID, e.endStatusForDelivery(err), nil, nil)
 			e.pump()
 			return
 		} else if ok {
@@ -2667,7 +2702,7 @@ func (e *Engine) runLoop(id string, h adapter.RunHandle, speaker, model string, 
 			patch := store.TaskPatch{Status: &status, ClearExitCode: true, ClearFinishedAt: true}
 			_ = e.store.UpdateTask(ctx, id, patch)
 			e.mu.Lock()
-			e.queue = append(e.queue, id)
+			e.enqueueLocked(id)
 			e.mu.Unlock()
 			e.pump()
 			return
@@ -3201,7 +3236,7 @@ func (e *Engine) recoverRetryRestores(ctx context.Context) error {
 					e.captureCheckpoint(ctx, task, intent.FromSeq)
 				}
 				e.mu.Lock()
-				e.queue = append(e.queue, task.ID)
+				e.enqueueLocked(task.ID)
 				e.mu.Unlock()
 			default:
 				if err := e.store.DeleteRetryRestoreIntent(ctx, task.ID); err != nil {

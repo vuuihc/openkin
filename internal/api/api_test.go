@@ -345,7 +345,10 @@ func TestApprovalsAPI(t *testing.T) {
 		t.Fatalf("decide: %d %s", rr.Code, rr.Body.String())
 	}
 
-	// Follow-up while running interrupts and accepts the new guide prompt.
+	// A follow-up while the task is running is accepted and *queued*: the turn in
+	// flight is not interrupted -- interrupting is the explicit flag on its own
+	// path -- so what this checks is that the message is taken and waits, rather
+	// than being folded into the running turn or lost against it.
 	rr = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/tasks/"+created.ID+"/prompt",
 		bytes.NewBufferString(`{"prompt":"more"}`))
@@ -354,6 +357,24 @@ func TestApprovalsAPI(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("follow-up while running: %d %s", rr.Code, rr.Body.String())
+	}
+	// Nothing else would notice a 200 that accepted nothing: the message has to be
+	// in the queue, waiting for the boundary that answers it.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+created.ID+"/prompts", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list queued prompts: %d %s", rr.Code, rr.Body.String())
+	}
+	var queued []struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &queued); err != nil {
+		t.Fatalf("queued prompts: %v (%s)", err, rr.Body.String())
+	}
+	if len(queued) != 1 || queued[0].Prompt != "more" {
+		t.Fatalf("queued prompts = %+v, want the accepted message waiting for its turn", queued)
 	}
 }
 

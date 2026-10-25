@@ -384,7 +384,7 @@ func (e *Engine) reconcileWorkspaces(ctx context.Context) error {
 		case store.WorkspaceReady:
 			// Queue the task for resume
 			e.mu.Lock()
-			e.queue = append(e.queue, t.ID)
+			e.enqueueLocked(t.ID)
 			e.mu.Unlock()
 
 		case store.WorkspaceActive:

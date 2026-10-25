@@ -18,6 +18,16 @@ import (
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrTaskCanceled is returned by a guarded write that refused to touch a task
+// because the user had canceled it. It says the write did not happen, not that
+// it failed: the state that made it refuse is the state the caller has to
+// respect.
+var ErrTaskCanceled = errors.New("task is canceled")
+
+// canceledStatus is the task status a guarded write refuses. It is spelled out
+// here rather than taken from the task package, which imports this one.
+const canceledStatus = "canceled"
+
 // Store is the SQLite persistence layer.
 type Store struct {
 	db *sql.DB
@@ -899,6 +909,22 @@ type TaskPatch struct {
 
 // UpdateTask applies a patch to a task row.
 func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
+	return s.updateTask(ctx, id, p, "")
+}
+
+// UpdateTaskUnlessCanceled is UpdateTask for a write the user's cancel has to be
+// able to refuse: the patch lands only while the row is not `canceled`, and
+// ErrTaskCanceled comes back when it is. The predicate is in the statement
+// rather than in a read before it, because the cancel it guards against is
+// written by another goroutine -- a read here would leave open the very window
+// it is meant to close.
+func (s *Store) UpdateTaskUnlessCanceled(ctx context.Context, id string, p TaskPatch) error {
+	return s.updateTask(ctx, id, p, canceledStatus)
+}
+
+// updateTask applies a patch, refusing to touch a row whose status is
+// refuseStatus. Empty refuseStatus applies the patch to any row that exists.
+func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseStatus string) error {
 	// Build dynamic SET; always require at least one field.
 	sets := make([]string, 0, 12)
 	args := make([]any, 0, 13)
@@ -1026,12 +1052,32 @@ func (s *Store) UpdateTask(ctx context.Context, id string, p TaskPatch) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	q := `UPDATE tasks SET ` + strings.Join(sets, ", ") + ` WHERE id = ?`
-	res, err := tx.ExecContext(ctx, q, args...)
+	queryArgs := args
+	if refuseStatus != "" {
+		q += ` AND status <> ?`
+		queryArgs = append(append([]any{}, args...), refuseStatus)
+	}
+	res, err := tx.ExecContext(ctx, q, queryArgs...)
 	if err != nil {
 		return fmt.Errorf("update task: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		if refuseStatus != "" {
+			// Either the write was refused or the row is gone, and only the row can
+			// say which. The caller needs them apart: one means the user stopped
+			// this task, the other means there is no such task.
+			var status string
+			switch err := tx.QueryRowContext(ctx,
+				`SELECT status FROM tasks WHERE id = ?`, id).Scan(&status); {
+			case errors.Is(err, sql.ErrNoRows):
+				return ErrNotFound
+			case err != nil:
+				return fmt.Errorf("read task status after a refused update: %w", err)
+			case status == refuseStatus:
+				return ErrTaskCanceled
+			}
+		}
 		return ErrNotFound
 	}
 	if err := touchTaskHubSeq(ctx, tx, id); err != nil {
