@@ -39,8 +39,8 @@ beforeEach(() => {
   setLocale("en");
 });
 
-function provider(id: string, name: string): AgentInfo {
-  return { id, name, capabilities: ["session_list"] } as AgentInfo;
+function provider(id: string, name: string, capabilities: string[] = ["session_list"]): AgentInfo {
+  return { id, name, capabilities } as AgentInfo;
 }
 
 type SidebarProps = {
@@ -138,5 +138,36 @@ describe("the sidebar's import menu", () => {
 
     await user.click(screen.getByRole("menuitem", { name: /codex/i }));
     expect(onImport).not.toHaveBeenCalled();
+  });
+
+  it("offers only the providers that say they can list sessions", async () => {
+    const user = userEvent.setup();
+    render(
+      sidebar({
+        catalog: [
+          provider("codex", "Codex"),
+          // A provider can run tasks and still have no session list to import.
+          // Offering it would be a row whose answer is always empty, which
+          // reads as "you have no sessions" rather than "this one cannot say".
+          provider("grok", "Grok", []),
+        ],
+      }),
+    );
+
+    await user.click(importTrigger());
+
+    expect(screen.getByRole("menuitem", { name: /codex/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /grok/i })).toBeNull();
+  });
+
+  it("says no provider can list sessions rather than showing an empty menu", async () => {
+    const user = userEvent.setup();
+    render(sidebar({ catalog: [provider("grok", "Grok", [])] }));
+
+    await user.click(importTrigger());
+
+    // The menu still opens and still has the all-providers item; what it must
+    // not do is look like a menu of one.
+    expect(screen.getByText("No local Agent session providers detected")).toBeTruthy();
   });
 });

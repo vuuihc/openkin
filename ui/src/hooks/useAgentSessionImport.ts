@@ -26,8 +26,10 @@ import { refreshMachines } from "./useMachines";
  *
  * The answers are folded by mergeAgentSessionImports, which is where the rule
  * about a machine that is away lives: the machines that did answer are the
- * result, and the one that did not is an error beside them. This never rejects;
- * a machine that cannot be reached is a result, not an exception.
+ * result, and the one that did not is an error beside them. A machine that
+ * cannot be reached is a result, not an exception. The one failure that does
+ * propagate is the machine *list* not arriving at all — there is no errand to
+ * report on — and the flag falls either way.
  */
 export function useAgentSessionImport(): {
   /** True while an import is in flight, for disabling the control that started it. */
@@ -62,6 +64,9 @@ export function useAgentSessionImport(): {
         }
         return mergeAgentSessionImports(attempts);
       } finally {
+        // `finally`, not a line before the return: this counter has no reset,
+        // so a path that leaves it standing disables every import control in
+        // the console until the page is reloaded.
         endImport();
       }
     },

@@ -109,7 +109,7 @@ describe("the import hook", () => {
     expect(importsInFlight()).toBe(false);
   });
 
-  it("turns a machine that never answers into an error beside the result, and still lowers the flag", async () => {
+  it("turns a machine that never answers into an error beside the result", async () => {
     vi.mocked(importAgentSessions).mockRejectedValue(new Error("machine is not connected"));
 
     const { result } = renderHook(() => useAgentSessionImport());
@@ -123,6 +123,24 @@ describe("the import hook", () => {
     // *reported* — a silently empty count reads as "you have no sessions".
     expect(result_?.imported).toBe(0);
     expect(Object.keys(result_?.errors ?? {})).toHaveLength(2);
+    expect(importsInFlight()).toBe(false);
+    expect(result.current.importing).toBe(false);
+  });
+
+  it("lowers the flag when the machine list itself cannot be read", async () => {
+    // The read that sits *outside* the per-machine try/catch — the one failure
+    // this hook lets through. It is worth its own test because beginImport()
+    // has already run by the time it fails, and `imports` is module state with
+    // no reset: a counter left standing disables every import control in the
+    // console — the sidebar, the settings button, the per-provider rows, the
+    // automatic sync — until the page is reloaded.
+    vi.mocked(refreshMachines).mockRejectedValue(new Error("hub is not connected"));
+
+    const { result } = renderHook(() => useAgentSessionImport());
+    await act(async () => {
+      await expect(result.current.importEveryMachine()).rejects.toThrow("hub is not connected");
+    });
+
     expect(importsInFlight()).toBe(false);
     expect(result.current.importing).toBe(false);
   });
