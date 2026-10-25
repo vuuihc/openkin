@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vuuihc/openkin/internal/fsroot"
 	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/workspace"
@@ -333,11 +334,11 @@ func (r *Responder) repoPrepare(ctx context.Context, asked worker.RepoPreparePar
 	if err != nil {
 		return worker.RepoPrepareResult{}, err
 	}
-	real, err := resolvePath(prepared.Path)
+	real, err := fsroot.Resolve(prepared.Path)
 	if err != nil {
 		return worker.RepoPrepareResult{}, fmt.Errorf("there is no %s on this machine", prepared.Path)
 	}
-	if !withinRoots(real, rootSet(r.Roots).resolved()) {
+	if !fsroot.Within(real, rootSet(r.Roots).resolved()) {
 		return worker.RepoPrepareResult{}, outsideRoots(prepared.Path)
 	}
 	return worker.RepoPrepareResult{
@@ -432,11 +433,11 @@ func (r *Responder) gitCheckout(ctx context.Context, asked worker.GitCheckoutPar
 // own, and the only party that knows where this machine's boundary is, is this
 // machine.
 func (r *Responder) own(path string) (string, error) {
-	real, err := resolvePath(path)
+	real, err := fsroot.Resolve(path)
 	if err != nil {
 		return "", fmt.Errorf("there is no %s on this machine", strings.TrimSpace(path))
 	}
-	if !withinRoots(real, rootSet(r.Roots).resolved()) {
+	if !fsroot.Within(real, rootSet(r.Roots).resolved()) {
 		return "", outsideRoots(path)
 	}
 	return path, nil
@@ -499,11 +500,11 @@ func (r *Responder) listDirs(ctx context.Context, asked worker.ListDirsParams) (
 	// available for something that exists. A path that is not there is refused
 	// for that reason: it is the difference between a typo and a boundary, which
 	// are two different things to tell a person.
-	real, err := resolvePath(path)
+	real, err := fsroot.Resolve(path)
 	if err != nil {
 		return worker.ListDirsResult{}, fmt.Errorf("there is no %s on this machine", path)
 	}
-	if !withinRoots(real, roots.resolved()) {
+	if !fsroot.Within(real, roots.resolved()) {
 		return worker.ListDirsResult{}, outsideRoots(path)
 	}
 	info, err := os.Stat(real)
@@ -569,8 +570,8 @@ func (r *Responder) readDir(ctx context.Context, roots rootSet, path string) ([]
 			return nil, false, err
 		}
 		candidate := filepath.Join(path, name)
-		real, err := resolvePath(candidate)
-		if err != nil || !withinRoots(real, resolvedRoots) {
+		real, err := fsroot.Resolve(candidate)
+		if err != nil || !fsroot.Within(real, resolvedRoots) {
 			continue
 		}
 		if info, err := os.Stat(real); err != nil || !info.IsDir() {

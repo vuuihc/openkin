@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/vuuihc/openkin/internal/adapter"
+	"github.com/vuuihc/openkin/internal/fsroot"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
@@ -363,28 +364,9 @@ func (e *Executor) allowedCwd(cwd string) bool {
 func (e *Executor) UnresolvedRoots() []string {
 	var out []string
 	for _, root := range e.Roots {
-		if _, err := resolvePath(root); err != nil {
+		if _, err := fsroot.Resolve(root); err != nil {
 			out = append(out, strings.TrimSpace(root))
 		}
 	}
 	return out
-}
-
-// resolvePath is a path with every symlink along it followed.
-//
-// Containment has to be decided on the real path rather than the written one: a
-// symlink inside a declared root that points outside it — a link checked into a
-// repository, say — would otherwise carry a turn out of the root while every
-// prefix check still said yes. The path has to exist to be resolved, which
-// costs nothing: an agent cannot be started in a directory that is not there.
-func resolvePath(path string) (string, error) {
-	abs, err := filepath.Abs(strings.TrimSpace(path))
-	if err != nil {
-		return "", err
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(real), nil
 }
