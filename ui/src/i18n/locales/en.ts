@@ -60,6 +60,12 @@ const en: MessageTree = {
     empty: "No sessions yet",
     emptyHint: "Tap + in the top right, or start one from the desktop console.",
     untitled: "Untitled session",
+    groupActive: "In progress",
+    groupToday: "Today",
+    // A rolling window, labelled as one: "This week" would be a promise the
+    // boundary cannot keep on a Monday.
+    groupWeek: "Last 7 days",
+    groupOlder: "Older",
     agentSessionsFailed:
       "Local agent sessions could not be read right now. Kin's own sessions are still listed above.",
   },

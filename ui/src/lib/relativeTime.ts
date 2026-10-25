@@ -32,6 +32,24 @@ function relative(locale: Locale): Intl.RelativeTimeFormat | null {
   }
 }
 
+/**
+ * The local start of the day `ms` falls in.
+ *
+ * Local rather than UTC because "today" on the tray, on the tasks page and in
+ * the session list means *the user's* day — a UTC boundary would move the line
+ * under a session at 8am in Shanghai. `setHours` rather than subtracting a day
+ * length, so the boundary follows the clock through a DST shift instead of
+ * landing an hour off it.
+ *
+ * Shared rather than re-derived: three surfaces filter by "since midnight", and
+ * three copies of the same two lines is how they drift apart.
+ */
+export function startOfDay(ms: number): number {
+  const date = new Date(ms);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
 /** A short "when" for a list row: relative inside a week, a date beyond it. */
 export function formatRelativeTime(
   ms: number,

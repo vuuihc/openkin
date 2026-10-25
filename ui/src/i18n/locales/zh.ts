@@ -57,6 +57,11 @@ const zh = {
     empty: "还没有会话",
     emptyHint: "点右上角的 ＋ 开一个，或在桌面控制台里发起。",
     untitled: "未命名会话",
+    groupActive: "进行中",
+    groupToday: "今天",
+    // 滚动 7 天，就照实说：写成「本周」在周一就撒谎了。
+    groupWeek: "近 7 天",
+    groupOlder: "更早",
     agentSessionsFailed: "本机 agent 会话暂时读不出来，Kin 自己的会话仍在上面。",
   },
   home: {

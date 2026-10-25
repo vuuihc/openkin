@@ -8,6 +8,7 @@ import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { DRAFT_PATH } from "../lib/draftChat";
+import { startOfDay } from "../lib/relativeTime";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -44,9 +45,7 @@ export default function TasksPage() {
   }, [tasks, filter]);
 
   const todayCost = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const ms = start.getTime();
+    const ms = startOfDay(Date.now());
     return tasks.filter((t) => t.created_at >= ms).reduce((s, t) => s + (t.cost_usd ?? 0), 0);
   }, [tasks]);
 

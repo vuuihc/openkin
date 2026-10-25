@@ -9,6 +9,7 @@ import {
 import { liveResources } from "../api/liveResources";
 import { usePendingResources, useTaskList } from "../api/useLiveResources";
 import { shortPath } from "../lib/paths";
+import { startOfDay } from "../lib/relativeTime";
 import { IconFile, IconKin } from "../components/icons";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
@@ -34,9 +35,7 @@ export default function TrayPage() {
   const running = useMemo(() => tasks.filter((t) => !isTerminal(t.status)).slice(0, 5), [tasks]);
 
   const doneToday = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const ms = start.getTime();
+    const ms = startOfDay(Date.now());
     return tasks.filter((t) => isTerminal(t.status) && t.created_at >= ms).slice(0, 5);
   }, [tasks]);
 
