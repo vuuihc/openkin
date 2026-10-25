@@ -118,7 +118,11 @@ export default function WorkerTimeline({
                       <ToolStepRow
                         key={tool.key}
                         tool={tool}
-                        index={idx + 1}
+                        // Numbered from where the drawn window starts, not from 1: the
+                        // window is the tail of the run, so with 6 calls and 4 drawn the
+                        // rows are calls 3-6 and numbering them 1-4 would put the wrong
+                        // number next to every one of them.
+                        index={hidden + idx + 1}
                         open={openStep === tool.key}
                         onToggle={() => setOpenStep((cur) => (cur === tool.key ? null : tool.key))}
                         onOpenPath={onOpenPath}
