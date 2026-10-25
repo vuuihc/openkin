@@ -343,7 +343,6 @@ const en: MessageTree = {
     statusFailed: "failed",
     statusCanceled: "canceled",
     statusLastSeen: "last seen",
-    historySection: "Earlier",
     interruptedGuide: "Interrupted the current round and sent this now",
     waitingOnYou: "{count} waiting on you · tap to answer",
     queuedGuide: "Queued — answered when the current round ends",

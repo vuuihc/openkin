@@ -73,15 +73,6 @@ export function IconProjects(p: IconProps) {
     </>,
   );
 }
-export function IconUsage(p: IconProps) {
-  return base(
-    p,
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </>,
-  );
-}
 export function IconAgents(p: IconProps) {
   return base(
     p,
@@ -243,10 +234,6 @@ export function IconKin(p: IconProps) {
     <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />,
   );
 }
-export function IconStar(p: IconProps) {
-  return base(p, <path d="M12 3l2.5 6L21 9l-5 4 2 7-6-4-6 4 2-7-5-4 6.5 0z" />);
-}
-
 export function IconPin(p: IconProps) {
   return base(p, <path d="M12 17v5M9 3h6l-1 7h3l-5 5-5-5h3L9 3z" />);
 }
@@ -302,17 +289,6 @@ export function IconArchive(p: IconProps) {
       <path d="M3 7h18v2H3z" />
       <path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9" />
       <path d="M10 13h4" />
-    </>,
-  );
-}
-
-export function IconMore(p: IconProps) {
-  return base(
-    p,
-    <>
-      <circle cx="12" cy="5" r="1.2" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="19" r="1.2" fill="currentColor" stroke="none" />
     </>,
   );
 }

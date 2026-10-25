@@ -1,6 +1,7 @@
 import {
   normalizePermissionMode,
   PERMISSION_MODE_LABEL_KEY,
+  PERMISSION_MODES,
   type PermissionMode,
 } from "../../lib/permissionMode";
 import { useT } from "../../i18n/react";
@@ -15,7 +16,10 @@ type Props = {
   onChange: (mode: PermissionMode) => void;
 };
 
-const OPTIONS: PermissionMode[] = ["default", "accept_edits", "yolo"];
+/** The modes, in the order the picker offers them. The list itself lives in
+ *  `lib/permissionMode` beside the label keys, so a mode added to one is a mode
+ *  the other knows about. */
+const OPTIONS = PERMISSION_MODES;
 
 /**
  * Compact session permission-mode control for the composer footer.

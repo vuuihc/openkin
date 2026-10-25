@@ -3,7 +3,6 @@ import {
   listWorkspaceTree,
   readTaskSourceFile,
   readWorkspaceFile,
-  writeWorkspaceFile,
   type TaskEvent,
   type TaskWorkspaceEntry,
   type WorkspaceFileResponse,
@@ -69,18 +68,6 @@ function isWritableWorkspaceState(state: string | undefined): boolean {
  */
 export function workspaceViewKey(view: WorkspaceView): string {
   return view.kind === "generation" ? `generation:${view.workspaceId}` : "source";
-}
-
-export function writeWorkspaceViewFile(
-  view: WorkspaceView,
-  taskId: string,
-  path: string,
-  content: string,
-): Promise<WorkspaceFileResponse> {
-  if (!view.editable || view.kind !== "generation") {
-    return Promise.reject(new Error("workspace view is read-only"));
-  }
-  return writeWorkspaceFile(taskId, view.workspaceId, path, content);
 }
 
 export function listWorkspaceViewTree(

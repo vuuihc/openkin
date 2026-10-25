@@ -53,15 +53,6 @@ export function ApprovalListSkeleton({ count = 2 }: { count?: number }) {
   );
 }
 
-export function PageHeaderSkeleton({ title }: { title: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <h1 className="text-hero leading-7 font-semibold text-kin-text">{title}</h1>
-      <SkeletonLine className="h-9 w-24" />
-    </div>
-  );
-}
-
 /** Hint shown when a request has been pending longer than ~10s (slow Funnel/link). */
 export function SlowConnectHint({ show }: { show: boolean }) {
   if (!show) return null;

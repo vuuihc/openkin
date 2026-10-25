@@ -330,7 +330,6 @@ const zh = {
     statusFailed: "失败",
     statusCanceled: "已取消",
     statusLastSeen: "上次可见",
-    historySection: "历史",
     interruptedGuide: "已打断当前轮次，这条现在就发",
     waitingOnYou: "{count} 项在等你处理 · 点这里回答",
     queuedGuide: "已排队：本轮结束后回答",

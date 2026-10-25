@@ -1,4 +1,3 @@
-export const TERMINAL_HEIGHT_KEY = "kin_terminal_height";
 export const MIN_TERMINAL_HEIGHT = 180;
 export const DEFAULT_TERMINAL_HEIGHT = 320;
 export const MAX_TERMINAL_VIEWPORT_RATIO = 0.7;

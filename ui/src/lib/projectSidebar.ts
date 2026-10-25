@@ -95,11 +95,6 @@ export function getPinnedProjects(): string[] {
   return readStringList(PINNED_KEY);
 }
 
-export function isProjectPinned(cwd: string): boolean {
-  const key = normCwd(cwd);
-  return getPinnedProjects().some((p) => normCwd(p) === key);
-}
-
 /**
  * Toggle pinned state. Returns true if now pinned, false if unpinned.
  * Appending to the end of the pin list, so newest pin gets lowest rank.

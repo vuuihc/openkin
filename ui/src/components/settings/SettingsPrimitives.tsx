@@ -1,11 +1,4 @@
-import {
-  type ButtonHTMLAttributes,
-  type KeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 export type SettingsTabId =
   "general" | "agents" | "providers" | "routing" | "remote" | "notifications" | "advanced";
@@ -303,79 +296,5 @@ export function StatusPill({
     >
       {children}
     </span>
-  );
-}
-
-export function Callout({
-  tone = "info",
-  children,
-}: {
-  tone?: "info" | "warning" | "danger";
-  children: ReactNode;
-}) {
-  return (
-    <div
-      role={tone === "danger" ? "alert" : "status"}
-      className={classes(
-        "rounded-lg border px-3 py-2 text-body leading-prose",
-        tone === "info" && "border-kin-blue/30 bg-kin-blue/15 text-kin-secondary",
-        tone === "warning" && "border-kin-orange/30 bg-kin-orange/10 text-kin-secondary",
-        tone === "danger" && "border-kin-red/30 bg-kin-red/10 text-kin-red-ink",
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-export function SettingsState({
-  state,
-  title,
-  description,
-}: {
-  state: "loading" | "empty" | "error";
-  title: string;
-  description?: ReactNode;
-}) {
-  return (
-    <div
-      role={state === "error" ? "alert" : "status"}
-      aria-busy={state === "loading"}
-      className={classes(
-        "rounded-lg border px-3 py-4 text-strong leading-5",
-        state === "error"
-          ? "border-kin-red/30 bg-kin-red/10 text-kin-red-ink"
-          : "border-[var(--kin-hairline)] bg-[var(--kin-fill)] text-kin-secondary",
-      )}
-    >
-      <div className="font-medium">{title}</div>
-      {description ? (
-        <div className="mt-1 text-body leading-4 text-kin-muted">{description}</div>
-      ) : null}
-    </div>
-  );
-}
-
-export function ActionButton({
-  variant = "secondary",
-  className,
-  children,
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "danger";
-}) {
-  return (
-    <button
-      type="button"
-      {...props}
-      className={classes(
-        variant === "primary" ? "kin-btn-primary" : "kin-btn-secondary",
-        variant === "danger" && "text-kin-red-ink",
-        "disabled:opacity-50",
-        className,
-      )}
-    >
-      {children}
-    </button>
   );
 }
