@@ -248,7 +248,6 @@ const zh = {
   },
   approval: {
     cardTitle: "需要权限",
-    focused: "已聚焦",
     approving: "批准中…",
     denying: "拒绝中…",
   },
@@ -696,6 +695,9 @@ const zh = {
     loadFailed: "加载失败",
     decisionFailed: "操作失败",
     fromWorker: "来自 worker {agent}",
+    focused: "已聚焦",
+    focusMissing: "这一条已经不在收件箱里了 —— 可能已经处理过，或者已经过期。",
+    focusShowAll: "看全部",
     execution: "执行 {id}",
     step: "步骤 {n}",
   },

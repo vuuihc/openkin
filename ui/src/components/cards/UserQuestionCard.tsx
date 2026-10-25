@@ -68,11 +68,13 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
     <div
       className={[
         "rounded-xl animate-slideIn overflow-hidden",
-        // Armed (the number keys are wired to this card) reads as the same
-        // solid edge its siblings `LimitCard` and `ApprovalCard` use — a 40%
-        // border here was *fainter* than the 55% on an unarmed card.
+        // Focused means "this is the one your notification named" — the same
+        // claim `ApprovalCard` draws, so it is drawn the same way: the app's
+        // blue, a 2px edge and a badge. An edge in the card's own orange was
+        // tried and is the wrong signal: a card nobody named already has an
+        // orange border, and thickening it leaves the eye comparing widths.
         focused
-          ? "border-2 border-kin-orange ring ring-kin-orange/25"
+          ? "border-2 border-kin-blue ring ring-kin-blue/20"
           : "border border-kin-orange/55 shadow-e2",
         "bg-gradient-to-b from-kin-orange/10 to-kin-orange/5",
       ].join(" ")}
@@ -84,6 +86,11 @@ export default function UserQuestionCard({ question, focused, busy, onAnswer }: 
           <span className="text-body font-semibold text-kin-orange-ink">
             {tr("question.cardTitle")}
           </span>
+          {focused && (
+            <span className="text-micro font-semibold uppercase tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5">
+              {tr("inbox.focused")}
+            </span>
+          )}
           {payload.header ? (
             <span className="ml-auto rounded-full border border-kin-orange/40 bg-kin-orange/10 px-2 py-0.5 text-caption text-kin-orange-ink">
               {payload.header}

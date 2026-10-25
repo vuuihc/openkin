@@ -58,7 +58,7 @@ func TestNotifyOnApproval(t *testing.T) {
 	}
 	waitStatus(t, e, task.ID, StatusRunning, 2*time.Second)
 
-	_, err = e.RequestApproval(ctx, CreateApprovalRequest{
+	appr, err := e.RequestApproval(ctx, CreateApprovalRequest{
 		TaskID: task.ID, Kind: "tool_use", Payload: json.RawMessage(`{}`),
 	})
 	if err != nil {
@@ -71,7 +71,10 @@ func TestNotifyOnApproval(t *testing.T) {
 	if hits.Load() == 0 {
 		t.Fatal("expected notification POST")
 	}
-	if got, _ := click.Load().(string); got != "http://host:7777/approvals" {
-		t.Fatalf("click=%q", got)
+	// The click has to name the approval this call created, not the inbox in
+	// general: that is the whole difference between a push you can act on from
+	// the lock screen and one that makes you go looking.
+	if got, _ := click.Load().(string); got != "http://host:7777/inbox?focus="+appr.ID {
+		t.Fatalf("click=%q, want focus on %s", got, appr.ID)
 	}
 }

@@ -70,7 +70,7 @@ export default function ApprovalCard({
           </span>
           {focused && (
             <span className="text-micro font-semibold uppercase tracking-label text-kin-blue-ink bg-kin-blue/15 rounded px-1.5 py-0.5">
-              {tr("approval.focused")}
+              {tr("inbox.focused")}
             </span>
           )}
           <span className="ml-auto text-caption text-kin-muted truncate max-w-[45%]" title={attr}>

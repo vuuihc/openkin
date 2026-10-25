@@ -261,7 +261,6 @@ const en: MessageTree = {
   },
   approval: {
     cardTitle: "Permission needed",
-    focused: "focused",
     approving: "Approving…",
     denying: "Denying…",
   },
@@ -720,6 +719,16 @@ const en: MessageTree = {
     loadFailed: "Failed to load",
     decisionFailed: "Decision failed",
     fromWorker: "From worker {agent}",
+    // The badge on the card a notification named. Both card kinds carry it, and
+    // it is also what the keyboard cursor looks like, so it says "this one" and
+    // not "from a notification".
+    focused: "focused",
+    // A deep link whose id is not in the box any more: handled on another
+    // device, expired, or outside the loaded window. Says what is true of all
+    // three rather than guessing which.
+    focusMissing:
+      "That one is not waiting any more — it may have been handled already, or expired.",
+    focusShowAll: "Show everything",
     execution: "execution {id}",
     step: "step {n}",
   },

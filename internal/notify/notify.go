@@ -87,6 +87,21 @@ func (s *Sender) DeepLink(ctx context.Context, path string) string {
 	return base + path
 }
 
+// inboxFocusLink points at the inbox, naming the one item the push is about.
+//
+// Approvals and questions both land on the same page, and the id is the whole
+// difference between "something needs you" and "this one needs you": the inbox
+// draws the card it names with a ring, scrolls to it, and says so when the id is
+// no longer there. An empty id falls back to the page itself — `?focus=` with
+// nothing after it is a link that claims to name an item and names nothing,
+// which the page can only report as "that item is gone".
+func (s *Sender) inboxFocusLink(ctx context.Context, id string) string {
+	if id == "" {
+		return s.DeepLink(ctx, "/inbox")
+	}
+	return s.DeepLink(ctx, "/inbox?focus="+url.QueryEscape(id))
+}
+
 // NotifyApproval sends an approval_requested notification.
 func (s *Sender) NotifyApproval(ctx context.Context, approvalID, taskID, title string) {
 	if title == "" {
@@ -96,7 +111,7 @@ func (s *Sender) NotifyApproval(ctx context.Context, approvalID, taskID, title s
 	if taskID != "" {
 		body = fmt.Sprintf("Task %s needs approval", shortID(taskID))
 	}
-	link := s.DeepLink(ctx, "/approvals")
+	link := s.inboxFocusLink(ctx, approvalID)
 	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
 }
 
@@ -109,7 +124,7 @@ func (s *Sender) NotifyUserQuestion(ctx context.Context, questionID, taskID, tit
 	if taskID != "" {
 		body = fmt.Sprintf("Task %s needs your answer", shortID(taskID))
 	}
-	link := s.DeepLink(ctx, "/inbox?focus="+url.QueryEscape(questionID))
+	link := s.inboxFocusLink(ctx, questionID)
 	s.Send(ctx, Payload{Title: title, Body: body, URL: link})
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, answerUserQuestion, decideApproval } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { usePendingResources, useTaskList } from "../api/useLiveResources";
@@ -7,6 +7,7 @@ import UserQuestionCard from "../components/cards/UserQuestionCard";
 import RunningTaskCard from "../components/cards/RunningTaskCard";
 import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
+import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
@@ -45,11 +46,36 @@ export default function ApprovalsPage() {
   const [searchParams] = useSearchParams();
   const focusId = searchParams.get("focus");
 
+  const focus = useMemo(
+    () => resolveInboxFocus(focusId, items, questions),
+    [focusId, items, questions],
+  );
+
   useEffect(() => {
-    if (!focusId || !items.length) return;
-    const i = items.findIndex((a) => a.id === focusId);
-    if (i >= 0) setFocusIdx(i);
-  }, [focusId, items]);
+    if (focus.kind === "approval") setFocusIdx(focus.idx);
+  }, [focus]);
+
+  /**
+   * The landing itself: bring the named card into view, once.
+   *
+   * A ring somewhere below the fold answers "which one?" with "one of these,
+   * further down". Once per id, so a live update or a keystroke cannot yank the
+   * page back while the person is reading it.
+   */
+  const hitRef = useRef<HTMLLIElement | null>(null);
+  const scrolledFor = useRef<string | null>(null);
+  const hitId = focusedId(focus);
+  useEffect(() => {
+    if (!hitId || loading || scrolledFor.current === hitId) return;
+    const el = hitRef.current;
+    if (!el) return;
+    scrolledFor.current = hitId;
+    el.scrollIntoView({ block: "center" });
+  }, [hitId, loading, focus]);
+
+  // A deep link that named a question takes the cursor off the approvals: the
+  // ring has to mean one thing, and `a`/`d` have to act on the card they ring.
+  const approvalsKeyboardLive = focus.kind !== "question";
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -57,6 +83,9 @@ export default function ApprovalsPage() {
         return;
       }
       if (!items.length) return;
+      // Nothing is ringed while a question holds the focus, and approving the
+      // first approval instead would be the worst kind of surprise.
+      if (!approvalsKeyboardLive) return;
       if (e.key === "j" || e.key === "J") setFocusIdx((i) => Math.min(items.length - 1, i + 1));
       else if (e.key === "k" || e.key === "K") setFocusIdx((i) => Math.max(0, i - 1));
       else if (e.key === "a" || e.key === "A") {
@@ -69,7 +98,7 @@ export default function ApprovalsPage() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [items, focusIdx]);
+  }, [items, focusIdx, approvalsKeyboardLive]);
 
   async function onDecide(id: string, decision: PendingDecision) {
     setBusy((b) => ({ ...b, [id]: decision }));
@@ -128,6 +157,20 @@ export default function ApprovalsPage() {
               : tr("inbox.waiting", { count: items.length + questions.length })}
         </p>
 
+        {/* The landing page explains a link that no longer names anything. Not
+            an error — a handled item is the normal end of a notification. */}
+        {!loading && !error && focus.kind === "missing" && (
+          <div
+            className="mt-4 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2 text-strong leading-5 text-kin-secondary"
+            data-testid="inbox-focus-missing"
+          >
+            {tr("inbox.focusMissing")}{" "}
+            <Link to="/inbox" className="font-medium text-kin-blue-ink hover:underline">
+              {tr("inbox.focusShowAll")}
+            </Link>
+          </div>
+        )}
+
         {loading && (
           <div className="mt-6 space-y-3">
             <SlowConnectHint show={slow} />
@@ -166,10 +209,10 @@ export default function ApprovalsPage() {
             </div>
             <ul className="space-y-3.5">
               {items.map((a, i) => (
-                <li key={a.id}>
+                <li key={a.id} ref={a.id === hitId ? hitRef : undefined}>
                   <ApprovalCard
                     approval={a}
-                    focused={i === focusIdx}
+                    focused={approvalsKeyboardLive && i === focusIdx}
                     busy={busy[a.id] ?? null}
                     onApprove={() => void onDecide(a.id, "approved")}
                     onDeny={() => void onDecide(a.id, "denied")}
@@ -187,9 +230,10 @@ export default function ApprovalsPage() {
             </div>
             <ul className="space-y-3.5">
               {questions.map((q) => (
-                <li key={q.id}>
+                <li key={q.id} ref={q.id === hitId ? hitRef : undefined}>
                   <UserQuestionCard
                     question={q}
+                    focused={focus.kind === "question" && q.id === focus.id}
                     busy={Boolean(answerBusy[q.id])}
                     onAnswer={(body) => void onAnswer(q.id, body)}
                   />

@@ -200,7 +200,27 @@ func TestDeepLink(t *testing.T) {
 	}
 }
 
-func TestNotifyApprovalUsesDeepLink(t *testing.T) {
+// TestNotifyApprovalNamesTheApproval: the push has to carry the id of the thing
+// it is about. Without it the link is the inbox in general and the person who
+// taps it lands on a list, not on the decision — which is the difference between
+// a notification you can act on from a phone and one you have to go looking
+// after. Same shape as the question push, so the page has one rule to implement.
+func TestNotifyApprovalNamesTheApproval(t *testing.T) {
+	s := &Sender{Store: memSettings{KeyBaseURL: "http://host:7777"}}
+
+	got := s.inboxFocusLink(context.Background(), "appr 1/2")
+	if got != "http://host:7777/inbox?focus=appr+1%2F2" {
+		t.Fatalf("approval link = %q", got)
+	}
+	// No id: the page, not a link that names nothing.
+	if got := s.inboxFocusLink(context.Background(), ""); got != "http://host:7777/inbox" {
+		t.Fatalf("empty-id link = %q", got)
+	}
+}
+
+// TestNotifyApprovalClickIsTheApprovalURL drives the real send path, so the link
+// asserted above is the link that leaves the machine.
+func TestNotifyApprovalClickIsTheApprovalURL(t *testing.T) {
 	var click string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		click = r.Header.Get("Click")
@@ -215,7 +235,6 @@ func TestNotifyApprovalUsesDeepLink(t *testing.T) {
 		},
 		Client: &http.Client{Timeout: 2 * time.Second},
 	}
-	// Use Send path via NotifyApproval — wait briefly.
 	s.NotifyApproval(context.Background(), "appr1", "task1", "Approval needed")
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -224,7 +243,7 @@ func TestNotifyApprovalUsesDeepLink(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if click != "http://host:7777/approvals" {
+	if click != "http://host:7777/inbox?focus=appr1" {
 		t.Fatalf("click = %q", click)
 	}
 }
