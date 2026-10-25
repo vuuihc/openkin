@@ -23,6 +23,13 @@ import MobileTabBar from "./MobileTabBar";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { isTerminalToggle, localTerminalCwd } from "../../lib/terminal";
+import {
+  SHELL_VIEW,
+  isPanelAvailable,
+  panelForView,
+  resolvePanel,
+  type PanelContext,
+} from "../../lib/panels";
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { displayUserPrompt } from "../../lib/attachments";
@@ -137,7 +144,6 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const [weekCost, setWeekCost] = useState<number | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [externalSessions, setExternalSessions] = useState<AgentSession[]>([]);
   const [agentCatalog, setAgentCatalog] = useState<AgentInfo[]>([]);
   const agentCatalogRequest = useRef(0);
@@ -253,9 +259,25 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     navigate(DRAFT_PATH);
   }, [navigate]);
 
+  // The terminal is the shell's panel, and the shell's panel is the one keyed to
+  // no session: there is one instance, and its directory follows the route. It
+  // goes through the same store as the session panels, so `Ctrl+\`` over an open
+  // workspace panel replaces it instead of painting on top of it.
+  const shownPanel = useAppStore((s) => s.shownPanel);
+  const togglePanel = useAppStore((s) => s.togglePanel);
+  // The terminal belongs to no session, so its view key is the shell's. It is
+  // still rendered unconditionally on desktop and told whether to be open, even
+  // though a closed panel is invisible: `TerminalPanel` mounts its PTY on first
+  // open and keeps it, and unmounting on close would kill the shell.
+  const shellCtx: PanelContext = { taskId: null, remote: false, desktop };
+  // Asked of the table rather than of `desktop` directly, so "where is there a
+  // terminal" has one answer and the shortcut, the panel and the palette cannot
+  // disagree about it.
+  const terminalAvailable = isPanelAvailable("terminal", shellCtx);
+  const terminalPanel = resolvePanel(panelForView(shownPanel, SHELL_VIEW), shellCtx);
   const toggleTerminal = useCallback(() => {
-    setTerminalOpen((value) => !value);
-  }, []);
+    togglePanel(SHELL_VIEW, "terminal");
+  }, [togglePanel]);
 
   const openNewSessionInProject = useCallback(
     (cwd: string) => {
@@ -332,7 +354,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         e.preventDefault();
         setPaletteOpen((v) => !v);
       }
-      if (desktop && isTerminalToggle(e)) {
+      if (terminalAvailable && isTerminalToggle(e)) {
         e.preventDefault();
         e.stopPropagation();
         toggleTerminal();
@@ -340,7 +362,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [desktop, openNewChat, toggleTerminal]);
+  }, [terminalAvailable, openNewChat, toggleTerminal]);
 
   // Which machine the open task runs on. Read from the task resource the page
   // itself uses, not from the sidebar list: that list is capped and filtered by
@@ -528,13 +550,13 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             a focused flow with its own way out. */}
         {location.pathname !== DRAFT_PATH && <MobileTabBar pendingCount={pendingCount} />}
 
-        {/* Terminal panel — desktop only */}
-        {desktop && (
+        {/* Terminal panel — the shell's own panel, desktop only */}
+        {terminalAvailable && (
           <TerminalPanel
-            open={terminalOpen}
+            open={terminalPanel === "terminal"}
             cwd={terminalCwd}
             notice={terminalNotice}
-            onClose={() => setTerminalOpen(false)}
+            onClose={() => togglePanel(SHELL_VIEW, "terminal")}
           />
         )}
       </div>
@@ -544,7 +566,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         onClose={() => setPaletteOpen(false)}
         onNewChat={openNewChat}
         onToggleTerminal={toggleTerminal}
-        terminalAvailable={desktop}
+        terminalAvailable={terminalAvailable}
       />
     </div>
   );

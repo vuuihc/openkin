@@ -41,8 +41,6 @@ const ALLOWED = new Map([
   ["src/components/layout/PanelSurface.tsx", "the one session surface"],
   ["src/components/layout/Sidebar.tsx", "mobile navigation drawer, over the whole viewport"],
   ["src/pages/NewChatPage.tsx", "mobile sheet, over the whole viewport"],
-  // S2 folds the terminal into the registry and this line goes away.
-  ["src/components/terminal/TerminalPanel.tsx", "not yet in the registry (S2)"],
 ]);
 
 function sourceFiles(): string[] {

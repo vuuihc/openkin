@@ -25,9 +25,18 @@
  * the only way to add an id is to add it to the list, and the list is what the
  * test walks.
  */
-export const PANEL_IDS = ["files", "pr", "publish"] as const;
+export const PANEL_IDS = ["files", "pr", "publish", "terminal"] as const;
 
 export type PanelId = (typeof PANEL_IDS)[number];
+
+/**
+ * The view key for the panels that belong to no session.
+ *
+ * There is one such panel — the terminal — and it is the shell's because it is
+ * one instance whose directory follows the route, not one per session. Session
+ * ids are never empty, so this key cannot collide with one.
+ */
+export const SHELL_VIEW = "";
 
 /**
  * What the table needs to know about the place it is being asked about. Built by
@@ -38,6 +47,8 @@ export type PanelContext = {
   taskId: string | null;
   /** The session's checkout is on another machine, so publishing applies to it. */
   remote: boolean;
+  /** This is the desktop shell, which is the only place a terminal can exist. */
+  desktop: boolean;
 };
 
 export type PanelDescriptor = {
@@ -70,6 +81,14 @@ export const PANELS: PanelDescriptor[] = [
     titleKey: "publish.title",
     available: (ctx) => ctx.remote,
   },
+  {
+    // The terminal is a shell on the machine running the console, so it exists
+    // only in the desktop shell. On the phone it would be a terminal for a
+    // machine you are not holding.
+    id: "terminal",
+    titleKey: "terminal.title",
+    available: (ctx) => ctx.desktop,
+  },
 ];
 
 export function panelById(id: PanelId): PanelDescriptor {
@@ -93,13 +112,44 @@ export function availablePanels(ctx: PanelContext): PanelDescriptor[] {
 }
 
 /**
- * Which panel to show after `id` is asked for: the one already open closes, any
- * other is replaced. Two open at once is not a layout this shell has — they all
- * render in the same place at the same z-index — so this is the only answer that
- * keeps the invariant true rather than remembered.
+ * The one panel that is open, and the view it belongs to.
+ *
+ * One value with one `view`, rather than a map of view to panel, because "at
+ * most one surface" is the invariant this layer exists to hold and this is the
+ * shape that cannot express anything else. A map can: `{session: "files",
+ * shell: "terminal"}` is two surfaces, both at `z-40`, one of them under the
+ * other with its close button unreachable — which is the bug.
+ *
+ * The `view` is what keeps switching sessions from carrying a panel across. A
+ * session reads this only when the `view` is its own, so switching to another
+ * session shows that session's panel (usually none) and switching back shows
+ * this one again — the panel is remembered for the place it was opened, which is
+ * what "switching tabs does not lose state" asks for.
  */
-export function nextPanel(current: PanelId | null, id: PanelId): PanelId | null {
-  return current === id ? null : id;
+export type OpenPanel = { view: string; id: PanelId } | null;
+
+/** What `view` is showing, if the open panel belongs to it. */
+export function panelForView(open: OpenPanel, view: string): PanelId | null {
+  return open && open.view === view ? open.id : null;
+}
+
+/**
+ * What asking `view` for `id` does to the open panel.
+ *
+ * Asking for the one already open closes it; anything else replaces it,
+ * whichever view it belonged to. So the terminal yields to the workspace panel
+ * and the workspace panel yields to the terminal — one rule, both directions,
+ * no preference between them to remember. What it gives up is the memory of the
+ * panel it replaced; one surface is the point, and one memory is what that costs.
+ */
+export function nextOpenPanel(open: OpenPanel, view: string, id: PanelId): OpenPanel {
+  const shown = panelForView(open, view);
+  return shown === id ? null : { view, id };
+}
+
+/** Closing is only ever about the view in front; another view's panel is not yours to close. */
+export function closeOpenPanel(open: OpenPanel, view: string): OpenPanel {
+  return open && open.view === view ? null : open;
 }
 
 /**

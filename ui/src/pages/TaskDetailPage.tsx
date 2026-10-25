@@ -80,11 +80,12 @@ import { remoteMachine } from "../lib/devices";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
+import { isKinDesktop } from "../lib/desktop";
 import { normalizePermissionMode, type PermissionMode } from "../lib/permissionMode";
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelsForAgent } from "../lib/agentModels";
-import { isPanelAvailable, resolvePanel, type PanelContext } from "../lib/panels";
+import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -177,13 +178,12 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }, []);
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
-  // Which panel is over this session. One writer for the whole shell, so the
-  // task page and the terminal can no longer both believe they are on top —
-  // keyed by session, so switching tabs neither carries one session's panel onto
-  // another nor loses it.
-  const activePanel = useAppStore((s) => s.panelsBySession[id]);
-  const openPanel = useAppStore((s) => s.openPanel);
-  const closePanel = useAppStore((s) => s.closePanel);
+  // Which panel is over the app, and the view it belongs to. One value, one
+  // writer, so the terminal and this page can no longer both believe they are on
+  // top; `panelForView` is what makes it this session's business and no other's.
+  const shownPanel = useAppStore((s) => s.shownPanel);
+  const showPanel = useAppStore((s) => s.showPanel);
+  const hidePanel = useAppStore((s) => s.hidePanel);
   const togglePanel = useAppStore((s) => s.togglePanel);
   const slow = useSlowHint(loading);
 
@@ -766,7 +766,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       pushToast(tr("workspace.outsideWorkspace"), "error");
       return;
     }
-    openPanel(id, "files");
+    showPanel(id, "files");
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
     setWorkspaceOpenNonce((n) => n + 1);
@@ -779,11 +779,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
 
   function openFilesPanel() {
-    openPanel(id, "files");
+    showPanel(id, "files");
   }
 
   function openPublishPanel() {
-    openPanel(id, "publish");
+    showPanel(id, "publish");
   }
 
   function togglePrPanel() {
@@ -924,16 +924,20 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     }
   }
   const machine = remoteMachine(machines, task.executing_device_id);
-  // What the registry is asked about. Built here because this is where the two
-  // facts it needs exist: which session this is, and whether its checkout is on
-  // another machine. `resolvePanel` is what enforces availability — a panel that
-  // stopped applying (the session moved to a checkout the Hub holds) closes
-  // rather than rendering in a state it is not offered in.
-  const panelCtx: PanelContext = { taskId: task.id, remote: machine !== null };
-  const shownPanel = resolvePanel(activePanel ?? null, panelCtx);
-  const filesOpen = shownPanel === "files";
-  const prOpen = shownPanel === "pr";
-  const publishOpen = shownPanel === "publish";
+  // What the registry is asked about. Built here because this is where the facts
+  // it needs exist: which session this is, and whether its checkout is on another
+  // machine. `resolvePanel` is what enforces availability — a panel that stopped
+  // applying (the session moved to a checkout the Hub holds) closes rather than
+  // rendering in a state it is not offered in.
+  const panelCtx: PanelContext = {
+    taskId: task.id,
+    remote: machine !== null,
+    desktop: isKinDesktop(),
+  };
+  const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
+  const filesOpen = panel === "files";
+  const prOpen = panel === "pr";
+  const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   const hostAgentName =
@@ -1312,7 +1316,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               // Asked of the registry rather than of `machine`, so the rule has
               // one home — the same one `resolvePanel` just consulted.
               onPublish={isPanelAvailable("publish", panelCtx) ? openPublishPanel : undefined}
-              onClose={() => closePanel(id)}
+              onClose={() => hidePanel(id)}
             />
           </div>
         </PanelSurface>
@@ -1335,7 +1339,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           // repository chip draws; the branch strip beside it asks the machine
           // on its own and is not this.
           onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => closePanel(id)}
+          onClose={() => hidePanel(id)}
         />
       )}
 
@@ -1349,7 +1353,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           // "not on this machine yet" instead of "nowhere", and what lets the
           // panel ask the machine that has it.
           elsewhere={machine}
-          onClose={() => closePanel(id)}
+          onClose={() => hidePanel(id)}
         />
       )}
     </div>

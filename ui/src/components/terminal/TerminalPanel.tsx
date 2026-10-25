@@ -12,6 +12,7 @@ import { pickDirectory } from "../../lib/desktop";
 import { projectLabel, shortPath } from "../../lib/paths";
 import { effectiveTerminalCwd } from "../../lib/terminal";
 import { IconChevron, IconPlus, IconTerminal, IconX } from "../icons";
+import PanelSurface from "../layout/PanelSurface";
 import TerminalProfileMenu from "./TerminalProfileMenu";
 import TerminalTabs from "./TerminalTabs";
 import TerminalView from "./TerminalView";
@@ -229,17 +230,15 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
   const defaultCreateId = defaultProfileId || profiles[0]?.id || "";
 
   // Keep the component mounted after first open so PTY sockets survive toggles.
+  // That is also why the surface is told it is closed rather than not rendered:
+  // see `PanelSurface`'s `hidden`.
   if (!hasOpened) return null;
 
   return (
-    <div
-      className={[
-        "absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad",
-        open ? "flex flex-col" : "hidden",
-      ].join(" ")}
-      role="complementary"
-      aria-label={tr("terminal.title")}
-      aria-hidden={!open}
+    <PanelSurface
+      label={tr("terminal.title")}
+      className={open ? "flex flex-col" : undefined}
+      hidden={!open}
     >
       <div className="flex h-full min-h-0 w-full flex-col">
         {/* Header — matches WorkspacePanel chrome */}
@@ -390,6 +389,6 @@ export default function TerminalPanel({ open, cwd, onClose, notice }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </PanelSurface>
   );
 }
