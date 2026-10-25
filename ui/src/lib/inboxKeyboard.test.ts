@@ -1,12 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { type InboxKeyState, inboxKeyOutcome } from "./inboxKeyboard";
+import { type InboxKeyState, inboxKeyboardArmed, inboxKeyOutcome } from "./inboxKeyboard";
 
 const items = [{ id: "a1" }, { id: "a2" }, { id: "a3" }];
 
-/** Live, cursor on the first approval. */
-const live: InboxKeyState = { focusIdx: 0, cursorTakenOver: false, armed: true };
+/** No deep link: the cursor is the person's from the start. */
+const live: InboxKeyState = { focusIdx: 0, cursorTakenOver: false, parkedQuestionId: null };
 /** A deep link that named a question parked the cursor. */
-const parked: InboxKeyState = { focusIdx: 0, cursorTakenOver: false, armed: false };
+const parked: InboxKeyState = { focusIdx: 0, cursorTakenOver: false, parkedQuestionId: "q1" };
+/** ...and then the person pressed `j`. */
+const taken: InboxKeyState = { focusIdx: 0, cursorTakenOver: true, parkedQuestionId: "q1" };
+
+describe("whether the approvals answer to keys", () => {
+  // Exported rather than re-derived in the page: the page's own copy of this
+  // rule was a line no test could reach, and `armed = true` survived a full
+  // mutation sweep while restoring the exact bug the rule prevents.
+  it("is false only while a question is parked and nobody has moved the cursor", () => {
+    expect(inboxKeyboardArmed(live)).toBe(true);
+    expect(inboxKeyboardArmed(parked)).toBe(false);
+    expect(inboxKeyboardArmed(taken)).toBe(true);
+  });
+});
 
 describe("the inbox keyboard model", () => {
   it("rings nothing and decides nothing while a question holds the focus", () => {
@@ -19,27 +32,52 @@ describe("the inbox keyboard model", () => {
     });
   });
 
-  it("lets j enter the list at the top and k at the bottom, taking the cursor back", () => {
+  it("lets j enter the list at the top and k at the bottom, taking the cursor", () => {
     // The whole transition, not just the index: the page reads `cursorTakenOver`
     // straight out of the returned state, so a press that reports the move but
     // not the takeover leaves the ring and the keyboard disagreeing.
     expect(inboxKeyOutcome("j", items, parked)).toEqual({
       kind: "move",
-      state: { focusIdx: 0, cursorTakenOver: true, armed: true },
-      tookOver: true,
+      state: { ...parked, focusIdx: 0, cursorTakenOver: true },
+      moved: "tookOver",
     });
     expect(inboxKeyOutcome("k", items, parked)).toEqual({
       kind: "move",
-      state: { focusIdx: 2, cursorTakenOver: true, armed: true },
-      tookOver: true,
+      state: { ...parked, focusIdx: 2, cursorTakenOver: true },
+      moved: "tookOver",
     });
   });
 
-  it("stops taking the cursor over once live", () => {
-    expect(inboxKeyOutcome("j", items, live)).toEqual({
+  it("walks back out of the list to the parked question", () => {
+    // A stray `j` used to be a one-way door: the question kept advertising its
+    // `1`–`9` shortcuts while those keys did nothing, and only a reload brought
+    // them back.
+    expect(inboxKeyOutcome("k", items, taken)).toEqual({
+      kind: "move",
+      state: { ...taken, focusIdx: 0, cursorTakenOver: false },
+      moved: "returned",
+    });
+    // Only from the top, and only when something is parked to go back to.
+    expect(inboxKeyOutcome("k", items, { ...taken, focusIdx: 1 })).toEqual({
+      kind: "move",
+      state: { ...taken, focusIdx: 0 },
+      moved: "cursor",
+    });
+    expect(inboxKeyOutcome("k", items, { ...live, focusIdx: 0 })).toEqual({
+      kind: "move",
+      state: { ...live, focusIdx: 0 },
+      moved: "cursor",
+    });
+    // And once back, the approvals are disarmed again — that is the whole point.
+    const back = inboxKeyOutcome("k", items, taken);
+    expect(back.kind === "move" && inboxKeyboardArmed(back.state)).toBe(false);
+  });
+
+  it("stops taking the cursor once live", () => {
+    expect(inboxKeyOutcome("j", items, { ...live, focusIdx: 0 })).toEqual({
       kind: "move",
       state: { ...live, focusIdx: 1 },
-      tookOver: false,
+      moved: "cursor",
     });
   });
 
@@ -47,12 +85,12 @@ describe("the inbox keyboard model", () => {
     expect(inboxKeyOutcome("j", items, { ...live, focusIdx: 2 })).toEqual({
       kind: "move",
       state: { ...live, focusIdx: 2 },
-      tookOver: false,
+      moved: "cursor",
     });
     expect(inboxKeyOutcome("k", items, live)).toEqual({
       kind: "move",
       state: live,
-      tookOver: false,
+      moved: "cursor",
     });
   });
 

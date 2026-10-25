@@ -8,7 +8,7 @@ import RunningTaskCard from "../components/cards/RunningTaskCard";
 import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
-import { inboxKeyOutcome } from "../lib/inboxKeyboard";
+import { inboxKeyboardArmed, inboxKeyOutcome } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
@@ -85,13 +85,20 @@ export default function ApprovalsPage() {
   // A deep link that named a question parks the inbox's keyboard cursor: the
   // ring has to mean one thing, and `a`/`d` act on the card they ring — so until
   // someone moves the cursor themselves, nothing is ringed and `a`/`d` do
-  // nothing. `j`/`k` are navigation, not a decision, and they take it back.
+  // nothing. `j`/`k` are navigation, not a decision, and they take it back;
+  // `k` from the top of the list gives it back again.
   const [cursorTakenOver, setCursorTakenOver] = useState(false);
-  const approvalsKeyboardLive = focus.kind !== "question" || cursorTakenOver;
+  // The takeover belongs to the link it interrupted, not to the page. Without
+  // this, a `j` on one deep link would leave the *next* question un-ringed and —
+  // since the ring and the keys move together — keyboard-dead on arrival.
+  useEffect(() => setCursorTakenOver(false), [focusId]);
+  const parkedQuestionId = focus.kind === "question" ? focus.id : null;
+  const keyState = { focusIdx, cursorTakenOver, parkedQuestionId };
+  const approvalsKeyboardLive = inboxKeyboardArmed(keyState);
   // ...and the ring moves with the cursor, so exactly one card wears it. Leaving
   // the question ringed after a `j` drew two cards both claiming to be the one
   // the notification named — measured, not theorised.
-  const questionFocusId = !cursorTakenOver && focus.kind === "question" ? focus.id : null;
+  const questionFocusId = approvalsKeyboardLive ? null : parkedQuestionId;
 
   // The ids this page decided or answered itself. A link that named one of them
   // is spent, not stale, and the page should not answer the notification it just
@@ -108,20 +115,20 @@ export default function ApprovalsPage() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      const action = inboxKeyOutcome(e.key, items, {
-        focusIdx,
-        cursorTakenOver,
-        armed: approvalsKeyboardLive,
-      });
+      const action = inboxKeyOutcome(e.key, items, keyState);
       if (action.kind === "move") {
         setCursorTakenOver(action.state.cursorTakenOver);
         setFocusIdx(action.state.focusIdx);
-        // Ending the parked state can ring a card the person cannot see:
+        // Taking over or walking back can ring a card the person cannot see:
         // approvals render above questions, so `j` from a question deep link
-        // lands off the top of the screen and would otherwise look like nothing
-        // happened. `nearest` moves the page only if it has to.
-        if (action.tookOver) {
-          const id = items[action.state.focusIdx]?.id;
+        // lands off the top of the screen and `k` back onto a question that is
+        // below the fold — either would look like nothing happened. `nearest`
+        // moves the page only if it has to.
+        if (action.moved !== "cursor") {
+          const id =
+            action.moved === "returned"
+              ? action.state.parkedQuestionId
+              : items[action.state.focusIdx]?.id;
           if (id) rowRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
         }
       } else if (action.kind === "decide") {
@@ -272,7 +279,16 @@ export default function ApprovalsPage() {
             </div>
             <ul className="space-y-3.5">
               {questions.map((q) => (
-                <li key={q.id} ref={q.id === hitId ? hitRef : undefined}>
+                <li
+                  key={q.id}
+                  ref={(node) => {
+                    // Also in `rowRefs`: `k` from the top of the approvals walks
+                    // back to this card, and that move has to be visible.
+                    if (node) rowRefs.current.set(q.id, node);
+                    else rowRefs.current.delete(q.id);
+                    if (q.id === hitId) hitRef.current = node;
+                  }}
+                >
                   <UserQuestionCard
                     question={q}
                     focused={q.id === questionFocusId}
