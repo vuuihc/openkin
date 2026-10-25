@@ -1095,10 +1095,22 @@ func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseSt
 // The set below deliberately includes the terminal statuses. Reconciliation
 // after a restart finishes a task that a crash already marked ended — a
 // `failed` row whose work turned out to have landed becomes `succeeded` — so a
-// terminal-to-terminal write is a thing this must keep doing. What it means is
-// that the store cannot be the gate on "a task ends once"; the gate is the
-// engine's active-run entry, which is why every writer of a terminal status has
-// to retire that entry in the same critical section as the write.
+// terminal-to-terminal write is a thing this must keep doing. What follows is
+// that the store cannot be the gate on "a task ends once"; a plain update
+// guarded by the row's own status would have to refuse exactly the write
+// reconciliation exists to make.
+//
+// The gate is the engine's active-run entry instead, and it holds because the
+// two sides that can meet while a delivery for one task is in flight both go
+// through it: `finishRun` and `finishQueuedRun` refuse to write unless the
+// entry still names their execution and retire it under the same lock, while
+// `cancelTask` and `cancelUnstarted` retire it in the critical section that
+// carries their own write. Those four are the protocol. The other writers of a
+// terminal status are not part of it — the restart reconciliation in
+// workspace_lifecycle.go, `failStart`'s no-execution branch, and the patches
+// that move a row *out* of a terminal state when a follow-up revives it — and
+// each is safe only for where it runs, not because of anything this function
+// enforces.
 func (s *Store) FinishTask(
 	ctx context.Context,
 	id, status string,

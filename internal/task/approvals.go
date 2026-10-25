@@ -531,14 +531,20 @@ func (e *Engine) queuedFollowUp(ctx context.Context, id string, t store.Task, re
 // it is and the task usually running, so the sender-side caller stays quiet and a
 // later turn delivers it.
 //
-// The report is the last thing standing between an unanswered message and silence,
-// so its own failure cannot be swallowed: it goes into the drop ledger the persist
-// diagnostic reads (noteDroppedEvent). Not criticalPersistFail, which is what an
-// `error` event written through the run-scoped writer would set: that flag is read
-// by the *next* run to finish, and both callers here arrive when there is no run
-// left to score -- the cancel that refused the message either ended the task or is
-// about to, and the finalizer's canceled branch returns before it consults the flag.
-// Parking it there would fail some later, unrelated turn of the same task.
+// The report is the last thing standing between an unanswered message and
+// silence, so its own failure must not vanish without a trace: it goes into the
+// drop ledger the persist diagnostic reads (noteDroppedEvent). That is weaker
+// than a guarantee and worth being exact about -- the ledger is drained by the
+// next successful run-scoped write for the same task, and both callers arrive
+// when no run is writing, so on a task nobody revives the entry simply stays
+// there. A later turn of that task is what turns it into a visible note.
+//
+// Not criticalPersistFail, which is what an `error` event written through the
+// run-scoped writer would set: that flag is read by the *next* run to finish,
+// and both callers here arrive when there is no run left to score -- the cancel
+// that refused the message either ended the task or is about to, and the
+// finalizer's canceled branch returns before it consults the flag. Parking it
+// there would fail some later, unrelated turn of the same task.
 func (e *Engine) reportUndelivered(ctx context.Context, id string, cause error) {
 	payload, _ := json.Marshal(map[string]string{"message": cause.Error()})
 	ev, err := e.store.AppendEvent(ctx, id, "error", payload)
@@ -1019,7 +1025,36 @@ func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req
 	}
 
 	e.mu.Lock()
+	// The status is read again inside this hold, because the write above is the only
+	// thing that made the task runnable and a cancel can land between it and here.
+	// That cancel scanned the queue under this lock, found no entry -- the entry is
+	// installed below -- and so reached `cancelUnstarted` with no label to read: it
+	// stayed silent, and it had to, because at the moment it looked, this delivery
+	// had not yet claimed the message would be answered. Reading the row under the
+	// same lock is what makes the two decisions meet: whichever side gets the lock
+	// first decides, and the other one sees it. So a task that is already canceled
+	// here is a delivery this side lost, the sentence for the message is this side's
+	// to write (`ErrTaskCanceled`; `deliverQueued` names the message), and the refusal
+	// is also what keeps a canceled task out of the start queue -- `pump` would pop
+	// the entry, `startOne` would find the row not queued and back out, which costs a
+	// claim and a slot for nothing.
+	//
+	// Only `canceled` refuses. Every other status is a delivery that still has its
+	// turn to start, and the check must not grow into a general "is the row what I
+	// wrote" gate: a retry or a restart queue drain that made the same row queued is
+	// a duplicate of this delivery, not a loss of it.
+	if cur, err := e.store.GetTask(ctx, id); err == nil && cur.Status == StatusCanceled {
+		e.mu.Unlock()
+		return store.Task{}, store.ErrTaskCanceled
+	}
 	e.enqueueLocked(id)
+	// The label goes in beside the queue entry, in one critical section with it:
+	// the cancel scans the queue under this lock, so a cancel that finds the entry
+	// is guaranteed to find the message the run was going to answer, and one that
+	// does not find the entry will not report a message this run never owed.
+	// `req.Prompt` rather than the task's prompt, which is the run prompt and can
+	// be a context pack (see Engine.queuedMessage).
+	e.queuedMessage[id] = messageLabel(req.Prompt)
 	e.mu.Unlock()
 	e.pump()
 

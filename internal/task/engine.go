@@ -185,6 +185,29 @@ type Engine struct {
 	workspaceCommitting map[string]string
 	// pendingFollowUp is applied after an in-flight turn is interrupted (steer / insert prompt).
 	pendingFollowUp map[string]pendingFollowUp
+	// queuedMessage labels the message the task's not-yet-started run exists to
+	// answer, for a reader of the transcript.
+	//
+	// Two facts make it necessary. The message a person sent is not the text the
+	// run receives: a handoff, an @mention turn and an interrupted one all reach
+	// the adapter wrapped in a context pack, so the task row's prompt -- the only
+	// other place the text survives once the queue row is popped -- is not
+	// something a person would recognise as their message. And the queue row *is*
+	// popped at delivery, so a cancel that lands between the delivery and the
+	// start has nothing left to quote when it reports the message as lost.
+	//
+	// Written where a message becomes a queued run (`applyFollowUp`, in one critical
+	// section with the enqueue and with the read that refuses a row a cancel already
+	// took; the interrupt sites arrive through its `applyFollowUpPrepared` wrapper)
+	// and read where a queued run is ended
+	// before it starts (cancelUnstarted, which reports it). Cleared where that
+	// stops being true -- the adapter has been handed the prompt (startOne and
+	// registerWorkerHandles, one for each way a run is started), the start failed
+	// (failStartWithExecution), the cancel killed a live run instead
+	// (cancelTask's handle branch), or the task is gone (Delete). An entry
+	// therefore means exactly "a follow-up the user can see that no run has been
+	// handed yet".
+	queuedMessage map[string]string
 	// criticalPersistFail forces a non-success terminal state when a final
 	// result, approval event, or user-visible message could not be stored.
 	criticalPersistFail map[string]error
@@ -327,6 +350,7 @@ func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		activeRuns:          make(map[string]string),
 		workspaceCommitting: make(map[string]string),
 		pendingFollowUp:     make(map[string]pendingFollowUp),
+		queuedMessage:       make(map[string]string),
 		criticalPersistFail: make(map[string]error),
 		persistGaps:         make(map[string]*persistGap),
 		ctx:                 ctx,
@@ -1850,6 +1874,11 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 			delete(e.handles, id)
 			delete(e.handleGroups, id)
 			delete(e.canceled, id)
+			// A live run is being killed, not a delivery being lost: the adapter was
+			// handed the prompt, so there is no unanswered message to report -- and
+			// the label has to go, or a later cancel that finds no run would report
+			// this turn's message as never delivered.
+			delete(e.queuedMessage, id)
 		}
 		e.mu.Unlock()
 		if updateErr != nil {
@@ -1869,8 +1898,8 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	return e.cancelUnstarted(ctx, id)
 }
 
-// cancelUnstarted writes the cancel for a task that has not been handed to an
-// adapter yet, and retires the run it may have been claimed by, in one critical
+// cancelUnstarted writes the cancel for a task that no run has been registered
+// for, and retires the run it may have been claimed by, in one critical
 // section -- which is the entire reason this is a function.
 //
 // The two halves must not be separate steps. A delivery that the guarded write
@@ -1882,22 +1911,58 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 // ended once. Holding `e.mu` across both closes it, because `finishRun` reads
 // the same map under the same lock.
 //
-// Both callers reach here with a task that is in the queue or has been popped
-// from it but not started, so `allowQueued` is what lets the write land at all.
+// The two callers arrive with different rows. One took the task out of the
+// queue, so its row still reads `queued` and `allowQueued` is what lets the
+// write land at all. The other had no queue entry and no handle, which is
+// startOne between its durable queued-to-running claim and handle
+// registration: that row reads `running`, which the write would accept anyway,
+// and the claim is the reason there is an active-run entry here to retire. What
+// both share is the state the two halves of this function exist for: no handle
+// is registered for the task, so no delivery of its own is in flight — the
+// queue path because pump has not claimed it, the other because startOne has
+// claimed it but has not come back from Adapter.Start. Retiring the entry costs
+// nothing where there is none and is the whole point where there is one.
+//
+// Not registering a handle is not the same as the adapter never seeing the
+// prompt, though. startOne calls Adapter.Start before it registers, so the
+// second caller can land while that call is out; the turn it was starting is
+// then killed by the cancellation marker rather than by anything here.
 // The store write is inside the lock and the publish is outside it, which is the
 // split `finishRun` and the running-task branch above already use: publishing
 // fans out to subscribers, and the lock is not held across that anywhere in this
 // file.
+//
+// It is also where a follow-up that a cancel ended before its turn started gets
+// its sentence: the message is in the transcript and nothing else will explain
+// why it went unanswered (see Engine.queuedMessage). The report is written after
+// the unlock and only when the cancel actually landed, and it is the same
+// sentence the refused-delivery path writes, because it is the same loss.
 func (e *Engine) cancelUnstarted(ctx context.Context, id string) (store.Task, error) {
 	now := e.nowMilli()
 	e.mu.Lock()
 	err := e.store.FinishTask(ctx, id, StatusCanceled, now, nil, nil, true /*allowQueued*/)
+	var undelivered string
 	if err == nil {
+		// The run this task was waiting for never started, so nothing answered the
+		// follow-up it was created for -- and the queue row that would have named it
+		// was popped when the message was delivered. Taken out of the map here, in
+		// the same hold as the write that makes the loss final, so a revive landing
+		// after this cannot have its own message reported as lost by a cancel that
+		// had already made up its mind.
+		undelivered = e.queuedMessage[id]
+		delete(e.queuedMessage, id)
 		delete(e.activeRuns, id)
 	}
 	e.mu.Unlock()
 	if err != nil {
 		return store.Task{}, err
+	}
+	if undelivered != "" {
+		// The same sentence a delivery that was refused writes, because it is the
+		// same loss from the reader's side: a bubble in the transcript that nothing
+		// will answer, and no other event saying why.
+		e.reportUndelivered(ctx, id, fmt.Errorf("the queued message %s could not be delivered: %w",
+			undelivered, store.ErrTaskCanceled))
 	}
 	return e.publishFinishedTask(ctx, id, StatusCanceled)
 }
@@ -1942,6 +2007,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	delete(e.canceled, id)
 	delete(e.pendingFollowUp, id)
 	delete(e.activeRuns, id)
+	delete(e.queuedMessage, id)
 	e.mu.Unlock()
 
 	e.resetAgentSession(ctx, t.Agent, id)
@@ -2417,6 +2483,12 @@ func (e *Engine) startOne(id, turnExecutionID string) {
 		return
 	}
 	e.handles[id] = h
+	// The adapter has been handed the prompt, so the message is now something a
+	// turn is answering rather than something a cancel can lose: the label's one
+	// use is over (see Engine.queuedMessage), and leaving it would let a much later
+	// cancel -- of a task this turn left in some other non-terminal state -- name
+	// this message as never delivered.
+	delete(e.queuedMessage, id)
 	// If cancel raced, signal now.
 	if e.canceled[id] {
 		e.mu.Unlock()
@@ -2463,6 +2535,13 @@ func (e *Engine) failStartWithExecution(
 			e.bus.PublishEvent(ev)
 		}
 	}
+	// A start that failed is a different outcome from a message that was lost
+	// silently: the event above says the turn could not begin, and it is written
+	// for the same reader. The label goes with the run it was written for, so a
+	// later cancel does not add a second sentence about this message.
+	e.mu.Lock()
+	delete(e.queuedMessage, id)
+	e.mu.Unlock()
 	var (
 		t   store.Task
 		err error
