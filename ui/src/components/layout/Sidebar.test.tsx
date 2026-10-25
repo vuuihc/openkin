@@ -167,7 +167,9 @@ describe("the sidebar's import menu", () => {
     await user.click(importTrigger());
 
     // The menu still opens and still has the all-providers item; what it must
-    // not do is look like a menu of one.
+    // not do is look like a menu of one. Asserting the sentence rather than a
+    // count of items is deliberate: the sentence is the behaviour, and a count
+    // would be a second way of saying what the test above already says.
     expect(screen.getByText("No local Agent session providers detected")).toBeTruthy();
   });
 });

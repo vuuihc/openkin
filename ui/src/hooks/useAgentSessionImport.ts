@@ -27,9 +27,14 @@ import { refreshMachines } from "./useMachines";
  * The answers are folded by mergeAgentSessionImports, which is where the rule
  * about a machine that is away lives: the machines that did answer are the
  * result, and the one that did not is an error beside them. A machine that
- * cannot be reached is a result, not an exception. The one failure that does
- * propagate is the machine *list* not arriving at all — there is no errand to
- * report on — and the flag falls either way.
+ * cannot be reached is a result, not an exception.
+ *
+ * The machine list is the same story one level down. A Hub that cannot be read
+ * is absorbed inside useMachines, which degrades to this machine alone; what
+ * still reaches the caller is the store failing on what it was handed — a
+ * malformed entry in the list, a subscriber that throws while being notified.
+ * Nothing between the two catches that, so it propagates: there is no errand
+ * left to report on. The flag falls either way.
  */
 export function useAgentSessionImport(): {
   /** True while an import is in flight, for disabling the control that started it. */

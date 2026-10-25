@@ -128,17 +128,31 @@ describe("the import hook", () => {
   });
 
   it("lowers the flag when the machine list itself cannot be read", async () => {
-    // The read that sits *outside* the per-machine try/catch — the one failure
-    // this hook lets through. It is worth its own test because beginImport()
-    // has already run by the time it fails, and `imports` is module state with
-    // no reset: a counter left standing disables every import control in the
-    // console — the sidebar, the settings button, the per-provider rows, the
-    // automatic sync — until the page is reloaded.
+    // The read that sits *outside* the per-machine try/catch, and the one
+    // failure this hook lets through. It is worth its own test because
+    // beginImport() has already run by the time it fails, and `imports` is
+    // module state with no reset: a counter left standing disables every import
+    // control in the console — the sidebar, the settings button, the
+    // per-provider rows, the automatic sync — until the page is reloaded.
+    //
+    // An unreachable Hub does not arrive here: useMachines absorbs that read and
+    // degrades to this machine alone. What arrives is the store throwing on what
+    // it was handed — a malformed entry in the list, a subscriber that throws
+    // while being notified — and nothing between the two catches it.
     vi.mocked(refreshMachines).mockRejectedValue(new Error("hub is not connected"));
 
     const { result } = renderHook(() => useAgentSessionImport());
+    let started!: Promise<AgentSessionImportResult>;
+    act(() => {
+      started = result.current.importEveryMachine();
+    });
+
+    // Up before the rejection lands. Without this the test cannot tell a flag
+    // that came back down from one that was never raised.
+    expect(importsInFlight()).toBe(true);
+    const rejected = expect(started).rejects.toThrow("hub is not connected");
     await act(async () => {
-      await expect(result.current.importEveryMachine()).rejects.toThrow("hub is not connected");
+      await rejected;
     });
 
     expect(importsInFlight()).toBe(false);
