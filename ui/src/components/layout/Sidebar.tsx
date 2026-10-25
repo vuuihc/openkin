@@ -40,7 +40,7 @@ import {
   sessionStatusDotClass,
   subscribeSessionViewed,
 } from "../../lib/sessionViewed";
-import { displayUserPrompt } from "../../lib/attachments";
+import { taskDisplayTitle } from "../../lib/taskTitle";
 import { agentAvatarMeta, agentDisplayName } from "../../lib/agentMention";
 import {
   agentSessionAvailability,
@@ -1110,9 +1110,7 @@ function ProjectSessionRows({
                   " ",
                 )}
               />
-              <span className="truncate flex-1 min-w-0">
-                {task.title || displayUserPrompt(task.prompt || "")}
-              </span>
+              <span className="truncate flex-1 min-w-0">{taskDisplayTitle(task)}</span>
             </NavLink>
             {onDeleteSession && deleteLabel && (
               <button

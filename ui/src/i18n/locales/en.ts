@@ -1242,6 +1242,12 @@ const en: MessageTree = {
     closeFailed: "Failed to close session",
     resize: "Resize",
   },
+  tabs: {
+    label: "Open sessions",
+    close: "Close {name}",
+    reorderHint: "Alt+←/→ moves this tab",
+    untitled: "Session",
+  },
   routines: {
     title: "Routines",
     subtitle:

@@ -17,7 +17,7 @@ import { listRecipes, type RecipeId } from "../recipes/catalog";
 import { launchRecipe } from "../recipes/launch";
 import { PANEL_ICONS, PLACE_ICONS } from "./placeIcons";
 import { IconSearch } from "./icons";
-import { displayUserPrompt } from "../lib/attachments";
+import { taskDisplayTitle } from "../lib/taskTitle";
 import { useAppStore } from "../store/appStore";
 
 type Props = {
@@ -200,7 +200,7 @@ export default function CommandPalette({
 
     const chats: Item[] = tasks
       .filter((t) => {
-        const title = t.title || displayUserPrompt(t.prompt || "");
+        const title = taskDisplayTitle(t);
         const proj = projectLabel(t.cwd);
         return match(title) || match(proj) || match(t.agent) || match(t.status);
       })
@@ -209,7 +209,7 @@ export default function CommandPalette({
         kind: "task" as const,
         id: t.id,
         task: t,
-        label: `${projectLabel(t.cwd)}: ${t.title || displayUserPrompt(t.prompt || "")}`,
+        label: `${projectLabel(t.cwd)}: ${taskDisplayTitle(t)}`,
         hint: isTerminal(t.status) ? t.status : `${t.status} · ${t.agent}`,
       }));
 

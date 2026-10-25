@@ -33,7 +33,7 @@ import {
 } from "../../lib/panels";
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
-import { displayUserPrompt } from "../../lib/attachments";
+import { taskDisplayTitle } from "../../lib/taskTitle";
 
 type Props = {
   children: ReactNode;
@@ -299,7 +299,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
 
   const handleDeleteSession = useCallback(
     async (task: Task) => {
-      const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
+      // A task with neither a title nor a prompt is rare enough that the id is
+      // better than a blank line in a confirmation dialog.
+      const title = taskDisplayTitle(task) || task.id;
       const ok = window.confirm(tr("task.deleteConfirm") + (title ? `\n\n${title}` : ""));
       if (!ok) return;
       try {

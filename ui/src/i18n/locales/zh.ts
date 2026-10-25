@@ -1203,6 +1203,12 @@ const zh = {
     closeFailed: "关闭会话失败",
     resize: "调整大小",
   },
+  tabs: {
+    label: "打开的会话",
+    close: "关闭 {name}",
+    reorderHint: "Alt+←/→ 移动此标签",
+    untitled: "会话",
+  },
   routines: {
     title: "例行任务",
     subtitle: "定时报告与收件箱。有价值的结果会推送；安静的结果只进 feed。",
