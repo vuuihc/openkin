@@ -54,6 +54,23 @@ function isWritableWorkspaceState(state: string | undefined): boolean {
   return state === "active" || state === "merge_blocked" || state === "finalize_blocked";
 }
 
+/**
+ * The identity of a workspace view, for anything that remembers something about
+ * one place rather than about a session.
+ *
+ * Today that is the lens in front (`lib/workspaceLens`), and the property it
+ * needs is the one this string has: two views are the same place exactly when
+ * they are the same generation, so a change of generation is a change of key.
+ * The source view's key is a bare word because there is only one of it per
+ * session, and it cannot collide with a generation's — an id is never empty.
+ *
+ * The session is not in the key: callers that need it carry the task id beside
+ * this (see `LensPick`), so one string does not have to mean two things.
+ */
+export function workspaceViewKey(view: WorkspaceView): string {
+  return view.kind === "generation" ? `generation:${view.workspaceId}` : "source";
+}
+
 export function writeWorkspaceViewFile(
   view: WorkspaceView,
   taskId: string,

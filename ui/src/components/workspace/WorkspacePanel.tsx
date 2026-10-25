@@ -39,7 +39,10 @@ import {
   readWorkspaceViewFile,
   resolveWorkspaceView,
   workspaceLifecycleRefreshKey,
+  workspaceViewKey,
 } from "./workspaceView";
+import { lensForPick } from "../../lib/workspaceLens";
+import { useAppStore } from "../../store/appStore";
 
 // CodeViewer is the only thing that pulls in monaco-editor, which is by far the
 // heaviest dependency in the bundle: the editor plus five language workers.
@@ -80,8 +83,6 @@ type Props = {
    */
   onPublish?: () => void;
 };
-
-type SidebarTab = "changes" | "files";
 
 const SIDEBAR_WIDTH_KEY = "kin.workspace.sidebarWidth";
 const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -152,6 +153,12 @@ export default function WorkspacePanel({
 }: Props) {
   useT();
   const tr = useT();
+  // Which lens is in front: a pick made for this exact place, else the default.
+  // The pick is store state rather than local, so anything that means "show me
+  // the changes" can name the lens instead of opening the panel and trusting the
+  // default to agree — see `lib/workspaceLens`.
+  const lensPick = useAppStore((s) => s.lensPick);
+  const pickWorkspaceLens = useAppStore((s) => s.pickWorkspaceLens);
   const generationRefreshKey = workspaceLifecycleRefreshKey(events, currentWorkspaceId);
   const [generationResource, setGenerationResource] = useState<WorkspaceGenerationResource>(() => ({
     taskId,
@@ -361,15 +368,13 @@ export default function WorkspacePanel({
   useEffect(() => {
     setDismissedPaths(new Set());
   }, [changedFilesKey]);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(hasChanges ? "changes" : "files");
 
-  // Prefer Changes tab whenever the task gains mutations; don't yank the user
-  // away if they already switched to Files manually after open.
-  const userPickedTab = useRef(false);
-  useEffect(() => {
-    if (userPickedTab.current) return;
-    setSidebarTab(hasChanges ? "changes" : "files");
-  }, [hasChanges]);
+  // The two lenses are one panel seen two ways, so the lens is a property of the
+  // place being looked at, not of the panel instance: `workspaceViewKey` is that
+  // place, and it is what makes switching generation forget a manual pick while
+  // coming back to a place finds it again.
+  const viewKey = workspaceViewKey(workspaceView);
+  const lens = lensForPick(lensPick, taskId, viewKey, hasChanges);
 
   const loadFile = useCallback(
     async (path: string) => {
@@ -402,17 +407,12 @@ export default function WorkspacePanel({
     setError(null);
     setGenDiffFiles([]);
     setSourceChanges(null);
-    userPickedTab.current = false;
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
   useEffect(() => {
     if (!openPath) return;
-    // Opening from the chat/changed bar: jump to Changes when possible.
-    if (hasChanges && !userPickedTab.current) {
-      setSidebarTab("changes");
-    }
     void loadFile(openPath);
-  }, [openPath, openNonce, loadFile, hasChanges]);
+  }, [openPath, openNonce, loadFile]);
 
   const diff: FileDiffSnippet | null = useMemo(() => {
     if (!selectedPath || !events || events.length === 0) return null;
@@ -445,11 +445,6 @@ export default function WorkspacePanel({
     }
     return diff;
   }, [diff, file]);
-
-  const pickTab = (tab: SidebarTab) => {
-    userPickedTab.current = true;
-    setSidebarTab(tab);
-  };
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]">
@@ -531,9 +526,9 @@ export default function WorkspacePanel({
             aria-label={tr("workspace.sidebarTabs")}
           >
             <TabButton
-              active={sidebarTab === "changes"}
+              active={lens === "changes"}
               disabled={!hasChanges}
-              onClick={() => pickTab("changes")}
+              onClick={() => pickWorkspaceLens(taskId, viewKey, "changes")}
               label={
                 hasChanges
                   ? tr("workspace.tabChangesCount", { count: visibleChangedFiles.length })
@@ -541,12 +536,12 @@ export default function WorkspacePanel({
               }
             />
             <TabButton
-              active={sidebarTab === "files"}
-              onClick={() => pickTab("files")}
+              active={lens === "files"}
+              onClick={() => pickWorkspaceLens(taskId, viewKey, "files")}
               label={tr("workspace.tabFiles")}
             />
           </div>
-          {sidebarTab === "changes" &&
+          {lens === "changes" &&
             !viewedWorkspaceId &&
             sourceChangesFor(sourceChanges, taskId)?.truncated === true && (
               // A list that stopped early has to say so: a machine caps how many
@@ -558,7 +553,7 @@ export default function WorkspacePanel({
               </div>
             )}
           <div className="flex-1 min-h-0">
-            {sidebarTab === "changes" ? (
+            {lens === "changes" ? (
               <ChangedFilesList
                 files={visibleChangedFiles}
                 selectedPath={selectedPath}

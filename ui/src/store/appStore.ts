@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { WSMessage } from "../api/contract";
 import { closeOpenPanel, nextOpenPanel, type OpenPanel, type PanelId } from "../lib/panels";
+import type { LensPick, WorkspaceLens } from "../lib/workspaceLens";
 
 /** Auth gate: session is usable until a 401 (or missing token) forces reconnect. */
 export type AuthState =
@@ -90,6 +91,17 @@ type AppState = {
   showPanel: (view: string, id: PanelId) => void;
   hidePanel: (view: string) => void;
   togglePanel: (view: string, id: PanelId) => void;
+  /**
+   * The workspace lens somebody picked, and the place they picked it in.
+   *
+   * The workspace panel's two lenses are one surface, so "which lens" is not a
+   * panel (`shownPanel` already is) but a property of the place being looked at
+   * — and it lives here rather than in the panel so that anything which means
+   * "show me the changes" can say so, instead of opening the panel and hoping
+   * the default agrees. See `lib/workspaceLens`.
+   */
+  lensPick: LensPick;
+  pickWorkspaceLens: (taskId: string, view: string, lens: WorkspaceLens) => void;
   setAuthOk: () => void;
   requireToken: (reason: "missing" | "unauthorized") => void;
   requireAccount: (mode: "claim" | "login") => void;
@@ -122,6 +134,8 @@ export const useAppStore = create<AppState>((set) => ({
   showPanel: (view, id) => set({ shownPanel: { view, id } }),
   hidePanel: (view) => set((s) => ({ shownPanel: closeOpenPanel(s.shownPanel, view) })),
   togglePanel: (view, id) => set((s) => ({ shownPanel: nextOpenPanel(s.shownPanel, view, id) })),
+  lensPick: null,
+  pickWorkspaceLens: (taskId, view, lens) => set({ lensPick: { taskId, view, lens } }),
   setAuthOk: () => set({ auth: { status: "ok" } }),
   requireToken: (reason) => set({ auth: { status: "need_token", reason } }),
   requireAccount: (mode) => set({ auth: { status: "need_account", mode } }),

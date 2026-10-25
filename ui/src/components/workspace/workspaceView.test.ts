@@ -10,6 +10,7 @@ import {
   resolveWorkspaceView,
   workspaceLifecycleRefreshKey,
   workspaceTreeEntries,
+  workspaceViewKey,
 } from "./workspaceView";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -178,6 +179,20 @@ describe("workspace view selection", () => {
     expect(workspaceLifecycleRefreshKey([event(1, "message"), event(2, "tool_result")], "g1")).toBe(
       base,
     );
+  });
+});
+
+describe("workspaceViewKey", () => {
+  // What the lens pick is keyed by (`lib/workspaceLens`), so the property that
+  // matters is that a different generation is a different key — including a
+  // generation whose id happens to read like the source view's.
+  it("names the place, and only the place", () => {
+    const key = (selected: string | null) => workspaceViewKey(resolveWorkspaceView(selected, null));
+
+    expect(key(null)).toBe("source");
+    expect(key("g3")).toBe("generation:g3");
+    expect(key("g4")).not.toBe(key("g3"));
+    expect(key("source")).not.toBe(key(null));
   });
 });
 
