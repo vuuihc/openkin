@@ -25,7 +25,14 @@ describe("the inbox deep-link landing", () => {
 
   it("rings the named card, whichever kind it is", () => {
     expect(page).toMatch(/focused=\{approvalsKeyboardLive && i === focusIdx\}/);
-    expect(page).toMatch(/focused=\{focus\.kind === "question" && q\.id === focus\.id\}/);
+    expect(page).toMatch(/const questionFocusId = !cursorTakenOver/);
+    expect(page).toMatch(/focused=\{q\.id === questionFocusId\}/);
+  });
+
+  it("rings exactly one card: taking the cursor moves the ring off the question", () => {
+    // Measured in a browser before this line existed: `?focus=<qid>` then `j`
+    // drew the question *and* the first approval with the "focused" badge.
+    expect(page).not.toMatch(/focused=\{focus\.kind === "question" && q\.id === focus\.id\}/);
   });
 
   it("scrolls to it once per id", () => {
@@ -34,7 +41,7 @@ describe("the inbox deep-link landing", () => {
     // would.
     expect(page).toMatch(/scrolledFor\.current === hitId/);
     expect(page).toMatch(/el\.scrollIntoView\(\{ block: "center" \}\)/);
-    expect(page).toMatch(/ref=\{a\.id === hitId \? hitRef : undefined\}/);
+    expect(page).toMatch(/if \(a\.id === hitId\) hitRef\.current = node;/);
     expect(page).toMatch(/ref=\{q\.id === hitId \? hitRef : undefined\}/);
   });
 
@@ -48,8 +55,19 @@ describe("the inbox deep-link landing", () => {
   it("keeps the keyboard decision out of the listener", () => {
     // The parked state (a link that named a question) is what the listener got
     // wrong once: it disabled `j`/`k` along with `a`/`d`. `inboxKeyboard.ts`
-    // holds that decision and its own tests.
-    expect(page).toMatch(/inboxKeyAction\(e\.key, items,/);
+    // holds the transition and its own tests, and the listener has to *apply*
+    // the returned state — a page that reads only the index leaves the ring and
+    // the keyboard disagreeing.
+    expect(page).toMatch(/inboxKeyOutcome\(e\.key, items,/);
+    expect(page).toMatch(/setCursorTakenOver\(action\.state\.cursorTakenOver\)/);
+    expect(page).toMatch(/setFocusIdx\(action\.state\.focusIdx\)/);
     expect(page).not.toMatch(/e\.key === "j"/);
+  });
+
+  it("clamps the ring when the list shrinks under it", () => {
+    // Deciding an approval removes it from `items`. Without this the index
+    // outlives its card, and the invariant "a decision lands on the ring" stops
+    // being true by construction.
+    expect(page).toMatch(/Math\.min\(i, Math\.max\(0, items\.length - 1\)\)/);
   });
 });

@@ -126,7 +126,10 @@ export function SettingsLayout({
   // that tab may be scrolled out of the strip, which then shows no selected tab
   // at all. `nearest` moves the strip only when it has to, so a tab that is
   // already visible stays exactly where it is.
-  const mounted = useRef(false);
+  // A *change* of tab, not "the effect ran": StrictMode runs a mount effect
+  // twice, and a `mounted` flag reads true on the second pass and would put
+  // focus on a tab nobody aimed at when settings opens.
+  const prevTab = useRef<SettingsTabId | null>(null);
   useEffect(() => {
     const tab = tabRefs.current[activeTab];
     tab?.scrollIntoView({ inline: "nearest", block: "nearest" });
@@ -134,11 +137,12 @@ export function SettingsLayout({
     // the button that did it is about to be `hidden`, which blurs to `<body>`.
     // The strip's own arrow-key path already moves focus with the selection
     // (`onKeyDown` below), so this one does too — but only when focus was
-    // actually lost, because on a click the tab already has it, and only after
-    // mount, so opening settings does not land on a tab nobody aimed at.
-    const lost = mounted.current && document.activeElement === document.body;
-    mounted.current = true;
-    if (lost && tab) tab.focus({ preventScroll: true });
+    // actually lost, because on a click the tab already has it.
+    const changed = prevTab.current !== null && prevTab.current !== activeTab;
+    prevTab.current = activeTab;
+    if (changed && document.activeElement === document.body && tab) {
+      tab.focus({ preventScroll: true });
+    }
   }, [activeTab]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

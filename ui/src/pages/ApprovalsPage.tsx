@@ -8,7 +8,7 @@ import RunningTaskCard from "../components/cards/RunningTaskCard";
 import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
-import { inboxKeyAction } from "../lib/inboxKeyboard";
+import { inboxKeyOutcome } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
@@ -56,6 +56,14 @@ export default function ApprovalsPage() {
     if (focus.kind === "approval") setFocusIdx(focus.idx);
   }, [focus]);
 
+  // A live update can shorten the list under the ring — deciding an approval
+  // removes it from `items` — and an index that outlives its card is how a
+  // keystroke ends up deciding something nobody ringed. Clamping is the whole
+  // reason `inboxKeyboard` can insist that a decision lands on the ring.
+  useEffect(() => {
+    setFocusIdx((i) => Math.min(i, Math.max(0, items.length - 1)));
+  }, [items.length]);
+
   /**
    * The landing itself: bring the named card into view, once.
    *
@@ -80,31 +88,49 @@ export default function ApprovalsPage() {
   // nothing. `j`/`k` are navigation, not a decision, and they take it back.
   const [cursorTakenOver, setCursorTakenOver] = useState(false);
   const approvalsKeyboardLive = focus.kind !== "question" || cursorTakenOver;
+  // ...and the ring moves with the cursor, so exactly one card wears it. Leaving
+  // the question ringed after a `j` drew two cards both claiming to be the one
+  // the notification named — measured, not theorised.
+  const questionFocusId = !cursorTakenOver && focus.kind === "question" ? focus.id : null;
 
   // The ids this page decided or answered itself. A link that named one of them
   // is spent, not stale, and the page should not answer the notification it just
   // carried out with "that one is not waiting any more".
   const handledHere = useRef<Set<string>>(new Set());
 
+  // The ring's own element, by id, so a press that moves it can bring it into
+  // view. Separate from `hitRef`: that one is the deep link's landing and is
+  // deliberately one-shot, while this is someone pressing a key.
+  const rowRefs = useRef(new Map<string, HTMLLIElement>());
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      const action = inboxKeyAction(e.key, items, {
+      const action = inboxKeyOutcome(e.key, items, {
         focusIdx,
+        cursorTakenOver,
         armed: approvalsKeyboardLive,
       });
       if (action.kind === "move") {
-        if (action.takesOver) setCursorTakenOver(true);
-        setFocusIdx(action.idx);
+        setCursorTakenOver(action.state.cursorTakenOver);
+        setFocusIdx(action.state.focusIdx);
+        // Ending the parked state can ring a card the person cannot see:
+        // approvals render above questions, so `j` from a question deep link
+        // lands off the top of the screen and would otherwise look like nothing
+        // happened. `nearest` moves the page only if it has to.
+        if (action.tookOver) {
+          const id = items[action.state.focusIdx]?.id;
+          if (id) rowRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
+        }
       } else if (action.kind === "decide") {
         void onDecide(action.id, action.decision);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [items, focusIdx, approvalsKeyboardLive]);
+  }, [items, focusIdx, cursorTakenOver, approvalsKeyboardLive]);
 
   async function onDecide(id: string, decision: PendingDecision) {
     handledHere.current.add(id);
@@ -218,7 +244,14 @@ export default function ApprovalsPage() {
             </div>
             <ul className="space-y-3.5">
               {items.map((a, i) => (
-                <li key={a.id} ref={a.id === hitId ? hitRef : undefined}>
+                <li
+                  key={a.id}
+                  ref={(node) => {
+                    if (node) rowRefs.current.set(a.id, node);
+                    else rowRefs.current.delete(a.id);
+                    if (a.id === hitId) hitRef.current = node;
+                  }}
+                >
                   <ApprovalCard
                     approval={a}
                     focused={approvalsKeyboardLive && i === focusIdx}
@@ -242,7 +275,7 @@ export default function ApprovalsPage() {
                 <li key={q.id} ref={q.id === hitId ? hitRef : undefined}>
                   <UserQuestionCard
                     question={q}
-                    focused={focus.kind === "question" && q.id === focus.id}
+                    focused={q.id === questionFocusId}
                     busy={Boolean(answerBusy[q.id])}
                     onAnswer={(body) => void onAnswer(q.id, body)}
                   />
