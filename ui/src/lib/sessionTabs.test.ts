@@ -6,6 +6,7 @@ import {
   neighbourTab,
   openSessionTab,
   readSessionTabs,
+  tabStopId,
   writeSessionTabs,
 } from "./sessionTabs";
 
@@ -101,6 +102,23 @@ describe("neighbourTab", () => {
     expect(neighbourTab(["a"], "a")).toBeNull();
     expect(neighbourTab([], "a")).toBeNull();
     expect(neighbourTab(["a", "b"], "z")).toBe("a");
+  });
+});
+
+describe("tabStopId", () => {
+  // The strip is drawn on routes with no session in front, and a strip where
+  // every tab is `tabIndex={-1}` is one Tab walks straight past.
+  it("is the active tab, and the first one when nothing is active", () => {
+    expect(tabStopId(["a", "b", "c"], "b")).toBe("b");
+    expect(tabStopId(["a", "b", "c"], null)).toBe("a");
+    // An id that is not open (a stale route, a tab that was just dropped) is the
+    // same case as no id at all: something in the strip has to be reachable.
+    expect(tabStopId(["a", "b"], "gone")).toBe("a");
+  });
+
+  it("is null for an empty strip", () => {
+    expect(tabStopId([], null)).toBeNull();
+    expect(tabStopId([], "a")).toBeNull();
   });
 });
 

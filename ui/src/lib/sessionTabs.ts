@@ -104,7 +104,9 @@ export function writeSessionTabs(order: readonly string[]): void {
  * The tab that takes over when this one closes.
  *
  * The one to its right, or the one to its left when it was last. `null` when
- * nothing is left, which is the caller's cue to leave the session routes.
+ * nothing is left, which is the caller's cue to leave the session routes. It is
+ * also the tab that takes focus: closing removes the button that had it, and the
+ * successor is both where you land and where you look.
  */
 export function neighbourTab(order: string[], taskId: string): string | null {
   const index = order.indexOf(taskId);
@@ -114,4 +116,19 @@ export function neighbourTab(order: string[], taskId: string): string | null {
   // `index` in the original order is the position the right-hand neighbour had,
   // so after removal it is either that neighbour or past the new end.
   return rest[Math.min(index, rest.length - 1)] ?? null;
+}
+
+/**
+ * Which tab carries the strip's one tab stop (roving tabindex, the ARIA tabs
+ * pattern).
+ *
+ * The active tab when there is one — but the strip is drawn on routes where no
+ * session is in front (`/sessions`, `/new`), and `tabIndex={-1}` on every tab is
+ * a strip you can see and cannot enter: Tab walks past it, and the arrows that
+ * only work once a tab has focus never get their chance. So with nothing
+ * selected the first tab takes the stop, and the arrows move on from there.
+ */
+export function tabStopId(order: string[], activeId: string | null): string | null {
+  if (order.length === 0) return null;
+  return activeId !== null && order.includes(activeId) ? activeId : (order[0] ?? null);
 }

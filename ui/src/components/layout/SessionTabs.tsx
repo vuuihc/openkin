@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../../i18n/react";
+import { neighbourTab, tabStopId } from "../../lib/sessionTabs";
 import { IconX } from "../icons";
 
 /**
@@ -12,11 +13,16 @@ import { IconX } from "../icons";
  * layout changes (P3 plan §2.6).
  *
  * The keyboard model is the terminal strip's (`TerminalTabs`): one tab is
- * tabbable, the arrows select the next one and wrap, `Delete` closes. What is
- * new here is `Alt`+arrows, which moves the tab itself instead of the cursor —
- * reordering is keyboard-only in P3 (pointer dragging is a phone-shaped problem
- * and belongs to P3b), so every tab carries the shortcut in its tooltip: a
- * keyboard feature with no visible hint is not a feature.
+ * tabbable, the arrows select the next one and wrap, `Delete` closes. Two things
+ * it adds. `Alt`+arrows move the tab itself instead of the cursor — reordering is
+ * keyboard-only in P3 (pointer dragging is a phone-shaped problem and belongs to
+ * P3b), so every tab carries the shortcut in its tooltip: a keyboard feature with
+ * no visible hint is not a feature. And closing hands focus to the tab that takes
+ * over, because the button that had focus is the one being removed.
+ *
+ * Which tab is the tabbable one is `tabStopId`'s: the active one, or the first
+ * when the strip is drawn with no session in front (`/sessions`, `/new`) — a
+ * strip of `tabIndex={-1}` is one Tab walks past.
  */
 
 export type SessionTab = {
@@ -46,13 +52,25 @@ export default function SessionTabs({ tabs, activeId, onSelect, onClose, onMove 
   // Only rendered with at least one tab, so there is always something to focus.
   if (tabs.length === 0) return null;
 
+  // The ids, for the two questions the strip asks about order rather than about
+  // what to draw: which tab takes focus when one closes, and which one is the
+  // strip's tab stop.
+  const order = tabs.map((t) => t.id);
+  const stopId = tabStopId(order, activeId);
+
   const handleKeyDown = (e: React.KeyboardEvent, tabId: string) => {
     const index = tabs.findIndex((t) => t.id === tabId);
     if (index === -1) return;
     const step = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
     if (step === 0) {
       if (e.key === "Delete" || e.key === "Backspace") {
+        // The closed tab's button is the one with focus, so without this the
+        // next keystroke goes to <body> — the strip stops answering the arrows
+        // its own tooltip advertises. The successor is the same tab the parent
+        // navigates to (`neighbourTab`), so focus and the session agree.
+        const heir = neighbourTab(order, tabId);
         onClose(tabId);
+        if (heir) requestAnimationFrame(() => tabRefs.current.get(heir)?.focus());
         e.preventDefault();
       }
       return;
@@ -109,7 +127,7 @@ export default function SessionTabs({ tabs, activeId, onSelect, onClose, onMove 
               }`}
               role="tab"
               aria-selected={isActive}
-              tabIndex={isActive ? 0 : -1}
+              tabIndex={tab.id === stopId ? 0 : -1}
               title={tr("tabs.reorderHint")}
               onKeyDown={(event) => handleKeyDown(event, tab.id)}
               onClick={() => onSelect(tab.id)}
