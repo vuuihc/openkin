@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/vuuihc/openkin/internal/remote"
 )
 
 func newScopeTestStore(t *testing.T) *Store {
@@ -174,5 +176,90 @@ func TestInsertTaskRoundTripsTheOwner(t *testing.T) {
 	}
 	if owner != nil {
 		t.Fatalf("unowned task stored owner %q, want SQL NULL", *owner)
+	}
+}
+
+// TestScopeForPrincipalNamesWhoHoldsTheMachine is the switch every boundary in
+// this area reads, and the arm worth pinning is the device one.
+//
+// A device credential is unscoped, which is sound only while pairing is
+// operatorOnly: every device token was then minted by whoever holds the
+// machine, so a device is that person's own client rather than a guest. Nothing
+// in ScopeForPrincipal says so and nothing in it can check — that premise lives
+// in the route table, and this test is where it is recorded. When members can
+// pair their own devices, the device arm has to read the enrolling account's
+// role instead of assuming one (`devices.owner_user_id` already exists to carry
+// it), and the row below is what has to change with it.
+//
+// The rest of the table is the fail-closed direction: an account whose role is
+// missing, or is a value nothing in the product writes, is narrowed rather than
+// trusted. isOperator answers the same way for the same reason.
+func TestScopeForPrincipalNamesWhoHoldsTheMachine(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal remote.Principal
+		all       bool
+		owner     string
+	}{
+		{"the master token", remote.Principal{Kind: remote.PrincipalMaster}, true, ""},
+		{"a paired device", remote.Principal{Kind: remote.PrincipalDevice, DeviceID: "device-1"}, true, ""},
+		{"the account that claimed this hub", remote.Principal{
+			Kind: remote.PrincipalUser, UserID: "user-owner", Role: RoleOwner}, true, ""},
+		{"a member", remote.Principal{
+			Kind: remote.PrincipalUser, UserID: "user-member", Role: RoleMember}, false, "user-member"},
+		{"an account with no role recorded", remote.Principal{
+			Kind: remote.PrincipalUser, UserID: "user-none"}, false, "user-none"},
+		{"an account with a role nothing writes", remote.Principal{
+			Kind: remote.PrincipalUser, UserID: "user-other", Role: "admin"}, false, "user-other"},
+		{"a user principal with no id", remote.Principal{
+			Kind: remote.PrincipalUser, Role: RoleMember}, false, ""},
+		{"the owner's role with no id to match", remote.Principal{
+			Kind: remote.PrincipalUser, Role: RoleOwner}, true, ""},
+		{"a kind nothing issues", remote.Principal{Kind: "service"}, false, ""},
+		{"no principal at all", remote.Principal{}, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scope := ScopeForPrincipal(tc.principal)
+			if scope.All != tc.all {
+				t.Fatalf("All = %v, want %v", scope.All, tc.all)
+			}
+			if scope.OwnerUserID != tc.owner {
+				t.Fatalf("OwnerUserID = %q, want %q", scope.OwnerUserID, tc.owner)
+			}
+			// The role is what grants scope, not the presence of an id — the row
+			// above with an owner role and no id is the one that says so. It also
+			// records a difference from requireCwdForNonHolder (internal/task),
+			// which returns early on an empty owner id without consulting the role
+			// at all: the two agree today because a session always sets the id from
+			// the account row, and this is where that assumption is visible.
+			//
+			// ActsForHolder is derived from this switch rather than restated, so
+			// this assertion cannot fail against today's code. It is here to fail
+			// against tomorrow's — the edit that gives one of them its own answer
+			// is exactly the drift the two doc comments warn about.
+			if ActsForHolder(tc.principal) != tc.all {
+				t.Fatalf("ActsForHolder = %v, want %v", ActsForHolder(tc.principal), tc.all)
+			}
+		})
+	}
+}
+
+// The zero scope is the one a handler produces by forgetting to build one, so
+// what it matches is a security property rather than a default.
+func TestAForgottenScopeMatchesNothing(t *testing.T) {
+	var zero TaskScope
+	for _, owner := range []string{"", "user-1"} {
+		if zero.MatchesOwner(owner) {
+			t.Fatalf("the zero scope matched owner %q; a handler that forgets to build one leaks", owner)
+		}
+	}
+	if OwnedBy("   ").All || OwnedBy("").MatchesOwner("") {
+		t.Fatal("a blank account produced a scope wider than nothing")
+	}
+	// And the unowned tasks a routine or an eval run creates belong to whoever
+	// holds the machine, so they are outside every one-account scope.
+	if OwnedBy("user-1").MatchesOwner("") {
+		t.Fatal("an unowned task matched one account's scope")
 	}
 }
