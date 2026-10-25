@@ -100,7 +100,14 @@ body {
   /* A control that lives inside something smaller than 44pt and cannot be
      grown, so it opts out of the floor above and takes a bigger, always-visible
      target on touch instead. Today: the attachment thumbnail's remove "×",
-     which sits on a 56px tile. */
+     which sits on a 56px tile.
+
+     "Always-visible" is load-bearing: that button also carries Tailwind's
+     `opacity-0 group-hover:opacity-100`, and this rule has to beat it. It does
+     — equal specificity, but a custom utility is emitted after the generated
+     ones (see the note above) — and that is worth knowing before "fixing" a
+     reported invisible ×. Measured on a coarse pointer at 390px: this rule
+     applies, opacity 0.85. */
   @media (pointer: coarse) {
     .touch-mini {
       width: 22px;

@@ -115,6 +115,12 @@ export default function ApprovalCard({
           </pre>
         )}
 
+        {/*
+          The key letters are for the keyboard model the session view has on a
+          desktop (`j/k/a/d`). On a phone they are a caption for a key that is
+          not there, and the button already says what it does — so they are
+          hidden below `sm`, the same gate the composer's ⌘↵ hint uses.
+        */}
         <div className="mt-3 flex gap-2">
           <button
             type="button"
@@ -126,7 +132,8 @@ export default function ApprovalCard({
               tr("approval.approving")
             ) : (
               <>
-                {tr("chat.approve")} <span className="opacity-60 font-semibold">A</span>
+                {tr("chat.approve")}{" "}
+                <span className="hidden sm:inline opacity-60 font-semibold">A</span>
               </>
             )}
           </button>
@@ -140,7 +147,7 @@ export default function ApprovalCard({
               tr("approval.denying")
             ) : (
               <>
-                {tr("chat.deny")} <span className="opacity-50">D</span>
+                {tr("chat.deny")} <span className="hidden sm:inline opacity-50">D</span>
               </>
             )}
           </button>

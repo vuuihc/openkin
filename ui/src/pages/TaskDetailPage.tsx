@@ -975,8 +975,17 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           the status, and Stop) was cut off by `<main overflow-hidden>`. The
           phone's 44pt floor made each control wider, which is what turned a
           squeeze into a clip. `w-full` on the cluster sends it to its own line
-          deterministically, so the title gets the full width and nothing is
-          lost — no control is hidden on the small screen.
+          deterministically, so the title gets the full width.
+
+          That was still not enough on a 320px screen, which is measurable now
+          that a running session can be rendered on demand (the fixture daemon):
+          with a live task the cluster wants 358px at 390 (it fits, exactly, 0px
+          to spare) and at 320 its first child measured at x=-2 — clipped off
+          the *left* edge, where no amount of scrolling can reach it, because
+          `justify-end` overflows the start of the line. Hence the three
+          classes below: `justify-start` (overflow goes right, where it can be
+          scrolled to), `overflow-x-auto` (so it can be), and `whitespace-nowrap`
+          (without it the labels wrap to two lines and the row grows instead).
         */}
         <div
           className="min-h-11 flex-none flex flex-wrap items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
@@ -997,7 +1006,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             </div>
           </div>
           <div
-            className="w-full justify-end md:ml-2 md:w-auto md:justify-start flex items-center gap-2 text-body text-kin-muted flex-none"
+            className="w-full justify-start md:ml-2 md:w-auto flex items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted flex-none"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <span
@@ -1153,7 +1162,14 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   </div>
                 )}
                 {needsYou.length > 0 && (
-                  <p className="text-center text-caption text-kin-muted mt-2">
+                  /*
+                    A phone does not have these keys, and the line reads as an
+                    instruction to press something that is not there. `sm` is
+                    the same gate the composer's ⌘↵ hint uses (Composer.tsx)
+                    rather than a pointer media query, so one codebase has one
+                    answer to "the keyboard hint does not apply here".
+                  */
+                  <p className="hidden sm:block text-center text-caption text-kin-muted mt-2">
                     <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">A</kbd>{" "}
                     {tr("chat.approve")} ·{" "}
                     <kbd className="px-1 border border-[var(--kin-hairline-strong)] rounded">D</kbd>{" "}
