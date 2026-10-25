@@ -68,6 +68,7 @@ import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
+import { workerActivity } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { anchoredPendingIds, orderPending } from "../lib/needsYou";
 import { queuedMessageSeqs } from "../lib/queuedPrompts";
@@ -147,6 +148,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const filesOpen = overlay === "files";
+
+  // The panel's rows: the plan table (what each worker was asked) joined to
+  // the tool calls on the event stream (what it is doing). Derived, because a
+  // second copy of either source is a second thing to keep in step.
+  const workerRows = useMemo(() => workerActivity(events, workerSteps), [events, workerSteps]);
   const prOpen = overlay === "pr";
   const publishOpen = overlay === "publish";
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
@@ -1086,7 +1092,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
           }
         >
-          <WorkerTimeline steps={workerSteps} />
+          <WorkerTimeline rows={workerRows} onOpenPath={onOpenWorkspacePath} />
           <ChatStream
             events={events}
             onOpenPath={onOpenWorkspacePath}

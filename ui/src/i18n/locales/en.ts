@@ -377,6 +377,12 @@ const en: MessageTree = {
     workerStatusFailed: "failed",
     workerStatusCanceled: "canceled",
     workerStatusUnknown: "unknown",
+    workerStatusUnplanned: "unrecorded",
+    workerUnplanned: "not in the plan table",
+    workerUnnamed: "unnamed worker",
+    workerActivity: "{n} calls",
+    workerActivityMore: "{n} earlier calls not shown",
+    workerNoActivity: "No tool calls yet",
   },
   projects: {
     title: "Projects",

@@ -365,6 +365,12 @@ const zh = {
     workerStatusFailed: "失败",
     workerStatusCanceled: "已取消",
     workerStatusUnknown: "未知",
+    workerStatusUnplanned: "未登记",
+    workerUnplanned: "计划表里没有这一步",
+    workerUnnamed: "未命名 worker",
+    workerActivity: "{n} 次调用",
+    workerActivityMore: "还有 {n} 次更早的调用未显示",
+    workerNoActivity: "还没有工具调用",
   },
   projects: {
     title: "项目",

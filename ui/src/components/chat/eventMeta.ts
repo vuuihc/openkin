@@ -167,7 +167,13 @@ function legacyVisibilityFor(
   return { user: true, task: true };
 }
 
-function readExecution(p: Record<string, unknown>): ExecutionAttribution | undefined {
+/**
+ * The adapter run an event belongs to, or undefined when it belongs to none.
+ *
+ * Exported for the subagent panel: this is the only place the `execution_*`
+ * fields are decoded, and the panel joins on two of them.
+ */
+export function readExecution(p: Record<string, unknown>): ExecutionAttribution | undefined {
   const id = typeof p.execution_id === "string" ? p.execution_id.trim() : undefined;
   const agent = typeof p.execution_agent === "string" ? p.execution_agent.trim() : undefined;
   const model = typeof p.execution_model === "string" ? p.execution_model.trim() : undefined;
