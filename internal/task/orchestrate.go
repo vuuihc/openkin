@@ -682,6 +682,11 @@ func (e *Engine) registerWorkerHandles(
 		if len(handles) > 0 {
 			e.handles[taskID] = handles[0]
 		}
+		// Registered here means the workers have the prompt, which is the same
+		// moment startOne clears it for a single-adapter run: the label exists only
+		// while nothing has been handed the message (see Engine.queuedMessage), and
+		// an orchestrated turn registers its handles here rather than there.
+		delete(e.queuedMessage, taskID)
 	}
 	e.mu.Unlock()
 	if !accepted {
