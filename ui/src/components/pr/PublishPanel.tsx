@@ -11,6 +11,7 @@ import { blockedHeadline, isSessionRunsHere } from "../../lib/publishBlocked";
 import type { PublishDraft } from "../../lib/publishDraft";
 import { MAX_TITLE_CHARS, publishWordsRefusal } from "../../lib/publishWords";
 import { IconAlert, IconExternal, IconPullRequest, IconSend, IconSpinner, IconX } from "../icons";
+import PanelSurface from "../layout/PanelSurface";
 
 type Props = {
   taskId: string;
@@ -177,11 +178,7 @@ export default function PublishPanel({
   const working = busy || escaping;
 
   return (
-    <div
-      className="absolute inset-0 z-40 flex flex-col bg-[var(--kin-inspector)] safe-pad"
-      role="complementary"
-      aria-label={tr("publish.title")}
-    >
+    <PanelSurface label={tr("publish.title")} className="flex flex-col">
       {/* Header — matches the workspace and pull-request panels */}
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconSend size={14} className="flex-none text-kin-muted" />
@@ -345,7 +342,7 @@ export default function PublishPanel({
           </div>
         </div>
       </div>
-    </div>
+    </PanelSurface>
   );
 }
 

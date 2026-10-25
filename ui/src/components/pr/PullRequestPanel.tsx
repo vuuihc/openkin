@@ -8,6 +8,7 @@ import {
 } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { formatRelativeTime } from "../../lib/relativeTime";
+import PanelSurface from "../layout/PanelSurface";
 import {
   absentRepoLabel,
   ciLabel,
@@ -214,11 +215,7 @@ export default function PullRequestPanel({
   const others = otherPullRequests(snapshot?.observations, lead);
 
   return (
-    <div
-      className="absolute inset-0 z-40 flex flex-col bg-[var(--kin-inspector)] safe-pad"
-      role="complementary"
-      aria-label={tr("pr.title")}
-    >
+    <PanelSurface label={tr("pr.title")} className="flex flex-col">
       {/* Header — matches WorkspacePanel chrome */}
       <div className="flex flex-none items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
         <IconPullRequest size={14} className="flex-none text-kin-muted" />
@@ -326,7 +323,7 @@ export default function PullRequestPanel({
           )}
         </div>
       </div>
-    </div>
+    </PanelSurface>
   );
 }
 

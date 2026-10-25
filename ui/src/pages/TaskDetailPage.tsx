@@ -62,6 +62,7 @@ import {
   IconTrash,
 } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import PanelSurface from "../components/layout/PanelSurface";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
@@ -83,7 +84,7 @@ import { normalizePermissionMode, type PermissionMode } from "../lib/permissionM
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
 import { modelsForAgent } from "../lib/agentModels";
-import { toggleOverlay, type Overlay } from "../lib/overlay";
+import { isPanelAvailable, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
 
@@ -146,15 +147,11 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [limitBusy, setLimitBusy] = useState<string | null>(null);
   const [focusIdx, setFocusIdx] = useState(0);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [overlay, setOverlay] = useState<Overlay>(null);
-  const filesOpen = overlay === "files";
 
   // The panel's rows: the plan table (what each worker was asked) joined to
   // the tool calls on the event stream (what it is doing). Derived, because a
   // second copy of either source is a second thing to keep in step.
   const workerRows = useMemo(() => workerActivity(events, workerSteps), [events, workerSteps]);
-  const prOpen = overlay === "pr";
-  const publishOpen = overlay === "publish";
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
@@ -180,6 +177,14 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   }, []);
   const pushToast = useAppStore((s) => s.pushToast);
   const wsStatus = useAppStore((s) => s.wsStatus);
+  // Which panel is over this session. One writer for the whole shell, so the
+  // task page and the terminal can no longer both believe they are on top —
+  // keyed by session, so switching tabs neither carries one session's panel onto
+  // another nor loses it.
+  const activePanel = useAppStore((s) => s.panelsBySession[id]);
+  const openPanel = useAppStore((s) => s.openPanel);
+  const closePanel = useAppStore((s) => s.closePanel);
+  const togglePanel = useAppStore((s) => s.togglePanel);
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {
@@ -200,7 +205,6 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     setLimitWait(null);
     setWorkerSteps([]);
     setQueuedPrompts([]);
-    setOverlay(null);
     setWorkspaceOpenPath(null);
     setWorkspaceOpenNonce(0);
     setSelectedWorkspaceId(undefined);
@@ -208,6 +212,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     listAgents()
       .then(setAgents)
       .catch(() => setAgents([]));
+    // No panel to close here: the panel is keyed by session, so a new `id` is
+    // already showing whatever that session had open (usually nothing) and
+    // leaving the old session's panel where it was.
   }, [id]);
 
   useEffect(() => {
@@ -759,7 +766,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       pushToast(tr("workspace.outsideWorkspace"), "error");
       return;
     }
-    setOverlay("files");
+    openPanel(id, "files");
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
     setWorkspaceOpenNonce((n) => n + 1);
@@ -772,15 +779,15 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const publishDraft = useMemo(() => publishDraftFrom(events), [events]);
 
   function openFilesPanel() {
-    setOverlay("files");
+    openPanel(id, "files");
   }
 
   function openPublishPanel() {
-    setOverlay("publish");
+    openPanel(id, "publish");
   }
 
   function togglePrPanel() {
-    setOverlay((open) => toggleOverlay(open, "pr"));
+    togglePanel(id, "pr");
   }
 
   async function onKeepAllChanges() {
@@ -917,6 +924,16 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     }
   }
   const machine = remoteMachine(machines, task.executing_device_id);
+  // What the registry is asked about. Built here because this is where the two
+  // facts it needs exist: which session this is, and whether its checkout is on
+  // another machine. `resolvePanel` is what enforces availability — a panel that
+  // stopped applying (the session moved to a checkout the Hub holds) closes
+  // rather than rendering in a state it is not offered in.
+  const panelCtx: PanelContext = { taskId: task.id, remote: machine !== null };
+  const shownPanel = resolvePanel(activePanel ?? null, panelCtx);
+  const filesOpen = shownPanel === "files";
+  const prOpen = shownPanel === "pr";
+  const publishOpen = shownPanel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
   const hostAgentName =
@@ -995,7 +1012,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             <button
               type="button"
               onClick={() => {
-                setOverlay((open) => toggleOverlay(open, "files"));
+                togglePanel(id, "files");
               }}
               className={[
                 "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
@@ -1274,11 +1291,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       </aside>
 
       {filesOpen && (
-        <div
-          className="absolute inset-0 z-40 bg-[var(--kin-inspector)] safe-pad"
-          role="complementary"
-          aria-label={tr("workspace.title")}
-        >
+        <PanelSurface label={tr("workspace.title")}>
           <div className="h-full w-full">
             <WorkspacePanel
               taskId={task.id}
@@ -1296,11 +1309,13 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               // Publishing is offered for a session on another machine and no
               // other: the Hub refuses the write for a checkout it holds, and a
               // button that could only ever be refused is worse than no button.
-              onPublish={machine ? openPublishPanel : undefined}
-              onClose={() => setOverlay(null)}
+              // Asked of the registry rather than of `machine`, so the rule has
+              // one home — the same one `resolvePanel` just consulted.
+              onPublish={isPanelAvailable("publish", panelCtx) ? openPublishPanel : undefined}
+              onClose={() => closePanel(id)}
             />
           </div>
-        </div>
+        </PanelSurface>
       )}
 
       {publishOpen && machine && (
@@ -1320,7 +1335,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           // repository chip draws; the branch strip beside it asks the machine
           // on its own and is not this.
           onRowChanged={() => void liveResources.refreshTask(task.id, true)}
-          onClose={() => setOverlay(null)}
+          onClose={() => closePanel(id)}
         />
       )}
 
@@ -1334,7 +1349,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           // "not on this machine yet" instead of "nowhere", and what lets the
           // panel ask the machine that has it.
           elsewhere={machine}
-          onClose={() => setOverlay(null)}
+          onClose={() => closePanel(id)}
         />
       )}
     </div>
