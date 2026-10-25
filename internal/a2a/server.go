@@ -85,6 +85,14 @@ type followUpRequest struct {
 	ApprovalID     string   `json:"approval_id,omitempty"`
 	Decision       string   `json:"decision,omitempty"`
 	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	// Interrupt cuts the running turn short so this message is answered next
+	// instead of at the next turn boundary. Opt-in and additive: without it a
+	// follow-up to a working task is queued, which is what a peer that does not
+	// know this field exists gets. It is the same switch MCP's send_task_message
+	// exposes, and the same warning applies -- that path denies the task's pending
+	// approvals and answers its pending questions, because the process it is
+	// talking to is about to be killed.
+	Interrupt bool `json:"interrupt,omitempty"`
 }
 
 type a2aTask struct {
@@ -395,7 +403,10 @@ func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, updated)
 		return
 	}
-	updated, err := s.Engine.FollowUp(r.Context(), id, prompt)
+	updated, err := s.Engine.FollowUpWith(r.Context(), id, task.FollowUpRequest{
+		Prompt:    prompt,
+		Interrupt: body.Interrupt,
+	})
 	if err != nil {
 		s.failOperation(r, principal, id, operationKey, a2aStatus(err), err)
 		a2aError(w, err)
