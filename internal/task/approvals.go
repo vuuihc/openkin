@@ -655,7 +655,9 @@ func (e *Engine) interruptAndFollowUp(ctx context.Context, id string, t store.Ta
 	// the write returned would carry the zero that means "nobody wrote it yet",
 	// and the delivery would write the user's message a second time beside the
 	// first. The write is a store call under the engine lock, which cannot deadlock
-	// here: the store is a lower layer and never calls back into the engine.
+	// here: the store is a lower layer and never calls back into the engine. It
+	// deliberately does not go through persistRunEvent, which takes eventMu before
+	// mu -- this write already holds mu, so that route would invert the two.
 	//
 	// The anchor travels with the struct instead of being re-derived at delivery
 	// time. A message the user sends while this interrupt winds down is queued and
