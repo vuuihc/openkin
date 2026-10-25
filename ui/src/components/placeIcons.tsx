@@ -8,6 +8,7 @@ import {
   IconFile,
   IconInbox,
   IconPlus,
+  IconProjects,
   IconPullRequest,
   IconRoutines,
   IconSessions,
@@ -44,6 +45,7 @@ export const PLACE_ICONS: Record<PlaceId, (p: IconProps) => ReactNode> = {
   inbox: IconInbox,
   artifacts: IconArtifacts,
   routines: IconRoutines,
+  projects: IconProjects,
   agents: IconAgents,
   settings: IconSettings,
 };
