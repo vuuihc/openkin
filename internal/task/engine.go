@@ -1811,11 +1811,7 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 			e.queue = append(e.queue[:i], e.queue[i+1:]...)
 			delete(e.canceled, id)
 			e.mu.Unlock()
-			t, err := e.finishQueued(ctx, id, StatusCanceled, nil, nil)
-			if err == nil {
-				e.invalidateActiveRun(id)
-			}
-			return t, err
+			return e.cancelUnstarted(ctx, id)
 		}
 	}
 	h := e.handles[id]
@@ -1870,11 +1866,40 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 	// Not queued and no handle means startOne may be between its durable
 	// queued-to-running claim and handle registration. Keep the cancellation
 	// marker for startOne to consume once Adapter.Start returns.
-	t, err = e.finishQueued(ctx, id, StatusCanceled, nil, nil)
+	return e.cancelUnstarted(ctx, id)
+}
+
+// cancelUnstarted writes the cancel for a task that has not been handed to an
+// adapter yet, and retires the run it may have been claimed by, in one critical
+// section -- which is the entire reason this is a function.
+//
+// The two halves must not be separate steps. A delivery that the guarded write
+// refused is already on its way to `finishRun`, whose gate is "is this still the
+// task's active run" (engine.go finishRun). A window between the status write
+// and the invalidation is a window in which that gate still passes, and the
+// delivery writes the terminal status a second time: a second PublishTask, a
+// second terminal notification, and a `finished_at` rewritten for a task that
+// ended once. Holding `e.mu` across both closes it, because `finishRun` reads
+// the same map under the same lock.
+//
+// Both callers reach here with a task that is in the queue or has been popped
+// from it but not started, so `allowQueued` is what lets the write land at all.
+// The store write is inside the lock and the publish is outside it, which is the
+// split `finishRun` and the running-task branch above already use: publishing
+// fans out to subscribers, and the lock is not held across that anywhere in this
+// file.
+func (e *Engine) cancelUnstarted(ctx context.Context, id string) (store.Task, error) {
+	now := e.nowMilli()
+	e.mu.Lock()
+	err := e.store.FinishTask(ctx, id, StatusCanceled, now, nil, nil, true /*allowQueued*/)
 	if err == nil {
-		e.invalidateActiveRun(id)
+		delete(e.activeRuns, id)
 	}
-	return t, err
+	e.mu.Unlock()
+	if err != nil {
+		return store.Task{}, err
+	}
+	return e.publishFinishedTask(ctx, id, StatusCanceled)
 }
 
 // Delete permanently removes a task and its history after canceling any

@@ -1091,6 +1091,14 @@ func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseSt
 
 // FinishTask atomically persists a terminal task state and consumes any retry
 // resume marker that belonged to the attempt being terminated.
+//
+// The set below deliberately includes the terminal statuses. Reconciliation
+// after a restart finishes a task that a crash already marked ended — a
+// `failed` row whose work turned out to have landed becomes `succeeded` — so a
+// terminal-to-terminal write is a thing this must keep doing. What it means is
+// that the store cannot be the gate on "a task ends once"; the gate is the
+// engine's active-run entry, which is why every writer of a terminal status has
+// to retire that entry in the same critical section as the write.
 func (s *Store) FinishTask(
 	ctx context.Context,
 	id, status string,
