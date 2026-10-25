@@ -288,11 +288,20 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 
 模型和卡片都在（`ProgressCard`，默认收起），缺的是**区分**（§2.3）。
 
-### S5 — 逐轮 diff 证据卡
+### S5 — 逐轮 diff 证据卡（已落地，见 §8）
 
-接 S1c。可复用：`extractChangedFiles` / `extractFileDiff`
-（`ui/src/lib/changedFiles.ts:117-171,508-563`）、`ApprovalCard` 那个从没人用过的
-`previewLines` 槽（`ApprovalCard.tsx:15,92-110`）、Monaco `DiffEditor`（工作区已经懒加载）。
+接 S1c。**已落地**（`31b52a0` `aa40a38` `636d01a`）：卡片画在一轮结束的那个
+turn 下面，列出这一轮**通过文件工具**改的文件、行数增量，以及逐个文件的改动预览。
+
+可复用的三样，两样用了、一样**有意不用**：
+
+- `extractChangedFiles` / `extractFileDiff` → `roundEvidence.ts` 按区间读一轮的切片；
+- `ApprovalCard` 那个从没人用过的 `previewLines` 槽 → 抽成 `PreviewLines.tsx`，
+  审批卡与证据卡共用（顺带接上：审批一个写/改文件时直接画它会做什么，而不是画 JSON）；
+- Monaco `DiffEditor` → **不用**。它是给整块面板的懒加载块，而 `extractFileDiff`
+  是**尽力还原**（`write` 不知道它覆盖了什么）：把还原结果放进一个看起来可编辑的
+  并排编辑器里，正是卡片底部那句「权威差异在工作区」要防的错觉。工作区的
+  `DiffEditor` 一行没动。
 
 ### S6 — subagent 面板
 
@@ -310,11 +319,12 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 
 按 §3.7。
 
-### 顺手结清
+### 顺手结清（S4/S5 已全部结清）
 
-- 删 `ui/src/components/Transcript.tsx`（§2.3）。
-- `ApprovalCard.previewLines`、`chat.progress.collapsed`、`chat.progress.step`、
-  `task.roundBusy`：这一轮要么接上，要么删。**不留悬空**。
+- 删 `ui/src/components/Transcript.tsx`（§2.3）→ `31b52a0`。
+- `ApprovalCard.previewLines` → **接上**（`636d01a`：审批一个写/改文件时画改动）。
+- `chat.progress.collapsed` / `chat.progress.step` → **接上**（S4，`7b4fcc9`）。
+- `task.roundBusy` → **删**（S4）。
 
 ## 5. 守卫
 
@@ -398,6 +408,19 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 
 所以卡片的措辞只能是「这一轮**通过文件工具**改了什么」，权威视图仍是工作区/PR 面板。
 
+**S5 落地后补**（`636d01a`）：这条措辞不是口头约定，而是卡片底部一行常驻小字
+（`chat.evidence.scope`，两个语言都在），并且**不在折叠里**——把它收起来等于让
+「这一轮什么都没改」和「shell 改的我看不见」长得一样。三处规则各有测试：
+
+- 卡片位置 = `roundEvidenceByTurn`（`transcriptProjection.ts`）：挂在**一轮结束的那个
+  turn** 下面。因此「第一问从没被回答、第二问并进来」这种轮（上面的合并规则）只有**一张**
+  卡，报的是两问合起来改的东西——这是规则的结果不是 bug，由
+  「draws a round's card under the turn that answered it」钉住。
+- 卡片不出现的两种情形（一轮没有 `seq` 区间、一轮里没有文件工具改动）在 `roundEvidence`
+  里是**同一个返回值**（`null`），两条测试各钉一个；把「没有区间」改成「读全流」两处一起变红。
+- 预览读的是**这一轮自己的切片**（`RoundEvidence.events`），所以下一轮改同一个文件
+  不会漏进这一轮的卡里。
+
 ## 7. 风险与未决
 
 | 风险 | 处置 |
@@ -413,7 +436,9 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 | 夹具（本地假 daemon，不进仓）比看上去更容易搭错 | 两处必须实现，否则截图自带噪音或根本拍不到东西：① 事件通道是 **SSE**（`client.ts:2219` 读 `res.body`，空行分帧），不是 WebSocket——第一版把 `/api/events` 答成 JSON，于是「正在重连…」横幅进了每一张图；② `/api/sessions/cursor` 与 `/api/sessions` 是「连上了」的判据（`sessionSync.ts:137-145` 拿到 cursor 才 `setStatus("connected")`），缺了会退避重试并在图上留同一条横幅。夹具不是被测对象，但它的缺口会伪装成产品缺陷 |
 | 「谁需要署名」这条规则**没有单测能替截图作证的部分** | `noteNeedsAttribution` 有 1 条测试钉住四个名字（自己的名字、`kin`、`orchestrator`、别的 agent），但「这张卡上画了什么」仍然只有截图。第一版就是测试全绿而画错的——记在这里，别把它当成已覆盖 |
 | 原位审批卡在窄屏比「兜底位置」窄 38px（320 vs 358） | 有意的：卡片留在 agent 那一列里（拆轮会多画一个头像），实测卡本身不溢出（320=320，按钮 70–358），只有 JSON 预览横向滚动（586>286）。两处宽度不同、两处都只画一次 |
-| 「提问事件落在哪一栏」这条渲染连线**没有测试** | 按 §6.1 没有 DOM 环境，抽不出纯函数（投影那一半有测试：锚点、seq、只画一次）。守卫就是 §6 的定点截图——这条 bug 正是它抓到的，所以不假装用单测盖住 |
+| 一轮**从没被回答**时（第一问只落了过程记录），第二问并进同一轮，证据卡于是画在第二问下面、报的是两问的合集 | 有意的（§6.2 的合并规则 + 其末的 S5 补记）：这是投影认定的「同一件工作」，拆成两张卡才是无中生有的边界。由「draws a round's card under the turn that answered it」钉住，并在夹具上定点截图确认过读起来不歧义 |
+| 文件动作的**归类**（写/改/删）此前没有测试，于是 `Edit` 一直被当成 `write` | **已修**（`aa40a38`）：`WRITE_TOOLS` 一个集合装着两个家族又被先判，`edit` 分支对集合里的每个名字都不可达——工作区列表、改动条、审查卡因此把每一次编辑都标成「写」（连颜色和排序权重一起错）。改成先判编辑家族，并补上分类表测试（把旧顺序放回去，全仓只有这一条测试变红）。**教训**：这是上一行那类缺口在纯函数层的版本——标签错了，而没有任何测试在问标签 |
+| 「提问事件落在哪一栏」这条渲染连线**没有测试** | 按 §6.1 没有 DOM 环境，抽不出纯函数（投影那一半有测试：锚点、seq、只画一次）。守卫就是 §6 的定点截图——这条 bug 正是它抓到的，所以不假装用单测盖住。**S5 同理**：证据卡的**位置规则**（`roundEvidenceByTurn`）现在有测试，但「卡片真的画出来了、画成了什么样」仍然只有截图 |
 | `TestRetiredRunCannotOverwriteRunningRetry` 偶发红（merge base 上 40 次红 3 次） | **已修**（`7bbc7d7`）：`persistRunEvent` 让事件写持着引擎锁，于是 `Cancel` 排在它后面；而假 run 的终局事件原本紧跟在被放行的写之后，run 自己的完成若先拿到锁，任务就已 `succeeded`，cancel 随即报「already terminal」。改成假 run 把终局事件**握在测试手里**，cancel 先落地成为构造性事实，终局事件改在 retry 已经在跑之后才到——这才是这个测试名字所指的危险。100 次全绿 |
 | `internal/adapter/droid` 的 `TestAdapterCancelAndProcessExit` 与 `internal/github` 的 `TestRunDoesNotWaitForAProcessThatOutlivesGH` 在全量跑时偶发红（单跑必绿） | **先于本片存在**，且都在 P2 从未碰过的包里（P2 的 diff 不含这两个包）：两条都是进程生命周期测试，对机器负载敏感（当时同时在跑别的构建）。记为**负载敏感的既有 flake**，不在本片修，也不当作本片的红 |
 | 引入 DOM 测试环境的诱惑 | 见 §6：先论证哪些断言抽不出来 |
@@ -439,3 +464,4 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 | S4 活动分组 | `7b4fcc9` | 每个 note 带上**来源**（`NoteSource`：`reasoning`/`plan`/`note`），造 note 的那一刻从 `role` 与 canonical `phase` 读出——不猜文本；行标签按来源选（`chat.progress.thinking` / `chat.progress.plan` / 今天的 `chat.progress.note`）。`speaker`/`model` 只在**不是 host 自己的声音**时才画（`noteNeedsAttribution` → `isHostVoice`：`kin`/host/`orchestrator` 是同一列的三个名字）。三个悬空 key 结清 | 6 条新测试（来源表、标签映射 + 两个语言都能解析、流式与定稿同一来源、工具调用结束流式后来源还在、plan 事件与 plan 消息同档、worker 的话算叙述但保留 speaker）+ 归属规则 1 条。**4 处删机制验红**、全部 sha256 逐字节还原。定点截图 390×844 / 1440×900 四张（收起态「已收起 5 步」、展开态五行：计划 / 思考 / Read / 过程 / 过程+`Codex · gpt-5`）**逐张看过**——第一版就是靠它发现 host 自己的 note 被署了名 |
 | S1a/S1c 复审修复 | `b4e4faa` `2d8cadf` `0e52508` `7bbc7d7` `3729d41` | 复审的 4 个 major + nits 逐条落地：① 打断的 user-guide 事件在「发布 pendingFollowUp 项」**之前**写下并带锚（原来中间那一瞬别人读到的是 0＝「还没人写」，投递于是把用户的话写了第二遍）；② **丢弃报告与丢弃同事务**（retry 的 rewind 与 cancel 各一处：`DiscardEvent` / `DiscardPendingPrompts`），调用方只 publish——进程死在中间也不能「消息没了而记录里什么都不说」；③ worker 可见性守卫改成驱动 `forwardWorkerEvents`（原来只钉住 `stampWorker`，转发器改坏了守卫照样绿）；④ 「一轮」的契约落成可执行的 `roundsOf`，见 §6.2；nit：投递失败要**点名**那条消息（引号、单行、48 字截断）、`deliverQueuedAfterRestart` 的措辞、`wasCanceled` 的注释收窄 | **11 个机制逐个删掉验红**（全部 sha256 逐字节还原）：retry 报告改到提交之后写、cancel 报告改到提交之后写、重放路径不报告、投递错误不带名字、`userSeq` 归零（当场报 `user copies = 2, want 1`）、守卫只驱动 stamper、把一轮当划分… 新增 5 条 Go + 5 条 UI 测试。**订正（P2 复审 N1）**：这两条「报告改到提交之后写」当时**没有复现**——测试钉的是「有报告」，不是「报告与删除同事务」，所以那一格当时是读 diff 得出的结论而不是验过的红；现在由 `TestAFailedDiscardReportLeavesTheQueueAlone` 与 `TestAFailedRetryDiscardReportTakesTheRetryBack` 钉住（`18618e0`）。**这一片没有 `web/dist` 提交是对的**：`roundsOf` 目前还没有消费者（S5 才用），被 tree-shake 掉了，`npm run build` 产物与已提交的 `index.html` 逐字节相同（入口仍是 `index-B59owEAr.js`）。另修掉一条**先于本片存在**的 flake（见 §7） |
 | P2 复审 nit 批 | `67bd94f` `028e3ea` `95d532a` `18618e0` | 第二轮 `@claude`（同档）复审 S1c/S4 区间：**0 blocker / 0 major / 7 nit**，逐条处置——**N5**（这一轮的工作以错误收场时那一轮不闭合，下一次提问于是并进来）正好落在 S5 要用的 `roundsOf` 上，改掉 + 3 条测试，§6.2 的规则描述与条数同步；**N6** 投递失败的前缀说了两遍（`err` 自己已经点名了那条消息）；**N3/N4** 两条注释引了代码里不存在的检查（`cancelTask` 是先解锁再调 store；`UpdateTask` 的谓词只有 id），换成真的那个理由；**N1** 两条「报告改到提交之后写」当时**没复现**，补两条失败注入测试把同事务钉住；**N2** §7 那行改成「只有两种结果」；**N7** 是已披露的「渲染连线没有测试」，无需动作（§7 有行） | **3 个新 UI 测试各自被一处不同的变异弄红**（删掉规则 / 不做前瞻 / 用「含 error」代替「停在 error 上」），逐字节还原；**2 个新 store 测试**用触发器中止 `error` 事件写，把删除提前提交即变红，逐字节还原；`go test ./internal/store/... ./internal/task/...` 全绿、`tsc --noEmit` 0、`vitest run` 58 文件 596 用例全绿；`npm run build` 后 `web/dist/index.html` **未变**（`roundsOf` 仍被 tree-shake，入口还是 `index-C7chGWCf.js`），所以这一批没有 `web/dist` 提交 |
+| S5 逐轮 diff 证据卡 | `31b52a0` `aa40a38` `636d01a` | 一轮干了什么，现在在聊天里就能看到：卡片画在**这一轮结束的那个 turn** 下面，列出本轮**通过文件工具**改的文件、+/− 行数，点开某个文件看改动本身（有界、超出报数），并能跳到工作区。两条纯库担全部规则——`diffPreview`（裁掉两端未变的行、两侧共有的行留作上下文、整块有上限）与 `roundEvidence`（按区间读一轮的切片；没有区间或没有文件工具改动 ⇒ `null` ⇒ 不画）。卡片底部**常驻**一行小字说明它只是文件工具的账、权威差异在工作区/PR；**有意不嵌 Monaco**（尽力还原 + 并排编辑器 = 看起来和真 diff 一样权威，正是那行小字要防的）。顺手结清：`ApprovalCard.previewLines` 这个从没人用过的槽**接上**（审批写/改文件时直接画改动，而不是画 JSON），`Transcript.tsx` 删除，工作区两份 `DeltaInline`/动作标签合成 `changedFileFace` | `vitest run` **60 文件 617 用例**全绿、`tsc --noEmit` 0、prettier 逐文件过；**6 处删机制验红**（卡片挂到提问而不是回答上；缺区间时读全流；把编辑判成写；不裁两端未变的行；预览不设上限；文件列表不设上限），全部 sha256 逐字节还原（三条被改的库各自 `shasum -c` 通过）。定点截图 430×932 与 1280×900 **逐张看过**（含展开的逐文件 diff、审批卡的改动预览）。**顺带抓到一个先于本片存在的真 bug**：`Edit` 一直被标成「写」（见 §7 与 `aa40a38`）。`web/dist/index.html` 随源码同一提交——`roundsOf` 终于有了消费者，入口 chunk 从 `index-C7chGWCf.js` 变成 `index-BlRFnNu6.js` |
