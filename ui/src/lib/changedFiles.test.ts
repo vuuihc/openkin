@@ -59,6 +59,17 @@ describe("countLines / lineDeltaFromTool", () => {
     ).toEqual({ additions: 2, deletions: 1 });
   });
 
+  it("a delete with no recorded body is unknown, not zero", () => {
+    // ±0 would read as "this file changed by nothing" in the chat card, while the
+    // workspace bar prints "size unknown" for the same file. Absent is the value the
+    // three faces already agree on; zero is a claim the payload did not make.
+    expect(lineDeltaFromTool("delete_file", { path: "gone.ts" })).toBeNull();
+    expect(lineDeltaFromTool("delete_file", { path: "gone.ts", content: "a\nb\n" })).toEqual({
+      additions: 0,
+      deletions: 2,
+    });
+  });
+
   it("delta for unified patch", () => {
     const patch = [
       "--- a/f",

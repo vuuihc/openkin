@@ -378,7 +378,11 @@ export function lineDeltaFromTool(
     if (typeof rec.content === "string") {
       return { additions: 0, deletions: countLines(rec.content) };
     }
-    return { additions: 0, deletions: 0 };
+    // No body to count, so the size is unknown -- and every face that draws this row
+    // reads `null` as exactly that (DeltaInline: counts the payload could not
+    // reconstruct are absent, not zero). ±0 would claim the file changed by nothing,
+    // next to a workspace bar that says "size unknown" for the same file.
+    return null;
   }
 
   // Single str_replace.
