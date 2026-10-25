@@ -2363,6 +2363,77 @@ describe("turn seq ranges", () => {
     ]);
   });
 
+  it("ends the round at a failure nothing picked back up", () => {
+    // The ask was answered with an error: the run died there, and the file the
+    // next ask changes is not this round's work.
+    const rounds = roundsOf(
+      turnsOf([
+        userTurn(1, "deploy it"),
+        hostToolUse(2, "t1", "bash", "scripts/deploy.sh"),
+        ev(3, "error", { message: "deploy.sh exited 1" }),
+        userTurn(4, "then fix the parser"),
+        hostToolUse(5, "t2", "edit", "internal/parse.go"),
+        ev(6, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "parser fixed",
+          visibility: { user: true, task: true },
+        }),
+      ]),
+    );
+
+    expect(rounds.map((round) => [round.user.fromSeq, round.fromSeq, round.toSeq])).toEqual([
+      [1, 1, 3],
+      [4, 4, 6],
+    ]);
+  });
+
+  it("keeps a round whole when the column that failed was not the last word", () => {
+    // The error came first, before the column had said anything, and the answer
+    // came anyway. The ask was answered, so the answer is inside this round.
+    const rounds = roundsOf(
+      turnsOf([
+        userTurn(1, "fix the parser"),
+        ev(2, "error", { message: "provider failed to start" }),
+        ev(3, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "parser fixed on the second try",
+          visibility: { user: true, task: true },
+        }),
+      ]),
+    );
+
+    expect(rounds).toHaveLength(1);
+    expect([rounds[0].fromSeq, rounds[0].toSeq]).toEqual([1, 3]);
+  });
+
+  it("reads an error the column kept working through as part of the work", () => {
+    // The retry shape: the tool failed and the agent carried on in the same
+    // column. A round is judged by what the column ended on, not by the error it
+    // passed through, so the ask that arrives while it is still working is the
+    // same round.
+    const rounds = roundsOf(
+      turnsOf([
+        userTurn(1, "fix the parser"),
+        hostToolUse(2, "t1", "edit", "internal/parse.go"),
+        ev(3, "error", { message: "tool failed" }),
+        hostToolUse(4, "t2", "edit", "internal/parse.go"),
+        userTurn(5, "and the changelog"),
+        ev(6, "message", {
+          role: "assistant",
+          speaker: "kin",
+          text: "both done",
+          visibility: { user: true, task: true },
+        }),
+      ]),
+    );
+
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0].turns.map((turn) => turn.kind)).toEqual(["user", "agent", "user", "agent"]);
+    expect([rounds[0].fromSeq, rounds[0].toSeq]).toEqual([1, 6]);
+  });
+
   it("leaves the turns before the first ask out of every round", () => {
     // A window that opens mid-round: the agent's tail is there and the ask that
     // started it is not. An invented round for those turns would put the work

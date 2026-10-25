@@ -1105,8 +1105,10 @@ export type Round = {
  * Split turns into rounds: what the user asked for, and everything done about it.
  *
  * A round opens at a user turn and closes at the agent turn that answers it — a
- * turn carrying a settled (non-partial) message. A user turn that arrives while a
- * round is still open does not open another one. That is the case this exists for:
+ * turn carrying a settled (non-partial) message, or one that ends on an error
+ * with nothing picking the work back up before the next ask. A user turn that
+ * arrives while a round is still open does not open another one. That is the case
+ * this exists for:
  * the same ask can reach the transcript twice, as a streamed copy that was flushed
  * into its own item and the final copy that carries the seq, and an ACP agent
  * echoes the prompt it was given at all — late enough that the work it prompted
@@ -1122,10 +1124,60 @@ export type Round = {
  * absent when none of them do. It is a slice, not a partition: see
  * `TurnSeqRange`.
  */
+/** The items a turn speaks through: an agent column's own, a standalone turn's one. */
+function spokenItems(turn: Turn): ChatItem[] | null {
+  if (turn.kind === "agent") return turn.items;
+  if (turn.kind === "standalone") return [turn.item];
+  return null;
+}
+
+/**
+ * The last item a turn actually said. Trailing markers — an approval notice, a
+ * question waiting on the user — are not content, and a turn is judged by what
+ * it ended on rather than by the marker that followed it.
+ */
+function lastContentItem(items: ChatItem[]): ChatItem | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index].kind !== "meta") return items[index];
+  }
+  return undefined;
+}
+
+/**
+ * Whether the work behind this turn stopped with an error, which ends the round
+ * just as much as an answer does.
+ *
+ * An error on its own is not an ending: a retry that failed and then answered
+ * leaves one in the middle of the work, and the round keeps that work — the turn
+ * it sits in either ends on the answer or is followed by one. So this asks both
+ * questions: the turn ends on the error, and nothing picks the work back up
+ * before the next ask. A run that died leaves its ask unanswered, and whatever
+ * the user asks next is a new round — reading it as the same one is how the
+ * changes of the next ask get reported under the ask that failed.
+ */
+function stoppedAtError(turns: Turn[], index: number): boolean {
+  const items = spokenItems(turns[index]);
+  if (!items || lastContentItem(items)?.kind !== "error") return false;
+  for (let next = index + 1; next < turns.length; next += 1) {
+    const turn = turns[next];
+    if (turn.kind === "user") return true;
+    if (
+      turn.kind === "agent" &&
+      turn.items.some((item) => item.kind === "message" && !item.partial)
+    ) {
+      return false;
+    }
+  }
+  // Nothing follows at all: the run ended on the failure, so the next ask opens
+  // its own round.
+  return true;
+}
+
 export function roundsOf(turns: Turn[]): Round[] {
   const rounds: Round[] = [];
   let open: Round | null = null;
-  for (const turn of turns) {
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index];
     if (turn.kind === "user") {
       if (open) {
         open.turns.push(turn);
@@ -1139,12 +1191,9 @@ export function roundsOf(turns: Turn[]): Round[] {
     // the loaded window — belongs to no round rather than to an invented one.
     if (!open) continue;
     open.turns.push(turn);
-    if (
-      turn.kind === "agent" &&
-      turn.items.some((item) => item.kind === "message" && !item.partial)
-    ) {
-      open = null;
-    }
+    const answered =
+      turn.kind === "agent" && turn.items.some((item) => item.kind === "message" && !item.partial);
+    if (answered || stoppedAtError(turns, index)) open = null;
   }
   for (const round of rounds) {
     const from = round.turns.map((turn) => turn.fromSeq).filter((seq) => seq !== undefined);
