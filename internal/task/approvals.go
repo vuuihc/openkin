@@ -562,11 +562,11 @@ func (e *Engine) reportUndelivered(ctx context.Context, id string, cause error) 
 //
 // Callers name a constant rather than passing a bool: the two cases differ by who is
 // asking, and a bare `true` at a call site does not say which one that is. Reaching
-// the reviving half now takes an explicitly named call (applyFollowUpReviving,
-// deliverQueuedPromptReviving) rather than one more argument at a site that was
-// written before the window was understood: both interrupt-apply sites took the
-// reviving one because it was the shortest thing to write beside a cancel they had
-// just done themselves, and both were wrong for it.
+// the reviving half now takes an explicitly named call (deliverQueuedPromptReviving,
+// used by the follow-up a user sends themselves) rather than one more argument at a
+// site that was written before the window was understood: both interrupt-apply sites
+// took the reviving one because it was the shortest thing to write beside a cancel
+// they had just done themselves, and both were wrong for it.
 type deliveryIntent bool
 
 const (
@@ -846,16 +846,11 @@ func (e *Engine) applyPendingFollowUp(ctx context.Context, id string, pf pending
 //
 // The guard has to reach the statement rather than be read just before it, because
 // the cancel it guards against is written by another goroutine; see deliveryIntent.
-// applyFollowUpReviving is the one variant that may write over a cancel, and it is
-// named for the single caller allowed to ask for that.
+// Every caller passes respectCancel: an interrupt is a delivery nobody asked for at
+// that moment, and the only delivery allowed to revive a canceled task is the user's
+// own next message, which arrives through deliverQueuedPromptReviving instead.
 func (e *Engine) applyFollowUpPrepared(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool, userSeq int) (store.Task, error) {
 	return e.applyFollowUp(ctx, id, t, req, interrupted, userSeq, respectCancel)
-}
-
-// applyFollowUpReviving is applyFollowUpPrepared for the user's own message: the one
-// delivery that may revive a canceled task, because the message is the revival.
-func (e *Engine) applyFollowUpReviving(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool, userSeq int) (store.Task, error) {
-	return e.applyFollowUp(ctx, id, t, req, interrupted, userSeq, reviveCanceled)
 }
 
 func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req FollowUpRequest, interrupted bool, userSeq int, intent deliveryIntent) (store.Task, error) {
