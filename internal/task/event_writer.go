@@ -137,7 +137,25 @@ func (e *Engine) notePersistFailure(taskID, typ string, payload json.RawMessage,
 		e.mu.Unlock()
 		return
 	}
+	e.noteDroppedEvent(taskID, err)
+}
+
+// noteDroppedEvent records an event the engine wanted to write and could not, in the
+// ledger a later successful write turns into an observable diagnostic
+// (maybeEmitPersistDiagnostic).
+//
+// It is for a loss that belongs to no run: a report about a message that will not be
+// answered, whose task has already ended. Callers that own a live run want
+// notePersistFailure or noteRunPersistFailure instead, which also decide whether the
+// loss is critical to that run's own outcome -- criticalPersistFail is read by the
+// next run to finish, and a flag set once a cancel has ended the task would fail some
+// later, unrelated turn of the same task.
+func (e *Engine) noteDroppedEvent(taskID string, err error) {
+	if e == nil || err == nil {
+		return
+	}
 	e.persistMu.Lock()
+	defer e.persistMu.Unlock()
 	if e.persistGaps == nil {
 		e.persistGaps = make(map[string]*persistGap)
 	}
@@ -148,7 +166,6 @@ func (e *Engine) notePersistFailure(taskID, typ string, payload json.RawMessage,
 	}
 	g.dropped++
 	g.lastErr = err.Error()
-	e.persistMu.Unlock()
 }
 
 func (e *Engine) noteRunPersistFailure(
@@ -172,18 +189,7 @@ func (e *Engine) noteRunPersistFailure(
 		e.mu.Unlock()
 		return
 	}
-	e.persistMu.Lock()
-	if e.persistGaps == nil {
-		e.persistGaps = make(map[string]*persistGap)
-	}
-	g := e.persistGaps[taskID]
-	if g == nil {
-		g = &persistGap{}
-		e.persistGaps[taskID] = g
-	}
-	g.dropped++
-	g.lastErr = err.Error()
-	e.persistMu.Unlock()
+	e.noteDroppedEvent(taskID, err)
 	e.mu.Unlock()
 }
 

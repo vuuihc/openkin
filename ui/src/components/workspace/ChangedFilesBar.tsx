@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { summarizeChangedFiles, type ChangedFile } from "../../lib/changedFiles";
 import { useT } from "../../i18n/react";
-import DeltaInline from "../changedFileFace";
+import DeltaInline, { FileSize } from "../changedFileFace";
 import { IconCheck, IconChevron, IconX } from "../icons";
 
 type Props = {
@@ -186,11 +186,15 @@ export default function ChangedFilesBar({
               <span className="text-body font-semibold text-kin-text truncate">
                 {t("workspace.changed.reviewTitle", { count: labelCount })}
               </span>
-              {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
-                <span className="flex-none text-body font-mono tabular-nums">
+              <span className="flex-none text-body font-mono tabular-nums">
+                {stats.hasStats ? (
                   <DeltaInline additions={stats.additions} deletions={stats.deletions} />
-                </span>
-              )}
+                ) : (
+                  <span className="font-sans text-caption text-kin-muted">
+                    {t("workspace.changed.noLineDelta")}
+                  </span>
+                )}
+              </span>
             </div>
             <div className="mt-0.5 pl-[18px] text-caption text-kin-muted">
               {t("workspace.changed.expand")}
@@ -230,11 +234,13 @@ export default function ChangedFilesBar({
                       </span>
                     ) : null}
                   </span>
-                  {(f.additions != null || f.deletions != null) && (
-                    <span className="flex-none text-caption font-mono tabular-nums">
-                      <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
-                    </span>
-                  )}
+                  <span className="flex-none text-caption font-mono tabular-nums">
+                    <FileSize
+                      additions={f.additions}
+                      deletions={f.deletions}
+                      label={t("workspace.changed.noLineDelta")}
+                    />
+                  </span>
                 </button>
               </li>
             );
@@ -268,16 +274,15 @@ export default function ChangedFilesBar({
           <span className="flex-none text-body font-semibold text-kin-text">
             {t("workspace.changed.reviewTitle", { count: labelCount })}
           </span>
-          {stats.hasStats && (stats.additions > 0 || stats.deletions > 0) && (
-            <span className="flex-none text-body font-mono tabular-nums">
+          <span className="flex-none text-body font-mono tabular-nums">
+            {stats.hasStats ? (
               <DeltaInline additions={stats.additions} deletions={stats.deletions} />
-            </span>
-          )}
-          {stats.hasStats && stats.additions === 0 && stats.deletions === 0 && (
-            <span className="flex-none text-caption text-kin-muted">
-              {t("workspace.changed.noLineDelta")}
-            </span>
-          )}
+            ) : (
+              <span className="font-sans text-caption text-kin-muted">
+                {t("workspace.changed.noLineDelta")}
+              </span>
+            )}
+          </span>
           <span className="hidden sm:inline flex-none text-caption text-kin-muted">
             {t("workspace.changed.expand")}
           </span>

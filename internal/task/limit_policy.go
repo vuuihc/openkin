@@ -94,10 +94,20 @@ func (e *Engine) applyLimitPolicy(ctx context.Context, taskID, agent string, inf
 			return
 		}
 		if t.Status != StatusFailed && t.Status != StatusSucceeded && t.Status != StatusCanceled {
-			// Ensure failed so FollowUp accepts the handoff.
+			// Ensure failed so FollowUp accepts the handoff. Guarded rather than
+			// plain, because the read above is a read: a cancel landing between it
+			// and this write would be overwritten with `failed`, and the handoff
+			// below would then start a turn for a task the user had just canceled --
+			// which is the one thing a cancel promises will not happen. The refusal
+			// is the answer here: nothing is raised for a task the user stopped.
 			status := StatusFailed
 			now := e.nowMilli()
-			_ = e.store.UpdateTask(ctx, taskID, store.TaskPatch{Status: &status, FinishedAt: &now})
+			if err := e.store.UpdateTaskUnlessCanceled(ctx, taskID, store.TaskPatch{
+				Status:     &status,
+				FinishedAt: &now,
+			}); err != nil {
+				return
+			}
 		}
 		prompt, err := e.lastUserPrompt(ctx, taskID, t.Prompt)
 		if err != nil || strings.TrimSpace(prompt) == "" {

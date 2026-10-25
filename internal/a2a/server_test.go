@@ -97,6 +97,19 @@ func TestA2AFollowUpInterruptIsOptIn(t *testing.T) {
 	if rec := post("q1", "queued one", ""); rec.Code != http.StatusAccepted {
 		t.Fatalf("queued follow-up status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// The queue row is what makes this half discriminating. Reading the task's
+	// prompt alone does not: an interrupting follow-up is *parked* and applied at
+	// the turn boundary, so a route that interrupted unconditionally would still
+	// answer "start" to a read taken straight after the POST -- the assertion
+	// would pass for the wrong reason, and the only thing that would ever catch
+	// it is a timing accident. A queued message has a durable row from the moment
+	// the POST returns; an interrupt has only an in-memory park. So: the row, or
+	// this test does not know the difference it claims to know.
+	if queued, err := st.ListPendingPrompts(context.Background(), created.ID); err != nil {
+		t.Fatal(err)
+	} else if len(queued) != 1 || queued[0].Prompt != "queued one" {
+		t.Fatalf("queue after a plain follow-up = %+v, want exactly the message that was sent", queued)
+	}
 	if got, err := eng.Get(context.Background(), created.ID); err != nil {
 		t.Fatal(err)
 	} else if got.Prompt != "start" {
@@ -123,6 +136,16 @@ func TestA2AFollowUpInterruptIsOptIn(t *testing.T) {
 			t.Fatalf("prompt after an interrupting follow-up = %q, want the new message", got.Prompt)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	// And the interrupt queued nothing of its own: the message it carried became
+	// the turn. The row still standing is the plain follow-up from above, which an
+	// interrupt does not touch -- it cuts the turn short, it does not discard the
+	// messages already waiting for one, so a route that queued *and* interrupted
+	// would leave two rows here and be caught by the count.
+	if queued, err := st.ListPendingPrompts(context.Background(), created.ID); err != nil {
+		t.Fatal(err)
+	} else if len(queued) != 1 || queued[0].Prompt != "queued one" {
+		t.Fatalf("queue after an interrupting follow-up = %+v, want only the earlier queued message left waiting", queued)
 	}
 }
 

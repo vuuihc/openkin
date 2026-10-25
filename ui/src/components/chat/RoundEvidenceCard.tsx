@@ -2,7 +2,7 @@ import { useState } from "react";
 import { shortPath } from "../../lib/paths";
 import { evidenceFilePreview, type RoundEvidence } from "../../lib/roundEvidence";
 import { useT } from "../../i18n/react";
-import DeltaInline, { actionDotClass, actionLabelKey } from "../changedFileFace";
+import { FileSize, actionDotClass, actionLabelKey } from "../changedFileFace";
 import PreviewLines from "../PreviewLines";
 import { IconChevron, IconFile } from "../icons";
 
@@ -48,11 +48,16 @@ export default function RoundEvidenceCard({
         <span className="flex-none text-caption tabular-nums text-kin-muted">
           {tr("chat.evidence.files", { count: evidence.totalFiles })}
         </span>
-        {evidence.hasStats && (
-          <span className="flex-none text-caption tabular-nums">
-            <DeltaInline additions={evidence.additions} deletions={evidence.deletions} />
-          </span>
-        )}
+        {/* The same face the rows below use, from the same component: a round whose
+            payloads carried no counts says "size unknown" here too, rather than
+            going quiet in the header while its own rows say it. */}
+        <span className="flex-none text-caption tabular-nums">
+          <FileSize
+            additions={evidence.hasStats ? evidence.additions : null}
+            deletions={evidence.hasStats ? evidence.deletions : null}
+            label={tr("workspace.changed.noLineDelta")}
+          />
+        </span>
         <span className="flex-none text-caption text-kin-muted">
           {open ? tr("chat.progress.hide") : tr("chat.progress.details")}
         </span>
@@ -65,7 +70,6 @@ export default function RoundEvidenceCard({
             // Read on demand: one file's payload is rebuilt when it is opened,
             // not six when the card is drawn.
             const preview = expanded ? evidenceFilePreview(evidence, file.path) : null;
-            const known = file.additions != null || file.deletions != null;
             return (
               <div key={`${file.action}:${file.path}`}>
                 <button
@@ -86,14 +90,11 @@ export default function RoundEvidenceCard({
                     {tr(actionLabelKey(file.action))}
                   </span>
                   <span className="flex-none text-caption tabular-nums">
-                    {known ? (
-                      <DeltaInline
-                        additions={file.additions ?? 0}
-                        deletions={file.deletions ?? 0}
-                      />
-                    ) : (
-                      <span className="text-kin-muted">{tr("workspace.changed.noLineDelta")}</span>
-                    )}
+                    <FileSize
+                      additions={file.additions}
+                      deletions={file.deletions}
+                      label={tr("workspace.changed.noLineDelta")}
+                    />
                   </span>
                   <IconChevron
                     size={12}
