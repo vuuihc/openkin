@@ -234,6 +234,19 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 三个悬空 key 一起结清：`chat.progress.collapsed` 用作收起态的摘要行（`{count}` 已在）、
 `chat.progress.step` 用作行号的可访问名、`task.roundBusy` 若 S4 用不上就**删**（§2.3 的清单）。
 
+**落地时的两处订正**：
+
+- 表里的 `summary` 那一档**不成立**。`phase: "summary"` 的消息不是 note：它是 process run
+  的定稿消息、`mergeProcessRun` 找的那个锚点（`transcriptProjection.ts:847`），
+  所以没有任何 note 会带 `source: "summary"`。来源因此只有三档：`reasoning` / `plan` / `note`，
+  行标签也只对应三个 key（`thinking` / `plan` / `note`）。
+- 归属**不能只比字符串**。夹具第一版就把 host 自己的 note 画成了「Kin · claude-sonnet-5-5」：
+  卡片（`ProgressItem`）的 speaker 是 `hostSpeaker`（`claude-code`），而 legacy 行的 note speaker
+  是 `kin`——同一列的两个名字。规则落成 `isHostVoice(speaker, hostSpeaker)`
+  （`kin` / `hostSpeaker` / `orchestrator`），它本来在两处内联（`isUserFacingEvent`、
+  `legacyVisibilityFor`），现在三处共用一份。**这条只有截图能发现**：两条测试都绿着，
+  因为投影那一半（source）是对的，错的是「谁需要署名」。
+
 ## 4. 切片
 
 每片一个可独立验证的提交，照 P1 的做法：**量出来的证据 + 守卫（若有可守卫的形状）**，
@@ -395,6 +408,7 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 | 手机上「排队中」的状态不明显 | chip 已落地（S2b，`abebb7a`）。**尚未在手机或窄屏上看过**：本机只有浏览器工具，真机验收仍卡在 NAS Hub 部署。残留风险记在这里，不用推理代替截图 |
 | ~~**S2b/S3 的新形态还没有定点截图**~~ | **已拍**（`0a1be50`）：390×844 与 1440×900 四个定点（排队 chip、原位审批卡 + 输入框上方 bar），夹具见下条。**它抓到了真 bug**：原位审批卡在它唯一该出现的形状里是**不画的**（见 §8「S3 补丁」）。剩下 S4–S7 的新形态还没拍，用同一套夹具续拍 |
 | 夹具（本地假 daemon，不进仓）比看上去更容易搭错 | 两处必须实现，否则截图自带噪音或根本拍不到东西：① 事件通道是 **SSE**（`client.ts:2219` 读 `res.body`，空行分帧），不是 WebSocket——第一版把 `/api/events` 答成 JSON，于是「正在重连…」横幅进了每一张图；② `/api/sessions/cursor` 与 `/api/sessions` 是「连上了」的判据（`sessionSync.ts:137-145` 拿到 cursor 才 `setStatus("connected")`），缺了会退避重试并在图上留同一条横幅。夹具不是被测对象，但它的缺口会伪装成产品缺陷 |
+| 「谁需要署名」这条规则**没有单测能替截图作证的部分** | `noteNeedsAttribution` 有 1 条测试钉住四个名字（自己的名字、`kin`、`orchestrator`、别的 agent），但「这张卡上画了什么」仍然只有截图。第一版就是测试全绿而画错的——记在这里，别把它当成已覆盖 |
 | 原位审批卡在窄屏比「兜底位置」窄 38px（320 vs 358） | 有意的：卡片留在 agent 那一列里（拆轮会多画一个头像），实测卡本身不溢出（320=320，按钮 70–358），只有 JSON 预览横向滚动（586>286）。两处宽度不同、两处都只画一次 |
 | 「提问事件落在哪一栏」这条渲染连线**没有测试** | 按 §6.1 没有 DOM 环境，抽不出纯函数（投影那一半有测试：锚点、seq、只画一次）。守卫就是 §6 的定点截图——这条 bug 正是它抓到的，所以不假装用单测盖住 |
 | `TestRetiredRunCannotOverwriteRunningRetry` 偶发红（merge base 上 40 次红 3 次） | **已修**（`7bbc7d7`）：`persistRunEvent` 让事件写持着引擎锁，于是 `Cancel` 排在它后面；而假 run 的终局事件原本紧跟在被放行的写之后，run 自己的完成若先拿到锁，任务就已 `succeeded`，cancel 随即报「already terminal」。改成假 run 把终局事件**握在测试手里**，cancel 先落地成为构造性事实，终局事件改在 retry 已经在跑之后才到——这才是这个测试名字所指的危险。100 次全绿 |
@@ -419,4 +433,5 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 | S2b 排队中 | `abebb7a` | 消息在入队时就写进 transcript（引擎那一半），所以队列是**唯一变化的东西**：哪些 seq 还在等。`GET /api/tasks/{id}/prompts` 报它们，页面在事件落地时重读 + 3s 慢轮询（只有「某条被答了」变化时也追得上），等待中的 user 气泡标签行长出一枚 chip。`QueuedPrompt.user_seq` 升为契约 required——分不清「没锚」与「字段缺失」的客户端无法决定标什么 | 3 条纯函数测试（收集、`user_seq=0` 不标、空队/无 seq 不标）+ 2 处删机制验红、sha256 还原。`npx tsc --noEmit` 0、`vitest run` 57 文件 572 用例全绿、`npm run build` 后 `web/dist/index.html` 随源码同一提交。定点截图见 §7（S2b 的 chip 与 S3 的卡都已逐张看过） |
 | S3 控制台 | `9a845e7` | 审批卡不再一律贴在底部：`approval_requested`/`user_question_requested` 带上被问者的 id，投影把卡挂在**提问事件**上，流就画在那里；只有提问事件滚出已加载窗口时才回落到流尾，且两处**只有一处**会画（一个决定不会长出两套按钮）。`j`/`k` 按提问的 seq 走、无锚的排最后（光标落在看不见的地方比没有光标更糟）。输入框上方一条 bar 说明在等什么并能跳过去——这才是「不该靠打字才发现有待批」 | 4 条投影测试 + 5 条顺序测试（`needsYou.test.ts`）+ 既有测试保持绿。**行内卡片第一次拍就发现主路径不画**——补丁见上一行。定点截图见 §7（S2b 的 chip 与 S3 的卡都已逐张看过） |
 | S3 补丁 | `0a1be50` | 定点截图抓到 S3 在**主路径上是死的**：`groupIntoTurns` 把带 `pending` 的 meta 项折进它打断的那一轮（对的），但只有 `standalone` 轮拿得到 `pendingSlots`，于是「agent 先说一句、然后停下来问」这个最常见的形状里卡片被丢掉，屏幕上只剩「需要你的审批 ↓」这行字。修在渲染处（`AgentTurn` 也认这张卡），不改投影：拆轮会为一段连续回答多画一个头像。审批与提问两种都一样 | 390×844 / 1440×900 各两个定点（审批卡在原位、排队 chip 在第二条 user 气泡上）**逐张看过**，并实测卡片几何：卡 320px 不溢出、按钮 70–358、JSON 预览 `scrollWidth 586 > 286` 属设计内滚动。`vitest run` 58 文件 586 用例全绿、`tsc --noEmit` 0、`npm run build` 后 `web/dist/index.html` 随源码同一提交（入口 `index-D4qUdRy8.js`）。**这片的教训**：投影有测试而渲染连线没有（§6.1 无 DOM），所以「锚点算对了」与「卡片画出来了」是两件事，只有截图能证明后者 |
+| S4 活动分组 | `7b4fcc9` | 每个 note 带上**来源**（`NoteSource`：`reasoning`/`plan`/`note`），造 note 的那一刻从 `role` 与 canonical `phase` 读出——不猜文本；行标签按来源选（`chat.progress.thinking` / `chat.progress.plan` / 今天的 `chat.progress.note`）。`speaker`/`model` 只在**不是 host 自己的声音**时才画（`noteNeedsAttribution` → `isHostVoice`：`kin`/host/`orchestrator` 是同一列的三个名字）。三个悬空 key 结清 | 6 条新测试（来源表、标签映射 + 两个语言都能解析、流式与定稿同一来源、工具调用结束流式后来源还在、plan 事件与 plan 消息同档、worker 的话算叙述但保留 speaker）+ 归属规则 1 条。**4 处删机制验红**、全部 sha256 逐字节还原。定点截图 390×844 / 1440×900 四张（收起态「已收起 5 步」、展开态五行：计划 / 思考 / Read / 过程 / 过程+`Codex · gpt-5`）**逐张看过**——第一版就是靠它发现 host 自己的 note 被署了名 |
 | S1a/S1c 复审修复 | `b4e4faa` `2d8cadf` `0e52508` `7bbc7d7` `3729d41` | 复审的 4 个 major + nits 逐条落地：① 打断的 user-guide 事件在「发布 pendingFollowUp 项」**之前**写下并带锚（原来中间那一瞬别人读到的是 0＝「还没人写」，投递于是把用户的话写了第二遍）；② **丢弃报告与丢弃同事务**（retry 的 rewind 与 cancel 各一处：`DiscardEvent` / `DiscardPendingPrompts`），调用方只 publish——进程死在中间也不能「消息没了而记录里什么都不说」；③ worker 可见性守卫改成驱动 `forwardWorkerEvents`（原来只钉住 `stampWorker`，转发器改坏了守卫照样绿）；④ 「一轮」的契约落成可执行的 `roundsOf`，见 §6.2；nit：投递失败要**点名**那条消息（引号、单行、48 字截断）、`deliverQueuedAfterRestart` 的措辞、`wasCanceled` 的注释收窄 | **11 个机制逐个删掉验红**（全部 sha256 逐字节还原）：retry 报告改到提交之后写、cancel 报告改到提交之后写、重放路径不报告、投递错误不带名字、`userSeq` 归零（当场报 `user copies = 2, want 1`）、守卫只驱动 stamper、把一轮当划分… 新增 5 条 Go + 5 条 UI 测试。**这一片没有 `web/dist` 提交是对的**：`roundsOf` 目前还没有消费者（S5 才用），被 tree-shake 掉了，`npm run build` 产物与已提交的 `index.html` 逐字节相同（入口仍是 `index-B59owEAr.js`）。另修掉一条**先于本片存在**的 flake（见 §7） |
