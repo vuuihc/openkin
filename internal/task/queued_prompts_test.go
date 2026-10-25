@@ -1075,6 +1075,57 @@ func TestACancelRefusesTheInterruptsDeferredFollowUp(t *testing.T) {
 	}
 }
 
+// A delivered message is owed until a run takes it: the row's prompt holds it, and
+// the label names it. The interrupt path reaches the apply for a task that only ever
+// waited to start -- which is exactly the state a delivered message leaves behind --
+// and it replaces that prompt with its own. So the message it displaces is answered
+// by nobody, its bubble stays in the chat, and the overwritten label was the last
+// thing that knew which message it was.
+func TestAnInterruptOverADeliveredMessageSaysTheOlderOneWasReplaced(t *testing.T) {
+	ctx := context.Background()
+	ad := &fakeAdapter{events: liveRunEvents(), runFor: 30 * time.Second}
+	e, st := testEngine(t, 1, ad)
+
+	// The only slot is held by a turn that does not end, so everything below waits
+	// in the queue -- the state this test is about.
+	holder, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "hold the slot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitHandle(t, e, holder.ID, 2*time.Second)
+
+	task, err := e.Create(ctx, CreateRequest{Agent: "claude-code", Cwd: "/tmp", Prompt: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitStatus(t, e, task.ID, StatusQueued, 2*time.Second)
+
+	const older = "also check the logs"
+	if _, err := e.FollowUp(ctx, task.ID, older); err != nil {
+		t.Fatal(err)
+	}
+	// The turn boundary, stood at by hand: the message comes off the queue and
+	// becomes the row's prompt. No slot is free, so this is where it waits.
+	if _, ok, err := e.deliverQueuedPrompt(ctx, task.ID); err != nil || !ok {
+		t.Fatalf("delivering the waiting message = ok %v, err %v, want it delivered", ok, err)
+	}
+
+	// The user interrupts with a newer message while the older one waits.
+	if _, err := e.FollowUpWith(ctx, task.ID, FollowUpRequest{Prompt: "stop and do Y", Interrupt: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := reportsNaming(t, st, task.ID, 0, older); n != 1 {
+		t.Fatalf("the replaced message is reported %d time(s), want exactly 1: nothing else will say why its bubble went unanswered", n)
+	}
+	if n := reportsNaming(t, st, task.ID, 0, "stop and do Y"); n != 0 {
+		t.Fatalf("the newer message is owed a turn, but it is reported lost %d time(s)", n)
+	}
+	if n := userEventsNaming(t, st, task.ID, older); n != 1 {
+		t.Fatalf("the replaced message is in the chat %d time(s), want 1: the report is about a bubble the user can see", n)
+	}
+}
+
 // The report of a refused delivery cannot go through the run gate. The cancel that
 // refuses it is the same write that clears the active-run entry, so a run-scoped
 // append returns ErrConflict: the one event that says why the user's message went

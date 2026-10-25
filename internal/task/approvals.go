@@ -1027,17 +1027,19 @@ func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req
 	e.mu.Lock()
 	// The status is read again inside this hold, because the write above is the only
 	// thing that made the task runnable and a cancel can land between it and here.
-	// That cancel scanned the queue under this lock, found no entry -- the entry is
-	// installed below -- and so reached `cancelUnstarted` with no label to read: it
-	// stayed silent, and it had to, because at the moment it looked, this delivery
-	// had not yet claimed the message would be answered. Reading the row under the
-	// same lock is what makes the two decisions meet: whichever side gets the lock
-	// first decides, and the other one sees it. So a task that is already canceled
-	// here is a delivery this side lost, the sentence for the message is this side's
-	// to write (`ErrTaskCanceled`; `deliverQueued` names the message), and the refusal
-	// is also what keeps a canceled task out of the start queue -- `pump` would pop
-	// the entry, `startOne` would find the row not queued and back out, which costs a
-	// claim and a slot for nothing.
+	// That cancel landed: the row still read `queued` from the write above, so its
+	// `FinishTask(allowQueued)` accepted it, and then it read `e.queuedMessage`,
+	// which is empty at that moment -- the label goes in below. It stayed silent,
+	// and it had to, because at the moment it looked this delivery had not yet
+	// claimed the message would be answered. Reading the row under the same lock is
+	// what makes the two decisions meet -- the cancel makes both of its moves under
+	// this lock too, so whichever side gets it first decides and the other one sees
+	// it. A task that is already canceled here is therefore a delivery this side
+	// lost, the sentence for the message is this side's to write (`ErrTaskCanceled`;
+	// `deliverQueued` names the message), and the refusal is also what keeps a
+	// canceled task out of the start queue -- `pump` would pop the entry, `startOne`
+	// would find the row not queued and back out, which costs a claim and a slot for
+	// nothing.
 	//
 	// Only `canceled` refuses. Every other status is a delivery that still has its
 	// turn to start, and the check must not grow into a general "is the row what I
@@ -1047,15 +1049,34 @@ func (e *Engine) applyFollowUp(ctx context.Context, id string, t store.Task, req
 		e.mu.Unlock()
 		return store.Task{}, store.ErrTaskCanceled
 	}
+	// A task owes one message at a time -- the row's prompt holds one, the pending
+	// queue row for it was popped when it was delivered, and this label names it --
+	// so a label that is already here belongs to a message this delivery is about to
+	// stop owing. That is not hypothetical: the interrupt path reaches this function
+	// for a task that only ever waited to start (see interruptAndFollowUp), which is
+	// exactly the state a delivered message leaves behind, and it replaces the row's
+	// prompt with its own. The message it displaces is in the transcript with nothing
+	// left to answer it, so it gets the sentence here -- after the unlock, because
+	// publishing fans out to subscribers and this lock is not held across that
+	// anywhere in this file. Equal labels are the same message arriving twice (a
+	// retry, a duplicate apply) and are not a loss.
+	replaced := e.queuedMessage[id]
+	label := messageLabel(req.Prompt)
 	e.enqueueLocked(id)
 	// The label goes in beside the queue entry, in one critical section with it:
-	// the cancel scans the queue under this lock, so a cancel that finds the entry
+	// the cancel reads it under this lock, so a cancel that lands after this point
 	// is guaranteed to find the message the run was going to answer, and one that
-	// does not find the entry will not report a message this run never owed.
+	// landed before it will not report a message this run never owed.
 	// `req.Prompt` rather than the task's prompt, which is the run prompt and can
 	// be a context pack (see Engine.queuedMessage).
-	e.queuedMessage[id] = messageLabel(req.Prompt)
+	e.queuedMessage[id] = label
 	e.mu.Unlock()
+	if replaced != "" && replaced != label {
+		// Before the pump, so the sentence sits above the newer turn's output rather
+		// than after whatever that turn manages to write first.
+		e.reportUndelivered(ctx, id, fmt.Errorf(
+			"the queued message %s was replaced by a newer message before its turn started", replaced))
+	}
 	e.pump()
 
 	return e.store.GetTask(ctx, id)
