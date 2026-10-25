@@ -1097,12 +1097,6 @@ const en: MessageTree = {
     noMatches: "No matches",
     actions: "Actions",
     chats: "Chats",
-    newChat: "New chat",
-    openInbox: "Open Inbox",
-    openTasks: "Open Tasks",
-    openArtifacts: "Open Artifacts",
-    openUsage: "Open Agents",
-    openSettings: "Open Settings",
     open: "open",
   },
   cwd: {

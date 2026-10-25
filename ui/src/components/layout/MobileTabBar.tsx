@@ -1,5 +1,8 @@
 import { NavLink } from "react-router-dom";
+import type { ReactNode } from "react";
 import { useT } from "../../i18n/react";
+import { placePath, type PlaceId } from "../../lib/places";
+import { IconSessions } from "../icons";
 
 /**
  * The phone's primary navigation: one tab per job the phone actually does —
@@ -8,6 +11,13 @@ import { useT } from "../../i18n/react";
  * Desktop keeps the sidebar. This only ever renders below `md`, and the drawer
  * stays reachable from the header for everything the three tabs do not cover
  * (projects, agents, routines, artifacts).
+ *
+ * Where each tab goes comes from the place table (`lib/places`), so a path is
+ * written once in the tree. The drawings do not: these are 23px glyphs, and two
+ * of them (inbox, settings) are deliberately not the sidebar's — this bar is the
+ * only navigation a phone has, and the compact set reads better at this size. The
+ * sessions glyph used to be a third copy of the same path; it is the one glyph
+ * that was *identical*, so it is now the shared one.
  */
 
 type Props = {
@@ -25,14 +35,6 @@ const iconProps = {
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
-
-function SessionsIcon() {
-  return (
-    <svg {...iconProps} aria-hidden="true">
-      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.7-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z" />
-    </svg>
-  );
-}
 
 function InboxIcon() {
   return (
@@ -54,10 +56,13 @@ function SettingsIcon() {
 
 export default function MobileTabBar({ pendingCount }: Props) {
   const tr = useT();
-  const tabs = [
-    { to: "/sessions", label: tr("nav.sessions"), icon: <SessionsIcon /> },
-    { to: "/inbox", label: tr("nav.inbox"), icon: <InboxIcon /> },
-    { to: "/settings", label: tr("nav.settings"), icon: <SettingsIcon /> },
+  // `id` is the place, not a second copy of its path: the badge below asks about
+  // the inbox as a place, and a path literal here would be one more thing to keep
+  // in step with the table.
+  const tabs: { id: PlaceId; label: string; icon: ReactNode }[] = [
+    { id: "sessions", label: tr("nav.sessions"), icon: <IconSessions size={23} /> },
+    { id: "inbox", label: tr("nav.inbox"), icon: <InboxIcon /> },
+    { id: "settings", label: tr("nav.settings"), icon: <SettingsIcon /> },
   ];
 
   return (
@@ -73,8 +78,8 @@ export default function MobileTabBar({ pendingCount }: Props) {
     >
       {tabs.map((tab) => (
         <NavLink
-          key={tab.to}
-          to={tab.to}
+          key={tab.id}
+          to={placePath(tab.id)}
           className={({ isActive }) =>
             `relative flex-1 min-h-12 flex flex-col items-center justify-center gap-0.5 text-micro transition-colors ${
               isActive ? "text-kin-blue-ink" : "text-kin-muted"
@@ -83,7 +88,7 @@ export default function MobileTabBar({ pendingCount }: Props) {
         >
           {tab.icon}
           {tab.label}
-          {tab.to === "/inbox" && pendingCount > 0 && (
+          {tab.id === "inbox" && pendingCount > 0 && (
             <span className="absolute top-1 left-1/2 ml-1 min-w-[17px] h-[17px] px-1 rounded-full bg-kin-orange text-kin-on-status text-caption font-bold inline-flex items-center justify-center">
               {pendingCount}
             </span>

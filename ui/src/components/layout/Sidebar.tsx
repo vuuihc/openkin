@@ -31,7 +31,8 @@ import {
   type DeviceGroup,
 } from "../../lib/deviceSidebar";
 import { useMachines } from "../../hooks/useMachines";
-import { sidebarNavSections, type SidebarNavItemId } from "../../lib/sidebarNavigation";
+import { sidebarNavSections, type PlaceId } from "../../lib/places";
+import { PLACE_ICONS } from "../placeIcons";
 import {
   getViewedSessionIds,
   isSessionViewed,
@@ -49,18 +50,14 @@ import {
 import {
   IconArchive,
   IconFile,
-  IconArtifacts,
   IconChevron,
   IconDownload,
   IconInbox,
   IconPin,
   IconPlus,
   IconSearch,
-  IconSettings,
   IconSort,
   IconTrash,
-  IconAgents,
-  IconRoutines,
 } from "../icons";
 
 type Props = {
@@ -728,17 +725,11 @@ function DeviceSection({
   );
 }
 
-function sidebarNavIcon(id: SidebarNavItemId): ReactNode {
-  switch (id) {
-    case "artifacts":
-      return <IconArtifacts size={15} />;
-    case "routines":
-      return <IconRoutines size={15} />;
-    case "agents":
-      return <IconAgents size={15} />;
-    case "settings":
-      return <IconSettings size={15} />;
-  }
+function sidebarNavIcon(id: PlaceId): ReactNode {
+  // The glyph comes from the place table's icon map, so a place added there is
+  // drawn here by existing; only the size is this footer's (see `placeIcons`).
+  const Icon = PLACE_ICONS[id];
+  return <Icon size={15} />;
 }
 
 function ProjectBlock({

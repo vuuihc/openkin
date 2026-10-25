@@ -1062,12 +1062,6 @@ const zh = {
     noMatches: "无匹配结果",
     actions: "操作",
     chats: "对话",
-    newChat: "新建对话",
-    openInbox: "打开收件箱",
-    openTasks: "打开任务",
-    openArtifacts: "打开产物库",
-    openUsage: "打开 Agents",
-    openSettings: "打开设置",
     open: "打开",
   },
   cwd: {

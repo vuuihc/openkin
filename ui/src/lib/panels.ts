@@ -55,6 +55,15 @@ export type PanelDescriptor = {
   id: PanelId;
   /** Locale key for the panel's title, and for whatever control opens it. */
   titleKey: string;
+  /**
+   * The keyboard shortcut, where one exists.
+   *
+   * It lives here rather than at the surface that draws it because it is a fact
+   * about the panel: the palette's hint column and the key handler that acts on it
+   * have to agree, and two literals are two chances to disagree. The handler still
+   * matches the real event; this is what the row promises.
+   */
+  hint?: string;
   available(ctx: PanelContext): boolean;
 };
 
@@ -87,6 +96,7 @@ export const PANELS: PanelDescriptor[] = [
     // machine you are not holding.
     id: "terminal",
     titleKey: "terminal.title",
+    hint: "Ctrl+`",
     available: (ctx) => ctx.desktop,
   },
 ];

@@ -11,9 +11,12 @@ import {
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
 import { projectLabel } from "../lib/paths";
+import { paletteEntries, type PaletteEntry } from "../lib/palette";
+import type { PanelContext, PanelId } from "../lib/panels";
 import { listRecipes, type RecipeId } from "../recipes/catalog";
 import { launchRecipe } from "../recipes/launch";
-import { IconAgents, IconPlus, IconSearch, IconSettings, IconTasks } from "./icons";
+import { PANEL_ICONS, PLACE_ICONS } from "./placeIcons";
+import { IconSearch } from "./icons";
 import { displayUserPrompt } from "../lib/attachments";
 import { useAppStore } from "../store/appStore";
 
@@ -21,12 +24,21 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onNewChat: () => void;
-  onToggleTerminal?: () => void;
-  terminalAvailable?: boolean;
+  /** Opens (or closes) a panel, in whichever view the shell owns. */
+  onTogglePanel: (id: PanelId) => void;
+  /** What the panel table is asked about: the shell's own place, not a session. */
+  panelCtx: PanelContext;
 };
 
 type Item =
-  | { kind: "action"; id: string; label: string; hint?: string; run: () => void }
+  | {
+      kind: "action";
+      id: string;
+      label: string;
+      hint?: string;
+      icon: ReactNode;
+      run: () => void;
+    }
   | { kind: "task"; id: string; task: Task; label: string; hint?: string };
 
 function highlight(text: string, q: string): ReactNode {
@@ -44,14 +56,21 @@ function highlight(text: string, q: string): ReactNode {
 
 /**
  * ⌘K / Ctrl+K command palette (design 2b).
- * Sections: Actions · Project recipes · Chats · Navigation.
+ * Sections: Actions · Project recipes · Chats.
+ *
+ * The Actions section is not written here. It is `paletteEntries(panelCtx)` — every
+ * place the shell can go, then every panel this context offers — so a place or a
+ * panel added to its table turns up in this list by existing, rather than by being
+ * remembered. What stays local is what a table cannot hold: the copy (asked of the
+ * locale by the key the table names), the icons (`placeIcons`), and the two
+ * closures a row needs to actually go somewhere.
  */
 export default function CommandPalette({
   open,
   onClose,
   onNewChat,
-  onToggleTerminal,
-  terminalAvailable,
+  onTogglePanel,
+  panelCtx,
 }: Props) {
   const navigate = useNavigate();
   const tr = useT();
@@ -95,78 +114,38 @@ export default function CommandPalette({
     const q = query.trim().toLowerCase();
     const match = (s: string) => !q || s.toLowerCase().includes(q);
 
-    const baseActions = [
-      {
-        kind: "action" as const,
-        id: "new",
-        label: tr("palette.newChat"),
-        hint: "⌘N",
-        run: () => {
+    // The palette's own rows, from the tables. `hint` is the row's own shortcut
+    // where one exists (`⌘N` on the draft, `Ctrl+\`` on the terminal), which is
+    // why it travels with the entry rather than being decided per kind here.
+    const entryRuns = (entry: PaletteEntry): (() => void) => {
+      if (entry.kind === "place") {
+        return () => {
           onClose();
-          onNewChat();
-          navigate("/new");
-        },
-      },
-      {
+          // The draft goes through the shell's own entry point: it focuses the
+          // existing draft instead of navigating to a second one.
+          if (entry.id === "new") onNewChat();
+          navigate(entry.path);
+        };
+      }
+      return () => {
+        onClose();
+        onTogglePanel(entry.id);
+      };
+    };
+
+    const baseActions: Item[] = paletteEntries(panelCtx).map((entry) => {
+      // Namespaced so a place and a panel that share a word cannot collide in the
+      // React key list or in the icon lookup.
+      const Icon = entry.kind === "place" ? PLACE_ICONS[entry.id] : PANEL_ICONS[entry.id];
+      return {
         kind: "action" as const,
-        id: "inbox",
-        label: tr("palette.openInbox"),
-        run: () => {
-          onClose();
-          navigate("/inbox");
-        },
-      },
-      {
-        kind: "action" as const,
-        id: "tasks",
-        label: tr("palette.openTasks"),
-        run: () => {
-          onClose();
-          navigate("/tasks");
-        },
-      },
-      {
-        kind: "action" as const,
-        id: "artifacts",
-        label: tr("palette.openArtifacts"),
-        run: () => {
-          onClose();
-          navigate("/artifacts");
-        },
-      },
-      {
-        kind: "action" as const,
-        id: "usage",
-        label: tr("palette.openUsage"),
-        run: () => {
-          onClose();
-          navigate("/agents");
-        },
-      },
-      {
-        kind: "action" as const,
-        id: "settings",
-        label: tr("palette.openSettings"),
-        run: () => {
-          onClose();
-          navigate("/settings");
-        },
-      },
-      ...(terminalAvailable
-        ? [
-            {
-              kind: "action" as const,
-              id: "terminal",
-              label: tr("terminal.toggle"),
-              hint: "Ctrl+`",
-              run: () => {
-                onClose();
-                onToggleTerminal?.();
-              },
-            },
-          ]
-        : []),
-    ] satisfies Item[];
+        id: `${entry.kind}:${entry.id}`,
+        label: tr(entry.labelKey),
+        hint: entry.hint,
+        icon: <Icon size={16} />,
+        run: entryRuns(entry),
+      };
+    });
 
     const actions: Item[] = baseActions.filter((a) => match(a.label));
 
@@ -211,6 +190,9 @@ export default function CommandPalette({
             id: `recipe:${r.id}`,
             label: `${(tr as (k: string) => string)(r.titleKey)} · ${recipeProject.name}`,
             hint: tr("projects.recipeSection"),
+            // A recipe is a prompt with a name, not a place; the search glyph is
+            // what it has always been drawn as.
+            icon: <IconSearch size={16} />,
             run: () => runRecipe(r.id),
           }))
           .filter((a) => match(a.label) || match(a.hint || "") || match(recipeProject.name))
@@ -237,12 +219,12 @@ export default function CommandPalette({
     navigate,
     onClose,
     onNewChat,
-    onToggleTerminal,
+    onTogglePanel,
+    panelCtx,
     projects,
     pushToast,
     query,
     tasks,
-    terminalAvailable,
     tr,
   ]);
 
@@ -330,19 +312,7 @@ export default function CommandPalette({
                     active={idx === active}
                     onHover={() => setActive(idx)}
                     onClick={() => item.run()}
-                    icon={
-                      item.id === "new" ? (
-                        <IconPlus size={16} />
-                      ) : item.id === "tasks" ? (
-                        <IconTasks size={16} />
-                      ) : item.id === "usage" ? (
-                        <IconAgents size={16} />
-                      ) : item.id === "settings" ? (
-                        <IconSettings size={16} />
-                      ) : (
-                        <IconSearch size={16} />
-                      )
-                    }
+                    icon={item.icon}
                     label={highlight(item.label, query)}
                     hint={item.hint}
                   />

@@ -29,6 +29,7 @@ import {
   panelForView,
   resolvePanel,
   type PanelContext,
+  type PanelId,
 } from "../../lib/panels";
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
@@ -275,9 +276,18 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   // disagree about it.
   const terminalAvailable = isPanelAvailable("terminal", shellCtx);
   const terminalPanel = resolvePanel(panelForView(shownPanel, SHELL_VIEW), shellCtx);
+  // The shell's way to open any of its panels, by id. The palette asks for one by
+  // the id its table names rather than for a specific panel, so a panel added to
+  // the table needs no second entry point here.
+  const toggleShellPanel = useCallback(
+    (id: PanelId) => {
+      togglePanel(SHELL_VIEW, id);
+    },
+    [togglePanel],
+  );
   const toggleTerminal = useCallback(() => {
-    togglePanel(SHELL_VIEW, "terminal");
-  }, [togglePanel]);
+    toggleShellPanel("terminal");
+  }, [toggleShellPanel]);
 
   const openNewSessionInProject = useCallback(
     (cwd: string) => {
@@ -565,8 +575,8 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         onNewChat={openNewChat}
-        onToggleTerminal={toggleTerminal}
-        terminalAvailable={terminalAvailable}
+        onTogglePanel={toggleShellPanel}
+        panelCtx={shellCtx}
       />
     </div>
   );

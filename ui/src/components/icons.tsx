@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-type IconProps = {
+export type IconProps = {
   className?: string;
   size?: number;
   strokeWidth?: number;
@@ -46,6 +46,12 @@ export function IconTasks(p: IconProps) {
       <path d="M3 3v18h18" />
       <path d="M18 17V9M13 17V5M8 17v-3" />
     </>,
+  );
+}
+export function IconSessions(p: IconProps) {
+  return base(
+    p,
+    <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.2-.6L3 21l1.7-4.6A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z" />,
   );
 }
 export function IconArtifacts(p: IconProps) {
