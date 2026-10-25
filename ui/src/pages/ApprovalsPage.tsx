@@ -8,7 +8,7 @@ import RunningTaskCard from "../components/cards/RunningTaskCard";
 import { ApprovalListSkeleton, SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { focusedId, resolveInboxFocus } from "../lib/inboxFocus";
-import { inboxKeyboardArmed, inboxKeyOutcome } from "../lib/inboxKeyboard";
+import { inboxKeyOutcome, inboxViewState } from "../lib/inboxKeyboard";
 import { useAppStore } from "../store/appStore";
 import { isTerminal } from "../api/client";
 import { Link, useSearchParams } from "react-router-dom";
@@ -64,6 +64,15 @@ export default function ApprovalsPage() {
     setFocusIdx((i) => Math.min(i, Math.max(0, items.length - 1)));
   }, [items.length]);
 
+  // A takeover of nothing is meaningless: deciding the last approval away empties
+  // the list, and holding the cursor there leaves the question un-ringed while it
+  // still advertises its `1`–`9` — keys that do nothing. Handing it straight back
+  // re-arms the card. `inboxKeyOutcome` keeps `k` working in the frame before
+  // this effect lands, so the two are belt and braces, not the same fix twice.
+  useEffect(() => {
+    if (!items.length) setCursorTakenOver(false);
+  }, [items.length]);
+
   /**
    * The landing itself: bring the named card into view, once.
    *
@@ -92,13 +101,15 @@ export default function ApprovalsPage() {
   // this, a `j` on one deep link would leave the *next* question un-ringed and —
   // since the ring and the keys move together — keyboard-dead on arrival.
   useEffect(() => setCursorTakenOver(false), [focusId]);
-  const parkedQuestionId = focus.kind === "question" ? focus.id : null;
-  const keyState = { focusIdx, cursorTakenOver, parkedQuestionId };
-  const approvalsKeyboardLive = inboxKeyboardArmed(keyState);
-  // ...and the ring moves with the cursor, so exactly one card wears it. Leaving
-  // the question ringed after a `j` drew two cards both claiming to be the one
-  // the notification named — measured, not theorised.
-  const questionFocusId = approvalsKeyboardLive ? null : parkedQuestionId;
+  // The arming rule and the ring are derived together, in one place, so the page
+  // cannot ring one card while arming the keys for another. It has broken exactly
+  // that way twice; both times the derivation lived here and no test could reach
+  // it. See `inboxViewState`.
+  const {
+    parkedQuestionId,
+    armed: approvalsKeyboardLive,
+    questionRinged: questionFocusId,
+  } = inboxViewState(focus, { focusIdx, cursorTakenOver });
 
   // The ids this page decided or answered itself. A link that named one of them
   // is spent, not stale, and the page should not answer the notification it just
@@ -115,7 +126,11 @@ export default function ApprovalsPage() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
-      const action = inboxKeyOutcome(e.key, items, keyState);
+      // Built here rather than closed over, so every value the transition reads
+      // is a dependency of this effect and the array below can be read as the
+      // complete list — `keyState` itself is a fresh object each render, and
+      // naming it would say nothing about when the closure is stale.
+      const action = inboxKeyOutcome(e.key, items, { focusIdx, cursorTakenOver, parkedQuestionId });
       if (action.kind === "move") {
         setCursorTakenOver(action.state.cursorTakenOver);
         setFocusIdx(action.state.focusIdx);
@@ -123,13 +138,11 @@ export default function ApprovalsPage() {
         // approvals render above questions, so `j` from a question deep link
         // lands off the top of the screen and `k` back onto a question that is
         // below the fold — either would look like nothing happened. `nearest`
-        // moves the page only if it has to.
-        if (action.moved !== "cursor") {
-          const id =
-            action.moved === "returned"
-              ? action.state.parkedQuestionId
-              : items[action.state.focusIdx]?.id;
-          if (id) rowRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
+        // moves the page only if it has to. Which card that is comes from the
+        // transition; picking it here is how the two arms of a ternary nobody
+        // tested got swapped once, scrolling to the card behind the ringed one.
+        if (action.moved !== "cursor" && action.ringId) {
+          rowRefs.current.get(action.ringId)?.scrollIntoView({ block: "nearest" });
         }
       } else if (action.kind === "decide") {
         void onDecide(action.id, action.decision);
@@ -137,7 +150,10 @@ export default function ApprovalsPage() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [items, focusIdx, cursorTakenOver, approvalsKeyboardLive]);
+    // `parkedQuestionId` alongside the cursor: a link that moves from one
+    // question to another leaves everything else unchanged, and a closure
+    // without it walks back to the question that already left.
+  }, [items, focusIdx, cursorTakenOver, parkedQuestionId]);
 
   async function onDecide(id: string, decision: PendingDecision) {
     handledHere.current.add(id);

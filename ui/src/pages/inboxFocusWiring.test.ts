@@ -16,7 +16,17 @@ import { describe, expect, it } from "vitest";
  */
 const UI = fileURLToPath(new URL("../..", import.meta.url));
 
-const page = readFileSync(join(UI, "src/pages/ApprovalsPage.tsx"), "utf8");
+/**
+ * Commented-out lines are not code. Without this, `// useEffect(...)` reads as
+ * the effect itself and a source scan cannot tell a live line from a dead one —
+ * demonstrated: commenting the cursor reset out left this file green while
+ * deleting it went red. Only whole lines, since trailing `//` also opens the
+ * `https://` in a URL.
+ */
+const page = readFileSync(join(UI, "src/pages/ApprovalsPage.tsx"), "utf8")
+  .split("\n")
+  .filter((line) => !/^\s*\/\//.test(line))
+  .join("\n");
 
 describe("the inbox deep-link landing", () => {
   it("resolves the id against both lists", () => {
@@ -25,20 +35,23 @@ describe("the inbox deep-link landing", () => {
 
   it("rings the named card, whichever kind it is", () => {
     expect(page).toMatch(/focused=\{approvalsKeyboardLive && i === focusIdx\}/);
-    // One definition of "the approvals answer to keys", imported rather than
-    // re-derived: the page's own copy of this rule was a line no test could
-    // reach, and `armed = true` survived a full mutation sweep.
-    expect(page).toMatch(/const approvalsKeyboardLive = inboxKeyboardArmed\(keyState\)/);
-    expect(page).toMatch(
-      /const questionFocusId = approvalsKeyboardLive \? null : parkedQuestionId/,
-    );
+    // The arming rule and the ring come out of one call, so the page cannot ring
+    // one card while arming the keys for another. It derived both here before,
+    // and three one-token mutants of that derivation kept the whole suite green
+    // — the unit tests for `inboxViewState` are what pin it now.
+    expect(page).toMatch(/inboxViewState\(focus, \{ focusIdx, cursorTakenOver \}\)/);
+    expect(page).toMatch(/armed: approvalsKeyboardLive/);
+    expect(page).toMatch(/questionRinged: questionFocusId/);
     expect(page).toMatch(/focused=\{q\.id === questionFocusId\}/);
+    // ...and the page derives neither of them any more.
+    expect(page).not.toMatch(/const parkedQuestionId = focus\.kind/);
+    expect(page).not.toMatch(/inboxKeyboardArmed\(/);
   });
 
   it("rings exactly one card: taking the cursor moves the ring off the question", () => {
     // Measured in a browser before this line existed: `?focus=<qid>` then `j`
     // drew the question *and* the first approval with the "focused" badge. The
-    // two expressions above are what make that impossible; this only catches a
+    // expressions above are what make that impossible; this only catches a
     // reintroduction of the literal.
     expect(page).not.toMatch(/focused=\{focus\.kind === "question" && q\.id === focus\.id\}/);
   });
@@ -56,10 +69,14 @@ describe("the inbox deep-link landing", () => {
   it("brings the ring into view when a press moves it", () => {
     // Taking over or walking back can ring a card off-screen in either
     // direction; without this the headline behaviour of `j` and `k` looked like
-    // a key that did nothing.
-    expect(page).toMatch(/if \(action\.moved !== "cursor"\)/);
-    expect(page).toMatch(/rowRefs\.current\.get\(id\)\?\.scrollIntoView\(\{ block: "nearest" \}\)/);
-    expect(page).toMatch(/action\.moved === "returned"/);
+    // a key that did nothing. The target comes from the transition, so the
+    // page's own choice of card is gone — and with it the untested ternary whose
+    // arms, swapped, scrolled to the card behind the ringed one.
+    expect(page).toMatch(/if \(action\.moved !== "cursor" && action\.ringId\)/);
+    expect(page).toMatch(
+      /rowRefs\.current\.get\(action\.ringId\)\?\.scrollIntoView\(\{ block: "nearest" \}\)/,
+    );
+    expect(page).not.toMatch(/action\.moved === "returned"/);
   });
 
   it("explains an id that names nothing, unless this page spent it", () => {
@@ -75,10 +92,16 @@ describe("the inbox deep-link landing", () => {
     // holds the transition and its own tests, and the listener has to *apply*
     // the returned state — a page that reads only the index leaves the ring and
     // the keyboard disagreeing.
-    expect(page).toMatch(/inboxKeyOutcome\(e\.key, items, keyState\)/);
+    expect(page).toMatch(
+      /inboxKeyOutcome\(e\.key, items, \{ focusIdx, cursorTakenOver, parkedQuestionId \}\)/,
+    );
     expect(page).toMatch(/setCursorTakenOver\(action\.state\.cursorTakenOver\)/);
     expect(page).toMatch(/setFocusIdx\(action\.state\.focusIdx\)/);
     expect(page).not.toMatch(/e\.key === "j"/);
+    // The parked question reaches the closure only through `armed` otherwise,
+    // and a link that moves between two questions leaves arming unchanged. The
+    // state is built inside the effect so this array can be read as complete.
+    expect(page).toMatch(/\}, \[items, focusIdx, cursorTakenOver, parkedQuestionId\]\);/);
   });
 
   it("parking starts again on a new link", () => {
@@ -93,6 +116,14 @@ describe("the inbox deep-link landing", () => {
     // being true by construction. The dependency is asserted too: an effect that
     // only ran on mount would be the same bug with extra steps.
     expect(page).toMatch(/Math\.min\(i, Math\.max\(0, items\.length - 1\)\)/);
+    expect(page).toMatch(/\}, \[items\.length\]\);/);
+  });
+
+  it("hands the cursor back when there is nothing left to hold it on", () => {
+    // Deciding the last approval away leaves a takeover of nothing: the question
+    // un-ringed while still advertising keys that do nothing, and only `k` to
+    // get out. `inboxKeyOutcome` covers the frame before this effect lands.
+    expect(page).toMatch(/if \(!items\.length\) setCursorTakenOver\(false\)/);
     expect(page).toMatch(/\}, \[items\.length\]\);/);
   });
 });
