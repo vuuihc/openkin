@@ -747,7 +747,9 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 		if _, ok, err := e.deliverQueuedPrompt(ctx, id); err != nil {
 			// err before ok: a failed attempt is not an empty queue (see
 			// deliverQueuedPrompt), and this is the only place that would say so.
-			e.emitError(ctx, id, executionID, "queued prompt could not be delivered: "+err.Error())
+			// The error already names the message it lost; a prefix here would
+			// say it twice.
+			e.emitError(ctx, id, executionID, err.Error())
 			_, _ = e.finishRun(ctx, id, executionID, StatusFailed, nil, nil)
 			e.pump()
 			return
