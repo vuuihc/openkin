@@ -212,6 +212,28 @@ S1b 欠的是两条守卫（已落地，见 §8），保证这个决定不会被
 **不要**把它拉进聊天（`Markdown.tsx:26-38` 的围栏今天是纯文本）。
 选一个轻量高亮器，**体积要量出来**并写进证据。
 
+### 3.8 S4：思考与叙述的区分来自来源，不来自猜文本
+
+`ProgressCard` 已在、默认收起，缺的是**区分**（§2.3）：每种 note 都用
+`chat.progress.note` 当标签，`speaker`/`model` 投影一直留着却从不画。
+
+判据是**别去猜文本**（"这段读起来像思考"），而是带**来源**——投影在造 note 的那一刻
+就知道它从哪来：消息的 `role`（`reasoning` vs `assistant`）与 canonical `phase`
+（`plan`/`progress`/`summary`，见 `eventMeta.ts`）。把来源写进 `NoteStep.source`，行标签照它选：
+
+| `source` | 标签 | 依据 |
+|---|---|---|
+| `reasoning` | `chat.progress.thinking`（新增） | 适配器把模型的私有思考发成 `role:"reasoning"`，投影已按 `isProgressMessageMeta` 把它关进过程卡（测试「keeps the agent's reasoning out of the answer」） |
+| `plan` | `chat.progress.plan`（新增，与现有 `planCleared` 同族） | `PLAN_NOTE_PREFIX` 那条线，一轮一行 |
+| `summary` | 复用现有 `summary*` 组 | orchestrator 的总结 |
+| 其余 | `chat.progress.note`（今天的默认） | 叙述 |
+
+`speaker`/`model` **只在它与卡片的 speaker 不同时**才画：被委派的 worker 的 note 需要说明
+"这不是 host 说的"，而每行都挂模型名在手机上只是噪音。
+
+三个悬空 key 一起结清：`chat.progress.collapsed` 用作收起态的摘要行（`{count}` 已在）、
+`chat.progress.step` 用作行号的可访问名、`task.roundBusy` 若 S4 用不上就**删**（§2.3 的清单）。
+
 ## 4. 切片
 
 每片一个可独立验证的提交，照 P1 的做法：**量出来的证据 + 守卫（若有可守卫的形状）**，
