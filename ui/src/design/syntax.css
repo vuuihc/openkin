@@ -1,0 +1,133 @@
+/*
+  The syntax colours: highlight.js's scope names onto our ink tokens.
+
+  A *use* table, not a token layer — `theme.css` names the colours, this file
+  decides which of them means "keyword". It sits under `design/` for the reason
+  `terminalTheme.ts` does: the vocabulary on the left belongs to somebody else
+  (highlight.js publishes the scope names and the grammars emit them), so the
+  mapping is the only thing here that is a decision.
+
+  Four hues and two neutrals, which is the whole palette — a syntax theme with
+  more colours than the product has is a second design system wearing a hat. The
+  assignments are by role rather than by convention, and the split is worth
+  stating because it is what a reader will question first:
+
+  - **grammar** — the words of the language itself (`func`, `return`, `#include`)
+    take the blue, which is the accent the console already uses for "this is
+    structural".
+  - **names** — every identifier a reader scans *for*, including numbers: types,
+    classes, tags, attributes, variables, selectors. One family, because they are
+    one act of reading; splitting numbers off into a fourth hue would be a
+    distinction nobody makes while reading a diff.
+  - **text** — the parts of a program that are literally text (`"…"`, a regexp, a
+    comment-free `#include <stdio.h>` path) take the green, and a diff's added
+    lines take it too: an addition is ink on a page, the same way a string is.
+  - **removed** — a diff's deletions take the red, and nothing else does. Red is
+    the status colour for "this went wrong" in this console; a grammar is not
+    allowed to borrow it for decoration.
+  - **comment** — see below. It is the one assignment that was forced.
+
+  Anything not listed inherits the block's own `text-kin-secondary`, so a scope
+  this table has never heard of degrades to plain code rather than to an
+  invisible one — and a grammar added to `codeHighlight.ts` whose scopes are new
+  will read as uncoloured, which is a legible failure rather than a silent one.
+
+  **Comments are `--kin-secondary`, not `--kin-muted`, and that is measured
+  rather than chosen.** A code block paints `--kin-fill` on top of whatever
+  surface it sits on, and the fill makes that backdrop *lighter* — in the dark
+  scheme, 6% white over `--kin-elevated` is 57 57 59, where `--kin-muted` is
+  4.01:1. Under AA, on the token the product uses for exactly this job (a
+  timestamp, a caption, a label that must recede), and it passes at 4.9:1 on the
+  bare surface — which is how the pairing looks fine everywhere it has been used
+  so far and would not have been fine here. `--kin-secondary` is 6.84:1 on the
+  same backdrop, so a comment recedes by its *slant* instead of by a lighter
+  grey. `tokens.test.ts` holds every colour below to 4.5:1 on that backdrop, in
+  both schemes, so the next edit cannot quietly reintroduce it.
+*/
+
+.kin-code .hljs-comment,
+.kin-code .hljs-quote {
+  color: var(--kin-secondary);
+  font-style: italic;
+}
+
+/* The language's own words. `doctag` is a doc comment's tag, `meta` a
+   preprocessor line, `selector-tag` the element name in a CSS rule. */
+.kin-code .hljs-keyword,
+.kin-code .hljs-doctag,
+.kin-code .hljs-literal,
+.kin-code .hljs-meta,
+.kin-code .hljs-meta-keyword,
+.kin-code .hljs-selector-tag {
+  color: rgb(var(--kin-blue-ink-rgb));
+}
+
+/* Every identifier, and every number. */
+.kin-code .hljs-number,
+.kin-code .hljs-symbol,
+.kin-code .hljs-bullet,
+.kin-code .hljs-built_in,
+.kin-code .hljs-type,
+.kin-code .hljs-class,
+.kin-code .hljs-title.class,
+.kin-code .hljs-title.class_inherited,
+.kin-code .hljs-name,
+.kin-code .hljs-tag,
+.kin-code .hljs-attr,
+.kin-code .hljs-attribute,
+.kin-code .hljs-property,
+.kin-code .hljs-variable,
+.kin-code .hljs-template-variable,
+.kin-code .hljs-subst,
+.kin-code .hljs-params,
+.kin-code .hljs-section,
+.kin-code .hljs-selector-id,
+.kin-code .hljs-selector-class,
+.kin-code .hljs-selector-attr,
+.kin-code .hljs-selector-pseudo,
+.kin-code .hljs-formula {
+  color: rgb(var(--kin-orange-ink-rgb));
+}
+
+/* Text that is text, and the lines a diff added. */
+.kin-code .hljs-string,
+.kin-code .hljs-regexp,
+.kin-code .hljs-meta-string,
+.kin-code .hljs-char.escape,
+.kin-code .hljs-code,
+.kin-code .hljs-addition {
+  color: rgb(var(--kin-green-ink-rgb));
+}
+
+/* The lines a diff removed. The one place red is spent here. */
+.kin-code .hljs-deletion {
+  color: rgb(var(--kin-red-ink-rgb));
+}
+
+/* The call or definition a reader is looking for. Full ink, because it is the
+   one thing in the block that is being searched rather than read. No weight
+   change: the colour already separates it, and a bold monospace glyph is a
+   different shape at the same advance width, which is a wobble down a column. */
+.kin-code .hljs-title,
+.kin-code .hljs-title.function,
+.kin-code .hljs-title.function_,
+.kin-code .hljs-function {
+  color: var(--kin-text);
+}
+
+/* A markdown block's own marks. They carry no ink of their own — the text they
+   wrap has already been coloured by the rules above. */
+.kin-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.kin-code .hljs-strong {
+  font-weight: 600;
+}
+
+/* A link inside a quoted markdown block, drawn as the console draws links. */
+.kin-code .hljs-link {
+  color: rgb(var(--kin-blue-ink-rgb));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

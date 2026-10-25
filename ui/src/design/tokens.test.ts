@@ -179,6 +179,35 @@ function over(top: RGB, bottom: RGB, alpha: number): RGB {
   return top.map((c, i) => Math.round(c * alpha + bottom[i] * (1 - alpha))) as RGB;
 }
 
+/**
+ * An `rgba(r, g, b, a)` token as the two pieces a composite needs.
+ *
+ * The fills are the tokens that carry their own alpha rather than being drawn at
+ * one, so `colour()` cannot read them — it wants three channels, and a fill is
+ * four numbers in a wrapper. Refusing anything else is the point: a `--kin-fill`
+ * that stopped being translucent would make every composite below identical to
+ * the bare surface, and this check would pass while measuring nothing.
+ */
+function translucent(
+  name: string,
+  value: string | undefined,
+  scheme: string,
+): {
+  rgb: RGB;
+  alpha: number;
+} {
+  const match = /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([0-9.]+)\s*\)$/.exec(
+    (value ?? "").trim(),
+  );
+  if (!match) {
+    throw new Error(`${scheme} ${name} is ${value}, and a composite needs an rgba()`);
+  }
+  return {
+    rgb: [Number(match[1]), Number(match[2]), Number(match[3])] as RGB,
+    alpha: Number(match[4]),
+  };
+}
+
 function channel(c: number): number {
   const v = c / 255;
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
@@ -688,6 +717,51 @@ describe("design tokens", () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+
+  it("keeps the syntax colours readable on the fill a code block paints", () => {
+    // A code block is the one surface in the console that is a *composite*: it
+    // paints `--kin-fill` on whatever it sits on, and a translucent white over
+    // the dark scheme's `--kin-elevated` is lighter than the surface under it.
+    // Every ink the palette certifies at 4.5:1 on the six surfaces is therefore
+    // not automatically certified here — the darkest budget in the palette,
+    // `--kin-muted`, measures 4.9:1 on `elevated` and 4.01:1 on a fill over it.
+    //
+    // That is why `design/syntax.css` gives comments `--kin-secondary` rather
+    // than `--kin-muted`, which is the assignment a reader would expect and the
+    // one thing in that file that is a measurement instead of a choice. This
+    // case is the measurement: it reads the colours that stylesheet actually
+    // declares — so a scope recoloured later is covered without editing this —
+    // and holds each to AA on the worst backdrop it can be drawn on. The surface
+    // it is drawn on is not fixed: the chat, a card and the artifact page all
+    // render markdown, so the lightest of the six is the one that decides.
+    const syntax = readFileSync(join(UI, "src/design/syntax.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const inks = [
+      ...new Set(
+        [...syntax.matchAll(/(?<![\w-])color:\s*(?:rgb\()?var\((--kin-[a-z0-9-]+)\)/g)].map(
+          (m) => m[1],
+        ),
+      ),
+    ].sort();
+    // A scan that matched nothing would pass whatever the file said.
+    expect(inks.length).toBeGreaterThan(3);
+    for (const [scheme, tokens] of SCHEMES) {
+      const fill = translucent("--kin-fill", tokens["--kin-fill"], scheme);
+      for (const surface of SURFACE_TOKENS) {
+        const backdrop = over(fill.rgb, colour(tokens, surface, scheme), fill.alpha);
+        for (const name of inks) {
+          expect({
+            scheme,
+            surface,
+            ink: name,
+            atLeast4_5: contrast(colour(tokens, name, scheme), backdrop) >= 4.5,
+          }).toEqual({ scheme, surface, ink: name, atLeast4_5: true });
+        }
+      }
+    }
   });
 
   /**

@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
+import CodeBlock from "./CodeBlock";
 import MermaidBlock from "./MermaidBlock";
 
 /**
- * Lightweight markdown renderer (no extra deps beyond optional Mermaid).
+ * Lightweight markdown renderer (no extra deps beyond optional Mermaid, and the
+ * code highlighter behind `CodeBlock`'s own lazy chunk).
  * Supports: headings, fenced code, mermaid diagrams, paragraphs, lists,
  * blockquotes, hr, GFM tables, links, bold, italic, inline code.
  */
@@ -23,19 +25,7 @@ export default function Markdown({ text, className = "" }: { text: string; class
           if (isMermaidLang(b.lang)) {
             return <MermaidBlock key={i} code={b.value} />;
           }
-          return (
-            <pre
-              key={i}
-              className="overflow-x-auto rounded-lg bg-[var(--kin-fill)] border border-[var(--kin-hairline)] p-3 text-body font-mono text-kin-secondary"
-            >
-              {b.lang ? (
-                <div className="mb-1.5 text-micro font-semibold uppercase tracking-label text-kin-muted">
-                  {b.lang}
-                </div>
-              ) : null}
-              <code className="whitespace-pre">{b.value}</code>
-            </pre>
-          );
+          return <CodeBlock key={i} code={b.value} lang={b.lang} />;
         }
         if (b.type === "h1" || b.type === "h2" || b.type === "h3") {
           const Tag = b.type;
