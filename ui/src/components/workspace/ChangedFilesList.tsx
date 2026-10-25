@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { shortPath } from "../../lib/paths";
 import type { ChangedFile } from "../../lib/changedFiles";
 import { useT } from "../../i18n/react";
-import DeltaInline, { actionDotClass, actionLabelKey } from "../changedFileFace";
+import { FileSize, actionDotClass, actionLabelKey } from "../changedFileFace";
 import { IconFile } from "../icons";
 
 type Props = {
@@ -81,11 +81,18 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5 text-micro uppercase tracking-label opacity-70">
                     <span>{t(actionLabelKey(f.action))}</span>
-                    {(f.additions != null || f.deletions != null) && (
-                      <span className="normal-case tabular-nums tracking-normal">
-                        <DeltaInline additions={f.additions ?? 0} deletions={f.deletions ?? 0} />
-                      </span>
-                    )}
+                    {/* The same face as the bar and the round card, from the same
+                        component: a file whose payload carried no counts says "size
+                        unknown" here too, instead of going quiet while the bar beside
+                        it says it. Both-absent is the common case — a bodyless delete,
+                        a binary file, an untracked path. */}
+                    <span className="normal-case tabular-nums tracking-normal">
+                      <FileSize
+                        additions={f.additions}
+                        deletions={f.deletions}
+                        label={t("workspace.changed.noLineDelta")}
+                      />
+                    </span>
                   </span>
                 </span>
               </button>
