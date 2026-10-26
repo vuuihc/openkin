@@ -394,7 +394,14 @@ export class RelayRoom {
     });
     const responseHeaders = {};
     for (const [name, value] of Object.entries(result.headers || {})) responseHeaders[name] = value;
-    const responseBody = [204, 205].includes(result.status)
+    // 304 belongs in this list for the same reason 204 does: it is a null-body
+    // status, so `new Response(body, {status: 304})` throws instead of answering.
+    // It is also the one a *conditional* request produces — and the bridge no
+    // longer strips `ETag`/`Last-Modified` from a document, so a browser that
+    // cached an uploaded HTML file will send `If-None-Match` and get a 304 back.
+    // Without this the empty body falls through to the JSON error stand-in and
+    // the revalidation fails, leaving the stale copy in place until a reload.
+    const responseBody = [204, 205, 304].includes(result.status)
       ? null
       : result.body_b64
         ? base64ToBytes(result.body_b64)

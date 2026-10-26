@@ -310,7 +310,7 @@ test("a browser that sends no Fetch Metadata gets no cookie, and no forged one e
 // sequence a phone makes, against the real Durable Object, and lets the room's
 // own `proxyHTTP` be the judge: a wrong or missing key comes back 401 from
 // there, not from an assertion written to match the worker's output.
-function liveEnv() {
+function liveEnv(reply = { status: 200 }) {
   const stored = new Map([["relay-key", KEY]]);
   const room = new RelayRoom({
     storage: {
@@ -325,13 +325,15 @@ function liveEnv() {
   // A daemon is what makes proxyHTTP answer at all. The handshake that normally
   // installs one needs a WebSocketPair, which is a workerd global, so the socket
   // is seated directly and answers each request frame the way a daemon would.
+  // `reply` is what that daemon answers with, so a test can drive a status the
+  // worker has to handle specially.
   const daemon = {
     readyState: 1,
     send(raw) {
       const frame = JSON.parse(raw);
       if (frame.kind !== "request") return;
       queueMicrotask(() => room.onDaemonMessage(
-        { data: JSON.stringify({ v: 2, kind: "response", data: { id: frame.data.id, status: 200 } }) },
+        { data: JSON.stringify({ v: 2, kind: "response", data: { id: frame.data.id, ...reply } }) },
         daemon,
       ));
     },
@@ -394,4 +396,22 @@ test("a phone can reload and open a lazy chunk with nothing but the cookie", asy
     const bare = await worker.fetch(new Request(`https://relay.example.test${path}`), env);
     assert.equal(bare.status, 400, `${path} must not be reachable without a credential`);
   }
+});
+
+test("a 304 from the daemon reaches the browser as a 304", async () => {
+  // The bridge stopped stripping `ETag`/`Last-Modified` when it stopped
+  // rewriting the document, so a browser that cached an uploaded HTML file now
+  // sends `If-None-Match` and the daemon answers 304 with an empty body. Two
+  // things would break if the worker did not treat that status as bodyless:
+  // `new Response(body, {status: 304})` throws, and the empty body would
+  // otherwise be replaced by the JSON error stand-in. Either one turns a
+  // successful revalidation into a failed request.
+  const env = liveEnv({ status: 304, headers: { ETag: '"v1"' } });
+  const response = await worker.fetch(
+    new Request(`https://relay.example.test/notes.html?room=${ROOM}&key=${KEY}`),
+    env,
+  );
+  assert.equal(response.status, 304);
+  assert.equal(response.headers.get("ETag"), '"v1"', "the validator must survive");
+  assert.equal(await response.text(), "", "a 304 carries no body");
 });
