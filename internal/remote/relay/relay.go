@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -400,6 +401,80 @@ func isHopHeader(name string) bool {
 	}
 }
 
+// documentRef matches a root-absolute reference in an HTML attribute — the
+// paths a browser resolves against the origin, which is exactly where the relay
+// credentials have to be re-attached. "//host/path" is another origin and is
+// left alone; so is any value already carrying both credentials, which is what
+// makes the rewrite idempotent.
+var documentRef = regexp.MustCompile(`(?i)(src|href)="(/[^/"][^"]*)"`)
+
+// relayQuery is the credential pair every relayed request needs: the worker
+// routes on room and authorizes on key.
+func (b *Bridge) relayQuery() string {
+	return "room=" + url.QueryEscape(b.room) + "&key=" + url.QueryEscape(b.relayKey)
+}
+
+// routedToRelay reports whether a reference already carries both relay
+// credentials in its query, so the rewrite can be applied twice without
+// doubling them.
+//
+// The query is parsed rather than substring-matched: "/assets/monkey=1.js"
+// contains "key=" but routes nowhere, and a credential that ended up after a
+// "#" would be invisible to the worker — a fragment is opaque to the browser
+// and is never sent.
+func routedToRelay(value []byte) bool {
+	parsed, err := url.Parse(string(value))
+	if err != nil {
+		return false
+	}
+	query := parsed.Query()
+	return query.Get("room") != "" && query.Get("key") != ""
+}
+
+// rewriteDocument re-points the root-absolute references in an HTML document at
+// the relay.
+//
+// A browser sends no credentials for the subresources a document names: the
+// document's own URL carried room and key, the /assets/… URLs inside it do not,
+// and the worker answers those with 400 before they reach the daemon. The
+// console therefore loaded its HTML and nothing else — a blank page whose only
+// trace was two failed asset requests.
+//
+// The credentials go into the query, ahead of any fragment. Appending them to
+// the end of the value instead would bury them in the fragment of a reference
+// like "/icons/icon-512.png#v=2": the browser would request the bare path with
+// an empty query and the worker would answer 400 exactly as before.
+func (b *Bridge) rewriteDocument(body []byte) []byte {
+	query := b.relayQuery()
+	var out []byte
+	for {
+		loc := documentRef.FindSubmatchIndex(body)
+		if loc == nil {
+			break
+		}
+		value := body[loc[4]:loc[5]]
+		out = append(out, body[:loc[4]]...)
+		if routedToRelay(value) {
+			out = append(out, value...)
+		} else {
+			path, fragment := value, []byte(nil)
+			if i := bytes.IndexByte(value, '#'); i >= 0 {
+				path, fragment = value[:i], value[i:]
+			}
+			separator := byte('?')
+			if bytes.ContainsRune(path, '?') {
+				separator = '&'
+			}
+			out = append(out, path...)
+			out = append(out, separator)
+			out = append(out, query...)
+			out = append(out, fragment...)
+		}
+		body = body[loc[5]:]
+	}
+	return append(out, body...)
+}
+
 func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
 	if d.ID == "" || d.Method == "" || !strings.HasPrefix(d.Path, "/") || len(d.BodyB64) > maxBodyBytes*2 {
 		b.sendResponse(ctx, responseData{ID: d.ID, Status: 413, Error: "invalid or oversized request"})
@@ -421,10 +496,28 @@ func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
 		return
 	}
 	defer resp.Body.Close()
-	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
-	if err != nil || len(responseBody) > maxBodyBytes {
+	headers, responseBody, err := b.relayResponse(resp)
+	if err != nil {
 		b.sendResponse(ctx, responseData{ID: d.ID, Status: 502, Error: "local response exceeds limit"})
 		return
+	}
+	b.sendResponse(ctx, responseData{
+		ID:      d.ID,
+		Status:  resp.StatusCode,
+		Headers: headers,
+		BodyB64: base64.StdEncoding.EncodeToString(responseBody),
+	})
+}
+
+// relayResponse turns a local response into the headers and body the relay will
+// carry to the client.
+func (b *Bridge) relayResponse(resp *http.Response) (map[string]string, []byte, error) {
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	if err != nil {
+		return nil, nil, fmt.Errorf("read local response: %w", err)
+	}
+	if len(responseBody) > maxBodyBytes {
+		return nil, nil, fmt.Errorf("local response is %d bytes, over the %d byte limit", len(responseBody), maxBodyBytes)
 	}
 	// This allowlist omits Content-Encoding, so whatever it forwards must be
 	// identity-encoded. That holds because the transport decompresses whatever it
@@ -436,12 +529,24 @@ func (b *Bridge) proxyHTTP(ctx context.Context, d requestData) {
 			headers[name] = value
 		}
 	}
-	b.sendResponse(ctx, responseData{
-		ID:      d.ID,
-		Status:  resp.StatusCode,
-		Headers: headers,
-		BodyB64: base64.StdEncoding.EncodeToString(responseBody),
-	})
+	// The console is the one response whose body has to change on the way out,
+	// because the references it contains are the next requests the browser will
+	// make and those arrive without credentials (see rewriteDocument). Rewriting
+	// invalidates the validators, which describe the bytes the daemon sent.
+	if strings.HasPrefix(headers["Content-Type"], "text/html") {
+		responseBody = b.rewriteDocument(responseBody)
+		delete(headers, "ETag")
+		delete(headers, "Last-Modified")
+		// Read the limit again rather than arguing it cannot be crossed: each
+		// rewritten reference adds the credentials, so a document that arrived
+		// just under the limit can leave over it. Past it the base64 frame would
+		// also approach the relay's own frame cap and be dropped, leaving the
+		// client to time out instead of showing an error.
+		if len(responseBody) > maxBodyBytes {
+			return nil, nil, fmt.Errorf("rewritten response is %d bytes, over the %d byte limit", len(responseBody), maxBodyBytes)
+		}
+	}
+	return headers, responseBody, nil
 }
 
 func (b *Bridge) openStream(ctx context.Context, d streamData) {
