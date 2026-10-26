@@ -15,9 +15,41 @@ Feature completion gate（高模型 review → 修 blocker/major → 提交 → 
 `2026-10-25-p3-shell.md` · `2026-10-26-p3b-phone.md` · `2026-10-26-p4-resume.md` ·
 `2026-10-26-p5-hosted.md` · `2026-10-26-p6-quality.md`）。
 
-**唯一还没做的一件事，是真实验收本身**：在手机上用 NAS 上那个 Hub 跑一遍。本机侧的验收
-（本机三进程 + 手机宽度的控制台）每片都做过，但**手机 → Hub → Mac 这条真实链路一次都没跑过**——
-NAS 部署不在自动授权里（见下）。所以「体验超过 LODY」这个判据目前是**待验**，不是已达成。
+**状态补充（2026-10-26）：真实验收开了头，第一次走就踩到一个断点，"打开这一下"已修。**
+
+手机浏览器这条入口，产品自己写在设置里的是 **Relay**：`ui.base_url` 就是那个 Worker 地址，
+推送深链 `<ui.base_url>/inbox?focus=<id>` 也落在它上面。用 390×844 的无头浏览器走这条**真实**
+链路（真 Worker + 真 daemon）：HTML 是 200，但它引用的 `/assets/*` 全部 **400**——Worker 要求
+每个请求都带 `room`，子资源不会继承父文档的查询串——于是页面是白屏。已修（`internal/remote/relay`
+转发 HTML 时改写根绝对引用，带上自己的 room/key），证据、红验证与真链路复验见
+`2026-10-24-p0-entry.md`「2026-10-26 真机入口的断点」。评审还抓出一个"修得不全"的真缺陷
+（凭据被写进带 `#` 的引用的 fragment 里，等于没带上），已修并做了红验证。
+
+**经 Relay 刷新页面仍然打不开**（PWA 从图标启动更甚）：客户端启动时会把 `room`/`key` 从地址栏
+删掉，而 Worker 对每个请求都要求 `room`——刷新那一刻请求根本没到 daemon。**LAN 上不存在这个问题**
+（外壳不鉴权、只挡 `/api/*`，实测无凭据取 `/inbox` 是 200），所以同一个控制台两条路能活一条。
+修法牵涉"长期凭据放在地址栏还是放进 Worker 侧的 cookie"，且后者要重新部署用户自己的 Cloudflare，
+**不在本次修，等定方向**。细节与实测表见 `2026-10-24-p0-entry.md` 同一节。
+
+**NAS 上那个 Hub 仍然没验**，但它不再是手机 dogfood 的唯一前提：
+
+- **同一 Wi-Fi**：`--lan` 已开（launchd 的 node 参数加了 `--lan`，`supervise` 原样转发给
+  `serve`），daemon 现在绑 `[::]:7777`，启动横幅给出 `http://<lan-ip>:7777/?token=…`；
+  已在 390×844 上实测：资源全 200、`/api/events` 流建立、页面渲染出你的真实会话列表。
+- **不在同一网络**：Relay（上面那条，打开已修；**刷新与 PWA 启动仍未修**）。
+- **Hub（NAS）**：产物已备好——`openkin:dogfood`，版本串 `dogfood-1e2ce01`，镜像里嵌的入口
+  chunk 就是当前的 `index-UxrZHPL9.js`（`docker run … grep -a` 实测）。**部署不在自动授权里**，
+  等一句话（命令与回滚都写在同一份文档里）。
+
+配对身份能做什么、不能做什么（带 device token、经 Relay、对线上 node 实测）：`/api/health`、
+`/api/agents`、`/api/tasks`、`/api/approvals` 都是 200；`/api/settings` 与 `/api/devices` 是 403
+（`operatorOnly`/`holderOnly`，设计如此）；`POST /api/tasks` 上没有 operator 门，所以
+「手机上发起对话」对配对设备是放开的。
+
+**「体验超过 LODY」这个判据现在仍然是待验**——拦住它的不再是"入口打不开"，而是
+"还没在真机上把四件事走完一遍"（发起对话 / 看进度 / 批准权限 / 看 diff）。
+**今天就能走的是 LAN 那条**（同 Wi-Fi，刷新也没问题，不需要任何部署授权）；
+经 Relay 那条要先定"刷新怎么办"，NAS Hub 那条要先有一句部署授权。
 
 开工期的记录（保留）：
 
@@ -639,6 +671,7 @@ monaco 移到按需加载的 `CodeViewer-*.js`（3,359 kB）。而且**不是打
 | **PR 评论回喂需要 prompt 而非硬编码** | 按 `PRINCIPLE.md` §5.5，这是"prompt 能表达的事" | **不做**专用状态机；做成"把评论作为上下文注入当前会话" |
 | **手机是主入口，但手机体验最差** | 你的日常是「手机发起 → Mac 执行」。而 `docs/plans/2026-10-23-m4-handoff.md` 里 M4 的自评是「sessions 列表是一堵 100 行的墙、settings 看着没做完、inbox 空状态撑不住」 | 并入 P2/P3：会话视图与外壳**按手机优先重做**，桌面是放大版而不是反过来 |
 | **中文文档欠账会持续** | `PRINCIPLE.zh.md` 零次「Lody」等 | 归入 P6，但期间新增文档必须中英同步 |
+| **`go test ./...` 现在不是可信的红绿信号** | 2026-10-26 实测：全量跑必有两个包挂在**绝对墙钟预算**上——`internal/adapter/droid` 的 `waitForLog(..., time.Second)` 要求新起的 shell 子进程 1s 内把 marker 刷进日志（实测 1.01–1.02s）；`internal/github` 的 `TestRunDoesNotWaitForAProcessThatOutlivesGH` 要求 `Run` 在 `2*ghPipeGrace` = 2s 内返回（实测 4.04–4.60s，脚本里故意挂着 `sleep 30`）。**同一个 commit `1e2ce01` 在干净 worktree 上照样挂这两个**，所以是既有的负载型 flake，不是任何一次改动引入的。单包跑则 3/3 稳定通过 | 读红之前先比对基线：`go test -count=1 -run <Test> ./internal/<pkg>/` 单跑，或在 `1e2ce01` 的干净 worktree 上跑同一套。修预算（放宽/改成轮询到 deadline 再判）是**独立的一条**，不要混进功能提交 |
 
 **未验证项（不要当成已解决）**：
 - LODY 的 `specs/` 全部 draft，其中若干自述未实现——**本文件引用它们时只当作设计参考，不当作行为保证**。
