@@ -47,7 +47,7 @@ test("an opened relay link teaches the browser the cookie", async () => {
   const env = recordingEnv();
   const response = await worker.fetch(
     new Request(`https://relay.example.test/inbox?room=${ROOM}&key=${KEY}`, {
-      headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
+      headers: { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" },
     }),
     env,
   );
@@ -71,7 +71,7 @@ test("a credentialed XHR is served without rewriting the cookie", async () => {
   const env = recordingEnv();
   const response = await worker.fetch(
     new Request(`https://relay.example.test/api/tasks?room=${ROOM}&key=${KEY}`, {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", "Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors" },
     }),
     env,
   );
@@ -108,7 +108,7 @@ test("a document reload survives on the cookie alone, and renews it", async () =
   const response = await worker.fetch(
     new Request("https://relay.example.test/", {
       headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate",
         Cookie: `other=1; kin_relay=${encodeURIComponent(ROOM)}|${encodeURIComponent(KEY)}; tail=2`,
       },
     }),
@@ -166,7 +166,7 @@ test("a socket upgrade still reads its credential from the query alone", async (
 
   const withQuery = await worker.fetch(
     new Request(`https://relay.example.test/api/ws?room=${ROOM}&key=${KEY}`, {
-      headers: { Upgrade: "websocket", Accept: "*/*" },
+      headers: { Upgrade: "websocket", "Sec-Fetch-Dest": "websocket", "Sec-Fetch-Mode": "websocket" },
     }),
     env,
   );
@@ -175,6 +175,21 @@ test("a socket upgrade still reads its credential from the query alone", async (
   // header would drop the socket, so an upgrade is never wrapped.
   assert.equal(withQuery.headers.get("Set-Cookie"), null);
   assert.equal(env.seen[0].url.searchParams.get("key"), KEY);
+});
+
+test("a malformed cookie ahead of a good one does not throw the good one away", async () => {
+  const env = recordingEnv();
+  const response = await worker.fetch(
+    new Request("https://relay.example.test/", {
+      headers: { Cookie: `kin_relay=nonsense; kin_relay=${encodeURIComponent(ROOM)}|${encodeURIComponent(KEY)}` },
+    }),
+    env,
+  );
+
+  // Two cookies can share a name when one was written with a longer path or by a
+  // sibling host. The browser sent a usable credential, so the request has one.
+  assert.equal(response.status, 200);
+  assert.equal(env.seen[0].url.searchParams.get("room"), ROOM);
 });
 
 test("credential encoding survives a room or key that needs escaping", () => {
@@ -202,7 +217,7 @@ test("a room-only link is answered by the room it names, not the room in the coo
   const env = keyedEnv();
   const response = await worker.fetch(
     new Request("https://relay.example.test/?room=room-b", {
-      headers: { Accept: "text/html", Cookie: credentialCookie(ROOM, KEY) },
+      headers: { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", Cookie: credentialCookie(ROOM, KEY) },
     }),
     env,
   );
@@ -222,7 +237,7 @@ test("a navigation the room refused does not overwrite a working cookie", async 
   const env = keyedEnv();
   const response = await worker.fetch(
     new Request(`https://relay.example.test/?room=${ROOM}&key=stale`, {
-      headers: { Accept: "text/html", Cookie: credentialCookie(ROOM, KEY) },
+      headers: { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", Cookie: credentialCookie(ROOM, KEY) },
     }),
     env,
   );
@@ -238,7 +253,7 @@ test("a link that names only a key is refused, not answered from the cookie", as
   const env = keyedEnv();
   const response = await worker.fetch(
     new Request("https://relay.example.test/?key=key-b", {
-      headers: { Accept: "text/html", Cookie: credentialCookie(ROOM, KEY) },
+      headers: { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", Cookie: credentialCookie(ROOM, KEY) },
     }),
     env,
   );
@@ -248,6 +263,45 @@ test("a link that names only a key is refused, not answered from the cookie", as
   // swap the credential the URL asked for without saying so.
   assert.equal(response.status, 400);
   assert.equal(env.seen.length, 0);
+});
+
+test("a script cannot mint the cookie by claiming to want a document", async () => {
+  const env = keyedEnv();
+  const response = await worker.fetch(
+    new Request(`https://relay.example.test/?room=${ROOM}&key=${KEY}`, {
+      // Everything a page is allowed to say, said in the shape of a document
+      // load. `Accept` is a page's to set; the `Sec-Fetch-*` pair the browser
+      // writes for a scripted fetch is not.
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+      },
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200, "the query is still served — that path is unchanged");
+  // Writing here would let anything running on this origin park a room of its
+  // choosing as the phone's credential for 30 days, and every later reload would
+  // be answered by that room instead of the daemon's.
+  assert.equal(response.headers.get("Set-Cookie"), null);
+});
+
+test("a browser that sends no Fetch Metadata gets no cookie, and no forged one either", async () => {
+  const env = keyedEnv();
+  const response = await worker.fetch(
+    new Request(`https://relay.example.test/?room=${ROOM}&key=${KEY}`, {
+      headers: { Accept: "text/html" },
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  // The pre-existing path still works; only the new one is declined. Failing
+  // closed is the point: a browser too old to say what the request is for keeps
+  // the behaviour it had before this cookie existed.
+  assert.equal(response.headers.get("Set-Cookie"), null);
 });
 
 // Everything above stubs the room, which means nothing above proves that the
@@ -297,7 +351,7 @@ test("a phone can reload and open a lazy chunk with nothing but the cookie", asy
 
   const send = (path, { navigate = false } = {}) => {
     const headers = {};
-    if (navigate) headers.Accept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+    if (navigate) Object.assign(headers, { "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate" });
     if (jar.size) headers.Cookie = [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
     return worker.fetch(new Request(`https://relay.example.test${path}`, { headers }), env)
       .then((response) => {

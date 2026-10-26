@@ -55,11 +55,17 @@ export function decodeCredential(value) {
 export function readCredentialCookie(request) {
   const header = request.headers.get("Cookie");
   if (!header) return null;
+  // Every part is looked at, not just the first one that is named right: a
+  // second cookie of the same name can arrive from a longer path or a sibling
+  // host, and stopping at a malformed one would throw away a credential the
+  // browser did send — leaving a request that cannot load the console at all,
+  // for a reason nothing on the page can see.
   for (const part of header.split(";")) {
     const at = part.indexOf("=");
     if (at < 0) continue;
     if (part.slice(0, at).trim() !== CREDENTIAL_COOKIE) continue;
-    return decodeCredential(part.slice(at + 1).trim());
+    const decoded = decodeCredential(part.slice(at + 1).trim());
+    if (decoded) return decoded;
   }
   return null;
 }
@@ -88,6 +94,17 @@ function withCredentialCookie(response, credential) {
 
 function isUpgrade(request) {
   return request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+}
+
+// A top-level document load, as reported by the browser itself. `Dest` is the
+// precise one; `Mode` covers a browser that reports the mode but not the
+// destination. Either way the page cannot forge it, which is the whole point —
+// see the note where this is used.
+function isDocumentRequest(request) {
+  const headers = request.headers;
+  const dest = headers.get("Sec-Fetch-Dest");
+  if (dest) return dest === "document";
+  return headers.get("Sec-Fetch-Mode") === "navigate";
 }
 
 export default {
@@ -137,13 +154,21 @@ export default {
     // here is also what keeps the 30-day window sliding for a phone that is
     // opened, not re-paired.
     //
-    // The test is `Accept`, not `Sec-Fetch-Mode`, because a document request is
-    // the one thing every browser has always announced. Measured in Chromium:
-    // the document asks for `text/html,application/xhtml+xml,…`, the entry and
-    // the lazily imported chunk ask for `*/*`, the stylesheet for
-    // `text/css,*/*;q=0.1`. A phone whose browser never sends the `Sec-Fetch-*`
-    // headers would otherwise get no cookie at all and keep failing exactly as
-    // it did before, with nothing to say why.
+    // What counts as a document has to be something the page cannot claim for
+    // itself. `Accept: text/html` looks like the natural test and is the wrong
+    // one: a script can set it, so any script on this origin — or a cross-site
+    // request that survives the browser's third-party cookie rules — could hand
+    // this worker a room of its choosing and have it written as the phone's
+    // credential for 30 days. The `Sec-Fetch-*` headers are forbidden header
+    // names: the browser writes them and a page cannot. Measured in Chromium, a
+    // document is `Dest: document, Mode: navigate`, while the entry chunk, the
+    // lazily imported chunks and every XHR are `Dest: script|empty, Mode: cors`.
+    //
+    // The cost is a browser old enough to send no `Sec-Fetch-*` at all: it gets
+    // no cookie and keeps the failure it has today. That is the right way round
+    // for a credential — the alternative fails open, and a phone that cannot
+    // reload yet is a smaller problem than a phone whose console answers to
+    // someone else's room.
     //
     // A 401 is the room saying it does not recognise this key, so a request
     // carrying one must not be the one that writes the cookie: opening a stale
@@ -153,8 +178,7 @@ export default {
     // Never wrap an upgrade: the response to one carries the accepted socket,
     // and rebuilding it to append a header drops the socket and hangs the
     // client. Nothing is lost — a socket client already has the query.
-    const wantsDocument = (request.headers.get("Accept") ?? "").includes("text/html")
-      && !isUpgrade(request);
+    const wantsDocument = isDocumentRequest(request) && !isUpgrade(request);
     if (wantsDocument && response.status !== 401) {
       return withCredentialCookie(response, credential);
     }
