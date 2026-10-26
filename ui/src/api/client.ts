@@ -84,6 +84,29 @@ export function isAuthenticated(): boolean {
   return !!getToken() || useAppStore.getState().account.authenticated;
 }
 
+/**
+ * Drop this console's copy of the relay Worker's credential cookie.
+ *
+ * The Worker hands the browser a cookie when it opens a relay link, because a
+ * query string does not survive a document boundary — reloads, a PWA launch and
+ * every lazily imported asset arrive without one. That cookie is a second copy
+ * of the same secret, so forgetting the stored copy forgets this one in the same
+ * gesture.
+ *
+ * Scoped to the origin this console is running on, which is the whole of what a
+ * page can do: a phone whose console is served from the relay origin keeps its
+ * copy, exactly as it keeps the localStorage copy this runs beside. Disconnecting
+ * from the desktop is a desktop gesture; reaching the phone means rotating the
+ * room key.
+ */
+function clearRelayCookie(): void {
+  try {
+    document.cookie = "kin_relay=; Path=/; Max-Age=0; Secure; SameSite=Lax";
+  } catch {
+    // ignore
+  }
+}
+
 /** Adopt a master Relay URL emitted by the authenticated Settings API. */
 export function adoptRelayURL(raw: string): void {
   const value = raw.trim();
@@ -94,6 +117,7 @@ export function adoptRelayURL(raw: string): void {
     } catch {
       // ignore
     }
+    clearRelayCookie();
     return;
   }
   const parsed = new URL(value, window.location.href);

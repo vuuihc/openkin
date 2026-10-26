@@ -4,6 +4,8 @@ const MAX_FRAME = 32 * 1024 * 1024;
 const MAX_CLIENTS = 8;
 const MAX_PENDING = 64;
 const REQUEST_TIMEOUT = 60_000;
+const CREDENTIAL_COOKIE = "kin_relay";
+const CREDENTIAL_MAX_AGE = 60 * 60 * 24 * 30;
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -27,13 +29,136 @@ function parseFrame(raw) {
   }
 }
 
+// The relay authenticates by query string, and a browser does not carry a query
+// across a document boundary. Anything the browser builds on its own — a reload,
+// a PWA launch from start_url, the URL a module loader derives for a lazily
+// imported chunk — therefore arrives with no credentials and is refused here,
+// before the daemon ever sees it. The cookie is that same credential kept where
+// the browser attaches it by itself; the query stays the bootstrap that sets it.
+function encodeCredential(room, key) {
+  return `${encodeURIComponent(room)}|${encodeURIComponent(key)}`;
+}
+
+export function decodeCredential(value) {
+  if (typeof value !== "string") return null;
+  const at = value.indexOf("|");
+  if (at < 0) return null;
+  try {
+    const room = decodeURIComponent(value.slice(0, at));
+    const key = decodeURIComponent(value.slice(at + 1));
+    return room && key ? { room, key } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readCredentialCookie(request) {
+  const header = request.headers.get("Cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const at = part.indexOf("=");
+    if (at < 0) continue;
+    if (part.slice(0, at).trim() !== CREDENTIAL_COOKIE) continue;
+    return decodeCredential(part.slice(at + 1).trim());
+  }
+  return null;
+}
+
+// Deliberately not HttpOnly. The credential in it is one the console already
+// keeps in localStorage, and the console has to be able to drop this cookie in
+// the same gesture that drops that copy — otherwise "disconnect" would leave a
+// browser that can still reach the relay.
+export function credentialCookie(room, key) {
+  return `${CREDENTIAL_COOKIE}=${encodeCredential(room, key)}; Path=/; `
+    + `Max-Age=${CREDENTIAL_MAX_AGE}; Secure; SameSite=Lax`;
+}
+
+function withCredential(request, credential) {
+  const url = new URL(request.url);
+  url.searchParams.set("room", credential.room);
+  url.searchParams.set("key", credential.key);
+  return new Request(url, request);
+}
+
+function withCredentialCookie(response, credential) {
+  const carried = new Response(response.body, response);
+  carried.headers.append("Set-Cookie", credentialCookie(credential.room, credential.key));
+  return carried;
+}
+
+function isUpgrade(request) {
+  return request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const room = url.searchParams.get("room");
-    if (!room || room.length > 128) return json({ error: "room is required" }, 400);
-    const id = env.RELAY_ROOM.idFromName(room);
-    return env.RELAY_ROOM.get(id).fetch(request);
+    const key = url.searchParams.get("key");
+    // A URL that names a credential keeps naming it, whichever half it names.
+    // The daemon hands out room-only links on purpose (`relay.connect_url` is the
+    // URL without credentials), and a browser that happens to hold a cookie for a
+    // different room must not turn such a link into a request for the room it
+    // already knows — the address bar would say one room and the data would come
+    // from another. A room-only link reaches its own room and takes that room's
+    // 401, which is what it did before any cookie existed. Neither does a link
+    // that names only a key get that key swapped for the cookie's: there is no
+    // room in it to serve, so it is refused here rather than answered from
+    // somewhere else. The cookie is a fallback for the requests that name no
+    // credential at all: a reload, a PWA launch, an asset.
+    //
+    // A socket upgrade keeps reading its credential from the query alone: the
+    // upgrade only survives on the request the runtime handed us, and rebuilding
+    // it to add a query is exactly the thing that can drop it. Every socket
+    // client already builds its URL from the console's relay helper, so the
+    // query is there.
+    const credential = isUpgrade(request) || room
+      ? { room, key }
+      : (key ? {} : (readCredentialCookie(request) ?? {}));
+    if (!credential.room || credential.room.length > 128) {
+      return json({ error: "room is required" }, 400);
+    }
+    // Without a key the room cannot be served, but a room-addressed request is
+    // still the one that gets the 401 from the room itself rather than a 400
+    // from here — that is today's behaviour and it stays.
+    const forwarded = room === credential.room && key === credential.key
+      ? request
+      : withCredential(request, credential);
+    const response = await env.RELAY_ROOM.get(
+      env.RELAY_ROOM.idFromName(credential.room),
+    ).fetch(forwarded);
+    // Only a request for a document needs the cookie issued. That request is
+    // the one that arrives with nothing but headers — a reload, a PWA launch
+    // from start_url — so it is both the request that must find the cookie
+    // present and the only one worth spending a write on. XHRs are built by the
+    // console from the relay URL it already holds, query included, and assets
+    // are fetched with the cookie they already have; reissuing on those would
+    // add a write to every response that the browser discards unread. Renewing
+    // here is also what keeps the 30-day window sliding for a phone that is
+    // opened, not re-paired.
+    //
+    // The test is `Accept`, not `Sec-Fetch-Mode`, because a document request is
+    // the one thing every browser has always announced. Measured in Chromium:
+    // the document asks for `text/html,application/xhtml+xml,…`, the entry and
+    // the lazily imported chunk ask for `*/*`, the stylesheet for
+    // `text/css,*/*;q=0.1`. A phone whose browser never sends the `Sec-Fetch-*`
+    // headers would otherwise get no cookie at all and keep failing exactly as
+    // it did before, with nothing to say why.
+    //
+    // A 401 is the room saying it does not recognise this key, so a request
+    // carrying one must not be the one that writes the cookie: opening a stale
+    // link once would otherwise replace a working credential and leave every
+    // later reload refused before the console could even load to recover.
+    //
+    // Never wrap an upgrade: the response to one carries the accepted socket,
+    // and rebuilding it to append a header drops the socket and hangs the
+    // client. Nothing is lost — a socket client already has the query.
+    const wantsDocument = (request.headers.get("Accept") ?? "").includes("text/html")
+      && !isUpgrade(request);
+    if (wantsDocument && response.status !== 401) {
+      return withCredentialCookie(response, credential);
+    }
+    return response;
   },
 };
 
