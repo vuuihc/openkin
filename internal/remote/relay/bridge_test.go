@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/vuuihc/openkin/web"
 	"nhooyr.io/websocket"
 )
 
@@ -365,13 +363,19 @@ func TestNewLocalRequestKeepsAuthAndDropsHopHeaders(t *testing.T) {
 	}
 }
 
-// A browser sends no credentials for the subresources a document names, and the
-// worker answers an uncredentialed request with 400 before it reaches the
-// daemon. So the console, which is served through the relay to a phone, arrived
-// as HTML and nothing else: every /assets/… request failed and the page stayed
-// blank. The document has to name its assets the way the browser will ask for
-// them.
-func TestRelayResponseRewritesTheConsoleDocument(t *testing.T) {
+// The console is served through the relay to a phone, and the document is
+// forwarded exactly as the daemon wrote it — references, validators and all.
+//
+// It used to be rewritten here, the relay credentials appended to every
+// root-absolute reference, because a browser sends none of its own for the
+// subresources a document names and the worker refuses a request that carries
+// neither. The worker's cookie carries them now, and it is the only mechanism
+// that survives the browser deriving a URL for itself: a lazily imported chunk
+// resolves its own static import, which drops any query the document was served
+// with, so a rewritten document gave one file two URLs and booted the console
+// twice. Nothing written into the document can do that — and leaving the bytes
+// alone is what lets the validators below stay truthful.
+func TestRelayResponseForwardsTheConsoleDocumentUnchanged(t *testing.T) {
 	b := NewBridge("wss://relay.example.com", "room-1", "http://127.0.0.1:7777")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -382,7 +386,7 @@ func TestRelayResponseRewritesTheConsoleDocument(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
-		// Both describe the bytes the daemon sent, which the rewrite changes.
+		// Validators for the document's own bytes, which forwarding does not change.
 		w.Header().Set("ETag", `"doc-1"`)
 		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 		_, _ = w.Write([]byte(`<script type="module" crossorigin src="/assets/index-abc.js"></script>`))
@@ -398,21 +402,24 @@ func TestRelayResponseRewritesTheConsoleDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `<script type="module" crossorigin src="/assets/index-abc.js?room=room-1&key=` + b.relayKey + `"></script>`
+	// Byte-identical: no credentials appended, no reference re-pointed.
+	want := `<script type="module" crossorigin src="/assets/index-abc.js"></script>`
 	if string(body) != want {
 		t.Fatalf("relayed document = %q\nwant %q", body, want)
 	}
 	if headers["Content-Type"] != "text/html; charset=utf-8" || headers["Cache-Control"] != "no-cache" {
 		t.Fatalf("headers = %v, want content type and cache policy kept", headers)
 	}
+	// These describe the bytes that were forwarded, and those bytes were not
+	// touched, so they survive: a relayed console can revalidate again.
 	for _, name := range []string{"ETag", "Last-Modified"} {
-		if _, ok := headers[name]; ok {
-			t.Fatalf("%s survived a rewritten body: %v", name, headers)
+		if _, ok := headers[name]; !ok {
+			t.Fatalf("%s was dropped although the body was forwarded unchanged: %v", name, headers)
 		}
 	}
 
-	// Only the document is rewritten. JSON that happens to contain a path is
-	// data, not a reference, and its validators still describe its bytes.
+	// JSON that happens to contain a path is data, never a reference — it was not
+	// rewritten before and is not special-cased now.
 	resp, err = srv.Client().Get(srv.URL + "/api/thing")
 	if err != nil {
 		t.Fatal(err)
@@ -430,144 +437,14 @@ func TestRelayResponseRewritesTheConsoleDocument(t *testing.T) {
 	}
 }
 
-// absoluteRefs returns every attribute value in a document that starts with a
-// single slash: the requests a browser will make against the relay origin, and
-// therefore the ones that need credentials.
-//
-// It scans bytes rather than reusing documentRef on purpose. A test whose oracle
-// is the expression it is checking can only report that the expression agrees
-// with itself.
-func absoluteRefs(doc []byte) []string {
-	var out []string
-	for _, attr := range []string{"src", "href", "srcset", "poster", "data"} {
-		for _, q := range []byte{'"', '\''} {
-			needle := []byte(attr + "=" + string(q) + "/")
-			for i := 0; ; {
-				j := bytes.Index(doc[i:], needle)
-				if j < 0 {
-					break
-				}
-				start := i + j + len(needle) - 1
-				stop := bytes.IndexByte(doc[start:], q)
-				if stop < 0 {
-					break
-				}
-				value := string(doc[start : start+stop])
-				// "//host/path" is another origin, not a relay request.
-				if !strings.HasPrefix(value, "//") {
-					out = append(out, value)
-				}
-				i = start + stop
-			}
-		}
-	}
-	return out
-}
-
-// The shipped console is the document that has to survive this, and it has to
-// survive it through the real response path — a rewrite the daemon never calls
-// is the bug this whole change exists to fix. Reading the document from the
-// embed rather than a fixture means a new root-absolute reference added to
-// index.html — a font, an icon, a preload — fails here instead of on a phone.
-func TestShippedConsoleHasNoReferenceTheRelayCannotRoute(t *testing.T) {
-	sub, err := fs.Sub(web.FS, "dist")
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err := fs.ReadFile(sub, "index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(absoluteRefs(doc)) == 0 {
-		t.Fatal("index.html has no root-absolute references: this test would pass vacuously")
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// Mirrors uiHandler: the SPA shell is served as text/html and must
-		// revalidate, which is what makes dropping the validators matter.
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(doc)
-	}))
-	defer srv.Close()
-
-	b := NewBridge("wss://relay.example.com", "room-1", "http://127.0.0.1:7777")
-	resp, err := srv.Client().Get(srv.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, body, err := b.relayResponse(resp)
-	_ = resp.Body.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	refs := absoluteRefs(body)
-	before := absoluteRefs(doc)
-	if len(refs) != len(before) {
-		t.Fatalf("relayed document changed the number of references: %d -> %d", len(before), len(refs))
-	}
-	for i, value := range refs {
-		routed, err := url.Parse(value)
-		if err != nil {
-			t.Fatalf("relayed reference %q is not a URL: %v", value, err)
-		}
-		query := routed.Query()
-		if query.Get("room") == "" || query.Get("key") == "" {
-			t.Fatalf("%q would reach the worker without credentials", value)
-		}
-		// Credentials have to land in the query. A substring check would accept
-		// them inside a fragment, where the browser never sends them and the
-		// subresource fails exactly as it did before the rewrite existed.
-		original, err := url.Parse(before[i])
-		if err != nil {
-			t.Fatalf("original reference %q is not a URL: %v", before[i], err)
-		}
-		if routed.Path != original.Path || routed.Fragment != original.Fragment {
-			t.Fatalf("relayed reference %q moved the path or fragment of %q", value, before[i])
-		}
-	}
-}
-
-// A fragment is opaque to the browser: "/icons/icon-512.png#v=2" is requested as
-// "/icons/icon-512.png" with no query at all. Appending the credentials to the
-// end of the attribute value therefore buried them where the worker never sees
-// them, and that subresource failed exactly as it did before the rewrite
-// existed — a fix that looked complete and changed nothing for the reference.
-func TestRelayedDocumentKeepsCredentialsOutOfFragments(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write([]byte(`<link rel="icon" href="/icons/icon-512.png#v=2"><use href="/sprite.svg#icon"></use>`))
-	}))
-	defer srv.Close()
-
-	b := NewBridge("wss://relay.example.com", "room-1", "http://127.0.0.1:7777")
-	resp, err := srv.Client().Get(srv.URL + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, body, err := b.relayResponse(resp)
-	_ = resp.Body.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	query := "?room=room-1&key=" + b.relayKey
-	want := `<link rel="icon" href="/icons/icon-512.png` + query + `#v=2">` +
-		`<use href="/sprite.svg` + query + `#icon"></use>`
-	if string(body) != want {
-		t.Fatalf("relayed document = %q\nwant %q", body, want)
-	}
-}
-
-// The rewrite reads the body as bytes looking for attribute values. If the
-// Accept-Encoding strip in newLocalRequest ever broke, the body at that point
-// would be gzip, which contains no `src="/…` at all: the rewrite would silently
-// do nothing and the phone would get the same blank page, with no assertion
-// failing anywhere. This pins the decompress-then-rewrite order that
-// relayResponse's comment argues for, the way the JSON test above pins it for
-// API bodies.
-func TestRelayedDocumentIsDecompressedBeforeItIsRewritten(t *testing.T) {
+// Whatever is forwarded has to be identity-encoded: relayResponse's header
+// allowlist omits Content-Encoding, so a body that left the daemon still gzipped
+// would reach the browser as compressed bytes with nothing saying so. The
+// Accept-Encoding strip in newLocalRequest is what prevents that, and it is
+// invisible — remove it and this document arrives as gzip with no assertion
+// failing anywhere. The control above proves the daemon really did compress it,
+// so the comparison below is what says the bytes were decompressed first.
+func TestRelayedDocumentIsDecompressedAndForwardedUnchanged(t *testing.T) {
 	const doc = `<script type="module" crossorigin src="/assets/index-abc.js"></script>`
 
 	r := chi.NewRouter()
@@ -620,45 +497,11 @@ func TestRelayedDocumentIsDecompressedBeforeItIsRewritten(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `<script type="module" crossorigin src="/assets/index-abc.js?room=room-1&key=` + b.relayKey + `"></script>`
-	if string(body) != want {
-		t.Fatalf("relayed document = %q\nwant %q (rewrite saw compressed bytes?)", body, want)
-	}
-}
-
-func TestRewriteDocumentLeavesWhatItCannotRoute(t *testing.T) {
-	b := NewBridge("wss://relay.example.com", "room-1", "http://127.0.0.1:7777")
-	query := "?room=room-1&key=" + b.relayKey
-	for _, tc := range []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"script", `<script src="/assets/a.js"></script>`, `<script src="/assets/a.js` + query + `"></script>`},
-		{"stylesheet", `<link rel="stylesheet" href="/assets/a.css">`, `<link rel="stylesheet" href="/assets/a.css` + query + `">`},
-		{"existing query", `<link rel="manifest" href="/manifest.webmanifest?v=2">`, `<link rel="manifest" href="/manifest.webmanifest?v=2&room=room-1&key=` + b.relayKey + `">`},
-		{"path with fragment", `<link rel="icon" href="/icons/icon-512.png#v=2">`, `<link rel="icon" href="/icons/icon-512.png` + query + `#v=2">`},
-		{"path with query and fragment", `<link rel="icon" href="/icons/icon-512.png?v=2#frag">`, `<link rel="icon" href="/icons/icon-512.png?v=2&room=room-1&key=` + b.relayKey + `#frag">`},
-		// Credentials after a "#" are never sent, so this value is not routed
-		// however much it looks like it is.
-		{"credentials in a fragment do not count", `<link rel="icon" href="/icons/icon-512.png#room=x&key=y">`, `<link rel="icon" href="/icons/icon-512.png` + query + `#room=x&key=y">`},
-		// "monkey=" contains "key="; only a parsed query decides.
-		{"lookalike substring", `<script src="/assets/monkey=1.js"></script>`, `<script src="/assets/monkey=1.js` + query + `"></script>`},
-		{"already routed", `<script src="/assets/a.js` + query + `"></script>`, `<script src="/assets/a.js` + query + `"></script>`},
-		{"other origin", `<script src="//cdn.example.com/a.js"></script>`, `<script src="//cdn.example.com/a.js"></script>`},
-		{"absolute", `<a href="https://example.com/a">x</a>`, `<a href="https://example.com/a">x</a>`},
-		{"fragment", `<a href="#top">x</a>`, `<a href="#top">x</a>`},
-		{"relative", `<a href="inbox">x</a>`, `<a href="inbox">x</a>`},
-		// Not matched, and so still unreachable through the relay. Vite emits
-		// double quotes, and the shipped-document test fails if that changes.
-		{"single quoted is not matched", `<script src='/assets/a.js'></script>`, `<script src='/assets/a.js'></script>`},
-		{"unquoted is not matched", `<script src=/assets/a.js></script>`, `<script src=/assets/a.js></script>`},
-		{"no references", `<p>hello</p>`, `<p>hello</p>`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := string(b.rewriteDocument([]byte(tc.in))); got != tc.want {
-				t.Fatalf("rewriteDocument = %q\nwant %q", got, tc.want)
-			}
-		})
+	// Byte-identical, credentials and all absent: the reference this document
+	// names is left exactly as the daemon wrote it, so the browser resolves it to
+	// the same URL the chunk's own import will. A relayed document that came back
+	// with a query appended here is the double boot described above.
+	if string(body) != doc {
+		t.Fatalf("relayed document = %q\nwant it unchanged: %q", body, doc)
 	}
 }
