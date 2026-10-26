@@ -73,3 +73,6 @@ nohup.out
 
 # Per-machine dev code-signing identity (see scripts/dev-sign.sh)
 .kin-codesign-identity
+
+# Wrangler's local state, written by deploying relay/ (holds the account id)
+relay/.wrangler/
