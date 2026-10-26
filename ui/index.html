@@ -12,7 +12,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Kin" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- `use-credentials` is load-bearing behind the relay, not decoration: a
+         manifest fetch omits cookies by default — even same-origin ones — so on
+         a relayed console this request would arrive with neither the cookie nor
+         a query credential and the worker would answer 400. The icons below need
+         no attribute; image fetches send same-origin cookies already. -->
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>Kin</title>
