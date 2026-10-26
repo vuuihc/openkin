@@ -34,7 +34,7 @@ Feature completion gate（高模型 review → 修 blocker/major → 提交 → 
 **静态** `import "./index-<hash>.js"`，静态说明符由**浏览器**解析、相对解析会丢掉 base 的 query，
 于是那条请求仍然无凭证被 400 挡掉，`import()` 照样 reject。**任何构建期/运行时的 URL 补丁都修不全
 这一类**——被漏掉的永远是浏览器自己解析的那条。**只有浏览器自动携带的凭证能覆盖全部请求**，
-也就是 Worker 侧 cookie。这条修法已实现、已测（15+2 条测试，都做了删机制复红），**未部署**：
+也就是 Worker 侧 cookie。这条修法已实现、已测（18+2 条测试，都做了删机制复红），**未部署**：
 (a) 这台机器上存的 Cloudflare 凭据已死（`refresh token is missing`，access token 一过期就刷不回来），
 要重连一次（回环回调，不需要公网）；(b) "长期凭据放在地址栏还是放进 Worker 侧的 cookie"是你的
 产品/安全决定，**按上一轮说的"先定方向再动"，停在这里等你**。细节见
