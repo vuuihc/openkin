@@ -37,9 +37,21 @@ const config: CapacitorConfig = {
     cleartext: origin.protocol === "http:",
   },
   ios: {
-    // The console draws its own chrome; keep it out from under the status bar
-    // and the home indicator.
-    contentInset: "always",
+    // "never", not Capacitor's other insets: the console already pads itself
+    // for the notch and the home indicator with env(safe-area-inset-*), and it
+    // asks for the whole screen with `viewport-fit=cover`. Letting UIKit inset
+    // the scroll view as well applied the safe area twice — the page started
+    // below the status bar and stopped above the home indicator, and the strip
+    // left over was the webview's own background. On a phone in light mode that
+    // background is the system's (white), so the strip read as a white bar at
+    // the top and bottom of the app.
+    contentInset: "never",
+    // What shows through before the console has painted, and in any gap it
+    // leaves. It has to be `--kin-page` in the console's default (dark) scheme,
+    // not the system background: a light-mode phone would otherwise flash white
+    // around a console that is dark. Kept in step with
+    // `ui/src/design/theme.css` by `tokens.test.ts`.
+    backgroundColor: "#0e0e10",
   },
 };
 

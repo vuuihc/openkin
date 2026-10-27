@@ -1428,5 +1428,68 @@ describe("design tokens", () => {
         thenRead: true,
       });
     });
+
+    it("paints the native shell's webview backdrop from the same token", () => {
+      // The iOS shell gives the webview its own background, which shows before
+      // the console has painted and in any gap the page leaves. It cannot read
+      // a custom property, so the value is a literal in
+      // `mobile/capacitor.config.ts` — the second surface, after the
+      // theme-color meta above, with no other chance to be right. It is pinned
+      // to the dark page because that is the console's default scheme; the
+      // shell cannot follow a theme chosen at runtime.
+      //
+      // Read from the `ios:` block, with comments gone, and as the only match:
+      // the file also spells the old value out in prose, and Capacitor has a
+      // root-level `backgroundColor` of its own, so a first-match scan could
+      // check the wrong string while the real one drifted. (`ios` is the last
+      // key in the file, so slicing from it is the block; a later block
+      // carrying these keys would mean tightening this.)
+      const shell = readFileSync(join(UI, "../mobile/capacitor.config.ts"), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^[ \t]*\/\/.*$/gm, "");
+      const ios = shell.slice(shell.indexOf("ios:"));
+      const painted = [...ios.matchAll(/backgroundColor:\s*"([^"]+)"/g)];
+      expect(painted.map(([, value]) => value)).toEqual([DARK["--kin-page"]]);
+      // The colour is only half of it: letting UIKit inset the scroll view as
+      // well restores the double safe area, and the page then stops short of
+      // the home indicator with the webview's background showing as a bar —
+      // the bug this pair of settings exists to prevent.
+      expect(ios).toMatch(/contentInset:\s*"never"/);
+    });
+
+    it("launches into the page colour instead of a splash image", () => {
+      // The launch screen is drawn before any of the console exists, and it
+      // used to be Capacitor's default: a white image carrying Capacitor's blue
+      // logo, over the system background. On a dark console that was a
+      // full-screen white flash on every cold start — the same mismatch as the
+      // webview backdrop above, one layer earlier. It is a plain colour now,
+      // and a storyboard colour is another literal no token can reach.
+      const storyboard = readFileSync(
+        join(UI, "../mobile/ios/App/App/Base.lproj/LaunchScreen.storyboard"),
+        "utf8",
+      );
+      // Alpha and colour space are part of the value: translucent or non-sRGB
+      // components with the same numbers would show something else through.
+      const background =
+        /<color key="backgroundColor" red="([\d.]+)" green="([\d.]+)" blue="([\d.]+)" alpha="1" colorSpace="custom" customColorSpace="sRGB"\/>/.exec(
+          storyboard,
+        );
+      const painted = background
+        ? `#${background
+            .slice(1, 4)
+            .map((component) =>
+              Math.round(Number(component) * 255)
+                .toString(16)
+                .padStart(2, "0"),
+            )
+            .join("")}`
+        : null;
+      expect(painted).toBe(DARK["--kin-page"]);
+      // Any image view would cover the colour again, and the plist has to keep
+      // naming this storyboard for any of it to be drawn.
+      expect(storyboard).not.toContain("<imageView");
+      const plist = readFileSync(join(UI, "../mobile/ios/App/App/Info.plist"), "utf8");
+      expect(plist).toMatch(/<key>UILaunchStoryboardName<\/key>\s*<string>LaunchScreen<\/string>/);
+    });
   });
 });
