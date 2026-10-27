@@ -96,3 +96,28 @@
 - 设置页 tab 条在 390px 下横向滚动，最后一项半露，可加渐变遮罩提示。
 - `ApprovalsPage` 空态同时出现「没有待审批项」小字与空态卡片，语义重复。
 - 消息内「重试/分叉/复制」是文字链大小（约 22px），手机端常显；若要满足 44px 需重排转录操作区。
+
+## 5. 第二轮：手机端改用 Ionic 作为设计语言
+
+> 用户反馈：上一轮仍是逐个按钮调尺寸，最后和截图一样难看；问能否直接用开源的移动设计语言。
+> Lody 的做法是 Ionic + Tailwind，这里取同一半：**交互用 Ionic，视觉仍由 console 的 token 决定**。
+
+- **为什么是 Ionic**：选择器/操作表在 iOS 上的正确形态（动作表、安全区、44pt 行高、
+  点外部关闭、返回焦点）是平台行为，不是配色；自己画等于每次都在重学这些细节。
+  只引 `@ionic/react/css/core.css`，`setupIonicReact({ mode: "ios" })`，全平台统一 iOS 观感。
+- **不引 `structure.css`**：它带 `body{position:fixed;height:100%;overflow:hidden}` 的全局重置，
+  会把 `ConnectScreen` / `AccountScreen`（渲染在 AppShell 之外、依赖文档滚动）在矮屏上裁掉。
+  实测 390×500 下移除后文档可滚动（scrollHeight 618 > 500），body 为 `static`。
+- **`SheetSelect`**（`ui/src/components/ui/SheetSelect.tsx`）：一个紧凑 chip + `IonActionSheet`，
+  手机端的模型/权限选择都换成它；选中项由 `.kin-sheet-selected` + `aria-current` 标记
+  （Ionic 只为 radio 角色画选中态，而 radio 点完不关面板）。
+- **会话页头部溢出菜单**：文件 / PR / 停止 / 删除会话在 <md 收进 `...` 动作表，md+ 仍是原来的 chip。
+- **composer 底行**：手机只留权限 + 模型，cwd / 仓库 / 分支 / 机器名用 `hidden md:contents` 包起来，
+  桌面布局不变；机器名没有别处可看，所以会话操作表的 `subHeader` 会写明「运行在 …」。
+- **评审修掉的两处**：Ionic 的破坏性行用自带的 `#c5000f`，在暗色面板上只有 2.24:1——改为
+  `--ion-color-danger: rgb(var(--kin-red-ink-rgb))`（6.10:1 / 5.26:1）；自定义模型时 sheet 收到的是
+  原始 id，匹配不到任何条目（选「自定义」时 `""` 还会点亮「默认」行），改为与桌面 `<select>`
+  相同的 `__custom__` 哨兵，并加了 `ModelPicker.dom.test.tsx` 钉住这个契约（旧代码上确认为红）。
+- **代价**：`@ionic/react` 的 barrel 会把所有自定义元素一起注册，入口 chunk 约 2.0 MB / 506 KB gzip
+  （增加约 855 KB 原始 / 181 KB gzip）。后续若要瘦身，可只手写这一个动作表，但会失去平台的
+  关闭/安全区行为——先记在这里，不作为本轮范围。
