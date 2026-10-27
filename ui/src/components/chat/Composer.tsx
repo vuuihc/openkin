@@ -509,7 +509,14 @@ export default function Composer({
             placeholder={resolvedPlaceholder}
             className={[
               "kin-scroll resize-none bg-transparent text-strong text-kin-text placeholder:text-kin-muted outline-none max-h-[min(40vh,280px)] overflow-y-auto transition-[min-height] duration-150",
-              expanded ? "w-full min-h-11 leading-ui" : "flex-1 min-w-0 min-h-7 leading-ui",
+              // A phone types into a 44pt row: the attachment and send buttons
+              // beside it are already that tall, and a 28px textarea inside a
+              // 44px row clipped the second line of its own placeholder. The
+              // `kin-composer-input` half covers the coarse-pointer widths the
+              // `sm` breakpoint would otherwise drop back to 28px.
+              expanded
+                ? "w-full min-h-11 leading-ui"
+                : "kin-composer-input flex-1 min-w-0 min-h-11 sm:min-h-7 py-[11px] sm:py-0 leading-ui",
             ].join(" ")}
           />
           <div

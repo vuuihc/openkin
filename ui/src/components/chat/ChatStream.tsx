@@ -690,7 +690,14 @@ function ProgressCard({
           )}
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="break-words font-medium text-kin-text">{summary}</span>
+          {/* One line, cut with an ellipsis. The summary is a list of counts
+              ("list 1 × · read 1 × · edit 1 ×"); letting it wrap on a phone
+              broke between a tool name and its count and made the row two
+              ragged lines tall while the fold label beside it stayed put. The
+              full text is the tooltip and the steps are one tap away. */}
+          <span className="truncate font-medium text-kin-text" title={summary}>
+            {summary}
+          </span>
           {collapsed && details.latestNote && (
             <span
               className="truncate text-caption font-normal text-kin-muted"

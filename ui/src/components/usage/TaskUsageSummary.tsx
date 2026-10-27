@@ -148,8 +148,15 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
             </div>
             <div className="mt-0.5 truncate text-body tabular-nums text-kin-secondary">
               <span className="font-medium text-kin-text">{totalTokens}</span>
-              <span className="text-kin-muted"> · </span>
-              <span>{spend}</span>
+              {/* An unknown cost is left out rather than drawn as an em dash:
+                  "6.4k · —" reads as a broken value, and the details grid
+                  below is where "unknown" belongs. */}
+              {usage.cost_usd != null ? (
+                <>
+                  <span className="text-kin-muted"> · </span>
+                  <span>{spend}</span>
+                </>
+              ) : null}
               {costBadge ? (
                 <span
                   className="ml-1 text-micro font-semibold uppercase tracking-label text-kin-muted"
@@ -209,8 +216,12 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           </span>
           <span className="flex-1 min-w-0 truncate text-body tabular-nums text-kin-secondary">
             <span className="text-kin-text font-medium">{totalTokens}</span>
-            <span className="text-kin-muted"> · </span>
-            <span>{spend}</span>
+            {usage.cost_usd != null ? (
+              <>
+                <span className="text-kin-muted"> · </span>
+                <span>{spend}</span>
+              </>
+            ) : null}
             {costBadge ? (
               <span
                 className="ml-1 align-middle text-micro font-semibold uppercase tracking-label text-kin-muted"
