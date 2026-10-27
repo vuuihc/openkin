@@ -249,7 +249,6 @@ func buildAgentRegistry(
 		"droid":       true,
 		"grok":        true,
 		"rawpty":      true,
-		"acp":         true,
 	}
 	invocations := detect.GenericInvocations()
 	for _, spec := range detect.SkillsDiscoveryCatalog() {
