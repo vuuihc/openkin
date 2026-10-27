@@ -67,7 +67,9 @@ export default function TasksPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-hero font-semibold tracking-tight">{tr("tasks.title")}</h1>
+            <h1 className="hidden text-hero font-semibold tracking-tight md:block">
+              {tr("tasks.title")}
+            </h1>
             <p className="text-strong text-kin-muted mt-0.5">
               {tr("tasks.today", { cost: formatCost(todayCost) })}
             </p>
@@ -90,7 +92,7 @@ export default function TasksPage() {
               type="button"
               onClick={() => setFilter(k)}
               className={[
-                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-9",
+                "inline-flex items-center px-3 py-1.5 rounded-lg text-strong font-medium min-h-11 sm:min-h-9",
                 filter === k
                   ? "bg-kin-blue text-kin-on-brand"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",
@@ -136,8 +138,10 @@ export default function TasksPage() {
                   <th className="px-3 py-2.5 font-semibold hidden md:table-cell">
                     {tr("tasks.colElapsed")}
                   </th>
-                  <th className="px-3 py-2.5 font-semibold text-right">{tr("tasks.colCost")}</th>
-                  <th className="px-3 py-2.5 font-semibold text-right w-[1%]">
+                  <th className="px-3 py-2.5 font-semibold text-right hidden sm:table-cell">
+                    {tr("tasks.colCost")}
+                  </th>
+                  <th className="px-3 py-2.5 font-semibold text-right w-[1%] whitespace-nowrap hidden sm:table-cell">
                     <span className="sr-only">{tr("tasks.delete")}</span>
                   </th>
                 </tr>
@@ -160,13 +164,13 @@ export default function TasksPage() {
                     <td className="px-3 py-3">
                       <StatusChip status={t.status} />
                     </td>
-                    <td className="px-3 py-3 text-kin-secondary tabular-nums hidden md:table-cell">
+                    <td className="px-3 py-3 text-kin-secondary tabular-nums whitespace-nowrap hidden md:table-cell">
                       {formatElapsed(t, now)}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-kin-secondary">
+                    <td className="px-3 py-3 text-right tabular-nums text-kin-secondary hidden sm:table-cell">
                       {formatCost(t.cost_usd)}
                     </td>
-                    <td className="px-3 py-3 text-right">
+                    <td className="px-3 py-3 text-right whitespace-nowrap hidden sm:table-cell">
                       <button
                         type="button"
                         onClick={() => void handleDelete(t)}
@@ -190,19 +194,29 @@ function StatusChip({ status }: { status: string }) {
   const color =
     status === "waiting_approval"
       ? "text-kin-orange-ink bg-kin-orange/15"
-      : status === "running" || status === "queued"
-        ? "text-kin-blue-ink bg-kin-blue/15"
-        : status === "succeeded"
-          ? "text-kin-green-ink bg-kin-green/10"
-          : "text-kin-secondary bg-[var(--kin-fill)]";
+      : status === "failed"
+        ? "text-kin-red-ink bg-kin-red/10"
+        : status === "running" || status === "queued"
+          ? "text-kin-blue-ink bg-kin-blue/15"
+          : status === "succeeded"
+            ? "text-kin-green-ink bg-kin-green/10"
+            : "text-kin-secondary bg-[var(--kin-fill)]";
+  // A status is part of the API's vocabulary, not the reader's. Every value the
+  // daemon can write has a label here; an unknown one still shows as itself,
+  // which is better than a blank chip when a newer Hub adds one.
   const label =
-    status === "waiting_approval"
-      ? t("tasks.needsApproval")
-      : status === "succeeded"
-        ? t("tasks.statusDone")
-        : status;
+    {
+      waiting_approval: t("tasks.needsApproval"),
+      queued: t("tasks.statusQueued"),
+      running: t("tasks.statusRunning"),
+      succeeded: t("tasks.statusDone"),
+      failed: t("tasks.statusFailed"),
+      canceled: t("tasks.statusCanceled"),
+    }[status] ?? status;
   return (
-    <span className={`inline-flex px-2 py-0.5 rounded text-caption font-semibold ${color}`}>
+    <span
+      className={`inline-flex whitespace-nowrap px-2 py-0.5 rounded text-caption font-semibold ${color}`}
+    >
       {label}
     </span>
   );

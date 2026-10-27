@@ -99,7 +99,9 @@ export default function ArtifactsPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-hero font-semibold tracking-tight">{tr("artifacts.title")}</h1>
+            <h1 className="hidden text-hero font-semibold tracking-tight md:block">
+              {tr("artifacts.title")}
+            </h1>
             <p className="text-strong text-kin-muted mt-0.5">{tr("artifacts.subtitle")}</p>
           </div>
         </div>
@@ -117,7 +119,7 @@ export default function ArtifactsPage() {
               type="button"
               onClick={() => setFilter(k)}
               className={[
-                "px-3 py-1.5 rounded-lg text-strong font-medium min-h-9",
+                "inline-flex items-center px-3 py-1.5 rounded-lg text-strong font-medium min-h-11 sm:min-h-9",
                 filter === k
                   ? "bg-kin-blue text-kin-on-brand"
                   : "text-kin-secondary hover:bg-[var(--kin-fill)]",

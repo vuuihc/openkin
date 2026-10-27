@@ -285,18 +285,18 @@ export default function RoutinesPage() {
     <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
       <div className="mx-auto max-w-3xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="hidden md:block">
             <h1 className="text-hero font-semibold tracking-tight text-kin-text">
               {tr("routines.title")}
             </h1>
             <p className="mt-1 text-strong text-kin-secondary">{tr("routines.subtitle")}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex w-full items-center gap-2 md:w-auto md:shrink-0">
             <button
               type="button"
               onClick={() => setShowCreate((v) => !v)}
               className={[
-                "rounded-lg px-3 py-1.5 text-body font-medium",
+                "min-h-11 flex-1 rounded-lg px-3 text-body font-medium md:flex-none",
                 showCreate
                   ? "border border-[var(--kin-hairline)] text-kin-secondary"
                   : "bg-kin-blue text-kin-on-brand",
@@ -307,7 +307,7 @@ export default function RoutinesPage() {
             <button
               type="button"
               onClick={() => void onMarkAllRead()}
-              className="rounded-lg border border-[var(--kin-hairline)] px-3 py-1.5 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
+              className="min-h-11 flex-1 rounded-lg border border-[var(--kin-hairline)] px-3 text-body text-kin-secondary hover:bg-[var(--kin-fill)] md:flex-none"
             >
               {tr("routines.markAllRead")}
             </button>
@@ -483,7 +483,7 @@ export default function RoutinesPage() {
                   onChange={(e) => setRoutineQuery(e.target.value)}
                   placeholder={tr("routines.searchPlaceholder")}
                   aria-label={tr("routines.searchPlaceholder")}
-                  className="min-h-9 w-full max-w-[260px] rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40"
+                  className="min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2.5 text-body text-kin-text outline-none focus:border-kin-blue/40 sm:max-w-[260px]"
                 />
               </div>
               {routines.length === 0 ? (
@@ -492,7 +492,7 @@ export default function RoutinesPage() {
                 <ul className="space-y-2.5">
                   {routines.map((r) => (
                     <li key={r.id} className="rounded-2xl bg-kin-panel/80 px-4 py-3">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-strong font-medium text-kin-text">
@@ -501,8 +501,8 @@ export default function RoutinesPage() {
                             <span
                               className={
                                 r.enabled
-                                  ? "rounded-full bg-kin-green/15 px-2 py-0.5 text-caption font-medium text-kin-green-ink"
-                                  : "rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-caption text-kin-muted"
+                                  ? "shrink-0 whitespace-nowrap rounded-full bg-kin-green/15 px-2 py-0.5 text-caption font-medium text-kin-green-ink"
+                                  : "shrink-0 whitespace-nowrap rounded-full bg-[var(--kin-fill)] px-2 py-0.5 text-caption text-kin-muted"
                               }
                             >
                               {r.enabled ? tr("routines.enabled") : tr("routines.paused")}
@@ -523,7 +523,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onRunNow(r)}
-                            className="rounded-lg bg-kin-blue px-2.5 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50"
+                            className="min-h-11 rounded-lg bg-kin-blue px-3 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                           >
                             {tr("routines.runNow")}
                           </button>
@@ -531,7 +531,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onToggle(r)}
-                            className="rounded-lg border border-[var(--kin-hairline)] px-2.5 py-1 text-body text-kin-secondary disabled:opacity-50"
+                            className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                           >
                             {r.enabled ? tr("routines.pause") : tr("routines.resume")}
                           </button>
@@ -539,7 +539,7 @@ export default function RoutinesPage() {
                             type="button"
                             disabled={!!busy[r.id]}
                             onClick={() => void onDelete(r)}
-                            className="rounded-lg px-2.5 py-1 text-body text-kin-red-ink/90 disabled:opacity-50"
+                            className="min-h-11 rounded-lg px-3 py-1 text-body text-kin-red-ink/90 disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                           >
                             {tr("routines.delete")}
                           </button>
@@ -554,7 +554,7 @@ export default function RoutinesPage() {
                   type="button"
                   onClick={() => void loadMoreRoutines()}
                   disabled={loadingMoreRoutines}
-                  className="mt-3 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
+                  className="mt-3 min-h-11 w-full rounded-lg border border-[var(--kin-hairline)] px-3 py-2 text-body text-kin-secondary hover:bg-[var(--kin-fill)]"
                 >
                   {loadingMoreRoutines ? tr("tree.loadingMore") : tr("routines.loadMore")}
                 </button>

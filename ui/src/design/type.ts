@@ -34,33 +34,33 @@ export type TypeRole = {
 };
 
 export const TYPE_ROLES: TypeRole[] = [
-  { role: "micro", px: 10, weight: 600, ink: "muted", absorbed: ["8px", "9px", "10px"] },
+  { role: "micro", px: 11, weight: 600, ink: "muted", absorbed: ["8px", "9px", "10px"] },
   {
     role: "caption",
-    px: 11,
+    px: 12,
     weight: 400,
     ink: "secondary",
     absorbed: ["10.5px", "11px", "11.5px"],
   },
   {
     role: "body",
-    px: 12,
+    px: 13,
     weight: 400,
     ink: "text",
     absorbed: ["xs", "12px", "12.5px"],
   },
   {
     role: "strong",
-    px: 13,
+    px: 14,
     weight: 500,
     ink: "text",
     absorbed: ["13px", "13.5px", "14px", "sm"],
   },
-  { role: "subtitle", px: 15, weight: 600, ink: "text", absorbed: ["14.5px", "15px", "16px"] },
-  { role: "title", px: 17, weight: 600, ink: "text", absorbed: ["17px", "lg"] },
+  { role: "subtitle", px: 16, weight: 600, ink: "text", absorbed: ["14.5px", "15px", "16px"] },
+  { role: "title", px: 18, weight: 600, ink: "text", absorbed: ["17px", "lg"] },
   {
     role: "hero",
-    px: 22,
+    px: 24,
     weight: 700,
     ink: "text",
     absorbed: ["xl", "2xl", "22px", "28px", "32px"],

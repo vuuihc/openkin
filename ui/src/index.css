@@ -295,6 +295,41 @@ body {
   }
 }
 
+/*
+  A route change is a surface arriving, not a slide: opacity only.
+
+  Transform is deliberately not used. A transform on an ancestor makes it the
+  containing block for every `position: fixed` descendant, and this tree has
+  several (the new-chat control sheet, the folder popover, the command palette),
+  so a "small rise" on the page would move them relative to the page instead of
+  the viewport. Opacity creates a stacking context and nothing else.
+
+  The children of <main> are what mount and unmount on navigation; the session
+  host beside them stays mounted, which is exactly why it is not the animated
+  element. 140ms is short enough to read as the new screen settling rather than
+  as an animation to wait out.
+*/
+@keyframes kin-page-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.kin-main > * {
+  animation: kin-page-in 140ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kin-main > * {
+    animation: none;
+  }
+  .kin-dot,
+  .kin-dash {
+    animation: none;
+  }
+}
+
 /* xterm minimal overrides */
 .kin-terminal {
   display: flex;

@@ -412,7 +412,9 @@ export default function AgentsPage() {
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-hero font-semibold tracking-tight">{tr("agents.title")}</h1>
+          <h1 className="hidden text-hero font-semibold tracking-tight md:block">
+            {tr("agents.title")}
+          </h1>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -515,32 +517,36 @@ export default function AgentsPage() {
 
         {agents !== null && (
           <div className="mt-6 overflow-x-auto rounded-xl bg-kin-elevated">
-            <table className="w-full min-w-table text-left text-strong">
+            <table className="w-full text-left text-strong md:min-w-table">
               <thead className="bg-[var(--kin-fill)] text-caption uppercase tracking-label text-kin-muted">
                 <tr>
                   <SortTh colKey="name">{tr("agents.colName")}</SortTh>
                   <SortTh colKey="status">{tr("agents.colStatus")}</SortTh>
-                  <SortTh colKey="version">{tr("agents.version")}</SortTh>
-                  <SortTh colKey="auth">{tr("agents.colAuth")}</SortTh>
-                  <SortTh colKey="cost" align="right">
+                  <SortTh colKey="version" className="hidden md:table-cell">
+                    {tr("agents.version")}
+                  </SortTh>
+                  <SortTh colKey="auth" className="hidden md:table-cell">
+                    {tr("agents.colAuth")}
+                  </SortTh>
+                  <SortTh colKey="cost" align="right" className="hidden md:table-cell">
                     {tr("usage.spend")}
                   </SortTh>
-                  <SortTh colKey="tokens" align="right">
+                  <SortTh colKey="tokens" align="right" className="hidden md:table-cell">
                     {tr("usage.tokens")}
                   </SortTh>
-                  <SortTh colKey="tasks" align="right">
+                  <SortTh colKey="tasks" align="right" className="hidden md:table-cell">
                     {tr("usage.tasks")}
                   </SortTh>
-                  <SortTh colKey="cache" align="right">
+                  <SortTh colKey="cache" align="right" className="hidden md:table-cell">
                     {tr("agents.effCache")}
                   </SortTh>
-                  <SortTh colKey="costPerTask" align="right">
+                  <SortTh colKey="costPerTask" align="right" className="hidden md:table-cell">
                     {tr("agents.effCostPerTask")}
                   </SortTh>
-                  <SortTh colKey="tokensPerTask" align="right">
+                  <SortTh colKey="tokensPerTask" align="right" className="hidden md:table-cell">
                     {tr("agents.effTokensPerTask")}
                   </SortTh>
-                  <th className="px-3 py-2.5 font-semibold text-left whitespace-nowrap text-kin-muted">
+                  <th className="hidden px-3 py-2.5 font-semibold text-left whitespace-nowrap text-kin-muted md:table-cell">
                     {tr("usage.limitSpend")}
                   </th>
                   <th className="px-3 py-2.5 font-semibold text-right whitespace-nowrap text-kin-muted">
@@ -588,7 +594,7 @@ export default function AgentsPage() {
                     usage && usage.cacheEligible > 0 ? usage.cacheRead / usage.cacheEligible : null;
                   return (
                     <tr key={a.id} className="align-top hover:bg-[var(--kin-fill)]">
-                      <td className="px-3 py-3 min-w-cell">
+                      <td className="px-3 py-3 md:min-w-cell">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-medium text-kin-text">{a.name}</span>
                           {a.default ? (
@@ -617,36 +623,36 @@ export default function AgentsPage() {
                       >
                         {statusLabel(a)}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap tabular-nums text-kin-secondary">
+                      <td className="hidden px-3 py-3 whitespace-nowrap tabular-nums text-kin-secondary md:table-cell">
                         {m?.version || "—"}
                       </td>
                       <td
-                        className="px-3 py-3 whitespace-nowrap text-kin-secondary"
+                        className="hidden px-3 py-3 whitespace-nowrap text-kin-secondary md:table-cell"
                         title={tr("agents.authHint")}
                       >
                         {authLabel(m?.auth_status)}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums font-medium text-kin-text">
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-right tabular-nums font-medium text-kin-text md:table-cell">
                         {usage ? formatCost(usage.cost) : "—"}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary md:table-cell">
                         {usage ? formatTokenCount(usage.tokens) : "—"}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary md:table-cell">
                         {usage ? usage.tasks : "—"}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary md:table-cell">
                         {pct(cacheHit)}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary md:table-cell">
                         {usage && usage.tasks > 0 ? formatCost(usage.cost / usage.tasks) : "—"}
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary">
+                      <td className="hidden px-3 py-3 whitespace-nowrap text-right tabular-nums text-kin-secondary md:table-cell">
                         {usage && usage.tasks > 0
                           ? formatTokenCount(usage.tokens / usage.tasks)
                           : "—"}
                       </td>
-                      <td className="px-3 py-3 min-w-cell">
+                      <td className="hidden px-3 py-3 min-w-cell md:table-cell">
                         <div className="flex flex-col gap-1">
                           {spendProgress && limitStatus?.limit_spend_usd != null ? (
                             <span
@@ -691,7 +697,7 @@ export default function AgentsPage() {
                           ) : null}
                         </div>
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-right">
+                      <td className="px-3 py-3 whitespace-nowrap text-right md:min-w-cell">
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           {a.available && !a.default ? (
                             <button

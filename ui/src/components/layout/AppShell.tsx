@@ -72,6 +72,25 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
   const draftActive = location.pathname === DRAFT_PATH;
   const desktop = isKinDesktop();
   // On the phone there is no sidebar to say where you are, so the header has to.
+  const pathname = location.pathname.replace(/\/+$/, "") || "/";
+  /**
+   * The pages that are a single list or form, where the shell bar can carry the
+   * page's name. A detail route is excluded on purpose: its title is the item's,
+   * which the route cannot know, so the page keeps its own heading.
+   */
+  const listTitle = !desktop
+    ? pathname === "/agents"
+      ? tr("nav.agents")
+      : pathname === "/tasks"
+        ? tr("nav.tasks")
+        : pathname === "/artifacts"
+          ? tr("nav.artifacts")
+          : pathname === "/projects"
+            ? tr("nav.projects")
+            : pathname === "/routines"
+              ? tr("nav.routines")
+              : ""
+    : "";
   const mobileTitle = draftActive
     ? tr("nav.newChat")
     : location.pathname.startsWith("/sessions")
@@ -80,7 +99,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         ? tr("nav.inbox")
         : location.pathname.startsWith("/settings")
           ? tr("nav.settings")
-          : tr("app.name");
+          : listTitle || tr("app.name");
   const onSessionsTab = location.pathname.startsWith("/sessions");
 
   /**
@@ -94,7 +113,8 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     draftActive ||
     onSessionsTab ||
     location.pathname.startsWith("/inbox") ||
-    location.pathname.startsWith("/settings");
+    location.pathname.startsWith("/settings") ||
+    listTitle !== "";
 
   /**
    * Screens that ship their own header (back button + the real title).
@@ -604,7 +624,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           </div>
         )}
 
-        <main className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</main>
+        <main className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col">{children}</main>
 
         {/* The phone's three primary jobs. Hidden on the draft screen, which is
             a focused flow with its own way out. */}
