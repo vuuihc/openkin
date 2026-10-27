@@ -179,6 +179,15 @@ LODY 是一个团队协作平台：CRDT 同步、E2EE、跨机器调度、编排
 | 权限模式 | 4 档全在用（auto 62 / bypass 54 / full-access 28 / auto-review 22） | 需要可选且默认顺手 |
 | 会话 + 语义标题 | 27 条，标题 100% 中文、12–33 字 | 标题自动生成 |
 
+> **2026-10-27 复核这两行**：那 4 档不是 Lody 的档位表，是 provider 原值的混合计数
+> （`full-access` / `auto-review` 是 Codex 的档名，Claude 侧真正在用的名字是 `auto` /
+> `bypassPermissions`）；Claude CLI 自己一共有 6 档，而 Kin 只做了 3 档——`auto`、
+> `dontAsk`、用户可选的 `plan` 都没端出来。同一次复核还确认：Claude 自己的子代理
+> （`Task`/`Agent`）在 Kin 里没被拦，但也没被画出来（`parent_tool_use_id` 全树零处理）。
+> 两处的处置（2026-10-27 定）：**不补 Kin 原生的档位表，改走 ACP**——claude / codex / droid / pi
+> 四个 agent 用现成的 ACP 适配器跑通，档位与模型由 ACP 协商、Kin 只负责画出来。
+> 见 [`docs/plans/2026-10-27-provider-modes-and-subagent-visibility.md`](2026-10-27-provider-modes-and-subagent-visibility.md)。
+
 ### 1.2 用过但零星 —— 对齐，不必做重
 
 附件（15 图 + 3 文件）、会话间消息（3 轮）、dev server 预览 + 隧道（1 会话）、
