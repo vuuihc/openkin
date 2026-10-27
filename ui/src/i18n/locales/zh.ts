@@ -294,6 +294,7 @@ const zh = {
       note: "过程",
       thinking: "思考",
       plan: "计划",
+      subagent: "子代理",
       notes: "{count} 条过程记录",
       planCleared: "计划已被 agent 撤回",
       summaryRunning: "执行中 · {activity}",

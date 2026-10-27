@@ -307,6 +307,7 @@ const en: MessageTree = {
       note: "note",
       thinking: "thinking",
       plan: "plan",
+      subagent: "subagent",
       notes: "{count} process notes",
       planCleared: "plan withdrawn by the agent",
       summaryRunning: "Running · {activity}",

@@ -98,14 +98,20 @@ function callSummary(p: Record<string, unknown>, name: string): string {
   return summary || prettyToolName(name);
 }
 
-function toolName(p: Record<string, unknown>): string {
+/**
+ * The tool's name, or "" when this event does not say.
+ *
+ * A repeated `tool_use` may carry only a status: the adapter leaves the name
+ * out on purpose, and filling in "tool" here would rename a line that already
+ * has the agent's own name.
+ */
+function toolNameHint(p: Record<string, unknown>): string {
   const content = p.content as Record<string, unknown> | undefined;
-  return String(
-    content?.name ??
-      p.name ??
-      p.tool_name ??
-      (p.item as { type?: string } | undefined)?.type ??
-      "tool",
+  return firstString(
+    content?.name,
+    p.name,
+    p.tool_name,
+    (p.item as { type?: string } | undefined)?.type,
   );
 }
 
@@ -160,14 +166,21 @@ export function workerActivity(
       if (exec.model) group.model = exec.model;
     }
 
-    const name = toolName(p);
+    const nameHint = toolNameHint(p);
+    const name = nameHint || "tool";
     const id = callKey(p, event.seq);
     const existing = group.byKey.get(id);
     if (event.type === "tool_use") {
       // A repeated use of one id keeps the first seq, as the chat projection
       // does: the call belongs to where it opened, not to where a retry landed.
+      // It also keeps the name it opened with unless this event names the tool.
       if (existing) {
-        Object.assign(existing, { name, summary: callSummary(p, name) });
+        if (nameHint) {
+          existing.name = nameHint;
+          existing.summary = callSummary(p, nameHint);
+        } else if (typeof p.summary === "string" && p.summary.trim()) {
+          existing.summary = p.summary.trim();
+        }
         continue;
       }
       group.byKey.set(

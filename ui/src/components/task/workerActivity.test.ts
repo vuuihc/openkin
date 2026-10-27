@@ -211,4 +211,18 @@ describe("workerActivity", () => {
       unplanned: false,
     });
   });
+
+  it("keeps a named call named when a later update names nothing", () => {
+    // The ACP adapter sends status-only repeats without `name`/`summary` on
+    // purpose. Filling the blank with "tool" would rename the worker's line.
+    const rows = workerActivity(
+      [
+        workerTool(1, 1, { tool_use_id: "a", name: "Read", summary: "Read /tmp/x" }),
+        workerTool(2, 1, { tool_use_id: "a" }),
+      ],
+      [step(0)],
+    );
+    expect(rows[0].total).toBe(1);
+    expect(rows[0].activity[0]).toMatchObject({ name: "Read", summary: "Read /tmp/x" });
+  });
 });

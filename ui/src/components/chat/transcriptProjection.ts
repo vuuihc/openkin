@@ -21,6 +21,16 @@ export type ToolStep = {
   status: "running" | "done" | "error";
   input?: unknown;
   output?: string;
+  /**
+   * True when the agent said a subagent ran this call. ACP carries no parent
+   * field; the claude adapter marks subagent work in `_meta`, and the projection
+   * keeps the mark so the row can say whose call it was.
+   */
+  sidechain?: boolean;
+  /** Key of the tool call that spawned this one, when the agent said. */
+  parentKey?: string;
+  /** Subagent calls, nested under the call that spawned them. */
+  children?: ToolStep[];
   /** Source event seq, when an event is behind this step. */
   seq?: number;
 };
@@ -31,7 +41,7 @@ export type ToolStep = {
  * note is made -- never guessed from the words, which is why the last case is
  * a category rather than a heuristic.
  */
-export type NoteSource = "reasoning" | "plan" | "note";
+export type NoteSource = "reasoning" | "plan" | "note" | "subagent";
 
 export type NoteStep = {
   kind: "note";
@@ -48,9 +58,15 @@ export type NoteStep = {
 /**
  * Where a note came from, from the fields that decided it would be a note at
  * all (`isProgressMessageMeta`): a reasoning role is the model thinking to
- * itself, a plan phase is the plan line, everything else is narration.
+ * itself, a plan phase is the plan line, a subagent mark is someone the main
+ * agent delegated to, everything else is narration.
  */
-export function noteSourceOf(meta: { role?: string; phase?: string }): NoteSource {
+export function noteSourceOf(meta: {
+  role?: string;
+  phase?: string;
+  sidechain?: boolean;
+}): NoteSource {
+  if (meta.sidechain) return "subagent";
   if (meta.role === "reasoning") return "reasoning";
   if (meta.phase === "plan") return "plan";
   return "note";
@@ -72,9 +88,10 @@ export function noteNeedsAttribution(note: NoteStep, hostSpeaker: string): boole
  */
 export function noteLabelKey(
   source: NoteSource,
-): "chat.progress.thinking" | "chat.progress.plan" | "chat.progress.note" {
+): "chat.progress.thinking" | "chat.progress.plan" | "chat.progress.note" | "chat.progress.subagent" {
   if (source === "reasoning") return "chat.progress.thinking";
   if (source === "plan") return "chat.progress.plan";
+  if (source === "subagent") return "chat.progress.subagent";
   return "chat.progress.note";
 }
 
@@ -446,40 +463,67 @@ export function buildChatItems(
     return false;
   };
 
-  const upsertTool = (id: string, patch: Partial<ToolStep> & { name: string; speaker: string }) => {
+  const upsertTool = (
+    id: string,
+    patch: Partial<ToolStep> & { speaker: string; parentId?: string },
+  ) => {
+    const { parentId, ...fields } = patch;
     const existing = toolById.get(id);
     if (existing) {
       // A step keeps the seq of the event that opened it. Letting the result
       // patch move it would drag the step — and the seq range of the turn it
       // sits in — into whatever turn the result arrived in, which for an
       // interrupted call is a different one.
-      const { seq, ...rest } = patch;
+      const { seq, ...rest } = fields;
       Object.assign(existing, rest);
       if (existing.seq === undefined) existing.seq = seq;
       return;
     }
+    const name = fields.name ?? "tool";
     const item: ToolStep = {
       kind: "tool",
       key: `tool-${id}`,
-      speaker: patch.speaker,
-      model: patch.model,
-      name: patch.name,
-      summary: patch.summary ?? patch.name,
-      status: patch.status ?? "running",
-      input: patch.input,
-      output: patch.output,
-      seq: patch.seq,
+      speaker: fields.speaker,
+      model: fields.model,
+      name,
+      summary: fields.summary ?? name,
+      status: fields.status ?? "running",
+      input: fields.input,
+      output: fields.output,
+      sidechain: fields.sidechain,
+      parentKey: parentId ? `tool-${parentId}` : undefined,
+      seq: fields.seq,
     };
     toolById.set(id, item);
+    // A subagent's call is part of the call that spawned it, so it opens under
+    // that row rather than as another step of the main thread. The parent is
+    // usually earlier in the stream; when it is not (a replay can start
+    // mid-subagent), the row stays at the top level still marked as subagent —
+    // a child is never promoted into looking like the main agent's own work.
+    //
+    // The parent id is agent output: a call that names itself is not a child,
+    // and treating it as one would build a cycle the renderer would recurse on.
+    const parent = parentId ? toolById.get(parentId) : undefined;
+    if (parent && parent !== item) {
+      (parent.children ??= []).push(item);
+      return;
+    }
     ensureProgress(hostSpeaker).steps.push(item);
+  };
+
+  // One status for everything still open, at every depth: a turn that ends
+  // while a subagent call is running leaves no row breathing forever.
+  const settleSteps = (steps: ProgressStep[], status: ToolStep["status"]) => {
+    for (const step of steps) {
+      if (step.status === "running") step.status = status;
+      if (step.kind === "tool" && step.children?.length) settleSteps(step.children, status);
+    }
   };
 
   const settleRunningSteps = (status: ToolStep["status"]) => {
     for (const item of items) {
       if (item.kind !== "progress") continue;
-      for (const step of item.steps) {
-        if (step.status === "running") step.status = status;
-      }
+      settleSteps(item.steps, status);
     }
   };
 
@@ -503,6 +547,10 @@ export function buildChatItems(
         const partial = Boolean(p.partial);
         const role = typeof p.role === "string" ? p.role : "";
         const phase = typeof p.phase === "string" ? p.phase : undefined;
+        // A chunk someone else in the turn wrote: the agent said this text came
+        // from a subagent, so its label says so even though it travels on the
+        // same stream as the main answer.
+        const sidechain = p.sidechain === true;
         // Speaker is authoritative: resolveSpeaker already maps real/legacy
         // user turns to "user". A stamped worker/host echo carries role:"user"
         // on brief echoes, tool_results, and skill preambles but keeps its agent
@@ -569,7 +617,7 @@ export function buildChatItems(
             streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = true;
             streamRole = role;
-            streamSource = noteSourceOf({ role, phase });
+            streamSource = noteSourceOf({ role, phase, sidechain });
             pushNote(
               sp,
               model,
@@ -592,7 +640,7 @@ export function buildChatItems(
             streamKey = messageKey || `s-${ev.seq}`;
             streamProgress = false;
             streamRole = role;
-            streamSource = noteSourceOf({ role, phase });
+            streamSource = noteSourceOf({ role, phase, sidechain });
           }
         } else {
           if (sp !== "user") {
@@ -642,7 +690,7 @@ export function buildChatItems(
                 text,
                 messageKey || `note-${ev.seq}`,
                 "done",
-                noteSourceOf({ role, phase }),
+                noteSourceOf({ role, phase, sidechain }),
                 ev.seq,
               );
             }
@@ -669,27 +717,41 @@ export function buildChatItems(
         flushStream();
         streamNoteKey = null;
         const content = p.content as Record<string, unknown> | undefined;
-        const name = String(
+        const hinted =
           content?.name ??
-            p.name ??
-            p.tool_name ??
-            (p.item as { type?: string } | undefined)?.type ??
-            "tool",
-        );
+          p.name ??
+          p.tool_name ??
+          (p.item as { type?: string } | undefined)?.type;
+        // A status-only update names no tool. That is not a statement that the
+        // step is called "tool": the row keeps the name it was opened with,
+        // which is the whole reason the adapter leaves the field out.
+        const nameHint = typeof hinted === "string" && hinted.trim() ? hinted : undefined;
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
-        const summary =
-          typeof p.summary === "string" && p.summary
-            ? p.summary
-            : `${t("chat.progress.running")} · ${prettyToolName(name)}`;
-        upsertTool(id, {
-          name,
+        const parentId = parentToolUseIdOf(p);
+        const explicitSummary = typeof p.summary === "string" && p.summary ? p.summary : undefined;
+        const patch: Partial<ToolStep> & { speaker: string; parentId?: string } = {
           speaker,
           model,
-          summary,
           status: "running",
           input: p.input ?? content?.input ?? content,
           seq: ev.seq,
-        });
+          sidechain: p.sidechain === true || !!parentId,
+          parentId,
+        };
+        if (nameHint) {
+          patch.name = nameHint;
+          if (explicitSummary) {
+            patch.summary = explicitSummary;
+          } else if (!toolById.has(id)) {
+            patch.summary = `${t("chat.progress.running")} · ${prettyToolName(nameHint)}`;
+          }
+        } else if (explicitSummary) {
+          patch.summary = explicitSummary;
+        } else if (!toolById.has(id)) {
+          // First sight of an unnamed step still needs a line to draw.
+          patch.summary = `${t("chat.progress.running")} · ${prettyToolName("tool")}`;
+        }
+        upsertTool(id, patch);
         break;
       }
       case "tool_result": {
@@ -699,6 +761,9 @@ export function buildChatItems(
         flushStream();
         streamNoteKey = null;
         const id = String(p.tool_use_id ?? p.id ?? `seq-${ev.seq}`);
+        // The result need not repeat the mark the call carried, and a result
+        // that repeats nothing must not erase it: only add what is here.
+        const parentId = parentToolUseIdOf(p);
         const name = String(p.name ?? p.tool_name ?? toolById.get(id)?.name ?? "tool");
         const ok = p.ok !== false && p.status !== "error";
         const summary =
@@ -714,6 +779,8 @@ export function buildChatItems(
           ...(p.input !== undefined ? { input: p.input } : {}),
           output: typeof p.output === "string" ? p.output : undefined,
           seq: ev.seq,
+          ...(p.sidechain === true || parentId ? { sidechain: true } : {}),
+          ...(parentId ? { parentId } : {}),
         });
         break;
       }
@@ -1256,6 +1323,40 @@ export function isProgressCardRunning(
   return lastItem?.kind === "progress" && lastItem.key === item.key;
 }
 
+/** One row of the progress box, in reading order. */
+export type ProgressRow = {
+  step: ProgressStep;
+  /** 0 for a step of the main thread, 1 for a subagent's call, and so on. */
+  depth: number;
+  /** The top-level step number; 0 for a nested row, which carries no number. */
+  index: number;
+};
+
+/**
+ * The box's rows: every top-level step in order, each followed by the calls a
+ * subagent made underneath it. Nesting is a display decision made here so the
+ * rows, the counts, and the card's status all read the same tree.
+ */
+export function progressRows(steps: ProgressStep[]): ProgressRow[] {
+  const rows: ProgressRow[] = [];
+  let index = 0;
+  const walk = (list: ProgressStep[], depth: number) => {
+    for (const step of list) {
+      if (depth === 0) index += 1;
+      rows.push({ step, depth, index: depth === 0 ? index : 0 });
+      if (step.kind === "tool" && step.children?.length) {
+        walk(step.children, depth + 1);
+      }
+    }
+  };
+  walk(steps, 0);
+  return rows;
+}
+
+function flattenProgressSteps(steps: ProgressStep[]): ProgressStep[] {
+  return progressRows(steps).map((row) => row.step);
+}
+
 export function summarizeProgressDetails(steps: ProgressStep[]): {
   toolCounts: string;
   latestNote: string;
@@ -1264,7 +1365,7 @@ export function summarizeProgressDetails(steps: ProgressStep[]): {
   const counts = new Map<string, number>();
   let latestNote = "";
   let noteCount = 0;
-  for (const step of steps) {
+  for (const step of flattenProgressSteps(steps)) {
     if (step.kind === "tool") {
       const name = prettyToolName(step.name);
       counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -1291,7 +1392,9 @@ export function summarizeProgressStatus(
   failedTools: number;
   totalTools: number;
 } {
-  const tools = steps.filter((step): step is ToolStep => step.kind === "tool");
+  const tools = flattenProgressSteps(steps).filter(
+    (step): step is ToolStep => step.kind === "tool",
+  );
   const doneTools = tools.filter((step) => step.status === "done").length;
   const failedTools = tools.filter((step) => step.status === "error").length;
   const statusSteps = tools.length > 0 ? tools : steps;
@@ -1381,6 +1484,16 @@ function countLines(s: string): number {
 
 // Speaker / visibility / progress classification live in eventMeta.ts
 // (canonical contract + one legacy decode path).
+
+/**
+ * The tool call a streamed call belongs to, when the agent said. ACP has no
+ * parent field; the claude adapter lifts `_meta.claudeCode.parentToolUseId`
+ * onto the payload, and that is the only source this reads.
+ */
+function parentToolUseIdOf(p: Record<string, unknown>): string | undefined {
+  const raw = p.parent_tool_use_id;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
 
 function isUserFacingEvent(p: Record<string, unknown>, speaker: string, hostSpeaker = ""): boolean {
   const meta = decodeCanonicalEventMeta(p, hostSpeaker);

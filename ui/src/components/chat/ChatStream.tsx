@@ -24,6 +24,7 @@ import {
   noteLabelKey,
   noteNeedsAttribution,
   normalizeModel,
+  progressRows,
   roundEvidenceByTurn,
   shouldShowGenericThinking,
   summarizeProgressDetails,
@@ -612,6 +613,8 @@ function ProgressCard({
 }) {
   const tr = useT();
   const steps = item.steps;
+  // Top-level steps and the calls their subagents made, in reading order.
+  const rows = progressRows(steps);
   const [collapsed, setCollapsed] = useState(true);
   const [openStep, setOpenStep] = useState<string | null>(null);
   const details = summarizeProgressDetails(steps);
@@ -721,18 +724,19 @@ function ProgressCard({
         // any of them — which is why removing this border left the header and
         // the first step running together in both schemes.
         <div className="border-t border-[var(--kin-hairline)] bg-kin-elevated/30 divide-y divide-[var(--kin-hairline)]">
-          {steps.map((step, idx) =>
+          {rows.map(({ step, depth, index }) =>
             step.kind === "tool" ? (
               <ToolStepRow
                 key={step.key}
                 tool={step}
-                index={idx + 1}
+                index={index}
+                depth={depth}
                 open={openStep === step.key}
                 onOpenPath={onOpenPath}
                 onToggle={() => setOpenStep((cur) => (cur === step.key ? null : step.key))}
               />
             ) : (
-              <NoteStepRow key={step.key} note={step} index={idx + 1} hostSpeaker={hostSpeaker} />
+              <NoteStepRow key={step.key} note={step} index={index} hostSpeaker={hostSpeaker} />
             ),
           )}
         </div>

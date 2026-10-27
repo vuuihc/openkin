@@ -12,6 +12,7 @@ import {
   isProgressCardRunning,
   mergeProcessRuns,
   pendingRefSeqs,
+  progressRows,
   roundEvidenceByTurn,
   roundsOf,
   shouldShowGenericThinking,
@@ -20,6 +21,7 @@ import {
   type ChatItem,
   type NoteStep,
   type ProgressItem,
+  type ToolStep,
   type Turn,
 } from "./transcriptProjection";
 
@@ -2629,18 +2631,23 @@ describe("note sources", () => {
     // A reasoning block that carries a plan phase is still the model thinking,
     // which is the more specific of the two facts.
     expect(noteSourceOf({ role: "reasoning", phase: "plan" })).toBe("reasoning");
+    // A word from a subagent is neither the main agent's thinking nor its
+    // narration, whatever role or phase travelled with it.
+    expect(noteSourceOf({ sidechain: true, role: "assistant", phase: "progress" })).toBe("subagent");
+    expect(noteSourceOf({ sidechain: true, role: "reasoning" })).toBe("subagent");
   });
 
   it("labels every source with a key that resolves in both locales", () => {
     // The design's table, spelled out: each source names its own wording.
-    expect((["reasoning", "plan", "note"] as const).map(noteLabelKey)).toEqual([
+    expect((["reasoning", "plan", "note", "subagent"] as const).map(noteLabelKey)).toEqual([
       "chat.progress.thinking",
       "chat.progress.plan",
       "chat.progress.note",
+      "chat.progress.subagent",
     ]);
     // Nothing typechecks an i18n path, and a missing one renders itself: the
     // label would read "chat.progress.thinking" on screen.
-    for (const source of ["reasoning", "plan", "note"] as const) {
+    for (const source of ["reasoning", "plan", "note", "subagent"] as const) {
       const key = noteLabelKey(source);
       for (const locale of ["zh", "en"] as const) {
         setLocale(locale);
@@ -2750,5 +2757,144 @@ describe("note sources", () => {
       // it is not the card's own -- while staying a note by source.
       ["note", "claude-code"],
     ]);
+  });
+
+  it("says when the words came from a subagent", () => {
+    // ACP has no subagent concept; the claude adapter marks the chunk in
+    // `_meta`, and the projection keeps the mark instead of folding it into
+    // the main agent's narration.
+    const notes = notesOf([
+      narration(1, "checking the caller", { phase: "progress", sidechain: true }),
+      ev(2, "message", {
+        role: "assistant",
+        speaker: "kin",
+        phase: "progress",
+        sidechain: true,
+        content: [{ type: "text", text: "the caller passes nil" }],
+      }),
+    ]);
+
+    expect(notes.map((note) => [note.source, note.text])).toEqual([
+      ["subagent", "checking the caller"],
+      ["subagent", "the caller passes nil"],
+    ]);
+  });
+});
+
+describe("subagent tool calls", () => {
+  const toolsOf = (events: TaskEvent[]) =>
+    buildChatItems(events, "kin")
+      .filter((item): item is ProgressItem => item.kind === "progress")
+      .flatMap((item) => item.steps.filter((step): step is ToolStep => step.kind === "tool"));
+
+  it("nests the subagent's call under the call that spawned it", () => {
+    const events = [
+      ev(1, "tool_use", { name: "task", tool_use_id: "parent", speaker: "kin" }),
+      ev(2, "tool_use", {
+        name: "read",
+        tool_use_id: "child",
+        speaker: "kin",
+        sidechain: true,
+        parent_tool_use_id: "parent",
+      }),
+      // The result carries no mark of its own: it must land on the child and
+      // must not erase what the call said.
+      ev(3, "tool_result", { tool_use_id: "child", speaker: "kin", ok: true, output: "contents" }),
+    ];
+
+    const top = toolsOf(events);
+    expect(top.map((step) => step.key)).toEqual(["tool-parent"]);
+    const children = top[0].children ?? [];
+    expect(children.map((child) => [child.key, child.sidechain, child.status])).toEqual([
+      ["tool-child", true, "done"],
+    ]);
+    // The numbered column counts the main thread; the child is indented under
+    // its parent instead of taking a number.
+    expect(progressRows(top).map((row) => [row.step.key, row.depth, row.index])).toEqual([
+      ["tool-parent", 0, 1],
+      ["tool-child", 1, 0],
+    ]);
+  });
+
+  it("counts a subagent's call in the card's status and totals", () => {
+    const top = toolsOf([
+      ev(1, "tool_use", { name: "task", tool_use_id: "parent", speaker: "kin" }),
+      ev(2, "tool_use", {
+        name: "bash",
+        tool_use_id: "child",
+        speaker: "kin",
+        sidechain: true,
+        parent_tool_use_id: "parent",
+      }),
+      ev(3, "tool_result", { tool_use_id: "parent", speaker: "kin", ok: true }),
+      ev(4, "tool_result", { tool_use_id: "child", speaker: "kin", ok: false, output: "boom" }),
+    ]);
+
+    // A subagent's failure is the main agent's failure: the card must not read
+    // "done" over a call the subagent could not finish.
+    expect(summarizeProgressStatus(top, false)).toMatchObject({
+      state: "partial_failed",
+      doneTools: 1,
+      failedTools: 1,
+      totalTools: 2,
+    });
+  });
+
+  it("keeps a call whose parent never arrived visible", () => {
+    // A replay can start in the middle of a subagent's work. The row is still
+    // marked as a subagent's; what it must never do is disappear.
+    const top = toolsOf([
+      ev(1, "tool_use", {
+        name: "read",
+        tool_use_id: "orphan",
+        speaker: "kin",
+        sidechain: true,
+        parent_tool_use_id: "missing",
+      }),
+    ]);
+
+    expect(top.map((step) => [step.key, step.sidechain])).toEqual([["tool-orphan", true]]);
+  });
+
+  it("does not nest a call under itself", () => {
+    // The parent id is agent output. A call that names itself is not a child,
+    // and making it one would build a cycle the progress box recurses on.
+    const top = toolsOf([
+      ev(1, "tool_use", {
+        name: "read",
+        tool_use_id: "self",
+        speaker: "kin",
+        sidechain: true,
+        parent_tool_use_id: "self",
+      }),
+    ]);
+
+    expect(top.map((step) => step.key)).toEqual(["tool-self"]);
+    expect(top[0].children).toBeUndefined();
+    expect(progressRows(top).map((row) => row.step.key)).toEqual(["tool-self"]);
+  });
+});
+
+describe("nameless tool updates", () => {
+  const toolsOf = (events: TaskEvent[]) =>
+    buildChatItems(events, "kin")
+      .filter((item): item is ProgressItem => item.kind === "progress")
+      .flatMap((item) => item.steps.filter((step): step is ToolStep => step.kind === "tool"));
+
+  it("keeps the name and summary the call opened with", () => {
+    // The ACP adapter leaves `name`/`summary` out of a status-only patch so the
+    // console does not rename a row it already named. The projection must not
+    // fill the blank with "tool".
+    const top = toolsOf([
+      ev(1, "tool_use", {
+        name: "Read",
+        summary: "Read /tmp/marker.txt",
+        tool_use_id: "t1",
+        speaker: "kin",
+      }),
+      ev(2, "tool_use", { tool_use_id: "t1", speaker: "kin" }),
+    ]);
+
+    expect(top.map((step) => [step.name, step.summary])).toEqual([["Read", "Read /tmp/marker.txt"]]);
   });
 });

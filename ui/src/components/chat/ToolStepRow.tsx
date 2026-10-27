@@ -14,12 +14,16 @@ import { prettyToolName, type ToolStep } from "./transcriptProjection";
 export default function ToolStepRow({
   tool,
   index,
+  depth = 0,
   open,
   onToggle,
   onOpenPath,
 }: {
   tool: ToolStep;
+  /** The step's number in the box; 0 for a nested row, which shows a tick instead. */
   index: number;
+  /** Nesting under the call that spawned it; 0 is the main thread. */
+  depth?: number;
   open: boolean;
   onToggle: () => void;
   onOpenPath?: (path: string) => void;
@@ -27,6 +31,9 @@ export default function ToolStepRow({
   const tr = useT();
   const filePath = extractPrimaryToolPath(tool.name, tool.input);
   const hasDetail = (tool.output && tool.output.trim().length > 0) || tool.input != null;
+  // A nested row is indented under its parent, and its payload follows it in.
+  const indent = depth > 0 ? { paddingLeft: 12 + depth * 16 } : undefined;
+  const detailIndent = depth > 0 ? { paddingLeft: 40 + depth * 16 } : undefined;
 
   const statusDot =
     tool.status === "error"
@@ -51,10 +58,14 @@ export default function ToolStepRow({
           "w-full flex items-start gap-2 px-3 py-1.5 text-left",
           hasDetail ? "cursor-pointer  hover:bg-kin-fill" : "cursor-default",
         ].join(" ")}
+        style={indent}
         aria-expanded={open}
       >
-        <span className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5">
-          {index}
+        <span
+          className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"
+          aria-hidden={depth > 0 ? true : undefined}
+        >
+          {depth > 0 ? "↳" : index}
         </span>
         <span
           className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-none ${statusDot}`}
@@ -63,6 +74,14 @@ export default function ToolStepRow({
         <span className="font-mono text-caption text-kin-muted flex-none pt-px">
           {prettyToolName(tool.name)}
         </span>
+        {tool.sidechain && (
+          // Whose call it was, said once per row: a subagent's work is the same
+          // shape of row, and without the mark it would read as the main
+          // agent's own.
+          <span className="flex-none rounded bg-[var(--kin-fill-strong)] px-1 text-micro text-kin-muted">
+            {tr("chat.progress.subagent")}
+          </span>
+        )}
         <span className="flex-1 min-w-0 break-words text-kin-secondary">{tool.summary}</span>
         {filePath && onOpenPath && (
           <button
@@ -84,7 +103,7 @@ export default function ToolStepRow({
         )}
       </button>
       {open && hasDetail && (
-        <div className="px-3 pb-2 pl-10 space-y-1.5">
+        <div className="px-3 pb-2 pl-10 space-y-1.5" style={detailIndent}>
           {filePath && onOpenPath && (
             <button
               type="button"
