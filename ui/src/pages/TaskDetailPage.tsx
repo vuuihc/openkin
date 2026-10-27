@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { IonActionSheet } from "@ionic/react";
+import type { ActionSheetButton } from "@ionic/core";
 import {
   ApiError,
   cancelTask,
@@ -57,6 +59,7 @@ import {
   IconAlert,
   IconBack,
   IconMachine,
+  IconMore,
   IconPanel,
   IconPullRequest,
   IconTrash,
@@ -147,6 +150,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const draftAttachmentsRef = useRef<Upload[]>([]);
   const [stopping, setStopping] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
@@ -1009,6 +1014,35 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     else navigate("/sessions");
   }
 
+  /**
+   * The phone header keeps only what says *which* session this is — the agent
+   * and the project — and moves the page's verbs into an action sheet. Four
+   * chips plus a status plus a project name do not fit 390px; the row used to
+   * answer by clipping its tail. From `md` up there is room, so the chips stay
+   * and the sheet is not rendered as a second way to reach them.
+   */
+  const sessionActions: ActionSheetButton[] = [
+    { text: tr("workspace.title"), handler: () => togglePanel(id, "files") },
+    { text: tr("pr.title"), handler: () => togglePrPanel() },
+    ...(!terminal
+      ? [
+          {
+            text: stopping ? tr("task.stopping") : tr("composer.stop"),
+            role: "destructive" as const,
+            disabled: stopping,
+            handler: () => void onStop(),
+          },
+        ]
+      : []),
+    {
+      text: tr("task.deleteSession"),
+      role: "destructive" as const,
+      disabled: deleting,
+      handler: () => void onDelete(),
+    },
+    { text: tr("common.cancel"), role: "cancel" as const },
+  ];
+
   return (
     <div className="flex-1 min-w-0 min-h-0 flex relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
@@ -1074,7 +1108,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 togglePanel(id, "files");
               }}
               className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
+                "hidden md:inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
                 filesOpen
                   ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
@@ -1088,7 +1122,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={togglePrPanel}
               className={[
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
+                "hidden md:inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
                 prOpen
                   ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
@@ -1102,7 +1136,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={() => void onDelete()}
               disabled={deleting}
-              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
+              className="hidden md:inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
               title={tr("task.deleteSession")}
               aria-label={tr("task.deleteSession")}
             >
@@ -1111,12 +1145,15 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             {task.project_id ? (
               <Link
                 to={`/projects/${encodeURIComponent(task.project_id)}`}
-                className="text-kin-secondary hover:text-kin-text hover:underline"
+                title={project}
+                className="max-w-[10rem] md:max-w-none truncate text-kin-secondary hover:text-kin-text hover:underline"
               >
                 {project}
               </Link>
             ) : (
-              <span>{project}</span>
+              <span className="max-w-[10rem] md:max-w-none truncate" title={project}>
+                {project}
+              </span>
             )}
             {!terminal && (
               <>
@@ -1127,14 +1164,41 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   type="button"
                   onClick={() => void onStop()}
                   disabled={stopping}
-                  className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
+                  className="hidden md:inline-flex text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
                 >
                   {stopping ? tr("task.stopping") : tr("composer.stop")}
                 </button>
               </>
             )}
+            <button
+              type="button"
+              onClick={() => setActionsOpen(true)}
+              aria-label={tr("task.sessionActions")}
+              title={tr("task.sessionActions")}
+              className="md:hidden -mr-2 inline-flex min-w-[44px] min-h-11 items-center justify-center text-kin-secondary"
+            >
+              <IconMore size={18} />
+            </button>
           </div>
         </div>
+
+        <IonActionSheet
+          isOpen={actionsOpen}
+          onDidDismiss={() => setActionsOpen(false)}
+          header={tr("task.sessionActions")}
+          // Which machine is about to be acted on. The footer strip that named
+          // it is below `md` too, and "stop this session" on an unnamed remote
+          // machine is the decision this sheet exists for.
+          subHeader={
+            machine
+              ? machine.known
+                ? tr("machine.runsOn", { name: machine.text })
+                : tr("machine.runsOnUnknown", { name: machine.text })
+              : undefined
+          }
+          cssClass="kin-sheet"
+          buttons={sessionActions}
+        />
 
         {error && (
           <div
@@ -1266,7 +1330,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 for that: an item allowed to shrink is squeezed to nothing first
                 and paints its text over the chip next to it, which is what a
                 long path next to a repository name did on a phone. */}
-            <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
+            <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
               <PermissionModePicker
                 value={composerPermissionMode}
                 modes={taskPermissionModes}
@@ -1286,54 +1350,63 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 compact
                 onChange={setComposerModel}
               />
-              <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                ·
-              </span>
-              <CwdPicker
-                // The one item allowed to give way, because a path can be
-                // arbitrarily long: it shrinks to a readable floor and its path
-                // tag truncates inside that, rather than the row overflowing on
-                // a desktop window or the chip collapsing on a phone.
-                className="min-w-[6rem] max-w-inspector"
-                cwd={task.cwd}
-                locked
-                compact
-                onChange={() => undefined}
-              />
-              {/* Which repository the work is in. A session on this machine has
+              {/* Where the work is — directory, repository, branch, machine —
+                  describes the session rather than changing the next message,
+                  and on a phone the four chips plus the two controls above do
+                  not fit one line. They stay on `md` up, where the row has the
+                  width; the project is named in the header and the machine in
+                  the session-actions sheet. A div, not a span: CwdPicker renders
+                  one, and a span may not contain it. */}
+              <div className="hidden md:contents">
+                <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                  ·
+                </span>
+                <CwdPicker
+                  // The one item allowed to give way, because a path can be
+                  // arbitrarily long: it shrinks to a readable floor and its path
+                  // tag truncates inside that, rather than the row overflowing on
+                  // a desktop window or the chip collapsing on a phone.
+                  className="min-w-[6rem] max-w-inspector"
+                  cwd={task.cwd}
+                  locked
+                  compact
+                  onChange={() => undefined}
+                />
+                {/* Which repository the work is in. A session on this machine has
                   no recorded one and shows nothing here — its repository is the
                   one the pull-request panel looked up. A session on another
                   machine has one, because the Hub asked that machine when the
                   session started. */}
-              <RepoChip repo={task.workspace_repo} />
-              <BranchPicker
-                cwd={task.cwd}
-                // The task's cwd is on the machine that runs it, so the branches
-                // in the strip below are that machine's — not this one's, which
-                // for the same repository would read plausibly and be wrong.
-                device={task.executing_device_id}
-                locked
-                compact
-                className="flex-none"
-              />
-              {machine ? (
-                <>
-                  <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
-                    ·
-                  </span>
-                  {/* Which machine the cwd above lives on. Without it the path in
+                <RepoChip repo={task.workspace_repo} />
+                <BranchPicker
+                  cwd={task.cwd}
+                  // The task's cwd is on the machine that runs it, so the branches
+                  // in the strip below are that machine's — not this one's, which
+                  // for the same repository would read plausibly and be wrong.
+                  device={task.executing_device_id}
+                  locked
+                  compact
+                  className="flex-none"
+                />
+                {machine ? (
+                  <>
+                    <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                      ·
+                    </span>
+                    {/* Which machine the cwd above lives on. Without it the path in
                       this strip reads as a directory on the machine showing it. */}
-                  <span
-                    className="flex-none inline-flex items-center gap-1 text-caption text-kin-secondary"
-                    title={tr("machine.remoteHint", { name: machine.text })}
-                  >
-                    <IconMachine size={12} />
-                    {machine.known
-                      ? tr("machine.runsOn", { name: machine.text })
-                      : tr("machine.runsOnUnknown", { name: machine.text })}
-                  </span>
-                </>
-              ) : null}
+                    <span
+                      className="flex-none inline-flex items-center gap-1 text-caption text-kin-secondary"
+                      title={tr("machine.remoteHint", { name: machine.text })}
+                    >
+                      <IconMachine size={12} />
+                      {machine.known
+                        ? tr("machine.runsOn", { name: machine.text })
+                        : tr("machine.runsOnUnknown", { name: machine.text })}
+                    </span>
+                  </>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

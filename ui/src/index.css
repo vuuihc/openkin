@@ -13,13 +13,26 @@ body,
   max-width: 100%;
 }
 
+/*
+  The one font stack, named so the platform controls can adopt it too.
+
+  Not a `--kin-` token on purpose: that namespace is the design tokens declared
+  in `design/theme.css`, and `design/tokens.test.ts` insists every referenced
+  `--kin-*` is declared there. This is not a design decision to be measured —
+  it is the family the console already renders in, shared with Ionic's sheet so
+  the two do not diverge on a platform where the stacks differ (Windows/Linux).
+*/
+:root {
+  --console-font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+}
+
 body {
   margin: 0;
   overflow-x: hidden;
   background: var(--kin-page);
   color: var(--kin-text);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
+  font-family: var(--console-font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -184,6 +197,22 @@ body {
       width: 22px;
       height: 22px;
       opacity: 0.85;
+    }
+  }
+  /* The chat composer's text row is 44pt on a phone (Composer.tsx), but the
+     utilities that do it switch on `sm` — a width breakpoint. A landscape
+     phone is 667–767px wide with a coarse pointer: still a thumb on glass, and
+     the send/attach buttons beside it are still 44pt, so the textarea must not
+     drop back to 28px underneath them. */
+  @media (pointer: coarse) {
+    /* Doubled class on purpose: a `sm:` utility is emitted in Tailwind's
+       trailing responsive block, after this one, so at equal specificity it
+       would win in the 640–767px band. Two classes beat one regardless of
+       order, and nothing else needs to know. */
+    .kin-composer-input.kin-composer-input {
+      min-height: 44px;
+      padding-top: 11px;
+      padding-bottom: 11px;
     }
   }
 }
@@ -427,4 +456,74 @@ body {
 */
 .kin-zen .kin-zen-hide {
   display: none;
+}
+
+/*
+  Ionic's surfaces are themed from the console's tokens, not from its own
+  light/dark palette. The sheet is a mobile platform control, but its colour
+  belongs to the app it opens inside; leaving Ionic's defaults would paint a
+  white sheet over a dark session and undo the reason for using it.
+*/
+ion-action-sheet.kin-sheet {
+  /* The token is a channel triplet (`--kin-panel-rgb`), because every console
+     surface needs alpha variants; `rgb()` is how it becomes a colour. */
+  --background: rgb(var(--kin-panel-rgb));
+  --color: var(--kin-text);
+  --button-color: var(--kin-text);
+  --button-background: transparent;
+  --button-background-selected: var(--kin-fill-strong);
+  /* Ionic paints a destructive row with its own danger red (`#c5000f`). On the
+     dark sheet that is 2.24:1 — the two highest-consequence rows (stop, delete)
+     at the lowest legibility in the app. The console's red ink is the token
+     certified against these surfaces (6.10:1 dark / 5.26:1 light). */
+  --ion-color-danger: rgb(var(--kin-red-ink-rgb));
+  --border-radius: 14px;
+  --backdrop-opacity: 0.55;
+  /* `inherit` was wrong here: a custom property set to `inherit` copies the
+     parent's value of that property — Ionic's own default stack — not the
+     element's `font-family`. Naming the console stack keeps the sheet in the
+     app's typeface on non-Apple platforms, where the two differ. */
+  --ion-font-family: var(--console-font-sans);
+}
+
+/*
+  Ionic's own type scale is a platform default; the sheet reads as part of the
+  console, so the header and buttons take its caption/body sizes instead.
+*/
+ion-action-sheet.kin-sheet .action-sheet-title {
+  color: rgb(var(--kin-muted-rgb));
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+ion-action-sheet.kin-sheet .action-sheet-button {
+  font-size: 16px;
+  font-weight: 500;
+  min-height: 52px;
+}
+/* The sub-header is a child of the title element, so it inherits the title's
+   uppercase and letter-spacing. It is a sentence — "Runs on <machine>" — and
+   must read as one, at the heading's size rather than larger than it. */
+ion-action-sheet.kin-sheet .action-sheet-sub-title {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12px;
+  font-weight: 500;
+}
+/* The current value, marked on its own row. Ionic only draws its own selected
+   state for radio-style buttons; these are plain buttons, so SheetSelect puts
+   this class on the active one and the console draws it. */
+ion-action-sheet.kin-sheet .kin-sheet-selected {
+  background: var(--kin-fill-strong);
+  font-weight: 600;
+}
+
+/* `ion-backdrop` ships at `opacity: 0.01` and Ionic fades it in from script. If
+   that animation is interrupted — React re-rendering the overlay while it is
+   presenting is enough — the scrim never arrives and the sheet floats on an
+   undimmed page. Stating the opacity in CSS makes the dim part of the sheet's
+   appearance rather than a side effect of an animation that may not run. */
+ion-action-sheet.kin-sheet ion-backdrop {
+  opacity: var(--backdrop-opacity, 0.4);
 }

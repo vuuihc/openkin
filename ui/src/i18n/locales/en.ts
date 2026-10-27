@@ -372,6 +372,7 @@ const en: MessageTree = {
     deleteConfirm: "Delete this session permanently? History cannot be recovered.",
     deleted: "Session deleted",
     deleteFailed: "Failed to delete session",
+    sessionActions: "Session actions",
     workerTimeline: "Worker timeline",
     workerStepCount: "{n} steps",
     workerAccessRead: "read",

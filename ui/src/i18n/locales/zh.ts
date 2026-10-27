@@ -359,6 +359,7 @@ const zh = {
     deleteConfirm: "确定永久删除这个会话？历史记录无法恢复。",
     deleted: "会话已删除",
     deleteFailed: "删除会话失败",
+    sessionActions: "会话操作",
     workerTimeline: "Worker 时间线",
     workerStepCount: "{n} 个步骤",
     workerAccessRead: "只读",

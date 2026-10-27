@@ -1,11 +1,23 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
+import { setupIonicReact } from "@ionic/react";
 import App from "./App";
 import { bootstrapTokenFromURL, getToken } from "./api/client";
 import { applyVisitGate, refreshAccount } from "./api/account";
 import { initTheme } from "./lib/theme";
+import "@ionic/react/css/core.css";
 import "./index.css";
+
+/**
+ * Ionic is the console's mobile design language: the action sheet and the
+ * controls built on it get the platform's touch targets, safe area and
+ * dismissal behaviour without a hand-tuned copy per page. The console's own
+ * tokens stay authoritative for colour and type — see the `ion-action-sheet`
+ * block in `index.css`. `ios` mode everywhere keeps one look across the phone,
+ * the browser and the desktop shell.
+ */
+setupIonicReact({ mode: "ios" });
 
 initTheme();
 

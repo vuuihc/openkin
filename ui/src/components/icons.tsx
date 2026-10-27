@@ -204,6 +204,20 @@ export function IconMachine(p: IconProps) {
 export function IconChevron(p: IconProps) {
   return base(p, <path d="M9 18l6-6-6-6" />);
 }
+export function IconChevronDown(p: IconProps) {
+  return base(p, <path d="M6 9l6 6 6-6" />);
+}
+/** The overflow affordance: actions that belong to the page, not the screen. */
+export function IconMore(p: IconProps) {
+  return base(
+    p,
+    <>
+      <circle cx="5" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.2" fill="currentColor" />
+    </>,
+  );
+}
 export function IconImage(p: IconProps) {
   return base(
     p,

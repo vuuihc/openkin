@@ -5,6 +5,7 @@ import {
   type PermissionMode,
 } from "../../lib/permissionMode";
 import { useT } from "../../i18n/react";
+import SheetSelect from "../ui/SheetSelect";
 
 type Props = {
   value: PermissionMode | string;
@@ -49,28 +50,14 @@ export default function PermissionModePicker({
 
   if (compact) {
     return (
-      <select
-        className={[
-          // flex-none for the same reason the model picker has it: the footer
-          // row is allowed to scroll sideways, but an item allowed to shrink is
-          // squeezed to a single clipped character first.
-          "flex-none max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
-          "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
-          mode === "yolo" ? "text-kin-orange-ink" : "text-kin-secondary",
-          readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
-        ].join(" ")}
+      <SheetSelect
+        label={tr("permission.label")}
         value={mode}
+        options={options.map((option) => ({ id: option, label: tr(labelKey[option]) }))}
+        onChange={(id) => onChange(id as PermissionMode)}
         disabled={readOnly}
-        aria-label={tr("permission.label")}
-        title={`${tr("permission.label")}: ${tr(labelKey[mode])}${locked ? ` · ${tr("permission.sessionLocked")}` : ""}`}
-        onChange={(e) => onChange(e.target.value as PermissionMode)}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {tr(labelKey[opt])}
-          </option>
-        ))}
-      </select>
+        className={mode === "yolo" ? "text-kin-orange-ink" : "text-kin-secondary"}
+      />
     );
   }
 
