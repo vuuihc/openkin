@@ -39,14 +39,22 @@ type Device struct {
 type DeviceAgent struct {
 	DeviceID     string
 	AgentID      string
+	Name         string
+	Kind         string
+	Family       string
+	Transport    string
 	Installed    bool
 	Available    bool
 	Version      string
 	Reason       string
 	DefaultModel string
 	Models       []string
-	IsDefault    bool
-	UpdatedAt    int64
+	// PermissionModes are the modes the device will actually run a dispatched
+	// turn in for this agent. Empty means the device did not say — an older
+	// node — and is read as "no bypassed mode is known to be allowed".
+	PermissionModes []string
+	IsDefault       bool
+	UpdatedAt       int64
 }
 
 // Reachability values for devices.reachability.
@@ -117,13 +125,19 @@ func (s *Store) RecordDeviceHello(ctx context.Context, deviceID string, device D
 		if err != nil {
 			return fmt.Errorf("record device hello: encode models: %w", err)
 		}
+		modes, err := json.Marshal(agent.PermissionModes)
+		if err != nil {
+			return fmt.Errorf("record device hello: encode permission modes: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO device_agents (device_id, agent_id, installed, available, version,
-			                           reason, default_model, models, is_default, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			deviceID, agentID, boolInt(agent.Installed), boolInt(agent.Available),
+			INSERT INTO device_agents (device_id, agent_id, name, kind, family, transport,
+			                           installed, available, version, reason, default_model,
+			                           models, permission_modes, is_default, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			deviceID, agentID, agent.Name, agent.Kind, agent.Family, agent.Transport,
+			boolInt(agent.Installed), boolInt(agent.Available),
 			agent.Version, agent.Reason, agent.DefaultModel, string(models),
-			boolInt(agent.IsDefault), now,
+			string(modes), boolInt(agent.IsDefault), now,
 		); err != nil {
 			return fmt.Errorf("record device hello: insert agent %s: %w", agentID, err)
 		}
@@ -249,8 +263,8 @@ func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
 // ListDeviceAgents returns one device's agent inventory, in a stable order.
 func (s *Store) ListDeviceAgents(ctx context.Context, deviceID string) ([]DeviceAgent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT device_id, agent_id, installed, available, version, reason,
-		       default_model, models, is_default, updated_at
+		SELECT device_id, agent_id, name, kind, family, transport, installed, available,
+		       version, reason, default_model, models, permission_modes, is_default, updated_at
 		FROM device_agents WHERE device_id = ? ORDER BY agent_id`, strings.TrimSpace(deviceID))
 	if err != nil {
 		return nil, fmt.Errorf("list device agents: %w", err)
@@ -261,12 +275,13 @@ func (s *Store) ListDeviceAgents(ctx context.Context, deviceID string) ([]Device
 	for rows.Next() {
 		var (
 			agent                           DeviceAgent
-			models                          string
+			models, permissionModes         string
 			installed, available, isDefault int
 		)
-		if err := rows.Scan(&agent.DeviceID, &agent.AgentID, &installed, &available,
-			&agent.Version, &agent.Reason, &agent.DefaultModel, &models, &isDefault,
-			&agent.UpdatedAt); err != nil {
+		if err := rows.Scan(&agent.DeviceID, &agent.AgentID, &agent.Name, &agent.Kind,
+			&agent.Family, &agent.Transport, &installed, &available,
+			&agent.Version, &agent.Reason, &agent.DefaultModel, &models,
+			&permissionModes, &isDefault, &agent.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("list device agents: %w", err)
 		}
 		agent.Installed = installed != 0
@@ -275,6 +290,11 @@ func (s *Store) ListDeviceAgents(ctx context.Context, deviceID string) ([]Device
 		if models != "" {
 			if err := json.Unmarshal([]byte(models), &agent.Models); err != nil {
 				return nil, fmt.Errorf("list device agents: decode models for %s: %w", agent.AgentID, err)
+			}
+		}
+		if permissionModes != "" {
+			if err := json.Unmarshal([]byte(permissionModes), &agent.PermissionModes); err != nil {
+				return nil, fmt.Errorf("list device agents: decode permission modes for %s: %w", agent.AgentID, err)
 			}
 		}
 		agents = append(agents, agent)

@@ -169,15 +169,20 @@ func (s *Server) recordNodeHello(ctx context.Context, deviceID string, hello wor
 	agents := make([]store.DeviceAgent, 0, len(hello.Agents))
 	for _, agent := range hello.Agents {
 		agents = append(agents, store.DeviceAgent{
-			DeviceID:     deviceID,
-			AgentID:      agent.ID,
-			Installed:    agent.Installed,
-			Available:    agent.Available,
-			Version:      agent.Version,
-			Reason:       agent.Reason,
-			DefaultModel: agent.DefaultModel,
-			Models:       agent.Models,
-			IsDefault:    agent.IsDefault,
+			DeviceID:        deviceID,
+			AgentID:         agent.ID,
+			Name:            agent.Name,
+			Kind:            agent.Kind,
+			Family:          agent.Family,
+			Transport:       agent.Transport,
+			Installed:       agent.Installed,
+			Available:       agent.Available,
+			Version:         agent.Version,
+			Reason:          agent.Reason,
+			DefaultModel:    agent.DefaultModel,
+			Models:          agent.Models,
+			PermissionModes: agent.PermissionModes,
+			IsDefault:       agent.IsDefault,
 		})
 	}
 	capabilities, err := node.EncodeCapabilities(hello)

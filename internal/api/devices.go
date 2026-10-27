@@ -59,13 +59,20 @@ type deviceResponse struct {
 
 type deviceAgentResult struct {
 	ID           string   `json:"id"`
+	Name         string   `json:"name,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Family       string   `json:"family,omitempty"`
+	Transport    string   `json:"transport,omitempty"`
 	Installed    bool     `json:"installed"`
 	Available    bool     `json:"available"`
 	Version      string   `json:"version,omitempty"`
 	Reason       string   `json:"reason,omitempty"`
 	DefaultModel string   `json:"default_model,omitempty"`
 	Models       []string `json:"models,omitempty"`
-	IsDefault    bool     `json:"is_default,omitempty"`
+	// PermissionModes is absent when the device did not send one — an older
+	// node — which a console must read as "the modes that do not bypass".
+	PermissionModes []string `json:"permission_modes,omitempty"`
+	IsDefault       bool     `json:"is_default,omitempty"`
 }
 
 func (s *Server) handleCreatePairingSession(w http.ResponseWriter, r *http.Request) {
@@ -300,14 +307,19 @@ func (s *Server) deviceResponse(ctx context.Context, device store.Device) device
 	}
 	for _, agent := range agents {
 		response.Agents = append(response.Agents, deviceAgentResult{
-			ID:           agent.AgentID,
-			Installed:    agent.Installed,
-			Available:    agent.Available,
-			Version:      agent.Version,
-			Reason:       agent.Reason,
-			DefaultModel: agent.DefaultModel,
-			Models:       agent.Models,
-			IsDefault:    agent.IsDefault,
+			ID:              agent.AgentID,
+			Name:            agent.Name,
+			Kind:            agent.Kind,
+			Family:          agent.Family,
+			Transport:       agent.Transport,
+			Installed:       agent.Installed,
+			Available:       agent.Available,
+			Version:         agent.Version,
+			Reason:          agent.Reason,
+			DefaultModel:    agent.DefaultModel,
+			Models:          agent.Models,
+			PermissionModes: agent.PermissionModes,
+			IsDefault:       agent.IsDefault,
 		})
 	}
 	return response

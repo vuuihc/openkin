@@ -74,12 +74,17 @@ CREATE INDEX IF NOT EXISTS idx_devices_seen  ON devices(last_seen_at DESC);
 CREATE TABLE IF NOT EXISTS device_agents (
   device_id     TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
   agent_id      TEXT NOT NULL,
+  name          TEXT NOT NULL DEFAULT '',
+  kind          TEXT NOT NULL DEFAULT '',
+  family        TEXT NOT NULL DEFAULT '',
+  transport     TEXT NOT NULL DEFAULT '',
   installed     INTEGER NOT NULL DEFAULT 0,
   available     INTEGER NOT NULL DEFAULT 0,
   version       TEXT NOT NULL DEFAULT '',
   reason        TEXT NOT NULL DEFAULT '',
   default_model TEXT NOT NULL DEFAULT '',
   models        TEXT NOT NULL DEFAULT '[]',
+  permission_modes TEXT NOT NULL DEFAULT '[]',
   is_default    INTEGER NOT NULL DEFAULT 0,
   updated_at    INTEGER NOT NULL,
   PRIMARY KEY (device_id, agent_id)
@@ -2348,7 +2353,53 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureInviteSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureDeviceAgentSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
+}
+
+// ensureDeviceAgentSchema adds the presentation and permission columns to a
+// `device_agents` table written before they existed.
+//
+// The device registry predates the console's need to name an agent, group its
+// transports, or know which permission modes a machine will accept. Those are
+// all additions to rows the Hub rewrites on every hello, so reconciling the
+// columns here is enough: the next connection fills them in, and a row that
+// stays empty is read exactly as an older node meant it.
+func (s *Store) ensureDeviceAgentSchema() error {
+	present, err := s.tableExists("device_agents")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	columns := []struct{ name, definition string }{
+		{"name", "TEXT NOT NULL DEFAULT ''"},
+		{"kind", "TEXT NOT NULL DEFAULT ''"},
+		{"family", "TEXT NOT NULL DEFAULT ''"},
+		{"transport", "TEXT NOT NULL DEFAULT ''"},
+		{"permission_modes", "TEXT NOT NULL DEFAULT '[]'"},
+	}
+	for _, column := range columns {
+		var exists int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('device_agents') WHERE name = ?`,
+			column.name,
+		).Scan(&exists); err != nil {
+			return fmt.Errorf("inspect device_agents.%s: %w", column.name, err)
+		}
+		if exists > 0 {
+			continue
+		}
+		if _, err := s.db.Exec(
+			`ALTER TABLE device_agents ADD COLUMN ` + column.name + ` ` + column.definition,
+		); err != nil {
+			return fmt.Errorf("add device_agents.%s: %w", column.name, err)
+		}
+	}
+	return nil
 }
 
 // ensureInviteSchema creates the invitation table, on every open, for databases

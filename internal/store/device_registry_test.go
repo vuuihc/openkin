@@ -78,9 +78,11 @@ func TestRecordDeviceHelloKeepsAgentDetail(t *testing.T) {
 
 	agent := DeviceAgent{
 		DeviceID: "device-1", AgentID: "claude-code",
+		Name: "Claude Code", Kind: "native", Family: "claude", Transport: "native",
 		Installed: true, Available: false, Version: "2.0.1",
 		Reason: "not signed in", DefaultModel: "opus", IsDefault: true,
-		Models: []string{"opus", "sonnet"},
+		Models:          []string{"opus", "sonnet"},
+		PermissionModes: []string{"default", "accept_edits"},
 	}
 	if err := st.RecordDeviceHello(ctx, "device-1", Device{Label: "laptop"},
 		[]DeviceAgent{agent}, 1000); err != nil {
@@ -103,6 +105,15 @@ func TestRecordDeviceHelloKeepsAgentDetail(t *testing.T) {
 	}
 	if len(got.Models) != 2 || got.Models[0] != "opus" || got.Models[1] != "sonnet" {
 		t.Fatalf("models = %v", got.Models)
+	}
+	// What the console needs in order to offer this agent without guessing.
+	if got.Name != "Claude Code" || got.Kind != "native" ||
+		got.Family != "claude" || got.Transport != "native" {
+		t.Fatalf("agent presentation = %+v", got)
+	}
+	if len(got.PermissionModes) != 2 ||
+		got.PermissionModes[0] != "default" || got.PermissionModes[1] != "accept_edits" {
+		t.Fatalf("permission modes = %v", got.PermissionModes)
 	}
 }
 

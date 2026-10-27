@@ -168,7 +168,7 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 			return agent.Status{Installed: true, Available: true}
 		},
 	})
-	hello := buildNodeHello(context.Background(), "9.9.9", []string{"/code/a", "/code/b"}, reg)
+	hello := buildNodeHello(context.Background(), "9.9.9", []string{"/code/a", "/code/b"}, reg, false)
 	if hello.Label == "" {
 		t.Fatal("a node with no label did not fall back to the hostname")
 	}
@@ -187,8 +187,63 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 	if len(hello.Agents) != 1 || hello.Agents[0].ID != "claude-code" || !hello.Agents[0].Available {
 		t.Fatalf("agents = %+v", hello.Agents)
 	}
+	entry := hello.Agents[0]
+	if entry.Name != "Claude Code" || entry.Family != "claude" || entry.Transport != agent.TransportNative {
+		t.Fatalf("agent metadata = %+v", entry)
+	}
+	if !entry.IsDefault {
+		t.Fatalf("the only usable agent on this machine is not its default: %+v", entry)
+	}
+	// A machine started without --allow-yolo will refuse a bypassed turn, so it
+	// must not advertise the mode that would be refused.
+	if got := strings.Join(entry.PermissionModes, ","); got != "default,accept_edits" {
+		t.Fatalf("permission modes = %q", got)
+	}
 	if err := hello.Validate(); err != nil {
 		t.Fatalf("the hello this machine builds does not validate: %v", err)
+	}
+}
+
+// TestNodeAdvertisesOnlyModesItWillRun pins the answer the console chooses from:
+// a node without --allow-yolo has no agent it can run unattended, and saying so
+// up front is what stops a dispatch from being refused after the fact.
+func TestNodeAdvertisesOnlyModesItWillRun(t *testing.T) {
+	reg := agent.MustRegistry(
+		agent.Entry{
+			ID: "claude-code", Name: "Claude Code", Priority: 20,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: stubRunner{},
+			Status: func(context.Context) agent.Status {
+				return agent.Status{Installed: true, Available: true}
+			},
+		},
+		agent.Entry{
+			ID: "pi-acp", Name: "Pi (ACP)", Priority: 40,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: unattendedRunner{},
+			Status: func(context.Context) agent.Status {
+				return agent.Status{Installed: true, Available: true}
+			},
+		},
+	)
+
+	without := nodeAgents(reg, false)
+	if len(without) != 2 {
+		t.Fatalf("agents = %+v", without)
+	}
+	if without[0].Available != true || without[0].IsDefault != true {
+		t.Fatalf("the usable agent should be available and default: %+v", without[0])
+	}
+	if without[1].Available || without[1].Reason == "" {
+		t.Fatalf("an agent that always bypasses should be unavailable here: %+v", without[1])
+	}
+	if without[1].IsDefault {
+		t.Fatalf("an unavailable agent became the default: %+v", without[1])
+	}
+
+	with := nodeAgents(reg, true)
+	if !with[1].Available || len(with[1].PermissionModes) != 3 {
+		t.Fatalf("--allow-yolo did not open the bypassed modes: %+v", with[1])
 	}
 }
 
@@ -355,6 +410,16 @@ func (bypassingRunner) AutoApprovesAll(mode string) bool {
 		return false
 	}
 }
+
+// unattendedRunner stands for an agent with no permission ladder at all: every
+// mode is a bypass, which is what an ACP agent with Unattended means.
+type unattendedRunner struct{}
+
+func (unattendedRunner) Start(context.Context, adapter.TaskSpec) (adapter.RunHandle, error) {
+	return nil, errors.New("the ceiling should have stopped this before the agent started")
+}
+
+func (unattendedRunner) AutoApprovesAll(string) bool { return true }
 
 // TestNodeCeilingSurvivesTheRegistryWrapping is the end of the permission
 // ceiling, through the wiring production actually has: a real registry, the

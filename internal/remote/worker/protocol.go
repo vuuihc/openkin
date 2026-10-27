@@ -29,7 +29,15 @@ const (
 // It mirrors a `device_agents` row. None of it is secret — provider keys and
 // agent logins never leave the device (ADR 0022 D7).
 type Agent struct {
-	ID           string   `json:"id"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	Kind string `json:"kind,omitempty"`
+	// Family groups implementations that drive the same product, so a console
+	// can offer one "Claude Code" instead of `claude-code` and `claude-acp` as
+	// two unrelated entries. Transport says which of them the entry is
+	// (`native`, `acp`, `cli`) when the choice matters.
+	Family       string   `json:"family,omitempty"`
+	Transport    string   `json:"transport,omitempty"`
 	Installed    bool     `json:"installed"`
 	Available    bool     `json:"available"`
 	Version      string   `json:"version,omitempty"`
@@ -37,6 +45,11 @@ type Agent struct {
 	DefaultModel string   `json:"default_model,omitempty"`
 	Models       []string `json:"models,omitempty"`
 	IsDefault    bool     `json:"is_default,omitempty"`
+	// PermissionModes are the modes this machine will actually run a dispatched
+	// turn in for this agent. A mode that would bypass the agent's approvals is
+	// absent unless the node was started with --allow-yolo, so a console can
+	// stop offering a choice the node is going to refuse.
+	PermissionModes []string `json:"permission_modes,omitempty"`
 }
 
 // Hello is a Node's opening frame, and the device's own account of itself.
@@ -177,8 +190,21 @@ func (h Hello) Validate() error {
 		if len(agent.Reason) > 512 {
 			return fmt.Errorf("agents[%d].reason is too long", i)
 		}
+		if len(agent.Name) > 128 || len(agent.Family) > 64 || len(agent.Kind) > 32 || len(agent.Transport) > 32 {
+			return fmt.Errorf("agents[%d] metadata is too long", i)
+		}
 		if len(agent.Models) > MaxModels {
 			return fmt.Errorf("agents[%d] has too many models", i)
+		}
+		if len(agent.PermissionModes) > 3 {
+			return fmt.Errorf("agents[%d] has too many permission modes", i)
+		}
+		for _, mode := range agent.PermissionModes {
+			switch mode {
+			case "default", "accept_edits", "yolo":
+			default:
+				return fmt.Errorf("agents[%d] has unknown permission mode %q", i, mode)
+			}
 		}
 	}
 	return nil

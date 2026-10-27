@@ -61,7 +61,7 @@ func resolveNodeToken(stateDir, flagToken string) (string, error) {
 // The agents come from the registry, not from a probe: the Hub is choosing
 // where to send work, and the honest answer is the same list this daemon would
 // run a turn with.
-func buildNodeHello(ctx context.Context, version string, roots []string, reg *agent.Registry) worker.Hello {
+func buildNodeHello(ctx context.Context, version string, roots []string, reg *agent.Registry, allowYOLO bool) worker.Hello {
 	label, _ := os.Hostname()
 	return worker.Hello{
 		Version:        worker.ProtocolVersion,
@@ -70,7 +70,7 @@ func buildNodeHello(ctx context.Context, version string, roots []string, reg *ag
 		Platform:       runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		KinVersion:     version,
-		Agents:         nodeAgents(reg),
+		Agents:         nodeAgents(reg, allowYOLO),
 		WorkspaceRoots: nodeWorkspaceRoots(ctx, roots),
 		MaxConcurrent:  nodeMaxConcurrent(),
 	}
@@ -124,28 +124,82 @@ func absoluteNodePath(path string) string {
 	return filepath.Clean(strings.TrimSpace(path))
 }
 
-// nodeAgents reports every registered agent and whether it can run here.
+// nodeAgents reports every registered agent, whether it can run here, and what
+// a console needs in order to offer it without guessing.
 //
 // Unavailable agents are reported too, with the reason: a client choosing where
 // to run something needs to know this machine was considered and why it said
 // no, not just that the agent is missing.
 //
-// Model lists are left out until a Hub has to choose a model for a machine it
-// cannot see; a dispatch names the model, and the device runs it or says why it
-// cannot.
-func nodeAgents(reg *agent.Registry) []worker.Agent {
+// The permission modes are the ones this node will actually accept for a
+// dispatched turn. A mode whose adapter bypasses approvals is absent unless the
+// node runs with --allow-yolo, because the executor refuses those turns — and an
+// agent that bypasses approvals in *every* mode is unavailable here for the same
+// reason. Sending the modes rather than the flag is what lets the console offer
+// a choice that will not be refused.
+func nodeAgents(reg *agent.Registry, allowYOLO bool) []worker.Agent {
 	if reg == nil {
 		return nil
 	}
 	infos := reg.List(context.Background(), "")
 	out := make([]worker.Agent, 0, len(infos))
+	defaulted := false
 	for _, info := range infos {
-		out = append(out, worker.Agent{
-			ID:        info.ID,
-			Installed: info.Installed,
-			Available: info.Available,
-			Reason:    info.Reason,
-		})
+		modes := nodePermissionModes(reg, info.ID, allowYOLO)
+		available, reason := info.Available, info.Reason
+		if available && len(modes) == 0 {
+			available = false
+			reason = "this machine does not run dispatched turns with approvals bypassed; " +
+				"start it with --allow-yolo to permit that"
+		}
+		models := make([]string, 0, len(info.Models))
+		for _, model := range info.Models {
+			if strings.TrimSpace(model.ID) != "" {
+				models = append(models, model.ID)
+			}
+		}
+		entry := worker.Agent{
+			ID:              info.ID,
+			Name:            info.Name,
+			Kind:            string(info.Kind),
+			Family:          agent.Family(info.ID),
+			Transport:       agent.Transport(info.ID, info.Kind),
+			Installed:       info.Installed,
+			Available:       available,
+			Reason:          reason,
+			Models:          models,
+			PermissionModes: modes,
+		}
+		// One default per machine: the first agent that can actually take a
+		// dispatched turn. Registry order is priority order, so this is the same
+		// choice the local console makes when no preference is configured.
+		if available && !defaulted {
+			entry.IsDefault = true
+			defaulted = true
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// nodePermissionModes mirrors the executor's refusal rule exactly: a mode is
+// offered only when it does not bypass approvals, or when this machine was
+// explicitly allowed to bypass them.
+func nodePermissionModes(reg *agent.Registry, id string, allowYOLO bool) []string {
+	registration, ok := reg.Get(id)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, 3)
+	for _, mode := range []string{
+		adapter.PermissionDefault,
+		adapter.PermissionAcceptEdits,
+		adapter.PermissionYOLO,
+	} {
+		if adapter.AutoApprovesAll(registration.Runner, mode) && !allowYOLO {
+			continue
+		}
+		out = append(out, mode)
 	}
 	return out
 }
@@ -328,7 +382,7 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 	// it will accept work in, and what it answers questions about. Three
 	// readings of the same setting is three chances for them to differ.
 	roots := executor.Roots
-	hello := buildNodeHello(ctx, version, roots, reg)
+	hello := buildNodeHello(ctx, version, roots, reg, flags.AllowYOLO)
 	if err := hello.Validate(); err != nil {
 		return fmt.Errorf("cannot describe this machine to the hub: %w", err)
 	}

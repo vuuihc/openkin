@@ -245,3 +245,72 @@ func TestAQueueTableFromBeforeTheAnchorColumnIsRepairedOnOpen(t *testing.T) {
 		t.Fatalf("appended row has user_seq %d, want 42", appended.UserSeq)
 	}
 }
+
+// The device registry predates the console's need to name an agent, group its
+// transports, or know which permission modes a machine will accept. Those
+// columns went into the base schema, so a Hub written by the earlier build is
+// at the current version with a table that has none of them -- and every read
+// of a machine's agents fails with "no such column", which is exactly the list
+// a console chooses a remote agent from.
+func TestADeviceAgentTableFromBeforeTheConsoleColumnsIsRepairedOnOpen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordDeviceHello(ctx, "device-1", Device{Label: "laptop"}, []DeviceAgent{{
+		DeviceID: "device-1", AgentID: "claude-code",
+		Name: "Claude Code", Kind: "native", Family: "claude", Transport: "native",
+		Installed: true, Available: true,
+		PermissionModes: []string{"default", "accept_edits"},
+	}}, 1000); err != nil {
+		t.Fatal(err)
+	}
+	for _, column := range []string{"name", "kind", "family", "transport", "permission_modes"} {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE device_agents DROP COLUMN `+column); err != nil {
+			t.Fatalf("simulate a pre-console database (drop %s): %v", column, err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen a database whose agent table has no console columns: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	// The row written by the older build survives, with the new columns reading
+	// as "this device did not say".
+	agents, err := reopened.ListDeviceAgents(ctx, "device-1")
+	if err != nil {
+		t.Fatalf("the repaired agent table cannot be read: %v", err)
+	}
+	if len(agents) != 1 || agents[0].AgentID != "claude-code" || !agents[0].Available {
+		t.Fatalf("agents after the repair = %+v, want the older row kept", agents)
+	}
+	if agents[0].Name != "" || agents[0].Family != "" || len(agents[0].PermissionModes) != 0 {
+		t.Fatalf("agents after the repair = %+v, want the old row to say nothing", agents[0])
+	}
+
+	// The next hello fills them in, which is the whole repair: agents rewrite
+	// their row on every connection.
+	if err := reopened.RecordDeviceHello(ctx, "device-1", Device{Label: "laptop"}, []DeviceAgent{{
+		DeviceID: "device-1", AgentID: "claude-code",
+		Name: "Claude Code", Kind: "native", Family: "claude", Transport: "native",
+		Installed: true, Available: true,
+		PermissionModes: []string{"default", "accept_edits"},
+	}}, 2000); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = reopened.ListDeviceAgents(ctx, "device-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].Family != "claude" ||
+		len(agents[0].PermissionModes) != 2 || agents[0].PermissionModes[1] != "accept_edits" {
+		t.Fatalf("agents after the next hello = %+v", agents)
+	}
+}
