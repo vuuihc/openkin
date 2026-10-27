@@ -790,7 +790,7 @@ user_identities  -- 登录凭据。一个账号可挂多条 → 多条登录路�
 3. **密码重置不做自助，走 Hub 本机 CLI**：
 
    ```bash
-   kin admin reset-password --user <email>
+   kin hub reset-password --email <email>
    ```
 
    这样**不需要 SMTP、不需要发信通道、不引入任何厂商**——与 §7.7 的"路径中无厂商"一致。代价是忘了密码又 SSH 不上机器时麻烦；但对自托管单用户产品，这比为了重置密码去维护一条邮件发送链路 solid 得多（而且邮件重置本身就依赖"email 可信"，正是 §8.2 否掉的那个假设）。
