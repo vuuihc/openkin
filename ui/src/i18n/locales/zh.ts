@@ -1211,8 +1211,15 @@ const zh = {
     orDivider: "或",
     continueWith: "使用 {provider} 继续",
     whereTitle: "认领码在哪里",
-    whereBody: "认领码在 Hub 首次启动时打印，24 小时内有效且只能用一次。在服务器上查看：",
+    whereBody:
+      "认领码在 Hub 首次启动时打印，24 小时内有效且只能用一次。在 Hub 主机上运行下面这条命令可以重新打印：",
+    claimCommand: "kin hub claim-code",
     codeExpired: "当前没有有效的认领码。请在服务器上运行 kin hub claim-code 生成新的。",
+    loginWhereTitle: "这是哪个账号？",
+    loginWhereBody: "这是你在本 Hub 上的账号——认领 Hub 时创建，或接受邀请时创建。没有默认账号。",
+    forgotTitle: "忘记密码了？",
+    forgotBody: "在 Hub 主机上，用你登录的邮箱运行下面这条命令，它会打印一个新密码：",
+    forgotCommand: "kin hub reset-password --email you@example.com",
     errors: {
       invalid_credentials: "邮箱或密码不正确。",
       claim_code_invalid: "认领码无效或已过期。",

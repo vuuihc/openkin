@@ -179,8 +179,13 @@ export default function ProjectsPage() {
                 className="block rounded-xl border border-transparent bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-strong font-medium text-kin-text">{p.name}</div>
+                  {/* `min-w-0` is what lets the name truncate instead of
+                      pushing the date off the right edge on a 320px screen:
+                      a flex child's default `min-width:auto` is its content. */}
+                  <div className="min-w-0">
+                    <div className="text-strong font-medium text-kin-text truncate" title={p.name}>
+                      {p.name}
+                    </div>
                     <div className="mt-1 flex flex-wrap gap-2 text-caption text-kin-secondary">
                       <span className="rounded-md bg-[var(--kin-fill-strong)] px-1.5 py-0.5">
                         {modeLabel(p.mode, tr)}

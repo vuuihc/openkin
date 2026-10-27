@@ -170,7 +170,13 @@ export default function SessionsPage() {
                     device.online ? "bg-kin-green" : "bg-kin-muted"
                   }`}
                 />
-                {device.isSelf ? tr("nav.thisMachine") : device.label}
+                {/* `device.label` falls back to the raw machine id, so this is
+                    the one string on the page that can be arbitrarily long.
+                    It is a flex child: `min-w-0` + `truncate` is what keeps it
+                    inside the scroll root instead of widening it. */}
+                <span className="min-w-0 truncate">
+                  {device.isSelf ? tr("nav.thisMachine") : device.label}
+                </span>
               </h2>
             )}
 

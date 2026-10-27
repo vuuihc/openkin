@@ -10,6 +10,7 @@ body,
 #root {
   min-height: 100%;
   min-height: 100dvh;
+  max-width: 100%;
 }
 
 body {
@@ -21,6 +22,29 @@ body {
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+  A wide child must not turn the layout into something that pans.
+
+  `clip`, not `hidden`: `hidden` on the root makes the viewport a scroll
+  container and takes `position: sticky` with it, while `clip` cuts the same
+  pixels without adding a scrollport. `clip` is Safari 16+, and the native
+  shell's deployment target is 15.0, so the `hidden` on `body` above stays as
+  the fallback for engines that never learned `clip` — which is also exactly
+  the clamp those engines shipped with.
+
+  This is the backstop, not the fix. The fixes are the coarse-pointer type
+  floor below (iOS zooms the page when a field under 16px takes focus and never
+  zooms back out) and `min-w-0`/`truncate` on flex children that carry user
+  text. A page that is quietly 40px wider than the phone reads as "the width
+  is wrong" even when nothing legible is out there.
+*/
+@supports (overflow: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
 }
 
 /*
@@ -95,6 +119,53 @@ body {
     }
     .touch-only {
       display: flex;
+    }
+  }
+  /* The type floor for anything that takes typing.
+
+     iOS Safari zooms the whole page when a focused field's font size is under
+     16px, and it does not zoom back out on blur. The user is left with a layout
+     wider than the screen that pans left and right — which reads as "the page
+     width is wrong", not as "a field was focused". Every field in this tree is
+     drawn at 11–15px (the type ladder has no 16px step for controls), so every
+     field on a phone triggers it; the login screen also autofocused its email
+     input on mount, which is how a cold launch could arrive already zoomed.
+
+     A font-size floor is the fix, not `maximum-scale=1`: the viewport meta must
+     keep pinch-zoom for accessibility, and the platform zooms only because it
+     cannot read the text. It applies to coarse pointers at any width, because a
+     landscape phone is still a phone and the height-based desktop layout does
+     not make its fields readable.
+
+     Deliberately *not* scoped to `.touch-lg`, unlike the 44px floor above. A
+     wrapper class only covers what is rendered beneath it, and a dialog in a
+     `createPortal(…, document.body)` — the folder picker's popover is one —
+     escapes that subtree while keeping the same keyboard. The platform rule is
+     about focus, not about where the field was mounted, so the selector is too.
+
+     Every selector starts with `:root`, and that is load-bearing rather than
+     decoration. These fields carry type utilities (`text-strong` on the chat
+     composer's textarea, `text-caption` on the pickers' selects, `kin-input` in
+     settings), and a bare `textarea` (0,0,1) or `[contenteditable]` (0,1,0)
+     loses to a class. `:root select` is (0,1,1) and beats all of them; the
+     `:not()` chain puts the input arm far past that. Checked against the
+     generated stylesheet in Chromium with a coarse pointer: without the prefix
+     `textarea.text-strong` computes 13px and `select.text-caption` 11px —
+     exactly the zoom this rule exists to prevent. The test asserts the prefix
+     for the same reason a selector-presence check was not enough.
+
+     Selects are included: iOS focuses them too before opening the picker. The
+     excluded types are the ones with no text to read (a checkbox, a slider, a
+     colour well) — flooring those would only distort them. */
+  @media (pointer: coarse) {
+    :root
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not(
+        [type="color"]
+      ):not([type="hidden"]),
+    :root select,
+    :root textarea,
+    :root [contenteditable="true"] {
+      font-size: 16px;
     }
   }
   /* A control that lives inside something smaller than 44pt and cannot be

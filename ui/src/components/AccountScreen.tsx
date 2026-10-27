@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AuthError, claimOwner, joinHub, signIn, startOIDC } from "../api/account";
 import { authErrorText, CODE_FIELDS, prefilledCode } from "../lib/accountGate";
+import { hasFinePointer } from "../lib/pointer";
 import { useT } from "../i18n/react";
 import { useAppStore, type AccountMode, type AccountProvider } from "../store/appStore";
 
@@ -80,6 +81,10 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
   const enrolling = mode !== "login";
   const copy = COPY[mode];
   const codeField = mode === "login" ? null : CODE_FIELDS[mode];
+  // A phone must not land on this screen with a field already focused: the
+  // keyboard covers the form, and iOS zooms the page first (the field is drawn
+  // at 13px). Desktop keeps the convenience. See `lib/pointer`.
+  const focusOnMount = hasFinePointer();
 
   // An invitation link carries its code, so the person who was invited never
   // types it. Reading it once is enough: nothing below changes the URL.
@@ -137,7 +142,7 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
   const errorText = error ? authErrorText(error, tr) : null;
 
   return (
-    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
+    <div className="touch-lg min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-kin-hairline-strong bg-kin-elevated text-hero leading-8 font-bold text-kin-blue-ink">
@@ -156,7 +161,7 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
               <input
                 type="text"
                 required
-                autoFocus
+                autoFocus={focusOnMount}
                 autoComplete="off"
                 autoCapitalize="characters"
                 spellCheck={false}
@@ -175,7 +180,7 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
             <input
               type="email"
               required
-              autoFocus={mode === "login"}
+              autoFocus={mode === "login" && focusOnMount}
               autoComplete="email"
               inputMode="email"
               autoCapitalize="off"
@@ -276,12 +281,33 @@ export default function AccountScreen({ mode }: { mode: AccountMode }) {
           </p>
         )}
 
+        {/* What the login form is asking for, and what to do when the answer is
+            gone. Both sentences exist because the account is chosen at claim
+            time and then never shown again: the console stores only an argon2
+            hash, so "I forgot" has no self-service path by design. The command
+            is the path, and it is run on the machine the Hub already lives on. */}
+        {mode === "login" && (
+          <div className="rounded-xl border border-kin-hairline-strong bg-kin-elevated/40 px-4 py-3 text-body text-kin-muted space-y-2 leading-prose">
+            <p>
+              <span className="font-medium text-kin-muted">{tr("account.loginWhereTitle")}</span>{" "}
+              {tr("account.loginWhereBody")}
+            </p>
+            <p>
+              <span className="font-medium text-kin-muted">{tr("account.forgotTitle")}</span>{" "}
+              {tr("account.forgotBody")}
+            </p>
+            <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
+              {tr("account.forgotCommand")}
+            </code>
+          </div>
+        )}
+
         {mode === "claim" && (
           <div className="rounded-xl border border-kin-hairline-strong bg-kin-elevated/40 px-4 py-3 text-body text-kin-muted space-y-2 leading-prose">
             <p className="font-medium text-kin-muted">{tr("account.whereTitle")}</p>
             <p>{tr("account.whereBody")}</p>
             <code className="block rounded-lg bg-kin-bg px-2 py-1.5 text-kin-secondary">
-              docker compose logs kin
+              {tr("account.claimCommand")}
             </code>
             {!account.claimable && (
               <p className="text-kin-orange-ink/90">{tr("account.codeExpired")}</p>

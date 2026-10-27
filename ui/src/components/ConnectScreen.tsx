@@ -34,7 +34,7 @@ export default function ConnectScreen({ reason }: { reason: "missing" | "unautho
     reason === "unauthorized" ? tr("connect.unauthorizedBlurb") : tr("connect.missingBlurb");
 
   return (
-    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
+    <div className="touch-lg min-h-[100dvh] flex flex-col items-center justify-center px-safe py-10 bg-[var(--kin-page)] text-kin-text">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-kin-hairline-strong bg-kin-elevated text-hero leading-8 font-bold text-kin-blue-ink">

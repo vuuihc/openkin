@@ -544,9 +544,9 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
               </button>
             )}
             {barIsHeading ? (
-              <h1 className="font-semibold text-subtitle">{mobileTitle}</h1>
+              <h1 className="min-w-0 truncate font-semibold text-subtitle">{mobileTitle}</h1>
             ) : (
-              <span className="font-semibold text-subtitle">{mobileTitle}</span>
+              <span className="min-w-0 truncate font-semibold text-subtitle">{mobileTitle}</span>
             )}
             {onSessionsTab && (
               <button

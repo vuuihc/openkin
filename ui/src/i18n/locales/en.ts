@@ -1267,9 +1267,17 @@ const en: MessageTree = {
     continueWith: "Continue with {provider}",
     whereTitle: "Where to find the claim code",
     whereBody:
-      "The Hub prints it on first start. It is valid for 24 hours and can be used once. On the server:",
+      "The Hub prints it on first start. It is valid for 24 hours and can be used once. Run this on the Hub host to print a new one:",
+    claimCommand: "kin hub claim-code",
     codeExpired:
       "There is no active claim code right now. Run kin hub claim-code on the server to print a new one.",
+    loginWhereTitle: "What account is this?",
+    loginWhereBody:
+      "The one created for you on this Hub — when it was claimed, or when you accepted an invitation. There is no default account.",
+    forgotTitle: "Forgot the password?",
+    forgotBody:
+      "On the Hub host, run this for the address you sign in with. It prints a new password:",
+    forgotCommand: "kin hub reset-password --email you@example.com",
     errors: {
       invalid_credentials: "Email or password is incorrect.",
       claim_code_invalid: "That claim code is not valid or has expired.",

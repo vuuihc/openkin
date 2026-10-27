@@ -581,18 +581,22 @@ export default function NewChatPage() {
         <div className="hidden text-strong font-semibold text-kin-text md:block">
           {tr("newChat.title")}
         </div>
+        {/* Both labels are user data (an agent name, a machine name) in a
+            single-line flex row. Without `min-w-0` a flex child refuses to
+            shrink below its content, so a long name runs past the right edge
+            and is clipped by `<main>` instead of ending in an ellipsis. */}
         {defaultAgent && (
-          <div className="text-body text-kin-muted">
+          <div className="min-w-0 truncate text-body text-kin-muted">
             {tr("newChat.hostAgent", { name: defaultAgent.name })}
           </div>
         )}
         {remote ? (
           <div
-            className="inline-flex items-center gap-1 text-body text-kin-secondary"
+            className="inline-flex min-w-0 items-center gap-1 text-body text-kin-secondary"
             title={tr("machine.remoteHint", { name: machineLabel })}
           >
-            <IconMachine size={12} />
-            {tr("machine.runsOn", { name: machineLabel })}
+            <IconMachine size={12} className="flex-none" />
+            <span className="truncate">{tr("machine.runsOn", { name: machineLabel })}</span>
           </div>
         ) : null}
         {remote ? (
