@@ -48,12 +48,19 @@ import {
   setDraftPrompt,
 } from "../lib/draftChat";
 import { useMachines } from "../hooks/useMachines";
-import { catalogFor, cwdAfterMachineChange, cwdSuggestions, findMachine } from "../lib/devices";
+import {
+  catalogFor,
+  cwdAfterMachineChange,
+  cwdOnMachine,
+  cwdSuggestions,
+  findMachine,
+} from "../lib/devices";
 import { projectLabel } from "../lib/paths";
 import {
   getDraftPermissionMode,
   normalizePermissionMode,
   PERMISSION_MODE_LABEL_KEY,
+  permissionModesForAgent,
   setDraftPermissionMode,
   type PermissionMode,
 } from "../lib/permissionMode";
@@ -279,6 +286,20 @@ export default function NewChatPage() {
   const mainAgentName = mainAgentMeta?.name ?? agentDisplayName(mainAgentId || "agent");
   const mainAgentAvatar = agentAvatarMeta(mainAgentId || "agent");
   const hints = mentionHints(availableIds, mainAgentId);
+  const allowedPermissionModes = permissionModesForAgent(mainAgentMeta, !remote);
+  // A fresh array every render: compare what it says, not its identity.
+  const allowedPermissionKey = allowedPermissionModes.join(",");
+
+  // A mode the chosen run cannot use is not a preference to keep: a node that
+  // was not started with --allow-yolo refuses the whole turn, so carrying the
+  // last mode over from another machine is how the first session fails before
+  // it starts. Clamp to what this machine advertises.
+  useEffect(() => {
+    if (!allowedPermissionModes.includes(permissionMode)) {
+      setPermissionMode("default");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the run's capability matters
+  }, [allowedPermissionKey, permissionMode]);
 
   // Drop model selection when host agent changes to one without that model.
   useEffect(() => {
@@ -288,6 +309,29 @@ export default function NewChatPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-check when host agent id changes
   }, [mainAgentId]);
+
+  // A directory that belongs to another machine — or to this one before a
+  // reload — is not a directory the chosen node will run in. Move it to that
+  // machine's first root instead of starting a turn the node is going to refuse.
+  //
+  // Once per machine, never per edit: while a path is being typed it passes
+  // through states the machine would refuse, and reconciling those would fight
+  // the keyboard and make the field impossible to clear.
+  const reconciledMachine = useRef("");
+  useEffect(() => {
+    if (!remote || !machine) {
+      // Re-arm: coming back to this machine must check the directory again.
+      reconciledMachine.current = "";
+      return;
+    }
+    if (reconciledMachine.current === machine.id) return;
+    reconciledMachine.current = machine.id;
+    const next = cwdOnMachine(cwd, machine);
+    if (next !== cwd) {
+      setCwd(next);
+      setDraftCwd(next);
+    }
+  }, [cwd, machine, remote]);
 
   function chooseMachine(id: string | null) {
     const chosen = id ?? "";
@@ -470,6 +514,7 @@ export default function NewChatPage() {
           <PermissionModePicker
             key={control}
             value={permissionMode}
+            modes={allowedPermissionModes}
             disabled={sending}
             compact
             onChange={(m) => {

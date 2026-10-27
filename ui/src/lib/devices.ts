@@ -1,5 +1,7 @@
 import type { AgentInfo, MachineInfo, MachineRepoBranches } from "../api/client";
 import { agentDisplayName } from "./agentMention";
+import { agentFamily, agentTransport, collapseAgentVariants } from "./agentFamilies";
+import { modelPickerLabel } from "./agentModels";
 
 /**
  * One machine the console can send work to.
@@ -24,9 +26,18 @@ export type Machine = {
 /** One agent runtime on one machine, as that machine reported it. */
 export type MachineAgent = {
   id: string;
+  name?: string;
+  kind?: string;
+  family?: string;
+  transport?: string;
   installed: boolean;
   available: boolean;
   reason?: string;
+  /** Models this machine offers, as ids. Empty means it decides. */
+  models?: string[];
+  defaultModel?: string;
+  /** Modes this machine will run a dispatched turn in. */
+  permissionModes?: string[];
   isDefault?: boolean;
 };
 
@@ -70,9 +81,16 @@ export function machineList(
       roots: d.workspace_roots ?? [],
       agents: (d.agents ?? []).map((a) => ({
         id: a.id,
+        name: a.name,
+        kind: a.kind,
+        family: a.family,
+        transport: a.transport,
         installed: a.installed,
         available: a.available,
         reason: a.reason,
+        models: a.models,
+        defaultModel: a.default_model,
+        permissionModes: a.permission_modes,
         isDefault: a.is_default,
       })),
     }))
@@ -170,6 +188,35 @@ export function cwdPickerMode(desktop: boolean, device: string | undefined): "na
  */
 export function machineRef(device: string | undefined): string {
   return isRemoteDevice(device) ? encodeURIComponent(device!.trim()) : "self";
+}
+
+/**
+ * A working directory the chosen machine will accept.
+ *
+ * The draft keeps the directory and the machine as two independent choices, so
+ * a directory suggested by one machine can outlive the switch to another — and
+ * a reload is the common case, where no machine-change event fires to reconcile
+ * them. A node refuses a turn whose cwd is not inside one of its roots, so the
+ * first session after that reload fails on a directory the user never chose for
+ * this machine. Moving it to the machine's first root is the same answer
+ * `cwdAfterMachineChange` gives during a live switch.
+ *
+ * A machine that declared no roots is left alone: there is nothing to check
+ * against, and guessing would replace a directory the machine may well accept.
+ */
+export function cwdOnMachine(cwd: string, machine: Machine | undefined): string {
+  if (!machine || machine.isSelf || machine.roots.length === 0) return cwd;
+  const path = cwd.trim();
+  if (!path) return machine.roots[0];
+  return machine.roots.some((root) => pathWithin(root, path)) ? cwd : machine.roots[0];
+}
+
+/** Lexical containment, which is as much as a console can check from afar. */
+function pathWithin(root: string, path: string): boolean {
+  const base = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!base) return false;
+  const target = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return target === base || target.startsWith(base + "/");
 }
 
 /**
@@ -322,21 +369,36 @@ export function cwdAfterMachineChange(current: string, before: string[], after: 
  * that machine reported — and nothing else, because that list is what the Hub
  * validates a dispatched agent against: offering an agent the target does not
  * have would turn a click into a rejected request.
+ *
+ * Both halves are collapsed to one entry per product. A machine that has both
+ * `claude-code` and `claude-acp` installable is one Claude Code, and the native
+ * adapter is the one to show: it is the implementation with a model list and
+ * the fuller event stream. The raw list is still what `/api/agents` and the
+ * Agents page show for diagnosis.
  */
 export function catalogFor(machine: Machine | undefined, localAgents: AgentInfo[]): AgentInfo[] {
-  if (!machine || machine.isSelf) return localAgents;
-  return machine.agents.map((a) => ({
-    id: a.id,
-    name: agentDisplayName(a.id),
-    kind: "cli",
-    capabilities: [],
-    installed: a.installed,
-    available: a.available,
-    default: Boolean(a.isDefault),
-    reason: a.reason,
-    model_list_source: "none",
-    model_list_status: "unavailable",
-  }));
+  if (!machine || machine.isSelf) return collapseAgentVariants(localAgents);
+  return collapseAgentVariants(
+    machine.agents.map((a) => {
+      const models = (a.models ?? []).map((id) => ({ id, label: modelPickerLabel({ id }) }));
+      return {
+        id: a.id,
+        name: a.name?.trim() || agentDisplayName(a.id),
+        kind: a.kind || "cli",
+        capabilities: [],
+        installed: a.installed,
+        available: a.available,
+        default: Boolean(a.isDefault),
+        reason: a.reason,
+        models,
+        model_list_source: models.length > 0 ? ("recommended" as const) : ("none" as const),
+        model_list_status: models.length > 0 ? ("available" as const) : ("default_only" as const),
+        family: agentFamily(a.id, a.family),
+        transport: agentTransport(a.id, a.transport),
+        permission_modes: a.permissionModes,
+      };
+    }),
+  );
 }
 
 /** The agent a fresh task on this machine would use when none is chosen. */

@@ -8,6 +8,8 @@ import { useT } from "../../i18n/react";
 
 type Props = {
   value: PermissionMode | string;
+  /** Modes to offer. Omitted means every mode; empty means none can run here. */
+  modes?: PermissionMode[];
   /** When true, mode is session-scoped (already created task) and cannot change. */
   locked?: boolean;
   disabled?: boolean;
@@ -27,6 +29,7 @@ const OPTIONS = PERMISSION_MODES;
  */
 export default function PermissionModePicker({
   value,
+  modes,
   locked,
   disabled,
   compact,
@@ -35,6 +38,7 @@ export default function PermissionModePicker({
   const tr = useT();
   const mode = normalizePermissionMode(value);
   const readOnly = locked || disabled;
+  const options = modes ? OPTIONS.filter((option) => modes.includes(option)) : OPTIONS;
 
   const labelKey = PERMISSION_MODE_LABEL_KEY;
   const hintKey = {
@@ -47,7 +51,10 @@ export default function PermissionModePicker({
     return (
       <select
         className={[
-          "max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
+          // flex-none for the same reason the model picker has it: the footer
+          // row is allowed to scroll sideways, but an item allowed to shrink is
+          // squeezed to a single clipped character first.
+          "flex-none max-w-[7.5rem] truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
           "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
           mode === "yolo" ? "text-kin-orange-ink" : "text-kin-secondary",
           readOnly ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
@@ -58,7 +65,7 @@ export default function PermissionModePicker({
         title={`${tr("permission.label")}: ${tr(labelKey[mode])}${locked ? ` · ${tr("permission.sessionLocked")}` : ""}`}
         onChange={(e) => onChange(e.target.value as PermissionMode)}
       >
-        {OPTIONS.map((opt) => (
+        {options.map((opt) => (
           <option key={opt} value={opt}>
             {tr(labelKey[opt])}
           </option>
@@ -79,7 +86,7 @@ export default function PermissionModePicker({
         aria-label={tr("permission.label")}
         title={tr(hintKey[mode])}
       >
-        {OPTIONS.map((opt) => {
+        {options.map((opt) => {
           const active = mode === opt;
           const yolo = opt === "yolo";
           return (

@@ -76,15 +76,20 @@ import { queuedMessageSeqs } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
-import { remoteMachine } from "../lib/devices";
+import { catalogFor, findMachine, remoteMachine } from "../lib/devices";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
+import { agentFamily } from "../lib/agentFamilies";
 import { projectLabel, toWorkspaceRelativePath } from "../lib/paths";
 import { isKinDesktop } from "../lib/desktop";
-import { normalizePermissionMode, type PermissionMode } from "../lib/permissionMode";
+import {
+  normalizePermissionMode,
+  permissionModesForAgent,
+  type PermissionMode,
+} from "../lib/permissionMode";
 import { clearFollowUpDraft, getFollowUpDraft, setFollowUpDraft } from "../lib/followUpDraft";
 import { clearSessionScroll, getSessionScroll, setSessionScroll } from "../lib/sessionScroll";
-import { modelsForAgent } from "../lib/agentModels";
+import { modelPickerLabel, modelsForAgent } from "../lib/agentModels";
 import { isPanelAvailable, panelForView, resolvePanel, type PanelContext } from "../lib/panels";
 import { useAppStore } from "../store/appStore";
 import { displayUserPrompt } from "../lib/attachments";
@@ -631,7 +636,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
       const currentPerm = normalizePermissionMode(task.permission_mode);
       const send: { model?: string; permission_mode?: string; interrupt?: boolean } = {};
       if (picked !== current) send.model = picked;
-      if (composerPermission !== currentPerm) send.permission_mode = composerPermission;
+      if (composerPermissionMode !== currentPerm) send.permission_mode = composerPermissionMode;
       if (opts?.interrupt) send.interrupt = true;
       const t = await followUpPrompt(task.id, text, Object.keys(send).length ? send : undefined);
       liveResources.applyTaskSnapshot(t, requestRevision);
@@ -940,8 +945,49 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
   const degraded = wsStatus !== "connected" && !terminal;
-  const hostAgentName =
-    agents.find((agent) => agent.id === task.agent)?.name ?? agentDisplayName(task.agent || "kin");
+  // The session's agent belongs to the machine that runs it, not to this one.
+  // Reading the local registry here was how a remote session's model list
+  // vanished and how a mode the remote node refuses stayed on offer.
+  const taskMachine = findMachine(machines, task.executing_device_id);
+  const taskAgents = catalogFor(taskMachine, agents);
+  // Only another machine's own report is authoritative here. This machine's
+  // entry in the machine list is a summary without models, so reading it would
+  // replace the local registry's model list with nothing.
+  const taskMachineAgent =
+    taskMachine && !taskMachine.isSelf
+      ? taskMachine.agents.find((agent) => agent.id === task.agent)
+      : undefined;
+  const taskAgentMeta =
+    taskAgents.find((agent) => agent.id === task.agent) ??
+    taskAgents.find(
+      (agent) => agent.family === agentFamily(task.agent || "", taskMachineAgent?.family),
+    );
+  const taskAgentModels = taskMachineAgent
+    ? (taskMachineAgent.models ?? []).map((id) => ({ id, label: modelPickerLabel({ id }) }))
+    : modelsForAgent(agents, task.agent || "");
+  const taskAgentModelSource = taskMachineAgent
+    ? taskAgentModels.length > 0
+      ? ("recommended" as const)
+      : ("none" as const)
+    : taskAgentMeta?.model_list_source;
+  const taskAgentModelStatus = taskMachineAgent
+    ? taskAgentModels.length > 0
+      ? ("available" as const)
+      : ("default_only" as const)
+    : taskAgentMeta?.model_list_status;
+  // Only a session with no other machine, or one whose id resolves to this
+  // machine, runs here. An id this console cannot see is *not* this machine:
+  // offering the bypassed mode for a machine that never advertised it is how a
+  // follow-up gets refused.
+  const taskRunsHere = !task.executing_device_id || taskMachine?.isSelf === true;
+  const taskPermissionModes = permissionModesForAgent(taskMachineAgent, taskRunsHere);
+  // A mode carried over from another session must not be sent to a machine that
+  // will refuse it. Showing and sending the clamped mode keeps the control and
+  // the request in agreement.
+  const composerPermissionMode = taskPermissionModes.includes(composerPermission)
+    ? composerPermission
+    : "default";
+  const hostAgentName = taskAgentMeta?.name ?? agentDisplayName(task.agent || "kin");
   const hostAgentAvatar = agentAvatarMeta(task.agent || "kin");
   const followUpDraft = getFollowUpDraft(task.id);
 
@@ -1222,7 +1268,8 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 long path next to a repository name did on a phone. */}
             <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll">
               <PermissionModePicker
-                value={composerPermission}
+                value={composerPermissionMode}
+                modes={taskPermissionModes}
                 disabled={sending || stopping}
                 compact
                 onChange={setComposerPermission}
@@ -1232,9 +1279,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               </span>
               <ModelPicker
                 value={composerModel}
-                models={modelsForAgent(agents, task.agent || "")}
-                source={agents.find((agent) => agent.id === task.agent)?.model_list_source}
-                status={agents.find((agent) => agent.id === task.agent)?.model_list_status}
+                models={taskAgentModels}
+                source={taskAgentModelSource}
+                status={taskAgentModelStatus}
                 disabled={sending || stopping}
                 compact
                 onChange={setComposerModel}

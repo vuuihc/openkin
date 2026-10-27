@@ -6,6 +6,7 @@ import {
   canRunTasks,
   catalogFor,
   cwdAfterMachineChange,
+  cwdOnMachine,
   cwdPickerMode,
   cwdSuggestions,
   defaultAgentOn,
@@ -241,10 +242,17 @@ describe("catalogFor", () => {
   const local: AgentInfo[] = [agent({ id: "kin", name: "Kin", default: true })];
   const machines = machineList([device()], SELF, local);
 
-  it("is the local registry for this machine", () => {
-    expect(catalogFor(machines[0], local)).toBe(local);
+  it("is the local registry for this machine, with one entry per product", () => {
+    expect(catalogFor(machines[0], local)).toEqual(local);
     // Before the machine list has loaded nothing is known: stay with local.
-    expect(catalogFor(undefined, local)).toBe(local);
+    expect(catalogFor(undefined, local)).toEqual(local);
+    // The native adapter and its ACP sibling are one product. Showing both is
+    // the choice this catalog exists to remove.
+    const both = [
+      agent({ id: "claude-acp", name: "Claude Code (ACP)", available: false }),
+      agent({ id: "claude-code", name: "Claude Code", available: true }),
+    ];
+    expect(catalogFor(undefined, both).map((a) => a.id)).toEqual(["claude-code"]);
   });
 
   it("is exactly what the other machine reported, named as elsewhere", () => {
@@ -260,8 +268,12 @@ describe("catalogFor", () => {
         available: true,
         default: true,
         reason: undefined,
+        models: [],
         model_list_source: "none",
-        model_list_status: "unavailable",
+        model_list_status: "default_only",
+        family: "codex",
+        transport: "native",
+        permission_modes: undefined,
       },
       {
         id: "grok",
@@ -272,10 +284,87 @@ describe("catalogFor", () => {
         available: false,
         default: false,
         reason: "not signed in",
+        models: [],
         model_list_source: "none",
-        model_list_status: "unavailable",
+        model_list_status: "default_only",
+        family: "grok",
+        transport: "native",
+        permission_modes: undefined,
       },
     ]);
+  });
+
+  it("carries the machine's own names, models and permission modes", () => {
+    const remote = machineList(
+      [
+        device({
+          agents: [
+            {
+              id: "claude-acp",
+              name: "Claude Code (ACP)",
+              family: "claude",
+              transport: "acp",
+              installed: true,
+              available: true,
+              is_default: true,
+              models: ["sonnet", "opus"],
+              permission_modes: ["default", "accept_edits"],
+            },
+          ],
+        }),
+      ],
+      SELF,
+      [],
+    )[1];
+    expect(catalogFor(remote, [])).toEqual([
+      expect.objectContaining({
+        id: "claude-acp",
+        name: "Claude Code (ACP)",
+        family: "claude",
+        transport: "acp",
+        models: [
+          { id: "sonnet", label: "sonnet" },
+          { id: "opus", label: "opus" },
+        ],
+        model_list_source: "recommended",
+        model_list_status: "available",
+        permission_modes: ["default", "accept_edits"],
+      }),
+    ]);
+  });
+});
+
+describe("cwdOnMachine", () => {
+  const machines = machineList([device()], SELF, []);
+  const self = machines[0];
+  const remote = machines[1];
+
+  it("keeps a directory that is inside one of the machine's roots", () => {
+    expect(cwdOnMachine("/code/kin", remote)).toBe("/code/kin");
+    expect(cwdOnMachine("/code/kin/apps/web", remote)).toBe("/code/kin/apps/web");
+    expect(cwdOnMachine("/code/kin/", remote)).toBe("/code/kin/");
+  });
+
+  it("moves a directory the machine would refuse to its first root", () => {
+    // The bug this closes: a local path persisted in the draft, a reload that
+    // restores a remote machine, and no change event to reconcile them — so the
+    // first turn is refused for a directory nobody meant to send there.
+    expect(cwdOnMachine("/Users/me/code", remote)).toBe("/code/kin");
+  });
+
+  it("does not mistake a sibling directory for a child", () => {
+    expect(cwdOnMachine("/code/kin2", remote)).toBe("/code/kin");
+  });
+
+  it("replaces an empty directory, because a turn needs one", () => {
+    expect(cwdOnMachine("  ", remote)).toBe("/code/kin");
+  });
+
+  it("leaves this machine, unknown machines and rootless machines alone", () => {
+    expect(cwdOnMachine("/Users/me/code", self)).toBe("/Users/me/code");
+    expect(cwdOnMachine("/Users/me/code", undefined)).toBe("/Users/me/code");
+    const rootless = machineList([device({ workspace_roots: [] })], SELF, [])[1];
+    expect(cwdOnMachine("/Users/me/code", rootless)).toBe("/Users/me/code");
   });
 });
 

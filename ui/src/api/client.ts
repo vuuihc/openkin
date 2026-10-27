@@ -406,6 +406,11 @@ export type AgentInfo = {
   models?: AgentModelOption[];
   model_list_source: "configured" | "discovered" | "recommended" | "none";
   model_list_status: "available" | "default_only" | "unavailable";
+  /** Product family and transport, when the source knows them. */
+  family?: string;
+  transport?: "native" | "acp" | "cli";
+  /** Modes a remote machine will run; absent for this machine. */
+  permission_modes?: string[];
 };
 
 export function listAgents(): Promise<AgentInfo[]> {
@@ -415,12 +420,20 @@ export function listAgents(): Promise<AgentInfo[]> {
 /** One agent runtime on one machine, as that machine itself reported it. */
 export type MachineAgentInfo = {
   id: string;
+  name?: string;
+  kind?: string;
+  /** Product family (`claude`, `codex`, …) so variants can be grouped. */
+  family?: string;
+  /** How the machine drives it: `native`, `acp`, or `cli`. */
+  transport?: string;
   installed: boolean;
   available: boolean;
   version?: string;
   reason?: string;
   default_model?: string;
   models?: string[];
+  /** Modes this machine will actually run a dispatched turn in. */
+  permission_modes?: string[];
   is_default?: boolean;
 };
 

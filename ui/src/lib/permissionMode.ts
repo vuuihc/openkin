@@ -44,3 +44,23 @@ export function setDraftPermissionMode(mode: PermissionMode): void {
     // ignore
   }
 }
+
+/**
+ * The modes a chosen run can actually use.
+ *
+ * Only a remote machine can refuse one: its node runs dispatched turns, and it
+ * refuses a mode whose adapter bypasses approvals unless it was started with
+ * `--allow-yolo`. The node now says which modes those are. A node too old to
+ * say — or an agent the console cannot identify on it — is offered the graded
+ * modes and not yolo: the same conservative answer the executor would give,
+ * moved to where the choice is made instead of surfacing as a failed session.
+ */
+export function permissionModesForAgent(
+  agent: { permission_modes?: string[]; permissionModes?: string[] } | undefined,
+  isSelf: boolean,
+): PermissionMode[] {
+  if (isSelf) return PERMISSION_MODES;
+  const advertised = agent?.permission_modes ?? agent?.permissionModes;
+  if (!advertised) return PERMISSION_MODES.filter((mode) => mode !== "yolo");
+  return PERMISSION_MODES.filter((mode) => advertised.includes(mode));
+}
