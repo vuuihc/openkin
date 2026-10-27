@@ -71,8 +71,10 @@ Kin 的原生适配器只做了三档——**但那是原生路径的问题；�
 | 模式 | 会话报出的 modes 能在 UI 里切，切完 agent 行为真的变 |
 | 模型 | 选定的模型就是那一轮实际用的 |
 | 取消 | 停止能停住，不留悬挂的权限请求 |
+| 子代理归属（只有 claude 那条有）| 子代理的话不混进主对话；它的工具调用挂在父调用下 |
 
-四个 agent × 七格 = 28 格，逐格记「通过 / 失败 / 该 agent 没有这一项」，并记下适配器版本号。
+四个 agent × 七格 = 28 格，外加只有 claude 有的那一格，逐格记
+「通过 / 失败 / 该 agent 没有这一项」，并记下适配器版本号。
 **矩阵本身就是这一轮的交付物。**
 
 ### A3 — 把协商结果端到 UI（按矩阵的红格做，不预先设计）
@@ -100,9 +102,14 @@ Kin 的原生适配器只做了三档——**但那是原生路径的问题；�
 - **claude 那条的权限语义由适配器决定**：Kin 原生那套 `--permission-prompt-tool` 不适用，
   审批卡的选项名可能与原生路径不同——按 Lody 的规矩办：**用 provider 原话，不改写选项名**
   （parity 引用的 `specs/permission-requests.md`）。
-- **子代理**：ACP 线上没有父子字段。先量 claude 那条在 ACP 流里到底出不出 `Task` 工具调用；
-  不出，「折叠可见」要么不做，要么只在原生 claude 路径上做（那条这轮不动）。这一格是矩阵
-  之外的加测，量完写回这里。
+- **子代理**：ACP 协议本身没有父子字段，但 **claude 那个适配器已经把父子关系送过来了**。
+  `@zed-industries/claude-agent-acp@0.23.1` 的 `dist/acp-agent.js` 给每条属于子代理的
+  `agent_message_chunk` / `tool_call(_update)` 加了 `_meta.claudeCode.parentToolUseId`
+  （ACP 的扩展字段），而且**不过滤**子代理消息。Kin 现在完全不读 `_meta`——`update.go` 的
+  `toolCall` / `contentChunk` 都没有这个字段——所以子代理的文本和工具调用是和主 agent
+  **平铺混在一起**的，看起来就像主 agent 自己说的。
+  这是 A2 之外的一格加测，也是 A3 的候选（读 `_meta` → 标 sidechain → 折叠到父调用下）。
+  其余三个 agent 未量：codex-acp 是原生二进制（没找到对应证据），droid / pi 还没看。
 - **认证**：ACP agent 自己认证（ADR 0022 D7），Kin 不路由 provider 凭据——
   四个 agent 各自的登录态得先在终端里弄好。
 
@@ -111,13 +118,14 @@ Kin 的原生适配器只做了三档——**但那是原生路径的问题；�
 - 不写四份 Kin 原生适配器（每个 agent 一份档位/flag 表）——ACP 已经在协商这件事。
 - 不删原生 `claude-code` / `codex` / `droid` 适配器（等 A1 矩阵绿了再说；
   真删的时候把 ACP 那条的 id 改成 `claude-code` 这类正式名字）。
-- 不做子代理折叠（先量后定，见 §3）。
+- 不做子代理折叠**之外的**任何扇出机制；折叠本身是 A3 的候选（数据已经在
+  `_meta.claudeCode.parentToolUseId` 里，见 §3）。
 - 不搬 Lody 的编排状态机（parity §1.3：本机 0 使用）。
 - 不碰 schema / 迁移（这轮没有存储改动）。
 
 ## 5. 验收
 
 1. `/api/agents` 里四个 ACP agent 都在；没装的会说明原因而不是消失。
-2. 28 格矩阵填满，红格有归属（A3 修掉 / 记为该 agent 没有 / 记为风险）。
+2. 28 格矩阵填满，外加子代理那一格，红格有归属（A3 修掉 / 记为该 agent 没有 / 记为风险）。
 3. 手机上一轮真实任务走完（发起 → 批准 → 看 diff），四个 agent 至少各一次。
 4. `go test ./internal/adapter/acp/... ./internal/server/...` 与 `cd ui && npm run build` 绿。
