@@ -31,14 +31,36 @@ if [ ! -d "$MIRROR" ]; then
   git clone --quiet --mirror https://github.com/ionic-team/capacitor-swift-pm.git "$MIRROR"
 fi
 
+# Two flags, both about resolving Capacitor's Swift package without a human:
+#
+#   -scmProvider system
+#     Xcode 26's own SCM provider can stop at "Resolve Package Graph" /
+#     "Checking out 8.5.3" and never return — no error, no timeout, no child
+#     process — when git is wrapped by a credential helper or a proxy.
+#
+#   -packageAuthorizationProvider netrc (Xcode 16 and later)
+#     Without a named credential store, resolution goes through the keychain,
+#     and a non-interactive shell can never answer the authorization prompt:
+#     the same silent wait. `netrc` only changes where credentials come from —
+#     it never prompts. The mirror seeding above is what serves a machine that
+#     cannot reach GitHub at all. With no ~/.netrc the public
+#     capacitor-swift-pm still resolves anonymously; a private dependency
+#     would need an entry there.
+#
+# Both belong to the same class as the mirror seeding above: package
+# resolution that assumes someone is sitting at the machine.
 if [ "$DESTINATION" = "device" ]; then
   xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
     -destination 'generic/platform=iOS' -allowProvisioningUpdates \
     -derivedDataPath "$DERIVED" \
-    -clonedSourcePackagesDirPath "$PACKAGES" -packageCachePath "$CACHE" build
+    -clonedSourcePackagesDirPath "$PACKAGES" -packageCachePath "$CACHE" \
+    -scmProvider system \
+    -packageAuthorizationProvider netrc build
 else
   xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
     -sdk iphonesimulator \
     -derivedDataPath "$DERIVED" \
-    -clonedSourcePackagesDirPath "$PACKAGES" -packageCachePath "$CACHE" build
+    -clonedSourcePackagesDirPath "$PACKAGES" -packageCachePath "$CACHE" \
+    -scmProvider system \
+    -packageAuthorizationProvider netrc build
 fi

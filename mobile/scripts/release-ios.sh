@@ -62,11 +62,16 @@ fi
 
 rm -rf "$ARCHIVE"
 echo "==> archiving"
+# `-scmProvider system` and `-packageAuthorizationProvider netrc`: see the note
+# in build-ios.sh. Without the second one the archive waits on a keychain
+# prompt a headless shell cannot answer, and the wait looks identical.
 xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath "$ARCHIVE" \
   -derivedDataPath "$DERIVED" \
   -clonedSourcePackagesDirPath "$PACKAGES" -packageCachePath "$CACHE" \
+  -scmProvider system \
+  -packageAuthorizationProvider netrc \
   CURRENT_PROJECT_VERSION="$BUILD_NUMBER" MARKETING_VERSION="$MARKETING_VERSION" \
   -allowProvisioningUpdates \
   archive
