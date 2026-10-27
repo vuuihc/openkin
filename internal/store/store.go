@@ -46,7 +46,15 @@ func Open(path string) (*Store, error) {
 	// SQLite allows one writer; serialize via a single connection.
 	db.SetMaxOpenConns(1)
 	// Single-writer friendly settings for a local daemon.
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;`); err != nil {
+	//
+	// `busy_timeout` is what makes a second *process* viable: the operator
+	// commands (`kin hub reset-password`, `kin hub invite`) open this same file
+	// while the daemon is running and writing. Without a timeout the loser of
+	// every collision fails immediately with "database is locked" -- on the
+	// commands whose whole job is to work when the normal path does not. The
+	// writes here are small, so waiting is short; five seconds is far past the
+	// longest one and still ends a genuine deadlock instead of hanging.
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("pragma: %w", err)
 	}

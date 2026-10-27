@@ -405,3 +405,67 @@ func TestListTasksOrderByActivityIncludesOlderResumedTaskInsideLimit(t *testing.
 		t.Fatalf("activity order first id=%q want old resumed task", got[0].ID)
 	}
 }
+
+// `kin hub reset-password` and `kin hub invite` run as a second process against
+// a database the daemon already has open. SQLite allows one writer, so without
+// a busy timeout the loser of every collision fails instantly with "database is
+// locked" -- on the commands whose entire job is to work when the normal path
+// does not. Opening both handles first also proves migrations on the second one
+// do not deadlock against an in-flight write.
+func TestSecondProcessWaitsForTheWriteLock(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+
+	daemon, err := Open(path)
+	if err != nil {
+		t.Fatalf("open daemon: %v", err)
+	}
+	defer func() { _ = daemon.Close() }()
+	cli, err := Open(path)
+	if err != nil {
+		t.Fatalf("open cli: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+
+	if _, err := daemon.DB().ExecContext(ctx, `CREATE TABLE lock_probe (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatalf("create probe table: %v", err)
+	}
+
+	// The daemon starts a write and has not committed it yet.
+	tx, err := daemon.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO lock_probe (id) VALUES (1)`); err != nil {
+		t.Fatalf("insert inside the transaction: %v", err)
+	}
+
+	// The CLI writes while the lock is held.
+	done := make(chan error, 1)
+	go func() {
+		_, err := cli.DB().ExecContext(ctx, `INSERT INTO lock_probe (id) VALUES (2)`)
+		done <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond) // let the second writer reach the lock
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("the second writer failed instead of waiting: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second writer never returned")
+	}
+
+	var n int
+	if err := cli.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM lock_probe`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("rows after both writes = %d, want 2", n)
+	}
+}
