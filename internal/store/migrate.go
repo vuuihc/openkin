@@ -2342,6 +2342,9 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureSessionRefProvenanceSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureIdentityRoleSchema(); err != nil {
+		return err
+	}
 	if err := s.ensureInviteSchema(); err != nil {
 		return err
 	}
@@ -2423,6 +2426,76 @@ func (s *Store) ensureSessionRefProvenanceSchema() error {
 	}
 	if _, err := s.db.Exec(`ALTER TABLE tasks ADD COLUMN session_ref_device_id TEXT`); err != nil {
 		return fmt.Errorf("add tasks.session_ref_device_id: %w", err)
+	}
+	return nil
+}
+
+// ensureIdentityRoleSchema adds `users.role` to a database whose account table
+// was created before authority was a role.
+//
+// The identity tables shipped without the column: a Hub refused every account
+// after the first claim, so "signed in" and "the owner" were the same set and
+// nothing had to record which account that was. 0987367 moved authority onto
+// the account and put the column in the base schema only -- its message says
+// the trade expires as soon as real data exists. It did: a Hub claimed by the
+// earlier build kept its table, `CREATE TABLE IF NOT EXISTS` did nothing, and
+// every account read then failed with "no such column: role". That is the login
+// path (`UserByIdentity`), so such a Hub could not sign anyone in, and the
+// operator command could not even list who was there.
+//
+// The repaired table gets its owner back. An account table without the column
+// predates invitations, so the only account it can hold is the one that claimed
+// the Hub, and that account is the owner. Two or more accounts is not a shape
+// that build could produce, so the update declines to guess in that case rather
+// than hand the daemon to the earliest row.
+func (s *Store) ensureIdentityRoleSchema() error {
+	present, err := s.tableExists("users")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'role'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect users.role: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin users.role repair: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Take the write lock before deciding, not after. The daemon and an operator
+	// command can open this database at the same moment; two deferred
+	// transactions would both read "no role" outside the lock and both try to
+	// add it, and the loser would fail on a column that is already there. A
+	// zero-row update is enough to make the second read authoritative.
+	if _, err := tx.Exec(`UPDATE users SET id = id WHERE 0`); err != nil {
+		return fmt.Errorf("lock users for the role repair: %w", err)
+	}
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'role'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect users.role under the lock: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member'`); err != nil {
+		return fmt.Errorf("add users.role: %w", err)
+	}
+	if _, err := tx.Exec(`
+		UPDATE users SET role = ?
+		 WHERE (SELECT COUNT(*) FROM users) = 1`, RoleOwner); err != nil {
+		return fmt.Errorf("restore the claiming account's role: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit users.role repair: %w", err)
 	}
 	return nil
 }

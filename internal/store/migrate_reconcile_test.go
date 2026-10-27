@@ -6,6 +6,173 @@ import (
 	"testing"
 )
 
+// The identity tables shipped without a role on the account, and the column
+// went into the base schema rather than a migration step. A Hub claimed by the
+// earlier build is therefore at the current version with an account table that
+// has no role -- and every account read fails with "no such column", starting
+// with the login path.
+func TestAnAccountTableFromBeforeTheRoleColumnIsRepairedOnOpen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateUserWithIdentity(ctx,
+		User{ID: "user-claimer", Email: "owner@example.com", Role: RoleOwner, CreatedAt: 1},
+		UserIdentity{ID: "identity-1", UserID: "user-claimer", Provider: ProviderPassword,
+			Subject: "owner@example.com", SecretHash: "hash", CreatedAt: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	// Hand the table back the shape it had before the column existed: the
+	// account, its credential, and version 39 stay; only the role goes away.
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE users DROP COLUMN role`); err != nil {
+		t.Fatalf("simulate a pre-role database: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen a database whose account table has no role: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	// The login path is the read the missing column broke.
+	user, _, err := reopened.UserByIdentity(ctx, ProviderPassword, "owner@example.com")
+	if err != nil {
+		t.Fatalf("the repaired account cannot be read: %v", err)
+	}
+	if user.Role != RoleOwner {
+		t.Fatalf("role after the repair = %q, want the claiming account to keep %q", user.Role, RoleOwner)
+	}
+	// And the operator command that could not list anyone.
+	users, err := reopened.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("the repaired account table cannot be listed: %v", err)
+	}
+	if len(users) != 1 || users[0].ID != "user-claimer" || users[0].Role != RoleOwner {
+		t.Fatalf("accounts after the repair = %+v, want the claimer as owner", users)
+	}
+}
+
+// An empty account table is repaired the same way and invents no owner: an
+// unclaimed Hub must still offer itself for claiming.
+func TestAnEmptyAccountTableFromBeforeTheRoleColumnGetsNoOwner(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE users DROP COLUMN role`); err != nil {
+		t.Fatalf("simulate a pre-role database: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen an empty database whose account table has no role: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	users, err := reopened.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("the repaired account table cannot be listed: %v", err)
+	}
+	if len(users) != 0 {
+		t.Fatalf("accounts after the repair = %+v, want none", users)
+	}
+	if n, err := reopened.CountUsers(ctx); err != nil || n != 0 {
+		t.Fatalf("CountUsers = %d, %v; want 0 so the Hub stays claimable", n, err)
+	}
+}
+
+// The repair must not touch a database that already records roles: the account
+// that registered as a member is a member afterwards.
+func TestTheRoleRepairLeavesAnExistingMemberAlone(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateUserWithIdentity(ctx,
+		User{ID: "user-member", Email: "member@example.com", Role: RoleMember, CreatedAt: 1},
+		UserIdentity{ID: "identity-1", UserID: "user-member", Provider: ProviderPassword,
+			Subject: "member@example.com", SecretHash: "hash", CreatedAt: 1},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	user, _, err := reopened.UserByIdentity(ctx, ProviderPassword, "member@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Role != RoleMember {
+		t.Fatalf("role after a reopen = %q, want %q left alone", user.Role, RoleMember)
+	}
+}
+
+// Two accounts in a pre-role table is not a shape the old build could produce,
+// so the repair declines to pick one: everyone stays a member, which fails
+// closed, instead of the earliest row quietly inheriting the daemon.
+func TestTheRoleRepairDoesNotChooseBetweenTwoAccounts(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kin.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"user-a", "user-b"} {
+		if err := s.CreateUserWithIdentity(ctx,
+			User{ID: id, Email: id + "@example.com", Role: RoleMember, CreatedAt: 1},
+			UserIdentity{ID: "identity-" + id, UserID: id, Provider: ProviderPassword,
+				Subject: id + "@example.com", SecretHash: "hash", CreatedAt: 1},
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE users DROP COLUMN role`); err != nil {
+		t.Fatalf("simulate a pre-role database: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen a two-account database whose table has no role: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	users, err := reopened.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("the repaired account table cannot be listed: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("accounts after the repair = %+v, want both kept", users)
+	}
+	for _, user := range users {
+		if user.Role != RoleMember {
+			t.Fatalf("account %s came out %q; the repair must not pick an owner", user.ID, user.Role)
+		}
+	}
+}
+
 // The version stamp alone does not describe the table. Version 39 was stamped once
 // before `user_seq` existed on it, so a database can be current and still lack the
 // column -- and then every queue read fails with "no such column", including the
