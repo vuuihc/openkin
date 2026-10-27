@@ -193,6 +193,52 @@ func (s *Store) TouchIdentity(ctx context.Context, id string, now int64) error {
 	return nil
 }
 
+// ReplacePasswordAndEndSessions swaps one password credential and ends every
+// session that account holds, in one transaction.
+//
+// The two writes are one act. Landing the new hash but failing to end the
+// sessions leaves the retired credential working; ending the sessions but
+// failing to land the hash leaves an account whose password nobody knows. Both
+// halves under one commit mean the CLI can print the new password only after
+// the reset is real, and that a contention failure is a failure the operator
+// sees and retries rather than a half-applied one.
+//
+// It takes the identity and its account together so a mismatched pair updates
+// nothing. The old secret is not required: whoever runs this already holds the
+// database.
+func (s *Store) ReplacePasswordAndEndSessions(ctx context.Context, identityID, userID, secret string) error {
+	if strings.TrimSpace(identityID) == "" || strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("invalid password reset")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin password reset: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE user_identities SET secret_hash = ? WHERE id = ? AND user_id = ?`,
+		secret, identityID, userID)
+	if err != nil {
+		return fmt.Errorf("set identity secret: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set identity secret: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM auth_sessions WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("end auth sessions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit password reset: %w", err)
+	}
+	return nil
+}
+
 // MarkEmailVerified records that a provider has since verified the account's
 // address, and which provider vouched for it. It deliberately cannot change the
 // address itself: the account's email is not a key, and rewriting it from a
@@ -213,6 +259,31 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("count users: %w", err)
 	}
 	return n, nil
+}
+
+// ListUsers returns every account, oldest first. It exists for the operator's
+// command line, not for an HTTP surface: the Hub deliberately has no user
+// directory, and a member must not be able to enumerate the other accounts.
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, email, email_verified, email_source, display_name, role, created_at, disabled_at
+		FROM users ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	return users, nil
 }
 
 // CreateAuthSession stores a browser session by token hash.
@@ -472,7 +543,7 @@ func (s *Store) HasActiveBootstrapToken(ctx context.Context, now int64) (bool, e
 	return n > 0, nil
 }
 
-func scanUser(row *sql.Row) (User, error) {
+func scanUser(row rowScanner) (User, error) {
 	var user User
 	var verified int
 	var disabled sql.NullInt64

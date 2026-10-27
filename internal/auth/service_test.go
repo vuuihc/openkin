@@ -371,3 +371,103 @@ func claimOwner(t *testing.T, svc *Service, st *store.Store, email, password str
 	}
 	return session.User
 }
+
+func TestResetPassword(t *testing.T) {
+	svc, st := newTestService(t)
+	ctx := context.Background()
+	claimOwner(t, svc, st, "Owner@Example.com", "original-password")
+
+	session, err := svc.LoginPassword(ctx, "owner@example.com", "original-password", SessionMeta{})
+	if err != nil {
+		t.Fatalf("login before reset: %v", err)
+	}
+
+	t.Run("replaces the credential and ends live sessions", func(t *testing.T) {
+		user, err := svc.ResetPassword(ctx, "  Owner@EXAMPLE.com  ", "replacement-password")
+		if err != nil {
+			t.Fatalf("reset: %v", err)
+		}
+		if user.Email != "owner@example.com" {
+			t.Fatalf("email = %q, want the normalized owner@example.com", user.Email)
+		}
+
+		if _, err := svc.LoginPassword(ctx, "owner@example.com", "original-password", SessionMeta{}); !errors.Is(err, ErrInvalidCredentials) {
+			t.Fatalf("old password after reset = %v, want ErrInvalidCredentials", err)
+		}
+		if _, err := svc.LoginPassword(ctx, "owner@example.com", "replacement-password", SessionMeta{}); err != nil {
+			t.Fatalf("new password after reset: %v", err)
+		}
+		// The session was opened with the retired credential, so it goes too.
+		if _, err := svc.Authenticate(ctx, session.Token); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("session after reset = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("refuses an unknown address without creating an account", func(t *testing.T) {
+		if _, err := svc.ResetPassword(ctx, "nobody@example.com", "replacement-password"); !errors.Is(err, ErrAccountNotFound) {
+			t.Fatalf("unknown address = %v, want ErrAccountNotFound", err)
+		}
+		users, err := st.ListUsers(ctx)
+		if err != nil {
+			t.Fatalf("list users: %v", err)
+		}
+		if len(users) != 1 {
+			t.Fatalf("users after failed reset = %d, want 1", len(users))
+		}
+	})
+
+	t.Run("refuses a short password", func(t *testing.T) {
+		if _, err := svc.ResetPassword(ctx, "owner@example.com", "short"); !errors.Is(err, ErrWeakPassword) {
+			t.Fatalf("short password = %v, want ErrWeakPassword", err)
+		}
+	})
+
+	// A federated account has no password to replace. Minting one here would
+	// quietly add a credential the owner of that identity never asked for, so
+	// the command says the account does not exist rather than doing something
+	// surprising to it.
+	t.Run("refuses an account with no password identity", func(t *testing.T) {
+		user := store.User{ID: "01FEDERATEDUSER000000000000", Email: "fed@example.com", CreatedAt: 1}
+		if err := st.CreateUserWithIdentity(ctx, user, store.UserIdentity{
+			ID: "01FEDERATEDIDENTITY0000000", UserID: user.ID,
+			Provider: "oidc:https://id.example.com", Subject: "subject-1",
+			CreatedAt: 1,
+		}); err != nil {
+			t.Fatalf("create federated account: %v", err)
+		}
+		if _, err := svc.ResetPassword(ctx, "fed@example.com", "replacement-password"); !errors.Is(err, ErrAccountNotFound) {
+			t.Fatalf("federated account = %v, want ErrAccountNotFound", err)
+		}
+		if _, _, err := st.UserByIdentity(ctx, store.ProviderPassword, "fed@example.com"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("a password identity was created anyway: %v", err)
+		}
+	})
+}
+
+func TestNewPasswordIsGroupedAndUnambiguous(t *testing.T) {
+	password, err := NewPassword()
+	if err != nil {
+		t.Fatalf("generate password: %v", err)
+	}
+	if len(password) != 23 {
+		t.Fatalf("password %q is %d chars, want 23 (four groups of five plus separators)", password, len(password))
+	}
+	for i, r := range password {
+		if (i+1)%6 == 0 {
+			if r != '-' {
+				t.Fatalf("password %q has %q at separator position %d", password, r, i)
+			}
+			continue
+		}
+		if !strings.ContainsRune(bootstrapAlphabet, r) {
+			t.Fatalf("password %q contains %q, which is not in the unambiguous alphabet", password, r)
+		}
+	}
+	other, err := NewPassword()
+	if err != nil {
+		t.Fatalf("generate second password: %v", err)
+	}
+	if password == other {
+		t.Fatal("two generated passwords are identical")
+	}
+}

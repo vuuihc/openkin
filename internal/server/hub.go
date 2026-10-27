@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -146,6 +147,161 @@ func RunHubClaimCode() error {
 	}
 	printNewBootstrapCode(ctx, accounts)
 	return nil
+}
+
+// RunHubAccounts implements `kin hub accounts`, which answers the one question a
+// locked-out operator actually has: which address do I sign in with?
+//
+// The Hub has no user directory over the network on purpose — a member must not
+// be able to enumerate the others — so the operator's shell is the only place
+// this list may appear.
+func RunHubAccounts() error {
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(stateDir, "kin.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	users, err := st.ListUsers(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		fmt.Println("This hub has no accounts yet; claim it with `kin hub claim-code`.")
+		return nil
+	}
+	fmt.Println()
+	fmt.Println("  Accounts on this hub, by sign-in address:")
+	for _, user := range users {
+		line := fmt.Sprintf("  %-6s  %s", user.Role, printable(user.Email, accountEmailMax))
+		if user.DisplayName != "" && user.DisplayName != user.Email {
+			line += fmt.Sprintf("  (%s)", printable(user.DisplayName, accountNameMax))
+		}
+		if user.DisabledAt != nil {
+			line += "  [disabled]"
+		}
+		fmt.Println(line)
+	}
+	fmt.Println()
+	return nil
+}
+
+// How much of an account's own text is worth printing. An address longer than
+// the RFC limit is not a recoverable typo, and a display name is the one field
+// an invited stranger writes: long enough to be a sentence, not long enough to
+// bury the rest of the list.
+const (
+	accountEmailMax = 254
+	accountNameMax  = 60
+)
+
+// printable makes a stored string safe to put in a terminal.
+//
+// Both halves of an account are user-supplied — a display name arrives from a
+// join form — and neither is validated for characters. Terminals act on control
+// characters, so a name carrying ESC can write the clipboard (OSC 52), retitle
+// the window, or forge output on the line below. Dropping them loses nothing a
+// reader could see, and cutting the value short means one account cannot flood
+// the shell it is being listed in.
+func printable(s string, max int) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == '\t':
+			b.WriteRune(' ')
+		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f, invisible(r):
+			// A character the terminal obeys and a person cannot read.
+		default:
+			b.WriteRune(r)
+		}
+	}
+	out := []rune(b.String())
+	if len(out) > max {
+		return string(out[:max-1]) + "…"
+	}
+	return string(out)
+}
+
+// invisible reports the characters that reorder or hide text without drawing
+// anything: bidi embeddings, overrides and isolates, the direction marks, and
+// the zero-width space and BOM.
+//
+// Stripping ESC is not enough on its own. A right-to-left override in a display
+// name reverses whatever follows it on the same line, so a member could name
+// themselves such that `kin hub accounts` renders another account's address, or
+// hides the `[disabled]` marker, while the stored bytes look harmless. Unlike
+// ZWJ and ZWNJ, which some scripts need to spell words and emoji need to join,
+// nothing in a name needs these.
+func invisible(r rune) bool {
+	return r == 0x061c || // ARABIC LETTER MARK
+		r == 0x200b || // ZERO WIDTH SPACE
+		r == 0x200e || r == 0x200f || // LEFT-TO-RIGHT MARK, RIGHT-TO-LEFT MARK
+		r >= 0x202a && r <= 0x202e || // LRE, RLE, PDF, LRO, RLO
+		r >= 0x2066 && r <= 0x2069 || // LRI, RLI, FSI, PDI
+		r == 0xfeff // ZERO WIDTH NO-BREAK SPACE
+}
+
+// RunHubResetPassword implements `kin hub reset-password`, the recovery path
+// ADR 0022 promised: a command run where the database already lives, rather
+// than an emailed link.
+//
+// It generates the new password instead of taking one as a flag. A password on
+// a command line is a password in shell history and in `ps`, and the operator
+// has to read this one off the terminal and type it into a phone anyway.
+func RunHubResetPassword(email string) error {
+	if strings.TrimSpace(email) == "" {
+		return fmt.Errorf("usage: kin hub reset-password --email EMAIL")
+	}
+	stateDir, err := remote.StateDir()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(stateDir, "kin.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	password, err := authsvc.NewPassword()
+	if err != nil {
+		return err
+	}
+	accounts := authsvc.New(st, authsvc.Config{})
+	user, err := accounts.ResetPassword(context.Background(), email, password)
+	if err != nil {
+		if errors.Is(err, authsvc.ErrAccountNotFound) {
+			// A typo is the likely cause, and the answer is right here.
+			_ = RunHubAccounts()
+		}
+		return err
+	}
+	printNewPassword(user.Email, password)
+	return nil
+}
+
+// printNewPassword shows the generated password once, in the same box the claim
+// code uses, because the next thing that happens is typing it into a phone.
+//
+// The address is printed above the box, not inside it. It is user-supplied text
+// in whatever script the account was named in, and the box's right border only
+// lines up if every cell is one column wide — a CJK address is two terminal
+// columns per rune, so inside the box the last border shifts and wraps. Keeping
+// it out makes the alignment independent of the text; it is still sanitized,
+// because it is still on its way to a terminal.
+func printNewPassword(email, password string) {
+	fmt.Println()
+	fmt.Printf("  New password for %s\n", printable(email, accountEmailMax))
+	fmt.Println()
+	fmt.Println("  ┌─────────────────────────────────────────────────────────┐")
+	fmt.Printf("  │      %-51s│\n", password)
+	fmt.Println("  │                                                         │")
+	fmt.Println("  │  Shown once. Every browser session was signed out.      │")
+	fmt.Println("  └─────────────────────────────────────────────────────────┘")
+	fmt.Println()
 }
 
 // RunHubInvite implements `kin hub invite`, which mints a one-time invitation
