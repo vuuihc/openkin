@@ -34,6 +34,7 @@ const (
 	methodSessionLoad      = "session/load"
 	methodSessionPrompt    = "session/prompt"
 	methodSessionCancel    = "session/cancel" // notification, no response
+	methodSessionSetMode   = "session/set_mode"
 	methodSetConfigOption  = "session/set_config_option"
 	methodSessionUpdate    = "session/update" // notification, agent → client
 	methodRequestPerm      = "session/request_permission"
@@ -41,6 +42,7 @@ const (
 	methodInvalidParams    = -32602
 	methodInternalError    = -32603
 	configCategoryModel    = "model"
+	configCategoryMode     = "mode"
 	permissionKindAllowOne = "allow_once"
 	permissionKindAllowAll = "allow_always"
 	permissionKindReject1  = "reject_once"
@@ -104,9 +106,17 @@ type initializeParams struct {
 type clientCapabilities struct{}
 
 type implementation struct {
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
+	Name string `json:"name"`
+	// Version is required by the protocol and enforced by some agents: the
+	// claude adapter answers a versionless `initialize` with -32602. Sent even
+	// when this build knows nothing better than a default.
+	Version string `json:"version"`
 }
+
+// clientVersionFallback is what a client that was never told its own version
+// reports. The field is required; a placeholder is more honest than omitting it
+// and having the agent refuse the handshake.
+const clientVersionFallback = "0.0.0-dev"
 
 // initializeResult is the agent's half of the handshake.
 type initializeResult struct {
@@ -134,13 +144,127 @@ type loadSessionParams struct {
 
 // sessionResult is what `session/new` and `session/load` both answer with.
 //
-// The schema's `modes` is deliberately not decoded: Kin does not act on a mode
-// id, and a session whose only model selector is a mode is reported as "this
-// agent does not offer a model setting" rather than silently run on a model the
-// user did not choose (see applyModel).
+// `modes` is the agent's own permission ladder. Kin does not invent one: it
+// reads the ids the agent offers and picks the one its own mode means (see
+// handle.applyMode). `models` carries the same list as the model config
+// option on newer agents and is deliberately not decoded — configOptions is the
+// field the set_config_option path already uses, and two sources for one list
+// is how they drift apart.
 type sessionResult struct {
 	SessionID     string              `json:"sessionId"`
 	ConfigOptions []sessionConfigItem `json:"configOptions"`
+	Modes         *sessionModes       `json:"modes"`
+}
+
+// sessionModes is the session's permission-mode selector.
+type sessionModes struct {
+	CurrentModeID  string        `json:"currentModeId"`
+	AvailableModes []sessionMode `json:"availableModes"`
+}
+
+type sessionMode struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// modeOffered reports whether the agent listed this mode id.
+func (s sessionResult) modeOffered(id string) bool {
+	if s.Modes == nil {
+		return false
+	}
+	for _, mode := range s.Modes.AvailableModes {
+		if mode.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// modeIDs lists the offered mode ids, for a notice that has to say what the
+// agent would accept instead of the mode Kin could not find.
+func (s sessionResult) modeIDs() []string {
+	if s.Modes == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.Modes.AvailableModes))
+	for _, mode := range s.Modes.AvailableModes {
+		out = append(out, mode.ID)
+	}
+	return out
+}
+
+// hasModeLadder reports whether the agent published a `modes` ladder.
+func (s sessionResult) hasModeLadder() bool {
+	return s.Modes != nil && len(s.Modes.AvailableModes) > 0
+}
+
+// publishesModes reports whether the agent published a permission ladder in
+// either shape the protocol offers: `modes`, or a config option whose category
+// is "mode". An agent that publishes one and does not offer Kin's rung has
+// renamed or dropped it, and Kin refuses to run rather than guess what its
+// current rung does.
+func (s sessionResult) publishesModes() bool {
+	return s.hasModeLadder() || s.modeConfigID() != ""
+}
+
+// modeChoicesText names the rungs the agent offered, in whichever shape it
+// published them, including the case where it listed none.
+func (s sessionResult) modeChoicesText() string {
+	if ids := s.modeIDs(); len(ids) > 0 {
+		return strings.Join(ids, ", ")
+	}
+	if id := s.modeConfigID(); id != "" {
+		if item, ok := s.configItem(id); ok {
+			values := make([]string, 0, len(item.SelectOptions))
+			for _, option := range item.SelectOptions {
+				values = append(values, option.Value)
+			}
+			if len(values) > 0 {
+				return strings.Join(values, ", ")
+			}
+		}
+	}
+	return "none listed"
+}
+
+// modeConfigID returns the id of a config option that selects the mode, for an
+// agent that exposes its ladder through configOptions instead of `modes`.
+func (s sessionResult) modeConfigID() string {
+	for _, item := range s.ConfigOptions {
+		if strings.EqualFold(strings.TrimSpace(item.Category), configCategoryMode) {
+			return strings.TrimSpace(item.ID)
+		}
+	}
+	return ""
+}
+
+// configItem returns the config option with that id.
+func (s sessionResult) configItem(id string) (sessionConfigItem, bool) {
+	for _, item := range s.ConfigOptions {
+		if item.ID == id {
+			return item, true
+		}
+	}
+	return sessionConfigItem{}, false
+}
+
+// configOffers reports whether the config option with that id lists the value.
+func (s sessionResult) configOffers(id, value string) bool {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(value) == "" {
+		return false
+	}
+	for _, item := range s.ConfigOptions {
+		if item.ID != id {
+			continue
+		}
+		for _, option := range item.SelectOptions {
+			if option.Value == value {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sessionConfigItem is one entry of `configOptions`. Only the fields Kin acts
@@ -153,8 +277,9 @@ type sessionConfigItem struct {
 	CurrentValue  string `json:"currentValue"`
 	Description   string `json:"description"`
 	SelectOptions []struct {
-		Value string `json:"value"`
-		Name  string `json:"name"`
+		Value       string `json:"value"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
 	} `json:"options"`
 }
 
@@ -191,6 +316,11 @@ type setConfigOptionParams struct {
 	SessionID string `json:"sessionId"`
 	ConfigID  string `json:"configId"`
 	Value     string `json:"value"`
+}
+
+type setModeParams struct {
+	SessionID string `json:"sessionId"`
+	ModeID    string `json:"modeId"`
 }
 
 type promptParams struct {

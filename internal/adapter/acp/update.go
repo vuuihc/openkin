@@ -65,6 +65,11 @@ type contentBlock struct {
 type contentChunk struct {
 	Content   contentBlock `json:"content"`
 	MessageID string       `json:"messageId"`
+	// Meta is the protocol's extension field. Kin only reads one thing out of
+	// it: the claude adapter marks every chunk a subagent produced with
+	// `claudeCode.parentToolUseId`, and without it a subagent's narration reads
+	// as the main agent's own.
+	Meta json.RawMessage `json:"_meta"`
 }
 
 type toolCall struct {
@@ -75,10 +80,46 @@ type toolCall struct {
 	RawInput   json.RawMessage `json:"rawInput"`
 	RawOutput  json.RawMessage `json:"rawOutput"`
 	Content    []toolContent   `json:"content"`
+	Meta       json.RawMessage `json:"_meta"`
 	Locations  []struct {
 		Path string `json:"path"`
 		Line *int   `json:"line"`
 	} `json:"locations"`
+}
+
+// claudeMeta is the part of `_meta` the claude adapter fills in: the tool's own
+// name, and — for work a subagent did — the call that spawned it.
+type claudeMeta struct {
+	ToolName        string `json:"toolName"`
+	ParentToolUseID string `json:"parentToolUseId"`
+}
+
+// claudeMetaOf reads the extension fields Kin has measured. Any other shape of
+// `_meta` is ignored: an extension Kin has not measured is not one it should
+// guess at.
+func claudeMetaOf(meta json.RawMessage) claudeMeta {
+	if len(meta) == 0 {
+		return claudeMeta{}
+	}
+	var decoded struct {
+		ClaudeCode claudeMeta `json:"claudeCode"`
+	}
+	if err := json.Unmarshal(meta, &decoded); err != nil {
+		return claudeMeta{}
+	}
+	decoded.ClaudeCode.ToolName = strings.TrimSpace(decoded.ClaudeCode.ToolName)
+	decoded.ClaudeCode.ParentToolUseID = strings.TrimSpace(decoded.ClaudeCode.ParentToolUseID)
+	return decoded.ClaudeCode
+}
+
+// parentToolUseID reads the subagent parentage an agent chose to send.
+//
+// ACP has no parent field on session updates. The claude adapter adds one under
+// `_meta.claudeCode.parentToolUseId` and does not filter subagent messages, so
+// a client that ignores it cannot tell a subagent's tool call from the main
+// agent's.
+func parentToolUseID(meta json.RawMessage) string {
+	return claudeMetaOf(meta).ParentToolUseID
 }
 
 // toolContent is one item of a tool call's output: a content block, a file
@@ -147,9 +188,9 @@ func mapUpdate(update json.RawMessage) []adapter.Event {
 	case updateAvailableCommands:
 		return noticeEvents(update, "available commands", "the agent's command list changed")
 	case updateCurrentMode:
-		return noticeEvents(update, "mode changed", "")
+		return currentModeEvents(update)
 	case updateConfigOption:
-		return noticeEvents(update, "settings changed", "")
+		return configOptionEvents(update)
 	case updateNotice:
 		return noticeEvents(update, "", "")
 	case updateCompaction:
@@ -184,6 +225,17 @@ func chunkEvents(raw json.RawMessage, role, phase string) []adapter.Event {
 	if chunk.MessageID != "" {
 		payload["message_id"] = chunk.MessageID
 	}
+	if parent := parentToolUseID(chunk.Meta); parent != "" {
+		// A subagent talking. It is not the answer, so an assistant chunk becomes
+		// narration (the console's progress box) instead of merging into the
+		// reply; the parent id and the marker are what let the console say whose
+		// narration it is.
+		payload["parent_tool_use_id"] = parent
+		payload["sidechain"] = true
+		if role == "assistant" {
+			payload["phase"] = messagePhaseProgress
+		}
+	}
 	return []adapter.Event{{Type: "message", Payload: mustMarshal(payload)}}
 }
 
@@ -205,6 +257,12 @@ func toolCallEvents(raw json.RawMessage) []adapter.Event {
 		return rawContentEvents(raw)
 	}
 	payload := toolPayload(call)
+	if _, ok := payload["name"]; !ok {
+		// A new step needs a name to be drawn at all. A later update that still
+		// does not name it leaves this one in place.
+		payload["name"] = "tool"
+		payload["summary"] = "tool"
+	}
 	if len(call.Content) == 0 {
 		return []adapter.Event{{Type: "tool_use", Payload: mustMarshal(payload)}}
 	}
@@ -212,12 +270,14 @@ func toolCallEvents(raw json.RawMessage) []adapter.Event {
 	// merges by tool_use_id, so both events are emitted in order.
 	events := []adapter.Event{{Type: "tool_use", Payload: mustMarshal(payload)}}
 	if output := toolOutput(call.Content); output != "" {
-		events = append(events, adapter.Event{Type: "tool_result", Payload: mustMarshal(map[string]any{
+		result := map[string]any{
 			"tool_use_id": call.ToolCallID,
-			"name":        toolName(call),
 			"ok":          call.Status != toolStatusFailed,
 			"output":      output,
-		})})
+		}
+		addResultName(result, call)
+		addParent(result, call.Meta)
+		events = append(events, adapter.Event{Type: "tool_result", Payload: mustMarshal(result)})
 	}
 	return events
 }
@@ -237,12 +297,14 @@ func toolCallUpdateEvents(raw json.RawMessage) []adapter.Event {
 	}
 	output := toolOutput(update.Content)
 	if update.Status == toolStatusCompleted || update.Status == toolStatusFailed {
-		return []adapter.Event{{Type: "tool_result", Payload: mustMarshal(map[string]any{
+		result := map[string]any{
 			"tool_use_id": update.ToolCallID,
-			"name":        toolName(update),
 			"ok":          update.Status != toolStatusFailed,
 			"output":      firstNonEmpty(output, rawString(update.RawOutput)),
-		})}}
+		}
+		addResultName(result, update)
+		addParent(result, update.Meta)
+		return []adapter.Event{{Type: "tool_result", Payload: mustMarshal(result)}}
 	}
 	payload := toolPayload(update)
 	if update.Status == toolStatusPending || update.Status == toolStatusInProgress {
@@ -253,12 +315,23 @@ func toolCallUpdateEvents(raw json.RawMessage) []adapter.Event {
 
 // toolPayload is the console's tool_use shape: a name to show, the input to
 // expand, and one line of summary for the collapsed step.
+//
+// A patch that does not name the tool leaves the name out. The console merges
+// by id, and a later "still running" carrying only a status is not a statement
+// about what the tool is called — filling in "tool" there would rename a row
+// the agent had already named.
 func toolPayload(call toolCall) map[string]any {
-	name := toolName(call)
-	payload := map[string]any{
-		"tool_use_id": call.ToolCallID,
-		"name":        name,
-		"summary":     name,
+	payload := map[string]any{"tool_use_id": call.ToolCallID}
+	if name := toolNameOf(call); name != "" {
+		payload["name"] = name
+		// The agent's own line about this call is the summary whenever it says
+		// more than the tool's name, which for the claude adapter it usually
+		// does: `Read` is the tool, `Read /tmp/x` is what it read.
+		summary := strings.TrimSpace(call.Title)
+		if summary == "" {
+			summary = name
+		}
+		payload["summary"] = summary
 	}
 	if len(call.RawInput) > 0 && string(call.RawInput) != "null" {
 		payload["input"] = call.RawInput
@@ -269,18 +342,46 @@ func toolPayload(call toolCall) map[string]any {
 			break
 		}
 	}
+	addParent(payload, call.Meta)
 	return payload
 }
 
-// toolName is what to call a tool: the agent's own title, since ACP has no
-// stable tool-name field, then its kind, then a word that says only that
-// something ran.
-func toolName(call toolCall) string {
+// addParent records which tool call spawned this one, when the agent said.
+func addParent(payload map[string]any, meta json.RawMessage) {
+	if parent := parentToolUseID(meta); parent != "" {
+		payload["parent_tool_use_id"] = parent
+		payload["sidechain"] = true
+	}
+}
+
+// addResultName names the tool on a result only when this update knows it: the
+// console keeps the row's existing name otherwise, and a result that says
+// nothing about the tool must not rename the step it closes.
+func addResultName(payload map[string]any, call toolCall) {
+	if name := toolNameOf(call); name != "" {
+		payload["name"] = name
+	}
+}
+
+// toolNameOf is what to call a tool, or "" when this update does not say. The
+// claude adapter's `_meta.claudeCode.toolName` comes first: it is the tool's
+// identity, where ACP's title is a sentence about one call. Then the agent's
+// title, then its kind — ACP has no stable tool-name field, so this is a ladder
+// rather than a field.
+func toolNameOf(call toolCall) string {
+	if name := claudeMetaOf(call.Meta).ToolName; name != "" {
+		return name
+	}
 	if title := strings.TrimSpace(call.Title); title != "" {
 		return title
 	}
-	if kind := strings.TrimSpace(call.Kind); kind != "" {
-		return kind
+	return strings.TrimSpace(call.Kind)
+}
+
+// toolName is what to call a tool when a row needs a name at all.
+func toolName(call toolCall) string {
+	if name := toolNameOf(call); name != "" {
+		return name
 	}
 	return "tool"
 }
@@ -481,6 +582,65 @@ func sessionInfoEvents(raw json.RawMessage) []adapter.Event {
 		"severity": "info",
 		"kind":     updateSessionInfo,
 		"message":  info.Title,
+	})}}
+}
+
+// currentModeEvents records the agent's mode changing under Kin.
+//
+// The update names the mode and nothing else — no display name, no description
+// — so the id is what the reader gets. It is still worth a line: a turn that
+// starts approving everything on its own, or stops editing, is otherwise
+// unexplained.
+func currentModeEvents(raw json.RawMessage) []adapter.Event {
+	var update struct {
+		CurrentModeID string `json:"currentModeId"`
+	}
+	if err := json.Unmarshal(raw, &update); err != nil || strings.TrimSpace(update.CurrentModeID) == "" {
+		return noticeEvents(raw, "mode changed", "")
+	}
+	mode := strings.TrimSpace(update.CurrentModeID)
+	return []adapter.Event{{Type: "notice", Payload: mustMarshal(map[string]any{
+		"severity": "info",
+		"title":    "mode changed",
+		"message":  mode,
+		"kind":     updateCurrentMode,
+		"mode":     mode,
+	})}}
+}
+
+// configOptionEvents records the agent changing its own settings.
+//
+// `config_option_update` carries the whole option list, so the line names every
+// value that moved rather than saying "settings changed" with nothing behind
+// it. The values are the agent's own words (ids), because that is what a later
+// `config_option_update` or a set_config_option call has to use.
+func configOptionEvents(raw json.RawMessage) []adapter.Event {
+	var update struct {
+		ConfigOptions []sessionConfigItem `json:"configOptions"`
+	}
+	if err := json.Unmarshal(raw, &update); err != nil || len(update.ConfigOptions) == 0 {
+		return noticeEvents(raw, "settings changed", "")
+	}
+	parts := make([]string, 0, len(update.ConfigOptions))
+	values := make(map[string]string, len(update.ConfigOptions))
+	for _, item := range update.ConfigOptions {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			continue
+		}
+		label := firstNonEmpty(strings.TrimSpace(item.Name), id)
+		parts = append(parts, label+"="+item.CurrentValue)
+		values[id] = item.CurrentValue
+	}
+	if len(parts) == 0 {
+		return noticeEvents(raw, "settings changed", "")
+	}
+	return []adapter.Event{{Type: "notice", Payload: mustMarshal(map[string]any{
+		"severity": "info",
+		"title":    "settings changed",
+		"message":  strings.Join(parts, ", "),
+		"kind":     updateConfigOption,
+		"values":   values,
 	})}}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vuuihc/openkin/internal/adapter"
 	"github.com/vuuihc/openkin/internal/adapter/acp"
 	"github.com/vuuihc/openkin/internal/adapter/claudecode"
 	"github.com/vuuihc/openkin/internal/adapter/codex"
@@ -195,6 +196,7 @@ func buildAgentRegistry(
 	tokenFn func() string,
 	catalog *routing.Catalog,
 	connectorHost connectors.Host,
+	version string,
 ) (*agent.Registry, error) {
 	factories := []agent.Factory{
 		kinagent.NewPluginFactoryWithConfig(kinagent.PluginConfig{
@@ -222,13 +224,21 @@ func buildAgentRegistry(
 			},
 		}),
 		grok.NewPluginFactory(),
-		// The ACP agent is whatever binary this machine has: the protocol is the
-		// contract, so Kin registers one client and lets the binary decide which
-		// agent it is talking to (KIN_ACP_BIN / KIN_ACP_ARGS, codex-acp by default).
-		acp.NewPluginFactory(acp.PluginConfig{
-			DaemonURL: daemonURL,
-			TokenFunc: tokenFn,
-		}),
+	}
+
+	// ACP agents: one client per agent. The protocol is the contract, so the
+	// binary is what decides which agent Kin is talking to; the table in
+	// acpAgentConfigs names them, and each can be pointed elsewhere with
+	// KIN_ACP_<NAME>_BIN / KIN_ACP_<NAME>_ARGS.
+	for _, cfg := range acpAgentConfigs() {
+		cfg.DaemonURL = daemonURL
+		cfg.TokenFunc = tokenFn
+		// The handshake names this client and its version. It is this daemon's
+		// version, not the agent's: the claude adapter rejects an `initialize`
+		// whose clientInfo has no version (-32602), and the other three accept
+		// it silently, which is how a missing field stayed invisible.
+		cfg.Version = version
+		factories = append(factories, acp.NewPluginFactory(cfg))
 	}
 
 	// Native first-class adapters — skip when assembling generic factories.
@@ -263,4 +273,118 @@ func buildAgentRegistry(
 		return nil, fmt.Errorf("build agent registry: %w", err)
 	}
 	return reg, nil
+}
+
+// acpAgent is one ACP agent Kin knows how to start.
+type acpAgent struct {
+	ID     string
+	Name   string
+	Binary string
+	Args   []string
+	// Modes maps Kin's permission modes to this agent's own mode ids, as the
+	// agent publishes them in `session/new`. The ids are the agent's vocabulary,
+	// not Kin's: this table is the only place that translation lives, and a
+	// missing entry means the turn runs on the agent's own default with a
+	// warning rather than a guess.
+	Modes map[string]string
+	// Unattended marks an agent that never asks before running a tool: it has no
+	// permission ladder, and Kin cannot put a card in front of a question the
+	// agent does not ask. Every mode on such an agent is a bypass, and the turn
+	// says so once rather than pretending the default mode gates anything.
+	Unattended bool
+	// AcceptEditsBypasses marks an agent whose graded rung was measured
+	// approving everything: accept_edits is then a bypass for the node's
+	// permission ceiling, even though the rung exists.
+	AcceptEditsBypasses bool
+}
+
+// acpAgents is the table of ACP agents every node registers.
+//
+// The ids are deliberately not the native adapters' ids (`claude-code`, `codex`,
+// `droid`): both paths can be installed at once while the ACP route proves
+// itself, and the picker has to be able to tell them apart. The commands are
+// the ones the agents (or their vendor adapters) publish, pinned to the version
+// measured in the ACP matrix: `codex-acp` moved to
+// `@agentclientprotocol/codex-acp` (the `@zed-industries` package is deprecated
+// and its 0.12 build rejects a current `~/.codex/config.toml`), and `pi-acp`
+// 0.0.34 calls a pi RPC that pi 0.80.3 does not have, while 0.0.30 on the same
+// pi opens a session. Bumping any line here is a visible decision.
+var acpAgents = []acpAgent{
+	{
+		ID:     "claude-acp",
+		Name:   "Claude Code (ACP)",
+		Binary: "npx",
+		Args:   []string{"-y", "@zed-industries/claude-agent-acp@0.23.1"},
+		Modes: map[string]string{
+			adapter.PermissionDefault:     "default",
+			adapter.PermissionAcceptEdits: "acceptEdits",
+			adapter.PermissionYOLO:        "bypassPermissions",
+		},
+	},
+	{
+		ID:     "codex-acp",
+		Name:   "Codex (ACP)",
+		Binary: "npx",
+		Args:   []string{"-y", "@agentclientprotocol/codex-acp@2.3.0"},
+		Modes: map[string]string{
+			adapter.PermissionDefault:     "read-only",
+			adapter.PermissionAcceptEdits: "workspace-write",
+			adapter.PermissionYOLO:        "agent-full-access",
+		},
+	},
+	{
+		ID:     "droid-acp",
+		Name:   "Droid (ACP)",
+		Binary: "droid",
+		Args:   []string{"exec", "--output-format", "acp"},
+		// Droid's own default is `auto-high`, which approves everything without
+		// asking; `normal` is the rung that matches Kin's default (reads only).
+		//
+		// `auto-low` is called "auto-approve edits and low-risk actions", but in
+		// measurement it approved an out-of-workspace write and a shell command
+		// (both rated low by droid) without asking, so accept_edits is reported
+		// to the node as a bypass rather than a gate.
+		Modes: map[string]string{
+			adapter.PermissionDefault:     "normal",
+			adapter.PermissionAcceptEdits: "auto-low",
+			adapter.PermissionYOLO:        "auto-high",
+		},
+		AcceptEditsBypasses: true,
+	},
+	{
+		ID:     "pi-acp",
+		Name:   "Pi (ACP)",
+		Binary: "npx",
+		Args:   []string{"-y", "pi-acp@0.0.30"},
+		// Pi's `modes` are thinking levels (off/minimal/low/medium/high/xhigh),
+		// not a permission ladder, and it ran a file write without asking on
+		// every turn measured. Mapping Kin's modes onto those ids would turn
+		// reasoning off and call it a permission mode, so the honest statement is
+		// that this agent has no approval channel at all.
+		Unattended: true,
+	},
+}
+
+// acpAgentConfigs applies the per-agent overrides to the table above:
+// KIN_ACP_CODEX_BIN / KIN_ACP_CODEX_ARGS for `codex-acp`, and so on. Args are
+// split on spaces, which is all one variable can honestly carry — an argument
+// with a space in it needs a config file, not a bigger parser.
+func acpAgentConfigs() []acp.PluginConfig {
+	out := make([]acp.PluginConfig, 0, len(acpAgents))
+	for _, entry := range acpAgents {
+		key := strings.ToUpper(strings.ReplaceAll(strings.TrimSuffix(entry.ID, "-acp"), "-", "_"))
+		cfg := acp.PluginConfig{
+			ID: entry.ID, Name: entry.Name, Binary: entry.Binary, Args: entry.Args,
+			Modes: entry.Modes, Unattended: entry.Unattended,
+			AcceptEditsBypasses: entry.AcceptEditsBypasses,
+		}
+		if v := strings.TrimSpace(os.Getenv("KIN_ACP_" + key + "_BIN")); v != "" {
+			cfg.Binary = v
+		}
+		if v := strings.TrimSpace(os.Getenv("KIN_ACP_" + key + "_ARGS")); v != "" {
+			cfg.Args = strings.Fields(v)
+		}
+		out = append(out, cfg)
+	}
+	return out
 }

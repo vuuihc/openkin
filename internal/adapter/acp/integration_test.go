@@ -176,6 +176,18 @@ perm_strict() {
 
 # initialize
 recv || exit 2
+# The claude adapter refuses a handshake whose clientInfo carries no version
+# (-32602). The fake agent refuses it too, so a client that stops sending one
+# fails here rather than on the one agent that checks.
+case "$req" in
+  *'"version":""'*) bad_version=1 ;;
+  *'"clientInfo"'*'"version":"'*) bad_version=0 ;;
+  *) bad_version=1 ;;
+esac
+if [ "$bad_version" = 1 ]; then
+  printf '{"jsonrpc":"2.0","id":"%s","error":{"code":-32602,"message":"Invalid params"}}\n' "$(id_of "$req")"
+  exit 4
+fi
 case "$mode" in
   speak_v2) reply "$(id_of "$req")" '{"protocolVersion":2,"agentCapabilities":{"loadSession":false}}' ;;
   no_load) reply "$(id_of "$req")" '{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}' ;;
@@ -184,7 +196,21 @@ esac
 
 # session/new or session/load
 recv || exit 3
-session='{"sessionId":"sess-1","configOptions":[{"id":"model","category":"model","currentValue":"fast","options":[{"value":"fast","name":"Fast"},{"value":"slow","name":"Slow"}]}]}'
+session='{"sessionId":"sess-1","configOptions":[{"id":"model","category":"model","currentValue":"fast","options":[{"value":"fast","name":"Fast"},{"value":"slow","name":"Slow"}]}],"modes":{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"acceptEdits","name":"Accept Edits"},{"id":"bypassPermissions","name":"Bypass Permissions"}]}}'
+# An agent that publishes its ladder only as a config option.
+if [ "$mode" = config_mode ]; then
+  session='{"sessionId":"sess-1","configOptions":[{"id":"autonomy_level","category":"mode","currentValue":"auto-high","options":[{"value":"normal","name":"Auto (Off)"},{"value":"auto-high","name":"Auto (High)"}]}]}'
+fi
+# An agent that publishes no permission ladder at all (the protocol allows it).
+if [ "$mode" = no_modes ]; then
+  session='{"sessionId":"sess-1","configOptions":[{"id":"model","category":"model","currentValue":"fast","options":[{"value":"fast","name":"Fast"}]}]}'
+fi
+# An agent whose ladder exists but no longer uses the ids Kin maps to: the
+# upgrade-renamed-the-rungs case, where running on its current rung would be a
+# guess about what that rung does.
+if [ "$mode" = renamed_modes ]; then
+  session='{"sessionId":"sess-1","configOptions":[{"id":"model","category":"model","currentValue":"fast","options":[{"value":"fast","name":"Fast"}]}],"modes":{"currentModeId":"auto-high","availableModes":[{"id":"manual","name":"Manual"},{"id":"auto-high","name":"Auto (High)"}]}}'
+fi
 case "$(method_of "$req")" in
   session/load)
     session='{"sessionId":"sess-loaded","configOptions":[{"id":"model","category":"model","currentValue":"fast","options":[{"value":"fast","name":"Fast"},{"value":"slow","name":"Slow"}]}]}'
@@ -206,10 +232,18 @@ if [ "$mode" = slow_session ]; then
 fi
 reply "$(id_of "$req")" "$session"
 
-# Whatever Kin asks next: a model may be selected before the prompt.
+# Whatever Kin asks next: the mode and the model may be selected before the
+# prompt, in either shape the protocol offers.
 cmd=""
 while recv; do
   case "$(method_of "$req")" in
+    session/set_mode)
+      if [ "$mode" = reject_set_mode ]; then
+        printf '{"jsonrpc":"2.0","id":"%s","error":{"code":-32601,"message":"mode not supported"}}\n' "$(id_of "$req")"
+      else
+        reply "$(id_of "$req")" '{}'
+      fi
+      ;;
     session/set_config_option) reply "$(id_of "$req")" '{}' ;;
     session/prompt) cmd=prompt; break ;;
     *) exit 4 ;;
@@ -266,6 +300,13 @@ case "$mode" in
   stops_cancelled)
     printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"starting"}}}}\n'
     reply "$prompt_id" '{"stopReason":"cancelled"}'
+    ;;
+  subagent)
+    # What the claude adapter sends for a subagent: no separate stream, just the
+    # parent tool call's id in the protocol's extension field.
+    printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"looking into it"},"_meta":{"claudeCode":{"parentToolUseId":"tool-parent"}}}}}\n'
+    printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sess-1","update":{"sessionUpdate":"tool_call","toolCallId":"tool-child","title":"Read file","kind":"read","status":"pending","_meta":{"claudeCode":{"parentToolUseId":"tool-parent"}}}}}\n'
+    reply "$prompt_id" '{"stopReason":"end_turn"}'
     ;;
   *)
     reply "$prompt_id" '{"stopReason":"end_turn"}'
@@ -740,6 +781,201 @@ func TestTheModelIsChosenThroughTheAgentsOwnSelector(t *testing.T) {
 	})
 }
 
+// TestKinSelectsTheAgentsOwnModeRung: the permission ladder belongs to the
+// agent, and `session/new` is where it publishes the rungs. Kin's three modes
+// are a preference; the rung is chosen from what the agent offered, before the
+// prompt, because a mode that arrives after the turn has started changes
+// nothing about it.
+func TestKinSelectsTheAgentsOwnModeRung(t *testing.T) {
+	modes := map[string]string{
+		adapter.PermissionDefault:     "default",
+		adapter.PermissionAcceptEdits: "acceptEdits",
+		adapter.PermissionYOLO:        "bypassPermissions",
+	}
+	for _, tc := range []struct{ kin, rung string }{
+		{adapter.PermissionDefault, "default"},
+		{adapter.PermissionAcceptEdits, "acceptEdits"},
+		{adapter.PermissionYOLO, "bypassPermissions"},
+	} {
+		t.Run(tc.kin, func(t *testing.T) {
+			a := newAgent(t, "updates", func(ad *Adapter) { ad.Modes = modes })
+			events := collectEvents(t, a.start(t, adapter.TaskSpec{PermissionMode: tc.kin}), 10*time.Second)
+
+			requests := a.log.inbound(t, methodSessionSetMode)
+			if len(requests) != 1 {
+				t.Fatalf("session/set_mode sent %d times; agent read:\n%s", len(requests), a.log.read(t))
+			}
+			var params setModeParams
+			if err := json.Unmarshal(requests[0].Params, &params); err != nil {
+				t.Fatal(err)
+			}
+			if params.ModeID != tc.rung || params.SessionID != "sess-1" {
+				t.Fatalf("params = %+v", params)
+			}
+			if methods := a.log.methods(t); indexOf(methods, methodSessionSetMode) > indexOf(methods, methodSessionPrompt) {
+				t.Fatalf("the prompt was sent before the mode was chosen: %v", methods)
+			}
+			for _, event := range events {
+				if event.Type == "notice" && eventNoticeTitle(t, event) == "permission mode not applied" {
+					t.Fatalf("a mode this agent applies was reported as unapplied: %s", event.Payload)
+				}
+			}
+		})
+	}
+}
+
+// TestAModeRungTheAgentDidNotOfferIsRefused: the agent publishes a ladder, but
+// not the rung Kin maps to — the upgrade-renamed-the-rungs case. Running on
+// whatever rung it kept could mean approving everything (droid ships that way),
+// so the turn stops before the prompt instead of guessing.
+func TestAModeRungTheAgentDidNotOfferIsRefused(t *testing.T) {
+	t.Run("modes ladder", func(t *testing.T) {
+		a := newAgent(t, "updates", func(ad *Adapter) {
+			ad.Modes = map[string]string{adapter.PermissionYOLO: "agent-full-access"}
+		})
+		events := collectEvents(t, a.start(t, adapter.TaskSpec{PermissionMode: adapter.PermissionYOLO}), 10*time.Second)
+
+		if len(a.log.inbound(t, methodSessionSetMode)) != 0 {
+			t.Fatal("a mode the agent did not offer was selected anyway")
+		}
+		if len(a.log.inbound(t, methodSessionPrompt)) != 0 {
+			t.Fatal("the turn ran on a mode Kin could not place")
+		}
+		message := string(payloadOf(t, findEvent(t, events, "error"))["message"].(string))
+		for _, want := range []string{"agent-full-access", "default, acceptEdits, bypassPermissions", "refusing"} {
+			if !strings.Contains(message, want) {
+				t.Fatalf("the error does not say %q: %q", want, message)
+			}
+		}
+	})
+
+	t.Run("config option ladder", func(t *testing.T) {
+		a := newAgent(t, "config_mode", func(ad *Adapter) {
+			ad.Modes = map[string]string{adapter.PermissionYOLO: "agent-full-access"}
+		})
+		events := collectEvents(t, a.start(t, adapter.TaskSpec{PermissionMode: adapter.PermissionYOLO}), 10*time.Second)
+
+		if len(a.log.inbound(t, methodSetConfigOption)) != 0 {
+			t.Fatal("a mode value the agent did not offer was selected anyway")
+		}
+		if len(a.log.inbound(t, methodSessionPrompt)) != 0 {
+			t.Fatal("the turn ran on a mode Kin could not place")
+		}
+		message := string(payloadOf(t, findEvent(t, events, "error"))["message"].(string))
+		// The message lists the rungs the agent did publish, in its own words.
+		if !strings.Contains(message, "normal, auto-high") {
+			t.Fatalf("the error does not list the agent's own modes: %q", message)
+		}
+	})
+}
+
+// TestAnAgentWithNoModeLadderWarnsAndRuns: an agent that publishes no ladder at
+// all gives Kin nothing to select. The node's ceiling already treats an
+// unappliable non-default mode as a bypass; for a turn that was allowed to run,
+// the transcript says the mode was not applied instead of failing over a label.
+func TestAnAgentWithNoModeLadderWarnsAndRuns(t *testing.T) {
+	a := newAgent(t, "no_modes", func(ad *Adapter) {
+		ad.Modes = map[string]string{adapter.PermissionYOLO: "agent-full-access"}
+	})
+	events := collectEvents(t, a.start(t, adapter.TaskSpec{PermissionMode: adapter.PermissionYOLO}), 10*time.Second)
+
+	if len(a.log.inbound(t, methodSessionSetMode)) != 0 {
+		t.Fatal("a mode was selected from an agent that published none")
+	}
+	if len(a.log.inbound(t, methodSessionPrompt)) != 1 {
+		t.Fatal("the turn did not run at all")
+	}
+	var said string
+	for _, event := range events {
+		if event.Type != "notice" {
+			continue
+		}
+		payload := payloadOf(t, event)
+		if payload["mode"] != adapter.PermissionYOLO {
+			continue
+		}
+		said, _ = payload["message"].(string)
+	}
+	for _, want := range []string{"agent-full-access", "publishes no mode ladder"} {
+		if !strings.Contains(said, want) {
+			t.Fatalf("the notice does not say %q: %q", want, said)
+		}
+	}
+}
+
+// TestAnAgentThatRefusesTheModeStopsTheTurn: the rung was offered, and the
+// agent still answered the selection with an error. Continuing would run the
+// turn in a mode the person did not choose, so it stops and names both.
+func TestAnAgentThatRefusesTheModeStopsTheTurn(t *testing.T) {
+	a := newAgent(t, "reject_set_mode", func(ad *Adapter) {
+		ad.Modes = map[string]string{adapter.PermissionDefault: "default"}
+	})
+	events := collectEvents(t, a.start(t, adapter.TaskSpec{}), 10*time.Second)
+
+	if len(a.log.inbound(t, methodSessionSetMode)) != 1 {
+		t.Fatal("the mapped rung was not selected")
+	}
+	if len(a.log.inbound(t, methodSessionPrompt)) != 0 {
+		t.Fatal("the turn ran after the agent refused its mode")
+	}
+	message := string(payloadOf(t, findEvent(t, events, "error"))["message"].(string))
+	for _, want := range []string{`"default" mode`, `"default" rung`, "mode not supported"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("the error does not say %q: %q", want, message)
+		}
+	}
+}
+
+// TestAnAgentThatPublishesModesAsAConfigOption: some agents expose the same
+// ladder through `configOptions` instead of `modes` (droid and codex publish
+// both; this fake publishes only the option). The mode then goes out as a
+// config option, and the turn waits for that answer before prompting.
+func TestAnAgentThatPublishesModesAsAConfigOption(t *testing.T) {
+	a := newAgent(t, "config_mode", func(ad *Adapter) {
+		ad.Modes = map[string]string{adapter.PermissionDefault: "normal"}
+	})
+	collectEvents(t, a.start(t, adapter.TaskSpec{}), 10*time.Second)
+
+	requests := a.log.inbound(t, methodSetConfigOption)
+	if len(requests) != 1 {
+		t.Fatalf("session/set_config_option sent %d times; agent read:\n%s", len(requests), a.log.read(t))
+	}
+	var params setConfigOptionParams
+	if err := json.Unmarshal(requests[0].Params, &params); err != nil {
+		t.Fatal(err)
+	}
+	if params.ConfigID != "autonomy_level" || params.Value != "normal" {
+		t.Fatalf("params = %+v", params)
+	}
+	if methods := a.log.methods(t); indexOf(methods, methodSetConfigOption) > indexOf(methods, methodSessionPrompt) {
+		t.Fatalf("the prompt was sent before the mode was chosen: %v", methods)
+	}
+}
+
+// TestASubagentsWorkIsMarked: ACP has no parent field, so an agent that wants
+// its subagents distinguishable says so in `_meta`. Ignoring that makes a
+// subagent's narration read as the main agent's answer, and its tool calls look
+// like the main agent's own.
+func TestASubagentsWorkIsMarked(t *testing.T) {
+	a := newAgent(t, "subagent", nil)
+	events := collectEvents(t, a.start(t, adapter.TaskSpec{}), 10*time.Second)
+
+	message := messagePayload(t, events, "looking into it")
+	if message["sidechain"] != true {
+		t.Fatalf("a subagent message is not marked: %v", message)
+	}
+	if message["phase"] != messagePhaseProgress {
+		t.Fatalf("a subagent message is drawn as the answer: %v", message)
+	}
+	if message["parent_tool_use_id"] != "tool-parent" {
+		t.Fatalf("the parent was dropped: %v", message)
+	}
+	tool := payloadOf(t, findEvent(t, events, "tool_use"))
+	if tool["parent_tool_use_id"] != "tool-parent" || tool["sidechain"] != true {
+		t.Fatalf("a subagent tool call is not marked: %v", tool)
+	}
+}
+
 // TestAPermissionQuestionGoesToKinAndTheAnswerComesBack is the M2.6 approval
 // path over real pipes: the agent blocks on a question, the question lands in
 // Kin's inbox with the turn it belongs to, and the person's decision is what
@@ -1001,6 +1237,109 @@ func TestNoPermissionModeMakesThisAgentRunUnattended(t *testing.T) {
 		if got := adapter.AutoApprovesAll(reg.Runner, tc.mode); got != tc.want {
 			t.Fatalf("AutoApprovesAll(%q) = %v, want %v", tc.mode, got, tc.want)
 		}
+	}
+}
+
+// TestAGradedModeIsNotBypassWhenTheAgentCanApplyIt: once Kin can select the
+// agent's graded rung, accept_edits is what it says — edits auto-accepted, other
+// actions still asked about — and only yolo reports the bypass ceiling. Without
+// the mapping the conservative answer stands, which the test above pins.
+func TestAGradedModeIsNotBypassWhenTheAgentCanApplyIt(t *testing.T) {
+	reg, err := NewPluginFactory(PluginConfig{
+		ID: "acp-test", Name: "ACP test",
+		Modes: map[string]string{
+			adapter.PermissionDefault:     "default",
+			adapter.PermissionAcceptEdits: "acceptEdits",
+			adapter.PermissionYOLO:        "bypassPermissions",
+		},
+	}).Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		mode string
+		want bool
+	}{
+		{mode: adapter.PermissionDefault, want: false},
+		{mode: adapter.PermissionAcceptEdits, want: false},
+		{mode: adapter.PermissionYOLO, want: true},
+	} {
+		if got := adapter.AutoApprovesAll(reg.Runner, tc.mode); got != tc.want {
+			t.Fatalf("AutoApprovesAll(%q) = %v, want %v", tc.mode, got, tc.want)
+		}
+	}
+
+	// An agent with no approval channel is never gated, whatever mode says.
+	unattended, err := NewPluginFactory(PluginConfig{
+		ID: "acp-unattended", Name: "ACP unattended", Unattended: true,
+	}).Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{adapter.PermissionDefault, adapter.PermissionAcceptEdits, adapter.PermissionYOLO} {
+		if !adapter.AutoApprovesAll(unattended.Runner, mode) {
+			t.Fatalf("AutoApprovesAll(%q) = false for an agent that never asks", mode)
+		}
+	}
+
+	// A mapped rung that was measured approving everything is a bypass even
+	// though the rung exists: the name is not the gate (droid's auto-low).
+	droidish, err := NewPluginFactory(PluginConfig{
+		ID: "acp-droidish", Name: "ACP droidish",
+		Modes: map[string]string{
+			adapter.PermissionDefault:     "normal",
+			adapter.PermissionAcceptEdits: "auto-low",
+			adapter.PermissionYOLO:        "auto-high",
+		},
+		AcceptEditsBypasses: true,
+	}).Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !adapter.AutoApprovesAll(droidish.Runner, adapter.PermissionAcceptEdits) {
+		t.Fatal("a rung measured as all-approving was reported as a gate")
+	}
+	if adapter.AutoApprovesAll(droidish.Runner, adapter.PermissionDefault) {
+		t.Fatal("the default mode was reported as a bypass")
+	}
+}
+
+// TestTheHandshakeNamesAVersion: `clientInfo.version` is required by the
+// protocol and enforced by the claude adapter, which answers a versionless
+// `initialize` with -32602. Three of the four agents accept it without one,
+// which is how Kin shipped a handshake that the fourth refused; the fake agent
+// now refuses it too, and this pins that a caller who never set a version still
+// completes the handshake.
+func TestTheHandshakeNamesAVersion(t *testing.T) {
+	a := newAgent(t, "updates", func(ad *Adapter) { ad.Version = "" })
+	events := collectEvents(t, a.start(t, adapter.TaskSpec{}), 10*time.Second)
+
+	for _, event := range events {
+		if event.Type == "error" {
+			t.Fatalf("the handshake failed without a version: %s", event.Payload)
+		}
+	}
+	assertEventTypes(t, events, "result")
+}
+
+// TestAnAgentThatNeverAsksSaysSo: a turn on an agent with no approval channel
+// opens with a warning, because there is no card coming and the reader should
+// know that before the edits happen.
+func TestAnAgentThatNeverAsksSaysSo(t *testing.T) {
+	a := newAgent(t, "updates", func(ad *Adapter) { ad.Unattended = true })
+	events := collectEvents(t, a.start(t, adapter.TaskSpec{PermissionMode: adapter.PermissionYOLO}), 10*time.Second)
+
+	var said bool
+	for _, event := range events {
+		if event.Type == "notice" && eventNoticeTitle(t, event) == "agent does not ask" {
+			said = true
+		}
+		if event.Type == "notice" && eventNoticeTitle(t, event) == "permission mode not applied" {
+			t.Fatalf("an agent with no ladder was also told its mode is unmapped: %s", event.Payload)
+		}
+	}
+	if !said {
+		t.Fatalf("an unattended agent ran without saying so: %v", eventTypesOf(events))
 	}
 }
 

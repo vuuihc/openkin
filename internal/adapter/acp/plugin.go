@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 
@@ -20,13 +19,24 @@ type PluginConfig struct {
 	// ID and Name are the agent's identity in Kin. Empty means "acp".
 	ID   string
 	Name string
-	// Binary is the executable that speaks ACP over stdio. Empty means
-	// $KIN_ACP_BIN, then "codex-acp".
+	// Binary is the executable that speaks ACP over stdio. Registration resolves
+	// it (per-agent environment overrides live there, not here); empty falls back
+	// to "codex-acp" so a zero config still names something honest in an error.
 	Binary string
-	// Args are passed to the binary on every start. Empty means $KIN_ACP_ARGS,
-	// split on spaces.
+	// Args are passed to the binary on every start.
 	Args     []string
 	LookPath func(file string) (string, error)
+
+	// Modes bridges Kin's permission modes to this agent's own mode ids. The
+	// agent publishes its ladder; only the registration knows which rung means
+	// "ask", "accept edits", or "do not ask" for that agent.
+	Modes map[string]string
+	// Unattended marks an agent with no approval channel: it runs every tool
+	// call without asking, so no mode can gate it and the ceiling says so.
+	Unattended bool
+	// AcceptEditsBypasses marks an agent whose graded rung approves everything
+	// measured, so its accept_edits turn is reported to the node as a bypass.
+	AcceptEditsBypasses bool
 
 	// DaemonURL and Token are this machine's own daemon — the approval inbox the
 	// agent's questions go into. Secrets stay here: an ACP agent authenticates
@@ -79,6 +89,9 @@ func (f *PluginFactory) Open(context.Context) (agent.Registration, error) {
 	runner := New(bin)
 	runner.Args = f.args()
 	runner.LookPath = look
+	runner.Modes = f.cfg.Modes
+	runner.Unattended = f.cfg.Unattended
+	runner.AcceptEditsBypasses = f.cfg.AcceptEditsBypasses
 	runner.DaemonURL = f.cfg.DaemonURL
 	runner.Token = f.cfg.Token
 	runner.TokenFunc = f.cfg.TokenFunc
@@ -124,26 +137,18 @@ func (f *PluginFactory) agentName() string {
 	return "ACP"
 }
 
-// binary is the ACP agent this factory starts: what the caller configured, then
-// the environment, then the ACP agent that is most often installed.
+// binary is the executable this factory starts: what the caller configured, or
+// the ACP agent that is most often installed when the config names nothing.
 func (f *PluginFactory) binary() string {
 	if bin := strings.TrimSpace(f.cfg.Binary); bin != "" {
-		return bin
-	}
-	if bin := strings.TrimSpace(os.Getenv("KIN_ACP_BIN")); bin != "" {
 		return bin
 	}
 	return "codex-acp"
 }
 
-// args are the flags the agent needs to start. They are split on spaces, which
-// is all a single environment variable can honestly carry: an argument with a
-// space in it needs a config file, not a bigger parser.
+// args are the flags the agent needs to start.
 func (f *PluginFactory) args() []string {
-	if len(f.cfg.Args) > 0 {
-		return f.cfg.Args
-	}
-	return strings.Fields(os.Getenv("KIN_ACP_ARGS"))
+	return f.cfg.Args
 }
 
 var _ agent.Factory = (*PluginFactory)(nil)

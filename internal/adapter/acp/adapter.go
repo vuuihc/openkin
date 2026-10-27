@@ -53,6 +53,22 @@ type Adapter struct {
 	HTTPClient *http.Client
 	// Version is this daemon's version, reported to the agent as clientInfo.
 	Version string
+	// Modes maps Kin's permission modes to this agent's own mode ids, in the
+	// agent's vocabulary: the agent names its ladder in `session/new`, and this
+	// table says which rung means what Kin means. It is one table per agent,
+	// next to the binary, because a mode id is only meaningful to the agent that
+	// published it. A mode that is missing here is not applied, and the turn says
+	// so rather than pretending.
+	Modes map[string]string
+	// Unattended marks an agent with no approval channel: it runs tool calls
+	// without asking anyone, so no mode can gate it and every turn says so.
+	Unattended bool
+	// AcceptEditsBypasses marks an agent whose graded rung, in practice, approves
+	// every action measured rather than only edits. Droid's `auto-low` is that
+	// rung: it auto-approved an out-of-workspace write and a shell command,
+	// both rated low by droid itself, so calling its accept_edits turn "gated"
+	// would be a name without a gate behind it. The ceiling says bypass.
+	AcceptEditsBypasses bool
 	// CancelGrace and KillGrace bound the two stages of stopping a turn that
 	// will not stop itself. Zero means the defaults above.
 	CancelGrace time.Duration
@@ -69,25 +85,43 @@ func New(binary string) *Adapter {
 // that report a write error already stay quiet for a cancelled run.
 var errCanceled = errors.New("the turn was cancelled")
 
-// AutoApprovesAll reports that a mode meaning "stop asking" cannot be honoured
-// for this agent, so a Node must treat such a turn as one with approvals
-// bypassed.
+// AutoApprovesAll reports whether a mode leaves every tool call unattended.
 //
-// What Kin can promise here is only half the question. Kin approves nothing on
-// its own: a question the agent asks becomes a person's decision or a refusal
-// (ADR 0022 D1), and no mode changes that. But the schema makes the *question*
-// the agent's choice — an agent may run a tool call without asking anybody — so
-// an agent started with a mode that means "stop asking" can end up executing
-// every call unattended, and Kin would not be in the loop to notice. The
-// ceiling exists so that the machine's operator decides whether unattended
-// execution happens on their machine (see the executor's refusal), which means
-// the honest answer for yolo and accept_edits is yes: Kin cannot apply them and
-// cannot promise they are gated either.
+// Kin approves nothing on its own: a question the agent asks becomes a person's
+// decision or a refusal (ADR 0022 D1), and no mode changes that. But the schema
+// makes the *question* the agent's choice — an agent may run a tool call
+// without asking anybody — so a mode that selects the agent's all-bypass rung
+// can execute everything unattended, and Kin would not be in the loop to
+// notice. The ceiling exists so that the machine's operator decides whether
+// unattended execution happens on their machine (see the executor's refusal).
 //
-// The default mode is a different matter: the agent is expected to ask, and
-// when it does a person answers. Dispatches in default mode are not refused.
+// `yolo` is that rung by definition. `accept_edits` is graded — the agent keeps
+// asking about the actions it always asked about — but only when this adapter
+// can actually select a graded rung. An agent whose ladder Kin has no mapping
+// for keeps whatever mode it started in, and droid's default is
+// auto-approve-all, so an unappliable graded mode is reported as bypass. So is a
+// mapping whose rung the agent measured as all-approving (AcceptEditsBypasses).
+//
+// The mapping being present is not by itself a promise that the rung exists: an
+// upgraded agent can rename it. When that happens the turn is refused at session
+// time rather than run on a mode Kin cannot place, so no unattended execution
+// slips through after this probe said "graded".
 func (a *Adapter) AutoApprovesAll(mode string) bool {
-	return adapter.NormalizePermissionMode(mode) != adapter.PermissionDefault
+	if a.Unattended {
+		// No ladder to select: the agent never asks, whatever mode says.
+		return true
+	}
+	switch adapter.NormalizePermissionMode(mode) {
+	case adapter.PermissionYOLO:
+		return true
+	case adapter.PermissionAcceptEdits:
+		if a.AcceptEditsBypasses {
+			return true
+		}
+		return strings.TrimSpace(a.Modes[adapter.PermissionAcceptEdits]) == ""
+	default:
+		return false
+	}
 }
 
 // Start implements adapter.Adapter.
@@ -147,6 +181,8 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		cancelRun:   cancelRun,
 		cancelGrace: durationOr(a.CancelGrace, defaultCancelGrace),
 		killGrace:   durationOr(a.KillGrace, defaultKillGrace),
+		modes:       a.Modes,
+		unattended:  a.Unattended,
 	}
 	h.bridge = newApprovalBridge(&approvalbridge.Client{
 		DaemonURL:  strings.TrimRight(a.DaemonURL, "/"),
@@ -181,9 +217,13 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		h.finish(waitErr)
 	}()
 
+	clientVersion := a.Version
+	if clientVersion == "" {
+		clientVersion = clientVersionFallback
+	}
 	if _, err := h.send(ctx, methodInitialize, initializeParams{
 		ProtocolVersion: protocolVersion,
-		ClientInfo:      implementation{Name: clientName, Version: a.Version},
+		ClientInfo:      implementation{Name: clientName, Version: clientVersion},
 	}); err != nil {
 		h.stopProcess()
 		return nil, fmt.Errorf("initialize %s: %w", bin, err)
@@ -201,6 +241,10 @@ type handle struct {
 	cancelGrace time.Duration
 	killGrace   time.Duration
 	bridge      *approvalBridge
+	// modes is Kin's permission mode → this agent's mode id. Read-only after
+	// construction.
+	modes      map[string]string
+	unattended bool
 
 	requestWG sync.WaitGroup
 
@@ -225,6 +269,14 @@ type handle struct {
 	// becomes an error at the start of a turn instead of a fresh session.
 	canLoad  bool
 	exitCode *int
+	// session is what the agent answered `session/new` or `session/load` with:
+	// the mode ladder and the config options this turn chooses from. The
+	// pipeline is session → mode → model → prompt, and each step reads it.
+	session sessionResult
+	// modeConfigPending marks the one `session/set_config_option` whose response
+	// continues to the model choice, for an agent that exposes its mode as a
+	// config option instead of through `modes`.
+	modeConfigPending bool
 
 	cancelOnce    sync.Once
 	closeOnce     sync.Once
@@ -410,6 +462,29 @@ func (h *handle) handleResponse(env envelope, spec adapter.TaskSpec) {
 		return
 	}
 	if env.Error != nil {
+		// A refused mode is not like other setup failures: the person asked for a
+		// permission level, and the agent answered that it will not go there. The
+		// turn stops before the prompt — the mode it would run in is not the one
+		// that was asked for, and may approve everything.
+		mode := adapter.NormalizePermissionMode(spec.PermissionMode)
+		switch method {
+		case methodSessionSetMode:
+			h.stopWithError(fmt.Sprintf(
+				"the %q mode is not applied: the agent refused its %q rung (%s)",
+				mode, strings.TrimSpace(h.modes[mode]), env.Error.Error()))
+			return
+		case methodSetConfigOption:
+			h.stateMu.Lock()
+			modePending := h.modeConfigPending
+			h.modeConfigPending = false
+			h.stateMu.Unlock()
+			if modePending {
+				h.stopWithError(fmt.Sprintf(
+					"the %q mode is not applied: the agent refused its %q rung (%s)",
+					mode, strings.TrimSpace(h.modes[mode]), env.Error.Error()))
+				return
+			}
+		}
 		h.stopWithError(fmt.Sprintf("%s failed: %s", method, env.Error.Error()))
 		return
 	}
@@ -451,6 +526,8 @@ func (h *handle) handleResponse(env envelope, spec adapter.TaskSpec) {
 		h.stateMu.Unlock()
 		h.stateMu.Lock()
 		h.sessionID = result.SessionID
+		h.session = result
+		h.replaying = false
 		h.stateMu.Unlock()
 
 		ref := result.SessionID
@@ -467,9 +544,20 @@ func (h *handle) handleResponse(env envelope, spec adapter.TaskSpec) {
 			}
 		}
 		h.emit(startedEvent(ref, spec.Model))
-		h.applyModel(spec, result)
+		h.applyMode(spec, result)
+
+	case methodSessionSetMode:
+		h.applyModel(spec)
 
 	case methodSetConfigOption:
+		h.stateMu.Lock()
+		modePending := h.modeConfigPending
+		h.modeConfigPending = false
+		h.stateMu.Unlock()
+		if modePending {
+			h.applyModel(spec)
+			break
+		}
 		h.sendPrompt(spec)
 
 	case methodSessionPrompt:
@@ -485,18 +573,15 @@ func (h *handle) handleResponse(env envelope, spec adapter.TaskSpec) {
 // startSession opens the session this turn runs in: the task's own session when
 // there is one and the agent can load it, a new one otherwise.
 func (h *handle) startSession(spec adapter.TaskSpec) {
-	// A permission mode this agent cannot honour is said out loud rather than
-	// ignored. The mode is not applied — and it is not enforced either: Kin
-	// answers the questions the agent asks, and how many it asks is the agent's
-	// choice, so someone who picked "stop asking" is about to be asked anyway.
-	if mode := adapter.NormalizePermissionMode(spec.PermissionMode); mode != adapter.PermissionDefault {
+	if h.unattended {
+		// Said once per turn, before anything runs: there is no card to show and
+		// no mode to pick, and a reader who expected to approve edits deserves to
+		// know that before the edits happen.
 		h.emit(adapter.Event{Type: "notice", Payload: mustMarshal(map[string]any{
-			"severity": "info",
-			"title":    "permission mode not applied",
-			"message": fmt.Sprintf(
-				"this agent decides for itself when to ask, so the %q mode is not applied; "+
-					"every tool call it does ask about goes to the approval inbox", mode),
-			"mode": mode,
+			"severity": "warning",
+			"title":    "agent does not ask",
+			"message": "this agent has no approval channel and runs its tool calls " +
+				"without asking; nothing in this turn will wait for a person",
 		})})
 	}
 	if ref := strings.TrimSpace(spec.SessionRef); ref != "" {
@@ -529,15 +614,112 @@ func (h *handle) startSession(spec adapter.TaskSpec) {
 	}
 }
 
+// applyMode selects this agent's rung for the task's permission mode.
+//
+// The ladder is the agent's own (`session/new` reports it); this only says
+// which rung Kin's three modes point at. Two shapes exist in the wild: a
+// `modes` selector switched with `session/set_mode`, and the same ladder
+// expressed as a config option whose category is "mode" — droid and codex
+// publish both, claude only the first.
+//
+// Two outcomes are warnings, one is a refusal. A mode Kin has no mapping for is
+// a warning: the node's ceiling already treats an unappliable non-default mode
+// as a bypass, and an operator who allowed that decided it. An agent that
+// publishes no ladder at all is a warning too: there is nothing to select, and
+// Kin cannot invent a rung. An agent that *does* publish a ladder but not the
+// rung Kin maps to is a refusal: its current rung may approve everything (droid
+// ships that way), so the turn stops before the prompt instead of running
+// somewhere Kin cannot name.
+func (h *handle) applyMode(spec adapter.TaskSpec, session sessionResult) {
+	if h.unattended {
+		// Already said out loud at session start; a second notice per mode would
+		// repeat the same fact in different words.
+		h.applyModel(spec)
+		return
+	}
+	mode := adapter.NormalizePermissionMode(spec.PermissionMode)
+	target := strings.TrimSpace(h.modes[mode])
+	if target == "" {
+		if mode != adapter.PermissionDefault {
+			h.emit(modeNotAppliedNotice(mode, session))
+		}
+		h.applyModel(spec)
+		return
+	}
+	switch {
+	case session.modeOffered(target):
+		if _, err := h.send(context.Background(), methodSessionSetMode, setModeParams{
+			SessionID: session.SessionID,
+			ModeID:    target,
+		}); err != nil {
+			h.failWrite(methodSessionSetMode, err)
+		}
+	case session.configOffers(session.modeConfigID(), target):
+		h.stateMu.Lock()
+		h.modeConfigPending = true
+		h.stateMu.Unlock()
+		if _, err := h.send(context.Background(), methodSetConfigOption, setConfigOptionParams{
+			SessionID: session.SessionID,
+			ConfigID:  session.modeConfigID(),
+			Value:     target,
+		}); err != nil {
+			h.stateMu.Lock()
+			h.modeConfigPending = false
+			h.stateMu.Unlock()
+			h.failWrite(methodSetConfigOption, err)
+		}
+	default:
+		if session.publishesModes() {
+			h.stopWithError(fmt.Sprintf(
+				"the %q mode is not applied: Kin maps it to this agent's mode %q, which it did "+
+					"not offer (%s); refusing to run on a mode Kin cannot place",
+				mode, target, session.modeChoicesText()))
+			return
+		}
+		h.emit(modeNotOfferedNotice(mode, target, session))
+		h.applyModel(spec)
+	}
+}
+
+// modeNotAppliedNotice says Kin's mode has no rung on this agent at all.
+func modeNotAppliedNotice(mode string, session sessionResult) adapter.Event {
+	return adapter.Event{Type: "notice", Payload: mustMarshal(map[string]any{
+		"severity": "warning",
+		"title":    "permission mode not applied",
+		"message": fmt.Sprintf(
+			"the %q mode is not applied: Kin has no mapping to this agent's own modes (%s), "+
+				"so the agent runs on the mode it chose; if it asks, the question still goes "+
+				"to the approval inbox",
+			mode, session.modeChoicesText()),
+		"mode": mode,
+	})}
+}
+
+// modeNotOfferedNotice says the mapping exists but this agent publishes no
+// ladder at all, so there is no rung to select. (An agent that publishes a
+// ladder without the rung is refused, not warned about: see applyMode.)
+func modeNotOfferedNotice(mode, target string, session sessionResult) adapter.Event {
+	return adapter.Event{Type: "notice", Payload: mustMarshal(map[string]any{
+		"severity": "warning",
+		"title":    "permission mode not applied",
+		"message": fmt.Sprintf(
+			"the %q mode is not applied: Kin maps it to the agent's mode %q, but this agent "+
+				"publishes no mode ladder (%s), so Kin cannot select it; the agent runs on the "+
+				"mode it chose, and anything it asks goes to the approval inbox",
+			mode, target, session.modeChoicesText()),
+		"mode": mode,
+	})}
+}
+
 // applyModel selects the model the task asked for, and refuses to run on a
 // different one.
 //
 // Running on the agent's default when the user asked for something else would
 // leave the transcript claiming a model that did no work — the same failure the
 // workspace anchors exist to prevent, one layer down.
-func (h *handle) applyModel(spec adapter.TaskSpec, session sessionResult) {
+func (h *handle) applyModel(spec adapter.TaskSpec) {
 	h.stateMu.Lock()
-	h.replaying = false
+	session := h.session
 	h.stateMu.Unlock()
 
 	model := strings.TrimSpace(spec.Model)

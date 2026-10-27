@@ -281,7 +281,7 @@ func ServeWith(version string, flags ServeFlags) error {
 	defer relayRuntime.Stop()
 	fallbackBaseURL := daemonURL
 	routingCatalog := routing.NewCatalog(st, nil)
-	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn, routingCatalog, connectorManager)
+	reg, err := buildAgentRegistry(ctx, st, daemonURL, tokenFn, routingCatalog, connectorManager, version)
 	if err != nil {
 		return err
 	}

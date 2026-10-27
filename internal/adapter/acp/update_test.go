@@ -193,6 +193,40 @@ func TestToolCallsMapToStepsTheConsoleMerges(t *testing.T) {
 		}
 	})
 
+	t.Run("the claude adapter's own tool name outranks its title", func(t *testing.T) {
+		// Measured: a claude call carries `title: "Read /tmp/x"` and
+		// `_meta.claudeCode.toolName: "Read"`. The title is a sentence about one
+		// call; the tool is what the row is a row of.
+		event := mapOne(t, `{"sessionUpdate":"tool_call","toolCallId":"t1",
+			"title":"Read /tmp/x","kind":"read","status":"pending",
+			"_meta":{"claudeCode":{"toolName":"Read"}}}`)
+		payload := payloadOf(t, event)
+		if payload["name"] != "Read" || payload["summary"] != "Read /tmp/x" {
+			t.Fatalf("payload = %v", payload)
+		}
+	})
+
+	t.Run("a patch of a running call does not rename it", func(t *testing.T) {
+		// The measured stream sends a later update with only an id and a status.
+		// Filling in a fallback name there renamed a `Read` row to `tool` in the
+		// console, which is how this test came to exist.
+		event := mapOne(t, `{"sessionUpdate":"tool_call_update","toolCallId":"t1",
+			"status":"in_progress","content":[{"type":"content","content":{"type":"text","text":"half"}}]}`)
+		payload := payloadOf(t, event)
+		if _, named := payload["name"]; named {
+			t.Fatalf("a patch that does not name the tool named it anyway: %v", payload)
+		}
+	})
+
+	t.Run("a result that does not name the tool leaves the row's name alone", func(t *testing.T) {
+		event := mapOne(t, `{"sessionUpdate":"tool_call_update","toolCallId":"t1",
+			"status":"completed","content":[{"type":"content","content":{"type":"text","text":"done"}}]}`)
+		payload := payloadOf(t, event)
+		if _, named := payload["name"]; named {
+			t.Fatalf("a result named a tool it did not name: %v", payload)
+		}
+	})
+
 	t.Run("a diff is rendered as text", func(t *testing.T) {
 		events := mapUpdate(json.RawMessage(`{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Edit",
 			"status":"completed","content":[{"type":"diff","path":"/tmp/x","oldText":"a\n","newText":"b\n"}]}`))
