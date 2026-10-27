@@ -2443,11 +2443,19 @@ func (s *Store) ensureSessionRefProvenanceSchema() error {
 // path (`UserByIdentity`), so such a Hub could not sign anyone in, and the
 // operator command could not even list who was there.
 //
-// The repaired table gets its owner back. An account table without the column
-// predates invitations, so the only account it can hold is the one that claimed
-// the Hub, and that account is the owner. Two or more accounts is not a shape
-// that build could produce, so the update declines to guess in that case rather
-// than hand the daemon to the earliest row.
+// The repaired table gets an administrator back. Authority was not a role on
+// the build that wrote this table: the guard admitted any signed-in account,
+// because registration closed after the first claim, so every account here was
+// a claimant and held the daemon's authority. The repair makes the earliest one
+// the owner and the rest members, which is as close as a single role column can
+// come to what the table meant. Declining to choose would leave a claimed Hub
+// with no account that can administer it, and nothing in the product can grant
+// the role afterwards.
+//
+// Two accounts is not the usual shape but it is reachable: that build checked
+// for a claim and issued a second bootstrap code without a lock, so two claims
+// could both get past it while the first was still hashing a password. The
+// repair is not allowed to brick the Hub for that.
 func (s *Store) ensureIdentityRoleSchema() error {
 	present, err := s.tableExists("users")
 	if err != nil {
@@ -2491,7 +2499,7 @@ func (s *Store) ensureIdentityRoleSchema() error {
 	}
 	if _, err := tx.Exec(`
 		UPDATE users SET role = ?
-		 WHERE (SELECT COUNT(*) FROM users) = 1`, RoleOwner); err != nil {
+		 WHERE id = (SELECT id FROM users ORDER BY created_at, id LIMIT 1)`, RoleOwner); err != nil {
 		return fmt.Errorf("restore the claiming account's role: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

@@ -127,21 +127,23 @@ func TestTheRoleRepairLeavesAnExistingMemberAlone(t *testing.T) {
 	}
 }
 
-// Two accounts in a pre-role table is not a shape the old build could produce,
-// so the repair declines to pick one: everyone stays a member, which fails
-// closed, instead of the earliest row quietly inheriting the daemon.
-func TestTheRoleRepairDoesNotChooseBetweenTwoAccounts(t *testing.T) {
+// Two accounts in a pre-role table is reachable: that build issued a second
+// bootstrap code without a lock, so two claims could both get past it. Both
+// held the daemon's authority then, and a single role cannot give it to both,
+// so the repair makes the first-inserted account the owner rather than leave
+// the Hub with nobody who can administer it.
+func TestTheRoleRepairMakesTheEarliestOfTwoClaimantsTheOwner(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kin.db")
 	s, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"user-a", "user-b"} {
+	for i, id := range []string{"user-a", "user-b"} {
 		if err := s.CreateUserWithIdentity(ctx,
-			User{ID: id, Email: id + "@example.com", Role: RoleMember, CreatedAt: 1},
+			User{ID: id, Email: id + "@example.com", Role: RoleMember, CreatedAt: int64(i + 1)},
 			UserIdentity{ID: "identity-" + id, UserID: id, Provider: ProviderPassword,
-				Subject: id + "@example.com", SecretHash: "hash", CreatedAt: 1},
+				Subject: id + "@example.com", SecretHash: "hash", CreatedAt: int64(i + 1)},
 		); err != nil {
 			t.Fatal(err)
 		}
@@ -166,9 +168,10 @@ func TestTheRoleRepairDoesNotChooseBetweenTwoAccounts(t *testing.T) {
 	if len(users) != 2 {
 		t.Fatalf("accounts after the repair = %+v, want both kept", users)
 	}
+	want := map[string]string{"user-a": RoleOwner, "user-b": RoleMember}
 	for _, user := range users {
-		if user.Role != RoleMember {
-			t.Fatalf("account %s came out %q; the repair must not pick an owner", user.ID, user.Role)
+		if user.Role != want[user.ID] {
+			t.Fatalf("account %s came out %q, want %q", user.ID, user.Role, want[user.ID])
 		}
 	}
 }
