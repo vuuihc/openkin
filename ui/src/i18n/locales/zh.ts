@@ -1218,7 +1218,8 @@ const zh = {
     loginWhereTitle: "这是哪个账号？",
     loginWhereBody: "这是你在本 Hub 上的账号——认领 Hub 时创建，或接受邀请时创建。没有默认账号。",
     forgotTitle: "忘记密码了？",
-    forgotBody: "在 Hub 主机上，用你登录的邮箱运行下面这条命令，它会打印一个新密码：",
+    forgotBody:
+      "在 Hub 主机上，用你登录的邮箱运行下面这条命令，它会打印一个新密码（容器部署时，在主机上给这条命令加上 docker compose exec kin 前缀）：",
     forgotCommand: "kin hub reset-password --email you@example.com",
     errors: {
       invalid_credentials: "邮箱或密码不正确。",

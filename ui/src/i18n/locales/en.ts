@@ -1276,7 +1276,7 @@ const en: MessageTree = {
       "The one created for you on this Hub — when it was claimed, or when you accepted an invitation. There is no default account.",
     forgotTitle: "Forgot the password?",
     forgotBody:
-      "On the Hub host, run this for the address you sign in with. It prints a new password:",
+      "On the Hub host, run this for the address you sign in with. It prints a new password (container deployment: prefix it with docker compose exec kin):",
     forgotCommand: "kin hub reset-password --email you@example.com",
     errors: {
       invalid_credentials: "Email or password is incorrect.",
