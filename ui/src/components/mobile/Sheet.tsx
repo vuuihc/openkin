@@ -106,9 +106,22 @@ export default function Sheet({
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
+    // The panel is `md:hidden`. Past that width it is invisible but still
+    // mounted, and its Escape/Tab trap keeps eating keys meant for the page
+    // behind it; closing on the breakpoint is what makes "hidden" mean gone
+    // (a tablet rotation, or a phone window dragged wide).
+    let media: MediaQueryList | null = null;
+    const onMediaChange = () => {
+      if (media?.matches) onCloseRef.current();
+    };
+    if (typeof window.matchMedia === "function") {
+      media = window.matchMedia("(min-width: 768px)");
+      media.addEventListener?.("change", onMediaChange);
+    }
     return () => {
       window.clearTimeout(focusTimer);
       window.removeEventListener("keydown", onKeyDown, true);
+      media?.removeEventListener?.("change", onMediaChange);
       restoreRef.current?.focus?.({ preventScroll: true });
     };
   }, [open]);
@@ -136,7 +149,10 @@ export default function Sheet({
           className,
         ].join(" ")}
       >
-        <div aria-hidden="true" className="mx-auto mt-2 h-[5px] w-9 flex-none rounded-full bg-[var(--kin-hairline-strong)]" />
+        <div
+          aria-hidden="true"
+          className="mx-auto mt-2 h-[5px] w-9 flex-none rounded-full bg-[var(--kin-hairline-strong)]"
+        />
         {title ? (
           <div className="flex-none px-4 pb-2 pt-3 text-center">
             <h2 className="truncate text-subtitle font-semibold">{title}</h2>
@@ -145,7 +161,11 @@ export default function Sheet({
             ) : null}
           </div>
         ) : null}
-        <div className={["min-h-0 flex-1 overflow-y-auto kin-scroll px-4 pb-1", bodyClassName].join(" ")}>
+        <div
+          className={["min-h-0 flex-1 overflow-y-auto kin-scroll px-4 pb-1", bodyClassName].join(
+            " ",
+          )}
+        >
           {children}
         </div>
         {footer ? <div className="flex-none px-4 pt-3">{footer}</div> : null}
