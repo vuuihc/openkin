@@ -349,8 +349,43 @@ body {
 .kin-main > * {
   animation: kin-page-in 140ms ease-out;
 }
+
+/*
+  A sheet arrives from the bottom edge. Transform is allowed here because the
+  sheet is itself the fixed element — it has no fixed descendants, so it cannot
+  re-anchor anything (the rule that keeps page transitions opacity-only).
+
+  16px is enough to read as "slid up" without the sheet appearing to travel
+  across the screen; the 200ms curve is the same one the phone's own sheets use.
+*/
+@keyframes kin-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes kin-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.kin-sheet-enter {
+  animation: kin-sheet-in 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+.kin-scrim-enter {
+  animation: kin-scrim-in 160ms ease-out;
+}
 @media (prefers-reduced-motion: reduce) {
-  .kin-main > * {
+  .kin-main > *,
+  .kin-sheet-enter,
+  .kin-scrim-enter {
     animation: none;
   }
   .kin-dot,
@@ -369,6 +404,64 @@ body {
   .kin-hairline {
     border-color: var(--kin-hairline);
   }
+  /*
+    ── The phone's surface vocabulary ──────────────────────────────────────
+
+    Four names, and every mobile surface is one of them. A screen composes
+    these instead of picking a border, a radius and an elevation step on each element —
+    which is how the console ended up with a dozen slightly different cards,
+    each one tuned by hand against the one beside it.
+
+    The values are all existing tokens. The decision this block records is
+    which token plays which part on a phone:
+
+      canvas   --kin-page        the shell root, already painted
+      card     --kin-panel       a grouped list, a settings group, a chat card
+      well     --kin-fill        inputs and chips *inside* a card
+      float    --kin-panel       sheets, the drawer, the dock — plus the e3 step
+
+    In the light scheme `page` is a grey and `panel` is white, so a card is the
+    iOS grouped-list card. In the dark scheme `panel` sits one rung above
+    `page`, which is the same relationship with the lights off. The hairline is
+    the card's edge in the light scheme and nearly invisible in the dark one,
+    where the surface step does the separating — that asymmetry is the tokens'
+    own, not this block's.
+
+    `.kin-glass` is the one value that is not a straight token: the panel at
+    78%, blurred. The fallback matters — without `backdrop-filter` the header
+    is a 78% surface over scrolling text, which is readable but muddy; the
+    `@supports` arm below raises it to near-opaque where blur is unavailable.
+  */
+  .kin-glass {
+    background: rgb(var(--kin-panel-rgb) / 0.78);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .kin-glass {
+      background: rgb(var(--kin-panel-rgb) / 0.97);
+    }
+  }
+  .kin-card {
+    background: rgb(var(--kin-panel-rgb) / 1);
+    border: 1px solid var(--kin-hairline);
+    box-shadow: 0 1px 2px var(--kin-shadow-1);
+  }
+  /* A sheet is the same surface as a card, raised: the scrim behind it is what
+     says "above", so the border goes away and the drop gets the third step. */
+  .kin-sheet-surface {
+    background: rgb(var(--kin-panel-rgb) / 1);
+    box-shadow: 0 40px 90px -20px var(--kin-shadow-3);
+  }
+  /* A row inside a card. The press wash is the phone's only feedback — a
+     hover colour does not exist on glass — so every tappable row carries it. */
+  .kin-row-press {
+    transition: background-color 120ms ease-out;
+  }
+  .kin-row-press:active {
+    background: var(--kin-fill);
+  }
+
   /* Buttons, and the focus answer for a *filled* control. An outline rather
      than a ring, because a ring is drawn inside the element's own box: on
      `.kin-btn-primary` the fill *is* `--kin-blue`, and in the dark scheme the
@@ -501,6 +594,15 @@ ion-action-sheet.kin-sheet .action-sheet-button {
   font-size: 16px;
   font-weight: 500;
   min-height: 52px;
+}
+/* A sheet whose header is a name rather than a field label. The project menu's
+   header is the project's own name, and the uppercase treatment above turns
+   `kin-provider-probe` into shouting—a directory name is not a caption. */
+ion-action-sheet.kin-sheet.kin-sheet-named .action-sheet-title {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 15px;
+  color: var(--kin-text);
 }
 /* The sub-header is a child of the title element, so it inherits the title's
    uppercase and letter-spacing. It is a sentence — "Runs on <machine>" — and

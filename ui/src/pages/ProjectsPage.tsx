@@ -12,6 +12,7 @@ import CwdPicker from "../components/chat/CwdPicker";
 import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
+import { MobileChevron } from "../components/mobile/MobileHeader";
 import { projectLabel } from "../lib/paths";
 import { useAppStore } from "../store/appStore";
 
@@ -106,7 +107,7 @@ export default function ProjectsPage() {
         </div>
         <button
           type="button"
-          className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand hover:opacity-90"
+          className="max-md:ml-auto max-md:min-h-11 max-md:rounded-xl max-md:px-4 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand hover:opacity-90"
           onClick={() => setCreating((v) => !v)}
         >
           {tr("projects.create")}
@@ -176,17 +177,20 @@ export default function ProjectsPage() {
             <li key={p.id}>
               <Link
                 to={`/projects/${p.id}`}
-                className="block rounded-xl border border-transparent bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors"
+                className="block rounded-xl border border-transparent bg-kin-panel px-4 py-3 hover:border-kin-blue/40 transition-colors max-md:kin-card max-md:rounded-2xl max-md:bg-kin-panel max-md:py-3.5"
               >
                 <div className="flex items-start justify-between gap-3">
                   {/* `min-w-0` is what lets the name truncate instead of
                       pushing the date off the right edge on a 320px screen:
                       a flex child's default `min-width:auto` is its content. */}
                   <div className="min-w-0">
-                    <div className="text-strong font-medium text-kin-text truncate" title={p.name}>
+                    <div
+                      className="text-strong max-md:text-subtitle font-medium max-md:font-semibold text-kin-text truncate"
+                      title={p.name}
+                    >
                       {p.name}
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-2 text-caption text-kin-secondary">
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-caption text-kin-secondary">
                       <span className="rounded-md bg-[var(--kin-fill-strong)] px-1.5 py-0.5">
                         {modeLabel(p.mode, tr)}
                       </span>
@@ -197,8 +201,11 @@ export default function ProjectsPage() {
                       )}
                     </div>
                   </div>
-                  <div className="shrink-0 text-caption text-kin-secondary">
+                  <div className="flex shrink-0 items-center gap-1 text-caption text-kin-secondary max-md:pt-1">
                     {formatWhen(p.last_active_at)}
+                    <span className="md:hidden">
+                      <MobileChevron />
+                    </span>
                   </div>
                 </div>
               </Link>

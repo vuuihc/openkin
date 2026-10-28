@@ -66,6 +66,7 @@ import {
 } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
 import PanelSurface from "../components/layout/PanelSurface";
+import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHeader";
 import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
@@ -1047,46 +1048,54 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
     <div className="flex-1 min-w-0 min-h-0 flex relative">
       <div className="flex-1 min-w-0 min-h-0 flex flex-col kin-surface-chat">
         {/*
-          Two rows on a phone, one from `md` up.
-
-          The controls are all `flex-none`, so on a 390px screen they could not
-          shrink and the title — the only flexible item — absorbed the whole
-          deficit: it rendered at 0px and the tail of the row (the project link,
-          the status, and Stop) was cut off by `<main overflow-hidden>`. The
-          phone's 44pt floor made each control wider, which is what turned a
-          squeeze into a clip. `w-full` on the cluster sends it to its own line
-          deterministically, so the title gets the full width.
-
-          That was still not enough on a 320px screen, which is measurable now
-          that a running session can be rendered on demand (the fixture daemon):
-          with a live task the cluster wants 358px at 390 (it fits, exactly, 0px
-          to spare) and at 320 its first child measured at x=-2 — clipped off
-          the *left* edge, where no amount of scrolling can reach it, because
-          `justify-end` overflows the start of the line. Hence the three
-          classes below: `justify-start` (overflow goes right, where it can be
-          scrolled to), `overflow-x-auto` (so it can be), and `whitespace-nowrap`
-          (without it the labels wrap to two lines and the row grows instead).
+          The phone's one bar: back, the session's title, and the ⋯ that opens
+          the same action sheet the chip row used to. The chip row was a second
+          44px line holding a host badge, a project link, a status word and the
+          overflow trigger — on a 390px screen it took two rows and its own
+          horizontal scroll, and the title above it was truncated to make room.
+          The status survives as the subtitle; everything else is one tap away.
         */}
+        <MobileHeader
+          title={task.title || displayUserPrompt(task.prompt || "")}
+          subtitle={
+            !terminal
+              ? degraded
+                ? tr("task.reconnect")
+                : tr("task.running")
+              : project || undefined
+          }
+          leading={
+            <MobileHeaderButton label={tr("app.back")} onClick={goBack}>
+              <IconBack size={20} strokeWidth={2} />
+            </MobileHeaderButton>
+          }
+          trailing={
+            <MobileHeaderButton
+              label={tr("task.sessionActions")}
+              onClick={() => setActionsOpen(true)}
+              tone="muted"
+            >
+              <IconMore size={19} />
+            </MobileHeaderButton>
+          }
+        />
+
+        {/* Desktop's bar. Same content as before; the phone branch above owns
+            the small widths now, so the mobile-only controls are gone. */}
         <div
-          className="min-h-11 flex-none flex flex-wrap items-center px-4 sm:px-5 border-b border-[var(--kin-hairline)]"
+          className="hidden md:flex min-h-11 flex-none items-center px-5 border-b border-[var(--kin-hairline)]"
           style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
-          <button
-            type="button"
-            onClick={goBack}
-            aria-label={tr("app.back")}
-            className="md:hidden mr-2 text-kin-blue-ink min-w-[44px] min-h-11 -ml-2 flex items-center justify-center"
-            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-          >
-            <IconBack size={18} strokeWidth={2} />
-          </button>
           <div className="min-w-0 flex-1">
             <div className="text-strong font-semibold text-kin-text truncate">
               {task.title || displayUserPrompt(task.prompt || "")}
             </div>
           </div>
           <div
-            className="w-full justify-start md:ml-2 md:w-auto flex items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted flex-none"
+            /* `min-w-0`, not `flex-none`: the row is desktop-only now, and a
+               non-shrinking cluster whose natural width passes the window edge
+               was clipped there instead of scrolling inside its own box. */
+            className="ml-2 flex min-w-0 items-center gap-2 overflow-x-auto kin-scroll whitespace-nowrap text-body text-kin-muted"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <span
@@ -1098,9 +1107,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               >
                 {hostAgentAvatar.initials}
               </span>
-              <span className="hidden sm:inline">
-                {tr("newChat.hostAgent", { name: hostAgentName })}
-              </span>
+              <span>{tr("newChat.hostAgent", { name: hostAgentName })}</span>
             </span>
             <button
               type="button"
@@ -1108,7 +1115,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 togglePanel(id, "files");
               }}
               className={[
-                "hidden md:inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
                 filesOpen
                   ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
@@ -1122,7 +1129,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={togglePrPanel}
               className={[
-                "hidden md:inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-body transition-colors",
                 prOpen
                   ? "border-kin-blue/50 bg-kin-blue/15 text-kin-text"
                   : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary hover:text-kin-text",
@@ -1136,7 +1143,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               type="button"
               onClick={() => void onDelete()}
               disabled={deleting}
-              className="hidden md:inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
               title={tr("task.deleteSession")}
               aria-label={tr("task.deleteSession")}
             >
@@ -1164,21 +1171,12 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                   type="button"
                   onClick={() => void onStop()}
                   disabled={stopping}
-                  className="hidden md:inline-flex text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
+                  className="text-body font-semibold text-kin-red-ink hover:bg-kin-red/15 disabled:opacity-40 px-1.5 py-0.5 rounded-md border border-kin-red/30 bg-kin-red/10"
                 >
                   {stopping ? tr("task.stopping") : tr("composer.stop")}
                 </button>
               </>
             )}
-            <button
-              type="button"
-              onClick={() => setActionsOpen(true)}
-              aria-label={tr("task.sessionActions")}
-              title={tr("task.sessionActions")}
-              className="md:hidden -mr-2 inline-flex min-w-[44px] min-h-11 items-center justify-center text-kin-secondary"
-            >
-              <IconMore size={18} />
-            </button>
           </div>
         </div>
 

@@ -29,6 +29,7 @@ import RoutineScheduleFields, {
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
+import Sheet, { SheetPrimaryButton } from "../components/mobile/Sheet";
 import { useT } from "../i18n/react";
 import { modelsForAgent } from "../lib/agentModels";
 import {
@@ -89,42 +90,7 @@ export default function NewChatPage() {
   const [asRoutine, setAsRoutine] = useState(false);
   /** Phone only: the run/route/workspace controls live behind this. */
   const [controlsOpen, setControlsOpen] = useState(false);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const sheetOpenerRef = useRef<HTMLButtonElement>(null);
 
-  /**
-   * The phone sheet behaves like the app's other overlays: Escape closes it,
-   * focus moves into it, and focus comes back to the line that opened it.
-   *
-   * Focus lands on the sheet itself rather than its first control — that
-   * control is a <select>, and landing on one on iOS pops the wheel before
-   * anyone has read what the sheet says.
-   */
-  useEffect(() => {
-    if (!controlsOpen) return;
-    const opener = sheetOpenerRef.current;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      /*
-        An open popover inside the sheet owns this Escape and closes first; the
-        sheet goes on the next press. Phase cannot express that — both listen on
-        `document`, and whichever runs first still closes both in the same
-        keystroke — so the sheet has to look for one.
-      */
-      if (sheetRef.current?.querySelector('[role="dialog"], [role="listbox"]')) {
-        return;
-      }
-      event.stopPropagation();
-      setControlsOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const timer = window.setTimeout(() => sheetRef.current?.focus(), 20);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      window.clearTimeout(timer);
-      opener?.focus();
-    };
-  }, [controlsOpen]);
   const [routineInterval, setRoutineInterval] = useState(86400);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
 
@@ -496,6 +462,18 @@ export default function NewChatPage() {
     cwd ? cwd.split("/").filter(Boolean).pop() || cwd : tr("newChat.noWorkspace"),
   ].join(" · ");
 
+  /** Each control's own row label. The group headings stay as sections
+   *  ("Run", "Route", "Workspace"); this is what the row is asking for. */
+  const CONTROL_LABEL_KEY: Record<NewChatControlId, string> = {
+    permission: "newChat.rowPermission",
+    routine: "newChat.rowRoutine",
+    machine: "newChat.rowMachine",
+    hostModel: "newChat.rowAgentModel",
+    dispatch: "newChat.rowDispatch",
+    cwd: "newChat.rowCwd",
+    branch: "newChat.rowBranch",
+  };
+
   function renderControl(control: NewChatControlId) {
     switch (control) {
       case "machine":
@@ -619,7 +597,7 @@ export default function NewChatPage() {
       {/* `gap-2` rather than a leading `ml-2` on each child: on a phone the
           title below is `display:none` and the first visible child would
           otherwise start 8px indented, past the gutter every other row uses. */}
-      <div className="h-11 flex-none flex items-center gap-2 px-4 sm:px-5 border-b border-[var(--kin-hairline)]">
+      <div className="hidden md:flex h-11 flex-none items-center gap-2 px-4 sm:px-5 border-b border-[var(--kin-hairline)]">
         {/* The phone's shell header shows this same word (`nav.newChat` and
             `newChat.title` are one string), so only the rest of the row — who
             hosts the session, and where it runs — is worth the 44px there. It
@@ -659,16 +637,17 @@ export default function NewChatPage() {
       <div
         className={[
           "flex-1 overflow-y-auto kin-scroll flex flex-col items-center px-6 py-10",
+          "max-md:justify-start max-md:px-5 max-md:pb-6 max-md:pt-8",
           showProjectColumn ? "justify-start" : "justify-center",
         ].join(" ")}
       >
         <div
-          className={`w-8 h-8 rounded-lg flex items-center justify-center mb-4 text-body font-semibold ${mainAgentAvatar.className}`}
+          className={`w-8 h-8 max-md:h-11 max-md:w-11 max-md:text-subtitle rounded-lg max-md:rounded-full flex items-center justify-center mb-4 max-md:mb-3 text-body font-semibold ${mainAgentAvatar.className}`}
           aria-label={mainAgentAvatar.label}
         >
           {mainAgentAvatar.initials}
         </div>
-        <h1 className="text-hero font-semibold tracking-tight text-center max-w-md">
+        <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-center max-w-md">
           {tr("newChat.heroTitle", { name: mainAgentName })}
         </h1>
         <p className="mt-2 text-strong text-kin-secondary text-center max-w-md">
@@ -725,7 +704,7 @@ export default function NewChatPage() {
           ) : project ? (
             <ProjectSummaryCard project={project} summary={projectSummary} />
           ) : (
-            <div className="rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
+            <div className="max-md:hidden rounded-xl border border-dashed border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-4 py-5 text-center text-strong text-kin-secondary">
               {tr("newChat.onePagerNoProject", {
                 project: projectLabel(cwd),
               })}
@@ -783,7 +762,6 @@ export default function NewChatPage() {
           {/* Phone: the same controls, one line until asked for. */}
           <button
             type="button"
-            ref={sheetOpenerRef}
             onClick={() => setControlsOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={controlsOpen}
@@ -836,67 +814,50 @@ export default function NewChatPage() {
         </div>
       </div>
 
-      {controlsOpen && (
-        <div className="sm:hidden fixed inset-0 z-40 flex flex-col justify-end">
-          {/* Scrim. `tabIndex={-1}` keeps it out of the tab order: as a focusable
-              full-bleed button it used to be the first stop inside the dialog. */}
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-hidden="true"
-            className="absolute inset-0 bg-black/55"
-            onClick={() => setControlsOpen(false)}
-          />
-          <div
-            ref={sheetRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label={tr("newChat.controlsTitle")}
-            tabIndex={-1}
-            /*
-              The sheet is `fixed`, so it takes the viewport as its containing
-              block and the root's `.safe-pad` never reaches it: with a plain
-              `pb-4` the Done button sat 16px off the physical bottom, its lower
-              half inside the home-indicator strip. `max()` keeps the 16px
-              design gutter wherever there is no inset.
-            */
-            className="relative z-10 max-h-[80dvh] overflow-y-auto kin-scroll rounded-t-2xl bg-kin-elevated px-4 pt-2.5 pb-[max(1rem,env(safe-area-inset-bottom))]"
-          >
-            <div className="mx-auto mb-3.5 h-[5px] w-9 rounded-full bg-[var(--kin-hairline-strong)]" />
-            <div className="text-subtitle font-semibold">{tr("newChat.controlsTitle")}</div>
-            <p className="mb-3 mt-0.5 text-body text-kin-muted">{tr("newChat.controlsHint")}</p>
-            <div className="grid gap-2">
-              {controlGroups.map((group) => (
-                <div
-                  key={group.id}
-                  className="flex min-w-0 flex-col gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 py-2.5"
-                >
-                  <div className="text-micro font-semibold uppercase tracking-label text-kin-muted">
-                    {tr(group.labelKey)}
+      <Sheet
+        open={controlsOpen}
+        onClose={() => setControlsOpen(false)}
+        title={tr("newChat.controlsTitle")}
+        footer={
+          <SheetPrimaryButton onClick={() => setControlsOpen(false)}>
+            {tr("newChat.controlsDone")}
+          </SheetPrimaryButton>
+        }
+      >
+        <p className="px-1 pb-2.5 text-body text-kin-muted">{tr("newChat.controlsHint")}</p>
+        <div className="space-y-4 pb-1">
+          {controlGroups.map((group) => (
+            <section key={group.id}>
+              <h3 className="px-1 pb-1.5 text-strong font-medium text-kin-muted">
+                {tr(group.labelKey)}
+              </h3>
+              {/* One row per decision, not one row per group: a group can hold
+                  three controls, and three right-aligned pickers in a single
+                  row wrapped into a column of unrelated widgets. Each row is
+                  label → value on the same baseline, the shape the iOS
+                  run-configuration sheets use.
+
+                  No `overflow-hidden`: the card's own radius clips its
+                  background, and clipping the *children* cut the team-dispatch
+                  popover off at the card's top edge — the control opened a
+                  panel whose mode chips were sliced in half. Anything a row
+                  can open has to be able to leave the row. */}
+              <div className="kin-card rounded-2xl [&>*+*]:border-t [&>*+*]:border-[var(--kin-hairline)]">
+                {group.controls.map((control) => (
+                  <div key={control} className="flex min-h-[52px] items-center gap-3 px-4 py-2">
+                    <div className="w-[5.5rem] flex-none text-body text-kin-muted">
+                      {tr(CONTROL_LABEL_KEY[control])}
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 [&_button]:min-h-11 [&_button]:min-w-[44px] [&_select]:min-h-11 [&_select]:min-w-[44px] [&_[role=button]]:min-h-11">
+                      {renderControl(control)}
+                    </div>
                   </div>
-                  {/* The pickers are built for a mouse: 17–28px chips. Inside a
-                      phone sheet every one of them has to clear 44pt, so the row
-                      lifts its descendants rather than each picker carrying a
-                      second set of sizes. min-height beats an explicit height,
-                      so a fixed h-[26px] chip still grows.
-                      Note this floor is unconditional: `data-touch-mini` opts
-                      out of the app-wide `.touch-lg` rule, not out of this one. */}
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 [&_button]:min-h-11 [&_button]:min-w-[44px] [&_select]:min-h-11 [&_select]:min-w-[44px] [&_[role=button]]:min-h-11">
-                    {group.controls.map(renderControl)}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setControlsOpen(false)}
-              className="mt-3 min-h-12 w-full rounded-xl bg-kin-blue text-subtitle font-semibold text-kin-on-brand"
-            >
-              {tr("newChat.controlsDone")}
-            </button>
-          </div>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
-      )}
+      </Sheet>
     </div>
   );
 }

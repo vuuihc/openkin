@@ -65,6 +65,12 @@ export const TYPE_ROLES: TypeRole[] = [
     ink: "text",
     absorbed: ["xl", "2xl", "22px", "28px", "32px"],
   },
+  // The phone landing screen's title. It is one step above `hero` and one
+  // weight below it: a page's h1 on a 390pt screen wants to be *larger* than
+  // the desktop step, but bold at that size reads as a marketing headline
+  // rather than as the name of the screen. Semibold at 28px is what iOS large
+  // titles and Lody's landing both use.
+  { role: "display", px: 28, weight: 600, ink: "text", absorbed: [] },
 ];
 
 /** What `tailwind.config.ts` assigns to `theme.fontSize`. */
@@ -95,4 +101,5 @@ export const ROLE_PREVIEW: Record<string, string> = {
   subtitle: "text-subtitle font-semibold text-kin-text",
   title: "text-title font-semibold text-kin-text",
   hero: "text-hero font-bold text-kin-text",
+  display: "text-display font-semibold text-kin-text",
 };

@@ -22,6 +22,8 @@ import {
   sessionStatusDotClass,
 } from "../lib/sessionViewed";
 import { useT } from "../i18n/react";
+import { MobileCard, MobileEmpty, MobileRow, MobileScreen, MobileSection } from "../components/mobile/MobileList";
+import { IconSessions } from "../components/icons";
 
 /**
  * The phone's session list — a few sections of rows, in one scroll.
@@ -144,7 +146,7 @@ export default function SessionsPage() {
   const viewedIds = new Set(getViewedSessionIds());
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto kin-scroll">
+    <MobileScreen className="mx-auto w-full max-w-2xl">
       {loading && (
         <p className="px-4 py-10 text-center text-strong text-kin-muted">
           {tr("sessions.loading")}
@@ -152,19 +154,18 @@ export default function SessionsPage() {
       )}
 
       {!loading && groups.length === 0 && (
-        <div className="px-6 py-16 text-center">
-          <p className="text-subtitle font-medium text-kin-text">{tr("sessions.empty")}</p>
-          <p className="mt-1.5 text-strong leading-prose text-kin-muted">
-            {tr("sessions.emptyHint")}
-          </p>
-        </div>
+        <MobileEmpty
+          icon={<IconSessions size={30} />}
+          title={tr("sessions.empty")}
+          hint={tr("sessions.emptyHint")}
+        />
       )}
 
       {!loading &&
         groups.map((device) => (
           <section key={device.id || "self"}>
             {machineLabels && (
-              <h2 className="sticky top-0 z-[2] flex items-center gap-1.5 px-4 pb-1.5 pt-4 text-body font-semibold text-kin-muted bg-[var(--kin-page)]">
+              <h2 className="flex items-center gap-1.5 px-4 pb-0.5 pt-5 text-caption font-semibold text-kin-muted">
                 <span
                   className={`h-[7px] w-[7px] flex-none rounded-full ${
                     device.online ? "bg-kin-green" : "bg-kin-muted"
@@ -181,34 +182,29 @@ export default function SessionsPage() {
             )}
 
             {groupSessions(deviceRows(device), now).map((bucket) => (
-              <div key={bucket.key}>
-                {/*
-                  Not sticky: the machine heading above already is, and two
-                  sticky headings in one scroll fight over the same line.
-                */}
-                <h3 className="px-4 pb-1 pt-4 text-caption font-semibold uppercase tracking-label text-kin-muted">
-                  {tr(BUCKET_LABEL_KEY[bucket.key])}
-                </h3>
-                {bucket.rows.map((row) => (
-                  <SessionRow
-                    key={row.key}
-                    row={row}
-                    now={now}
-                    viewedIds={viewedIds}
-                    onOpen={() => {
-                      if (!row.task) {
-                        navigate(`/agent-sessions/${encodeURIComponent(row.session!.id)}`);
-                        return;
-                      }
-                      // Clearing the dot on the way in is what the sidebar
-                      // does; without it the same row keeps saying "new" every
-                      // time the list is reopened.
-                      if (isTerminal(row.task.status)) markSessionViewed(row.task.id);
-                      navigate(`/tasks/${encodeURIComponent(row.task.id)}`);
-                    }}
-                  />
-                ))}
-              </div>
+              <MobileSection key={bucket.key} title={tr(BUCKET_LABEL_KEY[bucket.key])}>
+                <MobileCard>
+                  {bucket.rows.map((row) => (
+                    <SessionRow
+                      key={row.key}
+                      row={row}
+                      now={now}
+                      viewedIds={viewedIds}
+                      onOpen={() => {
+                        if (!row.task) {
+                          navigate(`/agent-sessions/${encodeURIComponent(row.session!.id)}`);
+                          return;
+                        }
+                        // Clearing the dot on the way in is what the sidebar
+                        // does; without it the same row keeps saying "new" every
+                        // time the list is reopened.
+                        if (isTerminal(row.task.status)) markSessionViewed(row.task.id);
+                        navigate(`/tasks/${encodeURIComponent(row.task.id)}`);
+                      }}
+                    />
+                  ))}
+                </MobileCard>
+              </MobileSection>
             ))}
           </section>
         ))}
@@ -218,9 +214,7 @@ export default function SessionsPage() {
           {tr("sessions.agentSessionsFailed")}
         </p>
       )}
-
-      <div className="h-6" />
-    </div>
+    </MobileScreen>
   );
 }
 
@@ -237,61 +231,46 @@ function SessionRow({ row, now, viewedIds, onOpen }: RowProps) {
   // been opened, blue means it is still going. Null (nothing drawn) is the
   // common case, so the list is not a field of dots.
   const dot = row.task ? sessionStatusDotClass(row.task.status, viewedIds.has(row.task.id)) : null;
+  const agent = agentDisplayName(row.task?.agent ?? row.session!.agent_id);
   return (
-    <button
-      type="button"
+    <MobileRow
       onClick={onOpen}
-      className="flex w-full min-h-16 items-start gap-2.5 border-b border-[var(--kin-hairline)] px-4 py-2.5 text-left active:bg-[var(--kin-fill)]"
-    >
-      <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-lg bg-kin-blue/15 text-subtitle font-bold text-kin-blue-ink">
-        {initial(agentDisplayName(row.task?.agent ?? row.session!.agent_id))}
-      </span>
-
-      <span className="min-w-0 flex-1">
-        <span className="line-clamp-2 text-subtitle font-medium leading-ui">
-          {row.task
-            ? row.task.title.trim() || displayUserPrompt(row.task.prompt) || tr("sessions.untitled")
-            : displayAgentSessionTitle(row.session!, tr("sessions.untitled"))}
+      leading={
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-kin-blue/15 text-subtitle font-bold text-kin-blue-ink">
+          {initial(agent)}
         </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-body text-kin-muted">
-          <span className="truncate">{row.project}</span>
-          <span className="opacity-50">·</span>
-          <span className="flex-none">{formatRelativeTime(row.at, now)}</span>
+      }
+      title={
+        row.task
+          ? row.task.title.trim() || displayUserPrompt(row.task.prompt) || tr("sessions.untitled")
+          : displayAgentSessionTitle(row.session!, tr("sessions.untitled"))
+      }
+      detail={`${row.project} · ${formatRelativeTime(row.at, now)}`}
+      trailing={
+        <span className="flex items-center gap-1.5">
+          {dot && <span className={`h-1.5 w-1.5 flex-none rounded-full ${dot}`} aria-hidden />}
+          {row.task ? (
+            <StatusText status={row.task.status} />
+          ) : (
+            <span className="text-caption text-kin-muted">{agent}</span>
+          )}
         </span>
-      </span>
-
-      <span className="flex flex-none items-center gap-1.5 pt-0.5">
-        {dot && <span className={`h-1.5 w-1.5 flex-none rounded-full ${dot}`} aria-hidden />}
-        {row.task ? (
-          <StatusPill status={row.task.status} />
-        ) : (
-          <span className="inline-flex h-5 items-center rounded-lg bg-[var(--kin-fill)] px-2 text-caption font-semibold text-kin-muted">
-            {agentDisplayName(row.session!.agent_id)}
-          </span>
-        )}
-      </span>
-    </button>
+      }
+    />
   );
 }
 
-function StatusPill({ status }: { status: string }) {
+/**
+ * The row's status word.
+ *
+ * The state marker is the dot beside it (`sessionStatusDotClass`), which also
+ * knows whether a finished run has been opened yet. Drawing a second dot here
+ * was two markers for one fact — the first screenshot of this list had a
+ * "• • 已完成" on every finished row. The word stays muted: a completed run
+ * should not compete with the title it produced.
+ */
+function StatusText({ status }: { status: string }) {
   const tr = useT();
   const view = taskCardStatusView(status);
-  const tone =
-    view.tone === "approval"
-      ? "bg-kin-orange/15 text-kin-orange-ink"
-      : view.tone === "completed"
-        ? "bg-kin-green/15 text-kin-green-ink"
-        : view.tone === "failed"
-          ? "bg-kin-red/15 text-kin-red-ink"
-          : view.tone === "running"
-            ? "bg-kin-blue/15 text-kin-blue-ink"
-            : "bg-[var(--kin-fill)] text-kin-muted";
-  return (
-    <span
-      className={`inline-flex h-5 items-center rounded-lg px-2 text-caption font-semibold ${tone}`}
-    >
-      {tr(view.labelKey)}
-    </span>
-  );
+  return <span className="text-caption text-kin-muted">{tr(view.labelKey)}</span>;
 }

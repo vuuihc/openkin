@@ -1,6 +1,6 @@
 import type { AgentProvider, AgentProviderState } from "../../api/client";
 import { useT } from "../../i18n/react";
-import { SettingsTabPanel } from "./SettingsPrimitives";
+import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
 
 export type AutoImportSnapshot = {
   imported: number;
@@ -75,29 +75,22 @@ export function LocalAgentSettingsSection({
 
   return (
     <SettingsTabPanel id="agents" active={active}>
-      <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
-        <div>
-          <div className="flex items-start gap-3">
-            <div className="flex-1">
-              <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
-                {tr("settings.localAgents.heading")}
-              </h2>
-              <p className="mt-1 text-body text-kin-muted leading-prose">
-                {tr("settings.localAgents.desc")}
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={refreshingAgentCatalog}
-              onClick={onRefreshAgentCatalog}
-              className="kin-btn-secondary text-caption min-h-8 disabled:opacity-50"
-            >
-              {refreshingAgentCatalog
-                ? tr("settings.localAgents.refreshing")
-                : tr("settings.localAgents.refresh")}
-            </button>
-          </div>
-        </div>
+      <SettingsSection
+        title={tr("settings.localAgents.heading")}
+        description={tr("settings.localAgents.desc")}
+        action={
+          <button
+            type="button"
+            disabled={refreshingAgentCatalog}
+            onClick={onRefreshAgentCatalog}
+            className="kin-btn-secondary text-caption min-h-11 sm:min-h-8 disabled:opacity-50"
+          >
+            {refreshingAgentCatalog
+              ? tr("settings.localAgents.refreshing")
+              : tr("settings.localAgents.refresh")}
+          </button>
+        }
+      >
         <div className="space-y-1.5">
           <div className="text-body leading-4 font-medium text-kin-secondary">
             {tr("settings.localAgents.providersHeading")}
@@ -130,7 +123,10 @@ export function LocalAgentSettingsSection({
                 );
               };
               return (
-                <div key={agent.id} className="px-3 py-2.5 flex items-center gap-3">
+                <div
+                  key={agent.id}
+                  className="px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5"
+                >
                   <span
                     className={[
                       "w-2 h-2 rounded-full flex-none",
@@ -150,7 +146,21 @@ export function LocalAgentSettingsSection({
                       {agent.reason ? ` · ${agent.reason}` : ""}
                     </div>
                   </div>
-                  <div className="flex flex-wrap justify-end gap-1">
+                  {canImport && (
+                    <button
+                      type="button"
+                      disabled={importingSessions}
+                      onClick={() => onImportProviderSessions(agent.id)}
+                      className="kin-btn-secondary px-2.5 py-1 text-caption min-h-9 max-md:min-h-11 disabled:opacity-50"
+                    >
+                      {tr("settings.localAgents.importProvider")}
+                    </button>
+                  )}
+                  {/* The capability chips are reference detail; on a phone they
+                      used to share the row with the name and the import button,
+                      which left the agent's name 3 characters wide. They take
+                      their own full-width line below `md`. */}
+                  <div className="flex flex-wrap justify-end gap-1 max-md:order-last max-md:w-full max-md:justify-start">
                     {capabilityBadge("session_list", tr("settings.localAgents.listCapability"))}
                     {capabilityBadge(
                       "session_history_read",
@@ -162,16 +172,6 @@ export function LocalAgentSettingsSection({
                       <span className="text-caption text-kin-muted">
                         {tr("settings.localAgents.noCapabilities")}
                       </span>
-                    )}
-                    {canImport && (
-                      <button
-                        type="button"
-                        disabled={importingSessions}
-                        onClick={() => onImportProviderSessions(agent.id)}
-                        className="kin-btn-secondary px-2 py-1 text-micro min-h-7 disabled:opacity-50"
-                      >
-                        {tr("settings.localAgents.importProvider")}
-                      </button>
                     )}
                   </div>
                 </div>
@@ -239,7 +239,7 @@ export function LocalAgentSettingsSection({
             {settingsBusy ? tr("settings.saving") : tr("settings.localAgents.save")}
           </button>
         </div>
-      </section>
+      </SettingsSection>
     </SettingsTabPanel>
   );
 }

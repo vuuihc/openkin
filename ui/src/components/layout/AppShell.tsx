@@ -20,7 +20,9 @@ import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
-import MobileTabBar from "./MobileTabBar";
+import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
+import MobileDock from "../mobile/MobileDock";
+import { IconSearch, IconX } from "../icons";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
 import { isTerminalToggle, localTerminalCwd } from "../../lib/terminal";
@@ -108,9 +110,11 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
    * between `sm` and `md`). Everywhere else the bar only names the app and the
    * page's heading is still on screen, so the bar is a heading on these routes
    * only — which keeps exactly one visible `<h1>` at every width.
+   *
+   * The draft is not one of them: its page opens with the greeting as its own
+   * `<h1>`, so the bar names the screen in a span.
    */
   const barIsHeading =
-    draftActive ||
     onSessionsTab ||
     location.pathname.startsWith("/inbox") ||
     location.pathname.startsWith("/settings") ||
@@ -132,6 +136,18 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
     selectedTaskId !== null ||
     location.pathname.startsWith("/agent-sessions/") ||
     location.pathname.startsWith("/artifacts/");
+
+  /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
+  const pageOwnsTopInset = selectedTaskId !== null;
+
+  /**
+   * The dock floats over the page, so the shell reserves its height under the
+   * content instead of every scroll container guessing at it. Doing it here is
+   * what makes it true for pages that were written before the dock existed —
+   * settings kept its last card under the pill, and its last control was not
+   * reachable because the page believed it had reached the bottom.
+   */
+  const dockVisible = !detailRoute && location.pathname !== DRAFT_PATH;
 
   /**
    * Leaving the new-chat screen.
@@ -514,42 +530,34 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           area alone is 59px — the content box collapsed to nothing and the
           title rendered half inside the sensor housing.
         */}
-        {detailRoute ? (
+        {detailRoute && !pageOwnsTopInset ? (
           /*
             No bar, but still the top inset. The page below draws its own
             header, and exactly one element must own the notch: handing that
             job to the page would mean every future detail screen has to
             remember `pt-safe`, and getting it wrong puts a title under the
-            sensor housing.
+            sensor housing. The session screen is the exception: it now draws a
+            `MobileHeader`, which applies the inset itself — reserving it here
+            too would spend the notch twice.
           */
           <div className="md:hidden flex-none pt-safe kin-zen-hide" />
-        ) : (
-          <div className="md:hidden flex items-center gap-2 px-3 min-h-12 pt-safe border-b border-[var(--kin-hairline)] flex-none kin-zen-hide">
-            {draftActive ? (
-              <button
-                type="button"
-                onClick={closeDraft}
-                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue-ink"
-                aria-label={tr("app.close")}
-              >
-                <svg
-                  width="21"
-                  height="21"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.1"
-                  strokeLinecap="round"
-                >
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-            ) : (
-              <button
-                type="button"
+        ) : detailRoute ? null : (
+          <MobileHeader
+            heading={barIsHeading}
+            title={mobileTitle}
+            leading={
+              /*
+                The drawer is the phone's only navigation, so its trigger is on
+                every screen including the draft. The draft used to swap this
+                button for a close ×, which left the landing screen — the one
+                the FAB opens and the one most sessions start from — with no way
+                into settings, the inbox, or any other session. The × moved to
+                the trailing cluster, where the compose screens already put
+                cancel.
+              */
+              <MobileHeaderButton
+                label={tr("app.openMenu")}
                 onClick={() => setMobileOpen(true)}
-                className="min-w-[44px] min-h-11 -ml-1 flex items-center justify-center text-kin-blue-ink"
-                aria-label={tr("app.openMenu")}
               >
                 <svg
                   width="22"
@@ -558,55 +566,32 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
+                  aria-hidden="true"
                 >
                   <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
                 </svg>
-              </button>
-            )}
-            {barIsHeading ? (
-              <h1 className="min-w-0 truncate font-semibold text-subtitle">{mobileTitle}</h1>
-            ) : (
-              <span className="min-w-0 truncate font-semibold text-subtitle">{mobileTitle}</span>
-            )}
-            {onSessionsTab && (
-              <button
-                type="button"
-                onClick={openNewChat}
-                className="ml-auto min-w-[44px] min-h-11 flex items-center justify-center text-kin-blue-ink"
-                aria-label={tr("nav.newChat")}
-              >
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.9"
-                  strokeLinecap="round"
+              </MobileHeaderButton>
+            }
+            trailing={
+              <>
+                {/* No "+" here: the dock's FAB is the same action, 100px
+                    below, and two identical buttons in one viewport make the
+                    screen look unsure which one it means. */}
+                <MobileHeaderButton
+                  label={tr("app.commandPalette")}
+                  onClick={() => setPaletteOpen(true)}
+                  tone="muted"
                 >
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setPaletteOpen(true)}
-              className={`${onSessionsTab ? "" : "ml-auto "}min-w-[44px] min-h-11 flex items-center justify-center text-kin-muted`}
-              aria-label={tr("app.commandPalette")}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="m21 21-4.3-4.3" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
+                  <IconSearch size={18} />
+                </MobileHeaderButton>
+                {draftActive && (
+                  <MobileHeaderButton label={tr("app.close")} onClick={closeDraft} tone="muted">
+                    <IconX size={20} strokeWidth={2.1} />
+                  </MobileHeaderButton>
+                )}
+              </>
+            }
+          />
         )}
 
         {/*
@@ -624,11 +609,20 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
           </div>
         )}
 
-        <main className="kin-main flex-1 min-h-0 overflow-hidden flex flex-col">{children}</main>
+        <main
+          className={[
+            "kin-main flex-1 min-h-0 overflow-hidden flex flex-col",
+            dockVisible ? "max-md:pb-[calc(4.25rem+env(safe-area-inset-bottom))]" : "",
+          ].join(" ")}
+        >
+          {children}
+        </main>
 
-        {/* The phone's three primary jobs. Hidden on the draft screen, which is
-            a focused flow with its own way out. */}
-        {location.pathname !== DRAFT_PATH && <MobileTabBar pendingCount={pendingCount} />}
+        {/* The phone's three primary jobs. Hidden on the draft screen, which
+            is a focused flow with its own way out, and on detail routes — a
+            pushed chat owns the whole screen, and its back button is the way
+            out (the iOS convention). */}
+        {dockVisible && <MobileDock pendingCount={pendingCount} />}
 
         {/* Terminal panel — the shell's own panel, desktop only */}
         {terminalAvailable && (

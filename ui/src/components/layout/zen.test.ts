@@ -35,8 +35,9 @@ const ROOT_FLAG = "kin-zen";
  */
 const CHROME = new Map([
   ["src/components/layout/Sidebar.tsx", "the desktop navigation column"],
-  ["src/components/layout/MobileTabBar.tsx", "the phone's bottom bar"],
-  ["src/components/layout/AppShell.tsx", "the phone's top bar"],
+  ["src/components/layout/AppShell.tsx", "the phone's detail-route top inset"],
+  ["src/components/mobile/MobileHeader.tsx", "the phone's top bar"],
+  ["src/components/mobile/MobileDock.tsx", "the phone's floating dock"],
   ["src/components/layout/SessionTabs.tsx", "the session tab strip"],
   ["src/components/layout/PanelSurface.tsx", "the session panel"],
 ]);

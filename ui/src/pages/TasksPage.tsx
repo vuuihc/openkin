@@ -128,13 +128,18 @@ export default function TasksPage() {
         {resource.loaded && filtered.length > 0 && (
           <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--kin-hairline)]">
             <table className="w-full text-left text-strong">
-              <thead className="text-caption uppercase tracking-label text-kin-muted border-b border-[var(--kin-hairline)]">
+              {/* A phone does not need a header row for a two-column list: the
+                  status column explains itself, and the header cost 38px at the
+                  top of every visit. */}
+              <thead className="text-caption uppercase tracking-label text-kin-muted border-b border-[var(--kin-hairline)] max-md:hidden">
                 <tr>
                   <th className="px-3 py-2.5 font-semibold">{tr("tasks.colTask")}</th>
                   <th className="px-3 py-2.5 font-semibold hidden sm:table-cell">
                     {tr("tasks.colAgent")}
                   </th>
-                  <th className="px-3 py-2.5 font-semibold">{tr("tasks.colStatus")}</th>
+                  <th className="px-3 py-2.5 font-semibold max-md:w-[1%] max-md:whitespace-nowrap">
+                    {tr("tasks.colStatus")}
+                  </th>
                   <th className="px-3 py-2.5 font-semibold hidden md:table-cell">
                     {tr("tasks.colElapsed")}
                   </th>
@@ -152,16 +157,16 @@ export default function TasksPage() {
                     key={t.id}
                     className="border-b border-[var(--kin-hairline)] last:border-0 hover:bg-[var(--kin-fill)]"
                   >
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 max-md:py-3.5">
                       <Link
                         to={`/tasks/${t.id}`}
-                        className="font-medium text-kin-text hover:text-kin-blue-ink"
+                        className="font-medium max-md:text-subtitle text-kin-text hover:text-kin-blue-ink"
                       >
                         {t.title || displayUserPrompt(t.prompt || "")}
                       </Link>
                     </td>
                     <td className="px-3 py-3 text-kin-secondary hidden sm:table-cell">{t.agent}</td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 max-md:w-[1%] max-md:whitespace-nowrap max-md:text-right">
                       <StatusChip status={t.status} />
                     </td>
                     <td className="px-3 py-3 text-kin-secondary tabular-nums whitespace-nowrap hidden md:table-cell">

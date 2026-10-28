@@ -1,4 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n/react";
+import { MobileCard, MobileRow } from "../mobile/MobileList";
+import { MobileChevron } from "../mobile/MobileHeader";
 
 export type SettingsTabId =
   "general" | "agents" | "providers" | "routing" | "remote" | "notifications" | "advanced";
@@ -86,6 +89,8 @@ export function SettingsLayout({
   onTabChange: (tab: SettingsTabId) => void;
   children: ReactNode;
 }) {
+  const tr = useT();
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<SettingsTabId, HTMLButtonElement | null>>>({});
   const stripRef = useRef<HTMLDivElement | null>(null);
   const [edges, setEdges] = useState({ start: false, end: false });
@@ -138,6 +143,17 @@ export function SettingsLayout({
     }
   }, [activeTab]);
 
+  /**
+   * Selecting a tab starts at the top of the panel. Without it, switching from
+   * a long tab to a short one kept the scroll position, and the new panel
+   * opened halfway down with its heading off-screen — which on a phone looked
+   * like the tap had done nothing.
+   */
+  const selectTab = (id: SettingsTabId) => {
+    onTabChange(id);
+    scrollRef.current?.scrollTo({ top: 0 });
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const next = nextSettingsTabId(tabs, activeTab, event.key);
     if (next === activeTab) return;
@@ -147,7 +163,7 @@ export function SettingsLayout({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto kin-scroll">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto kin-scroll">
       <div className="mx-auto flex w-full max-w-page flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
         <div className="space-y-1">
           {/* The shell's header already names this screen on the phone, and the
@@ -163,7 +179,7 @@ export function SettingsLayout({
           data-more-start={edges.start ? "true" : "false"}
           data-more-end={edges.end ? "true" : "false"}
           onKeyDown={onKeyDown}
-          className="kin-tabs-fade flex max-w-full gap-2 overflow-x-auto rounded-xl bg-kin-elevated/50 p-1 kin-scroll"
+          className="kin-tabs-fade hidden max-w-full gap-2 overflow-x-auto rounded-xl bg-kin-elevated/50 p-1 kin-scroll md:flex"
         >
           {tabs.map((tab) => {
             const selected = tab.id === activeTab;
@@ -196,7 +212,42 @@ export function SettingsLayout({
             );
           })}
         </div>
+        {/* A phone does not get a seven-tab strip: two of the tabs were off
+            screen behind a fade, and the one a phone needs most (Remote) was
+            the fifth. The first screen keeps General, and the rest is a list
+            under it — the iOS settings shape, where the home screen is a
+            directory and each entry is a page with a back row. */}
+        {activeTab !== "general" && (
+          <button
+            type="button"
+            onClick={() => selectTab("general")}
+            className="md:hidden -mt-2 flex min-h-11 items-center gap-1 self-start text-body text-kin-blue-ink"
+          >
+            <MobileChevron />
+            <span>{title}</span>
+          </button>
+        )}
         {children}
+        {activeTab === "general" && (
+          <div className="md:hidden">
+            <div className="px-1 pb-1.5 text-strong font-medium text-kin-muted">
+              {tr("settings.moreSections")}
+            </div>
+            <MobileCard>
+              {tabs
+                .filter((tab) => tab.id !== "general")
+                .map((tab) => (
+                  <MobileRow
+                    key={tab.id}
+                    onClick={() => selectTab(tab.id)}
+                    title={tab.label}
+                    detail={tab.description}
+                    trailing={<MobileChevron />}
+                  />
+                ))}
+            </MobileCard>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -237,10 +288,10 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4">
+    <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4 max-md:kin-card max-md:rounded-2xl max-md:bg-kin-panel">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted max-md:text-body max-md:font-semibold max-md:normal-case max-md:tracking-normal max-md:text-kin-text">
             {title}
           </h2>
           {description ? (

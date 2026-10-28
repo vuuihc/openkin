@@ -40,7 +40,6 @@ const SKIP_DIRS = new Set(["node_modules", "dist"]);
 const ALLOWED = new Map([
   ["src/components/layout/PanelSurface.tsx", "the one session surface"],
   ["src/components/layout/Sidebar.tsx", "mobile navigation drawer, over the whole viewport"],
-  ["src/pages/NewChatPage.tsx", "mobile sheet, over the whole viewport"],
 ]);
 
 function sourceFiles(): string[] {

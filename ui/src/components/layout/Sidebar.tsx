@@ -53,12 +53,15 @@ import {
   IconChevron,
   IconDownload,
   IconInbox,
+  IconMore,
   IconPin,
   IconPlus,
   IconSearch,
   IconSort,
   IconTrash,
+  IconX,
 } from "../icons";
+import { IonActionSheet } from "@ionic/react";
 
 type Props = {
   tasks: Task[];
@@ -93,7 +96,7 @@ function normCwd(cwd: string): string {
 }
 
 const footLink =
-  "flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-10";
+  "flex items-center gap-2.5 px-2 py-1.5 max-md:px-3 max-md:text-strong rounded-lg text-body text-kin-secondary hover:bg-[var(--kin-fill-strong)] hover:text-kin-text transition-colors min-h-10 max-md:min-h-11 max-md:rounded-xl";
 
 function readSidebarDisclosure(key: string): boolean {
   try {
@@ -176,6 +179,21 @@ export default function Sidebar({
   const machineLabels = showMachineLabels(groups, archivedGroups);
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  /**
+   * The project whose overflow sheet is open.
+   *
+   * A phone cannot hover, so the three per-project actions that the desktop
+   * row reveals on hover used to be re-rendered as three full-width buttons in
+   * the expanded body — three 44px controls per project, each the width of the
+   * drawer, which buried the session list and ran off the bottom of the
+   * screen. One 44px `⋯` in the project row opens all of them in an action
+   * sheet instead, which is the same affordance iOS uses for a row's secondary
+   * actions.
+   */
+  const [projectMenu, setProjectMenu] = useState<{
+    group: ProjectGroup;
+    mode: "active" | "archived";
+  } | null>(null);
   const sortMenuRef = useRef<HTMLDivElement>(null);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const importMenuRef = useRef<HTMLDivElement>(null);
@@ -308,12 +326,14 @@ export default function Sidebar({
         }}
         onTogglePin={() => toggleProjectPinned(g.cwd)}
         onArchive={() => (archived ? unarchiveProject(g.cwd) : onArchive(g))}
+        onMenu={() => setProjectMenu({ group: g, mode })}
         pinLabel={g.pinned && !archived ? tr("nav.unpinProject") : tr("nav.pinProject")}
         collapseLabel={tr("nav.collapseProject")}
         expandLabel={tr("nav.expandProject")}
         coverLabel={tr("nav.openCover")}
         archiveLabel={archived ? tr("nav.unarchiveProject") : tr("nav.archiveProject")}
         newSessionLabel={tr("nav.newSessionIn", { project: g.label })}
+        menuLabel={tr("nav.projectActions")}
         onDeleteSession={onDeleteSession}
         deleteLabel={tr("task.deleteSession")}
         externalSessions={sessionsForProject(device.sessions, g)}
@@ -324,17 +344,19 @@ export default function Sidebar({
   };
 
   const panel = (
-    <aside className="w-sidebar max-w-[85vw] h-full flex flex-col bg-kin-sidebar shrink-0">
-      <div className="px-3 pt-3 pb-2 flex items-center gap-2">
+    <aside className="w-sidebar max-w-[85vw] max-md:w-[86vw] max-md:max-w-[22rem] h-full flex flex-col bg-kin-sidebar shrink-0">
+      <div className="px-3 pt-3 pb-2 max-md:px-3 max-md:pt-4 max-md:pb-3 flex items-center gap-2">
         {/* The mark, flat: the accent fill every primary action already uses.
             There were two different gradients for this same "K" in the tree —
             this one and the chat avatar's — which is two brand palettes, not
             one. The gradient also could not carry white initials at 4.5:1 at
             both of its ends. */}
-        <div className="w-7 h-7 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
+        <div className="w-7 h-7 max-md:h-8 max-md:w-8 rounded-lg bg-kin-blue flex items-center justify-center text-kin-on-brand text-strong font-semibold shadow-e1">
           K
         </div>
-        <span className="text-strong font-semibold tracking-tight">{tr("app.name")}</span>
+        <span className="text-strong max-md:text-subtitle font-semibold tracking-tight">
+          {tr("app.name")}
+        </span>
         <div className="ml-auto flex items-center gap-1">
           <div className="relative" ref={sortMenuRef}>
             <button
@@ -344,9 +366,9 @@ export default function Sidebar({
               aria-expanded={sortMenuOpen}
               aria-haspopup="menu"
               onClick={() => setSortMenuOpen((o) => !o)}
-              className="w-7 h-7 rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+              className="w-7 h-7 max-md:h-11 max-md:w-11 max-md:rounded-full rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] max-md:active:bg-[var(--kin-fill)] transition-colors"
             >
-              <IconSort size={15} />
+              <IconSort size={15} className="max-md:h-[18px] max-md:w-[18px]" />
             </button>
             {sortMenuOpen && (
               <div
@@ -384,19 +406,31 @@ export default function Sidebar({
               </div>
             )}
           </div>
+          {/* The drawer's own dismissal. The scrim still closes it, but a
+              full-height panel that covers 86% of the screen leaves almost no
+              scrim to hit — the close control is the reliable way out. */}
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            aria-label={tr("app.closeMenu")}
+            title={tr("app.closeMenu")}
+            className="md:hidden inline-flex h-11 w-11 -mr-2 items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
+          >
+            <IconX size={22} />
+          </button>
         </div>
       </div>
 
-      <div className="px-2.5 pb-2 relative" ref={importMenuRef}>
+      <div className="px-2.5 pb-2 max-md:px-3 relative" ref={importMenuRef}>
         <button
           type="button"
           disabled={importingExternalSessions || !onImportExternalSessions}
           aria-haspopup="menu"
           aria-expanded={importMenuOpen}
           onClick={() => setImportMenuOpen((open) => !open)}
-          className="w-full flex items-center gap-2 px-2.5 h-8 rounded-lg text-body text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
+          className="w-full flex items-center gap-2 px-2.5 h-8 max-md:h-11 max-md:rounded-xl max-md:text-strong rounded-lg text-body text-kin-secondary border border-[var(--kin-hairline-strong)] hover:bg-[var(--kin-fill-strong)] hover:text-kin-text disabled:opacity-50 transition-colors"
         >
-          <IconDownload size={14} />
+          <IconDownload size={14} className="max-md:hidden" />
           <span className="flex-1 text-left">
             {importingExternalSessions
               ? tr("nav.importingAgentSessions")
@@ -457,7 +491,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <div className="px-2.5 pb-2">
+      <div className="px-2.5 pb-2 max-md:px-3">
         <button
           type="button"
           onClick={() => {
@@ -465,13 +499,14 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-strong font-medium border transition-colors",
+            "w-full flex items-center gap-2 px-2.5 h-9 max-md:h-11 max-md:rounded-xl max-md:font-semibold rounded-lg text-strong font-medium border transition-colors",
+            "max-md:border-transparent max-md:bg-kin-blue max-md:text-kin-on-brand max-md:active:opacity-90",
             draftActive
               ? "border-kin-blue/40 bg-kin-blue/15 text-kin-text"
               : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-text hover:bg-[var(--kin-fill-strong)]",
           ].join(" ")}
         >
-          <IconPlus size={15} strokeWidth={1.9} />
+          <IconPlus size={15} strokeWidth={1.9} className="max-md:h-[18px] max-md:w-[18px]" />
           {tr("nav.newChat")}
           <span className="ml-auto text-caption text-kin-muted font-medium hidden sm:inline">
             ⌘N
@@ -479,16 +514,19 @@ export default function Sidebar({
         </button>
       </div>
 
-      <div className="px-3 pb-2">
+      <div className="px-3 pb-2 max-md:px-3">
         <label className="relative flex items-center">
-          <IconSearch size={13} className="absolute left-2.5 text-kin-muted pointer-events-none" />
+          <IconSearch
+            size={13}
+            className="absolute left-2.5 max-md:left-3 text-kin-muted pointer-events-none max-md:h-[17px] max-md:w-[17px]"
+          />
           <input
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchQueryChange?.(e.target.value)}
             placeholder={tr("nav.searchSessions")}
             aria-label={tr("nav.searchSessions")}
-            className="w-full h-[32px] pl-8 pr-2 rounded-lg bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body text-kin-text placeholder:text-kin-muted outline-none transition-colors"
+            className="w-full h-[32px] max-md:h-11 pl-8 max-md:pl-9 pr-2 rounded-lg max-md:rounded-xl bg-[var(--kin-fill)] border border-transparent focus:border-kin-blue/40 focus:bg-[var(--kin-fill-strong)] text-body max-md:text-subtitle text-kin-text placeholder:text-kin-muted outline-none transition-colors"
           />
         </label>
         {searchQuery.trim() && (
@@ -498,7 +536,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 pb-2 space-y-3">
+      <nav className="flex-1 overflow-y-auto px-2 pb-2 max-md:px-3 space-y-3">
         <button
           type="button"
           onClick={() => {
@@ -506,7 +544,7 @@ export default function Sidebar({
             onCloseMobile();
           }}
           className={[
-            "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9",
+            "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-strong min-h-9 max-md:min-h-11 max-md:rounded-xl max-md:px-2 max-md:text-body",
             pendingCount > 0
               ? "border border-kin-blue/40 bg-kin-blue/15 text-kin-text"
               : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -543,7 +581,9 @@ export default function Sidebar({
         ))}
         {showOrphanDraft && (
           <div>
-            <div className="kin-section-label">{tr("nav.draft")}</div>
+            <div className="kin-section-label max-md:px-2 max-md:pb-1.5 max-md:normal-case max-md:tracking-normal max-md:text-strong text-kin-muted">
+              {tr("nav.draft")}
+            </div>
             <DraftRow
               active={Boolean(draftActive)}
               label={tr("nav.draftChat")}
@@ -560,7 +600,7 @@ export default function Sidebar({
             <button
               type="button"
               onClick={() => setArchivedOpen((o) => !o)}
-              className="kin-section-label w-full flex items-center gap-1 pr-0.5 hover:text-kin-secondary transition-colors"
+              className="kin-section-label w-full flex items-center gap-1 pr-0.5 max-md:px-2 max-md:normal-case max-md:tracking-normal max-md:text-strong hover:text-kin-secondary transition-colors"
               aria-expanded={archivedOpen}
             >
               <IconArchive size={11} className="flex-none opacity-70" />
@@ -599,10 +639,10 @@ export default function Sidebar({
         )}
       </nav>
 
-      <div className="border-t border-kin-hairline px-2 py-2 space-y-2">
+      <div className="border-t border-kin-hairline px-2 py-2 max-md:pb-3 space-y-2">
         {sidebarNavSections().map((section) => (
           <div key={section.id} className="space-y-0.5">
-            <div className="px-2 pt-1 text-micro font-semibold uppercase tracking-label text-kin-muted">
+            <div className="px-2 pt-1 max-md:px-3 text-micro max-md:text-caption font-semibold uppercase max-md:normal-case tracking-label max-md:tracking-normal text-kin-muted">
               {tr(section.labelKey)}
             </div>
             {section.items.map((item) => (
@@ -659,12 +699,80 @@ export default function Sidebar({
               padding on the panel, the inset strips showed the scrim instead of
               the sidebar.
             */
-            className="relative z-10 h-full shadow-e3 bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+            className="kin-drawer-enter relative z-10 h-full shadow-e3 bg-kin-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
           >
             {panel}
           </div>
         </div>
       )}
+
+      {/*
+        The phone's project actions. One sheet serves every project row, so the
+        three hover-only desktop controls have a touch home that costs the row
+        no width. `role: "destructive"` is Ionic's, and the console's red ink is
+        what it paints (index.css) — the default is 2.24:1 on this panel.
+      */}
+      <IonActionSheet
+        isOpen={projectMenu !== null}
+        onDidDismiss={() => setProjectMenu(null)}
+        header={projectMenu?.group.label}
+        cssClass="kin-sheet kin-sheet-named"
+        buttons={
+          projectMenu
+            ? [
+                {
+                  text: tr("nav.newSessionIn", { project: projectMenu.group.label }),
+                  handler: () => {
+                    if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
+                    touchProject(projectMenu.group.cwd);
+                    if (onNewSessionInProject) onNewSessionInProject(projectMenu.group.cwd);
+                    else onNewChat();
+                    onCloseMobile();
+                  },
+                },
+                ...(projectMenu.mode === "active"
+                  ? [
+                      {
+                        text: projectMenu.group.pinned
+                          ? tr("nav.unpinProject")
+                          : tr("nav.pinProject"),
+                        handler: () => toggleProjectPinned(projectMenu.group.cwd),
+                      },
+                    ]
+                  : []),
+                {
+                  text: tr("nav.openCover"),
+                  handler: () => {
+                    void ensureProject({
+                      path: projectMenu.group.cwd,
+                      name: projectMenu.group.label,
+                    })
+                      .then((p) => {
+                        onCloseMobile();
+                        navigate(`/projects/${p.id}`);
+                      })
+                      .catch(() => {
+                        // The cover is optional; a project without one is not
+                        // an error worth a dialog.
+                      });
+                  },
+                },
+                {
+                  text:
+                    projectMenu.mode === "archived"
+                      ? tr("nav.unarchiveProject")
+                      : tr("nav.archiveProject"),
+                  role: "destructive",
+                  handler: () => {
+                    if (projectMenu.mode === "archived") unarchiveProject(projectMenu.group.cwd);
+                    else onArchive(projectMenu.group);
+                  },
+                },
+                { text: tr("common.cancel"), role: "cancel" },
+              ]
+            : []
+        }
+      />
     </>
   );
 }
@@ -710,7 +818,7 @@ function DeviceSection({
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-body font-medium text-kin-secondary hover:text-kin-text transition-colors"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-body font-medium text-kin-secondary hover:text-kin-text transition-colors max-md:min-h-11 max-md:text-strong max-md:font-semibold max-md:text-kin-muted"
       >
         <IconChevron
           size={11}
@@ -752,12 +860,14 @@ function ProjectBlock({
   onOpenExternalSession,
   onTogglePin,
   onArchive,
+  onMenu,
   pinLabel,
   collapseLabel,
   expandLabel,
   archiveLabel,
   coverLabel,
   newSessionLabel,
+  menuLabel,
   deleteLabel,
   mode,
 }: {
@@ -774,12 +884,15 @@ function ProjectBlock({
   onOpenExternalSession?: (session: AgentSession) => void;
   onTogglePin: () => void;
   onArchive: () => void;
+  /** Opens the phone's project action sheet (cover / pin / archive / new). */
+  onMenu: () => void;
   pinLabel: string;
   collapseLabel: string;
   expandLabel: string;
   archiveLabel: string;
   coverLabel: string;
   newSessionLabel: string;
+  menuLabel: string;
   deleteLabel: string;
   mode: "active" | "archived";
 }) {
@@ -797,26 +910,34 @@ function ProjectBlock({
   };
   return (
     <div className={mode === "archived" ? "opacity-80" : undefined}>
-      <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5">
+      <div className="kin-section-label group/proj flex items-center gap-1 pr-0.5 max-md:min-h-11 max-md:normal-case max-md:tracking-normal max-md:text-strong max-md:font-semibold">
+        {/*
+          The chevron and the name are one control, not two. They used to be a
+          11px chevron button followed by a dead label, so on a phone the only
+          way to fold a project was to hit an 11px glyph — and the label, the
+          part a thumb actually aims at, did nothing. On the desktop it also
+          makes the whole row's left half the disclosure, which is what the
+          hover-revealed actions on the right assume.
+        */}
         <button
           type="button"
           title={open ? collapseLabel : expandLabel}
           aria-label={open ? collapseLabel : expandLabel}
           aria-expanded={open}
           onClick={toggle}
-          className="flex-none text-kin-muted hover:text-kin-text transition-colors"
+          className="flex min-w-0 flex-1 items-center gap-1 text-left text-kin-muted transition-colors hover:text-kin-text max-md:min-h-11"
         >
           <IconChevron
             size={11}
-            className={["transition-transform", open ? "rotate-90" : ""].join(" ")}
+            className={["flex-none transition-transform", open ? "rotate-90" : ""].join(" ")}
           />
+          {g.pinned && mode === "active" && (
+            <IconPin size={11} className="flex-none text-kin-blue-ink opacity-90" />
+          )}
+          <span className="min-w-0 flex-1 truncate" title={g.cwd}>
+            {g.label}
+          </span>
         </button>
-        {g.pinned && mode === "active" && (
-          <IconPin size={11} className="flex-none text-kin-blue-ink opacity-90" />
-        )}
-        <span className="truncate flex-1 min-w-0" title={g.cwd}>
-          {g.label}
-        </span>
         <button
           type="button"
           title={coverLabel}
@@ -831,8 +952,8 @@ function ProjectBlock({
             would reveal them is also the tap that expands the project — they
             were never reachable. Keeping them also squeezed the project name to
             0px wide in the 240px drawer once the phone's 44pt floor widened
-            every button in this row. The expanded body carries the same three
-            actions for touch, behind `.touch-only`.
+            every button in this row. The `⋯` below opens the same actions in a
+            sheet, which is the one shape that fits a 44pt target beside a name.
           */
           className="touch-hide inline-flex flex-none w-[22px] h-[22px] rounded-md items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-0 group-hover/proj:opacity-100 focus:opacity-100 transition-opacity"
         >
@@ -882,9 +1003,24 @@ function ProjectBlock({
             e.stopPropagation();
             onNewSession();
           }}
-          className="flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-70 group-hover/proj:opacity-100 transition-opacity"
+          className="max-md:hidden flex-none w-[22px] h-[22px] rounded-md inline-flex items-center justify-center text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] opacity-70 group-hover/proj:opacity-100 transition-opacity"
         >
           <IconPlus size={13} strokeWidth={2.2} />
+        </button>
+        {/* The phone's one project action. 44pt, at the row's trailing edge,
+            opening every hover action in an action sheet. */}
+        <button
+          type="button"
+          title={menuLabel}
+          aria-label={menuLabel}
+          aria-haspopup="dialog"
+          onClick={(e) => {
+            e.stopPropagation();
+            onMenu();
+          }}
+          className="md:hidden flex-none inline-flex h-11 w-11 -my-2 -mr-2 items-center justify-center rounded-full text-kin-muted active:bg-[var(--kin-fill)]"
+        >
+          <IconMore size={18} />
         </button>
       </div>
 
@@ -904,50 +1040,6 @@ function ProjectBlock({
               onOpenExternalSession={onOpenExternalSession}
               onCloseMobile={onCloseMobile}
             />
-          </div>
-
-          {/*
-            Cover, pin and archive are revealed by `group-hover/proj` in the row
-            above, which a touch screen cannot produce — and once the phone's
-            44pt floor widened them, four of them also squeezed the project name
-            to 0px in the 240px drawer. They are dropped from the row there; the
-            same three actions live here instead, in the expanded body, where a
-            full-width control costs no room. Unpinning a pinned project and
-            unarchiving an archived one were reachable before (they are drawn
-            `opacity-100` in those states); pinning a fresh project and
-            archiving an active one never were.
-          */}
-          <div className="touch-only flex-col gap-1.5 px-0.5 pt-1.5">
-            <button
-              type="button"
-              onClick={() => void openCover()}
-              className="w-full truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-body text-kin-secondary"
-            >
-              {coverLabel}
-            </button>
-            <div className="flex items-center gap-1.5">
-              {mode === "active" && (
-                <button
-                  type="button"
-                  onClick={onTogglePin}
-                  className={[
-                    "flex-1 min-w-0 truncate rounded-lg border px-2 text-body",
-                    g.pinned
-                      ? "border-kin-blue/40 bg-kin-blue/15 text-kin-blue-ink"
-                      : "border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-kin-secondary",
-                  ].join(" ")}
-                >
-                  {pinLabel}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={onArchive}
-                className="flex-1 min-w-0 truncate rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 text-body text-kin-secondary"
-              >
-                {archiveLabel}
-              </button>
-            </div>
           </div>
         </>
       )}
@@ -985,7 +1077,7 @@ function ExternalSessionRow({
         onCloseMobile();
       }}
       className={[
-        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg border text-left text-body min-h-9 transition-colors",
+        "w-full flex items-center gap-2 px-1.5 py-1.5 rounded-lg border text-left text-body min-h-9 max-md:min-h-11 max-md:text-strong transition-colors",
         externalSessionRowClass(availability),
       ].join(" ")}
       aria-label={`${label}, ${availabilityLabel}, ${sessionTitle}`}
@@ -1096,7 +1188,7 @@ function ProjectSessionRows({
           <div
             key={task.id}
             className={[
-              "group/session flex items-center gap-0.5 rounded-lg min-h-9",
+              "group/session flex items-center gap-0.5 rounded-lg min-h-9 max-md:min-h-11",
               active
                 ? "bg-[var(--kin-fill-strong)] text-kin-text"
                 : "text-kin-secondary hover:bg-[var(--kin-fill)] hover:text-kin-text",
@@ -1109,7 +1201,7 @@ function ProjectSessionRows({
                 if (isTerminal(task.status)) markSessionViewed(task.id);
                 onCloseMobile();
               }}
-              className="flex flex-1 items-center gap-2 px-2 py-1.5 text-body min-w-0"
+              className="flex flex-1 items-center gap-2 px-2 py-1.5 text-body max-md:px-2 max-md:text-strong min-w-0"
             >
               <span
                 className={["w-1.5 h-1.5 rounded-full flex-none", dot ?? "bg-transparent"].join(
