@@ -49,4 +49,19 @@ describe("the composer's run-config face", () => {
     expect(tokens).toContain("hidden");
     expect(tokens).toContain("md:flex");
   });
+
+  it("is the new-chat page's only run control before the first message", () => {
+    const source = read("src/pages/NewChatPage.tsx");
+    // The draft's agent, model and mode have to be visible and changeable
+    // before sending; without the face a phone inherits whatever the last
+    // draft set and cannot see it.
+    expect(source).toContain("<RunConfigControl");
+    const classes = classesBefore(source, "{controlGroups.map", "div");
+    expect(classes).not.toBe("");
+    const tokens = classes.split(/\s+/);
+    expect(tokens).toContain("hidden");
+    // `sm:grid` would put the panel and the face on screen together between
+    // 640 and 767; the panel starts where the face ends.
+    expect(tokens).toContain("md:grid");
+  });
 });

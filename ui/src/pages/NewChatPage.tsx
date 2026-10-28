@@ -13,6 +13,7 @@ import {
 import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
+import RunConfigControl from "../components/chat/RunConfigSheet";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import AgentModelPicker from "../components/chat/AgentModelPicker";
 import MachinePicker from "../components/chat/MachinePicker";
@@ -742,8 +743,28 @@ export default function NewChatPage() {
               setPreviewPrompt(value);
             }}
             onSubmit={onSubmit}
+            footer={
+              // The phone's only run control before the first message. The
+              // panel below starts at `md`, and on a phone the agent, model and
+              // mode would otherwise be whatever the last draft left behind,
+              // with no way to see or change them until after sending.
+              <RunConfigControl
+                agentName={mainAgentName}
+                agentAvatar={mainAgentAvatar}
+                model={selectedModel}
+                models={modelsForAgent(available, mainAgentId)}
+                onModelChange={setSelectedModel}
+                permission={permissionMode}
+                permissionModes={allowedPermissionModes}
+                onPermissionChange={(m) => {
+                  setPermissionMode(m);
+                  setDraftPermissionMode(m);
+                }}
+                disabled={sending}
+              />
+            }
           />
-          <div className="hidden sm:grid gap-1.5 px-0.5">
+          <div className="hidden md:grid gap-1.5 px-0.5">
             {controlGroups.map((group) => (
               <div
                 key={group.id}
