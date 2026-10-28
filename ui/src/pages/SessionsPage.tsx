@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { isTerminal, listAgentSessions, type AgentSession } from "../api/client";
 import { useTaskList } from "../api/useLiveResources";
@@ -8,20 +8,32 @@ import { formatRelativeTime } from "../lib/relativeTime";
 import {
   filterProjectBuckets,
   phoneProjectBuckets,
+  withPinnedBucket,
   type PhoneProjectBucket,
   type PhoneSessionRow,
 } from "../lib/phoneSessionBuckets";
+import { getPinnedTaskIds, setTaskPinned } from "../lib/taskPins";
 import {
   getViewedSessionIds,
   markSessionViewed,
   sessionStatusDotClass,
 } from "../lib/sessionViewed";
 import { taskCardStatusView } from "../lib/taskCardStatus";
-import { getArchivedProjects, subscribeProjectSidebar } from "../lib/projectSidebar";
+import { archiveProject, getArchivedProjects, subscribeProjectSidebar } from "../lib/projectSidebar";
 import { useLocale, useT } from "../i18n/react";
 import { MobileEmpty, MobileScreen } from "../components/mobile/MobileList";
 import SessionsSearch from "../components/mobile/SessionsSearch";
-import { IconChevronDown, IconFolder, IconFolderOpen, IconMachine, IconSessions } from "../components/icons";
+import {
+  IconArchive,
+  IconCheck,
+  IconChevronDown,
+  IconFolder,
+  IconFolderOpen,
+  IconMachine,
+  IconPin,
+  IconSessions,
+} from "../components/icons";
+import SwipeReveal from "../components/mobile/SwipeReveal";
 
 /**
  * The phone's conversation list, grouped by project.
@@ -55,6 +67,18 @@ export default function SessionsPage() {
   const [sessionsFailed, setSessionsFailed] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  // Pins are the phone list's own preference (localStorage), like the sidebar's
+  // project pins: a pinned task lifts to the top bucket and leaves its project.
+  const [pinnedIds, setPinnedIds] = useState<ReadonlySet<string>>(
+    () => new Set(getPinnedTaskIds()),
+  );
+  // Multi-select, entered by a long press on a row (the reference's pattern).
+  // While active, a tap selects instead of opening, and the toolbar owns the
+  // batch actions: pin / unpin and archive.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
+  // One swipe-revealed row at a time, the same rule the message actions use.
+  const [swipeOpen, setSwipeOpen] = useState<string | null>(null);
   // Archiving a project from the drawer has to empty this list too, and the
   // archive lives in sidebar prefs: subscribe rather than read once.
   const [prefsTick, setPrefsTick] = useState(0);
@@ -104,6 +128,11 @@ export default function SessionsPage() {
     [taskList.data, sessions, selfDeviceId, locale, archivedCwds],
   );
   const filtered = useMemo(() => filterProjectBuckets(buckets, query), [buckets, query]);
+  // Pinned rows leave their project buckets and lead the list.
+  const listed = useMemo(
+    () => withPinnedBucket(filtered, pinnedIds, tr("sessions.pinned")),
+    [filtered, pinnedIds, tr],
+  );
   const loading = !taskList.loaded || machinesLoading;
   // One clock for the whole render, so two rows never disagree about "now".
   const now = Date.now();
@@ -140,6 +169,74 @@ export default function SessionsPage() {
     // same row keeps saying "new" every time the list is reopened.
     if (isTerminal(row.task.status)) markSessionViewed(row.task.id);
     navigate(`/tasks/${encodeURIComponent(row.task.id)}`);
+  }
+
+  /** Long-press: enter multi-select with this row selected (the reference's
+   *  gesture for batch actions on a touch screen). */
+  function enterSelection(row: PhoneSessionRow) {
+    if (!row.task) return; // imported sessions cannot be pinned or archived
+    setSelectionMode(true);
+    setSelectedIds(new Set([row.task.id]));
+    setSwipeOpen(null);
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedIds((current) => {
+      const all = new Set(
+        listed.flatMap((bucket) =>
+          bucket.rows.filter((row) => row.task).map((row) => row.key),
+        ),
+      );
+      return current.size === all.size && all.size > 0 ? new Set() : all;
+    });
+  }
+
+  function exitSelection() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function pinSelected() {
+    const ids = Array.from(selectedIds);
+    const allPinned = ids.length > 0 && ids.every((id) => pinnedIds.has(id));
+    let next = pinnedIds;
+    for (const id of ids) {
+      next = new Set(setTaskPinned(id, !allPinned));
+    }
+    setPinnedIds(next);
+    exitSelection();
+  }
+
+  function archiveSelected() {
+    const cwds = new Set<string>();
+    for (const bucket of listed) {
+      for (const row of bucket.rows) {
+        if (row.task && selectedIds.has(row.task.id)) cwds.add(row.task.cwd);
+      }
+    }
+    for (const cwd of cwds) archiveProject(cwd);
+    exitSelection();
+  }
+
+  function pinRow(row: PhoneSessionRow) {
+    if (!row.task) return;
+    setPinnedIds(new Set(setTaskPinned(row.task.id, !pinnedIds.has(row.task.id))));
+    setSwipeOpen(null);
+  }
+
+  function archiveRow(row: PhoneSessionRow) {
+    if (!row.task) return;
+    archiveProject(row.task.cwd);
+    setSwipeOpen(null);
   }
 
   return (
@@ -183,8 +280,56 @@ export default function SessionsPage() {
         />
       )}
 
+      {/* Multi-select toolbar, in the slot the heading would occupy: select
+          all + count on the left, the batch actions on the right. Long-press
+          any row to enter this mode (the reference's gesture); the same two
+          actions are on each row's swipe reveal, so nothing is touch-only. */}
+      {selectionMode && (
+        <div className="sticky top-0 z-[3] flex min-h-12 items-center gap-2 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-3 kin-glass">
+          <label className="flex min-h-11 items-center gap-2 text-strong font-medium text-kin-text">
+            <SelectAllCheckbox
+              checked={selectedIds.size > 0 && selectedIds.size === taskRowCount(listed)}
+              partial={selectedIds.size > 0 && selectedIds.size < taskRowCount(listed)}
+              onChange={selectAll}
+              label={tr("sessions.selectAll")}
+            />
+            {tr("sessions.selectedCount", { count: String(selectedIds.size) })}
+          </label>
+          <div className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={pinSelected}
+              disabled={selectedIds.size === 0}
+              className="flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-3 text-body font-medium text-kin-text disabled:opacity-40"
+            >
+              <IconPin size={14} />
+              {selectedIds.size > 0 &&
+              Array.from(selectedIds).every((id) => pinnedIds.has(id))
+                ? tr("sessions.unpin")
+                : tr("sessions.pin")}
+            </button>
+            <button
+              type="button"
+              onClick={archiveSelected}
+              disabled={selectedIds.size === 0}
+              className="flex min-h-10 items-center gap-1.5 rounded-lg bg-[var(--kin-fill)] px-3 text-body font-medium text-kin-text disabled:opacity-40"
+            >
+              <IconArchive size={14} />
+              {tr("sessions.archive")}
+            </button>
+            <button
+              type="button"
+              onClick={exitSelection}
+              className="flex min-h-10 items-center rounded-lg px-3 text-body font-medium text-kin-muted hover:text-kin-text"
+            >
+              {tr("common.cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {!loading &&
-        filtered.map((bucket) => (
+        listed.map((bucket) => (
           <ProjectBucket
             key={bucket.key}
             bucket={bucket}
@@ -198,6 +343,14 @@ export default function SessionsPage() {
             onToggle={() => toggleBucket(bucket.key)}
             onToggleShowAll={() => toggleShowAll(bucket.key)}
             onOpen={openRow}
+            selectionMode={selectionMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelected}
+            onLongPress={enterSelection}
+            swipeOpen={swipeOpen}
+            onSwipeOpenChange={setSwipeOpen}
+            onPin={pinRow}
+            onArchive={archiveRow}
           />
         ))}
 
@@ -206,7 +359,47 @@ export default function SessionsPage() {
           {tr("sessions.agentSessionsFailed")}
         </p>
       )}
+
+      {/* The dock's FAB floats over this list's tail (the reference keeps it
+          above the dock, and the list reserves that much height): without
+          this spacer the last row's relative time lands under the pencil. */}
+      <div className="h-60" aria-hidden />
     </MobileScreen>
+  );
+}
+
+/** The rows a select-all can actually select: tasks only. */
+function taskRowCount(buckets: PhoneProjectBucket[]): number {
+  return buckets.reduce((sum, bucket) => sum + bucket.rows.filter((row) => row.task).length, 0);
+}
+
+/** The select-all control. `indeterminate` is not a React prop, so the DOM
+ *  node's own property is synced after each render: a half-selected list
+ *  reads as neither checked nor empty. */
+function SelectAllCheckbox({
+  checked,
+  partial,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  partial: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = partial;
+  }, [partial]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      className="h-5 w-5 accent-kin-blue"
+      aria-label={label}
+    />
   );
 }
 
@@ -220,6 +413,14 @@ function ProjectBucket({
   onToggle,
   onToggleShowAll,
   onOpen,
+  selectionMode,
+  selectedIds,
+  onToggleSelect,
+  onLongPress,
+  swipeOpen,
+  onSwipeOpenChange,
+  onPin,
+  onArchive,
 }: {
   bucket: PhoneProjectBucket;
   now: number;
@@ -232,6 +433,14 @@ function ProjectBucket({
   onToggle: () => void;
   onToggleShowAll: () => void;
   onOpen: (row: PhoneSessionRow) => void;
+  selectionMode: boolean;
+  selectedIds: ReadonlySet<string>;
+  onToggleSelect: (key: string) => void;
+  onLongPress: (row: PhoneSessionRow) => void;
+  swipeOpen: string | null;
+  onSwipeOpenChange: (open: string | null) => void;
+  onPin: (row: PhoneSessionRow) => void;
+  onArchive: (row: PhoneSessionRow) => void;
 }) {
   const tr = useT();
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_BEFORE_SHOW_ALL);
@@ -282,6 +491,14 @@ function ProjectBucket({
               now={now}
               viewedIds={viewedIds}
               onOpen={() => onOpen(row)}
+              selectionMode={selectionMode}
+              selected={row.task ? selectedIds.has(row.task.id) : false}
+              onToggleSelect={() => onToggleSelect(row.key)}
+              onLongPress={() => onLongPress(row)}
+              swipeOpen={swipeOpen === row.key}
+              onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
+              onPin={() => onPin(row)}
+              onArchive={() => onArchive(row)}
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (
@@ -313,11 +530,27 @@ function SessionRow({
   now,
   viewedIds,
   onOpen,
+  selectionMode,
+  selected,
+  onToggleSelect,
+  onLongPress,
+  swipeOpen,
+  onSwipeOpenChange,
+  onPin,
+  onArchive,
 }: {
   row: PhoneSessionRow;
   now: number;
   viewedIds: ReadonlySet<string>;
   onOpen: () => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onLongPress: () => void;
+  swipeOpen: boolean;
+  onSwipeOpenChange: (open: boolean) => void;
+  onPin: () => void;
+  onArchive: () => void;
 }) {
   const tr = useT();
   // The sidebar's dot, on the phone: green means a run finished and has not
@@ -338,15 +571,56 @@ function SessionRow({
   ]
     .filter(Boolean)
     .join(" · ");
-  return (
+
+  const rowButton = (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={() => {
+        if (selectionMode) {
+          // Imported agent sessions have no task id and no batch actions;
+          // they are not selectable.
+          if (row.task) onToggleSelect();
+          return;
+        }
+        // A tap on a swipe-revealed row closes the reveal instead of opening
+        // the session — the actions were the reason the row moved.
+        if (swipeOpen) {
+          onSwipeOpenChange(false);
+          return;
+        }
+        onOpen();
+      }}
+      onKeyDown={(event) => {
+        // Keyboard entry to the multi-select: Shift+Enter toggles this row
+        // (the equivalent of a long press, which a keyboard cannot do).
+        if (event.key === "Enter" && event.shiftKey) {
+          event.preventDefault();
+          if (row.task) onToggleSelect();
+        }
+      }}
       aria-label={label}
-      className="kin-row-press flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left"
+      aria-pressed={selectionMode ? selected : undefined}
+      className={[
+        "kin-row-press flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left",
+        selectionMode && selected ? "bg-[var(--kin-fill)]" : "",
+      ].join(" ")}
     >
       <span className="flex w-2 flex-none justify-center">
-        {dot ? <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden /> : null}
+        {selectionMode ? (
+          <span
+            className={[
+              "flex h-4 w-4 items-center justify-center rounded-full border",
+              selected
+                ? "border-kin-blue bg-kin-blue text-kin-on-brand"
+                : "border-[var(--kin-hairline-strong)]",
+            ].join(" ")}
+            aria-hidden
+          >
+            {selected ? <IconCheck size={10} strokeWidth={2.5} /> : null}
+          </span>
+        ) : dot ? (
+          <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+        ) : null}
       </span>
       <span
         className={`flex h-5 w-5 flex-none items-center justify-center rounded-full text-micro font-semibold ${avatar.className}`}
@@ -358,11 +632,7 @@ function SessionRow({
         {row.title}
       </span>
       {row.remote && (
-        <span
-          className="flex-none text-kin-muted"
-          title={tr("machine.remote")}
-          aria-hidden
-        >
+        <span className="flex-none text-kin-muted" title={tr("machine.remote")} aria-hidden>
           <IconMachine size={12} />
         </span>
       )}
@@ -370,5 +640,45 @@ function SessionRow({
         {formatRelativeTime(row.at, now)}
       </span>
     </button>
+  );
+
+  if (selectionMode || !row.task) return rowButton;
+
+  // Swipe left to reveal the same two batch actions the multi-select owns.
+  // The long-press that enters multi-select lives in the swipe wrapper too:
+  // once a drag captures the pointer, the row's own button stops seeing
+  // moves, and a timer it can no longer cancel would fire behind the user's
+  // back (or the cancel would never fire at all).
+  return (
+    <SwipeReveal
+      open={swipeOpen}
+      onOpenChange={onSwipeOpenChange}
+      onLongPress={onLongPress}
+      actions={
+      <>
+        <button
+          type="button"
+          onClick={onPin}
+          aria-label={tr("sessions.pin")}
+          title={tr("sessions.pin")}
+          className="flex w-[76px] flex-none flex-col items-center justify-center gap-1 bg-[var(--kin-fill-strong)] text-caption font-medium text-kin-text"
+        >
+          <IconPin size={16} />
+          {tr("sessions.pin")}
+        </button>
+        <button
+          type="button"
+          onClick={onArchive}
+          aria-label={tr("sessions.archive")}
+          title={tr("sessions.archive")}
+          className="flex w-[76px] flex-none flex-col items-center justify-center gap-1 bg-kin-orange/15 text-caption font-medium text-kin-orange-ink"
+        >
+          <IconArchive size={16} />
+          {tr("sessions.archive")}
+        </button>
+      </>
+    }>
+      {rowButton}
+    </SwipeReveal>
   );
 }

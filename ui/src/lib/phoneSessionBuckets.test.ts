@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { AgentSession, Task } from "../api/client";
 import {
   filterProjectBuckets,
+  PINNED_BUCKET,
+  withPinnedBucket,
   phoneProjectBuckets,
   UNASSIGNED_PROJECT,
 } from "./phoneSessionBuckets";
@@ -179,5 +181,87 @@ describe("filterProjectBuckets", () => {
 
   it("returns everything for an empty query", () => {
     expect(filterProjectBuckets(rows, "   ")).toHaveLength(2);
+  });
+});
+
+describe("withPinnedBucket", () => {
+  it("lifts pinned task rows into a leading bucket and out of their projects", () => {
+    const pinned = task({ id: "t1", cwd: "/a", created_at: 1 });
+    const loose = task({ id: "t2", cwd: "/b", created_at: 1 });
+    const buckets = [
+      {
+        key: "b0",
+        label: "B0",
+        lastActivityAt: 0,
+        rows: [
+          { key: "t1", at: 3, title: "Pinned one", agentId: "kin", remote: false, task: pinned },
+          { key: "t2", at: 3, title: "Loose one", agentId: "kin", remote: false, task: loose },
+        ],
+      },
+      {
+        key: "b1",
+        label: "B1",
+        lastActivityAt: 0,
+        rows: [
+          {
+            key: "t3",
+            at: 3,
+            title: "Another",
+            agentId: "kin",
+            remote: false,
+            task: task({ id: "t3", cwd: "/c", created_at: 1 }),
+          },
+        ],
+      },
+    ];
+    const out = withPinnedBucket(buckets, new Set(["t1"]), "置顶");
+    expect(out.length).toBe(3);
+    expect(out[0]!.key).toBe(PINNED_BUCKET);
+    expect(out[0]!.rows.map((r) => r.key)).toEqual(["t1"]);
+    // Both project buckets survive, each without the lifted row.
+    expect(out[1]!.rows.map((r) => r.key)).toEqual(["t2"]);
+    expect(out[2]!.rows.map((r) => r.key)).toEqual(["t3"]);
+  });
+
+  it("returns the buckets untouched when nothing is pinned", () => {
+    const buckets = [
+      {
+        key: "b0",
+        label: "B0",
+        lastActivityAt: 0,
+        rows: [
+          {
+            key: "t1",
+            at: 3,
+            title: "A",
+            agentId: "kin",
+            remote: false,
+            task: task({ id: "t1", cwd: "/a", created_at: 1 }),
+          },
+        ],
+      },
+    ];
+    const out = withPinnedBucket(buckets, new Set(), "置顶");
+    expect(out.length).toBe(1);
+    expect(out[0]!.key).toBe("b0");
+    expect(out[0]!.rows.map((r) => r.key)).toEqual(["t1"]);
+  });
+
+  it("does not lift imported agent sessions (they have no task id)", () => {
+    const sessionRow = {
+      key: "s1",
+      at: 1,
+      title: "imported",
+      agentId: "claude",
+      remote: false,
+      session: { id: "s1", cwd: "/x" } as AgentSession,
+    };
+    const out = withPinnedBucket(
+      [{ key: "b0", label: "B0", lastActivityAt: 0, rows: [sessionRow] }],
+      new Set(["s1"]),
+      "置顶",
+    );
+    expect(out.length).toBe(1);
+    expect(out[0]!.rows.map((r) => r.key)).toEqual(["s1"]);
   });
 });

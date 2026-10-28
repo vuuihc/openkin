@@ -20,7 +20,7 @@ import { useT } from "../../i18n/react";
 import CommandPalette from "../CommandPalette";
 import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
-import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
+import MobileHeader, { IdentityDisc, MobileHeaderButton } from "../mobile/MobileHeader";
 import MobileDock from "../mobile/MobileDock";
 import SessionsHeader from "../mobile/SessionsHeader";
 import { IconSearch, IconX } from "../icons";
@@ -579,17 +579,11 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
                 label={tr("app.openMenu")}
                 onClick={() => setMobileOpen(true)}
               >
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
-                </svg>
+                {/* The same identity disc the sessions bar leads with: the
+                    drawer is one destination, and one shape for it on every
+                    screen. A hamburger here and a disc there made the two
+                    pages look like they opened different things. */}
+                <IdentityDisc />
               </MobileHeaderButton>
             }
             trailing={

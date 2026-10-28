@@ -68,22 +68,16 @@ describe("the composer's run-config face", () => {
     const footerAt = source.indexOf("footer={");
     expect(footerAt).toBeGreaterThan(-1);
     expect(source.indexOf("<RunConfigControl", footerAt)).toBeGreaterThan(footerAt);
+    // The face's sheet must carry the location controls a phone cannot reach
+    // any other way (the old second entry, the "run summary" bar and its
+    // sheet, is gone — one entry, one sheet).
+    expect(source.indexOf("extraRows=")).toBeGreaterThan(footerAt);
+    expect(source.indexOf("setControlsOpen")).toBe(-1);
 
-    const classes = classesBefore(source, "{controlGroups.map", "div");
+    const classes = classesOf(source, "md:flex items-center gap-x-2", "div");
     expect(classes).not.toBe("");
     const tokens = classes.split(/\s+/);
     expect(tokens).toContain("hidden");
-    // `sm:grid` would put the panel and the face on screen together between
-    // 640 and 767; the panel starts where the face ends.
-    expect(tokens).toContain("md:grid");
-
-    // And the line that opens every control the panel owns has to cover the
-    // same band. At `sm:hidden` the 640–767 width kept the panel's replacement
-    // but lost the machine, workspace and agent choices behind it.
-    const summary = classesOf(source, "setControlsOpen(true)", "button");
-    expect(summary).not.toBe("");
-    const summaryTokens = summary.split(/\s+/);
-    expect(summaryTokens).toContain("md:hidden");
-    expect(summaryTokens).not.toContain("sm:hidden");
+    expect(tokens).toContain("md:flex");
   });
 });

@@ -48,7 +48,10 @@ import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
-import { pendingRefSeqs } from "../components/chat/transcriptProjection";
+import {
+  findSpeakerModel,
+  pendingRefSeqs,
+} from "../components/chat/transcriptProjection";
 import Composer from "../components/chat/Composer";
 import RunConfigControl from "../components/chat/RunConfigSheet";
 import BranchPicker from "../components/chat/BranchPicker";
@@ -165,6 +168,15 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   // the tool calls on the event stream (what it is doing). Derived, because a
   // second copy of either source is a second thing to keep in step.
   const workerRows = useMemo(() => workerActivity(events, workerSteps), [events, workerSteps]);
+  // What the session is actually running when the daemon chose for it: the
+  // transcript reports the model the adapter picked (a provider fallback is
+  // invisible in `task.model`). The face and the desktop strip name this
+  // instead of the generic default, while the stored value stays empty so a
+  // follow-up still lets the daemon choose.
+  const transcriptModel = useMemo(
+    () => (task ? findSpeakerModel(events, task.agent || "") : undefined),
+    [events, task],
+  );
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
@@ -1227,9 +1239,15 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
           </div>
         )}
 
-        {/* Below the rail breakpoint: keep compact chips so usage/diff stay reachable without the rail. */}
+        {/* Below the rail breakpoint: keep compact chips so usage/diff stay reachable without the rail. On a phone the usage bar is gone entirely — the
+            transcript already shows the agent's own model line, and the
+            reference keeps usage behind a popover at the input, not a bar
+            across the reading. The phone's trigger lives in the composer
+            footer. */}
         <div className="min-[1600px]:hidden flex-none border-b border-[var(--kin-hairline)]">
-          <TaskUsageSummary usage={usage} loading={usageLoading} />
+          <div className="max-md:hidden">
+            <TaskUsageSummary usage={usage} loading={usageLoading} />
+          </div>
           <ChangedFilesBar
             files={changedFiles}
             onOpenPath={onOpenWorkspacePath}
@@ -1255,6 +1273,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             events={events}
             onOpenPath={onOpenWorkspacePath}
             fallbackUserPrompt={displayUserPrompt(task.prompt || "")}
+            messageScope={task.id}
             loading={!terminal || sending || awaitingReply}
             loadingSpeaker={task.agent || "kin"}
             hostSpeaker={task.agent || "kin"}
@@ -1346,18 +1365,33 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               footer={
                 // One control instead of a strip of chips: the face names the
                 // agent, the model and the mode, and the sheet behind it owns
-                // the two that can change. Desktop keeps the strip below.
-                <RunConfigControl
-                  agentName={hostAgentName}
-                  agentAvatar={hostAgentAvatar}
-                  model={composerModel}
-                  models={taskAgentModels}
-                  onModelChange={setComposerModel}
-                  permission={composerPermissionMode}
-                  permissionModes={taskPermissionModes}
-                  onPermissionChange={setComposerPermission}
-                  disabled={sending || stopping}
-                />
+                // the two that can change. Desktop keeps the strip below. The
+                // usage trigger rides beside it — the reference keeps usage at
+                // the input, and the phone has no usage bar above the
+                // transcript to read it from.
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <RunConfigControl
+                    agentName={hostAgentName}
+                    agentId={task.agent || ""}
+                    agentAvatar={hostAgentAvatar}
+                    model={composerModel}
+                    models={taskAgentModels}
+                    onModelChange={setComposerModel}
+                    permission={composerPermissionMode}
+                    permissionModes={taskPermissionModes}
+                    onPermissionChange={setComposerPermission}
+                    disabled={sending || stopping}
+                    fallbackModelLabel={transcriptModel}
+                  />
+                  {!usageLoading && usage ? (
+                    <TaskUsageSummary
+                      usage={usage}
+                      loading={usageLoading}
+                      variant="phone"
+                      className="flex-none"
+                    />
+                  ) : null}
+                </div>
               }
             />
             {/* The desktop counterpart of the composer's run-config face: from
@@ -1387,6 +1421,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
                 status={taskAgentModelStatus}
                 disabled={sending || stopping}
                 compact
+                fallbackDisplay={transcriptModel}
                 onChange={setComposerModel}
               />
               {/* Where the work is — directory, repository, branch, machine —

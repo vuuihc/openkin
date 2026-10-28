@@ -115,3 +115,20 @@ export function MobileHeaderButton({
 export function MobileChevron() {
   return <IconChevron size={14} className="shrink-0 text-kin-muted" />;
 }
+
+/**
+ * The phone's identity mark — the one drawer trigger on every screen.
+ *
+ * The sessions bar leads with it and so does every other bar, because a
+ * drawer opened from a K disc and one opened from a hamburger are the same
+ * drawer, and two shapes for one destination is how a person stops
+ * recognising the entrance. The inverted fill is the mark's own: the disc
+ * carries the brand letter, not a copy of the K tile the sidebar uses.
+ */
+export function IdentityDisc() {
+  return (
+    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-kin-text text-strong font-bold text-kin-bg">
+      K
+    </span>
+  );
+}

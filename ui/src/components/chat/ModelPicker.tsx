@@ -1,5 +1,6 @@
 import type { AgentModelOption } from "../../lib/agentModels";
 import {
+  CUSTOM_MODEL_ID,
   isListedModel,
   modelPickTarget,
   modelPickerOptions,
@@ -20,6 +21,14 @@ type Props = {
   disabled?: boolean;
   /** Single-row footer: hide labels / secondary hints. */
   compact?: boolean;
+  /**
+   * What the trigger names when no model is set: the model the transcript
+   * reports, so the strip says what the session is actually running instead
+   * of the generic default. The stored value stays "" — a follow-up with no
+   * explicit model still lets the daemon choose — and the list marks the
+   * custom row, because the named model is not in this agent's catalog.
+   */
+  fallbackDisplay?: string;
   onChange: (modelId: string) => void;
 };
 
@@ -35,6 +44,7 @@ export default function ModelPicker({
   locked,
   disabled,
   compact,
+  fallbackDisplay,
   onChange,
 }: Props) {
   const tr = useT();
@@ -58,23 +68,40 @@ export default function ModelPicker({
     default: tr("modelPicker.default"),
     custom: tr("modelPicker.custom"),
   });
+  // A transcript-reported model with no stored value: name it, mark the
+  // custom row (it is not in the catalog), and never force the custom input
+  // — nothing was typed.
+  const namedByTranscript = !current && Boolean(fallbackDisplay?.trim());
+  const display =
+    custom || currentIsCustom ? current || tr("modelPicker.custom") : undefined;
   // The sentinel, not the raw id — see `modelPickerSelection`.
   const selection = modelPickerSelection(current, custom || currentIsCustom);
+  const effectiveSelection = namedByTranscript ? CUSTOM_MODEL_ID : selection;
+  const effectiveDisplay = namedByTranscript ? fallbackDisplay!.trim() : display;
+  const effectiveTitle = namedByTranscript
+    ? fallbackDisplay!.trim()
+    : display || current || tr("modelPicker.defaultHint");
   const pick = (id: string) => {
     const next = modelPickTarget(id);
+    // Choosing Custom while the trigger only *names* the transcript model
+    // should not blank the control: materialise that name as the explicit
+    // value, so the custom field opens prefilled with what actually ran.
+    const value =
+      id === CUSTOM_MODEL_ID && namedByTranscript
+        ? fallbackDisplay!.trim()
+        : next.value;
     setCustom(next.custom);
-    onChange(next.value);
+    onChange(value);
   };
 
   if (compact) {
-    const display = custom || currentIsCustom ? current || tr("modelPicker.custom") : undefined;
     return (
       <div className="flex items-center gap-1.5 flex-none">
         <SearchSelect
           label={tr("modelPicker.label")}
-          value={selection}
-          display={display}
-          title={display || current || tr("modelPicker.defaultHint")}
+          value={effectiveSelection}
+          display={effectiveDisplay}
+          title={effectiveTitle}
           options={options}
           disabled={readOnly}
           onChange={pick}
@@ -105,13 +132,9 @@ export default function ModelPicker({
       <span className="text-caption text-kin-muted flex-none">{tr("modelPicker.label")}</span>
       <SearchSelect
         label={tr("modelPicker.label")}
-        value={selection}
-        display={custom || currentIsCustom ? current || tr("modelPicker.custom") : undefined}
-        title={
-          custom || currentIsCustom
-            ? current || tr("modelPicker.custom")
-            : current || tr("modelPicker.defaultHint")
-        }
+        value={effectiveSelection}
+        display={effectiveDisplay}
+        title={effectiveTitle}
         options={options}
         disabled={readOnly}
         onChange={pick}

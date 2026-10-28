@@ -3,12 +3,17 @@
  * One user message → one agent reply column (single left avatar). Intermediate
  * multi-agent / tool steps remain as a complete, ordered execution record.
  */
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import type { TaskEvent } from "../../api/client";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
 import { isMessageQueued } from "../../lib/queuedPrompts";
 import { agentAvatarMeta } from "../../lib/agentMention";
+import {
+  isMessageActionsToggleTap,
+  toggleMobileMessageActions,
+  useMobileMessageActionsRevealed,
+} from "../../lib/mobileMessageActions";
 import { useAppStore } from "../../store/appStore";
 import { IconCopy, IconDownload, IconShare } from "../icons";
 import Markdown from "../Markdown";
@@ -65,6 +70,13 @@ type Props = {
    */
   queuedSeqs?: Set<number>;
   /**
+   * Scopes the mobile message-actions reveal. Message keys are `t-<seq>`, and
+   * seq restarts per task while several sessions stay mounted (the tab host),
+   * so without a task id one revealed message would light up the same-named
+   * message in every other session.
+   */
+  messageScope?: string;
+  /**
    * Cards to render in the conversation, keyed by the id of the request they
    * answer. A request whose event is in this list is drawn where it was asked
    * instead of at the end of the stream.
@@ -91,6 +103,7 @@ export default function ChatStream({
   hostSpeaker = "",
   hostModel,
   queuedSeqs,
+  messageScope = "",
   pendingSlots,
   showMessageActions = false,
   actionsBusy = false,
@@ -258,6 +271,7 @@ export default function ChatStream({
             loading={loading}
             allItems={items}
             showThinking={withThinking}
+            messageScope={messageScope}
             showMessageActions={showMessageActions}
             actionsBusy={actionsBusy}
             onRetry={onRetry}
@@ -324,6 +338,7 @@ function AgentTurn({
   loading,
   allItems,
   showThinking,
+  messageScope = "",
   showMessageActions = false,
   actionsBusy = false,
   onRetry,
@@ -346,6 +361,8 @@ function AgentTurn({
   loading: boolean;
   allItems: ChatItem[];
   showThinking: boolean;
+  /** See ChatStream's `messageScope`. */
+  messageScope?: string;
   showMessageActions?: boolean;
   actionsBusy?: boolean;
   onRetry?: (fromSeq: number) => void;
@@ -388,97 +405,24 @@ function AgentTurn({
 
         {items.map((item) => {
           switch (item.kind) {
-            case "message": {
-              const canSave = !!onSaveArtifact && !item.partial && item.text.trim().length > 0;
-              const canRetryFork =
-                showMessageActions && !item.partial && typeof item.seq === "number";
-              const canCopy = !item.partial && item.text.trim().length > 0;
+            case "message":
               return (
-                <div
+                <AssistantMessageItem
                   key={item.key}
-                  className={[
-                    "group/msg space-y-1 rounded-lg",
-                    selectionMode && selectedKeys.has(item.key)
-                      ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2"
-                      : "",
-                  ].join(" ")}
-                >
-                  {selectionMode && (
-                    <MessageSelectionControl
-                      role="assistant"
-                      selected={selectedKeys.has(item.key)}
-                      onToggle={() => onToggleSelection(item.key)}
-                    />
-                  )}
-                  <MessageBody text={item.text} partial={item.partial} />
-                  {(canRetryFork || canSave || canCopy) && (
-                    <div
-                      className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100 transition-opacity"
-                      role="group"
-                      aria-label={tr("task.actions")}
-                    >
-                      {canRetryFork && (
-                        <>
-                          <button
-                            type="button"
-                            disabled={actionsBusy}
-                            title={tr("task.retryTitle")}
-                            onClick={() => onRetry?.(item.seq!)}
-                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
-                          >
-                            {tr("task.retry")}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={actionsBusy}
-                            title={tr("task.forkTitle")}
-                            onClick={() => onFork?.(item.seq!)}
-                            className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
-                          >
-                            {tr("task.fork")}
-                          </button>
-                        </>
-                      )}
-                      {canCopy && (
-                        <>
-                          <button
-                            type="button"
-                            title={tr("chat.message.copyTitle")}
-                            aria-label={tr("chat.message.copyTitle")}
-                            onClick={() => onCopyMessage(item.text)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
-                          >
-                            <IconCopy size={13} />
-                            {tr("chat.message.copy")}
-                          </button>
-                          <button
-                            type="button"
-                            title={tr("chat.message.shareTitle")}
-                            aria-label={tr("chat.message.shareTitle")}
-                            onClick={() => onShareMessage(item.key)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
-                          >
-                            <IconShare size={13} />
-                            {tr("chat.message.share")}
-                          </button>
-                        </>
-                      )}
-                      {canSave && (
-                        <button
-                          type="button"
-                          disabled={actionsBusy}
-                          title={tr("task.saveArtifactTitle")}
-                          onClick={() => onSaveArtifact?.(item.text)}
-                          className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
-                        >
-                          {tr("task.saveArtifact")}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  item={item}
+                  messageScope={messageScope}
+                  showMessageActions={showMessageActions}
+                  actionsBusy={actionsBusy}
+                  onRetry={onRetry}
+                  onFork={onFork}
+                  onSaveArtifact={onSaveArtifact}
+                  selectionMode={selectionMode}
+                  selected={selectedKeys.has(item.key)}
+                  onToggleSelection={() => onToggleSelection(item.key)}
+                  onCopyMessage={onCopyMessage}
+                  onShareMessage={onShareMessage}
+                />
               );
-            }
             case "progress": {
               return (
                 <ProgressCard
@@ -517,6 +461,156 @@ function AgentTurn({
 
         {showThinking && !hasPartial && <ThinkingDots />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One assistant message and its action row. A component of its own because
+ * the mobile reveal is per-message state (`useMobileMessageActionsRevealed`),
+ * and a hook has to live in a component, not in a map callback.
+ */
+function AssistantMessageItem({
+  item,
+  messageScope = "",
+  showMessageActions,
+  actionsBusy,
+  onRetry,
+  onFork,
+  onSaveArtifact,
+  selectionMode,
+  selected,
+  onToggleSelection,
+  onCopyMessage,
+  onShareMessage,
+}: {
+  item: Extract<ChatItem, { kind: "message" }>;
+  messageScope?: string;
+  showMessageActions: boolean;
+  actionsBusy: boolean;
+  onRetry?: (fromSeq: number) => void;
+  onFork?: (fromSeq: number) => void;
+  onSaveArtifact?: (text: string) => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelection: () => void;
+  onCopyMessage: (text: string) => void;
+  onShareMessage: (key: string) => void;
+}) {
+  const tr = useT();
+  const canSave = !!onSaveArtifact && !item.partial && item.text.trim().length > 0;
+  const canRetryFork = showMessageActions && !item.partial && typeof item.seq === "number";
+  const canCopy = !item.partial && item.text.trim().length > 0;
+  // The store is module-level, so the key must name the task as well as the
+  // message: several sessions stay mounted (tab host), and their seqs collide.
+  const storeKey = messageScope ? `${messageScope}:${item.key}` : item.key;
+  const revealed = useMobileMessageActionsRevealed(storeKey);
+  return (
+    <div
+      className={[
+        "group/msg space-y-1 rounded-lg",
+        selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2" : "",
+      ].join(" ")}
+      {...((canRetryFork || canSave || canCopy) && !selectionMode
+        ? {
+            // Touch has no hover, so the actions rest hidden and a tap on the
+            // body reveals them (one message at a time). A tap on a control
+            // or a link inside the body does that control's job instead, and
+            // a tap that ends a text selection leaves the actions alone.
+            onClick: (event: ReactMouseEvent) => {
+              // The tap-to-reveal is the touch answer to hover; with a
+              // pointer, hover owns the row (the same `sm` cut the classes
+              // use), and a click that stuck an action row on screen would
+              // be a second behaviour for the same gesture.
+              if (!window.matchMedia("(max-width: 639px)").matches) return;
+              if (!isMessageActionsToggleTap(event.target)) return;
+              toggleMobileMessageActions(storeKey);
+            },
+          }
+        : {})}
+    >
+      {selectionMode && (
+        <MessageSelectionControl
+          role="assistant"
+          selected={selected}
+          onToggle={onToggleSelection}
+        />
+      )}
+      <MessageBody text={item.text} partial={item.partial} />
+      {(canRetryFork || canSave || canCopy) && (
+        <div
+          className={[
+            // `sm:` is the desktop cut: hover exists there, so the row hides
+            // until the pointer is on the message. Below it the row hides
+            // until the message is tapped, and a revealed row stays visible
+            // — there is no hover to lose it.
+            "flex items-center gap-1 transition-opacity",
+            revealed
+              ? "max-sm:opacity-100 sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100"
+              : "max-sm:opacity-0 max-sm:pointer-events-none sm:opacity-0 sm:group-hover/msg:opacity-100 sm:focus-within:opacity-100",
+          ].join(" ")}
+          role="group"
+          aria-label={tr("task.actions")}
+        >
+          {canRetryFork && (
+            <>
+              <button
+                type="button"
+                disabled={actionsBusy}
+                title={tr("task.retryTitle")}
+                onClick={() => onRetry?.(item.seq!)}
+                className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+              >
+                {tr("task.retry")}
+              </button>
+              <button
+                type="button"
+                disabled={actionsBusy}
+                title={tr("task.forkTitle")}
+                onClick={() => onFork?.(item.seq!)}
+                className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+              >
+                {tr("task.fork")}
+              </button>
+            </>
+          )}
+          {canCopy && (
+            <>
+              <button
+                type="button"
+                title={tr("chat.message.copyTitle")}
+                aria-label={tr("chat.message.copyTitle")}
+                onClick={() => onCopyMessage(item.text)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
+              >
+                <IconCopy size={13} />
+                {tr("chat.message.copy")}
+              </button>
+              <button
+                type="button"
+                title={tr("chat.message.shareTitle")}
+                aria-label={tr("chat.message.shareTitle")}
+                onClick={() => onShareMessage(item.key)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill"
+              >
+                <IconShare size={13} />
+                {tr("chat.message.share")}
+              </button>
+            </>
+          )}
+          {canSave && (
+            <button
+              type="button"
+              disabled={actionsBusy}
+              title={tr("task.saveArtifactTitle")}
+              onClick={() => onSaveArtifact?.(item.text)}
+              className="px-2 py-0.5 rounded-md text-caption font-medium text-kin-muted hover:text-kin-text  hover:bg-kin-fill disabled:opacity-40"
+            >
+              {tr("task.saveArtifact")}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

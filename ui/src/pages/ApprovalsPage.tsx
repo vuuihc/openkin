@@ -206,13 +206,19 @@ export default function ApprovalsPage() {
             step larger underneath. `md`, not `sm`: the shell header is
             `md:hidden`, so between the two the title would be on screen twice. */}
         <h1 className="hidden text-hero font-bold tracking-tight md:block">{tr("inbox.title")}</h1>
-        <p className="text-strong text-kin-muted mt-1">
-          {loading
-            ? tr("inbox.loading")
-            : items.length + questions.length === 0
-              ? tr("inbox.noneWaiting")
-              : tr("inbox.waiting", { count: items.length + questions.length })}
-        </p>
+        {/* One line of context, only when there is something under it: an
+            empty page has exactly one empty state (the card below), and a
+            second line saying the same thing made the inbox say "nothing
+            waiting" twice. */}
+        {loading || items.length + questions.length + running.length > 0 ? (
+          <p className="text-strong text-kin-muted mt-1">
+            {loading
+              ? tr("inbox.loading")
+              : items.length + questions.length === 0
+                ? tr("inbox.noneWaiting")
+                : tr("inbox.waiting", { count: items.length + questions.length })}
+          </p>
+        ) : null}
 
         {/* The landing page explains a link that no longer names anything. Not
             an error — a handled item is the normal end of a notification, and

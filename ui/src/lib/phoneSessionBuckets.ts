@@ -18,6 +18,9 @@ import { displayUserPrompt } from "./attachments";
 /** Rows with no cwd at all still need one bucket; it sorts last. */
 export const UNASSIGNED_PROJECT = "__unassigned__";
 
+/** The synthetic leading bucket pinned task rows live in. */
+export const PINNED_BUCKET = "__pinned__";
+
 /** The desktop sidebar files its no-cwd group under this name, not this one. */
 const SIDEBAR_ROOT_PROJECT = "__root__";
 
@@ -149,6 +152,42 @@ export function phoneProjectBuckets(
 }
 
 /** Case-insensitive match over what the row and its heading actually say. */
+/**
+ * Lift pinned task rows into a leading bucket and out of their project
+ * buckets — the same rule the reference's Pinned section uses, so a pinned
+ * row is seen once, at the top, not twice.
+ */
+export function withPinnedBucket(
+  buckets: readonly PhoneProjectBucket[],
+  pinnedIds: ReadonlySet<string>,
+  label: string,
+): PhoneProjectBucket[] {
+  const pinned: PhoneSessionRow[] = [];
+  const rest = buckets.flatMap((bucket) => {
+    const rows = bucket.rows.filter((row) => {
+      if (row.task && pinnedIds.has(row.task.id)) {
+        pinned.push(row);
+        return false;
+      }
+      return true;
+    });
+    if (rows.length === 0) return [];
+    return rows.length === bucket.rows.length
+      ? [bucket]
+      : [{ ...bucket, rows }];
+  });
+  if (pinned.length === 0) return rest;
+  return [
+    {
+      key: PINNED_BUCKET,
+      label,
+      rows: pinned,
+      lastActivityAt: Math.max(0, ...pinned.map((row) => row.at)),
+    },
+    ...rest,
+  ];
+}
+
 export function filterProjectBuckets(
   buckets: readonly PhoneProjectBucket[],
   query: string,

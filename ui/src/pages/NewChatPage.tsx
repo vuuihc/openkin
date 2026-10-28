@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
@@ -13,7 +13,7 @@ import {
 import BranchPicker from "../components/chat/BranchPicker";
 import CwdPicker from "../components/chat/CwdPicker";
 import Composer from "../components/chat/Composer";
-import RunConfigControl from "../components/chat/RunConfigSheet";
+import RunConfigControl, { RunConfigSheetRow } from "../components/chat/RunConfigSheet";
 import PermissionModePicker from "../components/chat/PermissionModePicker";
 import AgentModelPicker from "../components/chat/AgentModelPicker";
 import MachinePicker from "../components/chat/MachinePicker";
@@ -30,7 +30,6 @@ import RoutineScheduleFields, {
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
-import Sheet, { SheetPrimaryButton } from "../components/mobile/Sheet";
 import { useT } from "../i18n/react";
 import { modelsForAgent } from "../lib/agentModels";
 import {
@@ -65,7 +64,7 @@ import {
   setDraftPermissionMode,
   type PermissionMode,
 } from "../lib/permissionMode";
-import { newChatControlGroups, type NewChatControlId } from "../lib/newChatWorkbench";
+import type { NewChatControlId } from "../lib/newChatWorkbench";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -87,8 +86,6 @@ export default function NewChatPage() {
     getDraftPermissionMode(),
   );
   const [asRoutine, setAsRoutine] = useState(false);
-  /** Phone only: the run/route/workspace controls live behind this. */
-  const [controlsOpen, setControlsOpen] = useState(false);
 
   const [routineInterval, setRoutineInterval] = useState(86400);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
@@ -445,24 +442,29 @@ export default function NewChatPage() {
 
   const showProjectColumn =
     project != null || projectLookupState === "loading" || projectLookupState === "error";
-  const controlGroups = newChatControlGroups({ asRoutine, remote });
-
-  /**
-   * The phone's one-line stand-in for the control groups.
-   *
-   * On a 440pt screen those groups took 321px — a third of the display — before
-   * anything was typed, and every choice in them is one a person makes *once*,
-   * when starting a session. The line says where the run will happen; the sheet
-   * behind it is where you change it.
-   *
-   * Machine and workspace only: the permission mode moved into the composer's
-   * run-config face, and a line that repeated it would put the same setting on
-   * the screen twice, in two controls that open two different sheets.
-   */
-  const runSummary = [
-    machine && !machine.isSelf ? machine.label : tr("nav.thisMachine"),
-    cwd ? cwd.split("/").filter(Boolean).pop() || cwd : tr("newChat.noWorkspace"),
-  ].join(" · ");
+  /** The controls an existing session no longer owns, in one strip for the
+   *  run-config sheet: machine, workspace, branch, dispatch, routine. The
+   *  desktop strip below the composer carries the same set plus the agent
+   *  and permission, so every width sees each control exactly once. While
+   *  routine mode is on the location controls step aside (the composer
+   *  becomes a scheduler), exactly as the old panel folded them. */
+  const phoneExtraRows = (
+    asRoutine
+      ? (["routine"] as const)
+      : (["machine", "cwd", "branch", "dispatch", "routine"] as const)
+  ) as readonly NewChatControlId[];
+  const desktopStrip: NewChatControlId[] = [
+    "hostModel",
+    "permission",
+    "machine",
+    "cwd",
+    "branch",
+    "dispatch",
+    "routine",
+  ];
+  const desktopStripIds = desktopStrip.filter(
+    (id) => !(asRoutine && (id === "machine" || id === "cwd" || id === "branch" || id === "dispatch")),
+  );
 
   /** Each control's own row label. The group headings stay as sections
    *  ("Run", "Route", "Workspace"); this is what the row is asking for. */
@@ -652,16 +654,22 @@ export default function NewChatPage() {
         <h1 className="text-hero max-md:text-display font-semibold tracking-tight text-center max-w-md">
           {tr("newChat.heroTitle", { name: mainAgentName })}
         </h1>
-        <p className="mt-2 text-strong text-kin-secondary text-center max-w-md">
+        {/* The phone's empty state is one line, not an essay: the face under
+            the composer says who runs and how, and the reference's new-chat
+            screen keeps the input visually central. The longer guidance is
+            desktop reference material, where the column has room for it. */}
+        <p className="hidden md:block mt-2 text-strong text-kin-secondary text-center max-w-md">
           {tr("newChat.heroSubtitleHost", { name: mainAgentName })}
         </p>
 
         {available.length > 1 && (
-          <p className="mt-2 text-caption text-kin-muted">{tr("newChat.hostPickerHint")}</p>
+          <p className="hidden md:block mt-2 text-caption text-kin-muted">
+            {tr("newChat.hostPickerHint")}
+          </p>
         )}
 
         {agents.some((a) => !a.available) && !remote && (
-          <div className="mt-1 flex sm:mt-3">
+          <div className="hidden md:flex mt-1 sm:mt-3">
             <button
               type="button"
               className="min-h-11 px-3 text-body text-kin-blue-ink hover:underline sm:min-h-0 sm:px-0"
@@ -746,11 +754,15 @@ export default function NewChatPage() {
             onSubmit={onSubmit}
             footer={
               // The phone's only run control before the first message. The
-              // panel below starts at `md`, and on a phone the agent, model and
-              // mode would otherwise be whatever the last draft left behind,
-              // with no way to see or change them until after sending.
+              // strip below starts at `md`, and on a phone the agent, model,
+              // mode, machine and workspace would otherwise be whatever the
+              // last draft left behind, with no way to see or change them
+              // until after sending. The sheet it opens is the one surface
+              // that owns every knob: agent / model / permission rows, then
+              // the location rows this page passes in.
               <RunConfigControl
                 agentName={mainAgentName}
+                agentId={mainAgentId}
                 agentAvatar={mainAgentAvatar}
                 model={selectedModel}
                 models={modelsForAgent(available, mainAgentId)}
@@ -762,66 +774,43 @@ export default function NewChatPage() {
                   setDraftPermissionMode(m);
                 }}
                 disabled={sending}
+                agents={available}
+                onAgentChange={(id) => {
+                  setSelectedHost(id);
+                  setSelectedModel("");
+                }}
+                extraRows={
+                  <>
+                    {phoneExtraRows.map((control) => (
+                      <RunConfigSheetRow
+                        key={control}
+                        label={tr(CONTROL_LABEL_KEY[control])}
+                        control={renderControl(control)}
+                      />
+                    ))}
+                  </>
+                }
               />
             }
           />
-          <div className="hidden md:grid gap-1.5 px-0.5">
-            {controlGroups.map((group) => (
-              <div
-                key={group.id}
-                className="flex min-w-0 flex-col gap-1 rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1.5 sm:flex-row sm:items-center sm:gap-2"
-              >
-                <div className="text-micro font-semibold uppercase tracking-label text-kin-muted sm:w-[5.25rem] sm:flex-none">
-                  {tr(group.labelKey)}
-                </div>
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  {group.controls.map(renderControl)}
-                </div>
-              </div>
+          {/* Desktop: the same settings, one row — the shape the session page
+              uses for its own strip. Below `md` the run-config face above
+              owns everything; from `md` up this row carries the same knobs
+              plus the machine and workspace, exactly as the session page's
+              strip does, so the two pages never offer the same setting in
+              two different shapes. */}
+          <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
+            {desktopStripIds.map((control, index) => (
+              <Fragment key={control}>
+                {index > 0 && (
+                  <span className="text-kin-muted/50 flex-none select-none" aria-hidden>
+                    ·
+                  </span>
+                )}
+                {renderControl(control)}
+              </Fragment>
             ))}
           </div>
-
-          {/* Phone and small tablet: where the run happens, and the way into
-              every control the panel above owns. It ends exactly where that
-              panel starts (`md`), so the 640–767 band is not left with only
-              the face — which cannot choose a machine, a workspace or an
-              agent. */}
-          <button
-            type="button"
-            onClick={() => setControlsOpen(true)}
-            aria-haspopup="dialog"
-            aria-expanded={controlsOpen}
-            className="md:hidden flex w-full min-h-11 items-center gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-strong text-kin-muted"
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
-              <circle cx="16" cy="7" r="2" />
-              <circle cx="10" cy="17" r="2" />
-            </svg>
-            <span className="min-w-0 flex-1 truncate text-left">{runSummary}</span>
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
           {asRoutine && (
             <div className="rounded-xl border border-kin-blue/25 bg-kin-blue/5 px-3 py-2.5">
               <div className="mb-2 text-caption font-medium text-kin-blue-ink">
@@ -839,51 +828,6 @@ export default function NewChatPage() {
           )}
         </div>
       </div>
-
-      <Sheet
-        open={controlsOpen}
-        onClose={() => setControlsOpen(false)}
-        title={tr("newChat.controlsTitle")}
-        footer={
-          <SheetPrimaryButton onClick={() => setControlsOpen(false)}>
-            {tr("newChat.controlsDone")}
-          </SheetPrimaryButton>
-        }
-      >
-        <p className="px-1 pb-2.5 text-body text-kin-muted">{tr("newChat.controlsHint")}</p>
-        <div className="space-y-4 pb-1">
-          {controlGroups.map((group) => (
-            <section key={group.id}>
-              <h3 className="px-1 pb-1.5 text-strong font-medium text-kin-muted">
-                {tr(group.labelKey)}
-              </h3>
-              {/* One row per decision, not one row per group: a group can hold
-                  three controls, and three right-aligned pickers in a single
-                  row wrapped into a column of unrelated widgets. Each row is
-                  label → value on the same baseline, the shape the iOS
-                  run-configuration sheets use.
-
-                  No `overflow-hidden`: the card's own radius clips its
-                  background, and clipping the *children* cut the team-dispatch
-                  popover off at the card's top edge — the control opened a
-                  panel whose mode chips were sliced in half. Anything a row
-                  can open has to be able to leave the row. */}
-              <div className="kin-card rounded-2xl [&>*+*]:border-t [&>*+*]:border-[var(--kin-hairline)]">
-                {group.controls.map((control) => (
-                  <div key={control} className="flex min-h-[52px] items-center gap-3 px-4 py-2">
-                    <div className="w-[5.5rem] flex-none text-body text-kin-muted">
-                      {tr(CONTROL_LABEL_KEY[control])}
-                    </div>
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 [&_button]:min-h-11 [&_button]:min-w-[44px] [&_select]:min-h-11 [&_select]:min-w-[44px] [&_[role=button]]:min-h-11">
-                      {renderControl(control)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      </Sheet>
     </div>
   );
 }

@@ -9,12 +9,15 @@ import {
   formatTokenCount,
   primaryCostSource,
 } from "../../lib/usage";
+import Sheet from "../mobile/Sheet";
 
 type Props = {
   usage: TaskUsage | null;
   loading: boolean;
-  /** strip = chat-column chip; card = side-rail panel (Codex-style). */
-  variant?: "strip" | "card";
+  /** strip = chat-column chip; card = side-rail panel; phone = a trigger in
+   *  the composer footer opening a sheet (the reference keeps usage in a
+   *  popover at the input, not a bar across the transcript). */
+  variant?: "strip" | "card" | "phone";
   className?: string;
 };
 
@@ -27,6 +30,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
   const [open, setOpen] = useState(false);
   const detailsID = useId();
   const isCard = variant === "card";
+  const isPhone = variant === "phone";
 
   if (loading) {
     if (isCard) {
@@ -196,6 +200,33 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           )}
         </div>
       </section>
+    );
+  }
+
+  if (isPhone) {
+    const total = formatTokenCount(usage.tokens_in + usage.tokens_out);
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={`${tr("usage.taskSummary")}${tr("common.labelSeparator")}${total}`}
+          title={tr("usage.openPhone")}
+          className={[
+            // 44pt like the face it rides beside: a smaller target in the
+            // same row would be the one control a thumb keeps missing.
+            "flex h-11 min-w-11 flex-none items-center justify-center rounded-lg px-2 text-caption font-medium tabular-nums transition-colors active:bg-[var(--kin-fill)]",
+            open ? "bg-[var(--kin-fill-strong)] text-kin-text" : "text-kin-muted",
+          ].join(" ")}
+        >
+          {total}
+        </button>
+        <Sheet open={open} onClose={() => setOpen(false)} title={tr("usage.taskSummary")}>
+          {details}
+        </Sheet>
+      </>
     );
   }
 

@@ -1,5 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import type { AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
+import { agentAvatarMeta } from "../../lib/agentMention";
 import {
   isListedModel,
   modelPickTarget,
@@ -35,7 +37,10 @@ import Sheet from "../mobile/Sheet";
 export type RunConfigAvatar = { initials: string; className: string };
 
 export type RunConfigControlProps = {
+  /** The host agent's display name, shown on the face and the Agent row. */
   agentName: string;
+  /** The host agent's id, for marking the current Agent row in the sheet. */
+  agentId?: string;
   agentAvatar: RunConfigAvatar;
   /** Selected model id; "" is the agent / provider default. */
   model: string;
@@ -47,10 +52,35 @@ export type RunConfigControlProps = {
   onPermissionChange: (mode: PermissionMode) => void;
   disabled?: boolean;
   className?: string;
+  /**
+   * What the model row names when no model is set: the model the transcript
+   * reports (the session page), so the face says what the run is actually
+   * using instead of the generic default. Omit on new-chat, where there is
+   * no run yet to name.
+   */
+  fallbackModelLabel?: string;
+  /**
+   * Offered together: when both are set the Agent row is a picker (a session
+   * that has not started can still change its host); with neither it is a
+   * locked value (an existing session's agent is part of its identity).
+   */
+  agents?: AgentInfo[];
+  onAgentChange?: (agentId: string) => void;
+  /**
+   * New-chat only: the location controls (machine, workspace, branch,
+   * dispatch, routine) that an existing session no longer owns. Rendered
+   * after the permission row so the sheet stays one place to see how the
+   * next run will go.
+   */
+  extraRows?: ReactNode;
 };
 
 /** The face's model text: the catalog label, or the id's tail for a custom one. */
-function faceModelLabel(model: string, models: AgentModelOption[], fallback: string): string {
+function faceModelLabel(
+  model: string,
+  models: AgentModelOption[],
+  fallback: string,
+): string {
   const current = model.trim();
   if (!current) return fallback;
   const listed = models.find((m) => m.id === current);
@@ -59,6 +89,7 @@ function faceModelLabel(model: string, models: AgentModelOption[], fallback: str
 
 export default function RunConfigControl({
   agentName,
+  agentId,
   agentAvatar,
   model,
   models,
@@ -68,13 +99,17 @@ export default function RunConfigControl({
   onPermissionChange,
   disabled,
   className = "",
+  fallbackModelLabel,
+  agents,
+  onAgentChange,
+  extraRows,
 }: RunConfigControlProps) {
   const tr = useT();
   const [open, setOpen] = useState(false);
   const current = model.trim();
   const mode = normalizePermissionMode(permission);
   const permissionLabel = tr(PERMISSION_MODE_LABEL_KEY[mode]);
-  const modelLabel = faceModelLabel(current, models, tr("modelPicker.default"));
+  const modelLabel = faceModelLabel(current, models, fallbackModelLabel ?? tr("modelPicker.default"));
 
   return (
     <>
@@ -117,6 +152,7 @@ export default function RunConfigControl({
         open={open}
         onClose={() => setOpen(false)}
         agentName={agentName}
+        agentId={agentId}
         agentAvatar={agentAvatar}
         model={current}
         models={models}
@@ -125,6 +161,10 @@ export default function RunConfigControl({
         permissionModes={permissionModes}
         onPermissionChange={onPermissionChange}
         disabled={disabled}
+        fallbackModelLabel={fallbackModelLabel}
+        agents={agents}
+        onAgentChange={onAgentChange}
+        extraRows={extraRows}
       />
     </>
   );
@@ -149,7 +189,7 @@ function RunConfigSheet({ open, onClose, ...body }: SheetProps) {
   );
 }
 
-type RowId = "model" | "permission";
+type RowId = "agent" | "model" | "permission";
 
 const PERMISSION_HINT_KEY: Record<PermissionMode, string> = {
   default: "permission.defaultHint",
@@ -159,6 +199,7 @@ const PERMISSION_HINT_KEY: Record<PermissionMode, string> = {
 
 function RunConfigBody({
   agentName,
+  agentId,
   agentAvatar,
   model,
   models,
@@ -167,6 +208,10 @@ function RunConfigBody({
   permissionModes,
   onPermissionChange,
   disabled,
+  fallbackModelLabel,
+  agents,
+  onAgentChange,
+  extraRows,
 }: Omit<SheetProps, "open" | "onClose">) {
   const tr = useT();
   const [openRow, setOpenRow] = useState<RowId | null>(null);
@@ -174,6 +219,7 @@ function RunConfigBody({
   const [customPicked, setCustomPicked] = useState(false);
   const [modelList, setModelList] = useState<HTMLDivElement | null>(null);
   const rowRefs = useRef<Record<RowId, HTMLButtonElement | null>>({
+    agent: null,
     model: null,
     permission: null,
   });
@@ -200,6 +246,8 @@ function RunConfigBody({
           ),
         )
       : modelOptions;
+  const agentPicker = agents && onAgentChange ? agents.filter((a) => a.available) : [];
+  const modelFallback = fallbackModelLabel ?? tr("modelPicker.default");
 
   /** First/last option in the model list, for the search field's arrow keys. */
   function focusOption(which: "first" | "last") {
@@ -218,6 +266,12 @@ function RunConfigBody({
   function closeRow(row: RowId) {
     setOpenRow(null);
     rowRefs.current[row]?.focus();
+  }
+
+  function pickAgent(agentId: string) {
+    onAgentChange?.(agentId);
+    setOpenRow(null);
+    rowRefs.current.agent?.focus();
   }
 
   function pickModel(id: string) {
@@ -249,28 +303,94 @@ function RunConfigBody({
         }
       }}
     >
-      <Row
-        label={tr("runConfig.agent")}
-        // Read-only once a session exists: the agent is part of its identity,
-        // and the daemon has no protocol to swap it mid-session. Not a
-        // disabled button — that reads as broken and is skipped by screen
-        // readers; a plain value with no chevron reads as a fact.
-        control={
-          <div
-            className="flex min-h-10 items-center gap-2 rounded-lg bg-[var(--kin-fill)] px-3 text-strong font-medium text-kin-secondary"
-            title={tr("runConfig.agentLocked")}
-          >
-            <span
-              className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
+      {agentPicker.length > 0 ? (
+        <RunConfigSheetRow
+          label={tr("runConfig.agent")}
+          control={
+            <PickerTrigger
+              triggerRef={(node) => {
+                rowRefs.current.agent = node;
+              }}
+              label={tr("runConfig.agent")}
+              value={agentName}
+              expanded={openRow === "agent"}
+              controls={`${listId}-agent`}
+              disabled={disabled}
+              onClick={() => toggleRow("agent")}
             >
-              {agentAvatar.initials}
-            </span>
-            <span className="truncate">{agentName}</span>
-          </div>
-        }
-      />
+              <span
+                className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
+              >
+                {agentAvatar.initials}
+              </span>
+              <span className="min-w-0 truncate">{agentName}</span>
+            </PickerTrigger>
+          }
+        >
+          {openRow === "agent" ? (
+            <Expansion id={`${listId}-agent`}>
+              <div
+                role="listbox"
+                aria-label={tr("runConfig.agent")}
+                onKeyDown={moveListFocus}
+                className="py-1"
+              >
+                {agentPicker.map((agent) => {
+                  const selected = agent.id === agentId;
+                  const meta = agentAvatarMeta(agent.id);
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      onClick={() => pickAgent(agent.id)}
+                      className={[
+                        "flex min-h-11 w-full items-center gap-2 px-3 py-1.5 text-left text-strong transition-colors",
+                        selected ? "font-medium text-kin-text" : "text-kin-secondary",
+                        "hover:bg-[var(--kin-fill)] focus:bg-[var(--kin-fill)] focus:outline-none",
+                      ].join(" ")}
+                    >
+                      <span
+                        className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${meta.className}`}
+                      >
+                        {meta.initials}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+                      {selected ? (
+                        <IconCheck size={16} className="flex-none text-kin-blue-ink" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </Expansion>
+          ) : null}
+        </RunConfigSheetRow>
+      ) : (
+        <RunConfigSheetRow
+          label={tr("runConfig.agent")}
+          // Read-only once a session exists: the agent is part of its identity,
+          // and the daemon has no protocol to swap it mid-session. Not a
+          // disabled button — that reads as broken and is skipped by screen
+          // readers; a plain value with no chevron reads as a fact.
+          control={
+            <div
+              className="flex min-h-10 items-center gap-2 rounded-lg bg-[var(--kin-fill)] px-3 text-strong font-medium text-kin-secondary"
+              title={tr("runConfig.agentLocked")}
+            >
+              <span
+                className={`flex h-5 w-5 flex-none items-center justify-center rounded-md text-micro font-semibold ${agentAvatar.className}`}
+              >
+                {agentAvatar.initials}
+              </span>
+              <span className="truncate">{agentName}</span>
+            </div>
+          }
+        />
+      )}
 
-      <Row
+      <RunConfigSheetRow
         label={tr("modelPicker.label")}
         control={
           <PickerTrigger
@@ -278,13 +398,13 @@ function RunConfigBody({
               rowRefs.current.model = node;
             }}
             label={tr("modelPicker.label")}
-            value={faceModelLabel(model, models, tr("modelPicker.default"))}
+            value={faceModelLabel(model, models, modelFallback)}
             expanded={openRow === "model"}
             controls={listId}
             disabled={disabled}
             onClick={() => toggleRow("model")}
           >
-            {faceModelLabel(model, models, tr("modelPicker.default"))}
+            {faceModelLabel(model, models, modelFallback)}
           </PickerTrigger>
         }
       >
@@ -366,10 +486,10 @@ function RunConfigBody({
             ) : null}
           </Expansion>
         ) : null}
-      </Row>
+      </RunConfigSheetRow>
 
       {permissionModes.length > 0 ? (
-        <Row
+        <RunConfigSheetRow
           label={tr("permission.label")}
           control={
             <PickerTrigger
@@ -426,8 +546,13 @@ function RunConfigBody({
               </div>
             </Expansion>
           ) : null}
-        </Row>
+        </RunConfigSheetRow>
       ) : null}
+
+      {/* New chat only: where the run happens. An existing session no longer
+          owns machine / workspace / branch / dispatch / routine, so the caller
+          renders those rows here instead of beside the composer. */}
+      {extraRows}
     </div>
   );
 }
@@ -484,8 +609,12 @@ function moveListFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
  *  The expansion is a sibling of the card, not a child of the value column:
  *  it has to span the sheet's width to read as "this row opened" rather than
  *  as a dropdown hanging off the control, and it must not be clipped when the
- *  card is taller than its label. */
-function Row({
+ *  card is taller than its label.
+ *
+ *  Exported so the new-chat page can build its location rows (machine,
+ *  workspace, branch, dispatch, routine) with the same card chrome.
+ */
+export function RunConfigSheetRow({
   label,
   control,
   children,

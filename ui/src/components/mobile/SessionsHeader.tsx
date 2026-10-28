@@ -1,6 +1,6 @@
 import { useT } from "../../i18n/react";
 import { IconInbox, IconSettings } from "../icons";
-import MobileHeader, { MobileHeaderButton } from "./MobileHeader";
+import MobileHeader, { IdentityDisc, MobileHeaderButton } from "./MobileHeader";
 import SessionsSearch from "./SessionsSearch";
 
 /**
@@ -37,9 +37,7 @@ export default function SessionsHeader({
       heading={false}
       leading={
         <MobileHeaderButton label={tr("app.openMenu")} onClick={onOpenMenu}>
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-kin-text text-strong font-bold text-kin-bg">
-            K
-          </span>
+          <IdentityDisc />
         </MobileHeaderButton>
       }
       title={<SessionsSearch />}
