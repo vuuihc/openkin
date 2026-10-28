@@ -99,7 +99,7 @@ export default function ArtifactsPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="hidden text-hero font-semibold tracking-tight md:block">
+            <h1 className="hidden text-hero font-bold tracking-tight md:block">
               {tr("artifacts.title")}
             </h1>
             <p className="text-strong text-kin-muted mt-0.5">{tr("artifacts.subtitle")}</p>

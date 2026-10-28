@@ -335,7 +335,7 @@ export default function CodeViewer({
                 disabled={actionsBusy}
                 onClick={() => onDiscard?.()}
                 title={t("workspace.changed.discardHint")}
-                className="kin-btn-secondary !min-h-0 !py-1 !px-2 text-caption disabled:opacity-50"
+                className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
               >
                 <IconX size={12} />
                 {t("workspace.changed.discard")}
@@ -345,7 +345,7 @@ export default function CodeViewer({
                 disabled={actionsBusy}
                 onClick={() => onKeep?.()}
                 title={t("workspace.changed.keepHint")}
-                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-caption disabled:opacity-50"
+                className="kin-btn-primary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
               >
                 <IconCheck size={12} />
                 {t("workspace.changed.keep")}
@@ -375,7 +375,7 @@ export default function CodeViewer({
                 disabled={!dirty || saveState === "saving"}
                 onClick={() => void doSave()}
                 title={t("workspace.viewer.save")}
-                className="kin-btn-primary !min-h-0 !py-1 !px-2 text-caption disabled:opacity-50"
+                className="kin-btn-primary md:min-h-0 md:py-1 md:px-2 text-caption disabled:opacity-50"
               >
                 <IconCheck size={12} />
                 {saveState === "saving" ? t("workspace.viewer.saving") : t("workspace.viewer.save")}

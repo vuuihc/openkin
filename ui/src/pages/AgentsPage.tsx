@@ -16,6 +16,8 @@ import {
   type UsageRow,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { MobileCard, MobileRow, MobileSection } from "../components/mobile/MobileList";
+import Sheet, { SheetSecondaryButton } from "../components/mobile/Sheet";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useAppStore } from "../store/appStore";
 import { useT } from "../i18n/react";
@@ -31,6 +33,18 @@ import { cacheRateLabel, cacheState, formatTokenCount, type CacheStatus } from "
 /**
  * Agents management console with folded-in usage overview.
  */
+
+/** One thing that can be done to an agent, in either layout. */
+type AgentAction = {
+  key: string;
+  label: string;
+  /** The hover explanation the desktop table shows; the phone sheet has room for the label alone. */
+  hint?: string;
+  /** The one or two actions a row leads with; the rest are quiet. */
+  primary?: boolean;
+  run: () => void;
+};
+
 export default function AgentsPage() {
   const tr = useT();
   const navigate = useNavigate();
@@ -42,6 +56,8 @@ export default function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
   const [smoking, setSmoking] = useState(false);
+  /** Which agent's action sheet is open on a phone; the desktop table never sets it. */
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const reconnectGen = useAppStore((s) => s.reconnectGen);
   const pushToast = useAppStore((s) => s.pushToast);
   const slow = useSlowHint((rows === null || agents === null) && !error);
@@ -229,6 +245,63 @@ export default function AgentsPage() {
     navigate(`/new?q=${encodeURIComponent(prompt)}`);
   }
 
+  /**
+   * What can be done to one agent, written once.
+   *
+   * The table's action cell and the phone's share sheet are two shapes of one
+   * list, and the conditions are not obvious: "ask the default Agent" exists
+   * only while the agent is *not* installed, "copy the update command" only
+   * once it is, and "copy the install command" either way. Spelled twice, the
+   * two surfaces disagree the first time a condition changes.
+   */
+  function agentActions(a: AgentInfo): AgentAction[] {
+    const actions: AgentAction[] = [];
+    if (a.available && !a.default) {
+      actions.push({
+        key: "default",
+        label: tr("agents.setDefault"),
+        primary: true,
+        run: () => void onSetDefault(a.id),
+      });
+    }
+    const url = a.install_url;
+    if (!a.installed && url) {
+      actions.push({
+        key: "install",
+        label: tr("agentCatalog.install"),
+        hint: tr("agentCatalog.installHint"),
+        primary: true,
+        run: () => openInstallURL(url),
+      });
+    }
+    const installCmd = mgmtById.get(a.id)?.install_cmd;
+    if (installCmd) {
+      if (!a.installed) {
+        actions.push({
+          key: "askInstall",
+          label: tr("agents.askInstall"),
+          hint: tr("agents.askInstallHint"),
+          primary: true,
+          run: () => askDefaultAgentToInstall(a, installCmd),
+        });
+      }
+      actions.push({
+        key: "copyInstall",
+        label: tr("agents.copyInstall"),
+        run: () => void copyText(installCmd),
+      });
+    }
+    const updateCmd = mgmtById.get(a.id)?.update_cmd;
+    if (updateCmd && a.installed) {
+      actions.push({
+        key: "copyUpdate",
+        label: tr("agents.copyUpdate"),
+        run: () => void copyText(updateCmd),
+      });
+    }
+    return actions;
+  }
+
   function statusLabel(a: AgentInfo): string {
     switch (agentCatalogState(a)) {
       case "native":
@@ -408,11 +481,16 @@ export default function AgentsPage() {
     );
   }
 
+  // The sheet's target and its actions, read from the same sorted list the
+  // phone rows render: an agent that a refresh drops takes its sheet with it.
+  const actionAgent = actionsFor ? (sortedCatalog.find((a) => a.id === actionsFor) ?? null) : null;
+  const actionItems = actionAgent ? agentActions(actionAgent) : [];
+
   return (
     <div className="flex-1 overflow-y-auto kin-scroll">
       <div className="max-w-page-wide mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="hidden text-hero font-semibold tracking-tight md:block">
+          <h1 className="hidden text-hero font-bold tracking-tight md:block">
             {tr("agents.title")}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
@@ -448,6 +526,16 @@ export default function AgentsPage() {
         {(rows === null || agents === null) && !error && (
           <div className="mt-6 space-y-3">
             <SlowConnectHint show={slow} />
+            {/* The same shape the page arrives in — four stat tiles and the
+                chart — rather than one grey block. A placeholder that is not
+                the layout is a second layout: everything below it moves when
+                the data lands. */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {["spend", "tokens", "cache", "tasks"].map((k) => (
+                <SkeletonLine key={k} className="h-[76px] rounded-xl" />
+              ))}
+            </div>
+            <SkeletonLine className="h-28 w-full rounded-xl" />
             <SkeletonLine className="h-24 w-full rounded-xl" />
           </div>
         )}
@@ -488,7 +576,7 @@ export default function AgentsPage() {
             </div>
 
             <div>
-              <div className="text-caption font-semibold uppercase tracking-label text-kin-muted mb-3">
+              <div className="text-strong font-medium text-kin-muted mb-3">
                 {tr("usage.dailySpend")}
               </div>
               <div className="flex items-stretch gap-1.5 h-28">
@@ -516,7 +604,7 @@ export default function AgentsPage() {
         )}
 
         {agents !== null && (
-          <div className="mt-6 overflow-x-auto rounded-xl bg-kin-elevated">
+          <div className="mt-6 overflow-x-auto rounded-xl bg-kin-elevated max-md:hidden">
             <table className="w-full text-left text-strong md:min-w-table">
               <thead className="bg-[var(--kin-fill)] text-caption uppercase tracking-label text-kin-muted">
                 <tr>
@@ -699,55 +787,20 @@ export default function AgentsPage() {
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-right md:min-w-cell">
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                          {a.available && !a.default ? (
+                          {agentActions(a).map((action) => (
                             <button
+                              key={action.key}
                               type="button"
-                              className="text-body text-kin-blue-ink hover:underline"
-                              onClick={() => void onSetDefault(a.id)}
+                              className={[
+                                "text-body hover:underline",
+                                action.primary ? "text-kin-blue-ink" : "text-kin-secondary",
+                              ].join(" ")}
+                              title={action.hint}
+                              onClick={action.run}
                             >
-                              {tr("agents.setDefault")}
+                              {action.label}
                             </button>
-                          ) : null}
-                          {!a.installed && a.install_url ? (
-                            <button
-                              type="button"
-                              className="text-body text-kin-blue-ink hover:underline"
-                              title={tr("agentCatalog.installHint")}
-                              onClick={() => openInstallURL(a.install_url)}
-                            >
-                              {tr("agentCatalog.install")}
-                            </button>
-                          ) : null}
-                          {m?.install_cmd ? (
-                            <>
-                              {!a.installed ? (
-                                <button
-                                  type="button"
-                                  className="text-body text-kin-blue-ink hover:underline"
-                                  title={tr("agents.askInstallHint")}
-                                  onClick={() => askDefaultAgentToInstall(a, m.install_cmd!)}
-                                >
-                                  {tr("agents.askInstall")}
-                                </button>
-                              ) : null}
-                              <button
-                                type="button"
-                                className="text-body text-kin-secondary hover:underline"
-                                onClick={() => void copyText(m.install_cmd!)}
-                              >
-                                {tr("agents.copyInstall")}
-                              </button>
-                            </>
-                          ) : null}
-                          {m?.update_cmd && a.installed ? (
-                            <button
-                              type="button"
-                              className="text-body text-kin-secondary hover:underline"
-                              onClick={() => void copyText(m.update_cmd!)}
-                            >
-                              {tr("agents.copyUpdate")}
-                            </button>
-                          ) : null}
+                          ))}
                         </div>
                       </td>
                     </tr>
@@ -764,6 +817,89 @@ export default function AgentsPage() {
             </table>
           </div>
         )}
+
+        {/* The phone's copy of the same list. The table is a desktop
+            instrument — twelve columns, six of them hidden below `md` and the
+            rest still 379px wide at 390, so the action column scrolled off the
+            screen — and its action cell stacks four links vertically in the
+            width that is left. A phone gets one row per agent and one `…` that
+            opens the same actions in a sheet, from `agentActions` above so the
+            two layouts cannot disagree about what exists. */}
+        {agents !== null && (
+          <div className="-mx-4 md:hidden">
+            {/* No section title: the shell bar is already an h1 reading
+                "Agents" on this route, and repeating the word 8px below it is
+                the same doubling the page's own h1 was hidden to avoid. */}
+            <MobileSection>
+              <MobileCard>
+                {sortedCatalog.map((a) => {
+                  const actions = agentActions(a);
+                  const usage = usageByAgent.get(a.id);
+                  const detail = [statusLabel(a), usage ? formatCost(usage.cost) : null]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <MobileRow
+                      key={a.id}
+                      title={
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate">{a.name}</span>
+                          {a.default ? (
+                            <span className="flex-none rounded-full bg-kin-blue/15 px-1.5 py-0.5 text-micro font-semibold text-kin-blue-ink">
+                              {tr("agents.isDefault")}
+                            </span>
+                          ) : null}
+                        </span>
+                      }
+                      detail={detail}
+                      trailing={
+                        actions.length > 0 ? (
+                          <button
+                            type="button"
+                            aria-label={`${tr("agents.actions")} — ${a.name}`}
+                            aria-haspopup="dialog"
+                            aria-expanded={actionsFor === a.id}
+                            onClick={() => setActionsFor(a.id)}
+                            className="flex h-11 w-11 items-center justify-center rounded-full text-subtitle text-kin-secondary active:bg-[var(--kin-fill)]"
+                          >
+                            …
+                          </button>
+                        ) : undefined
+                      }
+                    />
+                  );
+                })}
+                {sortedCatalog.length === 0 && <MobileRow title={tr("usage.noAgentUsage")} />}
+              </MobileCard>
+            </MobileSection>
+          </div>
+        )}
+
+        <Sheet
+          open={actionAgent !== null}
+          onClose={() => setActionsFor(null)}
+          title={actionAgent?.name}
+          subtitle={actionAgent ? statusLabel(actionAgent) : undefined}
+          footer={
+            <SheetSecondaryButton onClick={() => setActionsFor(null)}>
+              {tr("common.cancel")}
+            </SheetSecondaryButton>
+          }
+        >
+          {actionItems.map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              onClick={() => {
+                setActionsFor(null);
+                action.run();
+              }}
+              className="kin-row-press flex min-h-12 w-full items-center rounded-xl px-3 text-left text-subtitle text-kin-text"
+            >
+              {action.label}
+            </button>
+          ))}
+        </Sheet>
       </div>
     </div>
   );

@@ -181,7 +181,8 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption tabular-nums text-kin-secondary">
             {cacheHit && cacheHit !== "—" ? (
               <span>
-                {tr("usage.cacheHitRate")}:{" "}
+                {tr("usage.cacheHitRate")}
+                {tr("common.labelSeparator")}
                 <span className="font-medium text-kin-text">{cacheHit}</span>
               </span>
             ) : (
@@ -234,7 +235,9 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
               <>
                 <span className="text-kin-muted"> · </span>
                 <span>
-                  {tr("usage.cacheHitRate")}: {cacheHit}
+                  {tr("usage.cacheHitRate")}
+                  {tr("common.labelSeparator")}
+                  {cacheHit}
                 </span>
               </>
             ) : null}

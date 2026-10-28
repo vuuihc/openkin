@@ -749,7 +749,7 @@ export default function SettingsPage() {
   if (error && !settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6">
-        <h1 className="hidden text-hero font-semibold md:block">{tr("settings.title")}</h1>
+        <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <p className="text-strong leading-5 text-kin-red-ink mt-3" role="alert">
           {error}
         </p>
@@ -760,7 +760,7 @@ export default function SettingsPage() {
   if (!settings) {
     return (
       <div className="flex-1 overflow-y-auto kin-scroll px-4 sm:px-6 py-6 space-y-4">
-        <h1 className="hidden text-hero font-semibold md:block">{tr("settings.title")}</h1>
+        <h1 className="hidden text-hero font-bold md:block">{tr("settings.title")}</h1>
         <SlowConnectHint show={slow} />
         <div className="rounded-xl border border-[var(--kin-hairline)] p-4 space-y-3">
           <SkeletonLine className="h-40 w-40" />
@@ -1194,12 +1194,12 @@ export default function SettingsPage() {
               </p>
             ) : null}
             {settings["cloudflare.relay_worker_url"] ? (
-              <p className="break-all font-mono text-caption text-kin-muted">
+              <p className="[overflow-wrap:anywhere] font-mono text-caption text-kin-muted">
                 {settings["cloudflare.relay_worker_url"]}
               </p>
             ) : null}
             {settings["cloudflare.relay_custom_domain_url"] ? (
-              <p className="break-all font-mono text-caption text-kin-green-ink">
+              <p className="[overflow-wrap:anywhere] font-mono text-caption text-kin-green-ink">
                 {settings["cloudflare.relay_custom_domain_url"]}
               </p>
             ) : null}
@@ -1258,7 +1258,7 @@ export default function SettingsPage() {
                 <p className="text-body leading-4 font-medium text-kin-secondary">
                   {tr("settings.relay.pairingTitle")}
                 </p>
-                <p className="break-all font-mono text-caption text-kin-muted">
+                <p className="[overflow-wrap:anywhere] font-mono text-caption text-kin-muted">
                   {settings["relay.pairing_url"]}
                 </p>
                 <button
@@ -1303,7 +1303,7 @@ export default function SettingsPage() {
                   <div className="text-body leading-4 text-kin-muted">
                     {tr("settings.connection.connectUrl")}
                   </div>
-                  <div className="mt-0.5 break-all font-mono text-body leading-4 text-kin-secondary">
+                  <div className="mt-0.5 [overflow-wrap:anywhere] font-mono text-body leading-4 text-kin-secondary">
                     {connectURL}
                   </div>
                   <button
@@ -1321,7 +1321,7 @@ export default function SettingsPage() {
                     {tr("settings.connection.token")}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                    <code className="break-all font-mono text-body leading-4 text-kin-text">
+                    <code className="[overflow-wrap:anywhere] font-mono text-body leading-4 text-kin-text">
                       {reveal ? token : "••••••••••••••••"}
                     </code>
                     <button

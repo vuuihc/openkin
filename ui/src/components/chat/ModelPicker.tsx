@@ -80,7 +80,7 @@ export default function ModelPicker({
               onChange(id);
             }
           }}
-          className="text-kin-secondary"
+          className="max-w-[10rem] text-kin-secondary"
         />
         {(custom || currentIsCustom) && !readOnly && (
           <input

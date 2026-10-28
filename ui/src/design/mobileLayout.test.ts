@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 import type { AtRule } from "postcss";
@@ -158,6 +158,81 @@ describe("touch-lg wiring", () => {
       expect(readFileSync(`${UI}/src/${file}`, "utf8")).toMatch(onRoot);
     });
   }
+});
+
+describe("compact controls", () => {
+  /**
+   * The floor is only a floor if nothing can outrank it, and Tailwind's `!`
+   * prefix does exactly that — silently. A `!min-h-0` on a diff-bar button beat
+   * both `.kin-btn`'s `min-h-11` and the `.touch-lg` 44px rule at once, which is
+   * how ten actions across the workspace and publish panels came to be 29px
+   * tall on a phone while every rule above stayed green.
+   *
+   * A control that is dense on purpose says `md:` instead: the desktop keeps
+   * its density, the phone keeps its target. The two sanctioned escapes are
+   * `data-touch-mini` (opt one control out of the `.touch-lg` floor, by name,
+   * where it is spent) and `.touch-mini` (the 22px tile button in `index.css`).
+   */
+  it("never outranks the touch floor with an important class", () => {
+    // Only string literals are searched. `!` is also JavaScript negation, and a
+    // whole-file scan reads `!room` or `!e.metaKey` as if they were classes.
+    // Inside a class string the modifier starts a token, so it follows
+    // whitespace or the opening quote.
+    //
+    // The token shape covers every spelling Tailwind accepts, not just the
+    // hyphenated one: `!hidden` has no hyphen, `!-mt-4` starts with one, and
+    // `![min-height:0px]` starts with a bracket. The first version of this
+    // guard required a hyphen and let all three through.
+    //
+    // `NOT_A_CLASS` drops what a template literal's `${…}` puts in front of the
+    // scanner — `!isNaN(generation)`, a member access like `!machine.online`,
+    // punctuation. The trade is that an important class whose arbitrary value
+    // contains parentheses (`!bg-[rgb(0,0,0)]`) is not caught either; nothing
+    // in this tree writes one, and the point of the guard is the spellings that
+    // actually occur.
+    const IMPORTANT = /(?:^|[\s"'`])(![\[-]?[a-z][^\s"'`]*)/g;
+    const LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+    const NOT_A_CLASS = /[A-Z(){};,=<>|&$]|[a-z]\.[a-z]/;
+    const importantIn = (source: string): string[] => {
+      const hits: string[] = [];
+      for (const [literal] of source.matchAll(LITERAL)) {
+        for (const match of literal.matchAll(IMPORTANT)) {
+          if (!NOT_A_CLASS.test(match[1].slice(1))) hits.push(match[1]);
+        }
+      }
+      return hits;
+    };
+
+    // A guard is only worth its green if it can fail. These are the spellings
+    // that got through before, and the shapes that must stay quiet.
+    expect(importantIn('"!hidden !-mt-4 ![min-height:0px] !min-h-0"')).toEqual([
+      "!hidden",
+      "!-mt-4",
+      "![min-height:0px]",
+      "!min-h-0",
+    ]);
+    expect(importantIn('"block md:min-h-0"')).toEqual([]);
+    expect(importantIn("if (!path.trim && a !== b) return;")).toEqual([]);
+    expect(importantIn("`x ${!ready && y}`")).toEqual([]);
+
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) {
+          walk(path);
+          continue;
+        }
+        if (!/\.(ts|tsx)$/.test(entry.name) || /\.test\./.test(entry.name)) continue;
+        const source = readFileSync(path, "utf8");
+        for (const hit of importantIn(source)) {
+          offenders.push(`${path.replace(`${UI}/src/`, "")}: ${hit}`);
+        }
+      }
+    };
+    walk(`${UI}/src`);
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe("login screen focus", () => {

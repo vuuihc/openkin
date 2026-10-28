@@ -183,7 +183,8 @@ function TypeLadder() {
             </div>
           </div>
           <div className="mt-1 font-mono text-micro text-kin-muted">
-            {tr("design.absorbed")}:{" "}
+            {tr("design.absorbed")}
+            {tr("common.labelSeparator")}
             {role.absorbed
               // A bare name is one of Tailwind's defaults; the ladder cannot
               // spell one out with its prefix, so it says where the name is from.

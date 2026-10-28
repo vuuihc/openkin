@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { en, zh } from "./index";
+import { DEFAULT_LANG_TAG, DEFAULT_LOCALE, en, zh } from "./index";
 import { AUTH_ERROR_CODES } from "../lib/accountGate";
 
 /**
@@ -61,5 +63,57 @@ describe("locale catalogs", () => {
         zh: expect.any(String),
       });
     }
+  });
+});
+
+/**
+ * Chinese text has its own punctuation, and the console was written with the
+ * English kind: an ASCII colon between a label and its value, and three ASCII
+ * dots for an ellipsis. Both are visible — a fullwidth colon carries its own
+ * right-hand spacing, and `…` is one glyph wide where `...` is three — and both
+ * were being spent one call site at a time in JSX, where no locale file could
+ * fix them.
+ *
+ * The separator is the mechanical half: a label/value pair says
+ * `common.labelSeparator` and each locale decides what that is. The catalogue
+ * half checks the strings themselves.
+ */
+describe("locale typography", () => {
+  /** Every string leaf of a catalogue, with its dotted path. */
+  function strings(tree: unknown, prefix = ""): Array<[string, string]> {
+    if (typeof tree === "string") return [[prefix, tree]];
+    if (tree === null || typeof tree !== "object") return [];
+    return Object.entries(tree as Record<string, unknown>).flatMap(([key, value]) =>
+      strings(value, prefix ? `${prefix}.${key}` : key),
+    );
+  }
+
+  it("never spells an ellipsis with three ASCII dots", () => {
+    for (const [name, catalog] of [
+      ["zh", zh],
+      ["en", en],
+    ] as const) {
+      const dotted = strings(catalog)
+        .filter(([, value]) => value.includes("..."))
+        .map(([path]) => path);
+      expect({ locale: name, dotted }).toEqual({ locale: name, dotted: [] });
+    }
+  });
+
+  it("owns the label separator, and gives each language its own", () => {
+    // The fullwidth colon for Chinese, `": "` for English. If these ever match,
+    // one of the two languages is being rendered with the other's punctuation.
+    expect(zh.common.labelSeparator).toBe("：");
+    expect(en.common.labelSeparator).toBe(": ");
+  });
+
+  it("declares the default language in index.html", () => {
+    // Before any script runs — the first paint, and anything that reads the
+    // document rather than the app. The build copies this file, so a template
+    // that says `en` renders a Chinese page in Japanese glyph forms. The
+    // running document is `documentLang.dom.test.ts`'s subject.
+    const html = readFileSync(fileURLToPath(new URL("../../index.html", import.meta.url)), "utf8");
+    expect(html).toContain(`<html lang="${DEFAULT_LANG_TAG}"`);
+    expect(DEFAULT_LOCALE).toBe("zh");
   });
 });

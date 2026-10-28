@@ -169,7 +169,7 @@ export function SettingsLayout({
           {/* The shell's header already names this screen on the phone, and the
               prototype gives every phone screen one nav bar — so the grid of
               tabs starts where the h1 was, not 30px lower. */}
-          <h1 className="hidden text-hero font-semibold tracking-tight md:block">{title}</h1>
+          <h1 className="hidden text-hero font-bold tracking-tight md:block">{title}</h1>
           <p className="text-strong leading-5 text-kin-secondary">{subtitle}</p>
         </div>
         <div
@@ -291,7 +291,7 @@ export function SettingsSection({
     <section className="rounded-xl bg-kin-elevated/60 p-4 space-y-4 max-md:kin-card max-md:rounded-2xl max-md:bg-kin-panel">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted max-md:text-body max-md:font-semibold max-md:normal-case max-md:tracking-normal max-md:text-kin-text">
+          <h2 className="text-caption font-semibold uppercase tracking-label text-kin-muted max-md:text-subtitle max-md:font-semibold max-md:normal-case max-md:tracking-normal max-md:text-kin-text">
             {title}
           </h2>
           {description ? (

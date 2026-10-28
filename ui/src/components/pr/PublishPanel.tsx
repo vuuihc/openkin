@@ -310,7 +310,7 @@ export default function PublishPanel({
                   type="button"
                   onClick={() => void escape()}
                   disabled={!canPublish}
-                  className="kin-btn-primary mt-2 !min-h-0 !py-1.5 !px-3 text-body disabled:opacity-50"
+                  className="kin-btn-primary mt-2 md:min-h-0 md:py-1.5 md:px-3 text-body disabled:opacity-50"
                 >
                   {escaping && <IconSpinner size={13} strokeWidth={2} />}
                   {tr("publish.escape")}
@@ -331,7 +331,7 @@ export default function PublishPanel({
               type="button"
               onClick={() => void publish({ title: title.trim(), body })}
               disabled={!canPublish}
-              className="kin-btn-primary !min-h-0 !py-1.5 !px-3.5 text-body disabled:opacity-50"
+              className="kin-btn-primary md:min-h-0 md:py-1.5 md:px-3.5 text-body disabled:opacity-50"
             >
               {busy && <IconSpinner size={13} strokeWidth={2} />}
               {busy ? tr("publish.publishing") : tr("publish.action")}

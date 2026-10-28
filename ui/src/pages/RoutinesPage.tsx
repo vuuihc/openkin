@@ -286,7 +286,7 @@ export default function RoutinesPage() {
       <div className="mx-auto max-w-3xl px-4 py-6 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="hidden md:block">
-            <h1 className="text-hero font-semibold tracking-tight text-kin-text">
+            <h1 className="text-hero font-bold tracking-tight text-kin-text">
               {tr("routines.title")}
             </h1>
             <p className="mt-1 text-strong text-kin-secondary">{tr("routines.subtitle")}</p>
@@ -512,7 +512,9 @@ export default function RoutinesPage() {
                             {r.agent} · {formatInterval(r.interval_secs)} · {r.cwd}
                           </div>
                           <div className="mt-0.5 text-caption text-kin-muted">
-                            {tr("routines.nextDue")}: {formatWhen(r.next_due_at)}
+                            {tr("routines.nextDue")}
+                            {tr("common.labelSeparator")}
+                            {formatWhen(r.next_due_at)}
                             {r.consec_failures > 0
                               ? ` · ${tr("routines.failures", { n: r.consec_failures })}`
                               : ""}

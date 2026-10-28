@@ -1,5 +1,5 @@
 import type { Config } from "tailwindcss";
-import { FONT_SIZE } from "./src/design/type.ts";
+import { FONT_SIZE, LEADING } from "./src/design/type.ts";
 /**
  * Kin design tokens — the *scale* ladders, and the names that reach the colour
  * tokens in `src/design/theme.css`.
@@ -50,6 +50,9 @@ export default {
     // 32px over `hero`. The three relative steps are for running text, where
     // the line box has to follow the font size. Assigned, so
     // `leading-tight`/`normal`/`relaxed`/`snug`/`loose` stop resolving.
+    //
+    // The three relative values are `LEADING` in `src/design/type.ts` and the
+    // ladder emits them with each role, so this line and the roles cannot drift.
     lineHeight: {
       "3": "0.75rem",
       "4": "1rem",
@@ -57,9 +60,9 @@ export default {
       "6": "1.5rem",
       "7": "1.75rem",
       "8": "2rem",
-      prose: "1.625",
-      ui: "1.375",
-      flush: "1",
+      prose: LEADING.prose,
+      ui: LEADING.ui,
+      flush: LEADING.flush,
     },
     // Three levels and no more: a resting element on a surface (`e1`), a card
     // or overlay that has left it (`e2`), and a window or sheet above

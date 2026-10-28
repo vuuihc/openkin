@@ -17,6 +17,11 @@
  * `(px, weight, ink)`, and any two adjacent roles that differ only in size,
  * because 12px and 13px at the same weight and ink are the same step twice.
  *
+ * Leading is the exception, and it is injected: every role emits a line-height
+ * with its size (see `FONT_SIZE`), because a line box that is left to the
+ * browser is not a design decision. An element that is genuinely prose says
+ * `leading-prose` and overrides it.
+ *
  * `absorbed` records which sizes the role replaced, so the snap stays
  * reviewable after the arbitrary values are gone. An entry ending in `px` is a
  * literal size; anything else is a name from Tailwind's default scale, written
@@ -73,9 +78,30 @@ export const TYPE_ROLES: TypeRole[] = [
   { role: "display", px: 28, weight: 600, ink: "text", absorbed: [] },
 ];
 
-/** What `tailwind.config.ts` assigns to `theme.fontSize`. */
-export const FONT_SIZE: Record<string, string> = Object.fromEntries(
-  TYPE_ROLES.map((r) => [r.role, `${r.px}px`]),
+/** What `tailwind.config.ts` assigns to `theme.lineHeight`, less the 4px ruler. */
+export const LEADING = {
+  /** A row, a label, a control — text that sits in a line box of its own. */
+  ui: "1.375",
+  /** Running text: a paragraph follows its font size, not the ruler. */
+  prose: "1.625",
+  /** One line that must not grow: dock labels, badges. */
+  flush: "1",
+} as const;
+
+/**
+ * What `tailwind.config.ts` assigns to `theme.fontSize`.
+ *
+ * The leading is part of the role, not something each element adds: without it
+ * every role inherited Tailwind Preflight's `1.5`, so the ladder's three steps
+ * existed in the config and reached almost nothing — 24px page titles were set
+ * on 36px lines and 12px labels on 18px ones, and no role could be tuned
+ * without touching every call site. `ui` is the default because most text in
+ * this console is a row or a control; the places that are genuinely prose say
+ * `leading-prose` and win, because Tailwind emits line-height utilities after
+ * font-size utilities (pinned in `tailwind.test.ts`).
+ */
+export const FONT_SIZE: Record<string, [string, { lineHeight: string }]> = Object.fromEntries(
+  TYPE_ROLES.map((r) => [r.role, [`${r.px}px`, { lineHeight: LEADING.ui }]]),
 );
 
 /** Weight number → the Tailwind class the gallery must render it with. */

@@ -425,11 +425,13 @@ export default function ProjectDetailPage() {
               <>
                 <div className="flex flex-wrap gap-3 text-body text-kin-secondary">
                   <span>
-                    {tr("projects.sessionsInWindow")}:{" "}
+                    {tr("projects.sessionsInWindow")}
+                    {tr("common.labelSeparator")}
                     <strong className="text-kin-text tabular-nums">{pulse.session_window}</strong>
                   </span>
                   <span>
-                    {tr("projects.commitsInWindow")}:{" "}
+                    {tr("projects.commitsInWindow")}
+                    {tr("common.labelSeparator")}
                     <strong className="text-kin-text tabular-nums">
                       {pulse.git_available ? pulse.commit_window : "—"}
                     </strong>
@@ -447,7 +449,10 @@ export default function ProjectDetailPage() {
                 </div>
                 {pulse.top_paths && pulse.top_paths.length > 0 && (
                   <div className="text-body text-kin-secondary">
-                    <span className="text-kin-muted">{tr("projects.hotModules")}: </span>
+                    <span className="text-kin-muted">
+                      {tr("projects.hotModules")}
+                      {tr("common.labelSeparator")}
+                    </span>
                     {pulse.top_paths
                       .slice(0, 6)
                       .map((x: { path: string; count: number }) => `${x.path}(${x.count})`)

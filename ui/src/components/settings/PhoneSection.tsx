@@ -48,7 +48,7 @@ export function PhoneSection({
         description={tr("settings.phone.landHint")}
       >
         {inboxURL ? (
-          <div className="break-all font-mono text-body leading-5 text-kin-secondary">
+          <div className="[overflow-wrap:anywhere] font-mono text-body leading-5 text-kin-secondary">
             {inboxURL}
           </div>
         ) : (

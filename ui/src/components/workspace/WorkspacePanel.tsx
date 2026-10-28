@@ -490,7 +490,7 @@ export default function WorkspacePanel({
             disabled={actionsBusy || !hasChanges}
             onClick={() => void onDiscardAll()}
             title={tr("workspace.changed.discardAllHint")}
-            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
+            className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
           >
             {tr("workspace.changed.discardAll")}
           </button>

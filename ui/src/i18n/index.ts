@@ -14,8 +14,29 @@ const STORAGE_KEY = "kin_locale";
 /** Default product language until English release switch. */
 export const DEFAULT_LOCALE: Locale = "zh";
 
+/**
+ * The BCP 47 tag per locale, and the one thing the document must be told.
+ *
+ * `lang` is not decoration: it picks the font's CJK variant (a Simplified
+ * Chinese page rendered under `lang="en"` gets Japanese glyphs for characters
+ * like 直 and 骨), the line-breaking rules, and which voice a screen reader
+ * uses. The build's `index.html` carries the default so the first paint is
+ * right; this keeps it right after a locale change.
+ */
+const LANG_TAG: Record<Locale, string> = { zh: "zh-Hans", en: "en" };
+
+/** The tag `index.html` has to declare for the default locale; `locales.test.ts` pins it. */
+export const DEFAULT_LANG_TAG = LANG_TAG[DEFAULT_LOCALE];
+
+function applyDocumentLang(): void {
+  if (typeof document === "undefined") return;
+  document.documentElement.lang = LANG_TAG[currentLocale];
+}
+
 let currentLocale: Locale = readStoredLocale();
 const listeners = new Set<() => void>();
+
+applyDocumentLang();
 
 function readStoredLocale(): Locale {
   try {
@@ -34,6 +55,7 @@ export function getLocale(): Locale {
 export function setLocale(locale: Locale): void {
   if (locale === currentLocale) return;
   currentLocale = locale;
+  applyDocumentLang();
   try {
     localStorage.setItem(STORAGE_KEY, locale);
   } catch {

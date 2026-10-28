@@ -1000,11 +1000,11 @@ const en: MessageTree = {
       refreshAccounts: "Refresh accounts",
       deployWorker: "Deploy Relay Worker",
       updateWorker: "Update Worker",
-      deployingWorker: "Deploying...",
+      deployingWorker: "Deploying…",
       deployFirst:
         "Deploy the Worker first. Custom domain binding appears after the Worker URL is available.",
       bindDomain: "Bind custom domain",
-      bindingDomain: "Binding...",
+      bindingDomain: "Binding…",
       cloudflareLoginOpened: "Cloudflare authorization opened",
       cloudflareLoginTimedOut: "Cloudflare authorization was not completed",
       cloudflareDeployed: "Relay Worker deployed",
@@ -1464,6 +1464,10 @@ const en: MessageTree = {
     save: "Save",
     close: "Close",
     retry: "Retry",
+    // See the note in `zh.ts`: the space belongs to the English separator, and
+    // writing it at the call site would put Chinese text one ASCII colon away
+    // from correct.
+    labelSeparator: ": ",
   },
   design: {
     title: "Design system",

@@ -21,7 +21,18 @@ type Props = {
   display?: string;
   placeholder?: string;
   disabled?: boolean;
-  /** Extra classes for the trigger; its chip shape stays the same. */
+  /**
+   * Draws the chip's own hairline. Off inside a joined control (the composer's
+   * agent ▸ model chip) whose container already draws one — two borders 1px
+   * apart is the seam that reads as a rendering bug.
+   */
+  bordered?: boolean;
+  /**
+   * Extra classes for the trigger: the width cap and the ink, because a chip
+   * that stands alone in a row and one joined to a sibling in the composer's
+   * footer are not the same width and do not read at the same ink. The shape
+   * (border, radius, padding, type size) stays the primitive's.
+   */
   className?: string;
 };
 
@@ -43,6 +54,7 @@ export default function SheetSelect({
   display,
   placeholder,
   disabled,
+  bordered = true,
   className,
 }: Props) {
   const tr = useT();
@@ -70,15 +82,18 @@ export default function SheetSelect({
         type="button"
         disabled={disabled}
         onClick={() => setOpen(true)}
-        aria-label={`${label}: ${current}`}
+        aria-label={`${label}${tr("common.labelSeparator")}${current}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         title={current}
         className={[
-          "inline-flex flex-none items-center gap-1 max-w-[10rem] rounded-lg border border-[var(--kin-hairline-strong)] bg-transparent px-1.5 py-0.5 text-caption font-medium",
+          // `text-body`, not `text-caption`: this is a chosen value on a phone,
+          // and 12px read as metadata rather than as the thing that was picked.
+          "inline-flex flex-none items-center gap-1 rounded-lg bg-transparent px-1.5 py-0.5 text-body font-medium",
+          bordered ? "border border-[var(--kin-hairline-strong)]" : "",
           "focus:outline-none focus:ring-1 focus:ring-kin-focus-ring",
           disabled ? "opacity-70 cursor-default" : "cursor-pointer hover:text-kin-text",
-          className ?? "text-kin-secondary",
+          className ?? "text-kin-text",
         ].join(" ")}
       >
         <span className="truncate">{current}</span>

@@ -126,7 +126,7 @@ export default function ChangedFilesBar({
             type="button"
             disabled={actionsBusy}
             onClick={() => void handleDiscardAll()}
-            className="kin-btn-deny !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
+            className="kin-btn-deny md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
           >
             {t("workspace.changed.discardConfirm")}
           </button>
@@ -134,7 +134,7 @@ export default function ChangedFilesBar({
             type="button"
             disabled={actionsBusy}
             onClick={() => setConfirmDiscard(false)}
-            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
+            className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
           >
             {t("workspace.changed.discardCancel")}
           </button>
@@ -146,7 +146,7 @@ export default function ChangedFilesBar({
             disabled={actionsBusy}
             onClick={() => void handleDiscardAll()}
             title={t("workspace.changed.discardAllHint")}
-            className="kin-btn-secondary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
+            className="kin-btn-secondary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
           >
             <IconX size={12} className="opacity-80" />
             {t("workspace.changed.discardAll")}
@@ -156,7 +156,7 @@ export default function ChangedFilesBar({
             disabled={actionsBusy}
             onClick={() => void handleKeepAll()}
             title={t("workspace.changed.keepAllHint")}
-            className="kin-btn-primary !min-h-0 !py-1 !px-2.5 text-caption disabled:opacity-50"
+            className="kin-btn-primary md:min-h-0 md:py-1 md:px-2.5 text-caption disabled:opacity-50"
           >
             <IconCheck size={12} />
             {t("workspace.changed.keepAll")}

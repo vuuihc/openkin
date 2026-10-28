@@ -955,10 +955,10 @@ const zh = {
       refreshAccounts: "刷新账号",
       deployWorker: "部署 Relay Worker",
       updateWorker: "更新 Worker",
-      deployingWorker: "部署中...",
+      deployingWorker: "部署中…",
       deployFirst: "请先部署 Worker。Worker URL 可用后再绑定自定义域名。",
       bindDomain: "绑定自定义域名",
-      bindingDomain: "绑定中...",
+      bindingDomain: "绑定中…",
       cloudflareLoginOpened: "已打开 Cloudflare 授权页",
       cloudflareLoginTimedOut: "Cloudflare 授权未完成",
       cloudflareDeployed: "Relay Worker 已部署",
@@ -1404,6 +1404,12 @@ const zh = {
     save: "保存",
     close: "关闭",
     retry: "重试",
+    // What sits between a label and its value. A locale owns its punctuation:
+    // Chinese uses the fullwidth colon, which carries its own right-hand
+    // spacing, and English needs the space written out. Seven call sites used
+    // an ASCII colon in the JSX, which is the one place neither language is
+    // correct.
+    labelSeparator: "：",
   },
   design: {
     title: "设计系统",

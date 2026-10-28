@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { formatCost, formatElapsed, isTerminal, deleteTask, type Task } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { useTaskList } from "../api/useLiveResources";
-import { SlowConnectHint, TaskListSkeleton } from "../components/Skeleton";
+import { SlowConnectHint, TaskTableSkeleton } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
@@ -67,7 +67,7 @@ export default function TasksPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="hidden text-hero font-semibold tracking-tight md:block">
+            <h1 className="hidden text-hero font-bold tracking-tight md:block">
               {tr("tasks.title")}
             </h1>
             <p className="text-strong text-kin-muted mt-0.5">
@@ -106,7 +106,7 @@ export default function TasksPage() {
         {!resource.loaded && !error && (
           <div className="mt-6 space-y-3">
             <SlowConnectHint show={slow} />
-            <TaskListSkeleton />
+            <TaskTableSkeleton />
           </div>
         )}
 
@@ -157,15 +157,28 @@ export default function TasksPage() {
                     key={t.id}
                     className="border-b border-[var(--kin-hairline)] last:border-0 hover:bg-[var(--kin-fill)]"
                   >
-                    <td className="px-3 py-3 max-md:py-3.5">
+                    {/* The padding lives on the link, not the cell: a title is
+                        one line of text, and a text-height link is a 19px tap
+                        target inside a 48px row — the row is what a thumb aims
+                        at, so the link has to be the row's whole first cell.
+
+                        `anywhere` rather than `break-words`: a title that
+                        quotes an id or a path is one 26-character token, and
+                        `break-word` does not shrink the cell's intrinsic width,
+                        so the status column was pushed 23px off a 390 screen
+                        by `01KYE2WB…` alone. `anywhere` is the value that lets
+                        the table give way. */}
+                    <td className="p-0">
                       <Link
                         to={`/tasks/${t.id}`}
-                        className="font-medium max-md:text-subtitle text-kin-text hover:text-kin-blue-ink"
+                        className="block px-3 py-3 max-md:py-3.5 font-medium max-md:text-subtitle text-kin-text hover:text-kin-blue-ink [overflow-wrap:anywhere]"
                       >
                         {t.title || displayUserPrompt(t.prompt || "")}
                       </Link>
                     </td>
-                    <td className="px-3 py-3 text-kin-secondary hidden sm:table-cell">{t.agent}</td>
+                    <td className="px-3 py-3 text-kin-secondary whitespace-nowrap hidden sm:table-cell">
+                      {t.agent}
+                    </td>
                     <td className="px-3 py-3 max-md:w-[1%] max-md:whitespace-nowrap max-md:text-right">
                       <StatusChip status={t.status} />
                     </td>

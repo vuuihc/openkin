@@ -3,6 +3,7 @@ import type { AgentInfo } from "../../api/client";
 import { useT } from "../../i18n/react";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { isListedModel, modelPickerLabel, type AgentModelOption } from "../../lib/agentModels";
+import SheetSelect from "../ui/SheetSelect";
 
 type Props = {
   /** Available (installed + usable) agents to host the session. */
@@ -47,20 +48,39 @@ export default function AgentModelPicker({
     <div className={["flex items-center min-w-0 gap-1.5", className].filter(Boolean).join(" ")}>
       <div className="inline-flex items-center min-w-0 rounded-lg border border-[var(--kin-hairline-strong)] overflow-hidden">
         {agents.length > 1 ? (
-          <select
-            className="max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-focus-ring disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
-            value={agentValue}
-            disabled={disabled}
-            aria-label={tr("newChat.hostPicker")}
-            title={selected?.name}
-            onChange={(e) => onAgentChange(e.target.value)}
-          >
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          <>
+            {/* Two shapes of one control, split at `sm`: a native `<select>`
+                opens a system wheel that ignores the console's theme, and its
+                closed state is a grey box — fine under a mouse, wrong on the
+                phone the composer is most used from. The sheet pair below is
+                the same choice in the console's own surface, and it is the
+                primitive the model picker and the permission picker already
+                use. Both carry the same label; the hidden one leaves the
+                accessibility tree with `display:none`. */}
+            <select
+              className="hidden sm:block max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-focus-ring disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
+              value={agentValue}
+              disabled={disabled}
+              aria-label={tr("newChat.hostPicker")}
+              title={selected?.name}
+              onChange={(e) => onAgentChange(e.target.value)}
+            >
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <SheetSelect
+              className="sm:hidden max-w-[7.5rem] px-1.5 text-kin-secondary"
+              bordered={false}
+              label={tr("newChat.hostPicker")}
+              value={agentValue}
+              options={agents.map((a) => ({ id: a.id, label: a.name }))}
+              onChange={onAgentChange}
+              disabled={disabled}
+            />
+          </>
         ) : (
           <span
             className="max-w-[7.5rem] truncate px-1.5 py-0.5 text-caption font-medium text-kin-secondary"
@@ -79,7 +99,7 @@ export default function AgentModelPicker({
         )}
         <span className="w-px self-stretch bg-[var(--kin-hairline-strong)]" aria-hidden />
         <select
-          className="max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-focus-ring disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
+          className="hidden sm:block max-w-[7.5rem] truncate bg-transparent px-1.5 py-0.5 text-caption font-medium text-kin-secondary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-kin-focus-ring disabled:opacity-70 disabled:cursor-default cursor-pointer hover:text-kin-text"
           value={custom || currentIsCustom ? "__custom__" : currentModel}
           disabled={disabled}
           aria-label={tr("modelPicker.label")}
@@ -103,6 +123,31 @@ export default function AgentModelPicker({
           ))}
           <option value="__custom__">{tr("modelPicker.custom")}</option>
         </select>
+        <SheetSelect
+          className="sm:hidden max-w-[7.5rem] px-1.5 text-kin-secondary"
+          bordered={false}
+          label={tr("modelPicker.label")}
+          value={custom || currentIsCustom ? "__custom__" : currentModel}
+          display={custom || currentIsCustom ? tr("modelPicker.custom") : undefined}
+          options={[
+            { id: "", label: tr("modelPicker.default") },
+            ...models.map((m) => ({
+              id: m.id,
+              label: `${modelPickerLabel(m)}${m.tier ? ` · ${m.tier}` : ""}`,
+            })),
+            { id: "__custom__", label: tr("modelPicker.custom") },
+          ]}
+          disabled={disabled}
+          onChange={(id) => {
+            if (id === "__custom__") {
+              setCustom(true);
+              onModelChange("");
+            } else {
+              setCustom(false);
+              onModelChange(id);
+            }
+          }}
+        />
       </div>
       {(custom || currentIsCustom) && (
         <input

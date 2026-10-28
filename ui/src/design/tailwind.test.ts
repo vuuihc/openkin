@@ -2,7 +2,7 @@ import postcss from "postcss";
 import tailwindcss from "tailwindcss";
 import { describe, expect, it } from "vitest";
 import config from "../../tailwind.config.ts";
-import { TYPE_ROLES } from "./type";
+import { LEADING, TYPE_ROLES } from "./type";
 
 /**
  * The ladder, through the build pipeline rather than through a parser.
@@ -42,6 +42,33 @@ describe("type ladder through Tailwind", () => {
     const css = await utilities(removed.map((name) => `text-${name}`).join(" "));
     // Assignment, not `extend`: the defaults are gone, so these produce nothing.
     expect(css.replace(/\/\*[\s\S]*?\*\//g, "").trim()).toBe("");
+  });
+
+  it("emits a line box with every role", async () => {
+    // A role that only sets a size leaves the line box to Preflight, which is
+    // how the whole console ended up on 1.5 while the ladder declared three
+    // leading steps that reached almost nothing.
+    const css = await utilities(TYPE_ROLES.map((r) => `text-${r.role}`).join(" "));
+    for (const role of TYPE_ROLES) {
+      const rule = css.slice(css.indexOf(`.text-${role.role} {`));
+      expect({ role: role.role, leading: rule.slice(0, rule.indexOf("}")).includes(`line-height: ${LEADING.ui}`) })
+        .toEqual({ role: role.role, leading: true });
+    }
+  });
+
+  it("lets an explicit leading win over the role's", async () => {
+    // The prose sites are the exception that must keep working: the role's
+    // line-height and `leading-prose` are both one class deep, so only CSS
+    // order decides which wins. If Tailwind ever emits them the other way
+    // round, every paragraph in the console silently tightens.
+    const css = await utilities("text-body leading-prose leading-flush");
+    const body = css.indexOf(".text-body {");
+    expect(body).toBeGreaterThan(-1);
+    // Between themselves the leading steps are ordered by name, which never
+    // matters: an element carries one. What matters is that all of them come
+    // after the roles.
+    expect(css.indexOf(".leading-prose {")).toBeGreaterThan(body);
+    expect(css.indexOf(".leading-flush {")).toBeGreaterThan(body);
   });
 });
 

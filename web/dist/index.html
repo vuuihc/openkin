@@ -1,5 +1,11 @@
 <!doctype html>
-<html lang="en" class="dark">
+<!-- `zh-Hans`, not `en` and not `zh`: the product's default locale is Simplified
+     Chinese, and the tag is what picks the Simplified glyph shapes out of a CJK
+     font (under `lang="en"` a Chinese page gets Japanese forms for 直, 骨, 令),
+     the CJK line-breaking rules, and the screen reader's voice. `i18n/index.ts`
+     keeps it in step on a locale switch; this line is what makes the first
+     paint right before any script runs. -->
+<html lang="zh-Hans" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -21,8 +27,8 @@
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>Kin</title>
-    <script type="module" crossorigin src="/assets/index-DwmFiUxJ.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CmCUPp6z.css">
+    <script type="module" crossorigin src="/assets/index-BhbudWRv.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BJCauhO-.css">
   </head>
   <body class="bg-kin-bg text-kin-text antialiased">
     <div id="root"></div>

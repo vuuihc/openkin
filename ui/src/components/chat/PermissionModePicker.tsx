@@ -56,7 +56,11 @@ export default function PermissionModePicker({
         options={options.map((option) => ({ id: option, label: tr(labelKey[option]) }))}
         onChange={(id) => onChange(id as PermissionMode)}
         disabled={readOnly}
-        className={mode === "yolo" ? "text-kin-orange-ink" : "text-kin-secondary"}
+        className={
+          mode === "yolo"
+            ? "max-w-[10rem] text-kin-orange-ink"
+            : "max-w-[10rem] text-kin-secondary"
+        }
       />
     );
   }
