@@ -32,3 +32,45 @@ export function isListedModel(models: AgentModelOption[], modelId: string): bool
 export function normalizeModelSelection(value: string | null | undefined): string {
   return (value || "").trim();
 }
+
+/**
+ * Row id for the free-text "Custom" choice.
+ *
+ * It must not be `""`: that is the Default row's id, and a typed model id
+ * matches no row at all, so the two states need three distinct values. Both
+ * pickers share the sentinel so the two cannot drift.
+ */
+export const CUSTOM_MODEL_ID = "__custom__";
+
+/** Rows every model picker shows: Default, the agent's catalog, Custom. */
+export function modelPickerOptions(
+  models: AgentModelOption[],
+  copy: { default: string; custom: string },
+): { id: string; label: string; detail?: string }[] {
+  return [
+    { id: "", label: copy.default },
+    ...models.map((m) => ({
+      id: m.id,
+      label: modelPickerLabel(m),
+      ...(m.tier ? { detail: m.tier } : {}),
+    })),
+    { id: CUSTOM_MODEL_ID, label: copy.custom },
+  ];
+}
+
+/**
+ * The row a picker should mark as current.
+ *
+ * A typed id matches no row, and choosing Custom stores `""` — the Default
+ * row's id. Passing the raw value through would therefore mark Default while
+ * the chip says Custom; the sentinel keeps them apart.
+ */
+export function modelPickerSelection(current: string, custom: boolean): string {
+  return custom ? CUSTOM_MODEL_ID : current;
+}
+
+/** What choosing a row means: Custom opens the free-text field and clears the
+ *  stored id; any other row stores the id itself (Default stores ""). */
+export function modelPickTarget(id: string): { custom: boolean; value: string } {
+  return id === CUSTOM_MODEL_ID ? { custom: true, value: "" } : { custom: false, value: id };
+}

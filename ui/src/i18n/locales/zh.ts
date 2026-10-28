@@ -204,6 +204,9 @@ const zh = {
     default: "默认",
     defaultHint: "使用 Agent 或 Provider 默认模型",
     sessionHint: "对下一轮生效",
+    // 网关目录可达数十项，所以列表要能过滤，而不只是变长。
+    searchPlaceholder: "搜索模型",
+    searchEmpty: "没有匹配的模型",
     custom: "自定义模型…",
     customLabel: "自定义模型 ID",
     customPlaceholder: "模型 ID 或别名",
@@ -1404,6 +1407,7 @@ const zh = {
     save: "保存",
     close: "关闭",
     retry: "重试",
+    noResults: "没有匹配项",
     // What sits between a label and its value. A locale owns its punctuation:
     // Chinese uses the fullwidth colon, which carries its own right-hand
     // spacing, and English needs the space written out. Seven call sites used

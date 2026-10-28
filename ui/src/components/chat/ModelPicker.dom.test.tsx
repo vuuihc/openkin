@@ -3,17 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { setLocale } from "../../i18n";
+import { CUSTOM_MODEL_ID } from "../../lib/agentModels";
 import ModelPicker from "./ModelPicker";
 
 /**
- * The compact (phone) picker hands the sheet a *selected id*, and the sheet
- * marks whichever option carries it. A custom model id matches no option, and
- * picking "Custom" stores "" — which is the id of the Default row. Passing the
- * raw value to the sheet therefore marks the wrong row (or none) while the chip
- * says something else. The sheet itself is Ionic's, so it is stubbed here: what
- * this test pins is the contract with it, not the platform control.
+ * The picker hands the choice control a *selected id*, and the control marks
+ * whichever option carries it. A custom model id matches no option, and picking
+ * "Custom" stores "" — which is the id of the Default row. Passing the raw
+ * value to the control therefore marks the wrong row (or none) while the chip
+ * says something else. The control itself is stubbed here: what this test pins
+ * is the contract with it, not the popover/sheet rendering.
  */
-vi.mock("../ui/SheetSelect", () => ({
+vi.mock("../ui/SearchSelect", () => ({
   default: (props: {
     label: string;
     value: string;
@@ -26,6 +27,9 @@ vi.mock("../ui/SheetSelect", () => ({
         data-testid="trigger"
         data-value={props.value}
         data-display={props.display ?? ""}
+        // The literal, because a `vi.mock` factory is hoisted above imports;
+        // the assertions below use `CUSTOM_MODEL_ID` so a rename shows up as a
+        // failing assertion rather than a silently inert stub.
         onClick={() => props.onChange("__custom__")}
       >
         {props.label}
@@ -51,7 +55,7 @@ beforeEach(() => {
 describe("ModelPicker compact sheet selection", () => {
   it("marks the custom row for a model the catalog does not list", () => {
     const { trigger } = setup("my-model");
-    expect(trigger.dataset.value).toBe("__custom__");
+    expect(trigger.dataset.value).toBe(CUSTOM_MODEL_ID);
     // The chip still names the model itself, not the menu entry.
     expect(trigger.dataset.display).toBe("my-model");
   });
@@ -67,7 +71,7 @@ describe("ModelPicker compact sheet selection", () => {
     await userEvent.click(trigger);
     // Choosing Custom clears the selection so the user can type an id.
     expect(onChange).toHaveBeenCalledWith("");
-    expect(trigger.dataset.value).toBe("__custom__");
+    expect(trigger.dataset.value).toBe(CUSTOM_MODEL_ID);
     expect(trigger.dataset.display).toBe("Custom model…");
   });
 

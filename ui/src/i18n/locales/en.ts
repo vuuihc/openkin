@@ -217,6 +217,8 @@ const en: MessageTree = {
     default: "Default",
     defaultHint: "Use the agent or provider default model",
     sessionHint: "Applies to the next turn",
+    searchPlaceholder: "Search models",
+    searchEmpty: "No matching models",
     custom: "Custom model…",
     customLabel: "Custom model ID",
     customPlaceholder: "Model ID or alias",
@@ -1464,6 +1466,7 @@ const en: MessageTree = {
     save: "Save",
     close: "Close",
     retry: "Retry",
+    noResults: "No matches",
     // See the note in `zh.ts`: the space belongs to the English separator, and
     // writing it at the call site would put Chinese text one ASCII colon away
     // from correct.
