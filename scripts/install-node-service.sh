@@ -11,12 +11,20 @@
 #   ./scripts/install-node-service.sh --hub https://kin.example.com --token <device-token>
 #   ./scripts/install-node-service.sh --hub ... --token - < ~/.kin/node-token
 #   ./scripts/install-node-service.sh --hub ... --root ~/Workspace --root ~/src
+#   ./scripts/install-node-service.sh --allow-yolo --lan
 #   ./scripts/install-node-service.sh --status
 #   ./scripts/install-node-service.sh --uninstall
 #
-# Re-running with no flags at all is how an installed copy is refreshed: the Hub
-# and the roots are read back out of the plist already in place. Roots must be
-# absolute. KIN_STATE_DIR is honoured, and is passed on to the job.
+# Re-running with no flags at all is how an installed copy is refreshed: the Hub,
+# the roots and the two accept flags (--lan, --allow-yolo) are read back out of
+# the plist already in place. Roots must be absolute. KIN_STATE_DIR is honoured,
+# and is passed on to the job.
+#
+# --allow-yolo is not cosmetic: a turn the Hub dispatches here may not bypass the
+# agent's permission system unless the node was started with it, so without it
+# the console is not offered YOLO for this machine at all. It is off unless
+# asked for, because it is the one flag that removes the machine's last gate;
+# --no-allow-yolo turns it back off (likewise --no-lan).
 #
 # The device token goes to <state-dir>/node-token (0600) — the same file the
 # daemon already reads by default — so nothing secret lands in the plist and a
@@ -45,6 +53,11 @@ LABEL_OVERRIDE=""
 # that took its token from there must be handed the same value by launchd.
 STATE_DIR_OVERRIDE="${KIN_STATE_DIR:-}"
 ROOTS=()
+# Empty means "whatever the plist already says": an install is usually a
+# refresh, and a refresh that quietly changed what this machine accepts would
+# stop the phone offering the modes it offered yesterday.
+LAN=""
+ALLOW_YOLO=""
 MODE="install"
 
 die() {
@@ -74,9 +87,13 @@ while [[ $# -gt 0 ]]; do
     --root) need_value "$@"; [[ "$2" == /* ]] || die "--root must be an absolute path (got $2)"; ROOTS+=("$2"); shift 2 ;;
     --state-dir) need_value "$@"; STATE_DIR_OVERRIDE="$2"; shift 2 ;;
     --label) need_value "$@"; LABEL_OVERRIDE="$2"; shift 2 ;;
+    --lan) LAN=1; shift ;;
+    --no-lan) LAN=0; shift ;;
+    --allow-yolo) ALLOW_YOLO=1; shift ;;
+    --no-allow-yolo) ALLOW_YOLO=0; shift ;;
     --status) MODE="status"; shift ;;
     --uninstall) MODE="uninstall"; shift ;;
-    -h|--help) sed -n '2,29p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
@@ -144,9 +161,16 @@ xml_unescape() {
 # installed for.
 PLIST_HUB=""
 PLIST_ROOTS=()
+PLIST_LAN=""
+PLIST_ALLOW_YOLO=""
 if [[ -f "$PLIST" ]]; then
   prev=""
   while IFS= read -r arg; do
+    # Booleans carry no value, so they are recognised by the argument itself.
+    case "$arg" in
+      --lan) PLIST_LAN=1 ;;
+      --allow-yolo) PLIST_ALLOW_YOLO=1 ;;
+    esac
     case "$prev" in
       --hub) [[ -n "$PLIST_HUB" ]] || PLIST_HUB="$(xml_unescape "$arg")" ;;
       --root) PLIST_ROOTS+=("$(xml_unescape "$arg")") ;;
@@ -170,6 +194,25 @@ fi
 if [[ ${#ROOTS[@]} -eq 0 && ${#PLIST_ROOTS[@]} -gt 0 ]]; then
   ROOTS=("${PLIST_ROOTS[@]}")
   echo "==> reusing the roots from $PLIST: ${ROOTS[*]}"
+fi
+
+# What this machine accepts from its Hub is part of the installation, not of
+# the invocation: left off the command line, it keeps what it already had. This
+# is the difference between refreshing a node and silently narrowing it — a
+# refresh that dropped --allow-yolo would take YOLO away from the phone, and one
+# that dropped --lan would take the machine off the local network, with no flag
+# in sight to explain either.
+if [[ -z "$LAN" ]]; then
+  LAN="${PLIST_LAN:-0}"
+  if [[ "$LAN" == "1" ]]; then
+    echo "==> reusing --lan from $PLIST"
+  fi
+fi
+if [[ -z "$ALLOW_YOLO" ]]; then
+  ALLOW_YOLO="${PLIST_ALLOW_YOLO:-0}"
+  if [[ "$ALLOW_YOLO" == "1" ]]; then
+    echo "==> reusing --allow-yolo from $PLIST"
+  fi
 fi
 
 if [[ -z "$TOKEN" ]]; then
@@ -240,6 +283,15 @@ for r in "${ROOTS[@]}"; do
     <string>--root</string>
     <string>$(xml_escape "$r")</string>"
 done
+# Last, so the plist reads as where-then-what-it-accepts.
+if [[ "$LAN" == "1" ]]; then
+  args_xml="$args_xml
+    <string>--lan</string>"
+fi
+if [[ "$ALLOW_YOLO" == "1" ]]; then
+  args_xml="$args_xml
+    <string>--allow-yolo</string>"
+fi
 
 env_xml="    <key>PATH</key>
     <string>$(xml_escape "$(login_path)")</string>"
@@ -287,11 +339,14 @@ plutil -lint "$PLIST" >/dev/null || die "generated plist is not valid"
 
 echo "==> loading $LABEL"
 launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
-# A bootout is asynchronous: bootstrapping the same label immediately after it
-# fails with "Bootstrap failed: 5: Input/output error" often enough to matter.
+# A bootout is asynchronous, and the job being torn down still holds the label:
+# bootstrapping the same label too early fails with "Bootstrap failed: 5:
+# Input/output error" — a message that says nothing about the race. Ten seconds
+# is the difference between a refresh that works on a busy machine and one that
+# reports a plist problem that does not exist.
 loaded=0
 bootstrap_error=""
-for _ in 1 2 3 4 5; do
+for _ in 1 2 3 4 5 6 7 8 9 10; do
   if bootstrap_error="$(launchctl bootstrap "gui/$uid" "$PLIST" 2>&1)"; then
     loaded=1
     break
@@ -305,7 +360,12 @@ launchctl kickstart -k "gui/$uid/$LABEL"
 
 sleep 3
 if launchctl print "gui/$uid/$LABEL" >/dev/null 2>&1; then
+  accepts="dispatched turns may edit files only where an approval says so"
+  if [[ "$ALLOW_YOLO" == "1" ]]; then
+    accepts="dispatched turns may run with approvals bypassed (--allow-yolo)"
+  fi
   echo "==> node service loaded (hub $HUB)"
+  echo "    accepts: $accepts"
   echo "    log:     $LOG_FILE"
   echo "    status:  $0 --status"
   echo "    remove:  $0 --uninstall"

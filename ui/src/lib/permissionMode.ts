@@ -48,19 +48,27 @@ export function setDraftPermissionMode(mode: PermissionMode): void {
 /**
  * The modes a chosen run can actually use.
  *
- * Only a remote machine can refuse one: its node runs dispatched turns, and it
- * refuses a mode whose adapter bypasses approvals unless it was started with
- * `--allow-yolo`. The node now says which modes those are. A node too old to
- * say — or an agent the console cannot identify on it — is offered the graded
- * modes and not yolo: the same conservative answer the executor would give,
- * moved to where the choice is made instead of surfacing as a failed session.
+ * The agent's own ladder is the first answer, wherever it runs: the daemon
+ * reports what each agent on this machine can do (`agentPermissionModes`), and
+ * a remote node reports what it will accept. Offering all three regardless is
+ * how an agent with a single on/off flag showed both "auto-edit" and "YOLO"
+ * for the same behaviour.
+ *
+ * A remote machine also refuses a mode that bypasses approvals unless it was
+ * started with `--allow-yolo`, and it says so by leaving the mode out. A node
+ * too old to say — or an agent the console cannot identify on it — is offered
+ * the graded modes and not yolo: the same conservative answer the executor
+ * would give, moved to where the choice is made instead of surfacing as a
+ * failed session.
  */
 export function permissionModesForAgent(
   agent: { permission_modes?: string[]; permissionModes?: string[] } | undefined,
   isSelf: boolean,
 ): PermissionMode[] {
-  if (isSelf) return PERMISSION_MODES;
   const advertised = agent?.permission_modes ?? agent?.permissionModes;
-  if (!advertised) return PERMISSION_MODES.filter((mode) => mode !== "yolo");
-  return PERMISSION_MODES.filter((mode) => advertised.includes(mode));
+  if (!advertised) return isSelf ? PERMISSION_MODES : PERMISSION_MODES.filter((m) => m !== "yolo");
+  const offered = PERMISSION_MODES.filter((mode) => advertised.includes(mode));
+  // An empty or unrecognised list can only come from something this console
+  // does not know how to name. Asking is the one rung every adapter has.
+  return offered.length > 0 ? offered : ["default"];
 }

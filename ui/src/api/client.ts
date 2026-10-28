@@ -406,11 +406,16 @@ export type AgentInfo = {
   models?: AgentModelOption[];
   model_list_source: "configured" | "discovered" | "recommended" | "none";
   model_list_status: "available" | "default_only" | "unavailable";
+  /**
+   * The permission ladder this agent actually has, which is not the same for
+   * every agent. Absent when the source could not say — an older daemon, or a
+   * remote node that predates the field — and the picker then falls back to
+   * the graded default.
+   */
+  permission_modes?: string[];
   /** Product family and transport, when the source knows them. */
   family?: string;
   transport?: "native" | "acp" | "cli";
-  /** Modes a remote machine will run; absent for this machine. */
-  permission_modes?: string[];
 };
 
 export function listAgents(): Promise<AgentInfo[]> {

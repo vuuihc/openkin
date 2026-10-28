@@ -52,8 +52,24 @@ describe("collapseAgentVariants", () => {
 });
 
 describe("permissionModesForAgent", () => {
-  it("offers every mode on this machine, which does not gate dispatched turns", () => {
+  it("offers every mode when the source cannot say, on this machine", () => {
     expect(permissionModesForAgent(undefined, true)).toEqual(PERMISSION_MODES);
+    expect(permissionModesForAgent({}, true)).toEqual(PERMISSION_MODES);
+  });
+
+  it("offers the ladder the agent itself reports, on this machine too", () => {
+    // The bug this closes: an agent with a single on/off flag was shown both
+    // "auto-edit" and "YOLO" for the same behaviour, and an agent that never
+    // asks was shown a choice at all.
+    expect(permissionModesForAgent({ permission_modes: ["default"] }, true)).toEqual(["default"]);
+    expect(permissionModesForAgent({ permission_modes: ["default", "yolo"] }, true)).toEqual([
+      "default",
+      "yolo",
+    ]);
+    expect(permissionModesForAgent({ permissionModes: ["default", "accept_edits"] }, true)).toEqual([
+      "default",
+      "accept_edits",
+    ]);
   });
 
   it("offers only what a remote node says it will run", () => {
@@ -69,5 +85,10 @@ describe("permissionModesForAgent", () => {
     // failed instead of the choice never being offered.
     expect(permissionModesForAgent({}, false)).toEqual(["default", "accept_edits"]);
     expect(permissionModesForAgent(undefined, false)).toEqual(["default", "accept_edits"]);
+  });
+
+  it("keeps a rung when the advertised names are all unknown", () => {
+    expect(permissionModesForAgent({ permission_modes: ["plan"] }, true)).toEqual(["default"]);
+    expect(permissionModesForAgent({ permission_modes: [] }, false)).toEqual(["default"]);
   });
 });

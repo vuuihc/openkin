@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -204,6 +205,39 @@ func TestBuildNodeHelloReportsThisMachine(t *testing.T) {
 	}
 }
 
+// TestNodeHelloClampsALargeModelCatalog pins the contract the Hub enforces:
+// a hello carrying more models than the protocol allows is refused whole, and
+// the node only logs that refusal and retries — so a gateway with a big catalog
+// would make the machine invisible on every phone, with nothing on screen to
+// explain it. The catalog keeps its head, which is the CLI's own order.
+func TestNodeHelloClampsALargeModelCatalog(t *testing.T) {
+	options := make([]agent.ModelOption, worker.MaxModels+6)
+	for i := range options {
+		options[i] = agent.ModelOption{ID: fmt.Sprintf("gw/model-%02d", i)}
+	}
+	reg := agent.MustRegistry(agent.Entry{
+		ID: "claude-code", Name: "Claude Code", Priority: 20,
+		Caps:   []agent.Capability{agent.CapabilityRun},
+		Runner: stubRunner{},
+		Status: func(context.Context) agent.Status {
+			return agent.Status{Installed: true, Available: true}
+		},
+		Models: func(context.Context) agent.ModelList {
+			return agent.ModelList{Models: options, Source: "settings"}
+		},
+	})
+	hello := buildNodeHello(context.Background(), "9.9.9", nil, reg, false)
+	if err := hello.Validate(); err != nil {
+		t.Fatalf("a large catalog makes the hello invalid: %v", err)
+	}
+	if got := len(hello.Agents[0].Models); got != worker.MaxModels {
+		t.Fatalf("models = %d, want %d", got, worker.MaxModels)
+	}
+	if hello.Agents[0].Models[0] != options[0].ID {
+		t.Fatalf("clamping dropped the head of the catalog: %q", hello.Agents[0].Models[0])
+	}
+}
+
 // TestNodeAdvertisesOnlyModesItWillRun pins the answer the console chooses from:
 // a node without --allow-yolo has no agent it can run unattended, and saying so
 // up front is what stops a dispatch from being refused after the fact.
@@ -242,8 +276,53 @@ func TestNodeAdvertisesOnlyModesItWillRun(t *testing.T) {
 	}
 
 	with := nodeAgents(reg, true)
-	if !with[1].Available || len(with[1].PermissionModes) != 3 {
-		t.Fatalf("--allow-yolo did not open the bypassed modes: %+v", with[1])
+	// One rung, not three: this agent has no approval channel, so every mode is
+	// the same unattended run. --allow-yolo decides whether the machine will take
+	// that run at all, not how many names the console puts on it.
+	if !with[1].Available {
+		t.Fatalf("--allow-yolo did not open the bypassed mode: %+v", with[1])
+	}
+	if got := strings.Join(with[1].PermissionModes, ","); got != "default" {
+		t.Fatalf("permission modes = %q, want %q — an agent that never asks has no ladder", got, "default")
+	}
+}
+
+// TestAgentPermissionLadderIsTheAgentsOwn pins the choice the console puts in
+// front of a person: three rungs for an agent that keeps asking, two for one
+// whose accept-edits already bypasses approval (offering the graded middle would
+// name the same behaviour twice), and one for an agent that never asks at all.
+//
+// The last case is the reason this is not a constant: an agent with a single
+// on/off switch used to be shown a permission ladder it did not have.
+func TestAgentPermissionLadderIsTheAgentsOwn(t *testing.T) {
+	reg := agent.MustRegistry(
+		agent.Entry{
+			ID: "claude-code", Name: "Claude Code", Priority: 20,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: stubRunner{},
+		},
+		agent.Entry{
+			ID: "grok", Name: "Grok", Priority: 30,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: bypassingRunner{},
+		},
+		agent.Entry{
+			ID: "pi-acp", Name: "Pi (ACP)", Priority: 40,
+			Caps:   []agent.Capability{agent.CapabilityRun},
+			Runner: unattendedRunner{},
+		},
+	)
+	for _, tc := range []struct{ id, want string }{
+		{"claude-code", "default,accept_edits,yolo"},
+		{"grok", "default,yolo"},
+		{"pi-acp", "default"},
+	} {
+		if got := strings.Join(agentPermissionModes(reg, tc.id), ","); got != tc.want {
+			t.Errorf("agentPermissionModes(%s) = %q, want %q", tc.id, got, tc.want)
+		}
+	}
+	if got := agentPermissionModes(reg, "not-registered"); got != nil {
+		t.Errorf("an unregistered agent advertised modes: %v", got)
 	}
 }
 

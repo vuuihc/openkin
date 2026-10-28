@@ -991,7 +991,16 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   // offering the bypassed mode for a machine that never advertised it is how a
   // follow-up gets refused.
   const taskRunsHere = !task.executing_device_id || taskMachine?.isSelf === true;
-  const taskPermissionModes = permissionModesForAgent(taskMachineAgent, taskRunsHere);
+  // Here the answer comes from this daemon's registry, because a local session
+  // is not a dispatched turn: the --allow-yolo filter does not apply to it, but
+  // the agent's own ladder does. The exact agent, not the collapsed family
+  // representative — `droid` and `droid-acp` are one row in the picker and two
+  // different ladders here, and offering the missing rung fails the turn.
+  const taskLocalAgent = taskRunsHere ? agents.find((a) => a.id === task.agent) : undefined;
+  const taskPermissionModes = permissionModesForAgent(
+    taskMachineAgent ?? taskLocalAgent,
+    taskRunsHere,
+  );
   // A mode carried over from another session must not be sent to a machine that
   // will refuse it. Showing and sending the clamped mode keeps the control and
   // the request in agreement.

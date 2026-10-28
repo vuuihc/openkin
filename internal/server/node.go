@@ -158,6 +158,17 @@ func nodeAgents(reg *agent.Registry, allowYOLO bool) []worker.Agent {
 				models = append(models, model.ID)
 			}
 		}
+		// The Hub's hello validator rejects an agent carrying more models than
+		// this, and a refused hello means the machine never appears at all —
+		// silently, because the node only logs the refusal and retries. A large
+		// gateway catalog is exactly the case this build is for, so the cap
+		// belongs here rather than in the Hub. Clamping is version-safe;
+		// raising the protocol bound would only move the refusal to an older
+		// Hub. The catalog is in the CLI's own order, so the head is what a
+		// person sees first.
+		if len(models) > worker.MaxModels {
+			models = models[:worker.MaxModels]
+		}
 		entry := worker.Agent{
 			ID:              info.ID,
 			Name:            info.Name,
@@ -182,6 +193,38 @@ func nodeAgents(reg *agent.Registry, allowYOLO bool) []worker.Agent {
 	return out
 }
 
+// agentPermissionModes is the ladder an agent actually has.
+//
+// The console used to offer all three modes for every agent, which made two
+// different lies possible: an agent with one on/off flag was shown a graded
+// "auto-edit" choice that does exactly what yolo does, and an agent that never
+// asks was shown a choice at all. The question is asked of the adapter —
+// `AutoApprovesAll` is the one place that knows what a mode *does* rather than
+// what it is called:
+//
+//   - never asks, whatever the mode: one entry, and no choice to make;
+//   - accept-edits already bypasses approval: no graded rung between asking and
+//     not asking, so the ladder is ask / bypass;
+//   - otherwise: ask / auto-edit / bypass.
+//
+// The node then removes the modes it would refuse to run (see
+// nodePermissionModes), and the Hub offers that filtered list per machine.
+func agentPermissionModes(reg *agent.Registry, id string) []string {
+	registration, ok := reg.Get(id)
+	if !ok {
+		return nil
+	}
+	if adapter.AutoApprovesAll(registration.Runner, adapter.PermissionDefault) {
+		// No approval channel at all: every mode is the same run.
+		return []string{adapter.PermissionDefault}
+	}
+	out := []string{adapter.PermissionDefault}
+	if !adapter.AutoApprovesAll(registration.Runner, adapter.PermissionAcceptEdits) {
+		out = append(out, adapter.PermissionAcceptEdits)
+	}
+	return append(out, adapter.PermissionYOLO)
+}
+
 // nodePermissionModes mirrors the executor's refusal rule exactly: a mode is
 // offered only when it does not bypass approvals, or when this machine was
 // explicitly allowed to bypass them.
@@ -190,12 +233,9 @@ func nodePermissionModes(reg *agent.Registry, id string, allowYOLO bool) []strin
 	if !ok {
 		return nil
 	}
-	out := make([]string, 0, 3)
-	for _, mode := range []string{
-		adapter.PermissionDefault,
-		adapter.PermissionAcceptEdits,
-		adapter.PermissionYOLO,
-	} {
+	modes := agentPermissionModes(reg, id)
+	out := make([]string, 0, len(modes))
+	for _, mode := range modes {
 		if adapter.AutoApprovesAll(registration.Runner, mode) && !allowYOLO {
 			continue
 		}

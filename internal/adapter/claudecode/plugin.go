@@ -106,7 +106,7 @@ func (f *PluginFactory) Open(ctx context.Context) (agent.Registration, error) {
 		},
 		Models: func(context.Context) agent.ModelList {
 			return agent.ModelList{
-				Models: claudeModelList(claudeEnvLookup()),
+				Models: claudeModels(readClaudeSettings()),
 				Source: "recommended",
 				Status: "available",
 			}

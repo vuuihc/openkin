@@ -61,7 +61,7 @@ func TestClaudeSettingsEnvReadsBothFilesWithLocalWinning(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := claudeSettingsEnv()
+	env := readClaudeSettings().Env
 	if env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "local/haiku" {
 		t.Fatalf("haiku = %q, want the local override", env["ANTHROPIC_DEFAULT_HAIKU_MODEL"])
 	}
@@ -81,13 +81,13 @@ func TestClaudeSettingsEnvIgnoresUnreadableSettings(t *testing.T) {
 	}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := claudeSettingsEnv()
+	env := readClaudeSettings().Env
 	if env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "ok/opus" {
 		t.Fatalf("env = %+v", env)
 	}
 }
 
-func TestClaudeEnvLookupPrefersTheInheritedValue(t *testing.T) {
+func TestClaudeLookupPrefersTheInheritedValue(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{
@@ -96,7 +96,7 @@ func TestClaudeEnvLookupPrefersTheInheritedValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "process/haiku")
-	lookup := claudeEnvLookup()
+	lookup := claudeLookup(readClaudeSettings().Env)
 	if got := lookup("ANTHROPIC_DEFAULT_HAIKU_MODEL"); got != "process/haiku" {
 		t.Fatalf("lookup = %q, want the inherited value", got)
 	}
@@ -105,5 +105,124 @@ func TestClaudeEnvLookupPrefersTheInheritedValue(t *testing.T) {
 	os.Unsetenv("ANTHROPIC_DEFAULT_HAIKU_MODEL")
 	if got := lookup("ANTHROPIC_DEFAULT_HAIKU_MODEL"); got != "settings/haiku" {
 		t.Fatalf("lookup without process value = %q", got)
+	}
+}
+
+// clearClaudeAliasEnv keeps the developer's own gateway out of the test: the
+// lookup prefers the inherited process environment, and a machine running
+// these tests usually has the aliases exported.
+func clearClaudeAliasEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"ANTHROPIC_DEFAULT_OPUS_MODEL",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL",
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
+func writeClaudeSettings(t *testing.T, name, body string) {
+	t.Helper()
+	clearClaudeAliasEnv(t)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The picker is the CLI's own visible list, and its labels are the gateway's.
+// Reading only the three aliases reported one model on a machine that offers
+// dozens, because the aliases all resolved to the same id.
+func TestClaudeModelsReadsTheCLIsOwnPicker(t *testing.T) {
+	writeClaudeSettings(t, "settings.json", `{
+		"model": "gw/big",
+		"modelPicker": {"options": [
+			{"model": "gw/big", "label": "Big · gw"},
+			{"model": "gw/small", "label": "Small · gw"}
+		]},
+		"env": {
+			"ANTHROPIC_DEFAULT_OPUS_MODEL": "gw/big",
+			"ANTHROPIC_DEFAULT_SONNET_MODEL": "gw/big",
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gw/big"
+		}
+	}`)
+	models := claudeModels(readClaudeSettings())
+	want := []struct{ id, label string }{
+		{"gw/big", "Big · gw"},
+		{"gw/small", "Small · gw"},
+	}
+	if len(models) != len(want) {
+		t.Fatalf("models = %+v", models)
+	}
+	for i, w := range want {
+		if models[i].ID != w.id || models[i].Label != w.label {
+			t.Fatalf("models[%d] = %+v, want %s/%s", i, models[i], w.id, w.label)
+		}
+	}
+}
+
+func TestClaudeModelsKeepsAnUnlistedDefaultAndAliasTargets(t *testing.T) {
+	writeClaudeSettings(t, "settings.json", `{
+		"model": "gw/default-only",
+		"modelPicker": {"options": [{"model": "gw/picked", "label": "Picked"}]},
+		"env": {"ANTHROPIC_DEFAULT_OPUS_MODEL": "gw/alias-only"}
+	}`)
+	models := claudeModels(readClaudeSettings())
+	got := make([]string, len(models))
+	for i, m := range models {
+		got[i] = m.ID
+	}
+	want := []string{"gw/picked", "gw/alias-only", "gw/default-only"}
+	if len(got) != len(want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ids = %v, want %v", got, want)
+		}
+	}
+}
+
+// Pinning a default is not a picker. A plain install whose settings.json says
+// `"model": "sonnet"` still accepts the other two aliases, but the ladder used
+// to be the fallback for an empty list — so one pinned row replaced the whole
+// catalog on exactly the machines that had configured something.
+func TestClaudeModelsKeepsTheAliasLadderWhenOnlyADefaultIsPinned(t *testing.T) {
+	writeClaudeSettings(t, "settings.json", `{"model": "sonnet"}`)
+	models := claudeModels(readClaudeSettings())
+	got := make([]string, len(models))
+	for i, m := range models {
+		got[i] = m.ID
+	}
+	want := []string{"opus", "sonnet", "haiku"}
+	if len(got) != len(want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ids = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestClaudeModelsPrefersTheLocalPicker(t *testing.T) {
+	clearClaudeAliasEnv(t)
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{
+		"modelPicker": {"options": [{"model": "base/one", "label": "Base"}]}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.local.json"), []byte(`{
+		"modelPicker": {"options": [{"model": "local/one", "label": "Local"}]}
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	models := claudeModels(readClaudeSettings())
+	if len(models) != 1 || models[0].ID != "local/one" || models[0].Label != "Local" {
+		t.Fatalf("models = %+v, want the local picker alone", models)
 	}
 }

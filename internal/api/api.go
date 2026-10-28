@@ -58,6 +58,10 @@ type AgentInfo struct {
 	Models          []AgentModelOption `json:"models,omitempty"`
 	ModelListSource string             `json:"model_list_source"`
 	ModelListStatus string             `json:"model_list_status"`
+	// PermissionModes is the ladder this agent actually has on this machine —
+	// see `agentPermissionModes`. Absent means the endpoint could not say, and
+	// the console falls back to offering every mode.
+	PermissionModes []string `json:"permission_modes,omitempty"`
 }
 
 // AgentModelOption is one selectable model for an agent.

@@ -688,6 +688,7 @@ func ServeWith(version string, flags ServeFlags) error {
 					Models:          models,
 					ModelListSource: i.ModelSource,
 					ModelListStatus: i.ModelStatus,
+					PermissionModes: agentPermissionModes(reg, i.ID),
 				})
 				seen[i.ID] = true
 			}
