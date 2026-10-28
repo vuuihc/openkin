@@ -162,3 +162,34 @@ Lody 看起来"像一个 App"，不是因为某个组件好看，而是因为五
    每次都报 "dispatch incomplete"，用户没有任何办法清掉。抽出
    `dispatchBlocksSend()`：远程发送与分发无关，永不拦截；同一条选择在本地仍然拦。
    新增 4 个用例，并红验（删掉 `if (remote) return false` 后用例转红）。
+
+### 第二轮评审（同模型子代理，完成）
+
+重试后拿到完整报告：无 blocker，3 个 major，全部位于新 shell 的 inset 管线和
+Escape 分层，已逐条修复：
+
+1. **会话详情页在加载/报错态没有顶部 inset**。`pageOwnsTopInset` 对整个
+   `/tasks/:id` 生效，但只有加载完成的分支画 `MobileHeader`；骨架屏、错误、找不到
+   三个分支既没有 header 也没有 `pt-safe`。同时重连横幅位于 `<main>` 之上，而
+   `wsStatus` 初值是 `disconnected`，冷启动时横幅贴在状态栏下面，随后 header 又
+   叠加一次 inset。修法：三个分支各自承担 inset（骨架条用 `min-h-11` + `pt-safe`，
+   不能用 `h-11`，否则 59px inset 会把内容压没），横幅在 `pageOwnsTopInset` 时
+   自己加 `pt-safe`。
+2. **底部安全区被算了两次**。根节点 `.safe-pad` 已经包含
+   `env(safe-area-inset-bottom)`，`<main>` 又加了 `4.25rem + env(...)`。刘海机上
+   内容底边比胶囊顶部高 46px，会话页最后一行被顶到 FAB 下面。`<main>` 只需要预留
+   胶囊在根内边距之上的高度：`.kin-dock-pad` =
+   `3.5rem + max(0px, 0.75rem - env(safe-area-inset-bottom))`，并在 zen 下归零
+   （zen 隐藏胶囊但原来仍留着那段空白）。
+3. **Escape 分层仍不完整**。只按 `event.target.closest('[role="dialog"]')` 判断，
+   漏掉两种真实情况：BranchPicker 是 `role="listbox"`，而 DispatchSelector 打开时
+   不移动焦点，目标仍是触发器。改成同时看“事件来自哪个弹层”和“面板里是否开着
+   弹层”，实测（焦点不动、从触发器按 Escape）第一次只关弹层，第二次才关 sheet；
+   注入一个 `role="listbox"` 同样能保住 sheet。
+
+另修了一个死类名：`kin-drawer-enter` 一直被引用但从未定义，抽屉没有进场动画；
+补上 180ms 的左侧滑入并纳入 `prefers-reduced-motion`。
+
+未改的两处 nit（有意保留，记录在此）：`/sessions` 在桌面宽度下仍是 672px 居中
+列表（该路由只从命令面板进入，等同于一个阅读列）；Agent 设置行的导入按钮在桌面
+下位置前移了一些。

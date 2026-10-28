@@ -226,6 +226,26 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* Bottom reservation for the floating dock, on the element that scrolls.
+   It is the pill's height *above the root's padded edge*, not the pill's full
+   height plus the inset: `.safe-pad` on the root already spends
+   `env(safe-area-inset-bottom)`, and the dock's own `pb-[max(0.75rem,inset)]`
+   puts its bottom edge exactly on that edge. Reserving `4.25rem + inset` again
+   therefore added the home-indicator strip twice — a 46px dead band after the
+   last row on a notched iPhone, with the last sessions row lifted under the
+   FAB. The second arm covers Android, where the dock's own 12px gutter is
+   larger than the (zero) inset. */
+@media (max-width: 767px) {
+  .kin-dock-pad {
+    padding-bottom: calc(3.5rem + max(0px, 0.75rem - env(safe-area-inset-bottom)));
+  }
+  /* Zen hides the dock (`kin-zen-hide`), so it must hide the reservation with
+     it — the transcript is supposed to reach the bottom of the screen. */
+  .kin-zen .kin-dock-pad {
+    padding-bottom: 0;
+  }
+}
+
 /* A horizontally scrolling strip that says so.
    The settings tab strip holds seven tabs and a phone shows about five of them;
    iOS draws no persistent scrollbar, so the sixth and seventh were invisible and
@@ -379,12 +399,29 @@ body {
 .kin-sheet-enter {
   animation: kin-sheet-in 200ms cubic-bezier(0.2, 0, 0, 1);
 }
+/* The drawer slides in from its own edge, a shorter travel than the sheet's
+   because it is already full height — enough to read as "came from the left"
+   without the panel appearing to fall. */
+@keyframes kin-drawer-in {
+  from {
+    transform: translateX(-16px);
+    opacity: 0.7;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.kin-drawer-enter {
+  animation: kin-drawer-in 180ms cubic-bezier(0.2, 0, 0, 1);
+}
 .kin-scrim-enter {
   animation: kin-scrim-in 160ms ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
   .kin-main > *,
   .kin-sheet-enter,
+  .kin-drawer-enter,
   .kin-scrim-enter {
     animation: none;
   }

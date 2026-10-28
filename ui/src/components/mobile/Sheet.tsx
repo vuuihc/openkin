@@ -62,15 +62,25 @@ export default function Sheet({
     const focusTimer = window.setTimeout(() => panelRef.current?.focus(), 0);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        // One Escape, one layer. This listener is on `window` in the capture
-        // phase, so it runs before anything the sheet contains — and several
-        // rows open their own `role="dialog"` popover (team dispatch, branch,
-        // folder) that also closes on Escape. Without this check the first
-        // Escape took the sheet down with the popover still open, and the
-        // second had nothing left to close. A nested dialog owns the key while
-        // it is open; the event keeps travelling, so the popover still closes.
-        const nested = (event.target as Element | null)?.closest?.('[role="dialog"]');
-        if (nested && nested !== panelRef.current) return;
+        // One Escape, one layer.
+        //
+        // This listener is on `window` in the capture phase, so it runs before
+        // anything the sheet contains, and several rows open their own
+        // popover: team dispatch (`role="dialog"`), the branch filter
+        // (`role="listbox"`), the folder browser (a focused dialog in a
+        // portal). Each closes itself on Escape, and each is opened *without*
+        // moving focus into it, so the event target is usually still the
+        // trigger. Two tests, because one is not enough:
+        //
+        //   - where the event came from: a portaled dialog keeps focus, and
+        //     only the target can say the sheet is not the top layer;
+        //   - what is open inside the panel: an unfocused popover is invisible
+        //     to the target test, and closing the sheet under it left the next
+        //     Escape with nothing to close.
+        const target = event.target as Element | null;
+        const origin = target?.closest?.('[role="dialog"], [role="listbox"]');
+        const openInside = panelRef.current?.querySelector('[role="dialog"], [role="listbox"]');
+        if ((origin && origin !== panelRef.current) || openInside) return;
         event.stopPropagation();
         onCloseRef.current();
         return;

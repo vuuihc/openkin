@@ -602,7 +602,16 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         */}
         {wsStatus !== "connected" && (
           <div
-            className="flex-none bg-kin-orange/10 border-b border-kin-orange/25 text-kin-orange-ink text-body text-center px-3 py-1.5"
+            className={[
+              "flex-none bg-kin-orange/10 border-b border-kin-orange/25 text-kin-orange-ink text-body text-center px-3 pb-1.5",
+              // On the session screen the page draws its own `MobileHeader`
+              // *below* this banner, so nothing above the banner owns the
+              // notch. Without this the reconnect strip — shown on every cold
+              // load, because `wsStatus` starts as "disconnected" — rendered
+              // under the sensor housing and then the header spent the inset
+              // a second time beneath it.
+              pageOwnsTopInset ? "pt-safe" : "pt-1.5",
+            ].join(" ")}
             role="status"
           >
             {tr("app.reconnecting")}
@@ -612,7 +621,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
         <main
           className={[
             "kin-main flex-1 min-h-0 overflow-hidden flex flex-col",
-            dockVisible ? "max-md:pb-[calc(4.25rem+env(safe-area-inset-bottom))]" : "",
+            dockVisible ? "kin-dock-pad" : "",
           ].join(" ")}
         >
           {children}
