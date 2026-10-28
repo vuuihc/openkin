@@ -60,6 +60,10 @@ screen-reader navigation.
   from the head, then the permission mode. Tapping opens the run-settings
   sheet. The old phone strip under the composer (permission + model) is gone;
   desktop keeps it, including cwd/repo/branch/machine.
+- The same face is on the new-chat composer, because that screen hid its whole
+  control panel below `sm`: a phone could start a chat without ever seeing or
+  changing the agent, model or mode it would run with. The panel now starts at
+  `md`, where the face ends — one run control at every width.
 - Breakpoints, stated once because two different ones are in play: the card
   takes its desktop shape at `sm` (640px), while the face and the strip swap at
   `md` (768px). Between 640 and 767 the flat desktop card carries the phone
@@ -119,7 +123,7 @@ abstraction.
 
 ## Verification
 
-- `tsc --noEmit`, `vitest run` (929 tests), `npm run build`; unit tests for the
+- `tsc --noEmit`, `vitest run` (930 tests), `npm run build`; unit tests for the
   project buckets (including the archive filter), the search filter, and DOM
   tests for the run-settings sheet (including Escape layering, focus return and
   the ArrowDown/ArrowUp round trip through the search field).
