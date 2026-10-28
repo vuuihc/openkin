@@ -19,6 +19,7 @@ import MachinePicker from "../components/chat/MachinePicker";
 import {
   DispatchSelector,
   defaultDispatchSelection,
+  dispatchBlocksSend,
   isDispatchReady,
   type DispatchSelection,
 } from "../components/chat/DispatchSelector";
@@ -430,7 +431,7 @@ export default function NewChatPage() {
 
     // Validate dispatch selection before submitting.
     const dispatchReady = !remote && isDispatchReady(dispatch, dispatchPreviewBlocked);
-    if (dispatch.mode && !dispatchReady) {
+    if (dispatchBlocksSend(dispatch, { remote, previewBlocked: dispatchPreviewBlocked })) {
       pushToast(tr("newChat.dispatchIncomplete"), "error");
       setSending(false);
       return;

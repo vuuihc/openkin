@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultDispatchSelection,
+  dispatchBlocksSend,
   getDispatchSummary,
   isDispatchReady,
   type DispatchSelection,
@@ -115,5 +116,38 @@ describe("getDispatchSummary", () => {
         tr,
       ),
     ).toBe("手动 · Claude Code · Anthropic · sonnet");
+  });
+});
+
+describe("dispatchBlocksSend", () => {
+  it("does not block when routing is unconfigured", () => {
+    expect(dispatchBlocksSend({})).toBe(false);
+  });
+
+  it("blocks a local send whose selection is incomplete", () => {
+    expect(dispatchBlocksSend({ mode: "auto" })).toBe(true);
+    expect(dispatchBlocksSend({ mode: "auto", team: "t1" }, { previewBlocked: true })).toBe(true);
+    expect(dispatchBlocksSend({ mode: "manual", agent: "claude-code" })).toBe(true);
+  });
+
+  it("does not block a complete local send", () => {
+    expect(dispatchBlocksSend({ mode: "auto", team: "t1" })).toBe(false);
+    expect(
+      dispatchBlocksSend({ mode: "manual", agent: "a", provider: "p", model: "m" }),
+    ).toBe(false);
+  });
+
+  // The regression this helper exists for: a default team from settings keeps
+  // `mode` at "auto" for the whole draft, but the control is hidden once a
+  // remote machine is chosen, so a blocking check made every remote send fail
+  // with "dispatch incomplete" and no way to clear it. The same selection that
+  // blocks here must not block there.
+  it("never blocks a send to another machine", () => {
+    const sel: DispatchSelection = { mode: "auto" };
+    expect(dispatchBlocksSend(sel, { remote: true })).toBe(false);
+    expect(dispatchBlocksSend(sel, { remote: true, previewBlocked: true })).toBe(false);
+    expect(dispatchBlocksSend({ mode: "manual" }, { remote: true })).toBe(false);
+    // …while the identical selection still blocks the same send run here.
+    expect(dispatchBlocksSend(sel)).toBe(true);
   });
 });

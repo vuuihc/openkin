@@ -434,3 +434,23 @@ export function isDispatchReady(sel: DispatchSelection, previewBlocked?: boolean
   if (sel.mode === "manual") return !!sel.agent && !!sel.provider && !!sel.model;
   return false;
 }
+
+/**
+ * Whether a dispatch selection should stop a send before it reaches the API.
+ *
+ * A task aimed at another machine never carries dispatch — it is the Hub's own
+ * routing and does not cross machines — so the selection cannot be a
+ * precondition for it. It used to be, and that was a dead end: a default team
+ * from settings leaves `mode` at "auto" for the whole draft, the control is
+ * hidden when a remote machine is chosen (`newChatControlGroups`), so there was
+ * no way to clear the selection and every remote send failed with "dispatch
+ * incomplete". Same reasoning as the `!(dispatchReady && !remote)` spread at the
+ * call site: readiness and relevance are two questions.
+ */
+export function dispatchBlocksSend(
+  sel: DispatchSelection,
+  { remote = false, previewBlocked = false }: { remote?: boolean; previewBlocked?: boolean } = {},
+): boolean {
+  if (remote) return false;
+  return !!sel.mode && !isDispatchReady(sel, previewBlocked);
+}
