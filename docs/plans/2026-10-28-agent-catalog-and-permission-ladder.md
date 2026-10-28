@@ -182,3 +182,102 @@ UI：选 `kin` 时权限表只有"询问"；切到 Claude Code 后是"询问 / �
   权限 / 会话主持 / 模型三个 chip 都打开 sheet，Claude Code 的模型表 47 项 + 默认 +
   自定义；桌面表格动作不变；设置页手机分区标题 16px 正常大小写、桌面仍 micro-caps，
   h1 为 28px/700。
+
+## 4. 模型选择器：可搜索，两端一致
+
+### 诊断
+
+第 1 节把 47 个模型读全了，但控件没有跟上：桌面是原生 `<select>`，47 行只能滚动找；
+手机是 Ionic action sheet，同样只能滚。对照 Lody 的运行配置 sheet，它的模型选择是
+**带搜索框的列表**，有 Default、当前项勾选，手机与桌面同一个形状。这不是"再多一个
+下拉框"，而是目录长度变了之后控件的形状错了。
+
+### 做法
+
+新增 `ui/src/components/ui/SearchSelect.tsx`：一个 chip（与 `SheetSelect` 同一外形、
+同一 `label：值` 的 aria-label），两种面板——
+
+- **`>= 640px`：锚定弹层**。`role="combobox"` 搜索框 + `role="listbox"` 选项
+  （`aria-selected`），当前项带勾；ArrowUp/Down/Home/End 移动焦点，Escape 关闭并把
+  焦点还给 chip，点外面关闭；打开时把当前项 `scrollIntoView({block:"nearest"})`，
+  否则 47 行里选中的最后一项恰好被藏在列表顶部之外。
+- **`< 640px`：控制台自己的 `Sheet`**（安全区、遮罩、Escape 都已在里面）。列表故意
+  **不用 `role="listbox"`**：`Sheet` 的 Escape 处理把面板内任何 `[role="dialog"]` /
+  `[role="listbox"]` 当成压在上面的弹层而拒绝关闭，嵌一个 listbox 会让这张 sheet 成为
+  控制台里唯一按 Escape 关不掉的那张。手机用普通按钮 + `aria-current`，桌面用
+  combobox/listbox，各按各的平台惯例。
+
+搜索同时匹配 label、id、tier——`volcengine` 能找到 label 里没有这个词的
+`DeepSeek V4 Flash · volcengine-gw`。两个面板共用同一个 `Chooser`，勾选状态不可能
+两边不一致。
+
+调用点：`AgentModelPicker`（composer 的 joined 控件）的 agent 与 model 都换成它
+（agent 列表短，`searchable={false}`）；`ModelPicker` 的 compact / 完整两个分支同样
+替换。joined 控件去掉了 `overflow-hidden`——它会把弹层裁在控件边缘。i18n 新增
+`modelPicker.searchPlaceholder` / `searchEmpty` 与 `common.noResults`，中英同步。
+
+### 审核与修复
+
+同模型只读复审跑了两轮（不走 Codex 网关）。第一轮 1 blocker、3 major、8 nit；
+第二轮 0 blocker、1 major、7 nit。全部处理：
+
+| 轮次 | 严重度 | 问题 | 处理 |
+|---|---|---|---|
+| 一 | blocker | 桌面弹层用 `absolute` 定位，而触发点常在 `overflow-x-auto` 的控件行里（`TaskDetailPage` 的 composer 行就是）。CSS 规定 `overflow-x: auto` 会把 `overflow-y` 也算成 `auto`，弹层被 30px 高的行裁掉；任务页的弹层朝上开，正好落在行的不可滚动上溢出区，等于完全不可见 | 改为 `position: fixed` + 量测锚点（沿用 `BranchPicker` 的方案）：`useLayoutEffect` 量触发点，`resize` 与**捕获阶段** `scroll` 重新定位，`z-50`，宽 288、离边 8px、高上限 `min(360, 真实剩余空间)`；首选方向放不下时翻到另一侧。面板仍是 `hidden sm:block` 的后代，窗口变窄时另有 `matchMedia("(min-width: 640px)")` 关闭并卸载监听 |
+| 一 | major | `triggerClass` 里的 `max-w-full` 在产物中排在所有 arbitrary `max-w-[…]` 之后，把调用点的宽度上限全部压掉（长模型 id 会撑开 joined 控件） | 基类不再带宽度上限，调用点各自给（7.5 / 10 / 14rem）。实测 `getComputedStyle(chip).maxWidth` 为 120px，不再是 100% |
+| 一 | major | 选中后焦点掉到 `<body>`，下一次 Tab 从页面顶端开始 | 桌面弹层选中后把焦点还给 chip（Escape 路径原本就还） |
+| 一 | major | 键盘路径没有测试 | 新增用例：ArrowDown 进列表、ArrowUp 回搜索框、Home/End、Enter 选中并还焦点，以及 Tab 离开时关闭 |
+| 一 | nit ×8 | 空结果在 listbox 内、桌面选项占 Tab 序、detail 断言不独立、手机列表顶掉搜索框、哨兵与选项拼装重复、未使用的 `placeholder`、coarse-pointer 注释失真 | 见 `SearchSelect`：常驻 `role="status"`、`tabIndex={-1}`、fixture 拆分、`max-h-[60dvh]`、`lib/agentModels` 四个共享助手、删属性、改注释 |
+| 二 | major | **WebKit 下鼠标点行选不中**：Safari 不在鼠标点击时给按钮焦点，行上的 mousedown 先让搜索框 blur，`relatedTarget` 为 `null`；把它当成“焦点离开面板”会在 mousedown 阶段卸掉面板，`click` 没有落点。Chromium/Electron 和手机 sheet 都不受影响，所以测试与日常都看不到 | `relatedTarget` 为 `null` 时不再关闭（真实焦点移动一定带 `relatedTarget`），并给行加 `mousedown` 的 `preventDefault`（combobox 的标准做法：焦点留在输入框，行只是目标）。Playwright 真引擎复验：WebKit 2248 与 Chromium 1208 都能点中并更新 chip |
+| 二 | nit | 搜索框里按 Enter 没有反应（必须先按一次 ArrowDown） | Enter 取第一行；同时两个键盘处理器在 IME 组词期间（`isComposing`）直接返回，中文候选词不会再被 ArrowDown 抢走 |
+| 二 | nit | 常驻 live region 不存在，`role="status"` 与文案同批挂载，读屏可能不播报 | 状态节点从一开始就在，有结果时 `sr-only`、无结果时换成可见文案 |
+| 二 | nit | 触发按钮没有 `aria-controls`；手机端注释谎称“上面没有输入框” | 打开时指向列表 id；注释改为真实取舍：手机行保持可 Tab 是因为 sheet 的焦点陷阱由这些行构成，触控才是那张面板的主路径 |
+| 二 | nit | `Sheet` 是 `md:hidden`，但越过断点后仍挂载，Escape/Tab 陷阱继续吃页面按键 | 修在 `Sheet` 本身（所有调用者受益）：`matchMedia("(min-width: 768px)")` 命中即 `onClose`，并加 `Sheet.dom.test.tsx` |
+| 二 | nit | `detail: m.tier` 会显式写出 `undefined` 键 | 条件展开 |
+| 二 | nit | 模型列表无条件 `searchable`，与“四行不要搜索框”的自述规则冲突 | 保留：同一个控件不该因为网关目录长短而换形状；短目录下搜索框只是多一行，不误导 |
+
+保留：`ModelPicker` 不可达的非 compact 分支（删它属于另一件事）；`common.noResults`
+作为 `emptyLabel` 的兜底文案；手机行保持 Tab 可达（见上表）。
+
+### 验证
+
+- `npx tsc --noEmit` 干净；`npx vitest run` 915/915（91 文件）；`npm run lint`
+  0 error（16 条既有 warning）；`npm run build` 成功且两次构建产物哈希一致。
+- `SearchSelect.dom.test.tsx`（11 条）：按 label / id / detail 三种来源过滤、空结果
+  用 `role="status"`、`aria-controls` 指向列表、当前项标记、选中后回调并还焦点、
+  Escape 关闭并还焦点、方向键 / Home / End / Enter、Enter 在搜索框取第一行、Tab 离开
+  即关闭、**WebKit 的 `null` 失焦不关面板**、手机 sheet 内**没有** listbox 且 Escape
+  能关、短列表不出现搜索框。`agentModels.test.ts` 新增 3 条哨兵用例，
+  `Sheet.dom.test.tsx` 新增 2 条断点关闭用例。
+- 反向验证（每条都确认新测试会红）：去掉“选中后还焦点”→ 断言变成 `<body>`；
+  去掉 `focusout` 监听 → Tab 用例留下关不掉的 listbox；把 `null` 失焦改回“关闭” →
+  WebKit 用例在点击前就丢了列表；删掉 Enter 分支 → Enter 用例无回调；把 `Sheet` 的
+  断点判断改成恒假 → 断点用例失败。
+- 浏览器实测（独立临时 daemon，真实 47 项目录 + 该机全部 agent）：
+  - 1280 桌面：弹层 288×360 开在 chip 上方，全在视口内；`position: fixed`。
+  - **blocker 复现**：用 JS 把 chip 包进一个 30px 高、`overflow-x:auto` 的 div（与
+    `TaskDetailPage` 的控件行同构），弹层底边 806 位于该行顶边 807.5 之上，
+    `elementFromPoint` 命中弹层内的搜索框——即真的画出来了，而不是被裁掉。
+  - 390 手机：「模型」sheet 49 行（默认 + 47 + 自定义），列表自身 506px
+    （60dvh）滚动，滚到底后搜索框仍在原位；搜索 `kimi` 收敛到 2 行；选中
+    `Kimi K3 · volcengine-gw` 后只关内层 sheet、chip 更新，Escape 把焦点还给 chip
+    且外层「这次怎么跑」仍在。
+  - 键盘（1280 实机）：Enter 打开并把焦点放进搜索框，方向键落到选项，Enter 选中、
+    chip 更新、焦点回到 chip。
+  - **WebKit 2248 / Chromium 1208 真引擎**：打开弹层（`pointer: fine`，搜索框自动
+    聚焦）→ 鼠标点 `Kimi K3 · volcengine-gw` → chip 更新、面板关闭，两端一致。
+  - 控制台 0 error / 0 warning。
+
+
+### 遗留（下一轮）
+
+- **手机上的模型名仍是 id**：Hub 的 `device_agents.models` 只存字符串数组
+  （`worker.Agent.Models []string`），label 在本机 `/api/agents` 有、过 Hub 就丢了，
+  手机上显示 `deepseek-v4-flash[1m]` 而不是 `DeepSeek V4 Flash · volcengine-gw`。
+  要修需要给 worker 协议加 label 字段 + `device_agents` 加列 + Hub API 透传，属于
+  跨层改动，单独一轮做。
+- **推理档位与角色**：Lody 的 sheet 还有「推理」（ACP `configOptions` 的
+  reasoning effort）与「角色」（带提示词的运行配置预设）。Kin 的 adapter 契约目前
+  没有这两个概念，按 PRINCIPLE §5.5 先不硬编码。
+- **最近使用**：Lody 有「最近使用」分组；本轮先做搜索，等模型 id→label 的传输修好
+  后再加，否则最近使用记的也是 id。
