@@ -175,6 +175,33 @@ describe("filterProjectBuckets", () => {
     expect(filtered[0]!.rows.map((row) => row.key)).toEqual(["b"]);
   });
 
+  it("matches the task prompt when the title does not carry the word", () => {
+    // The daemon searches the prompt too. If this filter cannot see it, a
+    // server match disappears the moment the answer is narrowed again — the
+    // row flashes in and then the page says nothing matched.
+    const rows = buckets([
+      task({
+        id: "a",
+        cwd: "/work/a",
+        created_at: 1,
+        title: "Refactor auth",
+        prompt: "fix the login redirect",
+      }),
+      task({ id: "b", cwd: "/work/a", created_at: 2, title: "Write docs", prompt: "unrelated" }),
+    ]);
+    const filtered = filterProjectBuckets(rows, "login");
+    expect(filtered.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["a"]);
+  });
+
+  it("matches a session's own cwd even when the heading shows only its tail", () => {
+    const rows = buckets(
+      [],
+      [session({ id: "s1", cwd: "/srv/zeta/alpha", title: "session", updated_at: 1 })],
+    );
+    const filtered = filterProjectBuckets(rows, "zeta");
+    expect(filtered.flatMap((bucket) => bucket.rows.map((row) => row.key))).toEqual(["s1"]);
+  });
+
   it("ignores case and surrounding whitespace", () => {
     expect(filterProjectBuckets(rows, "  PARSER ")).toHaveLength(1);
   });

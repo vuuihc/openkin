@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { isTerminal, listAgentSessions, type AgentSession } from "../api/client";
+import { isTerminal, listAgentSessions, type AgentSession, type Task } from "../api/client";
 import { useTaskList } from "../api/useLiveResources";
 import { useMachines } from "../hooks/useMachines";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
@@ -13,6 +13,7 @@ import {
   type PhoneSessionRow,
 } from "../lib/phoneSessionBuckets";
 import { getPinnedTaskIds, setTaskPinned } from "../lib/taskPins";
+import { sessionListParams } from "../lib/sessionListParams";
 import {
   getViewedSessionIds,
   markSessionViewed,
@@ -22,8 +23,10 @@ import { taskCardStatusView } from "../lib/taskCardStatus";
 import { archiveProject, getArchivedProjects, subscribeProjectSidebar } from "../lib/projectSidebar";
 import { useLocale, useT } from "../i18n/react";
 import { MobileEmpty, MobileScreen } from "../components/mobile/MobileList";
+import HighlightedText from "../components/HighlightedText";
 import SessionsSearch from "../components/mobile/SessionsSearch";
 import {
+  IconAlert,
   IconArchive,
   IconCheck,
   IconChevronDown,
@@ -45,12 +48,24 @@ import SwipeReveal from "../components/mobile/SwipeReveal";
  * the thing a person is looking for is the project they were working in, and a
  * machine is a property of a session rather than a place to browse.
  *
- * Search is local to the loaded rows and lives in `?q=`, so the header and the
- * list cannot disagree and a reload keeps the query. A server-side search over
- * the whole library is a later step if the 100-row cap starts to matter.
+ * Search is in `?q=`, so the header and the list cannot disagree and a reload
+ * keeps the query. The field filters the loaded rows on the same frame, and the
+ * server answers the same string a beat later over the whole library — the
+ * loaded page is 100 rows, and a conversation from last month is not in it. The
+ * two use the same predicate shape (title / prompt / cwd / agent / id), so the
+ * local narrowing never shows a row the server would have dropped.
  */
 
 const ROWS_BEFORE_SHOW_ALL = 5;
+
+/**
+ * How long typing settles before the query leaves the browser.
+ *
+ * Without it every keystroke is a request and a new live-list subscription;
+ * with it the field still filters what is already loaded on the same frame
+ * (`filterProjectBuckets` below), so the visible rows never lag the characters.
+ */
+const SEARCH_DEBOUNCE_MS = 200;
 
 export default function SessionsPage() {
   const tr = useT();
@@ -61,7 +76,21 @@ export default function SessionsPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const query = params.get("q") ?? "";
-  const taskList = useTaskList({ limit: 100 });
+  // The query as the server last saw it. `query` updates per keystroke; this
+  // follows after the field settles, and collapses to empty immediately so
+  // clearing the box never waits on a timer.
+  const [searchTerm, setSearchTerm] = useState(() => query.trim());
+  useEffect(() => {
+    const next = query.trim();
+    if (!next) {
+      setSearchTerm("");
+      return;
+    }
+    const timer = setTimeout(() => setSearchTerm(next), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const taskList = useTaskList(sessionListParams(searchTerm));
   const { machines, loading: machinesLoading } = useMachines();
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [sessionsFailed, setSessionsFailed] = useState(false);
@@ -86,8 +115,11 @@ export default function SessionsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // A new query is a new question: the previous answer's failure notice must
+    // not sit over rows it never described.
+    setSessionsFailed(false);
     const read = () => {
-      listAgentSessions({ limit: 100 })
+      listAgentSessions(sessionListParams(searchTerm))
         .then((rows) => {
           if (cancelled) return;
           setSessions(rows);
@@ -107,16 +139,26 @@ export default function SessionsPage() {
       cancelled = true;
       window.removeEventListener("kin:agent-sessions-sync", read);
     };
-  }, []);
+  }, [searchTerm]);
 
   const selfDeviceId = (machines.find((machine) => machine.isSelf)?.id ?? "").trim();
+  // A settled query is a new live-list key, and the hook hands back an empty
+  // unloaded resource while it fetches. Without this the whole page would blink
+  // to "loading" on every pause in typing. The previous answer stays on screen
+  // narrowed by the local filter, so what is shown is never wrong for the
+  // current text — just older than the server's answer that follows it.
+  const lastLoadedTasks = useRef<readonly Task[]>([]);
+  useEffect(() => {
+    if (taskList.loaded) lastLoadedTasks.current = taskList.data;
+  }, [taskList.loaded, taskList.data]);
+  const tasks = taskList.loaded ? taskList.data : lastLoadedTasks.current;
   // `prefsTick` is the invalidation: it changes when the drawer archives or
   // restores a project, and the memo below has to rebuild then.
   const archivedCwds = useMemo(() => getArchivedProjects(), [prefsTick]);
   const buckets = useMemo(
     () =>
       phoneProjectBuckets(
-        taskList.data,
+        tasks,
         sessions,
         selfDeviceId,
         {
@@ -125,7 +167,7 @@ export default function SessionsPage() {
         },
         archivedCwds,
       ),
-    [taskList.data, sessions, selfDeviceId, locale, archivedCwds],
+    [tasks, sessions, selfDeviceId, locale, archivedCwds],
   );
   const filtered = useMemo(() => filterProjectBuckets(buckets, query), [buckets, query]);
   // Pinned rows leave their project buckets and lead the list.
@@ -133,7 +175,9 @@ export default function SessionsPage() {
     () => withPinnedBucket(filtered, pinnedIds, tr("sessions.pinned")),
     [filtered, pinnedIds, tr],
   );
-  const loading = !taskList.loaded || machinesLoading;
+  // Loading is only the first paint. A later fetch keeps the previous rows up
+  // (above), so it is not a reason to blank the screen.
+  const loading = (!taskList.loaded && tasks.length === 0) || machinesLoading;
   // One clock for the whole render, so two rows never disagree about "now".
   const now = Date.now();
   // Read once per render, not once per row: `isSessionViewed` re-parses the
@@ -141,6 +185,10 @@ export default function SessionsPage() {
   // update.
   const viewedIds = new Set(getViewedSessionIds());
   const searching = query.trim() !== "";
+  // The field is ahead of the request: until the server answers the settled
+  // term, an empty list means "not answered yet", not "no matches".
+  const pendingQuery = query.trim() !== searchTerm;
+  const loadFailed = Boolean(taskList.error) && tasks.length === 0;
 
   function toggleBucket(key: string) {
     setCollapsed((current) => {
@@ -265,20 +313,38 @@ export default function SessionsPage() {
         </p>
       )}
 
-      {!loading && buckets.length === 0 && (
+      {/* The field is ahead of the request: an empty list right now means "the
+          server has not answered this term yet", not "nothing matches". */}
+      {!loading && pendingQuery && listed.length === 0 && !loadFailed && (
+        <p className="px-4 py-10 text-center text-strong text-kin-muted">
+          {tr("sessions.searching")}
+        </p>
+      )}
+
+      {/* A failed request is not an empty library. The two used to share a
+          branch, so a dropped connection read as "you have no chats". */}
+      {!loading && loadFailed && (
         <MobileEmpty
-          icon={<IconSessions size={30} />}
-          title={tr("sessions.empty")}
-          hint={tr("sessions.emptyHint")}
+          icon={<IconAlert size={30} />}
+          title={tr("sessions.loadError")}
+          hint={tr("sessions.loadErrorHint")}
         />
       )}
 
-      {!loading && buckets.length > 0 && filtered.length === 0 && (
-        <MobileEmpty
-          icon={<IconSessions size={30} />}
-          title={tr("sessions.searchEmpty", { query: query.trim() })}
-        />
-      )}
+      {!loading &&
+        !loadFailed &&
+        !(pendingQuery && listed.length === 0) &&
+        listed.length === 0 && (
+          <MobileEmpty
+            icon={<IconSessions size={30} />}
+            title={
+              // With the server doing the matching, "no rows" after a search
+              // is the search's answer; the empty-library copy would be a lie.
+              searching ? tr("sessions.searchEmpty", { query: query.trim() }) : tr("sessions.empty")
+            }
+            hint={searching ? undefined : tr("sessions.emptyHint")}
+          />
+        )}
 
       {/* Multi-select toolbar, in the slot the heading would occupy: select
           all + count on the left, the batch actions on the right. Long-press
@@ -351,6 +417,7 @@ export default function SessionsPage() {
             onSwipeOpenChange={setSwipeOpen}
             onPin={pinRow}
             onArchive={archiveRow}
+            query={query}
           />
         ))}
 
@@ -421,8 +488,11 @@ function ProjectBucket({
   onSwipeOpenChange,
   onPin,
   onArchive,
+  query,
 }: {
   bucket: PhoneProjectBucket;
+  /** The live search text, marked in the heading and in every row title. */
+  query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
   collapsed: boolean;
@@ -457,6 +527,9 @@ function ProjectBucket({
           if (canToggle) onToggle();
         }}
         aria-expanded={!collapsed}
+        // The visible label carries a `<mark>` while searching; the accessible
+        // name must stay the plain project name, not "Kin, highlighted, …".
+        aria-label={bucket.label}
         className="kin-row-press flex min-h-11 w-full items-center gap-1.5 px-4 pb-1 pt-4 text-left"
       >
         {collapsed ? (
@@ -469,7 +542,7 @@ function ProjectBucket({
             same column as the rows' timestamps and read as one of them. */}
         <span className="flex min-w-0 max-w-full items-center gap-1">
           <span className="min-w-0 truncate text-strong font-semibold text-kin-muted">
-            {bucket.label}
+            <HighlightedText text={bucket.label} query={query} />
           </span>
           <IconChevronDown
             size={14}
@@ -499,6 +572,7 @@ function ProjectBucket({
               onSwipeOpenChange={(open) => onSwipeOpenChange(open ? row.key : null)}
               onPin={() => onPin(row)}
               onArchive={() => onArchive(row)}
+              query={query}
             />
           ))}
           {canToggle && (hidden > 0 || bucket.rows.length > ROWS_BEFORE_SHOW_ALL) ? (
@@ -538,8 +612,11 @@ function SessionRow({
   onSwipeOpenChange,
   onPin,
   onArchive,
+  query,
 }: {
   row: PhoneSessionRow;
+  /** The live search text, marked in the title. */
+  query: string;
   now: number;
   viewedIds: ReadonlySet<string>;
   onOpen: () => void;
@@ -629,7 +706,7 @@ function SessionRow({
         {avatar.initials}
       </span>
       <span className="min-w-0 flex-1 truncate text-subtitle font-medium leading-ui text-kin-text">
-        {row.title}
+        <HighlightedText text={row.title} query={query} />
       </span>
       {row.remote && (
         <span className="flex-none text-kin-muted" title={tr("machine.remote")} aria-hidden>

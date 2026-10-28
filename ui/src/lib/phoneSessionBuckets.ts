@@ -151,7 +151,6 @@ export function phoneProjectBuckets(
     });
 }
 
-/** Case-insensitive match over what the row and its heading actually say. */
 /**
  * Lift pinned task rows into a leading bucket and out of their project
  * buckets — the same rule the reference's Pinned section uses, so a pinned
@@ -188,6 +187,33 @@ export function withPinnedBucket(
   ];
 }
 
+/**
+ * Narrow already-loaded buckets to the search text.
+ *
+ * This runs twice per search: immediately over the rows the page already has
+ * (so the list does not lag the keyboard), and again over the server's answer.
+ * The second pass is why the predicate must never be *narrower* than the
+ * daemon's `?q=`: a server row this filter cannot see would flash in and then
+ * vanish, and if the request failed the page would say "no results" about a
+ * conversation that exists. So the fields here are the daemon's own set —
+ * title, prompt, cwd, agent, id for a task; title, cwd, agent id, external ref
+ * for an imported session — plus the display title and the project heading.
+ */
+function rowMatches(row: PhoneSessionRow, needle: string): boolean {
+  const fields = [
+    row.title,
+    row.agentId,
+    row.task?.prompt,
+    row.task?.cwd,
+    row.task?.id,
+    row.session?.title,
+    row.session?.cwd,
+    row.session?.agent_id,
+    row.session?.external_ref,
+  ];
+  return fields.some((field) => Boolean(field) && field!.toLowerCase().includes(needle));
+}
+
 export function filterProjectBuckets(
   buckets: readonly PhoneProjectBucket[],
   query: string,
@@ -197,13 +223,7 @@ export function filterProjectBuckets(
   const out: PhoneProjectBucket[] = [];
   for (const bucket of buckets) {
     const headingMatches = bucket.label.toLowerCase().includes(needle);
-    const rows = headingMatches
-      ? bucket.rows
-      : bucket.rows.filter(
-          (row) =>
-            row.title.toLowerCase().includes(needle) ||
-            row.agentId.toLowerCase().includes(needle),
-        );
+    const rows = headingMatches ? bucket.rows : bucket.rows.filter((row) => rowMatches(row, needle));
     if (rows.length > 0) out.push({ ...bucket, rows });
   }
   return out;
