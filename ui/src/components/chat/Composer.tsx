@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentInfo, Upload } from "../../api/client";
 import {
   authenticatedURL,
@@ -11,7 +11,7 @@ import { useT } from "../../i18n/react";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
-import { IconAlert, IconFile, IconImage, IconSend, IconSpinner, IconStop, IconX } from "../icons";
+import { IconAlert, IconFile, IconImage, IconPlus, IconSend, IconSpinner, IconStop, IconX } from "../icons";
 
 type Props = {
   placeholder?: string;
@@ -33,6 +33,17 @@ type Props = {
   agents?: AgentInfo[];
   /** Current session host; used only for mention role labels. */
   hostAgentId?: string;
+  /**
+   * The phone's run-config face, rendered between the attach control and the
+   * send control on the composer's own footer row. It is hidden from `md` up,
+   * where the strip under the composer names the model, the mode and the
+   * project — a second copy of the same two controls would be one too many
+   * ways to change them. Between `sm` and `md` the card is already the flat
+   * desktop shape and the face rides along in that row: the strip does not
+   * exist yet at that width, and a control nobody can see is worse than one
+   * whose form does not quite match the row it sits in.
+   */
+  footer?: ReactNode;
   /**
    * Fired on send. `interrupt` asks the daemon to cut the running round short and
    * answer this message next instead of at the turn boundary — which also denies
@@ -64,6 +75,7 @@ export default function Composer({
   onAttachmentsChange,
   agents = [],
   hostAgentId,
+  footer,
   onSubmit,
 }: Props) {
   const tr = useT();
@@ -407,8 +419,13 @@ export default function Composer({
 
       <div
         className={[
-          "rounded-xl border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] focus-within:border-kin-blue/40 transition-[padding] duration-150",
-          expanded ? "px-3 py-2.5" : "px-2.5 py-1.5",
+          // Phone: the elevated card the reference composer uses — its own
+          // surface, a 2xl radius and a drop, so the input reads as a thing you
+          // hold rather than a hole cut in the transcript. Desktop keeps the
+          // flat bordered box it has always had.
+          "rounded-2xl border border-[var(--kin-hairline)] bg-kin-elevated px-2.5 py-2 max-sm:shadow-e2 transition-[padding] duration-150",
+          "focus-within:border-kin-blue/40 sm:rounded-xl sm:border-[var(--kin-hairline-strong)] sm:bg-[var(--kin-fill)]",
+          expanded ? "sm:px-3 sm:py-2.5" : "sm:px-2.5 sm:py-1.5",
         ].join(" ")}
       >
         {attachments.length > 0 && (
@@ -467,7 +484,13 @@ export default function Composer({
           className="hidden"
           onChange={(e) => void addFiles(e.target.files)}
         />
-        <div className={expanded ? "flex flex-col" : "flex items-center gap-1.5"}>
+        <div
+          className={
+            expanded
+              ? "flex flex-col"
+              : "flex flex-col sm:flex-row sm:items-center sm:gap-1.5"
+          }
+        >
           <textarea
             ref={textareaRef}
             rows={1}
@@ -516,13 +539,14 @@ export default function Composer({
               // `sm` breakpoint would otherwise drop back to 28px.
               expanded
                 ? "w-full min-h-11 leading-ui"
-                : "kin-composer-input flex-1 min-w-0 min-h-11 sm:min-h-7 py-[11px] sm:py-0 leading-ui",
+                : "kin-composer-input w-full min-w-0 min-h-11 flex-none py-[11px] leading-ui sm:flex-1 sm:min-h-7 sm:py-0",
             ].join(" ")}
           />
           <div
-            className={["flex items-center gap-1.5", expanded ? "mt-2" : "mt-0 flex-none"].join(
-              " ",
-            )}
+            className={[
+              "flex min-w-0 items-center gap-1.5",
+              expanded ? "mt-2" : "mt-1.5 sm:mt-0",
+            ].join(" ")}
           >
             <button
               type="button"
@@ -539,14 +563,25 @@ export default function Composer({
               aria-label={tr("composer.attachFile")}
               title={tr("composer.attachFile")}
             >
-              <IconImage size={expanded ? 15 : 14} />
+              {/* A plus on the phone, the picture mark on desktop: at the
+                  touch step the control opens the file picker, not an image
+                  gallery, and a plus is what every phone composer uses for
+                  it. `sm:` rather than a pointer query, because the width at
+                  which the box becomes a flat inline strip is the width at
+                  which the picture mark fits again. */}
+              <IconPlus size={expanded ? 18 : 17} className="sm:hidden" strokeWidth={2} />
+              <IconImage size={expanded ? 15 : 14} className="hidden sm:block" />
             </button>
+            {footer ? <div className="min-w-0 flex-1 md:hidden">{footer}</div> : null}
             {uploading && (
               <span className="text-caption text-kin-muted">{tr("composer.uploading")}</span>
             )}
             <span
               className={[
                 "text-caption text-kin-muted items-center gap-1",
+                // `@` is not a desktop key: a phone keyboard has one, and this
+                // is the only place the delegation feature is named. The ⌘↵
+                // legend below it is the one that gets the `sm` gate.
                 expanded ? "inline-flex" : "hidden",
               ].join(" ")}
             >
@@ -571,7 +606,7 @@ export default function Composer({
                 type="button"
                 onClick={() => void onStop()}
                 disabled={stopping || busy}
-                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-red/15 text-kin-red-ink flex items-center justify-center disabled:opacity-40 border border-kin-red/35"
+                className="ml-auto h-11 w-11 rounded-full border border-kin-red/35 bg-kin-red/15 text-kin-red-ink flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg"
                 aria-label={tr("composer.stop")}
                 title={tr("composer.stop")}
               >
@@ -587,7 +622,11 @@ export default function Composer({
                   uploading ||
                   (!value.trim() && attachments.length === 0)
                 }
-                className="ml-auto w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
+                // The phone's primary action is the reference's ink disc with
+                // an up arrow — the strongest thing in the card, and the one
+                // control the thumb goes to without reading. Desktop keeps the
+                // brand-blue square it has always had.
+                className="ml-auto h-11 w-11 rounded-full bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg sm:bg-kin-blue sm:text-kin-on-brand"
                 aria-label={busy ? tr("composer.sending") : tr("composer.send")}
               >
                 {busy ? (
@@ -611,7 +650,7 @@ export default function Composer({
                   // above: a send that cannot happen yet must not be armable, or the
                   // intent outlives the click that set it.
                   disabled={disabled || busy || stopping || uploading}
-                  className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg border border-kin-orange/40 bg-kin-orange/15 text-kin-orange-ink flex items-center justify-center disabled:opacity-40"
+                  className="h-11 w-11 rounded-full border border-kin-orange/40 bg-kin-orange/15 text-kin-orange-ink flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg"
                   aria-label={tr("composer.interruptSend")}
                   title={tr("composer.interruptSend")}
                 >
@@ -625,7 +664,7 @@ export default function Composer({
                   // uploading is in here for the same reason as on the two buttons
                   // above: a send that cannot happen yet must not be armable.
                   disabled={disabled || busy || stopping || uploading}
-                  className="w-11 h-11 sm:w-7 sm:h-7 rounded-lg bg-kin-blue text-kin-on-brand flex items-center justify-center disabled:opacity-40"
+                  className="h-11 w-11 rounded-full bg-kin-text text-kin-bg flex items-center justify-center disabled:opacity-40 sm:h-7 sm:w-7 sm:rounded-lg sm:bg-kin-blue sm:text-kin-on-brand"
                   aria-label={tr("composer.send")}
                   title={tr("composer.sendQueuedHint")}
                 >

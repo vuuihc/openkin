@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useT } from "../../i18n/react";
 import { DRAFT_PATH } from "../../lib/draftChat";
 import { placePath, type PlaceId } from "../../lib/places";
-import { IconInbox, IconPlus, IconSessions, IconSettings } from "../icons";
+import { IconPencil, IconProjects, IconRoutines, IconSessions } from "../icons";
 
 /**
  * The phone's primary navigation: a floating pill.
@@ -24,12 +24,7 @@ import { IconInbox, IconPlus, IconSessions, IconSettings } from "../icons";
  * screen. It re-applies the bottom safe-area inset itself, because a fixed box
  * escapes the shell's `.safe-pad`.
  */
-type Props = {
-  /** Approvals waiting on a decision, shown on the inbox tab. */
-  pendingCount: number;
-};
-
-export default function MobileDock({ pendingCount }: Props) {
+export default function MobileDock() {
   const tr = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -37,10 +32,13 @@ export default function MobileDock({ pendingCount }: Props) {
   // On settings it floated over the last card, offering a new chat on a page
   // about configuration.
   const onSessions = location.pathname.startsWith(placePath("sessions"));
+  // The dock is for going places, not for configuration: inbox and settings
+  // moved into the conversation list's header, where the reference keeps them,
+  // which leaves the three destinations that are the product's actual loop.
   const tabs: { id: PlaceId; label: string; icon: ReactNode }[] = [
     { id: "sessions", label: tr("nav.sessions"), icon: <IconSessions size={22} /> },
-    { id: "inbox", label: tr("nav.inbox"), icon: <IconInbox size={22} /> },
-    { id: "settings", label: tr("nav.settings"), icon: <IconSettings size={22} /> },
+    { id: "routines", label: tr("nav.routines"), icon: <IconRoutines size={22} /> },
+    { id: "projects", label: tr("nav.projects"), icon: <IconProjects size={22} /> },
   ];
 
   return (
@@ -52,9 +50,9 @@ export default function MobileDock({ pendingCount }: Props) {
             onClick={() => navigate(DRAFT_PATH)}
             aria-label={tr("nav.newChat")}
             title={tr("nav.newChat")}
-            className="pointer-events-auto absolute -top-[4.5rem] right-0 flex h-14 w-14 items-center justify-center rounded-full bg-kin-blue text-kin-on-brand shadow-e2 transition-[filter] active:brightness-95"
+            className="pointer-events-auto absolute -top-[4.5rem] right-0 flex h-14 w-14 items-center justify-center rounded-full bg-kin-text text-kin-bg shadow-e2 transition-transform active:scale-[0.97]"
           >
-            <IconPlus size={26} strokeWidth={2.1} />
+            <IconPencil size={24} strokeWidth={1.9} />
           </button>
         )}
         <nav
@@ -74,11 +72,6 @@ export default function MobileDock({ pendingCount }: Props) {
             >
               {tab.icon}
               <span className="truncate leading-flush">{tab.label}</span>
-              {tab.id === "inbox" && pendingCount > 0 && (
-                <span className="absolute right-[18%] top-0.5 inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-kin-orange px-1 text-micro font-bold leading-flush text-kin-on-status tabular-nums">
-                  {pendingCount > 99 ? "99+" : pendingCount}
-                </span>
-              )}
             </NavLink>
           ))}
         </nav>

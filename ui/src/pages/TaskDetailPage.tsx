@@ -50,6 +50,7 @@ import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import { pendingRefSeqs } from "../components/chat/transcriptProjection";
 import Composer from "../components/chat/Composer";
+import RunConfigControl from "../components/chat/RunConfigSheet";
 import BranchPicker from "../components/chat/BranchPicker";
 import RepoChip from "../components/chat/RepoChip";
 import CwdPicker from "../components/chat/CwdPicker";
@@ -1072,11 +1073,16 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
         <MobileHeader
           title={task.title || displayUserPrompt(task.prompt || "")}
           subtitle={
-            !terminal
-              ? degraded
-                ? tr("task.reconnect")
-                : tr("task.running")
-              : project || undefined
+            // The project is what the session belongs to; the round's state is
+            // appended while it is live rather than replacing the project, so
+            // the second line still answers "which session is this" when a run
+            // is in flight.
+            [
+              task.cwd ? project : undefined,
+              !terminal ? (degraded ? tr("task.reconnect") : tr("task.running")) : undefined,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
           }
           leading={
             <MobileHeaderButton label={tr("app.back")} onClick={goBack}>
@@ -1337,12 +1343,33 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
               onAttachmentsChange={(atts) => persistFollowUpDraft(draftPromptRef.current, atts)}
               onSubmit={onComposer}
               onStop={onStop}
+              footer={
+                // One control instead of a strip of chips: the face names the
+                // agent, the model and the mode, and the sheet behind it owns
+                // the two that can change. Desktop keeps the strip below.
+                <RunConfigControl
+                  agentName={hostAgentName}
+                  agentAvatar={hostAgentAvatar}
+                  model={composerModel}
+                  models={taskAgentModels}
+                  onModelChange={setComposerModel}
+                  permission={composerPermissionMode}
+                  permissionModes={taskPermissionModes}
+                  onPermissionChange={setComposerPermission}
+                  disabled={sending || stopping}
+                />
+              }
             />
-            {/* One row, scrolled sideways when it does not fit — it has to overflow
-                for that: an item allowed to shrink is squeezed to nothing first
-                and paints its text over the chip next to it, which is what a
-                long path next to a repository name did on a phone. */}
-            <div className="flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
+            {/* The desktop counterpart of the composer's run-config face: from
+                `md` up this strip carries what the face carries (and the
+                project, branch and machine beside it), and the face is hidden
+                so the same two settings are not offered twice on one screen.
+                One row, scrolled sideways when it does not fit — it has to
+                overflow for that: an item allowed to shrink is squeezed to
+                nothing first and paints its text over the chip next to it,
+                which is what a long path next to a repository name did on a
+                phone. */}
+            <div className="hidden md:flex items-center gap-x-2 gap-y-1 px-0.5 min-w-0 overflow-x-auto kin-scroll whitespace-nowrap">
               <PermissionModePicker
                 value={composerPermissionMode}
                 modes={taskPermissionModes}

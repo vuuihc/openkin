@@ -50,20 +50,20 @@ const zh = {
     noSessionProviders: "没有检测到可导入的本机 Agent 会话",
     collapseProject: "收起项目",
     expandProject: "展开项目",
-    sessions: "会话",
+    sessions: "对话",
     primary: "主要导航",
   },
   sessions: {
-    loading: "正在载入会话…",
-    empty: "还没有会话",
-    emptyHint: "点右上角的 ＋ 开一个，或在桌面控制台里发起。",
-    untitled: "未命名会话",
-    groupActive: "进行中",
-    groupToday: "今天",
-    // 滚动 7 天，就照实说：写成「本周」在周一就撒谎了。
-    groupWeek: "近 7 天",
-    groupOlder: "更早",
+    loading: "正在载入对话…",
+    empty: "还没有对话",
+    emptyHint: "点右下角的铅笔开一个，或在桌面控制台里发起。",
+    untitled: "未命名对话",
     agentSessionsFailed: "本机 agent 会话暂时读不出来，Kin 自己的会话仍在上面。",
+    searchPlaceholder: "搜索对话",
+    searchEmpty: "没有匹配「{query}」的对话",
+    showAll: "展开全部 ({count})",
+    showLess: "收起",
+    noProject: "未分组",
   },
   home: {
     slogan: "和 Kin 对话，编排你的 agent",
@@ -148,6 +148,7 @@ const zh = {
     rootsHint: "{name} 上的工作目录，比如 {path}；路径必须是那台机器上真实存在的。",
     refresh: "重新检测",
     thisMachine: "本机",
+    remote: "远程机器",
     offline: "离线",
     remoteHint:
       "任务在 {name} 自己的文件系统上、用它自己的 agent 执行；cwd 必须是那台机器上的路径。",
@@ -226,6 +227,12 @@ const zh = {
     acceptEditsHint: "自动接受文件编辑；其它工具仍可能询问",
     yoloHint: "跳过权限确认 — 仅用于可信环境",
     sessionLocked: "本会话已锁定",
+  },
+  runConfig: {
+    title: "运行设置",
+    open: "运行设置",
+    agent: "Agent",
+    agentLocked: "会话已开始，Agent 不可更换",
   },
   question: {
     cardTitle: "需要你的回答",
@@ -1408,6 +1415,7 @@ const zh = {
     close: "关闭",
     retry: "重试",
     noResults: "没有匹配项",
+    clear: "清除",
     // What sits between a label and its value. A locale owns its punctuation:
     // Chinese uses the fullwidth colon, which carries its own right-hand
     // spacing, and English needs the space written out. Seven call sites used

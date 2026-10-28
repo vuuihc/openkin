@@ -53,22 +53,21 @@ const en: MessageTree = {
     noSessionProviders: "No local Agent session providers detected",
     collapseProject: "Collapse project",
     expandProject: "Expand project",
-    sessions: "Sessions",
+    sessions: "Chats",
     primary: "Primary",
   },
   sessions: {
-    loading: "Loading sessions…",
-    empty: "No sessions yet",
-    emptyHint: "Tap + in the top right, or start one from the desktop console.",
-    untitled: "Untitled session",
-    groupActive: "In progress",
-    groupToday: "Today",
-    // A rolling window, labelled as one: "This week" would be a promise the
-    // boundary cannot keep on a Monday.
-    groupWeek: "Last 7 days",
-    groupOlder: "Older",
+    loading: "Loading chats…",
+    empty: "No chats yet",
+    emptyHint: "Tap the pencil at the bottom right, or start one from the desktop console.",
+    untitled: "Untitled chat",
     agentSessionsFailed:
       "Local agent sessions could not be read right now. Kin's own sessions are still listed above.",
+    searchPlaceholder: "Search chats",
+    searchEmpty: "No chats match “{query}”",
+    showAll: "Show all ({count})",
+    showLess: "Show less",
+    noProject: "No project",
   },
   home: {
     slogan: "Talk to Kin, orchestrate your agents",
@@ -160,6 +159,7 @@ const en: MessageTree = {
     rootsHint: "{name} works in directories like {path}; the cwd has to exist on that machine.",
     refresh: "Check again",
     thisMachine: "This machine",
+    remote: "Remote machine",
     offline: "offline",
     remoteHint:
       "The task runs on {name}, on that machine's own filesystem and with its own agents — so the cwd below has to be a path that exists there.",
@@ -238,6 +238,12 @@ const en: MessageTree = {
     acceptEditsHint: "Auto-accept file edits; other tools may still ask",
     yoloHint: "Skip permission prompts — trusted / sandboxed envs only",
     sessionLocked: "locked for this session",
+  },
+  runConfig: {
+    title: "Run settings",
+    open: "Run settings",
+    agent: "Agent",
+    agentLocked: "The agent is fixed once a session exists",
   },
   question: {
     cardTitle: "Needs your answer",
@@ -1467,6 +1473,7 @@ const en: MessageTree = {
     close: "Close",
     retry: "Retry",
     noResults: "No matches",
+    clear: "Clear",
     // See the note in `zh.ts`: the space belongs to the English separator, and
     // writing it at the call site would put Chinese text one ASCII colon away
     // from correct.

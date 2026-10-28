@@ -22,6 +22,7 @@ import { useAppStore } from "../../store/appStore";
 import Sidebar from "./Sidebar";
 import MobileHeader, { MobileHeaderButton } from "../mobile/MobileHeader";
 import MobileDock from "../mobile/MobileDock";
+import SessionsHeader from "../mobile/SessionsHeader";
 import { IconSearch, IconX } from "../icons";
 import TerminalPanel from "../terminal/TerminalPanel";
 import { isKinDesktop } from "../../lib/desktop";
@@ -37,6 +38,7 @@ import {
 import { useMachines } from "../../hooks/useMachines";
 import { remoteMachine } from "../../lib/devices";
 import { taskDisplayTitle } from "../../lib/taskTitle";
+import { placePath } from "../../lib/places";
 
 type Props = {
   children: ReactNode;
@@ -111,11 +113,14 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
    * page's heading is still on screen, so the bar is a heading on these routes
    * only — which keeps exactly one visible `<h1>` at every width.
    *
+   * `/sessions` is not one of them any more: it renders `SessionsHeader`, which
+   * has no title (the rows are the page), and the page keeps its own `<h1>`
+   * for assistive tech at every width.
+   *
    * The draft is not one of them: its page opens with the greeting as its own
    * `<h1>`, so the bar names the screen in a span.
    */
   const barIsHeading =
-    onSessionsTab ||
     location.pathname.startsWith("/inbox") ||
     location.pathname.startsWith("/settings") ||
     listTitle !== "";
@@ -541,7 +546,22 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             too would spend the notch twice.
           */
           <div className="md:hidden flex-none pt-safe kin-zen-hide" />
-        ) : detailRoute ? null : (
+        ) : detailRoute ? null : onSessionsTab ? (
+          /*
+            The list's own bar: identity, in-place search, inbox and settings.
+            No page title — the rows are the page — and no hamburger, because
+            the identity disc is the drawer trigger here. The command palette
+            icon is gone from this route too: search is the field in the middle
+            now, and a second search affordance beside it would be a question
+            about which one filters the list.
+          */
+          <SessionsHeader
+            pendingCount={pendingCount}
+            onOpenMenu={() => setMobileOpen(true)}
+            onOpenInbox={() => navigate(placePath("inbox"))}
+            onOpenSettings={() => navigate(placePath("settings"))}
+          />
+        ) : (
           <MobileHeader
             heading={barIsHeading}
             title={mobileTitle}
@@ -631,7 +651,7 @@ export default function AppShell({ children, pendingCount, routineUnreadCount = 
             is a focused flow with its own way out, and on detail routes — a
             pushed chat owns the whole screen, and its back button is the way
             out (the iOS convention). */}
-        {dockVisible && <MobileDock pendingCount={pendingCount} />}
+        {dockVisible && <MobileDock />}
 
         {/* Terminal panel — the shell's own panel, desktop only */}
         {terminalAvailable && (

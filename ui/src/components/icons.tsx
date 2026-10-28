@@ -192,6 +192,15 @@ export function IconFolder(p: IconProps) {
     </>,
   );
 }
+export function IconFolderOpen(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M5 5h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v1" />
+      <path d="M3.5 10H20a2 2 0 0 1 1.9 2.6l-1.4 5A2 2 0 0 1 18.6 19H4.7a2 2 0 0 1-2-2.2L3.5 10z" />
+    </>,
+  );
+}
 export function IconMachine(p: IconProps) {
   return base(
     p,
@@ -246,6 +255,16 @@ export function IconKin(p: IconProps) {
   return base(
     { ...p, strokeWidth: p.strokeWidth ?? 1.6 },
     <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" />,
+  );
+}
+/** The compose mark: a pencil over a line, the phone's "start something". */
+export function IconPencil(p: IconProps) {
+  return base(
+    p,
+    <>
+      <path d="M12 20h9" />
+      <path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7.4 18.6a2 2 0 0 1-.9.5l-2.8.8a.5.5 0 0 1-.6-.6l.8-2.8a2 2 0 0 1 .5-.9z" />
+    </>,
   );
 }
 export function IconPin(p: IconProps) {
