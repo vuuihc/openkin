@@ -1,6 +1,7 @@
 # Phone parity with Lody — three surfaces
 
-Status: in progress (2026-10-28)
+Status: landed 2026-10-28 — merged to `main`, Hub image redeployed, desktop
+rebuilt. Assets below are the record of how it was verified.
 
 The phone console is being aligned, surface by surface, with the three Lody
 screens the user supplied: the conversation list, an open conversation, and the
