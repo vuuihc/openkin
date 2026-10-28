@@ -31,6 +31,16 @@ function classesBefore(source: string, needle: string, tag: string): string {
   return all[all.length - 1]?.[1] ?? "";
 }
 
+/** The class list of the `<tag …>` whose attributes contain `needle`. */
+function classesOf(source: string, needle: string, tag: string): string {
+  const at = source.indexOf(needle);
+  if (at === -1) return "";
+  const start = source.lastIndexOf(`<${tag}`, at);
+  if (start === -1) return "";
+  const element = source.slice(start, source.indexOf(">", at));
+  return /className="([^"]*)"/.exec(element)?.[1] ?? "";
+}
+
 describe("the composer's run-config face", () => {
   it("is hidden from md up", () => {
     const classes = classesBefore(read("src/components/chat/Composer.tsx"), "{footer}", "div");
@@ -55,7 +65,10 @@ describe("the composer's run-config face", () => {
     // The draft's agent, model and mode have to be visible and changeable
     // before sending; without the face a phone inherits whatever the last
     // draft set and cannot see it.
-    expect(source).toContain("<RunConfigControl");
+    const footerAt = source.indexOf("footer={");
+    expect(footerAt).toBeGreaterThan(-1);
+    expect(source.indexOf("<RunConfigControl", footerAt)).toBeGreaterThan(footerAt);
+
     const classes = classesBefore(source, "{controlGroups.map", "div");
     expect(classes).not.toBe("");
     const tokens = classes.split(/\s+/);
@@ -63,5 +76,14 @@ describe("the composer's run-config face", () => {
     // `sm:grid` would put the panel and the face on screen together between
     // 640 and 767; the panel starts where the face ends.
     expect(tokens).toContain("md:grid");
+
+    // And the line that opens every control the panel owns has to cover the
+    // same band. At `sm:hidden` the 640–767 width kept the panel's replacement
+    // but lost the machine, workspace and agent choices behind it.
+    const summary = classesOf(source, "setControlsOpen(true)", "button");
+    expect(summary).not.toBe("");
+    const summaryTokens = summary.split(/\s+/);
+    expect(summaryTokens).toContain("md:hidden");
+    expect(summaryTokens).not.toContain("sm:hidden");
   });
 });

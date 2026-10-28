@@ -61,8 +61,6 @@ import {
 import { projectLabel } from "../lib/paths";
 import {
   getDraftPermissionMode,
-  normalizePermissionMode,
-  PERMISSION_MODE_LABEL_KEY,
   permissionModesForAgent,
   setDraftPermissionMode,
   type PermissionMode,
@@ -450,16 +448,19 @@ export default function NewChatPage() {
   const controlGroups = newChatControlGroups({ asRoutine, remote });
 
   /**
-   * The phone's one-line stand-in for the three control groups.
+   * The phone's one-line stand-in for the control groups.
    *
    * On a 440pt screen those groups took 321px — a third of the display — before
    * anything was typed, and every choice in them is one a person makes *once*,
-   * when starting a session. The line says what the run will do; the sheet
+   * when starting a session. The line says where the run will happen; the sheet
    * behind it is where you change it.
+   *
+   * Machine and workspace only: the permission mode moved into the composer's
+   * run-config face, and a line that repeated it would put the same setting on
+   * the screen twice, in two controls that open two different sheets.
    */
   const runSummary = [
     machine && !machine.isSelf ? machine.label : tr("nav.thisMachine"),
-    tr(PERMISSION_MODE_LABEL_KEY[normalizePermissionMode(permissionMode)]),
     cwd ? cwd.split("/").filter(Boolean).pop() || cwd : tr("newChat.noWorkspace"),
   ].join(" · ");
 
@@ -780,13 +781,17 @@ export default function NewChatPage() {
             ))}
           </div>
 
-          {/* Phone: the same controls, one line until asked for. */}
+          {/* Phone and small tablet: where the run happens, and the way into
+              every control the panel above owns. It ends exactly where that
+              panel starts (`md`), so the 640–767 band is not left with only
+              the face — which cannot choose a machine, a workspace or an
+              agent. */}
           <button
             type="button"
             onClick={() => setControlsOpen(true)}
             aria-haspopup="dialog"
             aria-expanded={controlsOpen}
-            className="sm:hidden flex w-full min-h-11 items-center gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-strong text-kin-muted"
+            className="md:hidden flex w-full min-h-11 items-center gap-2 rounded-xl border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-3 text-strong text-kin-muted"
           >
             <svg
               width="15"
