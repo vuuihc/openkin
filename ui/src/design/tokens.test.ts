@@ -1179,6 +1179,9 @@ describe("design tokens", () => {
       return new RegExp(`(?<![\\w\\\\-])${escaped}(?![\\w\\\\-])`).test(css);
     }
 
+    // The scan runs Tailwind over every source file; under the parallel
+    // repository check on a loaded machine it has crossed 5s and failed the
+    // suite for being slow, not for finding anything.
     it("generates CSS for every colour class in the tree", async () => {
       // The same file set Tailwind's `content` globs describe, built here as
       // absolute paths so the case does not depend on the working directory —
@@ -1209,7 +1212,7 @@ describe("design tokens", () => {
       // as code and skipped.
       expect(total).toBeGreaterThan(1800);
       expect([...new Set(bad)].sort()).toEqual([]);
-    });
+    }, 20_000);
 
     it("keeps a status tint that carries ink inside the ceiling", () => {
       // A tint is a composite, so the ceiling is where the inks drawn on one
