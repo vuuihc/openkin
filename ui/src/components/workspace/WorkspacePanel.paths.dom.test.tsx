@@ -79,3 +79,26 @@ describe("opening a file named by the change list", () => {
     expect(readTaskSourceFile).not.toHaveBeenCalled();
   });
 });
+
+describe("the file finder's way in", () => {
+  it("sits beside the tab strip, not inside it", () => {
+    const onFindFile = vi.fn();
+    render(
+      <WorkspacePanel
+        taskId="task-1"
+        cwd={CWD}
+        changedFiles={[]}
+        events={[]}
+        onFindFile={onFindFile}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: t("workspace.find.action") });
+    // A tablist holds tabs. A search button inside it reads as a third tab to a
+    // screen reader, and the arrow keys that walk the tab strip would stop on it.
+    expect(button.closest('[role="tablist"]')).toBeNull();
+
+    fireEvent.click(button);
+    expect(onFindFile).toHaveBeenCalledTimes(1);
+  });
+});

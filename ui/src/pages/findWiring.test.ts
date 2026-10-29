@@ -38,8 +38,9 @@ describe("the phone's way into find-in-conversation", () => {
     // active one must not claim Cmd+F. A panel is not a second pane either: it
     // is a full-surface overlay, so while one is open the conversation's bar is
     // behind it — the shortcut took focus into a field the reader cannot see
-    // and sent their typing there. Monaco keeps its own find; everything else
-    // falls through to the browser.
-    expect(SOURCE).toContain("findShortcut={active && panel === null}");
+    // and sent their typing there. The file finder is a third layer over the
+    // same page, and while it is up the bar is behind it too. Monaco keeps its
+    // own find; everything else falls through to the browser.
+    expect(SOURCE).toContain("findShortcut={active && panel === null && !fileFinderOpen}");
   });
 });

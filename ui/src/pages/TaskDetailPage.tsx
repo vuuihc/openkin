@@ -75,6 +75,7 @@ import MobileHeader, { MobileHeaderButton } from "../components/mobile/MobileHea
 import PullRequestPanel from "../components/pr/PullRequestPanel";
 import PublishPanel from "../components/pr/PublishPanel";
 import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
+import FileQuickOpen from "../components/workspace/FileQuickOpen";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
@@ -259,6 +260,15 @@ export default function TaskDetailPage({
   );
   const [workspaceOpenPath, setWorkspaceOpenPath] = useState<string | null>(null);
   const [workspaceOpenNonce, setWorkspaceOpenNonce] = useState(0);
+  /**
+   * The file finder, owned by the page rather than the files panel: the
+   * shortcut works with the panel closed, and the phone's action sheet needs an
+   * opener outside it. The panel's sidebar has one too, for the same reason the
+   * sheet does.
+   */
+  const [fileFinderOpen, setFileFinderOpen] = useState(false);
+  /** Open the finder once the phone's action sheet has gone; see `openFindAfterSheet`. */
+  const openFileFinderAfterSheet = useRef(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null | undefined>(
     undefined,
   );
@@ -687,6 +697,15 @@ export default function TaskDetailPage({
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
+      // A dialog owns the keyboard while it is up. Approving a card behind the
+      // overlay is the worst thing a shortcut can do, and a focused button in
+      // the file finder is exactly the target this would otherwise get.
+      if (
+        e.target instanceof Element &&
+        e.target.closest('[role="dialog"], [role="alertdialog"]')
+      ) {
+        return;
+      }
       const list = needsYou;
       if (!list.length) return;
       if (e.key === "j" || e.key === "J") {
@@ -704,6 +723,41 @@ export default function TaskDetailPage({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [active, needsYou, focusIdx, decide]);
+
+  // ⌘P / Ctrl+P is the file finder, from anywhere on the session — the whole
+  // point is that it works without first opening the files panel and walking a
+  // tree. It fires with the caret in the composer too: a shortcut that stops
+  // working where you type is a shortcut nobody trusts.
+  //
+  // It does not fire from inside a dialog, and that is not politeness. The
+  // command palette, a sheet and the finder itself are all modal surfaces that
+  // keep their own focus; opening this one underneath them would put a hidden
+  // text field in front of the keyboard. The finder marks its own dialog, so
+  // pressing the key again while it is open is still its own.
+  const canFindFile = active && Boolean(task);
+  useEffect(() => {
+    if (!canFindFile) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.repeat) return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "p") return;
+      const target = event.target;
+      const dialog =
+        target instanceof Element ? target.closest('[role="dialog"], [role="alertdialog"]') : null;
+      if (dialog && !dialog.hasAttribute("data-file-quick-open")) return;
+      event.preventDefault();
+      setFileFinderOpen(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canFindFile]);
+
+  // A pane behind the tab strip keeps its state, and the finder is a modal
+  // overlay: leaving it open would greet the reader with it on return, days
+  // later, over a session they had moved on from.
+  useEffect(() => {
+    if (!active) setFileFinderOpen(false);
+  }, [active]);
 
   async function onLimitAction(action: "wait" | "continue" | "switch" | "dismiss", agent?: string) {
     if (!task) return;
@@ -1073,19 +1127,32 @@ export default function TaskDetailPage({
     }
   }
 
-  function onOpenWorkspacePath(filePath: string) {
-    if (!task) return;
+  function onOpenWorkspacePath(filePath: string): boolean {
+    if (!task) return false;
     // If the path is already a canonical repo-relative path, use it directly.
     // Otherwise resolve against the task's cwd as legacy fallback.
     const next = toWorkspaceRelativePath(task.cwd, filePath);
     if (!next) {
       pushToast(tr("workspace.outsideWorkspace"), "error");
-      return;
+      return false;
     }
     showPanel(id, "files");
     setWorkspaceOpenPath(next);
     // Bump the nonce so re-clicking the same path re-loads/focuses it.
     setWorkspaceOpenNonce((n) => n + 1);
+    return true;
+  }
+
+  /**
+   * A file chosen in the finder. The search answers for the checkout, so that
+   * is where the file opens: a generation is a snapshot of the work, and the
+   * file just found may not exist in the one that happened to be on screen.
+   * The generation is only left behind once the path is known to open — a
+   * refused path should not flip the panel to the source view and show nothing.
+   */
+  function onQuickOpenPath(filePath: string) {
+    if (!onOpenWorkspacePath(filePath)) return;
+    setSelectedWorkspaceId(null);
   }
 
   const changedFiles = useMemo(() => extractChangedFiles(events), [events]);
@@ -1344,6 +1411,7 @@ export default function TaskDetailPage({
   const sessionActions: ActionSheetButton[] = [
     { text: tr("chat.find.menu"), handler: () => (openFindAfterSheet.current = true) },
     { text: tr("task.share"), handler: () => (openShareAfterSheet.current = true) },
+    { text: tr("workspace.find.action"), handler: () => (openFileFinderAfterSheet.current = true) },
     { text: tr("workspace.title"), handler: () => togglePanel(id, "files") },
     { text: tr("pr.title"), handler: () => togglePrPanel() },
     ...(!terminal
@@ -1544,6 +1612,10 @@ export default function TaskDetailPage({
               openShareAfterSheet.current = false;
               setShareOpen(true);
             }
+            if (openFileFinderAfterSheet.current) {
+              openFileFinderAfterSheet.current = false;
+              setFileFinderOpen(true);
+            }
           }}
           header={tr("task.sessionActions")}
           // Which machine is about to be acted on. The footer strip that named
@@ -1627,7 +1699,7 @@ export default function TaskDetailPage({
             onSaveArtifact={(text) => void onSaveArtifact(text)}
             findOpen={findOpen}
             onFindOpenChange={setFindOpen}
-            findShortcut={active && panel === null}
+            findShortcut={active && panel === null && !fileFinderOpen}
             trailing={
               <>
                 {unanchored.map((entry) => (
@@ -1881,6 +1953,7 @@ export default function TaskDetailPage({
               // Asked of the registry rather than of `machine`, so the rule has
               // one home — the same one `resolvePanel` just consulted.
               onPublish={isPanelAvailable("publish", panelCtx) ? openPublishPanel : undefined}
+              onFindFile={() => setFileFinderOpen(true)}
               onClose={() => hidePanel(id)}
             />
           </div>
@@ -1921,6 +1994,18 @@ export default function TaskDetailPage({
           onClose={() => hidePanel(id)}
         />
       )}
+
+      {/*
+        Last, so it is painted over the panels and sheets it can be opened
+        from. Selecting a row is what opens the files panel — not the other way
+        round — which is why it lives on the page and not inside the panel.
+      */}
+      <FileQuickOpen
+        taskId={task.id}
+        open={fileFinderOpen}
+        onClose={() => setFileFinderOpen(false)}
+        onOpenPath={onQuickOpenPath}
+      />
     </div>
   );
 }

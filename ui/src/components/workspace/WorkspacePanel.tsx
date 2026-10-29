@@ -30,7 +30,7 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
-import { IconPanel, IconSend, IconSpinner, IconX } from "../icons";
+import { IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
 import FileTree from "./FileTree";
 
@@ -82,6 +82,13 @@ type Props = {
    * themselves, and the Hub refuses the write for exactly that reason.
    */
   onPublish?: () => void;
+  /**
+   * Opens the file finder, for a console that has one.
+   *
+   * The shortcut is the desktop's; this button is how a phone reaches the same
+   * surface, next to the two lenses it searches past.
+   */
+  onFindFile?: () => void;
 };
 
 const SIDEBAR_WIDTH_KEY = "kin.workspace.sidebarWidth";
@@ -150,6 +157,7 @@ export default function WorkspacePanel({
   onDiscardAll,
   actionsBusy = false,
   onPublish,
+  onFindFile,
 }: Props) {
   useT();
   const tr = useT();
@@ -536,26 +544,44 @@ export default function WorkspacePanel({
             } as CSSProperties
           }
         >
-          <div
-            className="flex-none flex items-center gap-1 px-2 py-1.5 border-b border-[var(--kin-hairline)]"
-            role="tablist"
-            aria-label={tr("workspace.sidebarTabs")}
-          >
-            <TabButton
-              active={lens === "changes"}
-              disabled={!hasChanges}
-              onClick={() => pickWorkspaceLens(taskId, viewKey, "changes")}
-              label={
-                hasChanges
-                  ? tr("workspace.tabChangesCount", { count: visibleChangedFiles.length })
-                  : tr("workspace.tabChanges")
-              }
-            />
-            <TabButton
-              active={lens === "files"}
-              onClick={() => pickWorkspaceLens(taskId, viewKey, "files")}
-              label={tr("workspace.tabFiles")}
-            />
+          <div className="flex-none flex items-center gap-1 px-2 py-1.5 border-b border-[var(--kin-hairline)]">
+            {/*
+              The tablist holds the two lenses and nothing else: an action
+              inside it would be announced as a third tab that selects nothing.
+              The finder is that action, so it sits beside the list.
+            */}
+            <div
+              className="flex flex-1 min-w-0 items-center gap-1"
+              role="tablist"
+              aria-label={tr("workspace.sidebarTabs")}
+            >
+              <TabButton
+                active={lens === "changes"}
+                disabled={!hasChanges}
+                onClick={() => pickWorkspaceLens(taskId, viewKey, "changes")}
+                label={
+                  hasChanges
+                    ? tr("workspace.tabChangesCount", { count: visibleChangedFiles.length })
+                    : tr("workspace.tabChanges")
+                }
+              />
+              <TabButton
+                active={lens === "files"}
+                onClick={() => pickWorkspaceLens(taskId, viewKey, "files")}
+                label={tr("workspace.tabFiles")}
+              />
+            </div>
+            {onFindFile && (
+              <button
+                type="button"
+                onClick={onFindFile}
+                title={tr("workspace.find.actionHint")}
+                aria-label={tr("workspace.find.action")}
+                className="flex-none rounded-md p-1 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors"
+              >
+                <IconSearch size={13} />
+              </button>
+            )}
           </div>
           {lens === "changes" &&
             !viewedWorkspaceId &&
