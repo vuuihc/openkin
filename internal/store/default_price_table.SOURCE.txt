@@ -6,9 +6,17 @@ Source: LiteLLM model_prices_and_context_window.json (open source)
 
 Units in default_price_table.json: USD per 1M input/output tokens
   (LiteLLM stores USD per token; we multiply by 1e6).
+  ctx = max_input_tokens, the model's context window (omitted when upstream
+  has no number for it).
 
 Regenerate:
   python3 scripts/gen_default_price_table.py
 
-This is a curated subset of models Kin agents commonly report.
+Curated subset size: 56 models.
+Missing from upstream at generation time: claude-3-5-haiku-20241022, claude-3-5-haiku-latest, claude-3-5-sonnet-latest, claude-opus-4-0, claude-sonnet-4-0, gpt-5.1-mini.
+Kept from the previous table (no longer upstream, in/out preserved):
+  claude-3-7-sonnet-20250219, claude-opus-4-1, claude-opus-4-1-20250805, claude-opus-4-20250514, claude-sonnet-4-20250514, grok-2-latest, grok-2-vision-latest, grok-3-fast-latest, grok-3-latest, grok-3-mini-fast-latest, grok-3-mini-latest, grok-4-1-fast, grok-4-latest.
+Dropped (in the previous table, removed from ALLOW):
+  (none).
+
 Prices change; edit Settings → price_table to override, or regenerate.

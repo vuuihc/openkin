@@ -172,8 +172,10 @@ lands with tests, a `web/dist` rebuild, and the feature gate.
   time (see the C1 section): the stored tree OIDs answer, the payload is the
   fallback. Acceptance: an edit made by a non-file tool still appears in the
   round card.
-- **C2 Context window.** Add `context_window` to the model catalog, report
-  per-turn usage from adapters, draw a meter in the usage sheet.
+- **C2 Context window.** Landed as model metadata in the price table plus a
+  meter in the usage sheet (see the C2 section). Adapters do not report a
+  window yet; the table is the source and an unknown model draws no meter.
+  Acceptance: a session near its window says so before the next turn fails.
 - **C3 Role presets.** A saved prompt prefix chosen per draft/session, no
   protocol change. Reasoning/Plan/Fast stay out until an adapter exposes them.
 
@@ -534,3 +536,106 @@ never records its last round (payload fallback); the two boundaries are the
 user messages, so a hand edit made between turns is attributed to the round
 before it; a record is capped at 200 files (the card shows six and counts the
 rest).
+
+#### C2 — the usage sheet shows how full the window is (landed)
+
+The sheet could say what a session had spent and never how much room was left.
+Those are different questions: totals grow for as long as the session lives,
+while the window is a ceiling on one request, and a session that reaches it
+loses detail or fails its next turn. Lody answers it in the composer; Kin now
+answers it where the reader already looks for numbers.
+
+Three decisions shaped the slice:
+
+- **The window is model metadata, not usage.** It went into the price table
+  (`PriceEntry.Ctx`), because that file already carries one row per model from
+  the one upstream dataset that publishes both — LiteLLM's
+  `model_prices_and_context_window.json`. `scripts/gen_default_price_table.py`
+  now emits `ctx` from `max_input_tokens`; a hand-written override without it
+  stays valid and simply has no known window.
+- **The number is the last request, not the session.** `store.TaskUsage` gained
+  a `context` block: the input side (prompt + cache reads + cache writes, the
+  three things that occupy the window) of the most recent record from the
+  task's own agent. Records without an input count are skipped; so are worker
+  records from other agents (a dispatched task has one conversation per
+  worker, and the reader is in the host's) and the host's own controller calls
+  (plan refinement, synthesis), which the engine stamps
+  `provider: controller` — their prompt is a brief, not the session.
+- **A missing half draws nothing.** `contextFill` answers null unless both the
+  request size and the window are known, so an unlisted model shows its tokens
+  with no denominator instead of an empty bar that reads as "plenty of room".
+
+The endpoint resolves the window from the loaded price table (which honours a
+user override) and adds `context_window` beside the usage payload; the console
+draws a thin bar under `usage.context`, blue below 80%, amber to 95%, red at
+and above it, with one sentence at those thresholds and none otherwise. A
+request past the ceiling keeps its honest percentage (e.g. 103%) while the bar
+clamps and `aria-valuenow` stays at 100.
+
+The regenerated table also carries what the generator used to throw away:
+ids upstream has since pruned keep their previous row (a retired id with a
+stale price beats a silent zero), and the two Anthropic ids the built-in
+catalog actually resolves to (`claude-opus-4-8`, `claude-sonnet-4-6`) were
+added to the curated set — the catalog's own defaults previously had no price
+and no window. Five models (`gpt-5.1-chat`, `grok-code-fast*`, `o1-mini`) carry
+upstream price refreshes from the same run; no other price moved.
+
+Two gaps the review found in the generator, both fixed. A kept row is copied
+whole and the committed table predated the window column, so five retired
+Claude ids (`claude-opus-4-1`, `claude-sonnet-4-20250514`, …) would have gone
+without a denominator forever; `KEPT_CTX` supplies their 200k default window and
+is deliberately limited to ids whose default is not in doubt — 46 of 56 rows now
+carry a window, and the ten that do not are Grok ids whose ceiling is the open
+question. And an id *removed from `ALLOW`* used to vanish from the table with no
+line anywhere; the generator now reports it in SOURCE.txt and on stderr, which
+is the same "a retired model losing its price silently" harm the keep policy
+exists to prevent.
+
+Acceptance: a session near its window says so before the next turn fails.
+
+Verified: store tests (latest request not the sum; a controller record and an
+input-less record are skipped; the pinned model is the fallback; a legacy task
+with no observed request has no context), price-table tests (the built-in rows
+for every catalog model, alias/prefix lookup, an entry without `ctx` is
+unknown, negative `ctx` is rejected, retired ids survive regeneration), an API
+test (the response carries `context` and `272000` for `gpt-5-codex`, and zero
+for an unlisted pin), a helper table (thresholds on the rounded percentage, clamping,
+the null cases) and eight DOM tests (the meter only when both halves are known,
+the clamp, the two hints, silence when there is room, and the card and phone
+trees each reaching it). Eight
+mutations were red-verified: first-request-instead-of-last, no agent filter, no
+input-count filter, no controller-record filter, zero window reported as known,
+endpoint not enriching, `contextFill` ignoring the window, and the meter drawn
+with no data.
+
+A same-model review of the diff reported no blockers, one major — the tracked
+`web/dist/index.html` was built before the threshold edit, so the shipped bundle
+still carried ratio-based levels — and six nits. The rebuild fixed the major;
+three nits were fixed in place: the controller stamp became one exported
+constant (`store.UsageSourceController`) that the engine writes and the store
+reads, so a rename is a compile error rather than a silent filter miss; the two
+generator gaps above; and the tests the review found missing (the side-rail card
+and the phone sheet each draw the meter, and a saved `price_table` override
+supplies — or withholds — the window the endpoint reports). Two were considered
+and declined, with the reason recorded here rather than left implicit:
+
+- **Droid's model ids are still out of the curated set.** 41 of droid's 46 ids
+  have no row, so most droid sessions draw no meter. Adding them changes
+  default *pricing* coverage as well (models that previously reported cost as
+  unknown would start estimating), which is a different slice; it belongs with
+  a droid-specific pass, not with the window.
+- **`latestContext` still walks past a record with no input count.** The review
+  read such a record as "the newest request, so an older number understates
+  fill". It is a cost or output report, not a request — a request that reports
+  usage reports an input count — and stopping there would blank the meter for
+  every turn whose last record is cost-only. Walking past it does not make the
+  number older than the newest *request*.
+
+Residual risk and bounds: the window is whatever LiteLLM says the model's
+*maximum input* is, which for a subscription plan can be larger than the
+effective per-request ceiling (a 1M row for a 200k plan would understate
+pressure); the denominator is displayed and the table is editable in Settings,
+and preferring a window an adapter reports remains the follow-up once one does.
+The meter refreshes when the task row's totals change, i.e. once per completed
+turn, not mid-turn. Cost and context both key off the model name, so an agent
+that reports no model relies on the task's pin.

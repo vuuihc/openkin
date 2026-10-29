@@ -23,15 +23,20 @@ const (
 //go:embed default_price_table.json
 var defaultPriceTableJSONBytes []byte
 
-// DefaultPriceTableJSON is the built-in default (USD per 1M input/output tokens).
-// Curated subset of LiteLLM's open model price list; regenerate via
-// scripts/gen_default_price_table.py.
+// DefaultPriceTableJSON is the built-in default (USD per 1M input/output tokens,
+// plus each model's maximum input tokens). Curated subset of LiteLLM's open
+// model price list; regenerate via scripts/gen_default_price_table.py.
 var DefaultPriceTableJSON = string(defaultPriceTableJSONBytes)
 
-// PriceEntry is USD per 1M tokens for one model.
+// PriceEntry is USD per 1M tokens for one model, plus the input ceiling the
+// same upstream file publishes for it.
 type PriceEntry struct {
 	In  float64 `json:"in"`
 	Out float64 `json:"out"`
+	// Ctx is the model's maximum input tokens (its context window). Zero means
+	// unknown: a hand-written or older price_table override may omit it, and a
+	// reader must then show usage without a denominator rather than invent one.
+	Ctx int64 `json:"ctx,omitempty"`
 }
 
 // PriceTable maps model name → prices.
@@ -56,6 +61,9 @@ func ParsePriceTable(raw string) (PriceTable, error) {
 		}
 		if e.In < 0 || e.Out < 0 {
 			return nil, fmt.Errorf("price_table[%q]: in/out must be >= 0", name)
+		}
+		if e.Ctx < 0 {
+			return nil, fmt.Errorf("price_table[%q]: ctx must be >= 0", name)
 		}
 	}
 	return t, nil
@@ -84,6 +92,20 @@ func (t PriceTable) ComputeCost(model string, tokensIn, tokensOut int) (cost flo
 	}
 	cost = float64(tokensIn)/1e6*e.In + float64(tokensOut)/1e6*e.Out
 	return cost, true
+}
+
+// ContextWindow returns the model's maximum input tokens, using the same
+// lookup rules as ComputeCost. ok is false when the model is unknown or its
+// entry predates the field, so callers show usage without a denominator.
+func (t PriceTable) ContextWindow(model string) (window int64, ok bool) {
+	if t == nil {
+		return 0, false
+	}
+	e, found := t.lookup(model)
+	if !found || e.Ctx <= 0 {
+		return 0, false
+	}
+	return e.Ctx, true
 }
 
 func (t PriceTable) lookup(model string) (PriceEntry, bool) {

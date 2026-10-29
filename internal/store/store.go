@@ -1885,10 +1885,24 @@ type UsageTotals struct {
 	CacheStatus              string   `json:"cache_status"`
 }
 
+// UsageContext is how full the model's context was on the task's most recent
+// request, which is the only moment the number means anything: a sum over a
+// session grows without bound, while the prompt of one request is what the
+// window has to hold.
+type UsageContext struct {
+	// Tokens is the input side of that request — prompt, cache reads and cache
+	// writes included, since all three occupy the window. Zero when no record
+	// reported an input count.
+	Tokens int64 `json:"tokens"`
+	// Model is the model that request ran on, for choosing a window.
+	Model string `json:"model"`
+}
+
 // TaskUsage is the cache-aware usage view for one task.
 type TaskUsage struct {
 	TaskID string `json:"task_id"`
 	UsageTotals
+	Context             UsageContext              `json:"context"`
 	ModelSubtotals      []UsageModelSubtotal      `json:"model_subtotals"`
 	CostSourceSubtotals []UsageCostSourceSubtotal `json:"cost_source_subtotals"`
 }
@@ -2026,7 +2040,8 @@ func (s *Store) TaskUsage(ctx context.Context, taskID string) (TaskUsage, error)
 		}
 		byCost[record.CostSource].addRecord(record)
 	}
-	result := TaskUsage{TaskID: taskID, UsageTotals: total.totals(), ModelSubtotals: make([]UsageModelSubtotal, 0, len(byModel)), CostSourceSubtotals: make([]UsageCostSourceSubtotal, 0, len(byCost))}
+	ctxUsage := latestContext(records, task)
+	result := TaskUsage{TaskID: taskID, UsageTotals: total.totals(), Context: ctxUsage, ModelSubtotals: make([]UsageModelSubtotal, 0, len(byModel)), CostSourceSubtotals: make([]UsageCostSourceSubtotal, 0, len(byCost))}
 	for model, subtotal := range byModel {
 		result.ModelSubtotals = append(result.ModelSubtotals, UsageModelSubtotal{Model: model, UsageTotals: subtotal.totals()})
 	}
@@ -2046,6 +2061,52 @@ type usageAccumulator struct {
 	cost                                                   float64
 	costCount                                              int
 	statuses                                               map[string]struct{}
+}
+
+// UsageSourceController is the provider stamp the engine puts on Kin's own
+// control calls (plan refinement, synthesis). They are billed to the task but
+// are not part of the conversation, so their prompt is not its context.
+//
+// Exported because the engine writes the stamp and this package reads it, and
+// a string contract between two packages that only one of them tests is a
+// rename away from silently counting the plan brief as the session's context.
+const UsageSourceController = "controller"
+
+// latestContext reports the prompt size of the most recent request the task's
+// own agent made. Records in event order, so the last match wins.
+//
+// Two kinds of record are skipped. A record from another agent belongs to a
+// different session — in a dispatched task the workers each run their own
+// conversation, and the one the user is reading is the host's. A controller
+// call is the host's own short request with a prompt built for it, and taking
+// one for the session's context would report a nearly empty window.
+func latestContext(records []UsageRecord, task Task) UsageContext {
+	agent := strings.TrimSpace(task.Agent)
+	for i := len(records) - 1; i >= 0; i-- {
+		r := records[i]
+		// A record with no input count is not a request: an adapter's cost-only
+		// result, or a legacy row, reports spend without a prompt size. Skipping
+		// it does not make the answer older than the newest request, and
+		// stopping on it would blank the meter for every turn that ends with one.
+		if r.InputTokens == nil {
+			continue
+		}
+		if agent != "" && r.Agent != agent {
+			continue
+		}
+		if r.Provider != nil && strings.EqualFold(strings.TrimSpace(*r.Provider), UsageSourceController) {
+			continue
+		}
+		model := ""
+		if r.Model != nil {
+			model = strings.TrimSpace(*r.Model)
+		}
+		if model == "" && task.Model != nil {
+			model = strings.TrimSpace(*task.Model)
+		}
+		return UsageContext{Tokens: int64(logicalUsageInput(r)), Model: model}
+	}
+	return UsageContext{}
 }
 
 func (a *usageAccumulator) addRecord(r UsageRecord) {

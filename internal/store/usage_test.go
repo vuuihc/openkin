@@ -813,3 +813,142 @@ func TestUsageSummariesRespectCacheSemanticsAndLegacyFallback(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestTaskUsageContextIsTheLatestRequestNotTheSum(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	model := "claude-sonnet-4-6"
+	task := Task{
+		ID: "01USAGECONTEXT0000000000001", Title: "ctx", Agent: "claude-code",
+		Cwd: "/tmp", Prompt: "p", Status: "running", CreatedAt: NowMilli(),
+		Model: &model,
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	input, output := 100, 10
+	cacheRead := 1000
+	// Two requests from the task's own agent, then a controller call and an
+	// output-only record: the context is the second request, 100+1000 tokens.
+	records := []UsageRecord{
+		{
+			TaskID: task.ID, EventSeq: 1, OccurredAt: NowMilli(), Agent: "claude-code",
+			Model: &model, InputTokens: &input, OutputTokens: &output, CacheReadTokens: &cacheRead,
+			CacheStatus: CacheStatusReported, InputSemantics: InputSemanticsUncachedOnly, CostSource: CostSourceUnknown,
+		},
+		{
+			TaskID: task.ID, EventSeq: 2, OccurredAt: NowMilli(), Agent: "claude-code",
+			Model: &model, InputTokens: intPtr(200), OutputTokens: &output, CacheReadTokens: intPtr(2000),
+			CacheStatus: CacheStatusReported, InputSemantics: InputSemanticsUncachedOnly, CostSource: CostSourceUnknown,
+		},
+		{
+			// Orchestration controller: a separate call, not this window.
+			TaskID: task.ID, EventSeq: 3, OccurredAt: NowMilli(), Agent: "codex",
+			Model: strPtr("gpt-5-codex"), InputTokens: intPtr(50_000),
+			CacheStatus: CacheStatusUnknown, InputSemantics: InputSemanticsUnknown, CostSource: CostSourceUnknown,
+		},
+		{
+			// A record with no input count cannot say how full the window was.
+			TaskID: task.ID, EventSeq: 4, OccurredAt: NowMilli(), Agent: "claude-code",
+			Model: &model, OutputTokens: &output,
+			CacheStatus: CacheStatusUnknown, InputSemantics: InputSemanticsUnknown, CostSource: CostSourceUnknown,
+		},
+		{
+			// Kin's own plan-refinement call is stamped with the host agent, so
+			// only the provider stamp distinguishes it from a real turn. Its
+			// prompt is a plan brief, not the conversation: counting it would
+			// report a nearly empty window on a long session.
+			TaskID: task.ID, EventSeq: 5, OccurredAt: NowMilli(), Agent: "claude-code",
+			Model: &model, Provider: strPtr("controller"), InputTokens: intPtr(99_999),
+			CacheStatus: CacheStatusUnknown, InputSemantics: InputSemanticsUncachedOnly, CostSource: CostSourceUnknown,
+		},
+	}
+	for _, record := range records {
+		if err := s.InsertUsageRecord(ctx, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	usage, err := s.TaskUsage(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Context.Tokens != 2200 || usage.Context.Model != model {
+		t.Fatalf("context = %+v; want 2200 on %s", usage.Context, model)
+	}
+	// The sum is a different number on purpose: 100+1100+200+2200 for the
+	// task's agent. If the two ever match, this test stopped distinguishing.
+	if usage.TokensIn == usage.Context.Tokens {
+		t.Fatalf("context %d equals the session total %d", usage.Context.Tokens, usage.TokensIn)
+	}
+}
+
+func TestTaskUsageContextFallsBackToThePinnedModel(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	model := "gpt-5-codex"
+	task := Task{
+		ID: "01USAGECONTEXT0000000000002", Title: "ctx", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "running", CreatedAt: NowMilli(),
+		Model: &model,
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	// The adapter reported tokens without naming a model; the window must still
+	// resolve through the task's pin.
+	if err := s.InsertUsageRecord(ctx, UsageRecord{
+		TaskID: task.ID, EventSeq: 1, OccurredAt: NowMilli(), Agent: "codex",
+		InputTokens: intPtr(700), CacheStatus: CacheStatusUnknown,
+		InputSemantics: InputSemanticsTotalIncludesCache, CostSource: CostSourceUnknown,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	usage, err := s.TaskUsage(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.Context.Tokens != 700 || usage.Context.Model != model {
+		t.Fatalf("context = %+v; want 700 on %s", usage.Context, model)
+	}
+}
+
+func TestTaskUsageContextIsEmptyWithoutInputCounts(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "kin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	task := Task{
+		ID: "01USAGECONTEXT0000000000003", Title: "ctx", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "succeeded", CreatedAt: NowMilli(),
+		TokensIn: 500, TokensOut: 50,
+	}
+	if err := s.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := s.TaskUsage(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Legacy totals exist but no request was ever observed, so there is no
+	// context to draw: an empty struct, not the legacy token count.
+	if usage.Context.Tokens != 0 || usage.Context.Model != "" {
+		t.Fatalf("context = %+v; want zero", usage.Context)
+	}
+}
+
+func intPtr(n int) *int { return &n }

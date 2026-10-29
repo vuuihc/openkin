@@ -67,6 +67,10 @@ ALLOW = {
     "claude-opus-4-0",
     "claude-haiku-4-5",
     "claude-sonnet-4-5",
+    # The ids internal/task/modelcatalog.go resolves the claude-code tiers to.
+    # Without them the catalog's own defaults have no price and no window.
+    "claude-sonnet-4-6",
+    "claude-opus-4-8",
     "claude-opus-4-1",
     # Grok / xAI
     "grok-2",
@@ -92,6 +96,22 @@ ALLOW = {
     "grok-4-1-fast",
     "grok-4-fast-reasoning",
     "grok-4-fast-non-reasoning",
+}
+
+# Windows for ids upstream has dropped and this script therefore keeps from the
+# previous table. A kept row is copied whole, and the committed table may
+# predate the window column, so without this an old session pinned to
+# claude-opus-4-1 would never draw a meter. Only models whose default window is
+# not in doubt are listed: a wrong window moves the meter's warning line, which
+# is worse than no meter at all.
+KEPT_CTX = {
+    # Anthropic's 200k default input window. The 1M variants of these ids are
+    # beta-only and are not what a request gets without the header.
+    "claude-3-7-sonnet-20250219": 200_000,
+    "claude-opus-4-1": 200_000,
+    "claude-opus-4-1-20250805": 200_000,
+    "claude-opus-4-20250514": 200_000,
+    "claude-sonnet-4-20250514": 200_000,
 }
 
 
@@ -128,23 +148,61 @@ def load_litellm(path: Path | None) -> dict:
     return {k: v for k, v in data.items() if isinstance(v, dict) and k != "sample_spec"}
 
 
+def load_previous() -> dict:
+    """The table currently committed, used to keep rows upstream dropped.
+
+    Upstream prunes ids as providers retire and rename them, but a Kin user can
+    still have a session pinned to one. Dropping its row makes every cost for
+    that model silently become unknown, which is worse than a stale price, so
+    a missing id keeps its previous row and is reported below.
+    """
+    if not OUT_JSON.exists():
+        return {}
+    try:
+        prev = json.loads(OUT_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in prev.items() if isinstance(v, dict)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", type=Path, help="Local LiteLLM JSON instead of fetching")
     args = ap.parse_args()
 
     data = load_litellm(args.input)
+    prev = load_previous()
     out: OrderedDict[str, dict] = OrderedDict()
     missing: list[str] = []
+    kept: list[str] = []
     for name in sorted(ALLOW, key=str.lower):
         _src, e = find_entry(data, name)
         if not e:
-            missing.append(name)
+            if name in prev:
+                row = dict(prev[name])
+                if "ctx" not in row and name in KEPT_CTX:
+                    row["ctx"] = KEPT_CTX[name]
+                out[name] = row
+                kept.append(name)
+            else:
+                missing.append(name)
             continue
         out[name] = {
             "in": per_million(e["input_cost_per_token"]),
             "out": per_million(e["output_cost_per_token"]),
         }
+        # The same upstream row carries the model's input ceiling (its context
+        # window). Kin shows usage against it, so it belongs in the same table
+        # the user already edits. Omit it when upstream has no number rather
+        # than guessing — a missing window is shown as usage with no
+        # denominator, which is honest, while a wrong one is not.
+        ctx = e.get("max_input_tokens")
+        if isinstance(ctx, int) and ctx > 0:
+            out[name]["ctx"] = ctx
+
+    # A row that leaves ALLOW leaves the table, and a retired model losing its
+    # price silently is the same harm the keep policy exists to prevent. Say it.
+    dropped = sorted(set(prev) - set(out), key=str.lower)
 
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
@@ -157,12 +215,18 @@ Source: LiteLLM model_prices_and_context_window.json (open source)
 
 Units in default_price_table.json: USD per 1M input/output tokens
   (LiteLLM stores USD per token; we multiply by 1e6).
+  ctx = max_input_tokens, the model's context window (omitted when upstream
+  has no number for it).
 
 Regenerate:
   python3 scripts/gen_default_price_table.py
 
 Curated subset size: {len(out)} models.
 Missing from upstream at generation time: {", ".join(missing) if missing else "(none)"}.
+Kept from the previous table (no longer upstream, in/out preserved):
+  {", ".join(kept) if kept else "(none)"}.
+Dropped (in the previous table, removed from ALLOW):
+  {", ".join(dropped) if dropped else "(none)"}.
 
 Prices change; edit Settings → price_table to override, or regenerate.
 """,
@@ -171,6 +235,10 @@ Prices change; edit Settings → price_table to override, or regenerate.
     print(f"wrote {OUT_JSON} ({len(out)} models)")
     if missing:
         print("missing:", ", ".join(missing), file=sys.stderr)
+    if kept:
+        print(f"kept {len(kept)} retired ids from the previous table", file=sys.stderr)
+    if dropped:
+        print("dropped (left ALLOW):", ", ".join(dropped), file=sys.stderr)
     return 0
 
 

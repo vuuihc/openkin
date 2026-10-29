@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/vuuihc/openkin/internal/agent"
+	"github.com/vuuihc/openkin/internal/store"
 )
 
 // RequiredStep is an immutable worker assignment from the deterministic parser.
@@ -483,7 +484,7 @@ func (e *Engine) recordControllerUsage(
 		return
 	}
 	payload, _ := json.Marshal(map[string]any{
-		"source":     "controller",
+		"source":     store.UsageSourceController,
 		"purpose":    purpose,
 		"tokens_in":  usage.TokensIn,
 		"tokens_out": usage.TokensOut,

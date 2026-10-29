@@ -2149,7 +2149,14 @@ func (s *Server) handleTaskUsage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, usage)
+	// The window is model metadata rather than usage: the store counts what was
+	// spent, and the price table is where a model's input ceiling lives. Zero
+	// means unknown, and the console shows usage without a denominator then.
+	window, _ := s.Store.LoadPriceTable(r.Context()).ContextWindow(usage.Context.Model)
+	writeJSON(w, http.StatusOK, struct {
+		store.TaskUsage
+		ContextWindow int64 `json:"context_window"`
+	}{TaskUsage: usage, ContextWindow: window})
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {

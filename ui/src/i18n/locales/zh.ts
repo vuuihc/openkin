@@ -782,6 +782,10 @@ const zh = {
     reasoningOutput: "推理输出",
     requests: "请求数",
     taskSummary: "任务用量摘要",
+    context: "上下文",
+    contextNearFull:
+      "最近一次请求已接近模型的上下文窗口。新开一个会话最干净；硬撑下去会开始丢细节。",
+    contextFull: "最近一次请求已达到模型的上下文窗口。新开会话才能保证回答质量。",
     showDetails: "用量详情",
     openPhone: "打开用量详情",
     hideDetails: "收起详情",
@@ -1039,6 +1043,8 @@ const zh = {
       descA: "当 agent 不返回账单时，用此表按 token 估算费用。Claude Code 使用 CLI 的 ",
       descB: "，忽略此表。默认值摘自开源 ",
       descC: " 价格表精选子集（可随意改；key 须与模型 id 完全一致）。格式：",
+      ctxHint:
+        "ctx 是模型的上下文窗口（输入 token 数），用量的「上下文」一条按它算占比；不写则只显示用量、不显示占比。",
       sourceName: "LiteLLM",
       sourceHint: "开源数据 · 可用 scripts/gen_default_price_table.py 重新生成",
       overrideHint: "若你曾保存过自定义价格表，会覆盖内置默认，直到你替换它。",

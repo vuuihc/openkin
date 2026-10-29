@@ -5,9 +5,11 @@ import {
   cacheCoverageLabel,
   cacheRateLabel,
   cacheState,
+  contextFill,
   costSourceLabelKey,
   formatTokenCount,
   primaryCostSource,
+  type ContextFill,
 } from "../../lib/usage";
 import Sheet from "../mobile/Sheet";
 
@@ -91,6 +93,7 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
 
   const details = (
     <div className="space-y-2.5">
+      <ContextMeter fill={contextFill(usage.context, usage.context_window)} dense={isCard} />
       <dl className="grid grid-cols-2 gap-1.5">
         <Metric
           label={tr("usage.tokens")}
@@ -285,6 +288,79 @@ export default function TaskUsageSummary({ usage, loading, variant = "strip", cl
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * How full the model's context window is.
+ *
+ * The bar answers the question the rest of the sheet cannot — the totals only
+ * grow, so a long session looks expensive but not *nearly out of room*. It is
+ * drawn only when both halves are known (a request has reported its input and
+ * the model's window is in the price table); otherwise it is absent rather
+ * than drawn full or empty, because either would be an invented answer.
+ *
+ * At and above the warning thresholds the fill stops being decoration: it
+ * turns orange, then red, and one sentence says what that means for the next
+ * turn. That sentence is the only advice the sheet gives anywhere.
+ */
+function ContextMeter({ fill, dense }: { fill: ContextFill | null; dense?: boolean }) {
+  const tr = useT();
+  if (!fill) return null;
+  const barClass =
+    fill.level === "full" ? "bg-kin-red" : fill.level === "warn" ? "bg-kin-orange" : "bg-kin-blue";
+  const inkClass =
+    fill.level === "full"
+      ? "text-kin-red-ink"
+      : fill.level === "warn"
+        ? "text-kin-orange-ink"
+        : "text-kin-secondary";
+  const hint =
+    fill.level === "full"
+      ? tr("usage.contextFull")
+      : fill.level === "warn"
+        ? tr("usage.contextNearFull")
+        : null;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between gap-2 text-caption tabular-nums">
+        <span className="text-micro font-semibold uppercase tracking-label text-kin-muted">
+          {tr("usage.context")}
+        </span>
+        <span className="min-w-0 truncate">
+          <span className="font-medium text-kin-text">{formatTokenCount(fill.tokens)}</span>
+          <span className="text-kin-muted">
+            {" / "}
+            {formatTokenCount(fill.window)}
+          </span>
+          <span className={`ml-1.5 font-semibold ${inkClass}`}>{fill.percent}%</span>
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={tr("usage.context")}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        // Clamped for the same reason the bar is: assistive tech should hear
+        // "full", not a value past the maximum it was told about.
+        aria-valuenow={Math.min(100, fill.percent)}
+        aria-valuetext={`${formatTokenCount(fill.tokens)} / ${formatTokenCount(fill.window)}`}
+        className={[
+          "w-full overflow-hidden rounded-full bg-[var(--kin-fill)]",
+          dense ? "h-1" : "h-1.5",
+        ].join(" ")}
+      >
+        <div
+          className={`h-full rounded-full ${barClass}`}
+          style={{ width: `${fill.ratio * 100}%` }}
+        />
+      </div>
+      {hint && (
+        <p className={`text-caption leading-ui ${inkClass}`} role="status">
+          {hint}
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -2188,7 +2188,19 @@ export type TaskUsage = {
   task_id: string;
   model_subtotals: UsageModelSubtotal[];
   cost_source_subtotals: UsageCostSourceSubtotal[];
+  /** The prompt of the most recent request, i.e. how full the window is. */
+  context?: UsageContext;
+  /**
+   * The model's maximum input tokens, resolved server-side from the price
+   * table. 0 or absent means unknown: show usage without a denominator.
+   */
+  context_window?: number;
 } & UsageTotals;
+
+export type UsageContext = {
+  tokens: number;
+  model: string;
+};
 
 export function getTaskUsage(id: string): Promise<TaskUsage> {
   return apiFetch<TaskUsage>(`/api/tasks/${encodeURIComponent(id)}/usage`);

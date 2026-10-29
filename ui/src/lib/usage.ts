@@ -65,3 +65,53 @@ export function costSourceLabelKey(source: CostSource | null | undefined): strin
   if (source === "provider") return "costProvider";
   return null;
 }
+
+export type ContextFill = {
+  /** The last request's input tokens. */
+  tokens: number;
+  /** The model's maximum input tokens. */
+  window: number;
+  /** Fraction of the window used, clamped to 1 so it can size a bar. */
+  ratio: number;
+  /** Unclamped percentage: a request that already overflows reads over 100. */
+  percent: number;
+  level: "ok" | "warn" | "full";
+};
+
+/**
+ * Where the meter changes meaning: room left, nearly full, full.
+ *
+ * Thresholds are on the percentage, not the fraction, so the number on screen
+ * and the colour beside it can never disagree — 159,999 of 200,000 draws "80%",
+ * and 80% is the line.
+ */
+export const CONTEXT_WARN_PERCENT = 80;
+export const CONTEXT_FULL_PERCENT = 95;
+
+/**
+ * How full the context window is, or null when the answer is not knowable.
+ *
+ * Null covers both halves of "not knowable": no request has reported an input
+ * count yet (a task with no completed turn) and a model whose window the price
+ * table does not carry. Drawing a denominator-free bar in either case would
+ * make an unknown look like an empty window.
+ */
+export function contextFill(
+  context: { tokens?: number | null } | null | undefined,
+  window: number | null | undefined,
+): ContextFill | null {
+  const tokens = context?.tokens ?? 0;
+  const total = window ?? 0;
+  if (!(tokens > 0) || !(total > 0)) return null;
+  const exact = tokens / total;
+  const percent = Math.round(exact * 100);
+  const level =
+    percent >= CONTEXT_FULL_PERCENT ? "full" : percent >= CONTEXT_WARN_PERCENT ? "warn" : "ok";
+  return {
+    tokens,
+    window: total,
+    ratio: Math.min(1, exact),
+    percent,
+    level,
+  };
+}

@@ -811,6 +811,11 @@ const en: MessageTree = {
     reasoningOutput: "Reasoning output",
     requests: "Requests",
     taskSummary: "Task usage summary",
+    context: "Context",
+    contextNearFull:
+      "The last request is close to the model's context window. A new session starts clean; a longer one starts losing detail.",
+    contextFull:
+      "The last request is at the model's context window. Start a new session to keep answers accurate.",
     showDetails: "Usage details",
     openPhone: "Open usage details",
     hideDetails: "Hide details",
@@ -1087,6 +1092,8 @@ const en: MessageTree = {
       descB:
         " from the CLI and ignores this table. Defaults are a curated subset of the open-source ",
       descC: " price list (edit freely; keys must match the model id exactly). Shape: ",
+      ctxHint:
+        "ctx is the model's context window in input tokens; the usage sheet shows how full it is. Leave it out and that session shows usage with no denominator.",
       sourceName: "LiteLLM",
       sourceHint: "Open dataset · regenerate with scripts/gen_default_price_table.py",
       overrideHint:

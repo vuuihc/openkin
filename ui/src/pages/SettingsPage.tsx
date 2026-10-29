@@ -1481,8 +1481,11 @@ export default function SettingsPage() {
               {tr("settings.price.sourceName")}
             </a>
             {tr("settings.price.descC")}
-            <code className="text-kin-secondary">{`{"model": {"in": 1.25, "out": 10.0}}`}</code>
+            <code className="text-kin-secondary">
+              {`{"model": {"in": 1.25, "out": 10.0, "ctx": 400000}}`}
+            </code>
           </p>
+          <p className="text-caption text-kin-muted">{tr("settings.price.ctxHint")}</p>
           <p className="text-caption text-kin-muted">
             {tr("settings.price.sourceHint")}
             {" · "}

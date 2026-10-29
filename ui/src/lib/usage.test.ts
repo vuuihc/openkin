@@ -3,6 +3,7 @@ import {
   cacheCoverageLabel,
   cacheRateLabel,
   cacheState,
+  contextFill,
   costSourceLabelKey,
   formatTokenCount,
   primaryCostSource,
@@ -45,5 +46,59 @@ describe("usage helpers", () => {
     expect(costSourceLabelKey("price_table")).toBe("costEstimated");
     expect(costSourceLabelKey("provider")).toBe("costProvider");
     expect(costSourceLabelKey("unknown")).toBeNull();
+  });
+});
+
+describe("contextFill", () => {
+  it("reports the fraction and the level", () => {
+    const fill = contextFill({ tokens: 50_000 }, 200_000);
+    expect(fill).toEqual({
+      tokens: 50_000,
+      window: 200_000,
+      ratio: 0.25,
+      percent: 25,
+      level: "ok",
+    });
+  });
+
+  it("changes level at the percentage the reader sees, not the exact fraction", () => {
+    // The colour and the number cannot disagree: 159,999 of 200,000 rounds to
+    // "80%", so it is already the warning line.
+    const justUnder = contextFill({ tokens: 159_999 }, 200_000);
+    expect(justUnder?.percent).toBe(80);
+    expect(justUnder?.level).toBe("warn");
+    // 79% stays calm; 80% and 94% warn; 95% is full.
+    for (const [percent, level] of [
+      [79, "ok"],
+      [80, "warn"],
+      [94, "warn"],
+      [95, "full"],
+      [100, "full"],
+    ] as const) {
+      const fill = contextFill({ tokens: (200_000 * percent) / 100 }, 200_000);
+      expect([percent, fill?.level]).toEqual([percent, level]);
+    }
+  });
+
+  it("clamps the ratio but not the percentage", () => {
+    const fill = contextFill({ tokens: 260_000 }, 200_000);
+    expect(fill?.ratio).toBe(1);
+    expect(fill?.percent).toBe(130);
+    expect(fill?.level).toBe("full");
+  });
+
+  it("answers null when either half is unknown", () => {
+    // No window: a model the price table does not carry.
+    expect(contextFill({ tokens: 1000 }, 0)).toBeNull();
+    expect(contextFill({ tokens: 1000 }, null)).toBeNull();
+    expect(contextFill({ tokens: 1000 }, undefined)).toBeNull();
+    // No request has reported input yet.
+    expect(contextFill({ tokens: 0 }, 200_000)).toBeNull();
+    expect(contextFill({}, 200_000)).toBeNull();
+    expect(contextFill(null, 200_000)).toBeNull();
+    expect(contextFill(undefined, 200_000)).toBeNull();
+    // Negative and NaN counts are not measurements.
+    expect(contextFill({ tokens: -5 }, 200_000)).toBeNull();
+    expect(contextFill({ tokens: Number.NaN }, 200_000)).toBeNull();
   });
 });

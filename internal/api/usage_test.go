@@ -158,6 +158,139 @@ func TestTaskUsageEndpoint(t *testing.T) {
 	}
 }
 
+func TestTaskUsageEndpointCarriesTheContextWindow(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	model := "gpt-5-codex"
+	task := store.Task{
+		ID: "01APITASKUSAGE000000000002", Title: "usage", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "running", CreatedAt: store.NowMilli(),
+		Model: &model,
+	}
+	if err := s.Store.InsertTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	input := 1234
+	if err := s.Store.InsertUsageRecord(ctx, store.UsageRecord{
+		TaskID: task.ID, EventSeq: 1, OccurredAt: store.NowMilli(), Agent: "codex",
+		Model: &model, InputTokens: &input,
+		CacheStatus: store.CacheStatusUnknown, InputSemantics: store.InputSemanticsTotalIncludesCache,
+		CostSource: store.CostSourceUnknown,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+task.ID+"/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		store.TaskUsage
+		ContextWindow int64 `json:"context_window"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Context.Tokens != 1234 || body.Context.Model != model {
+		t.Fatalf("context = %+v", body.Context)
+	}
+	// The window is resolved from the price table, whose default row for the
+	// codex models is 272k. A zero here means the endpoint stopped enriching
+	// and the console would silently lose its denominator.
+	if body.ContextWindow != 272_000 {
+		t.Fatalf("context_window = %d, want 272000", body.ContextWindow)
+	}
+
+	// A model the table does not know answers with no denominator rather than
+	// a guess. The record names no model, so the task's pin is what resolves,
+	// and the pin is a model with no price-table row.
+	unknown := "some-unlisted-model"
+	other := store.Task{
+		ID: "01APITASKUSAGE000000000003", Title: "usage", Agent: "codex",
+		Cwd: "/tmp", Prompt: "p", Status: "running", CreatedAt: store.NowMilli(),
+		Model: &unknown,
+	}
+	if err := s.Store.InsertTask(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.InsertUsageRecord(ctx, store.UsageRecord{
+		TaskID: other.ID, EventSeq: 1, OccurredAt: store.NowMilli(), Agent: "codex",
+		InputTokens: &input, CacheStatus: store.CacheStatusUnknown,
+		InputSemantics: store.InputSemanticsTotalIncludesCache, CostSource: store.CostSourceUnknown,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/tasks/"+other.ID+"/usage", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	body = struct {
+		store.TaskUsage
+		ContextWindow int64 `json:"context_window"`
+	}{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Context.Model != unknown || body.ContextWindow != 0 {
+		t.Fatalf("unknown model context = %+v window=%d, want %s and 0", body.Context, body.ContextWindow, unknown)
+	}
+
+	// The user's own table is the one the endpoint reads. Without this the
+	// handler could fall back to the built-in table and nothing would notice:
+	// the default row for codex happens to answer the first half of the test.
+	putPriceTable := func(raw string) {
+		t.Helper()
+		payload, err := json.Marshal(map[string]string{"price_table": raw})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader(payload))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("put price_table: %d %s", rr.Code, rr.Body.String())
+		}
+	}
+	windowOf := func(taskID string) int64 {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/usage", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+		var got struct {
+			store.TaskUsage
+			ContextWindow int64 `json:"context_window"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got.ContextWindow
+	}
+
+	putPriceTable(`{"some-unlisted-model":{"in":1,"out":2,"ctx":9000}}`)
+	if w := windowOf(other.ID); w != 9000 {
+		t.Fatalf("override window = %d, want 9000", w)
+	}
+	// A hand-written row without a window draws no meter: the override is not
+	// a place to guess, and zero is how the console is told "unknown".
+	putPriceTable(`{"some-unlisted-model":{"in":1,"out":2}}`)
+	if w := windowOf(other.ID); w != 0 {
+		t.Fatalf("override without ctx = %d, want 0", w)
+	}
+}
+
 func TestPriceTableSettingValidation(t *testing.T) {
 	s, token := newTestServer(t)
 	h := s.Handler()
