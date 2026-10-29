@@ -1951,9 +1951,22 @@ full screen before the show, maximizing unconditionally, maximizing before
 restored rect inside `restoreWindow`, and putting the old rect-then-state shape
 back in `window.ts` — each fails the test that names it.
 
-**Verified live.** With the window maximized, `window-bounds.json` keeps the
-restored rect and records `maximized: true`; un-maximizing flips the flag
-without changing the rect. (Checked on the rebuilt shell after the change.)
+**Verified live.** On the rebuilt shell, a file saying `maximized: true` brought
+the window back maximized with `getNormalBounds()` still the saved 1000×700
+rect; un-maximizing returned it to exactly that rect and flipped the flag
+without touching it. A file saying `fullScreen: true` came back in its Space
+with the same normal rect; quitting from full screen left the file saying
+`fullScreen: true` — the quitting guard — and the next launch restored the
+Space. One trap worth recording: the dev shell's userData is
+`~/Library/Application Support/Kin-dev`, not `Kin`, and the first pass of this
+check read the wrong file and proved nothing.
+
+The same pass turned up a pre-existing bug outside this change: a Quit from the
+app menu — an Apple Event, the same path as Cmd-Q — leaves the process running.
+`will-quit` prevents the default, `quitApp` calls `app.quit()` while that first
+quit is still in progress, and the nested quit is ignored. The tray's Quit calls
+`quitApp` directly and never passes through the prevented handler, which is
+presumably why this went unnoticed. That is the next round, not this one.
 
 Deferred, with reasons: the same as H2 — no single-writer lock on `~/.kin`, no
 dock badge, no global shortcut.
