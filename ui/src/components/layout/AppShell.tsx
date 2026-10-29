@@ -680,6 +680,7 @@ export default function AppShell({
           onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
           onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
           raised={dockVisible}
+          screenKey={pathname}
         />
 
         {/* Terminal panel — the shell's own panel, desktop only */}

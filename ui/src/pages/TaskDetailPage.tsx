@@ -1406,7 +1406,15 @@ export default function TaskDetailPage({
           />
         </div>
 
-        <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+        {/* `data-kin-bottom-chrome` is a contract with the shell's floating
+            surfaces: this band is everything the page pins to the bottom
+            (the waiting strip and the composer), so an overlay that has to
+            stay clear of it measures this instead of guessing a height.
+            See FloatingApproval. */}
+        <div
+          data-kin-bottom-chrome=""
+          className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
+        >
           <div className="max-w-conversation mx-auto space-y-1.5">
             {needsYou.length > 0 && (
               <button

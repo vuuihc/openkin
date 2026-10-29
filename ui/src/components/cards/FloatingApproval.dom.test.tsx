@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Approval } from "../../api/client";
 import { t } from "../../i18n";
@@ -32,6 +32,7 @@ function setup(overrides: Partial<React.ComponentProps<typeof FloatingApproval>>
     onDecide,
     onOpenTask,
     raised: true,
+    screenKey: "/sessions",
     ...overrides,
   };
   const view = render(<FloatingApproval {...props} />);
@@ -83,5 +84,50 @@ describe("FloatingApproval", () => {
   it("shows one approval, so two cards never answer the same decision", () => {
     setup();
     expect(screen.getAllByRole("button", { name: new RegExp(t("chat.approve")) })).toHaveLength(1);
+  });
+
+  it("sits above the page's own bottom furniture when the page marks it", () => {
+    // A conversation pins a composer (and the strip above it) to the bottom,
+    // and its height changes with attachments. The card measures that band
+    // rather than guessing, so it never covers the input.
+    const chrome = document.createElement("div");
+    chrome.setAttribute("data-kin-bottom-chrome", "");
+    chrome.getBoundingClientRect = () =>
+      ({ top: 600, bottom: window.innerHeight, left: 0, right: 390 }) as DOMRect;
+    document.body.appendChild(chrome);
+    try {
+      const { container } = setup({ screenKey: "/tasks/task-1" });
+      const aside = container.querySelector("aside");
+      expect(aside?.style.bottom).toBe(`${window.innerHeight - 600 + 8}px`);
+    } finally {
+      chrome.remove();
+    }
+  });
+
+  it("re-measures when the page draws its composer after the card", async () => {
+    // The bug this pins: a conversation mounts the shell first and the
+    // composer once the task has loaded, so an offset measured at mount found
+    // nothing and the card sat on top of the input for the rest of the visit.
+    const { container } = setup({ screenKey: "/tasks/task-1" });
+    expect(container.querySelector("aside")?.style.bottom).toBe("");
+    const chrome = document.createElement("div");
+    chrome.setAttribute("data-kin-bottom-chrome", "");
+    chrome.getBoundingClientRect = () =>
+      ({ top: 500, bottom: window.innerHeight, left: 0, right: 390 }) as DOMRect;
+    document.body.appendChild(chrome);
+    try {
+      await waitFor(() =>
+        expect(container.querySelector("aside")?.style.bottom).toBe(
+          `${window.innerHeight - 500 + 8}px`,
+        ),
+      );
+    } finally {
+      chrome.remove();
+    }
+  });
+
+  it("falls back to clearing the dock when the page marks nothing", () => {
+    const { container } = setup();
+    expect(container.querySelector("aside")?.style.bottom).toBe("");
   });
 });

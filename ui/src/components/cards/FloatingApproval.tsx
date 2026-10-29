@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Approval } from "../../api/client";
 import { useT } from "../../i18n/react";
 import ApprovalCard from "./ApprovalCard";
@@ -15,6 +15,8 @@ type Props = {
   onOpenTask: (taskId: string) => void;
   /** The phone's dock is on screen, so the card has to clear it. */
   raised: boolean;
+  /** The route, so a measurement taken on one screen is redone on the next. */
+  screenKey: string;
   onOpenPath?: (path: string) => void;
 };
 
@@ -38,6 +40,7 @@ export default function FloatingApproval({
   onDecide,
   onOpenTask,
   raised,
+  screenKey,
   onOpenPath,
 }: Props) {
   const tr = useT();
@@ -45,6 +48,12 @@ export default function FloatingApproval({
   // Answering unmounts the card that held focus. A keyboard user would be
   // dropped to the document body, mid-queue, with nothing to tab from.
   const keepFocus = useRef(false);
+  // How far the page's own bottom furniture reaches up the screen: the
+  // composer, and the strip above it that says how many items are waiting. On
+  // a conversation that band is ~120px and grows with attachments, so a fixed
+  // offset either covers the input or floats absurdly high above it. Measured
+  // instead, from an element the page marks — see `data-kin-bottom-chrome`.
+  const [bottom, setBottom] = useState<number | null>(null);
 
   const current = approvals.length > 0 ? approvals[approvals.length - 1] : null;
   const currentId = current?.id ?? "";
@@ -55,6 +64,66 @@ export default function FloatingApproval({
     const next = surfaceRef.current?.querySelector<HTMLElement>("button");
     next?.focus({ preventScroll: true });
   }, [currentId]);
+
+  // `screenKey` is the route: on a conversation the composer comes and goes
+  // with it, and an effect that ran once would keep the offset of a screen the
+  // reader has left.
+  useEffect(() => {
+    let chrome: HTMLElement | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+    let mutations: MutationObserver | null = null;
+
+    const measure = () => {
+      if (!chrome) return;
+      const rect = chrome.getBoundingClientRect();
+      // Above the band, with the same 8px breath the dock gets.
+      setBottom(Math.max(0, Math.round(window.innerHeight - rect.top + 8)));
+    };
+
+    const attach = () => {
+      const found = document.querySelector<HTMLElement>("[data-kin-bottom-chrome]");
+      if (!found) return false;
+      chrome = found;
+      measure();
+      window.addEventListener("resize", measure);
+      // ResizeObserver is absent in jsdom; the measurement above still runs
+      // once there, which is all a test needs.
+      resizeObserver =
+        typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+      resizeObserver?.observe(found);
+      return true;
+    };
+
+    if (!attach()) {
+      // A conversation draws its composer after the task loads, so on a cold
+      // load the band is not there yet — and an offset measured against
+      // nothing would never be taken again. Watch for it, and stop watching
+      // either when it arrives or when it is clear the page has none.
+      setBottom(null);
+      const giveUp = window.setTimeout(() => {
+        mutations?.disconnect();
+        mutations = null;
+      }, 5000);
+      mutations = new MutationObserver(() => {
+        if (!attach()) return;
+        window.clearTimeout(giveUp);
+        mutations?.disconnect();
+        mutations = null;
+      });
+      mutations.observe(document.body, { childList: true, subtree: true });
+      return () => {
+        window.clearTimeout(giveUp);
+        mutations?.disconnect();
+        resizeObserver?.disconnect();
+        window.removeEventListener("resize", measure);
+      };
+    }
+
+    return () => {
+      window.removeEventListener("resize", measure);
+      resizeObserver?.disconnect();
+    };
+  }, [screenKey]);
 
   if (!current) return null;
 
@@ -70,18 +139,24 @@ export default function FloatingApproval({
     <aside
       ref={surfaceRef}
       aria-label={tr("approval.floatingLabel")}
+      style={bottom === null ? undefined : { bottom }}
       className={[
         // `fixed` because it has to survive scrolling every screen it appears
         // over, and because a floating surface is what makes the elevation
         // honest — nothing behind it moves to make room.
         "pointer-events-none fixed inset-x-3 z-40 flex flex-col gap-1.5",
         "md:inset-x-auto md:right-6 md:w-[24rem]",
-        // Above the dock and its "new chat" button on the phone; above the
-        // composer on a pushed conversation, where the dock is hidden.
-        raised
-          ? "bottom-[calc(9.25rem+env(safe-area-inset-bottom))] md:bottom-6"
-          : "bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-6",
-      ].join(" ")}
+        // Where the page has no bottom furniture to measure, the dock decides:
+        // above it and its "new chat" button when it is on screen, and above
+        // where it would be when the reader is in a pushed conversation.
+        bottom === null &&
+          (raised
+            ? "bottom-[calc(9.25rem+env(safe-area-inset-bottom))]"
+            : "bottom-[calc(5.5rem+env(safe-area-inset-bottom))]"),
+        "md:bottom-6",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <div className="kin-glass pointer-events-auto flex items-center gap-2 self-start rounded-full py-1 pl-3 pr-2 shadow-e2">
         <span className="text-caption font-semibold uppercase tracking-label text-kin-muted">
