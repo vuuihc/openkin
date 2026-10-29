@@ -132,6 +132,13 @@ type Props = {
    * its own bar on one shortcut.
    */
   findShortcut?: boolean;
+  /**
+   * A query to open the find bar with. The chat search sends the reader here
+   * with the words they searched for, so the conversation shows the match
+   * rather than its first line. Seeding happens when this value changes, not on
+   * every open: closing the bar must leave it closed.
+   */
+  findSeed?: string;
 };
 
 export default function ChatStream({
@@ -156,6 +163,7 @@ export default function ChatStream({
   findOpen: findOpenProp,
   onFindOpenChange,
   findShortcut = true,
+  findSeed,
 }: Props) {
   const { locale } = useLocale();
   const tr = useT();
@@ -199,18 +207,40 @@ export default function ChatStream({
     [onFindOpenChange],
   );
 
+  // A search result opens the bar on its own words. Keyed on the seed rather
+  // than on `findOpen`, or closing the bar would fill it again on the next
+  // render; the page holds the seed steady for as long as its URL does.
+  useEffect(() => {
+    if (!findSeed) return;
+    setFindQuery(findSeed);
+    setFindIndex(0);
+    setFindOpen(true);
+  }, [findSeed, setFindOpen]);
+
   // Nothing to count while the bar is shut, and a closed bar must leave no ring
   // behind: the hits, and with them the active key, exist only while it is open.
   const findHits = useMemo(() => {
     if (!findOpen) return NO_FIND_HITS;
-    // Only message bubbles carry text a reader would search for; progress cards
-    // and error rows are labels, not content. Partial messages stream, so they
-    // are matched as they stand rather than being frozen out until they finish.
-    const messages = items.filter(
-      (item): item is Extract<ChatItem, { kind: "message" }> =>
-        item.kind === "message" && item.text.trim().length > 0,
-    );
-    return findMatches(messages, findQuery);
+    // The transcript carries readable text in two places: message bubbles and
+    // the note rows inside a process card. A message that the projection folded
+    // into a card keeps its key, so a hit can be landed on wherever it is
+    // drawn. Tool steps and error rows are labels and outputs, not prose.
+    // Partial messages stream, so they are matched as they stand rather than
+    // being frozen out until they finish.
+    const findable: { key: string; text: string }[] = [];
+    for (const item of items) {
+      if (item.kind === "message") {
+        if (item.text.trim().length > 0) findable.push({ key: item.key, text: item.text });
+        continue;
+      }
+      if (item.kind !== "progress") continue;
+      for (const step of item.steps) {
+        if (step.kind === "note" && step.text.trim().length > 0) {
+          findable.push({ key: step.key, text: step.text });
+        }
+      }
+    }
+    return findMatches(findable, findQuery);
   }, [findOpen, items, findQuery]);
   // `stepMatch` normalises, so a query that loses hits under a streaming edit
   // cannot leave the bar pointing past the end of its own result set.
@@ -677,6 +707,7 @@ function AgentTurn({
                   hostSpeaker={hostSpeaker}
                   running={isProgressCardRunning(allItems, item, loading)}
                   onOpenPath={onOpenPath}
+                  activeFindKey={activeFindKey}
                 />
               );
             }
@@ -994,17 +1025,36 @@ function ProgressCard({
   hostSpeaker,
   running,
   onOpenPath,
+  activeFindKey,
 }: {
   item: ProgressItem;
   hostSpeaker: string;
   running: boolean;
   onOpenPath?: (path: string) => void;
+  /** The find hit the bar is pointing at, if any. */
+  activeFindKey?: string | null;
 }) {
   const tr = useT();
   const steps = item.steps;
   // Top-level steps and the calls their subagents made, in reading order.
   const rows = progressRows(steps);
   const [collapsed, setCollapsed] = useState(true);
+  const [dismissedReveal, setDismissedReveal] = useState<string | null>(null);
+  // A dismissal belongs to the hit it was made on. Landing on another note, or
+  // running the same search again after closing the bar, has to open the card:
+  // the row the bar points at is otherwise not in the DOM.
+  useEffect(() => {
+    setDismissedReveal(null);
+  }, [activeFindKey]);
+  // A find hit inside a folded card has to be visible: the bar points at a row
+  // that would not otherwise be in the DOM, and scrolling cannot reach what was
+  // never drawn. The reader can still fold it back for this one hit.
+  const revealKey =
+    activeFindKey && steps.some((step) => step.kind === "note" && step.key === activeFindKey)
+      ? activeFindKey
+      : null;
+  const revealed = revealKey !== null && dismissedReveal !== revealKey;
+  const expanded = revealed || !collapsed;
   const [openStep, setOpenStep] = useState<string | null>(null);
   const details = summarizeProgressDetails(steps);
   const status = summarizeProgressStatus(steps, running);
@@ -1059,8 +1109,13 @@ function ProgressCard({
     <div className={`rounded-xl border ${statusTone} overflow-hidden`}>
       <button
         type="button"
-        onClick={() => setCollapsed((v) => !v)}
-        aria-expanded={!collapsed}
+        onClick={() => {
+          // Folding a card that a hit forced open dismisses the reveal for that
+          // hit; the next hit opens it again.
+          if (revealed) setDismissedReveal(revealKey);
+          else setCollapsed((v) => !v);
+        }}
+        aria-expanded={expanded}
         className="flex items-center gap-2 w-full px-3 py-2 text-body text-left cursor-pointer hover:bg-[var(--kin-fill-strong)] transition-colors"
       >
         <span
@@ -1087,7 +1142,7 @@ function ProgressCard({
           <span className="truncate font-medium text-kin-text" title={summary}>
             {summary}
           </span>
-          {collapsed && details.latestNote && (
+          {!expanded && details.latestNote && (
             <span
               className="truncate text-caption font-normal text-kin-muted"
               title={details.latestNote}
@@ -1099,14 +1154,14 @@ function ProgressCard({
         <span className="flex-none text-caption font-normal text-kin-muted">
           {/* What is behind the fold and how much of it, rather than the bare
               word "expand": the button already says it is a toggle. */}
-          {collapsed
-            ? steps.length > 0
+          {expanded
+            ? tr("chat.progress.hide")
+            : steps.length > 0
               ? tr("chat.progress.collapsed", { count: steps.length })
-              : tr("chat.progress.expand")
-            : tr("chat.progress.hide")}
+              : tr("chat.progress.expand")}
         </span>
       </button>
-      {!collapsed && (
+      {expanded && (
         // `divide-y` separates the rows from each other, and this line separates
         // the first of them from the summary above — the two faces are the same
         // level, so the rule draws it. The tint below is not a level, and how
@@ -1132,7 +1187,13 @@ function ProgressCard({
                 onToggle={() => setOpenStep((cur) => (cur === step.key ? null : step.key))}
               />
             ) : (
-              <NoteStepRow key={step.key} note={step} index={index} hostSpeaker={hostSpeaker} />
+              <NoteStepRow
+                key={step.key}
+                note={step}
+                index={index}
+                hostSpeaker={hostSpeaker}
+                findActive={step.key === activeFindKey}
+              />
             ),
           )}
         </div>
@@ -1145,11 +1206,14 @@ function NoteStepRow({
   note,
   index,
   hostSpeaker,
+  findActive = false,
 }: {
   note: NoteStep;
   index: number;
   /** The session's host agent: a note that is not its voice says whose it is. */
   hostSpeaker: string;
+  /** The note the find bar is pointing at. */
+  findActive?: boolean;
 }) {
   const tr = useT();
   const statusDot =
@@ -1168,7 +1232,14 @@ function NoteStepRow({
     ? [agentAvatarMeta(note.speaker).label, note.model].filter(Boolean).join(" · ")
     : "";
   return (
-    <div className="flex items-start gap-2 px-3 py-1.5 text-body">
+    <div
+      data-message-key={note.key}
+      data-find-active={findActive ? "true" : undefined}
+      className={[
+        "flex items-start gap-2 px-3 py-1.5 text-body",
+        findActive ? "ring-2 ring-kin-blue/45" : "",
+      ].join(" ")}
+    >
       <span
         aria-hidden="true"
         className="flex-none w-5 text-caption tabular-nums text-kin-muted pt-0.5"

@@ -1321,6 +1321,8 @@ const en: MessageTree = {
     noMatches: "No matches",
     actions: "Actions",
     chats: "Chats",
+    messages: "Messages",
+    messagesTruncated: "Newest matches only",
     open: "open",
   },
   cwd: {

@@ -1260,6 +1260,8 @@ const zh = {
     noMatches: "无匹配结果",
     actions: "操作",
     chats: "对话",
+    messages: "消息",
+    messagesTruncated: "仅显示最新的几条",
     open: "打开",
   },
   cwd: {

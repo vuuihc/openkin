@@ -815,6 +815,33 @@ export function searchTaskSourceFiles(
   );
 }
 
+/** One message from a session's transcript that matched a search. */
+export type TranscriptHit = {
+  task_id: string;
+  task_title: string;
+  seq: number;
+  ts: number;
+  role: string;
+  snippet: string;
+};
+
+export type TranscriptSearchResponse = {
+  matches: TranscriptHit[];
+  truncated: boolean;
+};
+
+/**
+ * Which messages in the library contain a few characters.
+ *
+ * The list search (`?q=` on `/api/tasks`) covers titles and prompts; this is
+ * what was actually said in a conversation. The daemon decodes the message
+ * payloads and answers with prose, so a row can be read rather than parsed.
+ */
+export function searchTranscript(query: string, limit = 8): Promise<TranscriptSearchResponse> {
+  const q = new URLSearchParams({ q: query, limit: String(limit) });
+  return apiFetch<TranscriptSearchResponse>(`/api/search/transcript?${q.toString()}`);
+}
+
 /**
  * What git in a task's checkout says is different from HEAD, uncommitted work
  * and untracked files included.

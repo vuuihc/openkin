@@ -5,8 +5,10 @@ import {
   isTerminal,
   listProjects,
   listTasks,
+  searchTranscript,
   type Project,
   type Task,
+  type TranscriptHit,
 } from "../api/client";
 import { t } from "../i18n";
 import { useT } from "../i18n/react";
@@ -30,6 +32,12 @@ type Props = {
   panelCtx: PanelContext;
 };
 
+/**
+ * How long typing settles before the transcript is asked. A palette query is a
+ * word or two; one request per burst, not one per key.
+ */
+const PALETTE_MESSAGE_DEBOUNCE_MS = 250;
+
 type Item =
   | {
       kind: "action";
@@ -39,7 +47,8 @@ type Item =
       icon: ReactNode;
       run: () => void;
     }
-  | { kind: "task"; id: string; task: Task; label: string; hint?: string };
+  | { kind: "task"; id: string; task: Task; label: string; hint?: string }
+  | { kind: "message"; id: string; hit: TranscriptHit; label: string; hint?: string };
 
 function highlight(text: string, q: string): ReactNode {
   if (!q) return text;
@@ -56,7 +65,13 @@ function highlight(text: string, q: string): ReactNode {
 
 /**
  * ⌘K / Ctrl+K command palette (design 2b).
- * Sections: Actions · Project recipes · Chats.
+ * Sections: Actions · Project recipes · Chats · Messages.
+ *
+ * Messages are the one section that is a real search rather than a filter over
+ * what the shell already holds: the daemon is asked, because a conversation's
+ * text is not in the browser. Picking one opens the conversation with its own
+ * find bar already carrying the query, so the reader lands on the line instead
+ * of on the top of a long transcript.
  *
  * The Actions section is not written here. It is `paletteEntries(panelCtx)` — every
  * place the shell can go, then every panel this context offers — so a place or a
@@ -80,9 +95,12 @@ export default function CommandPalette({
   const [query, setQuery] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [messageHits, setMessageHits] = useState<TranscriptHit[]>([]);
+  const [messageTruncated, setMessageTruncated] = useState(false);
   const [active, setActive] = useState(0);
   const [launchingRecipe, setLaunchingRecipe] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messageSeq = useRef(0);
 
   const load = useCallback(async () => {
     if (!isAuthenticated()) {
@@ -111,6 +129,37 @@ export default function CommandPalette({
     const t = window.setTimeout(() => inputRef.current?.focus(), 30);
     return () => window.clearTimeout(t);
   }, [open, load]);
+
+  // Messages are the one part of the palette that is not already in memory:
+  // what was said lives in the daemon's transcript, which may be on another
+  // machine. Ask once typing settles, and let only the latest answer land — a
+  // row for a query the reader has typed past would open the wrong place.
+  // Nothing asked yet and nothing found look the same here: no section, because
+  // the palette's own "no matches" already says the search came up empty.
+  useEffect(() => {
+    const q = query.trim();
+    const seq = ++messageSeq.current;
+    setMessageHits([]);
+    setMessageTruncated(false);
+    if (!open || !q) return;
+    const timer = window.setTimeout(() => {
+      void searchTranscript(q)
+        .then((res) => {
+          if (seq !== messageSeq.current) return;
+          setMessageHits(Array.isArray(res.matches) ? res.matches : []);
+          setMessageTruncated(Boolean(res.truncated));
+        })
+        .catch(() => {
+          // A daemon that cannot answer is not a row: the chat list above is
+          // still a usable search.
+          if (seq === messageSeq.current) {
+            setMessageHits([]);
+            setMessageTruncated(false);
+          }
+        });
+    }, PALETTE_MESSAGE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, query]);
 
   const items = useMemo((): Item[] => {
     const q = query.trim().toLowerCase();
@@ -215,9 +264,20 @@ export default function CommandPalette({
         hint: isTerminal(t.status) ? t.status : `${t.status} · ${t.agent}`,
       }));
 
-    return [...actions, ...recipeActions, ...chats];
+    const messages: Item[] = messageHits.map((hit) => ({
+      kind: "message" as const,
+      id: `message:${hit.task_id}:${hit.seq}`,
+      hit,
+      // The snippet is the row: it is why this hit is in the list at all. The
+      // conversation's own title rides along as the hint.
+      label: hit.snippet,
+      hint: hit.task_title,
+    }));
+
+    return [...actions, ...recipeActions, ...chats, ...messages];
   }, [
     launchingRecipe,
+    messageHits,
     navigate,
     onClose,
     onNewChat,
@@ -251,20 +311,30 @@ export default function CommandPalette({
         const item = items[active];
         if (!item) return;
         if (item.kind === "action") item.run();
-        else {
+        else if (item.kind === "task") {
           onClose();
           navigate(`/tasks/${item.task.id}`);
+        } else {
+          // The query travels in the URL so the conversation can open its find
+          // bar on it; the page owns that read, not this overlay.
+          onClose();
+          navigate(`/tasks/${item.hit.task_id}?find=${encodeURIComponent(query.trim())}`);
         }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, items, active, navigate, onClose]);
+  }, [open, items, active, navigate, onClose, query]);
 
   if (!open) return null;
 
+  // The rows filter on the trimmed query, so the highlight has to look for the
+  // same words -- a search typed with a trailing space would otherwise draw no
+  // emphasis at all.
+  const highlightQuery = query.trim();
   const actionItems = items.filter((i) => i.kind === "action");
   const taskItems = items.filter((i) => i.kind === "task");
+  const messageItems = items.filter((i) => i.kind === "message");
 
   let flatIndex = -1;
 
@@ -315,7 +385,7 @@ export default function CommandPalette({
                     onHover={() => setActive(idx)}
                     onClick={() => item.run()}
                     icon={item.icon}
-                    label={highlight(item.label, query)}
+                    label={highlight(item.label, highlightQuery)}
                     hint={item.hint}
                   />
                 );
@@ -348,11 +418,44 @@ export default function CommandPalette({
                         <span className="w-2 h-2 rounded-full bg-kin-muted/40 mx-1" />
                       )
                     }
-                    label={highlight(item.label, query)}
+                    label={highlight(item.label, highlightQuery)}
                     hint={item.hint}
                   />
                 );
               })}
+            </>
+          )}
+
+          {messageItems.length > 0 && (
+            <>
+              <div className="text-caption font-semibold uppercase tracking-label text-kin-muted px-2.5 pt-3 pb-1">
+                {tr("palette.messages")}
+              </div>
+              {messageItems.map((item) => {
+                flatIndex += 1;
+                const idx = flatIndex;
+                return (
+                  <PaletteRow
+                    key={item.id}
+                    active={idx === active}
+                    onHover={() => setActive(idx)}
+                    onClick={() => {
+                      onClose();
+                      navigate(
+                        `/tasks/${item.hit.task_id}?find=${encodeURIComponent(query.trim())}`,
+                      );
+                    }}
+                    icon={<IconSearch size={16} />}
+                    label={highlight(item.label, highlightQuery)}
+                    hint={item.hint}
+                  />
+                );
+              })}
+              {messageTruncated && (
+                <p className="px-2.5 pt-1 pb-2 text-caption text-kin-muted">
+                  {tr("palette.messagesTruncated")}
+                </p>
+              )}
             </>
           )}
         </div>

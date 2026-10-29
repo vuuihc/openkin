@@ -229,3 +229,87 @@ describe("find in conversation", () => {
     expect(onFindOpenChange).toHaveBeenCalledWith(false);
   });
 });
+
+describe("find seeded by a chat search", () => {
+  it("opens on the words the search sent", () => {
+    const { container } = renderStream({ findSeed: "parser" });
+    expect(screen.getByRole("search")).toBeTruthy();
+    expect((findInput() as HTMLInputElement).value).toBe("parser");
+    // The first match is the active one, so the reader sees where they landed.
+    expect(activeRow(container)).not.toBeNull();
+  });
+
+  it("asks a controlling page to open, because the page owns the bar", () => {
+    const onFindOpenChange = vi.fn();
+    renderStream({ findSeed: "parser", onFindOpenChange });
+    expect(onFindOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  it("does not reopen itself when the stream redraws after the reader closed it", async () => {
+    const view = renderStream({ findSeed: "parser" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    expect(screen.queryByRole("search")).toBeNull();
+
+    // A stream redraw is not a new search: the seed has not changed, so the bar
+    // stays shut until the reader asks for it again.
+    view.rerender(<ChatStream events={[...events]} hostSpeaker="kin" findSeed="parser" />);
+    expect(screen.queryByRole("search")).toBeNull();
+  });
+});
+
+describe("find inside a process card", () => {
+  // The tool call opens the card; the streaming progress note is a row inside
+  // it. The card is folded by default, so the note is not in the DOM until the
+  // find bar needs it.
+  const cardEvents = [
+    userMessage(1, "please look at the parser"),
+    event(2, "tool_use", { speaker: "kin", name: "bash", input: { command: "ls" } }),
+    event(3, "message", {
+      role: "assistant",
+      speaker: "kin",
+      phase: "progress",
+      partial: true,
+      content: [{ type: "text", text: "the needle is in this note" }],
+    }),
+  ];
+
+  it("unfolds the card, marks the note, and scrolls to it", () => {
+    const { container } = render(<ChatStream events={cardEvents} hostSpeaker="kin" />);
+    fireEvent.keyDown(window, { key: "f", metaKey: true });
+
+    // Folded: nothing carries the note's key yet.
+    expect(container.querySelector('[data-message-key="note-s-3"]')).toBeNull();
+
+    fireEvent.change(findInput(), { target: { value: "needle" } });
+
+    expect(screen.getByText(t("chat.find.count", { index: 1, total: 1 }))).toBeTruthy();
+    const active = activeRow(container);
+    expect(active?.getAttribute("data-message-key")).toBe("note-s-3");
+    expect(active?.textContent).toContain("the needle is in this note");
+    expect(scrollSpy.mock.instances.at(-1)).toBe(active);
+  });
+
+  it("lets the reader fold the card again for that hit", async () => {
+    const { container } = render(<ChatStream events={cardEvents} hostSpeaker="kin" />);
+    fireEvent.keyDown(window, { key: "f", metaKey: true });
+    fireEvent.change(findInput(), { target: { value: "needle" } });
+
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-expanded="true"]');
+    expect(toggle).not.toBeNull();
+    fireEvent.click(toggle as HTMLButtonElement);
+
+    expect(
+      container.querySelector('[data-message-key="note-s-3"]'),
+    ).toBeNull();
+    expect(activeRow(container)).toBeNull();
+
+    // A dismissal belongs to that visit. Closing the bar and opening it again
+    // is a new visit, and the hit has to be visible again — a stale dismissal
+    // would leave the bar pointing at a row that is not drawn.
+    fireEvent.keyDown(window, { key: "Escape" });
+    await settle();
+    fireEvent.keyDown(window, { key: "f", metaKey: true });
+    expect(container.querySelector('[data-message-key="note-s-3"]')).not.toBeNull();
+  });
+});

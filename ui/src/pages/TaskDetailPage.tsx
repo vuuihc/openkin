@@ -45,6 +45,7 @@ import {
   type WorkerStep,
 } from "../api/client";
 import { liveResources } from "../api/liveResources";
+import { useFindSeed } from "./useFindSeed";
 import { usePendingResources, useTaskResource } from "../api/useLiveResources";
 import ApprovalCard from "../components/cards/ApprovalCard";
 import LimitCard from "../components/cards/LimitCard";
@@ -229,6 +230,20 @@ export default function TaskDetailPage({
    * strip pass `findShortcut={false}` so one shortcut cannot open every bar.
    */
   const [findOpen, setFindOpen] = useState(false);
+  /**
+   * A chat-search result arrives as `?find=…`: the conversation opens with its
+   * find bar on those words, so the reader lands on the line that matched. Only
+   * the pane in front takes it — the others are mounted behind the tab strip
+   * and would open a bar nobody can see. The hook consumes the parameter, so
+   * the same hit can be picked again and the bar reopens.
+   *
+   * Nothing is consumed while the page is still loading. The hook deletes the
+   * parameter on the render it first sees it, and the conversation is not
+   * mounted until the task detail has loaded — consuming early would hand the
+   * seed to a page that has nowhere to put it, and the reader would land at the
+   * top of a long transcript, which is the failure this feature exists to fix.
+   */
+  const findSeed = useFindSeed(active && !loading);
   /**
    * Set by the sheet's 查找 row. The bar opens on dismissal, not on the tap:
    * Ionic keeps keyboard focus inside the action sheet until it is removed from
@@ -1700,6 +1715,7 @@ export default function TaskDetailPage({
             findOpen={findOpen}
             onFindOpenChange={setFindOpen}
             findShortcut={active && panel === null && !fileFinderOpen}
+            findSeed={findSeed}
             trailing={
               <>
                 {unanchored.map((entry) => (

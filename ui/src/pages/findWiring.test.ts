@@ -43,4 +43,16 @@ describe("the phone's way into find-in-conversation", () => {
     // own find; everything else falls through to the browser.
     expect(SOURCE).toContain("findShortcut={active && panel === null && !fileFinderOpen}");
   });
+
+  it("opens on the words a chat search sent, in the pane in front only", () => {
+    // The palette navigates with `?find=…`; the page reads it and ChatStream
+    // seeds the bar with it. The panes behind the tab strip are mounted too,
+    // and each would open a bar nobody can see. The hook also consumes the
+    // parameter, so picking the same hit again is not a no-op. It must wait for
+    // the task detail: the conversation is not mounted while the page shows its
+    // skeleton, and a seed consumed then would be deleted before it could be
+    // handed over.
+    expect(SOURCE).toContain("const findSeed = useFindSeed(active && !loading);");
+    expect(SOURCE).toContain("findSeed={findSeed}");
+  });
 });
