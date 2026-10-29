@@ -26,6 +26,14 @@ RUN npm run build
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
+# Which module proxy the build downloads from is a property of the build
+# machine's network, not of this project: proxy.golang.org is unreachable from
+# some networks that a mirror serves fine, and the failure is a bare EOF in the
+# middle of `go mod download`. The default is the one Go itself uses, so an
+# ordinary machine needs no arguments.
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
+
 # Module downloads are cached independently of the source tree, so editing Go
 # code does not re-download the dependency graph.
 COPY go.mod go.sum ./
