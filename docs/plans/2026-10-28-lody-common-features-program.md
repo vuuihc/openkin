@@ -1503,9 +1503,8 @@ in its restored size: its saved bounds are the normal ones and `isMaximized` is
 not recorded. The daemon itself still has no single-writer lock on `~/.kin` —
 the desktop no longer creates a second daemon, but a `kin supervise` started
 elsewhere can, and the real invariant belongs in `kin serve`, which is a wider
-change than this round. The shell still notifies about a finished task even when
-its window is frontmost, holds no dock badge for pending approvals, and has no
-global shortcut; none of them has produced a dogfooding complaint yet.
+change than this round. The shell holds no dock badge for pending approvals and
+has no global shortcut; neither has produced a dogfooding complaint yet.
 
 #### H3 — the popover opens instead of reloading (landed)
 
@@ -1528,3 +1527,24 @@ error page) and the token comparison (current, replaced, missing, unparseable,
 and a machine with no token yet). Red-verified by mutation: always reload (1
 fails), prefix-only matching (1), inverting the token comparison (2), treating a
 missing token as stale (1).
+
+#### H4 — a banner only for the task you are not watching (landed)
+
+**What was wrong.** Every finished task raised a native notification, including
+the one whose transcript was on screen in the focused window — the case
+dogfooding hits constantly, since running a task to watch it end is the point.
+The banner told the reader what the screen had just told them.
+
+**The fix.** The shell stays quiet when the main window is focused *and* the URL
+it is showing is that task's transcript, and announces everything else. Being in
+front is not enough on its own: a reader watching one task still wants to hear
+that another finished. `task-notifications.ts` holds the decision and the URL
+reading; `main.ts` answers "focused" from the window and "which task" from
+`/tasks/<id>`.
+
+**Tests.** The three terminal statuses (and four that are not), the URL reader
+(plain, trailing slash, query, percent-encoded, `/inbox`, a nested path,
+garbage), and the announcement matrix (on screen in front → quiet; another task
+in front → announce; on screen but not in front → announce; unfinished → never).
+Red-verified by mutation: never suppressing (1 fails), treating focus alone as
+enough (1), letting the id match across slashes (1), dropping the decode (1).
