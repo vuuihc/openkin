@@ -2,6 +2,7 @@ import {
   BrowserWindow,
   app,
   nativeImage,
+  screen,
   shell,
   type BrowserWindowConstructorOptions,
 } from "electron";
@@ -14,6 +15,11 @@ import {
   boundsPath,
   appIconPath,
 } from "./config";
+import {
+  restoreWindowBounds,
+  type Rect,
+  type SavedBounds,
+} from "./window-bounds";
 
 const WINDOW_TITLE = "Kin";
 
@@ -24,13 +30,6 @@ const DEFAULT_BOUNDS = { width: 1100, height: 760 };
 
 /** Chromium ERR_ABORTED — user/navigation cancelled; do not retry. */
 const ERR_ABORTED = -3;
-
-type Bounds = {
-  x?: number;
-  y?: number;
-  width: number;
-  height: number;
-};
 
 export class MainWindow {
   private win: BrowserWindow | null = null;
@@ -344,23 +343,28 @@ function isAllowedURL(url: string): boolean {
   }
 }
 
-function loadBounds(): Bounds {
+function loadBounds(): Rect {
+  const saved = readSavedBounds();
+  // A saved position is only meaningful while the display it names is still
+  // attached; see window-bounds.ts.
+  return restoreWindowBounds(
+    saved,
+    screen.getAllDisplays().map((display) => display.workArea),
+    screen.getPrimaryDisplay().workArea,
+  );
+}
+
+function readSavedBounds(): SavedBounds {
   try {
     const p = boundsPath();
     if (!existsSync(p)) return { ...DEFAULT_BOUNDS };
-    const raw = JSON.parse(readFileSync(p, "utf8")) as Bounds;
-    return {
-      width: Math.max(720, raw.width || DEFAULT_BOUNDS.width),
-      height: Math.max(480, raw.height || DEFAULT_BOUNDS.height),
-      x: raw.x,
-      y: raw.y,
-    };
+    return JSON.parse(readFileSync(p, "utf8")) as SavedBounds;
   } catch {
     return { ...DEFAULT_BOUNDS };
   }
 }
 
-function saveBounds(b: Bounds): void {
+function saveBounds(b: Rect): void {
   try {
     const p = boundsPath();
     mkdirSync(dirname(p), { recursive: true });
