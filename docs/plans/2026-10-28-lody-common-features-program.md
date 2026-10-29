@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–13 landed; round 14 in progress. This is the living ledger for
+Status: rounds 1–14 landed; round 15 in progress. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -69,7 +69,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 |---|---|---|---|---|
 | Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queued rows carry withdraw and edit (withdraw + refill the composer) end to end (`TaskDetailPage.tsx` `onEditQueued`, `withdrawQueuedPrompt`, F1) | No drag reorder and no steer | S3 | — |
 | Slash commands + prompt shortcuts (`mention-registry.ts:327`) | the "/" menu is a static hint (`Composer.tsx:373-381`); roles are saved prompts but only on the new-chat page | No command menu in the composer; no way to insert a saved prompt mid-session | S3 | — |
-| Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models only (`agentMention.ts:13-25`) | Cannot reference a file or another session | S2 | — |
+| Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models (`agentMention.ts`); files since `0490c3c` (`Composer.files.dom.test.tsx`) | No PR, skill, command, session or role mentions | S2 | — |
 | Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:201-212`); only the Kin agent converts them (`kinagent/attachments.go:38-75`); remote nodes never receive the upload | A Claude/Codex task receives a path, not the image; on another machine the path does not exist | S2 (S1 remote) | — |
 | Paste-as-chip for long text (`session-chat-input-area.tsx:1364`) | pasted text lands in the textarea (`Composer.tsx:503-508`) | — | S3 | — |
 ### 2.4 Run config
@@ -117,7 +117,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Home search + in-conversation find + file quick-open + filter search | server `?q=` over titles/prompts/cwd/agent (`store.go:291-299,490-500`), in-conversation find (closed), ⌘K palette over the latest 80 tasks (`CommandPalette.tsx:95-99`), file quick-open over the checkout (R13, `FileQuickOpen.tsx`) | Transcript and assistant output are never searched | S2 | FTS5 ships with the driver (modernc sqlite 1.34.5); the repo has no FTS use yet |
+| Home search + in-conversation find + file quick-open + filter search | server `?q=` over titles/prompts/cwd/agent (`store.go:291-299,490-500`), in-conversation find (closed), ⌘K palette over the latest 80 tasks (`CommandPalette.tsx`), file quick-open over the checkout (R13, `FileQuickOpen.tsx`), transcript search with a jump to the match (R14, `/api/search/transcript`, `CommandPalette.tsx`) | File *contents* are not searched (names only) | S3 | The search reads the derived `transcript_messages` table (R14), so it matches the message the reader sees; FTS5 over that table is the next step if the library outgrows a substring scan |
 
 ### 2.10 Tabs / switching
 
@@ -2616,3 +2616,163 @@ sheet above; a claimed `defaultPrevented` is respected; Tab lands inside from
 outside and wraps at both ends; focus returns to the opener; `queryTooLong` at
 exactly 200 and 201 bytes; the refusal is announced; the panel's find button
 lives outside `role="tablist"`. Red-verified with 23 mutants, one per claim.
+
+### Round 14 — search what was said, and land on the line (2026-10-30)
+
+Planned against `2fe432ee`. The §2.9 row's last S2 gap: the daemon could search
+titles, prompts and file names, but not the conversation itself — the thing a
+person actually remembers ("where did we decide to rotate the token?").
+
+**14A A transcript index, not a log scan (`transcript_index.go`).** The first
+cut searched `events` directly. Review killed it: streaming adapters persist one
+event per delta (`claudecode`, `droid`, the Kin agent all write
+`partial: true`, and `claudecode` runs with `--include-partial-messages`), so a
+row scan answers `ploy the release` for an answer that says `deploy the
+release`, once per chunk. It also returns rows the console draws in the progress
+box or not at all, which the find bar cannot reach — a dead hit. And a query
+that straddles two deltas (`"deploy the rel"` + `"ease"`) has no single row that
+contains it, so no prefilter width fixes it.
+
+So the store now keeps a derived `transcript_messages` table: one row per
+message as the reader sees it. The first cut mirrored only the chat column;
+review showed that the process box is just as readable (a card unfolds, and the
+find bar now searches its note rows), so the index keeps every message the
+projection draws. It drops only what the console never renders as prose: a blank
+message, and an old kinagent tool dump, which becomes a tool step. Each row
+carries the console's three questions — the stream buffer (`open`), whether it
+is still a preview (`partial`), and which side of the process box it sits on
+(`progress`).
+
+The append transaction folds each event in (`indexTranscriptMessageTx`),
+mirroring the projection's boundaries as well as its rows. Deltas join the open
+row by message identity (speaker + role + `message_id` + block index, as in
+`transcriptProjection.ts`) or by speaker when the adapter stamps neither; the
+final message removes the previews it supersedes and the buffer it closes, by
+the console's scan-then-buffer rule, and a blank final removes them without
+drawing anything. The steps the console draws end the stream at exactly its
+flush points: a host-visible `tool_use`/`tool_result`, a labelled `notice`, a
+`plan`, a non-cancel `error`, a `result` (which also settles every preview of
+the round), an approval or question request, a routing decision, and a labelled
+workspace event. Splitting where the console does not would lose a hit; joining
+where it does would answer with a sentence the find bar can never match, so the
+list is copied rather than approximated. `message_key` and `stream_key` are kept
+apart because a flush can split one message into two rows that the console still
+knows by one key.
+
+A `transcript_index_state` watermark makes the fold idempotent, and `Open`
+replays any indexed event past it, so a database written before the index
+existed fills itself in (resumable in 500-event batches, one indexed question
+when there is nothing to do). The index is derived: a payload the decoder cannot
+read is not searchable but never fails the append that stores it. User prompts
+are stored as the console shows them — the composer's `Attached …:` block keeps
+its file names and loses its local paths (`internal/attach`).
+
+The watermark carries the task's `event_epoch` as well as the seq, because
+retry and truncation delete the tail and start a new timeline that the console
+filters on. Both operations now rebuild the index from the events left in their
+own transaction, and the retry's fresh prompt — inserted directly, like a fork's
+copied events — is folded in as it is written. Review caught the first cut
+pruning only `last_seq >= fromSeq`: a preview that straddled the cut, or one a
+deleted message had superseded, then described a timeline the console no longer
+projects. An epoch that moves without either operation (an older build, a path
+that bumps it directly) rebuilds the same way instead of trusting rows from
+before the change.
+
+`SearchTranscript` is then a plain substring query over prose — no JSON keys, no
+escaped-quote second pattern, no 3x decode window — with the scope predicate on
+the joined task row. A hit still carries role, snippet and the first seq; the
+snippet needle is whitespace-collapsed along with the text it is cut from, so a
+query spanning a run of spaces still centres on the match.
+
+**14B The palette's Messages section and the jump.** `GET
+/api/search/transcript?q=&limit=` validates like the file search (required, 200
+*characters*, not bytes, so a Chinese query is not refused at 67 characters; no
+control characters; bounded limit) and runs under a 3s context so one search
+cannot hold the store's single connection. The ⌘K palette asks it once typing
+settles (250 ms, latest answer only), shows up to 8 hits under Messages with the
+snippet as the row and the conversation title as the hint, says "newest matches
+only" when the daemon truncated the list, and a row opens
+`/tasks/{id}?find=<query>`. The conversation opens its own find bar seeded with
+the query (`ChatStream.findSeed`), reusing the existing matching and
+scroll-to-match code. The page consumes the parameter (`useFindSeed`) instead of
+reading it forever: the same hit picked twice is the same URL, and a parameter
+that stays behind would make the second pick a no-op and reopen a closed bar on
+back/forward. The seed is only consumed by the pane in front, because the others
+are mounted behind the tab strip.
+
+The bar searches the process card's note rows as well as message bubbles (a
+message the projection folds into a card keeps its key), and a hit inside a
+folded card unfolds it — scrolling cannot reach a row that was never drawn. The
+reader can fold it back for that hit; the next hit opens it again.
+
+**Tests.** Store: deltas coalesce and a query straddling two of them matches;
+a final replaces its preview (and the preview stops answering); a blank final
+drops the preview it closed; a complete note drops the streaming note it
+supersedes; an identified final replaces its own row and not the message still
+streaming; identified messages stay apart, and the same block from two speakers
+stays apart too; an ACP-style partial-only answer is one hit, not one per chunk;
+reasoning/plan/task-only/delegate/orchestrator rows are searchable, because the
+card draws them; a phase-less legacy orchestrator wrap-up (`Done: …`, `完成：…`)
+and its chatter are both searchable; a stamp that names only `user: false`
+defaults `task` to true and is a process-box row, not chat, exactly as
+`readVisibility` reads it; a tool step between two deltas splits them even when
+the adapter keeps stamping the same identity; the backfill replays the same
+boundaries; an upload's local path is not searchable while its file name is; a
+truncation past the head still indexes the next message; host and summary rows
+are; a legacy worker row is drawn in the process box and ends the host's stream;
+the backfill indexes old events once and a replay does not duplicate text;
+malformed payloads are skipped; string content and flat `text` are read; an
+interleaved progress row ends the stream; an epoch that moves without a prune
+rebuilds the kept timeline instead of dropping it. Plus the earlier scope,
+limit/truncation, literal `%`, CJK, whitespace-snippet and empty-query tests.
+API: shape, `[]` not `null`, refusals (blank, over-long, control/NUL, bad/
+negative/zero limit), auth, cap + truncated, rune-counted cap, and a request
+with no principal matching nothing (the scope is read from the request, not
+assumed). Console: debounce and one request per burst, click and Enter carry the
+query to the URL, a superseded answer never lands, no empty section, the
+truncation note; ChatStream opens seeded and does not reopen after the reader
+closes it, unfolds a process card for a note hit and folds it back on request;
+the page wiring test pins the active-pane gate; the seed hook fires twice for
+the same URL and leaves the URL clean. Plus the second-pass tests: a backfill
+writes its watermark and a partial tail is not replayed twice
+(`BackfillsAPartialTailOnce`); a task-only tool step does not split the host's
+stream (`TaskOnlyToolDoesNotEndTheStream`); a stamped speakerless row speaks as
+the host, so its final still finds it (`NamesTheHostForAStampedSpeakerlessRow`);
+the origin is read from `source` (`ReadsTheOriginFromSource`); a dump line after
+prose makes the message a step (`TreatsALateLegacyDumpAsAStep`). Red-verified
+with mutants, one per claim.
+
+**Review (second pass).** Three findings survived the first pass because the
+tests could not see them. The backfill folded rows without writing its
+watermark; the selector looks for a state row, not for rows, so the task was
+replayed at every `Open`, and a partial tail — now the newest open stream —
+joined its own copy and doubled the text. The watermark is now written in the
+same transaction as each batch. The envelope read the origin from `origin`, but
+the canonical field is `source` (`task.EventMeta`), so every legacy
+orchestrator/worker row was classified as chat; the tag now reads `source`, and
+the tests that were blind to it use it. The find seed was consumed on the
+loading render, before the conversation mounts, so a palette jump to a cold
+session deleted `?find=` with nowhere to hand it; the page consumes it only
+once the task detail has loaded, and the wiring test pins the gate. Nits fixed:
+a stamp that names only `task` is the console's explicit "not the user", so a
+worker's tool step no longer splits the host's stream; a stamped speakerless row
+resolves to the host agent rather than `"assistant"`; the legacy dump test is
+multi-line (`/m`) and case-sensitive, like the console's; a folded-back card
+reopens on the next visit; a search that runs out of its budget answers 504.
+
+**Not done.** File *contents* are still not searchable (the finder is names). An
+answer that is streaming right now is indexed as it streams, but a hit inside it
+may point at a row that the final message later replaces — the find bar will
+still find the words in the final. The supersede scan stops at the last user
+message but not at the notices, plans and errors the console's scan stops at
+(the index keeps no rows for them), so it can remove a preview the console still
+draws: a lost hit, never a dead one. The same asymmetry applies to visibility:
+the process-box classification is a server-side mirror of `eventMeta.ts`, and a
+class the mirror gets wrong can only move a boundary, not hide text the console
+draws. FTS5 over `transcript_messages` is the next step if the library outgrows
+a substring scan. Two nits are deferred: a known field with the wrong JSON type
+(`"text":5`) fails the whole decode, so a message the console would still draw
+is not searchable — the decoder's tolerance is for unknown fields, not for
+mistyped ones; and SQLite's `lower()` folds ASCII only, so cross-session search
+and the find bar disagree on non-ASCII case. Both point at the same next step:
+match in Go over a cheaper prefilter, or let FTS5 do the folding.
