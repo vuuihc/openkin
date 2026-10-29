@@ -795,3 +795,86 @@ Deliberately not changed: the reconnect handler still reloads the page snapshot,
 drafts included. With the stream fixed that only happens on a genuine
 disconnect, where re-reading the server is the correct behaviour; a
 draft-preserving merge is a bigger design change than this defect justifies.
+
+#### E1 — a conversation can be handed out as a link (landed)
+
+Lody can share a session as a read-only page. Kin could not: the only way to
+show someone a conversation was to give them the console, which means giving
+them the machine. E1 adds the link.
+
+**The surface.** Three authenticated routes on the task — `GET`/`POST`/`DELETE
+/api/tasks/{id}/share` — and two public ones: `GET /s/{token}`, a standalone
+HTML page, and `GET /api/public/shares/{token}`, the same conversation as JSON.
+The page carries no bundle, no web font and no script, so it opens in any
+browser and reads the same in five years. Both public responses are `no-store`,
+`no-referrer` and `noindex, nofollow`: a revoked link that a search engine
+cached is a link that is still readable.
+
+**Decisions, and the reasons.**
+
+- *One live link per task.* Minting again revokes the old one in the same
+  request. "Create a new link" is how an owner replaces one they lost, and
+  leaving the old one alive would mean two doors for one decision.
+- *The token is returned once.* The daemon stores only its digest, exactly as it
+  does for device credentials, so the URL exists solely in the response that
+  minted it. That is why the dialog says so plainly and offers "create" again
+  rather than pretending it can show the link later.
+- *The console builds the URL.* `window.location.origin` is the address the
+  reader of this console was reached on — the Hub when the phone shared it, the
+  machine itself when the desktop did. A server-side guess would be wrong for a
+  Hub that proxies several nodes.
+- *The transcript is a deliberately small subset.* Final messages only (no
+  streamed partials, they repeat the final text), no subagent sidechains, and
+  text blocks only — which is what drops tool calls and tool echoes that travel
+  on the same channel. Publishing less than the owner sees is the safe
+  direction, and the rule is the same one the console applies to decide a
+  message is user-facing.
+- *The audience rule is the console's own, and it is the one that matters.*
+  A task log also carries the work of subagents and workers, marked
+  `visibility: {"user": false, "task": true}`; the console keeps those in the
+  task log, and the first version of this page published them — 1,927 such
+  assistant messages exist on the author's own node, and they would have been
+  rendered under the main agent's name. `shareMessageOf` now mirrors
+  `isUserFacingEvent`: the orchestrator's own words are always for the reader,
+  then an explicit `visibility.user` decides, then the speaker does (historical
+  rows predate the field and are identified by a worker speaker). A worker the
+  console does show keeps its own name on the page rather than the header's.
+- *Bounded three ways, and honest about it.* A share keeps the most recent 800
+  messages, out of the newest 2000 message events, each line clamped to 12KB.
+  It reads one row past the event window so that a cut window is reported as
+  `truncated` rather than silently presenting a partial conversation as whole.
+  A public page is not a mirror of the database, and a stranger should not be
+  able to make one expensive.
+- *The page speaks the reader's language.* Chrome words (You, read-only, the
+  footer, the revoked notice) follow `Accept-Language`; the conversation itself
+  is published as written.
+
+**Storage.** Migration 41 creates `session_shares` (id, task, token digest,
+created, expires, revoked) plus a task index. The DDL is one exported constant
+that both the migration and the every-open reconciler apply, so the two cannot
+drift — and the reconciler matters more than usual here: a share read happens
+on an unauthenticated path, where a missing table would be a 500 shown to a
+stranger.
+
+**Verification.** Store tests cover live-until-revoked, the expiry bound,
+per-task isolation, the reconciler on a dropped table, message-event selection,
+the delete cascade, and that a failed insert inside a replace leaves the old
+link working. API tests cover the published subset (partial, sidechain, tool
+echo, tool use, sidechain, and every task-only visibility shape excluded; a
+visible worker named), HTML escaping, revoke, replace-on-create, the window cut,
+the per-line clamp, string content, the reader's language, and that the state
+response carries no token. Every guard was red-verified by mutation — including
+the audience filter, which fails the subset test when deleted, the way the
+stealth of the original defect demands. Console tests cover create → URL shown
+once and focused, revoke → link gone, a link revoked elsewhere → dropped,
+Escape, and a task change → the old link dropped. Then by hand, against a
+throwaway daemon seeded with exactly those shapes at 390px and 1280px: three
+messages rendered, a `<script>` payload shown as text, no script tags in the
+document, no horizontal overflow, and a revoked token answering 404 on both
+public routes.
+
+**Not in this slice.** The public routes take no attempt limit of their own (a
+256-bit token makes guessing hopeless, so this is a volume question, not an
+enumeration one). Nothing sets `expires_at` yet (the column and the read
+path are ready; the console does not offer "expires in a day"), there is no view
+count or access log, and the link's URL cannot be shown again by design.
