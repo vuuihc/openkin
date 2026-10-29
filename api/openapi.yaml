@@ -1792,6 +1792,7 @@ components:
         - ui.base_url
         - price_table
         - agent_limits
+        - agent_roles
         - provider.kind
         - provider.base_url
         - provider.api_key
@@ -1818,6 +1819,8 @@ components:
         price_table:
           type: string
         agent_limits:
+          type: string
+        agent_roles:
           type: string
         provider.kind:
           type: string
@@ -1929,6 +1932,8 @@ components:
         price_table:
           type: string
         agent_limits:
+          type: string
+        agent_roles:
           type: string
         relay.url:
           type: string

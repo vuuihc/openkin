@@ -176,8 +176,64 @@ lands with tests, a `web/dist` rebuild, and the feature gate.
   meter in the usage sheet (see the C2 section). Adapters do not report a
   window yet; the table is the source and an unknown model draws no meter.
   Acceptance: a session near its window says so before the next turn fails.
-- **C3 Role presets.** A saved prompt prefix chosen per draft/session, no
-  protocol change. Reasoning/Plan/Fast stay out until an adapter exposes them.
+- **C3 Role presets.** Landed as a saved prompt prefix the new-chat run
+  settings can drop into the draft (see the C3 section). Reasoning/Plan/Fast
+  stay out until an adapter exposes them.
+
+#### C3 — a role is a saved prompt, not a run setting (landed)
+
+The reference client's role row sets a name, an emoji, a prompt prefix and the
+agent and machine the role runs on. Only one of those four is a *prompt*
+feature. The other three are run settings Kin already owns — the agent, the
+model and the machine are chosen in the same strip — so copying them into a
+second object would give every session two places to say which agent it uses,
+and the two would disagree the first time someone changed one.
+
+So a role here is the prefix and nothing else, and it does the one thing worth
+keeping: the same long instruction, written once, inserted in a tap.
+
+Three decisions:
+
+- **The draft is the truth.** Picking a role writes its text at the top of the
+  draft, followed by a blank line and whatever was already typed. The
+  transcript therefore shows exactly what the agent was told. There is no
+  hidden prompt channel, no "role applied" state to fall out of sync, and
+  nothing to explain when a run behaves unlike the text on screen.
+- **Taking a role off removes exactly what it put there.** The removal matches
+  the role's text at the head of the draft *and* the seam after it — end of
+  text, or whitespace containing a line break. A draft whose opening words
+  have been edited into a longer sentence is the user's sentence now and is
+  left alone; guessing there would delete a person's words to tidy up a
+  setting. A role deleted from the list cannot be removed from a draft either,
+  for the same reason: there is nothing left to recognize it by.
+- **One role per draft.** Choosing another removes the previous prefix first,
+  so switching never leaves the old instruction behind, and choosing "no role"
+  is a real option that empties the draft of it.
+
+The list lives in one settings key (`agent_roles`: a JSON array of
+`{id,name,prompt}`) rather than in local storage, so a role written on the
+laptop is on the phone — the same reason every other preference lives there.
+The daemon stores it without interpreting it and validates only that it is a
+JSON array; the meaning of a row belongs to the surface that writes it.
+
+Where it appears is the new-chat page's run settings: a Role row in the phone's
+sheet and a chip in the desktop strip, the same two places the agent and model
+already live and the same place the reference client puts it. There is no role
+control when there are no roles — a picker whose only entry is "none" is a
+control that exists to be dismissed — and none on the session page, where the
+role is already in the transcript and a prefix on a follow-up is just text.
+
+Acceptance: from a new chat, reaching a draft that opens with a saved role
+takes two taps at phone width and two clicks at desktop width, and what the
+composer holds is the exact text that gets sent.
+
+Verified: a helper table (parse rules for missing halves, duplicate and
+hand-typed ids, clamping; insert/remove/toggle seams; switching and clearing)
+and five DOM tests of the settings editor (add, edit by id, edit the prompt,
+remove one row, save through the page's action). Two guards were red-verified
+by mutation: deleting the seam check in `removeRole` makes the "keeps an
+edited role in place" case delete the user's sentence, and skipping the
+previous-role removal in `selectRole` leaves both prefixes in the draft.
 
 ### Batch D — automation (round 4)
 

@@ -1594,6 +1594,11 @@ type settingsResponse struct {
 	UIBaseURL       string `json:"ui.base_url"`
 	PriceTable      string `json:"price_table"`
 	AgentLimits     string `json:"agent_limits"`
+	// AgentRoles is a JSON array of role presets. The daemon stores and returns
+	// it without interpreting it: a role is a prompt prefix the console inserts
+	// into a draft, and the meaning of the rows belongs to the surface that
+	// writes them.
+	AgentRoles string `json:"agent_roles"`
 	// Cognition provider (OpenAI-compatible). api_key is masked on GET.
 	// These fields mirror the *active* multi-provider entry for backward compat.
 	ProviderKind     string `json:"provider.kind"`
@@ -1621,6 +1626,7 @@ var puttableSettings = map[string]bool{
 	"ui.base_url":                  true,
 	"price_table":                  true,
 	"agent_limits":                 true,
+	"agent_roles":                  true,
 	"provider.kind":                true,
 	"provider.base_url":            true,
 	"provider.api_key":             true,
@@ -1747,6 +1753,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		UIBaseURL:             base,
 		PriceTable:            priceTable,
 		AgentLimits:           agentLimits,
+		AgentRoles:            get("agent_roles"),
 		ProviderKind:          provKind,
 		ProviderBaseURL:       provBase,
 		ProviderAPIKey:        provider.MaskAPIKey(provKey),
@@ -1823,6 +1830,15 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		if k == store.KeyAgentLimits {
 			if _, err := store.ParseAgentLimits(v); err != nil {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+		}
+		if k == "agent_roles" && strings.TrimSpace(v) != "" {
+			// Opaque to the daemon, but a truncated write should be refused at
+			// the boundary rather than silently read back as "no roles".
+			var roles []json.RawMessage
+			if err := json.Unmarshal([]byte(v), &roles); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent_roles must be a JSON array"})
 				return
 			}
 		}

@@ -1197,6 +1197,7 @@ export interface components {
             "ui.base_url": string;
             price_table: string;
             agent_limits: string;
+            agent_roles: string;
             "provider.kind": string;
             "provider.base_url": string;
             "provider.api_key": string;
@@ -1255,6 +1256,7 @@ export interface components {
             "ui.base_url"?: string;
             price_table?: string;
             agent_limits?: string;
+            agent_roles?: string;
             "relay.url"?: string;
             "provider.kind"?: string;
             "provider.base_url"?: string;

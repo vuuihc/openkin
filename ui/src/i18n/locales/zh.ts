@@ -94,6 +94,8 @@ const zh = {
     rowDispatch: "团队分发",
     rowCwd: "目录",
     rowBranch: "分支",
+    rowRole: "角色",
+    roleNone: "无角色",
     noWorkspace: "未选目录",
     roleHost: "主持",
     heroSubtitleHost: "{name} 主持本会话。@提及只指定 worker，不会切换主持。",
@@ -820,6 +822,19 @@ const zh = {
     reveal: "显示",
     subtitle: "认知 Provider（Kin agent）、连接、通知与价格。",
     saving: "保存中…",
+    roles: {
+      heading: "角色",
+      description:
+        "角色是一段保存好的提示词前缀。新建会话时选中它，就会把这段文字写进草稿，因此对话里看到的就是 agent 实际收到的内容。",
+      empty: "还没有角色。添加一个，新建会话时它的文字只差一次点击。",
+      add: "添加角色",
+      name: "角色 {index} 名称",
+      namePlaceholder: "名称，例如：代码审查",
+      prompt: "角色 {index} 提示词",
+      promptPlaceholder: "要插入的指令。它会放在草稿最前面，位于你输入的内容之上。",
+      remove: "移除 {name}",
+      removeShort: "移除",
+    },
     tabs: {
       general: "通用",
       generalDesc: "外观与基础应用偏好。",

@@ -29,6 +29,7 @@ import {
   type Settings,
 } from "../api/client";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
+import { parseAgentRoles, serializeAgentRoles, type AgentRole } from "../lib/agentRoles";
 import { importToast } from "../lib/agentSessionImport";
 import { useAgentSessionImport } from "../hooks/useAgentSessionImport";
 import {
@@ -104,6 +105,7 @@ export default function SettingsPage() {
   const [cloudflareBindingDomain, setCloudflareBindingDomain] = useState(false);
   const [priceTable, setPriceTable] = useState("");
   const [agentLimitsText, setAgentLimitsText] = useState("");
+  const [roles, setRoles] = useState<AgentRole[]>([]);
   const [limitPolicy, setLimitPolicy] = useState("wait");
   const [limitFallbackText, setLimitFallbackText] = useState("[]");
   const [autoImportMode, setAutoImportMode] = useState<"prompt" | "enabled" | "disabled">("prompt");
@@ -183,6 +185,7 @@ export default function SettingsPage() {
       } catch {
         setAgentLimitsText(s.agent_limits ?? "{}");
       }
+      setRoles(parseAgentRoles(s.agent_roles));
       listAgents()
         .then(setAgentList)
         .catch(() => undefined);
@@ -264,6 +267,7 @@ export default function SettingsPage() {
         "ui.base_url": baseURL.trim(),
         price_table: priceTable,
         agent_limits: agentLimitsText,
+        agent_roles: serializeAgentRoles(roles),
         "agent.default": agentDefault.trim(),
         limit_policy: limitPolicy,
         "limit_policy.fallback_agents": limitFallbackText.trim() || "[]",
@@ -287,6 +291,9 @@ export default function SettingsPage() {
       } catch {
         setAgentLimitsText(s.agent_limits ?? "{}");
       }
+      // Re-read rather than keep the draft: the serializer drops half-written
+      // rows, and the fields should show what was actually saved.
+      setRoles(parseAgentRoles(s.agent_roles));
       setSaved(true);
       pushToast(tr("settings.saved"), "info");
       window.dispatchEvent(new Event("kin:agent-sessions-changed"));
@@ -926,6 +933,8 @@ export default function SettingsPage() {
         onImportProviderSessions={(agentId) => void importProviderSessions(agentId)}
         onAutoImportModeChange={setAutoImportMode}
         onSaveSettings={() => void save()}
+        roles={roles}
+        onRolesChange={setRoles}
       />
 
       {/* Appearance (design 3c / 3e) */}

@@ -62,6 +62,8 @@ function section(props: SectionProps) {
       onImportProviderSessions={props.onImportProviderSessions ?? vi.fn()}
       onAutoImportModeChange={() => {}}
       onSaveSettings={() => {}}
+      roles={[]}
+      onRolesChange={() => {}}
     />
   );
 }

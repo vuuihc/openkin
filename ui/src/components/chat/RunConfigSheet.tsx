@@ -30,9 +30,12 @@ import Sheet from "../mobile/Sheet";
  * rather than pushing a second sheet — the value you are changing and the
  * list you are changing it from stay in one place on screen.
  *
- * Deliberately absent: role presets and reasoning effort. The daemon protocol
- * this console speaks has neither, and a row that cannot be honoured is worse
- * than a row that is not drawn.
+ * Deliberately absent: reasoning effort, which the daemon protocol this
+ * console speaks does not carry — a row that cannot be honoured is worse than
+ * a row that is not drawn. Role presets are absent from *this* sheet for a
+ * different reason: a role is a prompt prefix, not a run setting, and it is
+ * chosen on the new-chat page where the draft it edits is (see
+ * `lib/agentRoles`).
  */
 export type RunConfigAvatar = { initials: string; className: string };
 

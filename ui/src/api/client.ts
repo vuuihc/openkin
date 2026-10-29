@@ -1694,6 +1694,8 @@ export type Settings = {
   "ui.base_url": string;
   price_table: string;
   agent_limits: string;
+  /** JSON array of role presets; see `lib/agentRoles`. */
+  agent_roles?: string;
   "provider.kind": string;
   "provider.base_url": string;
   "provider.api_key": string;
@@ -1734,6 +1736,7 @@ export type SettingsUpdate = Partial<
     | "ui.base_url"
     | "price_table"
     | "agent_limits"
+    | "agent_roles"
     | "provider.kind"
     | "provider.base_url"
     | "provider.api_key"

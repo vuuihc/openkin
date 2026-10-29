@@ -96,7 +96,11 @@ export default function Composer({
   const submitIntent = useRef<"queue" | "interrupt">("queue");
 
   useEffect(() => {
-    if (initialValue) setValue(initialValue);
+    // The empty string is a value, not an absence: taking a role back out of
+    // the draft asks the composer to show the cleared text, and a truthiness
+    // check left the old role on screen while the draft behind it said
+    // otherwise.
+    setValue(initialValue);
   }, [initialValue]);
 
   /** Grow with content up to CSS max-height, then scroll. Shrinks when cleared. */

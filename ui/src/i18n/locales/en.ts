@@ -99,6 +99,8 @@ const en: MessageTree = {
     rowDispatch: "Team",
     rowCwd: "Folder",
     rowBranch: "Branch",
+    rowRole: "Role",
+    roleNone: "No role",
     noWorkspace: "No folder",
     roleHost: "host",
     heroSubtitleHost: "{name} hosts this session. @mentions assign workers without switching host.",
@@ -850,6 +852,20 @@ const en: MessageTree = {
     reveal: "Reveal",
     subtitle: "Cognition provider (Kin agent), connection, notifications, and pricing.",
     saving: "Saving…",
+    roles: {
+      heading: "Roles",
+      description:
+        "A role is a saved prompt prefix. Picking one in a new chat writes its text into the draft, so the transcript shows exactly what the agent was told.",
+      empty: "No roles yet. Add one and its text is one tap away in a new chat.",
+      add: "Add role",
+      name: "Role {index} name",
+      namePlaceholder: "Name, e.g. Code reviewer",
+      prompt: "Role {index} prompt",
+      promptPlaceholder:
+        "The instruction to insert. It lands at the top of the draft, above whatever you type.",
+      remove: "Remove {name}",
+      removeShort: "Remove",
+    },
     tabs: {
       general: "General",
       generalDesc: "Appearance and baseline app preferences.",

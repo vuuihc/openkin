@@ -1,5 +1,7 @@
 import type { AgentProvider, AgentProviderState } from "../../api/client";
 import { useT } from "../../i18n/react";
+import type { AgentRole } from "../../lib/agentRoles";
+import { RolesSection } from "./RolesSection";
 import { SettingsSection, SettingsTabPanel } from "./SettingsPrimitives";
 
 export type AutoImportSnapshot = {
@@ -57,6 +59,8 @@ export function LocalAgentSettingsSection({
   onImportProviderSessions,
   onAutoImportModeChange,
   onSaveSettings,
+  roles,
+  onRolesChange,
 }: {
   active: boolean;
   agentProviders: AgentProvider[];
@@ -70,6 +74,8 @@ export function LocalAgentSettingsSection({
   onImportProviderSessions: (agentId: string) => void;
   onAutoImportModeChange: (mode: "prompt" | "enabled" | "disabled") => void;
   onSaveSettings: () => void;
+  roles: AgentRole[];
+  onRolesChange: (roles: AgentRole[]) => void;
 }) {
   const tr = useT();
 
@@ -240,6 +246,16 @@ export function LocalAgentSettingsSection({
           </button>
         </div>
       </SettingsSection>
+      {/* Roles sit beside the agents because they answer the same question —
+          what am I about to run — and because a role is a prompt prefix, not a
+          setting of the daemon. */}
+      <RolesSection
+        roles={roles}
+        onChange={onRolesChange}
+        onSave={onSaveSettings}
+        saving={settingsBusy}
+        disabled={settingsBusy}
+      />
     </SettingsTabPanel>
   );
 }

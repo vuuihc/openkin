@@ -65,6 +65,9 @@ import {
   type PermissionMode,
 } from "../lib/permissionMode";
 import type { NewChatControlId } from "../lib/newChatWorkbench";
+import { appliedRole, selectRole } from "../lib/agentRoles";
+import { useAgentRoles } from "../hooks/useAgentRoles";
+import SheetSelect from "../components/ui/SheetSelect";
 import { useAppStore } from "../store/appStore";
 
 /**
@@ -86,6 +89,9 @@ export default function NewChatPage() {
     getDraftPermissionMode(),
   );
   const [asRoutine, setAsRoutine] = useState(false);
+  // Saved prompt prefixes. They are a settings key, so they arrive after the
+  // first paint; until then the role row simply does not exist.
+  const agentRoles = useAgentRoles();
 
   const [routineInterval, setRoutineInterval] = useState(86400);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
@@ -451,10 +457,11 @@ export default function NewChatPage() {
   const phoneExtraRows = (
     asRoutine
       ? (["routine"] as const)
-      : (["machine", "cwd", "branch", "dispatch", "routine"] as const)
+      : (["role", "machine", "cwd", "branch", "dispatch", "routine"] as const)
   ) as readonly NewChatControlId[];
   const desktopStrip: NewChatControlId[] = [
     "hostModel",
+    "role",
     "permission",
     "machine",
     "cwd",
@@ -463,7 +470,14 @@ export default function NewChatPage() {
     "routine",
   ];
   const desktopStripIds = desktopStrip.filter(
-    (id) => !(asRoutine && (id === "machine" || id === "cwd" || id === "branch" || id === "dispatch")),
+    (id) =>
+      // No saved roles, no row: a picker whose only entry is "none" is a
+      // control that exists to be dismissed.
+      (id !== "role" || agentRoles.length > 0) &&
+      !(asRoutine && (id === "machine" || id === "cwd" || id === "branch" || id === "dispatch")),
+  );
+  const visiblePhoneExtraRows = phoneExtraRows.filter(
+    (id) => id !== "role" || agentRoles.length > 0,
   );
 
   /** Each control's own row label. The group headings stay as sections
@@ -473,6 +487,7 @@ export default function NewChatPage() {
     routine: "newChat.rowRoutine",
     machine: "newChat.rowMachine",
     hostModel: "newChat.rowAgentModel",
+    role: "newChat.rowRole",
     dispatch: "newChat.rowDispatch",
     cwd: "newChat.rowCwd",
     branch: "newChat.rowBranch",
@@ -490,6 +505,33 @@ export default function NewChatPage() {
             loading={machinesLoading}
             disabled={sending}
             onChange={chooseMachine}
+          />
+        );
+      case "role":
+        return (
+          <SheetSelect
+            key={control}
+            label={tr("newChat.rowRole")}
+            value={appliedRole(previewPrompt, agentRoles)?.id ?? ""}
+            // "No role" is an option, not a placeholder: a control that can
+            // only ever add text is a one-way door, and the way back is a tap
+            // on the same row rather than editing the draft by hand.
+            options={[
+              { id: "", label: tr("newChat.roleNone") },
+              ...agentRoles.map((role) => ({ id: role.id, label: role.name })),
+            ]}
+            placeholder={tr("newChat.roleNone")}
+            disabled={sending}
+            className="max-w-[12rem] text-kin-secondary"
+            onChange={(id) => {
+              // The draft is the truth. Picking a role writes its text into
+              // the draft — the same text the transcript will show — instead
+              // of attaching a setting that the run would apply invisibly.
+              const next = selectRole(previewPrompt, agentRoles, id);
+              setPreviewPrompt(next);
+              setDraftPrompt(next);
+              setInitialValue(next);
+            }}
           />
         );
       case "permission":
@@ -781,7 +823,7 @@ export default function NewChatPage() {
                 }}
                 extraRows={
                   <>
-                    {phoneExtraRows.map((control) => (
+                    {visiblePhoneExtraRows.map((control) => (
                       <RunConfigSheetRow
                         key={control}
                         label={tr(CONTROL_LABEL_KEY[control])}
