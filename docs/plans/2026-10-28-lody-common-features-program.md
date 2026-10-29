@@ -346,3 +346,56 @@ result is worth copying") described a bug that is not in the tree.
 
 **Batch A is closed.** Next: batch B (phone session switcher, transcript
 virtualization).
+
+#### B1 — the phone's session switcher (implemented)
+
+The tab strip is desktop-only, so on a phone every switch was back → list →
+open; the acceptance was two taps between two live sessions without returning
+to the list. The conversation header now carries a switch control beside ⋯
+that opens a sheet with two sections:
+
+- **Open** — the tab order, in strip order.
+- **Recent** — the sessions behind them (twelve).
+
+Each row carries one mark, in precedence order: waiting (blocked on an approval
+or a question), running, failed, unread (finished and not yet seen), idle.
+Waiting is read from the task's own `waiting_approval` / `waiting_input` status
+*and* the pending lists, so the mark survives the moment between a status
+update and a list refresh. A tab whose task fell off the loaded page is still
+listed — untitled, or waiting when the pending lists know it — because a
+switcher missing the session in front of the reader is worse than an untitled
+row.
+
+The host assembles the rows from the subscriptions the sidebar already reads
+(task list, pending approvals/questions, viewed state), so the sheet adds no
+polling of its own. The control exists only on the phone: both the header
+button and the sheet are `md:hidden`.
+
+Review (same model) found three majors, all real and all fixed in this slice:
+
+- **Marking viewed on every status change reversed a desktop rule.** The
+  sidebar deliberately keeps its green dot when a watched session finishes
+  (`handledSelectionRef` and its comment say so). The write moved out of an
+  always-on effect into the open handler: asking "what is new?" is the moment
+  the session in front stops being new, and this control only exists on the
+  phone.
+- **"Waiting" ignored the task's own status.** The daemon really does set
+  `waiting_approval` and `waiting_input`; the mark now reads them first and
+  treats the pending lists as the complement, not the only source.
+- **An open tab missing from the loaded page was always idle**, even when the
+  pending lists named it. That branch now answers waiting too.
+
+Nits fixed in the same pass: the viewed snapshot moved to
+`useSyncExternalStore` with a string snapshot (a fresh array would re-render
+forever); the active row is drawn from the detail subscription the pane already
+holds, so a session older than the newest hundred keeps its name and state; row
+tap targets reach the 44px floor with a press state; and the Chinese "waiting"
+label is 待处理, because the state covers questions as well as approvals.
+
+Deferred nit: after a switch, focus is not moved into the new pane — `Sheet`
+restores it to the opener, which is now hidden. Keyboard-only, narrow widths
+only.
+
+Residual risk: there is no authenticated phone build in this environment, so
+the two-tap flow and the sheet's feel were verified in jsdom and in the source,
+not on a device.

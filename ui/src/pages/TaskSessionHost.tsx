@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useTaskList } from "../api/useLiveResources";
+import { isTerminal } from "../api/client";
+import { usePendingResources, useTaskList, useTaskResource } from "../api/useLiveResources";
 import { useT } from "../i18n/react";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
+import { getViewedSessionIds, markSessionViewed, subscribeSessionViewed } from "../lib/sessionViewed";
+import { buildSwitcherRows, waitingTaskIds } from "../lib/sessionSwitcher";
 import {
   closeSessionTab,
   moveSessionTab,
@@ -15,6 +18,7 @@ import { taskDisplayTitle } from "../lib/taskTitle";
 import { subscribeWS } from "../store/appStore";
 import ErrorBoundary from "../components/ErrorBoundary";
 import SessionTabs, { type SessionTab } from "../components/layout/SessionTabs";
+import SessionSwitcherSheet from "../components/mobile/SessionSwitcherSheet";
 import TaskDetailPage from "./TaskDetailPage";
 
 /**
@@ -42,6 +46,8 @@ export default function TaskSessionHost() {
   const activeId = taskIdFromPathname(pathname);
   const [mountedIds, setMountedIds] = useState<string[]>([]);
   const [tabOrder, setTabOrder] = useState<string[]>(() => readSessionTabs());
+  /** The phone's session switcher (the tab strip is desktop-only). */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   // The same live list the sidebar and /sessions read, keyed identically, so this
   // is a second reader of one subscription rather than a second poll. It is where
   // tab names come from: storage holds ids only.
@@ -50,6 +56,42 @@ export default function TaskSessionHost() {
     () => new Map(taskList.data.map((task) => [task.id, task])),
     [taskList.data],
   );
+
+  // Which sessions need the reader. A mid-run block shows in the task's own
+  // status too, but the pending lists also cover the moment before it lands.
+  const pending = usePendingResources();
+  const pendingIds = useMemo(
+    () => waitingTaskIds(pending.data.approvals, pending.data.questions),
+    [pending.data],
+  );
+  // Viewed state is localStorage plus an event. The snapshot is a string, like
+  // Sidebar's, because `getViewedSessionIds()` returns a fresh array and
+  // `useSyncExternalStore` compares snapshots with Object.is.
+  const viewedKey = useSyncExternalStore(
+    subscribeSessionViewed,
+    () => getViewedSessionIds().slice().sort().join(","),
+    () => "",
+  );
+  const viewedIds = useMemo(() => new Set(viewedKey ? viewedKey.split(",") : []), [viewedKey]);
+
+  // The active session can be older than the loaded page (the tab order
+  // persists across reloads, the list is the newest hundred), so its row comes
+  // from the detail subscription the pane already holds — this is one more
+  // reader of that lease, not another request.
+  const activeDetail = useTaskResource(activeId ?? "", Boolean(activeId));
+  const activeTask = activeDetail.data.task ?? (activeId ? tasksById.get(activeId) : undefined);
+
+  // Asking "what is new?" is the moment the session in front of the reader
+  // stops being new. Marked here rather than on every status change: the
+  // desktop sidebar deliberately keeps its green dot when a watched session
+  // finishes (see Sidebar's `handledSelectionRef`), and this control exists
+  // only on the phone.
+  const openSwitcher = useCallback(() => {
+    if (activeId && activeTask && isTerminal(activeTask.status)) {
+      markSessionViewed(activeId);
+    }
+    setSwitcherOpen(true);
+  }, [activeId, activeTask]);
 
   // Opening a session route opens (or revisits) its tab and mounts it.
   useEffect(() => {
@@ -120,6 +162,27 @@ export default function TaskSessionHost() {
     label: taskDisplayTitle(tasksById.get(id)) || tr("tabs.untitled"),
   }));
 
+  // The active row is drawn from the same list as the rest; if it fell off the
+  // page it is prepended so the session in front of the reader keeps its name
+  // and state instead of turning into an untitled idle row.
+  const switcherTasks = useMemo(() => {
+    if (!activeTask || taskList.data.some((task) => task.id === activeTask.id)) return taskList.data;
+    return [activeTask, ...taskList.data];
+  }, [activeTask, taskList.data]);
+
+  const switcherRows = useMemo(
+    () =>
+      buildSwitcherRows({
+        tabIds: tabOrder,
+        tasks: switcherTasks,
+        activeId,
+        viewedIds,
+        pendingIds,
+        untitled: tr("tabs.untitled"),
+      }),
+    [tabOrder, switcherTasks, activeId, viewedIds, pendingIds, tr],
+  );
+
   const show = Boolean(activeId);
 
   return (
@@ -155,12 +218,25 @@ export default function TaskSessionHost() {
               aria-hidden={!active}
             >
               <ErrorBoundary>
-                <TaskDetailPage taskId={taskId} active={active && show} />
+                <TaskDetailPage
+                  taskId={taskId}
+                  active={active && show}
+                  onOpenSessionSwitcher={openSwitcher}
+                />
               </ErrorBoundary>
             </div>
           );
         })}
       </div>
+      <SessionSwitcherSheet
+        open={switcherOpen}
+        onClose={() => setSwitcherOpen(false)}
+        rows={switcherRows}
+        onSelect={(id) => {
+          selectTab(id);
+          setSwitcherOpen(false);
+        }}
+      />
     </div>
   );
 }

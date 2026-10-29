@@ -66,6 +66,7 @@ import {
   IconMore,
   IconPanel,
   IconPullRequest,
+  IconSessions,
   IconTrash,
 } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
@@ -111,9 +112,19 @@ type TaskDetailPageProps = {
   taskId?: string;
   /** Whether this instance is the visible session. */
   active?: boolean;
+  /**
+   * Opens the phone's session switcher (the tab strip is desktop-only). Passed
+   * by the host that owns the open-tab list; the phone header shows the button
+   * only when it is there.
+   */
+  onOpenSessionSwitcher?: () => void;
 };
 
-export default function TaskDetailPage({ taskId, active = true }: TaskDetailPageProps) {
+export default function TaskDetailPage({
+  taskId,
+  active = true,
+  onOpenSessionSwitcher,
+}: TaskDetailPageProps) {
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
   const navigate = useNavigate();
@@ -1116,13 +1127,28 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             </MobileHeaderButton>
           }
           trailing={
-            <MobileHeaderButton
-              label={tr("task.sessionActions")}
-              onClick={() => setActionsOpen(true)}
-              tone="muted"
-            >
-              <IconMore size={19} />
-            </MobileHeaderButton>
+            <>
+              {/* The phone's tab strip: everything open, plus what finished
+                  while the reader was elsewhere. Lody puts this control
+                  beside ⋯ for the same reason — it is a switch, not an
+                  action on this session. */}
+              {onOpenSessionSwitcher && (
+                <MobileHeaderButton
+                  label={tr("switcher.title")}
+                  onClick={onOpenSessionSwitcher}
+                  tone="muted"
+                >
+                  <IconSessions size={19} />
+                </MobileHeaderButton>
+              )}
+              <MobileHeaderButton
+                label={tr("task.sessionActions")}
+                onClick={() => setActionsOpen(true)}
+                tone="muted"
+              >
+                <IconMore size={19} />
+              </MobileHeaderButton>
+            </>
           }
         />
 

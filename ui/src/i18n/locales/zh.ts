@@ -1297,6 +1297,15 @@ const zh = {
     closeFailed: "关闭会话失败",
     resize: "调整大小",
   },
+  switcher: {
+    title: "切换会话",
+    open: "已打开",
+    recent: "最近",
+    waiting: "待处理",
+    running: "运行中",
+    failed: "失败",
+    unread: "有新结果",
+  },
   tabs: {
     label: "打开的会话",
     close: "关闭 {name}",
