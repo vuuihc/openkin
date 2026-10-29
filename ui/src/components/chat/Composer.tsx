@@ -1,4 +1,12 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AgentInfo, Upload } from "../../api/client";
 import {
   authenticatedURL,
@@ -11,7 +19,16 @@ import { useT } from "../../i18n/react";
 import { agentDisplayName } from "../../lib/agentMention";
 import { agentCatalogState } from "../../lib/agentCatalog";
 import { useAppStore } from "../../store/appStore";
-import { IconAlert, IconFile, IconImage, IconPlus, IconSend, IconSpinner, IconStop, IconX } from "../icons";
+import {
+  IconAlert,
+  IconFile,
+  IconImage,
+  IconPlus,
+  IconSend,
+  IconSpinner,
+  IconStop,
+  IconX,
+} from "../icons";
 
 type Props = {
   placeholder?: string;
@@ -33,6 +50,16 @@ type Props = {
   agents?: AgentInfo[];
   /** Current session host; used only for mention role labels. */
   hostAgentId?: string;
+  /**
+   * Searches the task's workspace for files matching the text typed after `@`.
+   *
+   * Absent when there is no workspace to search — a task that has not started,
+   * or a page that has no task at all — and then the menu offers agents only.
+   * A search that fails is not an empty answer: the file section is dropped
+   * rather than shown with nothing in it, because an empty section reads as
+   * "this workspace has no such file".
+   */
+  fileSearch?: (query: string) => Promise<string[]>;
   /**
    * The phone's run-config face, rendered between the attach control and the
    * send control on the composer's own footer row. It is hidden from `md` up,
@@ -57,6 +84,37 @@ type Attachment = Upload & {
   previewUrl?: string;
 };
 
+/** One row of the @ menu: a delegation, or a file to point the agent at. */
+type MentionOption =
+  { kind: "agent"; key: string; agent: AgentInfo } | { kind: "file"; key: string; path: string };
+
+/** How long typing settles before the workspace is asked. */
+const FILE_SEARCH_DEBOUNCE_MS = 200;
+
+/**
+ * The `@token` immediately before the caret.
+ *
+ * Anything but whitespace belongs to the token, because a path is not
+ * restricted to ASCII: `@文档/说明.md` is a query a phone user will type. What
+ * ends a query is decided by the tail below, not by the class.
+ */
+const MENTION_TOKEN_RE = /(?:^|\s)@([^\s@]*)$/;
+
+/**
+ * A token that can still grow into a path.
+ *
+ * A sentence-ending `@claude.` is prose, and the menu must not stay open over
+ * it: Enter belongs to the message then, not to a suggestion. The tail is a
+ * name character or a path separator; punctuation — `.`, `,`, `?`, a Chinese
+ * full stop, a closing bracket — says the mention is finished.
+ */
+const MENTION_TAIL_RE = /[\p{L}\p{N}_/-]$/u;
+
+/** Whether a just-typed `@token` is still asking to be completed. */
+function isMentionQuery(token: string): boolean {
+  return token === "" || MENTION_TAIL_RE.test(token);
+}
+
 /**
  * Chat composer: @agent menu for multi-agent delegation.
  * Enter sends; Shift/⌘/Ctrl+Enter inserts a newline.
@@ -75,6 +133,7 @@ export default function Composer({
   onAttachmentsChange,
   agents = [],
   hostAgentId,
+  fileSearch,
   footer,
   onSubmit,
 }: Props) {
@@ -85,11 +144,17 @@ export default function Composer({
   const [menu, setMenu] = useState<"slash" | "mention" | null>(null);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [fileMatches, setFileMatches] = useState<string[]>([]);
+  const [fileSearching, setFileSearching] = useState(false);
+  // Which query the newest file search belongs to. An answer that arrives
+  // after the caret moved on is stale, and stale answers are dropped.
+  const fileSearchSeq = useRef(0);
   const [attachments, setAttachments] = useState<Attachment[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
   const [focused, setFocused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionListRef = useRef<HTMLDivElement>(null);
   // Which of the two send buttons was pressed. Both are submit buttons in one
   // form, and the form's submit event does not say which — Enter lands here too,
   // and Enter means the default action, which is queueing.
@@ -139,18 +204,75 @@ export default function Composer({
   }, []);
 
   const available = agents.filter((a) => a.available);
-  const mentionMatches = useMemo(
+  const agentMatches = useMemo(
     () => available.filter((a) => a.id.toLowerCase().includes(mentionQuery.toLowerCase())),
     [available, mentionQuery],
   );
 
-  // Keep highlighted index in range when the filtered list changes.
+  // A file search asks the workspace, which may be another machine: it waits
+  // for typing to settle, and only the answer to the latest query lands — the
+  // earlier one is a different question and the caret has moved past it.
+  useEffect(() => {
+    const query = mentionQuery.trim();
+    const seq = ++fileSearchSeq.current;
+    if (menu !== "mention" || !fileSearch || query === "") {
+      setFileMatches((prev) => (prev.length === 0 ? prev : []));
+      setFileSearching(false);
+      return;
+    }
+    // The previous answer was to a shorter query. Keeping it on screen would
+    // leave rows selectable that the person has already typed past.
+    setFileMatches((prev) => (prev.length === 0 ? prev : []));
+    setFileSearching(true);
+    const timer = window.setTimeout(() => {
+      void fileSearch(query)
+        .then((files) => {
+          if (seq === fileSearchSeq.current) setFileMatches(files);
+        })
+        .catch(() => {
+          // No checkout here, or the machine that has one is away. The menu
+          // offers no file section rather than an empty one.
+          if (seq === fileSearchSeq.current) setFileMatches([]);
+        })
+        .finally(() => {
+          if (seq === fileSearchSeq.current) setFileSearching(false);
+        });
+    }, FILE_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [mentionQuery, menu, fileSearch]);
+
+  const mentionOptions = useMemo<MentionOption[]>(() => {
+    const options: MentionOption[] = agentMatches.map((a) => ({
+      kind: "agent",
+      key: `agent:${a.id}`,
+      agent: a,
+    }));
+    for (const path of fileMatches) options.push({ kind: "file", key: `file:${path}`, path });
+    return options;
+  }, [agentMatches, fileMatches]);
+
+  // A new query is a new list, so the highlight starts at its best row rather
+  // than at an index that happened to point at the old list's row three.
+  useEffect(() => {
+    setMentionIndex(0);
+  }, [mentionQuery]);
+
+  // Keep highlighted index in range when the list changes.
   useEffect(() => {
     setMentionIndex((i) => {
-      if (mentionMatches.length === 0) return 0;
-      return Math.min(i, mentionMatches.length - 1);
+      if (mentionOptions.length === 0) return 0;
+      return Math.min(i, mentionOptions.length - 1);
     });
-  }, [mentionMatches.length, mentionQuery]);
+  }, [mentionOptions.length]);
+
+  // Arrow keys move the highlight, and the list may be taller than the space
+  // above the composer — a phone's keyboard leaves little of it. The row being
+  // chosen has to be the row on screen.
+  useEffect(() => {
+    const active = mentionListRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    // jsdom lays nothing out and has no scrollIntoView; a browser has both.
+    active?.scrollIntoView?.({ block: "nearest" });
+  }, [mentionIndex, mentionOptions.length]);
 
   async function addFiles(files: FileList | File[] | null) {
     const list = Array.from(files ?? []);
@@ -262,8 +384,8 @@ export default function Composer({
     setValue(v);
     onValueChange?.(v);
     const upto = caret == null ? v : v.slice(0, caret);
-    const at = upto.match(/(?:^|\s)@([a-zA-Z0-9_-]*)$/);
-    if (at) {
+    const at = upto.match(MENTION_TOKEN_RE);
+    if (at && isMentionQuery(at[1] ?? "")) {
       setMentionQuery(at[1] ?? "");
       setMenu("mention");
     } else if (v === "/") {
@@ -282,22 +404,21 @@ export default function Composer({
     }
   }
 
-  function insertMention(agentId: string) {
-    // Prefer replacing the @partial immediately before caret / end.
-    const re = /(?:^|\s)@([a-zA-Z0-9_-]*)$/;
+  /** Replace the `@partial` before the caret with `@token `. */
+  function insertMentionToken(token: string) {
     let next = value;
-    if (re.test(value)) {
-      next = value.replace(re, (m) => {
+    if (MENTION_TOKEN_RE.test(value)) {
+      next = value.replace(MENTION_TOKEN_RE, (m) => {
         const lead = m.startsWith(" ") || m.startsWith("\n") ? m[0] : "";
-        return `${lead}@${agentId} `;
+        return `${lead}@${token} `;
       });
     } else {
       // Mid-string: replace the active query token if present.
       const idx = value.toLowerCase().lastIndexOf(`@${mentionQuery.toLowerCase()}`);
       if (idx >= 0) {
-        next = value.slice(0, idx) + `@${agentId} ` + value.slice(idx + 1 + mentionQuery.length);
+        next = value.slice(0, idx) + `@${token} ` + value.slice(idx + 1 + mentionQuery.length);
       } else {
-        next = `${value}@${agentId} `;
+        next = `${value}@${token} `;
       }
     }
     setValue(next);
@@ -312,29 +433,35 @@ export default function Composer({
     });
   }
 
+  /** Insert whatever row is highlighted — an agent id or a file path. */
+  function pickMention() {
+    const pick = mentionOptions[mentionIndex] ?? mentionOptions[0];
+    if (!pick) return;
+    insertMentionToken(pick.kind === "agent" ? pick.agent.id : pick.path);
+  }
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // Mention menu keyboard navigation.
-    if (menu === "mention" && mentionMatches.length > 0) {
+    // Mention menu keyboard navigation. One list, both kinds of row: the arrow
+    // keys do not stop at the boundary between agents and files.
+    if (menu === "mention" && mentionOptions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setMentionIndex((i) => (i + 1) % mentionMatches.length);
+        setMentionIndex((i) => (i + 1) % mentionOptions.length);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setMentionIndex((i) => (i - 1 + mentionMatches.length) % mentionMatches.length);
+        setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
         return;
       }
       if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
         e.preventDefault();
-        const pick = mentionMatches[mentionIndex] ?? mentionMatches[0];
-        if (pick) insertMention(pick.id);
+        pickMention();
         return;
       }
       if (e.key === "Tab" && !e.shiftKey) {
         e.preventDefault();
-        const pick = mentionMatches[mentionIndex] ?? mentionMatches[0];
-        if (pick) insertMention(pick.id);
+        pickMention();
         return;
       }
       if (e.key === "Escape") {
@@ -367,6 +494,13 @@ export default function Composer({
   }
 
   const expanded = Boolean(value.trim()) || attachments.length > 0 || focused || uploading;
+  // "agents & files" only when a file row is on screen or on its way. A search
+  // that failed leaves an agent menu, and a title promising files would name a
+  // section that is not there.
+  const menuTitle =
+    fileSearch && (fileMatches.length > 0 || fileSearching)
+      ? "composer.mentionTitleFiles"
+      : "composer.mentionTitle";
 
   return (
     <form onSubmit={submit} className="relative">
@@ -380,44 +514,85 @@ export default function Composer({
           </div>
         </div>
       )}
-      {menu === "mention" && mentionMatches.length > 0 && (
+      {menu === "mention" && (mentionOptions.length > 0 || fileSearching) && (
         <div
           className="absolute bottom-full left-0 right-0 mb-2 rounded-xl bg-kin-elevated shadow-e2 overflow-hidden z-20"
           role="listbox"
-          aria-label={tr("composer.mentionTitle")}
+          aria-label={tr(menuTitle)}
         >
           <div className="px-3 py-2 text-caption font-semibold uppercase tracking-label text-kin-muted flex items-center justify-between">
-            <span>{tr("composer.mentionTitle")}</span>
+            <span>{tr(menuTitle)}</span>
             <span className="normal-case tracking-normal font-normal text-caption">
               ↑↓ {tr("composer.mentionNav")} · ↵ {tr("composer.mentionSelect")}
             </span>
           </div>
-          {mentionMatches.map((a, i) => {
-            const active = i === mentionIndex;
-            return (
-              <button
-                key={a.id}
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={
-                  "w-full flex items-center gap-3 px-3 py-2.5 text-left text-strong " +
-                  (active ? "bg-kin-blue/15 text-kin-text" : "hover:bg-[var(--kin-fill-strong)]")
-                }
-                onMouseEnter={() => setMentionIndex(i)}
-                onClick={() => insertMention(a.id)}
-              >
-                <span className="font-mono text-kin-blue-ink font-semibold">@{a.id}</span>
-                <span className="text-kin-secondary">
-                  {agentDisplayName(a.id)}
-                  {hostAgentId && a.id === hostAgentId
-                    ? ` · ${tr("composer.roleMain")}`
-                    : ` · ${tr("composer.roleWorker")}`}
-                  {agentCatalogState(a) === "generic" ? ` · ${tr("agentCatalog.generic")}` : ""}
-                </span>
-              </button>
-            );
-          })}
+          {/* The rows scroll; the header above stays put. Fifty answers is the
+              daemon's cap, and a phone keyboard leaves the menu less than half
+              a screen to grow into. */}
+          <div ref={mentionListRef} className="max-h-[min(40vh,18rem)] overflow-y-auto kin-scroll">
+            {mentionOptions.map((option, i) => {
+              const active = i === mentionIndex;
+              const rowClass =
+                "w-full flex items-center gap-3 px-3 py-2.5 text-left text-strong " +
+                (active ? "bg-kin-blue/15 text-kin-text" : "hover:bg-[var(--kin-fill-strong)]");
+              // The file rows sit under one heading, above the first of them —
+              // including when they are the only rows, because then the heading
+              // is the only thing that says what kind of path is being offered.
+              const heading =
+                option.kind === "file" && mentionOptions[i - 1]?.kind !== "file" ? (
+                  <div
+                    key={`${option.key}:heading`}
+                    className="px-3 py-1.5 text-caption font-semibold uppercase tracking-label text-kin-muted border-t border-[var(--kin-hairline)]"
+                  >
+                    {tr("composer.fileMentionTitle")}
+                  </div>
+                ) : null;
+              const row =
+                option.kind === "agent" ? (
+                  <button
+                    key={option.key}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={rowClass}
+                    onMouseEnter={() => setMentionIndex(i)}
+                    onClick={() => insertMentionToken(option.agent.id)}
+                  >
+                    <span className="font-mono text-kin-blue-ink font-semibold">
+                      @{option.agent.id}
+                    </span>
+                    <span className="text-kin-secondary">
+                      {agentDisplayName(option.agent.id)}
+                      {hostAgentId && option.agent.id === hostAgentId
+                        ? ` · ${tr("composer.roleMain")}`
+                        : ` · ${tr("composer.roleWorker")}`}
+                      {agentCatalogState(option.agent) === "generic"
+                        ? ` · ${tr("agentCatalog.generic")}`
+                        : ""}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    key={option.key}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    className={rowClass}
+                    onMouseEnter={() => setMentionIndex(i)}
+                    onClick={() => insertMentionToken(option.path)}
+                  >
+                    <IconFile size={14} className="text-kin-muted shrink-0" />
+                    <span className="font-mono text-kin-text truncate">{option.path}</span>
+                  </button>
+                );
+              return heading ? [heading, row] : row;
+            })}
+            {fileSearching && fileMatches.length === 0 ? (
+              <div className="px-3 py-2.5 text-caption text-kin-muted">
+                {tr("composer.fileMentionSearching")}
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -490,9 +665,7 @@ export default function Composer({
         />
         <div
           className={
-            expanded
-              ? "flex flex-col"
-              : "flex flex-col sm:flex-row sm:items-center sm:gap-1.5"
+            expanded ? "flex flex-col" : "flex flex-col sm:flex-row sm:items-center sm:gap-1.5"
           }
         >
           <textarea

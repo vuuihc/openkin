@@ -91,6 +91,17 @@ const QueryWorkspaceTree = "workspace.tree"
 // words rather than answered with replacement characters.
 const QueryWorkspaceFile = "workspace.file"
 
+// QueryWorkspaceFiles asks which files in a workspace match a few characters.
+//
+// It is the question behind the console's @ menu: a person naming a file on a
+// phone should not have to type a path they can barely see. The answer is names,
+// not contents, and it is short on purpose — the asker types another character
+// instead of scrolling. The set is git's (tracked plus untracked and not
+// ignored), because that is the set of files a prompt means by a path; a
+// directory that is not a checkout has no such list and refuses instead of
+// walking a tree.
+const QueryWorkspaceFiles = "workspace.files"
+
 // QueryWorkspaceGit asks which repository and branch one of the machine's own
 // directories is in, and where that branch stands.
 //
@@ -200,6 +211,16 @@ const (
 	// overflow the frame no matter what is in the file. A larger file is
 	// answered with its beginning and Truncated.
 	MaxWorkspaceFile = 128 << 10
+	// MaxWorkspaceFiles bounds one file-name answer, and MaxFileQuery the
+	// characters that ask for it.
+	//
+	// Both are the menu's numbers rather than the protocol's: an @ menu is read
+	// at a glance, and a person who does not see the file they mean types
+	// another character instead of scrolling. A query is a few characters of a
+	// path, never a path itself, so a longer one is a mistake worth refusing
+	// where the answer can say which field it was.
+	MaxWorkspaceFiles = 50
+	MaxFileQuery      = 200
 	// MaxPRTitle and MaxPRBody bound the words that travel with a publish.
 	//
 	// A title is one line and a body is a message, both written by a person, and a
@@ -657,6 +678,29 @@ type WorkspaceFileResult struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
+// WorkspaceFilesParams asks which files in a workspace match a few characters.
+type WorkspaceFilesParams struct {
+	// Path is the workspace directory itself, as in WorkspaceTreeParams.
+	Path string `json:"path"`
+	// Query is matched case-insensitively against the whole path. Required: an
+	// empty query is a listing of the repository, which is a different and much
+	// larger question than the one a menu asks.
+	Query string `json:"query"`
+	// Limit is how many names to answer with; zero means the machine's default.
+	// It is bounded by MaxWorkspaceFiles.
+	Limit int `json:"limit,omitempty"`
+}
+
+// WorkspaceFilesResult is one search's answer, best matches first.
+type WorkspaceFilesResult struct {
+	Path string `json:"path"`
+	// Files is never nil: a selector reads it as a list, and a repository with
+	// no match has an empty one.
+	Files []string `json:"files"`
+	// Truncated reports that more files matched than fitted in Limit.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
 // WorkspaceGitParams names one directory whose git is asked about. It is the
 // workspace directory itself, as in WorkspaceTreeParams.
 type WorkspaceGitParams struct {
@@ -870,6 +914,31 @@ func (p WorkspaceFileParams) Validate() error {
 		return err
 	}
 	return relative("file", p.File, true)
+}
+
+func (p WorkspaceFilesParams) Validate() error {
+	if err := directory("path", p.Path, true); err != nil {
+		return err
+	}
+	query := strings.TrimSpace(p.Query)
+	if query == "" {
+		// A listing of the whole repository is a different question, and one
+		// whose answer a menu could not use.
+		return fmt.Errorf("query is required")
+	}
+	if err := optional("query", query, MaxFileQuery); err != nil {
+		return err
+	}
+	// The query is a pattern, not an argument: it never reaches git, only the
+	// filter this machine runs over git's answer. Control characters would still
+	// travel inside a frame and be rendered nowhere useful.
+	if strings.ContainsAny(query, "\x00\n\r") {
+		return fmt.Errorf("query %q contains a control character", query)
+	}
+	if p.Limit < 0 || p.Limit > MaxWorkspaceFiles {
+		return fmt.Errorf("limit must be between 0 and %d", MaxWorkspaceFiles)
+	}
+	return nil
 }
 
 // relative checks a path that names something inside a directory the machine

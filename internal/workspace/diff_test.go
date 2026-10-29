@@ -732,3 +732,164 @@ func TestParseNumstat(t *testing.T) {
 		t.Fatalf("counts=%+v", counts)
 	}
 }
+
+// A file search answers from git's set — tracked plus untracked and not
+// ignored — because that is the set of paths a prompt means. An ignored file is
+// not offered: a menu that lists what .gitignore hides is offering a path the
+// person deliberately kept out of the repository.
+func TestListLiveFilesFindsTrackedAndUntrackedInsideTheScope(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	if err := m.EnsureEmptyHooks(); err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	initRepo(t, src)
+	commitFile(t, src, "internal/api/server.go", "package api\n")
+	commitFile(t, src, "docs/guide.md", "# guide\n")
+	if err := os.WriteFile(filepath.Join(src, ".gitignore"), []byte("secret.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "secret.txt"), []byte("hidden\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "internal/notes.md"), []byte("notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, truncated, err := m.ListLiveFiles(context.Background(), SharedMetadata(src), "SERVER", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if truncated {
+		t.Error("one match was reported as truncated")
+	}
+	if len(files) != 1 || files[0] != "internal/api/server.go" {
+		t.Fatalf("files = %v, want the tracked server.go (matching is case-insensitive)", files)
+	}
+
+	files, _, err = m.ListLiveFiles(context.Background(), SharedMetadata(src), ".md", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"docs/guide.md", "internal/notes.md"}
+	if len(files) != len(want) || files[0] != want[0] || files[1] != want[1] {
+		t.Fatalf("files = %v, want %v (shorter path first)", files, want)
+	}
+
+	ignored, _, err := m.ListLiveFiles(context.Background(), SharedMetadata(src), "secret", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ignored) != 0 {
+		t.Fatalf("files = %v, want none: secret.txt is ignored", ignored)
+	}
+
+	// A task scoped to a subdirectory answers the way its agent reads it: the
+	// agent's working directory is `docs`, so the file is `guide.md` — the same
+	// text a machine that only knows the task's own directory would answer.
+	scoped := SharedMetadata(src)
+	scoped.Cwd = filepath.Join(src, "docs")
+	scoped.Scope = "docs"
+	files, _, err = m.ListLiveFiles(context.Background(), scoped, ".md", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0] != "guide.md" {
+		t.Fatalf("files = %v, want the scoped file relative to the task's directory", files)
+	}
+}
+
+func TestListLiveFilesRefusesADirectoryThatIsNotACheckout(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	if err := m.EnsureEmptyHooks(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+
+	if _, _, err := m.ListLiveFiles(context.Background(), SharedMetadata(dir), "x", 10); err == nil {
+		t.Fatal("a plain directory answered a file search")
+	}
+}
+
+// The questions a search may not ask. Each of these is refused before git runs,
+// because the caller is a menu and every one of them would produce an answer
+// nobody typed a query for.
+func TestListLiveFilesRefusesAQuestionItCannotAnswer(t *testing.T) {
+	requireGit(t)
+	m := NewManager(t.TempDir())
+	src := t.TempDir()
+	initRepo(t, src)
+
+	for name, tc := range map[string]struct {
+		meta  Metadata
+		query string
+	}{
+		"NoRoot":        {Metadata{Root: "", Cwd: src, Scope: "."}, "x"},
+		"EmptyQuery":    {SharedMetadata(src), ""},
+		"ControlInPath": {SharedMetadata(src), "a\nb"},
+	} {
+		if _, _, err := m.ListLiveFiles(context.Background(), tc.meta, tc.query, 10); err == nil {
+			t.Errorf("%s: answered instead of refused", name)
+		}
+	}
+}
+
+func TestRankFileMatchesPutsTheLikelyFileFirst(t *testing.T) {
+	files := []string{
+		"cmd/maintenance/main.go",
+		"docs/domain.md",
+		"main.go",
+		"src/main.go",
+		"website/index.html",
+	}
+
+	got, truncated, err := rankFileMatches(files, "main", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if truncated {
+		t.Error("truncated with fewer matches than the limit")
+	}
+	want := []string{"main.go", "src/main.go", "cmd/maintenance/main.go", "docs/domain.md"}
+	if len(got) != len(want) {
+		t.Fatalf("matches = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("matches = %v, want %v", got, want)
+		}
+	}
+
+	// A path prefix beats a match found deeper in the path.
+	got, _, err = rankFileMatches([]string{"x/src/main.go", "src/main.go"}, "src/", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "src/main.go" || got[1] != "x/src/main.go" {
+		t.Fatalf("matches = %v, want the path prefix first", got)
+	}
+
+	// In a tie the names are ordered, so an answer is stable.
+	got, _, err = rankFileMatches([]string{"b/x.go", "a/x.go"}, "x.go", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "a/x.go" || got[1] != "b/x.go" {
+		t.Fatalf("matches = %v, want alphabetical", got)
+	}
+
+	// The answer is bounded, and says so.
+	got, truncated, err = rankFileMatches(files, "main", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !truncated || len(got) != 2 {
+		t.Fatalf("matches = %v truncated=%v, want two matches and a truncation", got, truncated)
+	}
+
+	if _, _, err := rankFileMatches(files, "  ", 10); err == nil {
+		t.Fatal("an empty query was answered")
+	}
+}

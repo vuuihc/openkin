@@ -265,6 +265,16 @@ func (r *Responder) answer(ctx context.Context, id, method string, params json.R
 			return refused(id, err)
 		}
 		return answered(id, read)
+	case worker.QueryWorkspaceFiles:
+		var asked worker.WorkspaceFilesParams
+		if err := decodeParams(params, &asked); err != nil {
+			return refused(id, err)
+		}
+		found, err := r.workspaceFiles(ctx, asked)
+		if err != nil {
+			return refused(id, err)
+		}
+		return answered(id, found)
 	case worker.QueryWorkspaceGit:
 		var asked worker.WorkspaceGitParams
 		if err := decodeParams(params, &asked); err != nil {

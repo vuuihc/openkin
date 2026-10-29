@@ -1608,3 +1608,101 @@ above fails its suite when reverted (dropping the "never finished" check, readin
 the token from the URL, prefix-only route matching, ignoring `--port`, treating
 the first retry as success, dropping the resolved check, accepting Infinity in
 the bounds file, letting Infinity through the size clamp).
+
+#### F3 — the @ menu reaches the workspace (landed)
+
+Typing `@` in the composer offered agents and nothing else. The tree route
+could list one directory at a time, and for a phone-started task each of those
+listings is a relay round trip — a picker that walks the tree is a burst of
+them, over the slowest link in the system.
+
+- **One question, bounded.** `worker.WorkspaceFilesParams{Path, Query, Limit}`
+  answers with the workspace-relative paths that match, capped at
+  `MaxWorkspaceFiles = 50` and with `Truncated` when there were more. The query
+  is required and bounded at 200 bytes with no control characters; the limit is
+  clamped again inside the workspace layer, so a caller cannot ask for an
+  unbounded answer.
+- **Answered where the files are.** The machine resolves the path through
+  `r.own` — the same boundary a dispatched turn is held to — and computes the
+  answer with `Manager.ListLiveFiles`, so a machine's answer and the Hub's are
+  the same computation over different filesystems. `GET
+  /api/tasks/{id}/source/files?q=` maps either answer into the same envelope.
+- **What "files" means.** `git ls-files --cached --others --exclude-standard`,
+  NUL-separated, with the same pinned empty `core.hooksPath` every other git
+  call uses and the task's scope as a pathspec. Ignored files stay out: an @
+  menu that offers `.env` is a privacy bug, not a convenience. A directory that
+  is not a checkout answers 400, and the console then shows no file section
+  rather than an empty one.
+- **Ordered by likely intent.** A plain substring filter answers in git's
+  alphabetical order, where a query matching a directory name buries the file
+  of that name under every path through it: basename prefix, path prefix,
+  basename contains, then anything else; ties by shorter path and then
+  alphabetically.
+- **One list, two kinds of row.** The composer asks only once the query has a
+  character, 200 ms after typing settles, and only the newest answer may land —
+  the caret has moved past every older question. Agents stay first and files
+  follow under their own heading, navigated as one list; picking a row inserts
+  the workspace-relative path and a trailing space.
+- **A path is not a delegation.** `parseAgentDirective` reads `@name` only when
+  the token does not continue into a name or a path, so an inserted
+  `@claude-code/notes.md` stays text while a sentence-ending `@codex.` is still
+  a mention. The lookahead lists the name characters as well as `/` and `[`,
+  because otherwise the regex engine backtracks to a shorter prefix that
+  passes.
+
+**Tests.** 8 Go (3 workspace, 2 node, 3 API) and 10 console (5 parser, 5
+composer). Red-verified by mutation: dropping the remote branch makes the Hub
+answer with its own decoy checkout, dropping the query bound answers a
+201-byte query with 200, dropping `--exclude-standard` offers an ignored
+`secret.txt`, dropping the scope pathspec returns files outside the task's
+directory, replacing the ranking with alphabetical order misorders the answer,
+dropping `r.own` answers about a directory outside the machine's roots, and on
+the console side reverting the parser lookahead, removing the stale-answer
+guard, or removing the searching-state reset each fails its test.
+
+#### F3 — what the review of the diff found (landed)
+
+- **A scoped task's paths pointed at the wrong directory.** git ran at the
+  repository root and answered `docs/guide.md`; the agent reading the prompt
+  works in `docs`, so the path meant `docs/docs/guide.md`. The node branch had
+  always answered relative to the task's directory (it runs git there), so the
+  same task behaved differently depending on which machine ran it. `ListLiveFiles`
+  now strips the scope from git's paths, and both layers have a test that pins
+  `guide.md` for a `docs`-scoped task.
+- **A trailing sentence stop reopened the menu.** Adding `.` to the mention
+  token class meant `ask @claude.` searched the workspace for `claude.` —
+  `CLAUDE.md` matched — and Enter inserted the path instead of sending the
+  message. A token that does not end in a name character or `/` is now prose:
+  the menu closes, and Enter is the message's again. The same rule fixes
+  `@claude，` and `@claude)`.
+- **The list could grow taller than the screen.** Up to 50 rows rendered upward
+  from the composer; on a phone the agent rows and the best matches were
+  off-screen, and arrow keys moved the highlight where nothing could be seen.
+  The rows now scroll inside `max-h-[min(50vh,20rem)]`, and the highlighted row
+  is scrolled into view as it moves.
+- **Stale rows stayed selectable.** A new query now clears the previous answer
+  immediately, so the menu shows "searching" rather than rows the person has
+  already typed past, and the highlight returns to the first row when the query
+  changes.
+- **The local branch skipped the field's control-character rule** that the
+  node's own parse applies, so `?q=a%0Ab` was answered locally and refused
+  remotely. Both branches now read the field through one `sourceFileQuery`,
+  which also refuses it before a machine that is away is asked anything.
+- **`ListLiveFiles` had no empty-root guard.** Unreachable from the routes
+  today, but `git.Run` with no directory runs wherever the daemon happens to
+  be; the invariant is now checked where the other live reads check it.
+- The `@` token accepts non-ASCII, so `@文档/说明.md` can be typed on a phone;
+  the agent-only menu keeps its delegation wording, and the "agents & files"
+  title appears only when a file row is on screen or on its way.
+
+**Tests after the review.** 11 Go (4 workspace, 2 node, 5 API) and 16 console
+(5 parser, 11 composer). New mutations verified: restoring the root-relative
+paths fails both the workspace and the API scoped tests, removing the field
+check answers a malformed query with 409 instead of 400, and on the console the
+sentence-stop rule, the non-ASCII token class, the stale-row clear, the
+keep-in-view effect and the highlight reset each fail their test when reverted.
+
+Deferred, and deliberately: an in-flight file search is not cancelled when the
+query changes — its answer is dropped, but the node still runs one
+`git ls-files` per settled query. Adding a cancel means giving the worker
+protocol a request-scoped context, which is a protocol change, not a menu one.

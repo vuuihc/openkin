@@ -9,7 +9,7 @@ import (
 	"github.com/vuuihc/openkin/internal/workspace"
 )
 
-// The three questions about the files of a session that runs on this machine.
+// The questions about the files of a session that runs on this machine.
 //
 // The Hub asks them for the same reason it asks where a directory is: the task's
 // workspace is this machine's checkout, and the Hub holding a checkout of the
@@ -123,6 +123,35 @@ func (r *Responder) workspaceGit(ctx context.Context, asked worker.WorkspaceGitP
 		HeadOID:       facts.HeadOID,
 		Reason:        facts.Reason,
 	}, nil
+}
+
+// workspaceFiles answers which files in one of this machine's own workspaces
+// match a few characters, for the console's @ menu.
+//
+// It needs git, and says which absence it hit: no git on this machine is not the
+// same answer as a directory that is not a checkout, and a menu that cannot tell
+// them apart shows the same nothing for both.
+func (r *Responder) workspaceFiles(ctx context.Context, asked worker.WorkspaceFilesParams) (worker.WorkspaceFilesResult, error) {
+	path, err := r.own(asked.Path)
+	if err != nil {
+		return worker.WorkspaceFilesResult{}, err
+	}
+	git, err := r.workspaceFor("which files a directory has")
+	if err != nil {
+		return worker.WorkspaceFilesResult{}, err
+	}
+	limit := asked.Limit
+	if limit <= 0 {
+		limit = worker.MaxWorkspaceFiles
+	}
+	files, truncated, err := git.ListLiveFiles(ctx, workspace.SharedMetadata(path), asked.Query, limit)
+	if err != nil {
+		return worker.WorkspaceFilesResult{}, err
+	}
+	// Never nil, for the same reason the change list never is.
+	wire := make([]string, 0, len(files))
+	wire = append(wire, files...)
+	return worker.WorkspaceFilesResult{Path: path, Files: wire, Truncated: truncated}, nil
 }
 
 func (r *Responder) workspaceFile(_ context.Context, asked worker.WorkspaceFileParams) (worker.WorkspaceFileResult, error) {

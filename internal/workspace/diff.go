@@ -19,6 +19,13 @@ import (
 const (
 	liveTreeLimit = 500
 	liveFileLimit = 1024 * 1024
+	// LiveFilesLimit is how many names one file search answers with. A menu is
+	// read at a glance; a person who does not see what they meant types another
+	// character instead of scrolling.
+	LiveFilesLimit = 50
+	// liveFilesCeiling bounds what an asker can ask for, so one question cannot
+	// turn into a listing of the repository.
+	liveFilesCeiling = 500
 )
 
 // Change describes a single file change in a workspace diff.
@@ -358,6 +365,164 @@ func (m *Manager) ListLiveChanges(ctx context.Context, meta Metadata) ([]Change,
 	}
 
 	return changes, nil
+}
+
+// ListLiveFiles lists the files in a workspace whose path matches query, best
+// matches first.
+//
+// The set is git's: tracked files plus untracked ones that are not ignored,
+// which is what a person means by a path in a prompt. A directory that is not a
+// checkout has no such list, and the error says so rather than walking a tree
+// that could be a home directory. The scope is git's too — the pathspec keeps
+// the answer inside the directory the workspace is scoped to.
+//
+// The paths come back relative to the task's own working directory, not the
+// repository root, because that is the directory the agent reading the prompt
+// runs in. A task scoped to `docs` of a checkout answers `guide.md`, not
+// `docs/guide.md`: the same task answered by this machine and by a phone-picked
+// one has to produce the same text, and the machine that runs it has no idea
+// where the repository root is.
+func (m *Manager) ListLiveFiles(ctx context.Context, meta Metadata, query string, limit int) ([]string, bool, error) {
+	if m == nil {
+		return nil, false, fmt.Errorf("workspace manager is nil")
+	}
+	if m.git == nil {
+		return nil, false, fmt.Errorf("git runner not available")
+	}
+	// Every other read of a live workspace refuses an empty root, and this one
+	// asks git to run somewhere: with no root, `git.Run` sets no directory and
+	// the question lands in whatever directory the daemon happens to be in.
+	if strings.TrimSpace(meta.Root) == "" {
+		return nil, false, fmt.Errorf("workspace root is empty")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, false, fmt.Errorf("query is required")
+	}
+	if strings.ContainsAny(query, "\x00\n\r") {
+		return nil, false, fmt.Errorf("query contains a control character")
+	}
+	if limit <= 0 {
+		limit = LiveFilesLimit
+	}
+	if limit > liveFilesCeiling {
+		limit = liveFilesCeiling
+	}
+
+	hooksDir := m.emptyHooksDir()
+	scope := filepath.ToSlash(filepath.Clean(meta.Scope))
+	args := []string{
+		"-c", "core.hooksPath=" + hooksDir,
+		"ls-files", "-z", "--cached", "--others", "--exclude-standard",
+	}
+	if scope != "" && scope != "." {
+		// A pathspec, relative to the workspace root git runs in. Everything the
+		// answer carries is inside the directory this task was scoped to.
+		args = append(args, "--", scope)
+	}
+	out, err := m.git.Run(ctx, meta.Root, nil, PathListStdoutLimit, args...)
+	if err != nil {
+		return nil, false, fmt.Errorf("list live files: %w", err)
+	}
+	return rankFileMatches(relativeToScope(splitNULPaths(out), scope), query, limit)
+}
+
+// relativeToScope removes the directory a task is scoped to from git's paths.
+//
+// git answered from the repository root and printed paths relative to it; the
+// agent that reads an inserted path works in the scope directory. The pathspec
+// already guarantees every path is inside it, so a path that does not carry the
+// prefix is dropped rather than guessed at.
+func relativeToScope(files []string, scope string) []string {
+	scope = strings.Trim(filepath.ToSlash(scope), "/")
+	if scope == "" || scope == "." {
+		return files
+	}
+	prefix := scope + "/"
+	out := make([]string, 0, len(files))
+	for _, file := range files {
+		if rest, ok := strings.CutPrefix(file, prefix); ok {
+			out = append(out, rest)
+		}
+	}
+	return out
+}
+
+// splitNULPaths reads `git ls-files -z` output.
+//
+// NUL is the separator because a path may contain anything else, spaces and
+// newlines included. The flag is what makes the answer unambiguous rather than
+// quoted, which would need un-escaping on this side.
+func splitNULPaths(out []byte) []string {
+	parts := strings.Split(string(out), "\x00")
+	files := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			files = append(files, part)
+		}
+	}
+	return files
+}
+
+// rankFileMatches picks the files a person most likely meant, and says whether
+// there were more.
+//
+// A substring filter alone would answer in git's alphabetical order, where a
+// query that matches a directory name buries the file of that name under every
+// path through it. The order is: a basename that starts with the query, then a
+// path that does, then a basename containing it, then anything else containing
+// it; ties go to the shorter path and then alphabetically, so an answer is
+// stable for a given repository.
+func rankFileMatches(files []string, query string, limit int) ([]string, bool, error) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil, false, fmt.Errorf("query is required")
+	}
+	type match struct {
+		path  string
+		score int
+	}
+	matches := make([]match, 0, min(len(files), limit*4))
+	for _, file := range files {
+		lower := strings.ToLower(file)
+		index := strings.Index(lower, q)
+		if index < 0 {
+			continue
+		}
+		base := lower
+		if slash := strings.LastIndexByte(lower, '/'); slash >= 0 {
+			base = lower[slash+1:]
+		}
+		score := 3
+		switch {
+		case strings.HasPrefix(base, q):
+			score = 0
+		case strings.HasPrefix(lower, q):
+			score = 1
+		case strings.Contains(base, q):
+			score = 2
+		}
+		matches = append(matches, match{path: file, score: score})
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		a, b := matches[i], matches[j]
+		if a.score != b.score {
+			return a.score < b.score
+		}
+		if len(a.path) != len(b.path) {
+			return len(a.path) < len(b.path)
+		}
+		return a.path < b.path
+	})
+	truncated := len(matches) > limit
+	if truncated {
+		matches = matches[:limit]
+	}
+	out := make([]string, 0, len(matches))
+	for _, item := range matches {
+		out = append(out, item.path)
+	}
+	return out, truncated, nil
 }
 
 // checkpointEnv is the object-store environment that makes a task's private

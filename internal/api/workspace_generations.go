@@ -61,6 +61,15 @@ type genFileResponse struct {
 	Content     string `json:"content"`
 }
 
+// genFilesResponse is GET .../source/files.
+type genFilesResponse struct {
+	View  string   `json:"view"`
+	Files []string `json:"files"`
+	// Truncated reports that more files matched than the answer carries; a
+	// caller shows the matches it has and lets the query get longer.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
 // workspaceDiffResponse is GET .../diff.
 type genDiffResponse struct {
 	WorkspaceID string             `json:"workspace_id"`
@@ -601,6 +610,88 @@ func (s *Server) handleReadSourceFile(w http.ResponseWriter, r *http.Request) {
 		Size:    int64(len(content)),
 		Content: string(content),
 	})
+}
+
+// handleListSourceFiles answers which files in a task's workspace match a few
+// characters, for the composer's @ menu.
+//
+// It is a search, not a listing: the query is required and short, and the answer
+// is bounded, because the menu that consumes it is read at a glance. A task that
+// runs on another machine is answered by that machine — the files are there, and
+// so is the git that knows which of them are worth naming.
+func (s *Server) handleListSourceFiles(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.sourceTask(w, r)
+	if !ok {
+		return
+	}
+
+	query, ok := sourceFileQuery(w, r)
+	if !ok {
+		return
+	}
+
+	if s.Engine.RunsElsewhere(t) {
+		s.askRemoteFiles(w, r, t, query, func(found worker.WorkspaceFilesResult) any {
+			return genFilesResponse{
+				View:      "source",
+				Files:     found.Files,
+				Truncated: found.Truncated,
+			}
+		})
+		return
+	}
+
+	if s.Workspace == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "workspace manager unavailable"})
+		return
+	}
+	meta, err := sourceWorkspaceMetadata(r.Context(), s.Workspace, t)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	files, truncated, err := s.Workspace.ListLiveFiles(r.Context(), meta, query, workspace.LiveFilesLimit)
+	if err != nil {
+		// A directory that is not a checkout has no file list; the console
+		// offers no file section rather than an empty one.
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if files == nil {
+		files = []string{}
+	}
+	writeJSON(w, http.StatusOK, genFilesResponse{
+		View:      "source",
+		Files:     files,
+		Truncated: truncated,
+	})
+}
+
+// sourceFileQuery reads the @ menu's query, or writes the refusal.
+//
+// Both answers to this route are held to one set of rules — the machine that
+// runs a task parses the same field with `WorkspaceFilesParams.Validate`, and a
+// local read must not be more permissive than a remote one, or what a task
+// answers would depend on where it happened to run.
+func sourceFileQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "q is required"})
+		return "", false
+	}
+	if len(query) > worker.MaxFileQuery {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("q exceeds %d bytes", worker.MaxFileQuery),
+		})
+		return "", false
+	}
+	if strings.ContainsAny(query, "\x00\n\r") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "q contains a control character",
+		})
+		return "", false
+	}
+	return query, true
 }
 
 // handleListSourceChanges answers what has changed in a task's workspace as it

@@ -33,6 +33,7 @@ import {
   limitContinue,
   restoreTaskWorkspace,
   retryTask,
+  searchTaskSourceFiles,
   withdrawQueuedPrompt,
   type AgentInfo,
   type LimitHit,
@@ -736,6 +737,17 @@ export default function TaskDetailPage({
     draftAttachmentsRef.current = attachments;
     setFollowUpDraft(id, { prompt, attachments });
   }
+
+  // What the composer's @ menu searches. Stable per task so a keystroke does
+  // not restart the debounce, and answered by the machine that holds the files
+  // when the task runs elsewhere.
+  const searchSourceFiles = useCallback(
+    async (query: string) => {
+      if (!task?.id) return [];
+      return (await searchTaskSourceFiles(task.id, query)).files;
+    },
+    [task?.id],
+  );
 
   async function onComposer(text: string, opts?: { interrupt?: boolean }) {
     if (!task) return;
@@ -1497,6 +1509,7 @@ export default function TaskDetailPage({
               key={task.id}
               agents={agents}
               hostAgentId={task.agent || ""}
+              fileSearch={searchSourceFiles}
               busy={sending}
               running={!terminal}
               stopping={stopping}

@@ -399,6 +399,7 @@ func (s *Server) Handler() http.Handler {
 			r.With(holderOnly).Post("/branch", s.handleCreateTaskBranch)
 			r.Get("/source/tree", s.handleListSourceTree)
 			r.Get("/source/file", s.handleReadSourceFile)
+			r.Get("/source/files", s.handleListSourceFiles)
 			r.Get("/source/changes", s.handleListSourceChanges)
 			r.Get("/workspace/list", s.handleLegacyListWorkspace)
 			r.Get("/workspace/file", s.handleLegacyReadWorkspaceFile)

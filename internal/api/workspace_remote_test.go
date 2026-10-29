@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/vuuihc/openkin/internal/node"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/workspace"
 )
@@ -226,6 +227,139 @@ func TestSourceChangesAreAskedOfTheMachineThatHasTheFiles(t *testing.T) {
 	}
 	if _, ok := status["only-here.txt"]; ok {
 		t.Errorf("this Hub's own change is in the answer: %v", status)
+	}
+}
+
+// The @ menu's search is answered where the files are, like every other read of
+// this workspace. Both checkouts have a file the query matches, so the answer
+// says which one was read rather than merely that something was found.
+func TestSourceFilesAreAskedOfTheMachineThatHasTheFiles(t *testing.T) {
+	work, here := twoCheckouts(t)
+	write(t, work, "machine-only-notes.md", "node\n")
+	write(t, here, "hub-only-notes.md", "hub\n")
+
+	// The Hub gets a manager and the decoy checkout at the task's own address,
+	// so answering here is available to it and the answer still has to come from
+	// the machine.
+	s, h, master, deviceID := hubWith(t, func(s *Server) {
+		s.Workspace = workspace.NewManager(t.TempDir())
+	}, nil, filepath.Dir(work))
+	task := remoteTask(t, s, deviceID, here, anchoredAt(t, s, deviceID, work))
+
+	rec := getTaskRoute(t, h, master, task.ID, "/source/files?q=notes")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("source files: %d %s", rec.Code, rec.Body.String())
+	}
+	var got genFilesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 1 || got.Files[0] != "machine-only-notes.md" {
+		t.Errorf("files = %v, want the machine's own file and nothing from this Hub's checkout", got.Files)
+	}
+}
+
+// The search is a search: without something to look for, the answer is a
+// refusal rather than a listing of the whole checkout.
+func TestSourceFilesNeedsSomethingToLookFor(t *testing.T) {
+	s, master, _ := machinesServer(t)
+	work := checkout(t, "work")
+	s.Workspace = workspace.NewManager(t.TempDir())
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-files-no-query", Title: "Local", Agent: "claude-code", Cwd: work,
+		Prompt: "inspect", Status: "succeeded", CreatedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, query := range map[string]string{
+		"no query at all":                 "?q=",
+		"only whitespace":                 "?q=%20%20",
+		"longer than the protocol allows": "?q=" + strings.Repeat("a", worker.MaxFileQuery+1),
+		// The machine that runs a task refuses this field for the same reason;
+		// a local answer must not be the more permissive one.
+		"with a control character": "?q=a%0Ab",
+	} {
+		rec := getTaskRoute(t, s.Handler(), master, "task-files-no-query", "/source/files"+query)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s, want 400", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// A task that runs here searches here, through the same workspace layer.
+func TestSourceFilesForALocalTaskSearchThisMachine(t *testing.T) {
+	s, master, _ := machinesServer(t)
+	work := checkout(t, "work")
+	write(t, work, "here.txt", "hub\n")
+	s.Workspace = workspace.NewManager(t.TempDir())
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-files-local", Title: "Local", Agent: "claude-code", Cwd: work,
+		Prompt: "inspect", Status: "succeeded", CreatedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := getTaskRoute(t, s.Handler(), master, "task-files-local", "/source/files?q=here")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("source files: %d %s", rec.Code, rec.Body.String())
+	}
+	var got genFilesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 1 || got.Files[0] != "here.txt" {
+		t.Errorf("files = %v, want this machine's file", got.Files)
+	}
+}
+
+// The field is refused before anyone is asked. A machine that is away must not
+// turn a malformed query into a connectivity problem, and a node must not be
+// woken to reject what the Hub could have rejected itself.
+func TestSourceFilesRefusesABadQueryBeforeAskingTheMachine(t *testing.T) {
+	s, master, _ := machinesServer(t)
+	_, deviceID := pairDevice(t, s.Handler(), master)
+	task := remoteTask(t, s, deviceID, "/work/app", "")
+
+	rec := getTaskRoute(t, s.Handler(), master, task.ID, "/source/files?q=a%0Ab")
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad query for a task on a machine that is away: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "control character") {
+		t.Errorf("error = %s, want the field named rather than the machine", rec.Body.String())
+	}
+}
+
+// A task scoped to a subdirectory gets paths the agent can use. The agent's
+// working directory is the scope, not the repository root, so `docs/guide.md`
+// would resolve to `docs/docs/guide.md` when the prompt is read.
+func TestSourceFilesForAScopedTaskAnswerFromItsOwnDirectory(t *testing.T) {
+	s, master, _ := machinesServer(t)
+	work := checkout(t, "work")
+	if err := os.MkdirAll(filepath.Join(work, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, work, "docs/guide.md", "# guide\n")
+	write(t, work, "README", "root\n")
+	s.Workspace = workspace.NewManager(t.TempDir())
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-files-scoped", Title: "Local", Agent: "claude-code",
+		Cwd:    filepath.Join(work, "docs"),
+		Prompt: "inspect", Status: "succeeded", CreatedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := getTaskRoute(t, s.Handler(), master, "task-files-scoped", "/source/files?q=md")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("source files: %d %s", rec.Code, rec.Body.String())
+	}
+	var got genFilesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 1 || got.Files[0] != "guide.md" {
+		t.Errorf("files = %v, want the file relative to the task's directory", got.Files)
 	}
 }
 

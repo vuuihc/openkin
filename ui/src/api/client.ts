@@ -703,6 +703,13 @@ export type WorkspaceChange = {
   binary?: boolean;
 };
 
+export type WorkspaceFilesResponse = {
+  view: string;
+  files: string[];
+  /** More files matched than the answer carries; a longer query narrows it. */
+  truncated?: boolean;
+};
+
 export type WorkspaceDiffResponse = {
   workspace_id?: string | null;
   generation?: number | null;
@@ -786,6 +793,25 @@ export function readTaskSourceFile(taskId: string, path: string): Promise<Worksp
   const q = new URLSearchParams({ path });
   return apiFetch<WorkspaceFileResponse>(
     `/api/tasks/${encodeURIComponent(taskId)}/source/file?${q.toString()}`,
+  );
+}
+
+/**
+ * Which files in a task's workspace match a few characters, for the composer's
+ * `@` menu.
+ *
+ * It is a search, not a listing: the daemon requires a query and bounds the
+ * answer. A task that runs on another machine is answered by that machine,
+ * because the checkout is there — the same rule as every other read of a task's
+ * source.
+ */
+export function searchTaskSourceFiles(
+  taskId: string,
+  query: string,
+): Promise<WorkspaceFilesResponse> {
+  const q = new URLSearchParams({ q: query });
+  return apiFetch<WorkspaceFilesResponse>(
+    `/api/tasks/${encodeURIComponent(taskId)}/source/files?${q.toString()}`,
   );
 }
 

@@ -19,8 +19,19 @@ const ALIASES: Record<string, string> = {
   xai: "grok",
 };
 
-/** Ordered mention patterns (longer first). */
-const MENTION_RE = /@([a-zA-Z][a-zA-Z0-9_-]*)(?:\[([a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,127})\])?/g;
+/**
+ * Ordered mention patterns (longer first).
+ *
+ * The lookahead is what keeps an inserted file path from being read as a
+ * delegation: `@claude-code/notes.md` and `@codex.go` are files the composer's
+ * `@` menu can insert, and their first segment happens to name an agent. A
+ * token that continues into a name or a path — another name character, `/`,
+ * `[`, or a dot and more name — is a path, and the name characters are listed
+ * so the engine cannot backtrack to a shorter prefix that passes. A
+ * sentence-ending `@codex.` is still a mention: nothing follows the stop.
+ */
+const MENTION_RE =
+  /@([a-zA-Z][a-zA-Z0-9_-]*)(?:\[([a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,127})\])?(?![\w/[-]|\.[\w-])/g;
 
 export type DelegateStep = {
   agent: string;

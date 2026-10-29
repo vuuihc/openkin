@@ -93,6 +93,31 @@ func (s *Server) askRemoteChanges(
 	writeJSON(w, http.StatusOK, shape(found))
 }
 
+// askRemoteFiles asks the machine that runs this task which of its workspace's
+// files match a query, and writes the answer in the caller's shape.
+func (s *Server) askRemoteFiles(
+	w http.ResponseWriter,
+	r *http.Request,
+	t store.Task,
+	query string,
+	shape func(found worker.WorkspaceFilesResult) any,
+) {
+	workspacePath, ok := s.remoteWorkspacePath(w, r, t)
+	if !ok {
+		return
+	}
+	var found worker.WorkspaceFilesResult
+	params := worker.WorkspaceFilesParams{
+		Path:  workspacePath,
+		Query: query,
+		Limit: worker.MaxWorkspaceFiles,
+	}
+	if !s.askDeviceResult(w, r.Context(), t.ExecutingDeviceID, worker.QueryWorkspaceFiles, params, &found) {
+		return
+	}
+	writeJSON(w, http.StatusOK, shape(found))
+}
+
 // remoteWorkspacePath is the directory to ask about on the machine that runs
 // this task.
 //

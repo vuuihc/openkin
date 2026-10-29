@@ -386,3 +386,84 @@ func gitCmdIn(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 }
+
+func filesIn(t *testing.T, r *Responder, conn *testConn, path, query string) worker.WorkspaceFilesResult {
+	t.Helper()
+	result := put(t, r, conn, worker.QueryWorkspaceFiles, worker.WorkspaceFilesParams{Path: path, Query: query})
+	if result.Error != "" {
+		t.Fatalf("files in %s were refused: %s", path, result.Error)
+	}
+	var found worker.WorkspaceFilesResult
+	if err := result.Into(&found); err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+// The answer is about this machine's checkout, not the asker's idea of it: a
+// tracked file committed here and a file only this working tree has are both
+// named, and a path outside the roots is refused before git is asked anything.
+func TestWorkspaceFilesAnswersFromThisMachinesCheckout(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	if err := os.MkdirAll(filepath.Join(repo, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, conn := repoOn(t, root)
+
+	tracked := filesIn(t, r, conn, repo, "readme")
+	if len(tracked.Files) != 1 || tracked.Files[0] != "README" {
+		t.Fatalf("files = %v, want the tracked README alone", tracked.Files)
+	}
+	if tracked.Files == nil {
+		t.Error("files are null, want a list")
+	}
+
+	untracked := filesIn(t, r, conn, repo, "main.go")
+	if len(untracked.Files) != 1 || untracked.Files[0] != "src/main.go" {
+		t.Fatalf("files = %v, want the untracked src/main.go", untracked.Files)
+	}
+
+	none := filesIn(t, r, conn, repo, "no-such-file")
+	if len(none.Files) != 0 || none.Files == nil {
+		t.Fatalf("files = %#v, want an empty list rather than null", none.Files)
+	}
+}
+
+func TestWorkspaceFilesRefusesWhatItCannotAnswerAbout(t *testing.T) {
+	root := t.TempDir()
+	repo := gitRepo(t, filepath.Join(root, "repo"))
+	r, conn := repoOn(t, root)
+
+	outside := gitRepo(t, filepath.Join(t.TempDir(), "elsewhere"))
+	reason := gitRefusal(t, worker.QueryWorkspaceFiles,
+		worker.WorkspaceFilesParams{Path: outside, Query: "readme"}, r, conn)
+	if !strings.Contains(reason, "not a directory this machine works in") {
+		t.Errorf("refusal = %q, want the root boundary named", reason)
+	}
+
+	plain := filepath.Join(root, "plain")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reason = gitRefusal(t, worker.QueryWorkspaceFiles,
+		worker.WorkspaceFilesParams{Path: plain, Query: "readme"}, r, conn)
+	if !strings.Contains(reason, "git") {
+		t.Errorf("refusal = %q, want git named: a plain directory has no file list", reason)
+	}
+
+	reason = gitRefusal(t, worker.QueryWorkspaceFiles,
+		worker.WorkspaceFilesParams{Path: repo}, r, conn)
+	if !strings.Contains(reason, "query is required") {
+		t.Errorf("refusal = %q, want the missing query named", reason)
+	}
+
+	reason = gitRefusal(t, worker.QueryWorkspaceFiles,
+		worker.WorkspaceFilesParams{Path: repo, Query: "readme", Limit: worker.MaxWorkspaceFiles + 1}, r, conn)
+	if !strings.Contains(reason, "limit") {
+		t.Errorf("refusal = %q, want the limit named", reason)
+	}
+}
