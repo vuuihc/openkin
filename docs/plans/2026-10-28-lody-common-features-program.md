@@ -1414,3 +1414,95 @@ delays reconciling a failed withdrawal until the stream pauses). A queued row
 whose `user_seq` is 0 — the event write failed when it was accepted — has no
 bubble to put a badge on, so the console cannot offer to withdraw it even though
 the endpoint would accept it. Rare, and the fix is a queue view, not a badge.
+### Round 7 — the desktop shell (2026-10-29)
+
+The console had been through six rounds; the Electron shell around it had been
+written carefully and never audited against a running machine. Doing that found
+the shell holding its own copy of the bug the console keeps finding — state that
+looks shared and is not — and a window that can come back where no screen exists.
+
+#### H1 — one daemon per machine (landed)
+
+**What was wrong.** On the dogfood machine `lsof -iTCP:7777 -sTCP:LISTEN` showed
+two listeners: the installed node (`~/.kin/node/kin serve`, kept alive by
+launchd, on the IPv6 wildcard) and a repo-local `./kin supervise` child on
+`127.0.0.1`. Both had `~/.kin/kin.db` open, each with its own WAL, and the
+Electron main process was the parent of the repo-local one.
+
+**Why.** `desktop-rebuild.sh` kills the listener on :7777 on purpose so the new
+build is the one serving the console. On a machine set up as a node, the
+supervisor brings its child back a few seconds later — measured at 8.6 s on the
+live machine — which is longer than the sidecar's single 1.5 s health probe. The
+shell concluded nothing was running and spawned its own daemon. macOS allowed
+the second bind: the installed node held the wildcard address, the newcomer took
+the IPv4 loopback, and both reported success. (A live experiment confirms the
+shape: with both bound, `127.0.0.1` reaches the newcomer and the wildcard
+listener keeps serving everyone else.)
+
+**What it cost.** Two daemons over one database, each with its own in-memory bus,
+runner and flags (`--hub`, `--lan`, `--allow-yolo` on one, none on the other).
+The console, which loads the UI from `127.0.0.1`, watched the repo daemon; the
+phone reached the other through the hub. A task started in one did not stream to
+the other, and approvals raised in one did not reach the other's subscribers —
+the same class of divergence the phone/desktop split was supposed to end.
+
+**The fix.** `daemon-rival.ts`: a kin process is evidence that a daemon is
+coming back even while its listener is down. When nothing answers, the sidecar
+now looks for `kin supervise` / `kin serve` processes and waits up to 15 s
+(500 ms polls) for one to answer: attach when it does, spawn only when the
+process is gone, and refuse — with the reason shown as a notification from the
+tray's Start — when it is there and never answers. A cold machine has no such
+process and spawns at once, so first launch is not slower.
+
+Process matching is deliberately strict (the word `kin` at the start of the
+command or at the end of a path, then `supervise` / `serve`), because a search
+for `kin serve` in this repository would otherwise read as a daemon. The cost is
+that a daemon started through `sh -c` or `nohup` is not recognised: the old
+behaviour, not a new failure.
+
+**Tests.** The parser over a process table holding supervisors, servers, a
+one-shot `kin version`, a `Kin.app`, a `rg kin serve` and the shell's own pid;
+the wait outcomes (no process → no health probe at all; answers on the third
+poll → attach; process exits mid-wait → spawn; never answers → refuse at the
+deadline; unreadable `ps` → spawn). The sidecar cannot be loaded outside
+Electron, so a source test holds the wiring: the question is asked before
+`spawn`, and the "stuck" branch returns before it. Red-verified by mutation:
+dropping the no-rival early return (2 tests fail), sleeping past the deadline
+(1), removing the wait block (3), zeroing either title-bar threshold in H2
+(1 and 3), dropping H2's size clamp (1).
+
+**Verified live.** After a rebuild exactly one process listens on :7777 — the
+installed node — and the shell logs `daemon already running … (external)`, then
+`WS connected`. Killing that node's child makes the shell's socket drop and
+reconnect, while the wait itself, run against the same machine, returns
+`healthy` after 8.6 s: without it the shell would have spawned at ~1.5 s.
+
+#### H2 — a window that was on a display that is gone (landed)
+
+**What was wrong.** `loadBounds` trusted `window-bounds.json`. The file records
+where the window was on the desk of the day it was last moved; unplug the
+external display and the numbers name a point on no screen. macOS creates the
+window anyway, the app runs, the tray is there, and no window ever appears — the
+only way back is to find and delete the file.
+
+**The fix.** `window-bounds.ts` keeps a saved rect only while a grabbable strip
+of its title bar — 120 points wide, 20 clear of the menu bar — lands on a
+connected display. Otherwise the window is centred on the primary display at a
+size that display can hold. Sizes below 720×480 and non-finite numbers are
+repaired in the same place, and the create path now gets concrete x/y instead of
+relying on Electron's own centring.
+
+**Tests.** On-screen, second display, unplugged display, a corner-only overlap,
+a title bar above the screen, a title bar dipping under the menu bar (kept), an
+oversized window (shrunk), first launch, and garbage numbers. Red-verified by
+mutation: zeroing either threshold and dropping the size clamp each fail their
+case.
+
+**Deferred, with reasons.** A maximised or full-screen window still comes back
+in its restored size: its saved bounds are the normal ones and `isMaximized` is
+not recorded. The daemon itself still has no single-writer lock on `~/.kin` —
+the desktop no longer creates a second daemon, but a `kin supervise` started
+elsewhere can, and the real invariant belongs in `kin serve`, which is a wider
+change than this round. The shell still notifies about a finished task even when
+its window is frontmost, holds no dock badge for pending approvals, and has no
+global shortcut; none of them has produced a dogfooding complaint yet.
