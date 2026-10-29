@@ -1,8 +1,8 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: round 1 in progress. This is the living ledger for the open-ended "beat
-Lody on the features I actually use" program: inventory → gap matrix → plan →
-implement → evaluate → repeat.
+Status: rounds 1–10 landed; round 11 next. This is the living ledger for the
+open-ended "beat Lody on the features I actually use" program: inventory → gap
+matrix → plan → implement → evaluate → repeat.
 
 Reference for the Lody side: source read at `~/Workspace/works/Lody`
 (`packages/components/src`), not screenshots. Kin-side evidence is in this
@@ -401,6 +401,33 @@ A slice counts as landed only when all four hold:
 visible without opening a sheet, behaviour under failure (offline, empty,
 mid-run), and whether the data shown is derived from the source of truth.
 Recorded per round in the log below.
+
+### How a round runs (2026-10-29, from the round-10 retrospective)
+
+Round 10 spent most of its time on verification ceremony, not code: fifteen
+mutants applied by hand, two serial review passes, a 150-line log written at
+the end, live checks re-scripted from scratch, and one hung test that cost ten
+minutes. The order below keeps the ceremony but takes it off the critical
+path.
+
+1. Implement, then run `./scripts/check.sh`: changed Go packages, `go vet`,
+   `gofmt`, desktop tests, `tsc` and `bash -n`, in parallel, one summary.
+2. Start the same-model review in the background as soon as those pass, and
+   write this round's log section while it runs — change, guards, mutants,
+   live checks, review verdict. Fill it in as results arrive instead of
+   reconstructing it afterwards.
+3. Red-verify from a manifest with `./scripts/mutants.py round.json`: it runs
+   the test unmutated first (a red baseline would make every mutant look
+   detected), applies each replacement, requires the test to fail, restores,
+   and proves the restore byte for byte.
+4. Fix blockers and majors, then re-review only the fix diff. An S2 slice gets
+   the full nit pass; a four-item S3 batch only needs blocker/major.
+5. `./scripts/check.sh --all`, commit, integrate.
+6. Rebuild desktop when the console changed, or every two or three daemon-only
+   rounds — each rebuild restarts the live node.
+
+Round shape: one or two S2 slices, or four S3 slices per batch. The gate is
+unchanged; it just stops being serial.
 
 ## 5. Log
 

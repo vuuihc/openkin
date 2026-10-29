@@ -177,6 +177,13 @@ make test
 
 - Use a focused `go test ./internal/<package> -run <TestName>` during iteration,
   but do not substitute it for the relevant full suite at handoff.
+- `./scripts/check.sh` runs the checks that match the working tree — changed Go
+  packages, `go vet`, `gofmt`, desktop tests, `tsc`, `bash -n` — in parallel
+  with one summary; `--all` widens the Go tests to `./...`. Prefer it to a
+  hand-typed sequence of the commands above.
+- `./scripts/mutants.py <manifest.json>` applies each mutant, requires its test
+  to fail, restores the file and proves the restore byte for byte. Use it for
+  red verification instead of hand-applying replacements.
 - For visible UI changes, inspect the built interface at representative desktop
   and narrow widths when browser tooling is available.
 - Report any check that could not run, including the reason and residual risk.
@@ -193,6 +200,10 @@ fresh Electron shell:
 - The script already: builds Vite UI into `web/dist`, builds `./kin` with the
   new embed, stops anything on `:7777`, stops this repo's Kin/Electron, then
   launches desktop (`npm run dev`).
+- **Cadence.** A console change rebuilds in the round that lands it. Daemon-only
+  changes may be batched: land them on `main` and rebuild once every two or
+  three rounds, because every rebuild restarts the live `:7777` node. Say in
+  the handoff when the running shell is behind `main`.
 - Use `make desktop-dev` only when you intentionally want backend + Electron
   without a full UI re-embed cycle (see Makefile comments).
 - Use `make desktop-dist` only for packaged `.dmg` under
@@ -236,9 +247,12 @@ checks pass, do **not** stop at self-review. Finish with this gate in order:
    uncommitted work.
 6. **Repackage desktop.** Run `./scripts/desktop-rebuild.sh` (or
    `make desktop-rebuild`) from the primary checkout so the Electron shell
-   picks up the new UI embed and `kin` binary. Do not substitute a hand-rolled
-   UI/kin/Electron pipeline for this script. Report rebuild failures and
-   residual risk if the script cannot run in the current environment.
+   picks up the new UI embed and `kin` binary. A console change rebuilds in the
+   round that lands it; daemon-only changes may be batched into one rebuild
+   every two or three rounds, because the rebuild restarts the live node.
+   Do not substitute a hand-rolled UI/kin/Electron pipeline for this script.
+   Report rebuild failures and residual risk if the script cannot run in the
+   current environment.
 
 Scope notes:
 
@@ -280,9 +294,11 @@ Scope notes:
   workspaces; otherwise remove the worktree and merged branch manually. Push
   to `origin` only when explicitly requested or required by the release
   process.
-- After a UI or daemon change lands on `main`, run `./scripts/desktop-rebuild.sh`
+- After a UI change lands on `main`, run `./scripts/desktop-rebuild.sh`
   (or `make desktop-rebuild`) from the primary checkout so desktop picks up the
-  new embed and binary. Prefer this script over any manual rebuild steps.
+  new embed and binary. Daemon-only changes may be batched into one rebuild
+  every two or three rounds — the rebuild restarts the live node. Prefer this
+  script over any manual rebuild steps.
 - End with a clean working tree when all visible files are in scope. Otherwise,
   list every intentional uncommitted or ignored exception.
 
