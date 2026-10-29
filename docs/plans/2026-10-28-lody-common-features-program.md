@@ -283,6 +283,17 @@ Ordered by daily cost, not by column order. All are S2.
 - **F3 `@file` mentions.** One mention source over the task workspace tree, so
   a path can be referenced without typing it on a phone. Acceptance: typing
   `@` in the composer offers workspace files and inserts the path.
+  Plan: there is no flat file index — `source/tree` lists one directory at a
+  time, and on the phone the task runs on another machine, so a picker built by
+  walking the tree would be a burst of relay round trips. Add one bounded
+  question to the worker protocol (`WorkspaceFilesParams{Path, Query, Limit}`,
+  answered by `git ls-files --cached --others --exclude-standard` plus a
+  case-insensitive substring filter, ≤ 50 results), expose it as
+  `GET /api/tasks/{id}/source/files?q=`, and let the composer's `@` menu ask it
+  once the query has a character. Insert the workspace-relative path;
+  `parseAgentDirective` only treats tokens that name a known agent as mentions,
+  so a path stays text. Offer no file section where the listing is unavailable
+  rather than an empty one.
 - **F4 An attachment survives the trip.** An upload lives under the Hub's state
   dir; a task running on another machine receives a path that does not exist.
   Ship the file to the executing node (or embed it for every adapter, not only
