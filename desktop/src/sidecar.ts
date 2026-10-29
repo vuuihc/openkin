@@ -12,6 +12,13 @@ import { listKinDaemonPids, waitForRivalDaemon } from "./daemon-rival";
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * `kin serve`'s exit status when another daemon owns this machine's state
+ * directory (EX_TEMPFAIL, shared with cmd/kin). It is not a crash: the state
+ * directory, and with it the phone's daemon, belongs to that other process.
+ */
+const STATE_DIR_BUSY_EXIT = 75;
+
 export type SidecarStatus =
   | { state: "external"; version: string }
   | { state: "spawned"; version: string; pid: number }
@@ -211,9 +218,17 @@ export class Sidecar {
           this.weStarted = false;
           this.status = {
             state: "unavailable",
-            reason: `daemon exited (code=${code})`,
+            // A busy state directory is the one exit worth naming: it means the
+            // machine is already being served, not that the daemon broke.
+            reason:
+              code === STATE_DIR_BUSY_EXIT
+                ? "another kin daemon already owns this machine's state directory"
+                : `daemon exited (code=${code})`,
           };
-          if (!this.stopping) this.scheduleRestart();
+          // A busy state directory is not a crash, and retrying cannot change
+          // it: the other daemon owns ~/.kin until it stops. So do not restart
+          // here; the shell's own recovery, or the next Start, asks again.
+          if (!this.stopping && code !== STATE_DIR_BUSY_EXIT) this.scheduleRestart();
         }
       });
       child.on("error", (err) => {

@@ -38,4 +38,24 @@ describe("the sidecar starts at most one daemon", () => {
     assert.ok(stuck < spawned, `the stuck branch at ${stuck} is not before spawn at ${spawned}`);
     assert.match(SOURCE.slice(stuck, spawned), /return this\.status;/);
   });
+
+  it("names a daemon that lost the state-directory race", () => {
+    // Exit 75 is the daemon's refusal to share ~/.kin, not a crash (see
+    // cmd/kin and internal/daemonlock). The reason reaches the tray and the
+    // notification, where "daemon exited (code=75)" would read like a bug.
+    assert.match(SOURCE, /const STATE_DIR_BUSY_EXIT = 75;/);
+    const exit = SOURCE.indexOf('child.on("exit"');
+    assert.ok(exit > 0, "the daemon exit is not handled");
+    const branch = SOURCE.slice(exit, SOURCE.indexOf('child.on("error"', exit));
+    assert.match(branch, /code === STATE_DIR_BUSY_EXIT/, "exit 75 is not distinguished");
+    assert.match(branch, /another kin daemon already owns/, "the reason does not explain exit 75");
+    // Retrying cannot change who owns the directory, so a refusal must not be
+    // scheduled like a crash — the Go supervisor makes the same choice. `\s*`
+    // so a formatter wrapping the call does not fail the guard.
+    assert.match(
+      branch,
+      /if \(!this\.stopping && code !== STATE_DIR_BUSY_EXIT\)\s*this\.scheduleRestart\(\);/,
+      "a busy state directory is restarted like a crash",
+    );
+  });
 });

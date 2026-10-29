@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vuuihc/openkin/internal/approvemcp"
+	"github.com/vuuihc/openkin/internal/daemonlock"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
 	pushsvc "github.com/vuuihc/openkin/internal/push"
@@ -23,6 +25,24 @@ import (
 // Overridable at link time: -ldflags "-X main.version=…"
 var version = "0.0.0-dev"
 
+// stateDirBusyExit is EX_TEMPFAIL. `kin serve` exits with it when another
+// daemon already owns the state directory, so a parent — `kin supervise`,
+// launchd, the desktop shell — can tell "someone else is serving this machine"
+// from a crash and stop restarting into the same refusal.
+const stateDirBusyExit = 75
+
+// errStateDirBusy carries that meaning through the supervisor: its child
+// refused to start, so the supervisor's own exit reports the same thing.
+var errStateDirBusy = errors.New("another kin daemon owns the state directory")
+
+// daemonExitCode maps a serve/supervise failure to the status a parent reads.
+func daemonExitCode(err error) int {
+	if errors.Is(err, daemonlock.ErrHeld) || errors.Is(err, errStateDirBusy) {
+		return stateDirBusyExit
+	}
+	return 1
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage(2)
@@ -31,14 +51,14 @@ func main() {
 	case "serve":
 		if err := server.Serve(version); err != nil {
 			fmt.Fprintf(os.Stderr, "kin serve: %v\n", err)
-			os.Exit(1)
+			os.Exit(daemonExitCode(err))
 		}
 	case "supervise":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if err := runSupervise(ctx, os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "kin supervise: %v\n", err)
-			os.Exit(1)
+			os.Exit(daemonExitCode(err))
 		}
 	case "token":
 		if err := runToken(os.Args[2:]); err != nil {

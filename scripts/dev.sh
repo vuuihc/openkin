@@ -34,6 +34,8 @@ mkdir -p "$(dirname "$BIN")"
 
 PIDS=()
 BACKEND_PID=""
+# Consecutive "state directory busy" retries; only used to space them out.
+BUSY_RETRIES=0
 
 cleanup() {
   trap - EXIT INT TERM
@@ -59,7 +61,10 @@ cleanup() {
   fi
   echo "==> done"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# A handler that only cleans up resumes the interrupted command: an interrupt
+# during the busy retry would start a daemon right after "shutting down".
+trap 'cleanup; exit 130' INT TERM
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -72,6 +77,12 @@ need_cmd() {
 need_cmd go
 need_cmd npm
 
+# Stop whatever listens on a port and wait until it is gone.
+#
+# The daemon closes its listener early in shutdown but releases the
+# state-directory lock only when the process exits (internal/daemonlock). A new
+# backend started the moment the port looks free can therefore lose the lock to
+# the daemon that is still shutting down and exit 75.
 kill_port_listeners() {
   local port="$1"
   if ! command -v lsof >/dev/null 2>&1; then
@@ -85,9 +96,21 @@ kill_port_listeners() {
   echo "==> stopping process(es) listening on :$port → $pids"
   # shellcheck disable=SC2086
   kill $pids 2>/dev/null || true
-  sleep 0.3
+  local alive pid
+  for _ in $(seq 1 40); do # up to 2s
+    alive=""
+    for pid in $pids; do
+      kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
+    done
+    if [[ -z "$alive" ]]; then
+      return 0
+    fi
+    sleep 0.05
+  done
+  echo "    still alive after 2s; killing →$alive"
   # shellcheck disable=SC2086
   kill -9 $pids 2>/dev/null || true
+  sleep 0.1
 }
 
 # Stop leftover stack from a previous run (ports + this checkout's kin binary).
@@ -139,11 +162,7 @@ start_backend() {
     wait "$BACKEND_PID" 2>/dev/null || true
     BACKEND_PID=""
   fi
-  if command -v lsof >/dev/null 2>&1; then
-    # shellcheck disable=SC2046
-    kill $(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null) 2>/dev/null || true
-    sleep 0.15
-  fi
+  kill_port_listeners "$PORT"
 
   echo "==> kin serve --port $PORT ${SERVE_ARGS[*]:-}"
   # Avoid word-splitting issues when SERVE_ARGS is empty under set -u
@@ -198,15 +217,36 @@ while true; do
     exit 1
   fi
 
+  if [[ -n "${BACKEND_PID}" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
+    BUSY_RETRIES=0
+  fi
+
   if [[ -n "${BACKEND_PID}" ]] && ! kill -0 "$BACKEND_PID" 2>/dev/null; then
-    echo "==> backend exited; rebuilding..."
-    wait "$BACKEND_PID" 2>/dev/null || true
+    code=0
+    wait "$BACKEND_PID" 2>/dev/null || code=$?
     BACKEND_PID=""
-    if build_backend; then
+    if [[ "$code" -eq 75 ]]; then
+      # Another daemon owns the state directory (internal/daemonlock). The
+      # build is fine — start again once that daemon is gone instead of
+      # rebuilding in a loop. The start above kills the :PORT listener, so a
+      # rival on this port is already on its way out; back off when the holder
+      # is somewhere this script does not manage.
+      BUSY_RETRIES=$((BUSY_RETRIES + 1))
+      delay=1
+      if [[ "$BUSY_RETRIES" -gt 3 ]]; then
+        delay=5
+      fi
+      echo "==> state directory busy; retrying in ${delay}s (stop the other kin daemon to take over)"
+      sleep "$delay"
       start_backend
-      LAST_FP="$(go_fingerprint || true)"
     else
-      echo "    build failed; will retry on next change"
+      echo "==> backend exited; rebuilding..."
+      if build_backend; then
+        start_backend
+        LAST_FP="$(go_fingerprint || true)"
+      else
+        echo "    build failed; will retry on next change"
+      fi
     fi
   fi
 

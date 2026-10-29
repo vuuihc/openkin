@@ -27,6 +27,7 @@ import (
 	"github.com/vuuihc/openkin/internal/browserworker"
 	"github.com/vuuihc/openkin/internal/cloudflare"
 	"github.com/vuuihc/openkin/internal/connectors"
+	"github.com/vuuihc/openkin/internal/daemonlock"
 	"github.com/vuuihc/openkin/internal/eval"
 	"github.com/vuuihc/openkin/internal/github"
 	"github.com/vuuihc/openkin/internal/hub/workers"
@@ -189,6 +190,17 @@ func ServeWith(version string, flags ServeFlags) error {
 	if err := os.MkdirAll(filepath.Join(stateDir, "logs"), 0o700); err != nil {
 		return fmt.Errorf("state dir: %w", err)
 	}
+
+	// One engine per state directory, taken before anything is opened: the
+	// store, the periodic loops over it, and the in-memory buses all assume a
+	// single daemon. A second one would not fail — it would serve half a system
+	// beside the first (see daemonlock). Released when ServeWith returns; the
+	// kernel releases it if the process dies.
+	lock, err := daemonlock.Acquire(stateDir)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 
 	token, err := remote.EnsureToken(stateDir)
 	if err != nil {
@@ -536,7 +548,12 @@ func ServeWith(version string, flags ServeFlags) error {
 		OnCreateFailed: st.DeleteMCPTaskOrigin,
 		RunEval:        evalRunner.StartRoutine,
 	}
-	routineScheduler.StartLoop(context.Background(), routines.DefaultTickInterval)
+	// Everything ServeWith starts shares one lifetime. Startup can still fail
+	// after this point — a port that cannot be bound — and a loop left ticking
+	// against the store it closed would outlive the daemon that owned it.
+	serveCtx, stopServe := context.WithCancel(context.Background())
+	defer stopServe()
+	routineScheduler.StartLoop(serveCtx, routines.DefaultTickInterval)
 
 	// The directories this machine works in: its own projects, plus anything the
 	// operator adds by hand. One list, read by everything that decides where the
@@ -806,7 +823,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		transports = append(transports, tsTransport)
 	}
 
-	listenCtx, listenCancel := context.WithCancel(context.Background())
+	listenCtx, listenCancel := context.WithCancel(serveCtx)
 	defer listenCancel()
 	go runWorkerLeaseSweep(listenCtx, workerRegistry)
 	go runPRReconcile(listenCtx, githubService)

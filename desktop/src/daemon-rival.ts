@@ -90,7 +90,9 @@ async function rivals(list: () => Promise<number[]>): Promise<number[]> {
  * The port is part of the question. Scratch daemons on other ports are part of
  * this repository's own workflow (`kin serve --port 7790`), and one of those is
  * not holding :7777 — treating it as a rival would refuse to start the desktop
- * daemon for as long as the scratch one lives.
+ * daemon for as long as the scratch one lives. Since a state directory now
+ * admits one daemon (internal/daemonlock), a scratch daemon needs its own
+ * KIN_STATE_DIR as well.
  */
 export function kinDaemonPidsFromPS(
   stdout: string,

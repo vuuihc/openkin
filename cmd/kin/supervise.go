@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,6 +41,14 @@ func runSupervise(ctx context.Context, serveArgs []string) error {
 				if ctx.Err() != nil {
 					return nil
 				}
+				// The child refused because another daemon owns the state
+				// directory. Restarting it would only repeat the refusal, and
+				// the directory frees up when that daemon stops — so report it
+				// and let whatever restarts us (launchd, the desktop shell)
+				// decide when to try again.
+				if exitsWith(err, stateDirBusyExit) {
+					return errStateDirBusy
+				}
 				if attempt == maxSuperviseRestarts {
 					return fmt.Errorf("daemon exited after %d restarts: %w", attempt, err)
 				}
@@ -55,4 +64,10 @@ func runSupervise(ctx context.Context, serveArgs []string) error {
 		}
 	}
 	return nil
+}
+
+// exitsWith reports whether err is a child process that exited with code.
+func exitsWith(err error, code int) bool {
+	var exit *exec.ExitError
+	return errors.As(err, &exit) && exit.ExitCode() == code
 }
