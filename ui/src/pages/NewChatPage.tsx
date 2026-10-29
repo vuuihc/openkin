@@ -775,7 +775,14 @@ export default function NewChatPage() {
         </div>
       </div>
 
-      <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+      {/* Same contract as the conversation screen: the shell's floating card
+          measures this band so it never covers the draft composer. The draft
+          is the one screen a cold launch lands on, so an overlay that guessed
+          here would cover the input on the first screen anyone sees. */}
+      <div
+        data-kin-bottom-chrome=""
+        className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
+      >
         <div className="max-w-conversation mx-auto space-y-1.5">
           {hints.length > 0 && (
             // Desktop only: a line of @-mention hints is reference material, and

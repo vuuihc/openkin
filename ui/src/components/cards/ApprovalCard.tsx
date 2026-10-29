@@ -14,6 +14,12 @@ type Props = {
   onApprove: () => void;
   onDeny: () => void;
   onOpenPath?: (path: string) => void;
+  /**
+   * Whether `a`/`d` answer *this* card. The transcript and the inbox bind
+   * them; a card floating over some other screen does not — the letters there
+   * would promise a key that decides a different approval, or nothing at all.
+   */
+  showKeys?: boolean;
 };
 
 export default function ApprovalCard({
@@ -23,6 +29,7 @@ export default function ApprovalCard({
   onApprove,
   onDeny,
   onOpenPath,
+  showKeys = true,
 }: Props) {
   const tr = useT();
   const { toolName, input } = parseApprovalPayload(approval.payload);
@@ -119,7 +126,8 @@ export default function ApprovalCard({
           The key letters are for the keyboard model the session view has on a
           desktop (`j/k/a/d`). On a phone they are a caption for a key that is
           not there, and the button already says what it does — so they are
-          hidden below `sm`, the same gate the composer's ⌘↵ hint uses.
+          hidden below `sm`, the same gate the composer's ⌘↵ hint uses. They are
+          dropped entirely where no such binding exists (`showKeys`).
         */}
         <div className="mt-3 flex gap-2">
           <button
@@ -133,7 +141,9 @@ export default function ApprovalCard({
             ) : (
               <>
                 {tr("chat.approve")}{" "}
-                <span className="hidden sm:inline opacity-60 font-semibold">A</span>
+                {showKeys && (
+                  <span className="hidden sm:inline opacity-60 font-semibold">A</span>
+                )}
               </>
             )}
           </button>
@@ -147,7 +157,8 @@ export default function ApprovalCard({
               tr("approval.denying")
             ) : (
               <>
-                {tr("chat.deny")} <span className="hidden sm:inline opacity-50">D</span>
+                {tr("chat.deny")}{" "}
+                {showKeys && <span className="hidden sm:inline opacity-50">D</span>}
               </>
             )}
           </button>

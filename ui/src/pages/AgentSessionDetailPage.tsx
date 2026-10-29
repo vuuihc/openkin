@@ -303,7 +303,14 @@ export default function AgentSessionDetailPage() {
       </div>
 
       {canContinue && (
-        <div className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5">
+        /* `data-kin-bottom-chrome` is the same contract the conversation and
+           the draft use: the shell's floating approval measures this band so
+           it never covers the continue box. This page mounts only on its own
+           route, so the marker needs no active-pane condition. */
+        <div
+          data-kin-bottom-chrome=""
+          className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
+        >
           <div className="max-w-conversation mx-auto space-y-1.5">
             <Composer
               key={session.id}

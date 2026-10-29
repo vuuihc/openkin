@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { decideApproval } from "../api/client";
 import { liveResources } from "../api/liveResources";
 import { useT } from "../i18n/react";
@@ -26,9 +26,16 @@ export function useApprovalDecision(fallbackKey = "inbox.decisionFailed") {
   const tr = useT();
   const pushToast = useAppStore((s) => s.pushToast);
   const [busy, setBusy] = useState<Record<string, PendingDecision>>({});
+  // A second answer for the same approval must not reach the daemon: the
+  // inbox's keyboard model does not consult `busy`, so a held key would post
+  // twice and the second — a 409, because the first decided it — would toast
+  // a failure for something that worked.
+  const inFlight = useRef<Set<string>>(new Set());
 
   const decide = useCallback(
     async (id: string, decision: PendingDecision) => {
+      if (inFlight.current.has(id)) return;
+      inFlight.current.add(id);
       setBusy((b) => ({ ...b, [id]: decision }));
       try {
         const updated = await decideApproval(id, decision);
@@ -37,6 +44,7 @@ export function useApprovalDecision(fallbackKey = "inbox.decisionFailed") {
         pushToast(e instanceof Error ? e.message : tr(fallbackKey), "error");
         void liveResources.refreshPending();
       } finally {
+        inFlight.current.delete(id);
         setBusy((b) => {
           const next = { ...b };
           delete next[id];

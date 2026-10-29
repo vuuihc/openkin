@@ -3,8 +3,14 @@ import { t } from "../i18n";
 
 type Props = {
   children: ReactNode;
-  /** Optional compact fallback for nested trees. */
+  /** Optional compact fallback for nested trees. `null` means "render nothing". */
   fallback?: ReactNode;
+  /**
+   * Forget a caught error when this value changes. A surface that cannot show
+   * a retry button — the floating card's `null` fallback is the case — is
+   * otherwise wedged until something remounts the boundary.
+   */
+  resetKey?: unknown;
 };
 
 type State = { error: Error | null };
@@ -25,13 +31,20 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error("[kin] render error", error, info.componentStack);
   }
 
+  componentDidUpdate(prev: Props): void {
+    if (this.state.error && prev.resetKey !== this.props.resetKey) this.reset();
+  }
+
   private reset = () => {
     this.setState({ error: null });
   };
 
   render() {
     if (this.state.error) {
-      if (this.props.fallback) return this.props.fallback;
+      // `undefined` means "not supplied"; `null` means "supplied, and it is
+      // nothing". A floating surface that must vanish on a bad payload passes
+      // `null` and needs it to render nothing, not the full-page panel.
+      if (this.props.fallback !== undefined) return this.props.fallback;
       const message = this.state.error.message || t("task.loadFailed");
       return (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6 bg-kin-bg">

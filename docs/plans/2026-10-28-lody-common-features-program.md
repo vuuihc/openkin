@@ -952,3 +952,166 @@ now carries markup in both the alt text and the destination.
 The console side got one fix from the same live pass — focusing the minted
 field selects the whole value and a selection that long scrolls the input to
 its end, so the dialog now scrolls back to the URL's scheme.
+
+#### G1 — an approval is answerable from any screen (landed)
+
+An approval blocks the agent that asked for it, and it was visible in exactly
+two places: `/inbox`, and the transcript of the task it belongs to. A reader in
+any other conversation, in settings, or on the project list had no way to know
+an agent had stopped — the one state here that costs wall-clock time for every
+minute nobody looks. Lody floats a permission card over every screen; Kin now
+floats one too.
+
+**What floats, and what does not.** `lib/floatingApprovals.ts` is the rule, as
+a pure function so it can be argued with without a browser:
+
+- Nothing over `/inbox`, which already lists every waiting approval with more
+  room than a card has.
+- Nothing for the conversation on screen, whose transcript renders its own
+  approval inline beside the tool call that asked — that card is the better
+  one, and two live copies of one decision invite answering it twice.
+- Everything else floats, including while reading a *different* conversation.
+
+The card shows the approval that has waited longest, not the newest: a surface
+that always shows the latest arrival starves the queue. The rest are counted in
+the strip above it (`+2`), which is also a link to the task, and the card
+itself is `ApprovalCard` unchanged — the same diff preview and buttons as the
+inbox, so the decision reads the same wherever it is made.
+
+**One decision path.** Answering used to be a private four-step dance, with two
+copies: one inside `ApprovalsPage`, a slightly different one inside the
+conversation page (no refetch when the call failed), and a third in the
+menu-bar tray that swallowed failures entirely. `useApprovalDecision` is now
+that path, used by the inbox, the floating card, the transcript and the tray;
+the page keeps only its own bookkeeping (`handledHere`, so the focus notice
+does not call an item it just answered "missing"). The hook also refuses a
+second answer for an approval already in flight — the inbox's keyboard model
+does not consult `busy`, and a held key would otherwise post a 409 and toast a
+failure for something that worked.
+
+**The composer.** The first version pinned the card to a guessed offset and, in
+the browser, covered the chat composer on both widths — the one thing it must
+never do. The conversation page now marks its bottom band
+(`data-kin-bottom-chrome`: the waiting strip plus the input, ~180px on a phone
+and taller with attachments) and the card measures it, following the real
+height. A cold load draws the shell before the task has loaded, so the
+measurement also waits for the band to appear (MutationObserver), and re-runs
+when the route changes; without that the card kept the offset it took when
+there was nothing to measure — which is exactly what the first live pass
+caught.
+
+**What the review caught.** Two holes a live pass missed because it never
+visited a conversation before navigating away:
+
+- *Cached panes.* `TaskSessionHost` keeps up to eight visited conversations
+  mounted and hides the inactive ones with `display:none`. Their composer bands
+  stayed in the document, and a page-wide query could pick a hidden one — a box
+  with no size, an offset that put the card off the top of the screen. Only the
+  visible pane marks its band now, and a zero-size box is treated as "not laid
+  out yet" rather than measured.
+- *The draft screen.* `/new` is where a cold launch lands and it pins the same
+  composer; a rule keyed on the conversation route alone left a pending
+  approval covering the draft input. The draft composer marks the same band,
+  and the shell asks the card to measure on both routes.
+
+The floating card also sits inside its own error boundary: it renders an
+agent-supplied payload, and a throw in one card must not take the shell around
+every screen down with it. The inner boundary is keyed by the approval, so a
+payload that cannot render costs that one card and the next approval renders —
+a boundary stuck in its caught state would hide every later approval until a
+reload.
+
+**What the second review caught.** Three things a user could hit, none of them
+visible in the first live pass:
+
+- *The third composer screen.* `/agent-sessions/<id>` pins the same continue
+  box and did not carry the band marker, and it is a detail route, so the card
+  measured nothing and sat on the composer at both widths. It marks its band
+  now; `/artifacts/<id>` has no band at all and is no longer asked for one, so
+  the card keeps its own offset there instead of watching for a band that never
+  comes.
+- *The navigation drawer.* The phone drawer is `z-40` like the card, and the
+  card comes later in the DOM — so an approval floated over the drawer's scrim
+  with live buttons. The card is not rendered while the drawer is open.
+- *Focus after a deny.* Focus recovery always went to *Approve*, so a reader
+  who denied one request was one reflexive Enter from approving the next. The
+  recovery remembers the decision and lands on the same button; a failed
+  decision disarms it, so a later queue change cannot pull focus out of
+  whatever the reader moved on to.
+
+Nits fixed in the same pass: the card no longer advertises `A`/`D` (only the
+inbox and the transcript bind them); the strip is a polite live region so an
+arrival is announced, and the `+N` badge keeps its sentence for screen readers
+instead of an `aria-label` on a plain span; the "the title is joined onto every
+approval" comment now says live approvals arrive without one.
+
+**What the third review caught.** The layer under the previous fixes:
+
+- *The drawer state across `md`.* The drawer is `md:hidden`, but "open" lived on
+  in state, and every control that could close it was inside the hidden
+  subtree. Rotating with it open — or dragging a phone-sized window wide —
+  would suppress the floating card for the rest of the session, which is the
+  opposite of what the suppression is for. The drawer now closes itself when
+  the viewport is, or becomes, wide.
+- *A stale task name.* The card preferred the title joined onto the approval
+  row, which is whatever the task was called when the pending list was
+  fetched. The shell's live list wins now; the joined title is the fallback for
+  a task that page does not hold.
+- *One frame at the wrong offset.* The measurement ran in a passive effect, so
+  a mount — a route change, or coming back from the drawer — painted once at
+  the dock-clearing fallback, over the composer, before the layout effect
+  moved it. It is a layout effect now.
+
+Nits fixed in the same pass: the outer boundary takes a `resetKey` (the set of
+pending ids) and drops its caught state when the queue changes, so one bad
+render cannot hide every later approval where there is no Retry to reach; the
+wiring scan is tighter — the measured-route assignment is checked as a whole
+and the band markers must sit on their own attribute line, so a marker behind
+`false &&` or a stray `|| detailRoute` fails the test. Still deferred: the
+cold-load observer is unbounded on a conversation whose task never loads;
+answering the last approval drops focus to the document; a live region's first
+arrival is announced best-effort by platform; and focus edges when the queue
+changes while a decision is in flight are untested.
+
+**Acceptance** (scratch daemon on :7788, two pending approvals in two tasks;
+re-measured after the review rounds):
+
+- Phone 390×844, `/sessions`: card bottom 696, the dock's "new chat" button top
+  704, dock top 776 — clear of both. Shows the older request, `+1` beside it.
+- Phone 390×844, `/new`: card bottom 700 against the draft composer band top
+  708 — an 8px gap, the landing screen's input clear.
+- Phone 390×844, `/tasks/task-g1-a` then task-g1-b (client-side, so both panes
+  stay mounted and one is `display:none`): exactly one band in the document —
+  the visible pane's, top 664 — card bottom 656. The cached pane's zero-size
+  box is never measured.
+- Phone 390×844, drawer open: no card in the document; closing it brings the
+  card back over the dock.
+- Desktop 1280×900, `/tasks/task-g1-b`: card bottom 753 against a band top of
+  761, composer text top 820, right edge 1256 — fully clear.
+- `/inbox`: no floating card, all approvals listed.
+- Approving the floating card writes `approved`/`web` on the daemon and removes
+  the card without a refetch; the inbox count drops through the shared
+  resource.
+
+**Tests.** Selection rules (5 cases), the card (which one, answering *that*
+one, the queue count, unknown-task fallback, focus moving to the next
+decision and to the same choice after a deny, focus not stolen after a failed
+decision, no `A`/`D` letters, the measured anchor on a conversation and on the
+draft, the late-composer re-measure, the hidden zero-size band, re-measure and
+reset on a route change, the dock-clearing fallbacks, and both observers being
+disconnected on unmount), containment (a throwing payload keeps the strip and
+the next approval still renders), the shared decision path (busy, applied
+answer, failure toast + refetch, one request per approval), the drawer closing
+on a wide screen (already wide, becomes wide, closed overlay untouched,
+listener removed), the boundary's empty fallback / default panel / reset key,
+and a source scan of the wiring (the three band markers, the active-pane
+condition, the measured route set, the drawer suppression and its wide-screen
+close, and the shell and tray going through the hook). Red-verified by
+mutation: dropping the inbox exclusion, the visible-task filter, the
+oldest-first pick, the shared-resource update, the refetch on failure, the
+late-composer observer, the zero-size guard, the route dependency, the route
+gate, the in-flight guard, the deny-specific focus target, the focus disarm,
+the boundary key, the key-letter gate, both observer cleanups, the
+agent-session band, the wide-screen close, the boundary reset, the live-title
+preference, the measured-route assignment, and the drawer render guard each
+fail the test that names them.

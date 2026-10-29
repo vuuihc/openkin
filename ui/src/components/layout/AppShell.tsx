@@ -42,7 +42,9 @@ import { taskDisplayTitle } from "../../lib/taskTitle";
 import { placePath } from "../../lib/places";
 import { floatingApprovals } from "../../lib/floatingApprovals";
 import { useApprovalDecision } from "../../hooks/useApprovalDecision";
+import { useCloseOnWideScreen } from "../../hooks/useCloseOnWideScreen";
 import FloatingApproval from "../cards/FloatingApproval";
+import ErrorBoundary from "../ErrorBoundary";
 
 type Props = {
   children: ReactNode;
@@ -163,6 +165,18 @@ export default function AppShell({
 
   /** Detail routes whose page renders `MobileHeader` (and its own top inset). */
   const pageOwnsTopInset = selectedTaskId !== null;
+
+  /**
+   * The routes that pin a composer to the bottom and mark it with
+   * `data-kin-bottom-chrome`: a conversation, the draft, and an agent session's
+   * continue box. The artifact viewer is a detail route too but pins nothing,
+   * so the card keeps its own offset there rather than waiting for a band that
+   * will never be drawn.
+   */
+  const measuredBottomBand =
+    selectedTaskId !== null ||
+    draftActive ||
+    location.pathname.startsWith("/agent-sessions/");
 
   /**
    * The dock floats over the page, so the shell reserves its height under the
@@ -428,6 +442,13 @@ export default function AppShell({
     void loadUsage();
   }, [loadUsage]);
 
+  // The drawer is `md:hidden` but its state is not: an open drawer suppresses
+  // the floating approval, and every control that could close it is inside the
+  // hidden subtree. Crossing the breakpoint with it open — a rotation, or a
+  // phone-sized window dragged wide — must close it, or the card is gone for
+  // the rest of the session.
+  useCloseOnWideScreen(mobileOpen, () => setMobileOpen(false));
+
   // Debounced session list load. Empty q = recent 100; non-empty = full-library search.
   useEffect(() => {
     const q = searchQuery.trim();
@@ -670,18 +691,36 @@ export default function AppShell({
             happens to be. The dock's presence decides the offset, because on
             the phone the card has to clear the pill and its "new chat" button,
             and on a pushed conversation the composer sits where the dock would
-            be. See `FloatingApproval` for which one it shows. */}
-        <FloatingApproval
-          approvals={floating}
-          titleFor={(taskId) =>
-            taskDisplayTitle(tasks.find((task) => task.id === taskId))
-          }
-          busy={approvalDecision.busy}
-          onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
-          onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
-          raised={dockVisible}
-          screenKey={pathname}
-        />
+            be. See `FloatingApproval` for which one it shows.
+
+            Not while the navigation drawer is open: that drawer is a modal
+            (it dims the page and swallows taps), and the card shares its
+            `z-40`, so at equal depth the later node — this one — painted over
+            the scrim and its buttons stayed live. A modal with a clickable
+            approval floating on top of it is not modal.
+
+            Inside a boundary of its own: the card renders an agent-supplied
+            payload, and a throw in it must cost one card rather than the
+            shell around every screen. */}
+        {!mobileOpen && (
+          <ErrorBoundary
+            fallback={null}
+            resetKey={floating.map((approval) => approval.id).join(",")}
+          >
+            <FloatingApproval
+              approvals={floating}
+              titleFor={(taskId) =>
+                taskDisplayTitle(tasks.find((task) => task.id === taskId))
+              }
+              busy={approvalDecision.busy}
+              onDecide={(id, decision) => void approvalDecision.decide(id, decision)}
+              onOpenTask={(taskId) => navigate(`/tasks/${encodeURIComponent(taskId)}`)}
+              raised={dockVisible}
+              screenKey={pathname}
+              expectsBottomChrome={measuredBottomBand}
+            />
+          </ErrorBoundary>
+        )}
 
         {/* Terminal panel — the shell's own panel, desktop only */}
         {terminalAvailable && (

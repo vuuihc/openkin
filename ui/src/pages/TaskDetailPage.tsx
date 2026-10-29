@@ -17,7 +17,6 @@ import {
   deleteTask,
   createArtifact,
   answerUserQuestion,
-  decideApproval,
   deriveArtifactTitle,
   detectArtifactKind,
   followUpPrompt,
@@ -84,6 +83,7 @@ import { queuedMessageSeqs } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
+import { useApprovalDecision } from "../hooks/useApprovalDecision";
 import { catalogFor, findMachine, remoteMachine } from "../lib/devices";
 import { useT } from "../i18n/react";
 import { agentAvatarMeta, agentDisplayName } from "../lib/agentMention";
@@ -191,7 +191,9 @@ export default function TaskDetailPage({
    */
   const openFindAfterSheet = useRef(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
+  // The same decision path the inbox and the floating card use, so a failure
+  // reads the same wherever the reader answered from.
+  const { busy, decide } = useApprovalDecision("task.decisionFailed");
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
   const [limitBusy, setLimitBusy] = useState<string | null>(null);
   const [focusIdx, setFocusIdx] = useState(0);
@@ -583,15 +585,15 @@ export default function TaskDetailPage({
         setFocusIdx((i) => Math.max(0, i - 1));
       } else if (e.key === "a" || e.key === "A") {
         const cur = list[focusIdx] ?? list[0];
-        if (cur?.kind === "approval") void onDecide(cur.id, "approved");
+        if (cur?.kind === "approval") void decide(cur.id, "approved");
       } else if (e.key === "d" || e.key === "D") {
         const cur = list[focusIdx] ?? list[0];
-        if (cur?.kind === "approval") void onDecide(cur.id, "denied");
+        if (cur?.kind === "approval") void decide(cur.id, "denied");
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, needsYou, focusIdx]);
+  }, [active, needsYou, focusIdx, decide]);
 
   async function onLimitAction(action: "wait" | "continue" | "switch" | "dismiss", agent?: string) {
     if (!task) return;
@@ -611,22 +613,6 @@ export default function TaskDetailPage({
       pushToast(e instanceof Error ? e.message : tr("limit.actionFailed"), "error");
     } finally {
       setLimitBusy(null);
-    }
-  }
-
-  async function onDecide(approvalId: string, decision: "approved" | "denied") {
-    setBusy((b) => ({ ...b, [approvalId]: decision }));
-    try {
-      const updated = await decideApproval(approvalId, decision);
-      liveResources.applyMessage({ kind: "approval_update", data: updated });
-    } catch (e) {
-      pushToast(e instanceof Error ? e.message : tr("task.decisionFailed"), "error");
-    } finally {
-      setBusy((b) => {
-        const next = { ...b };
-        delete next[approvalId];
-        return next;
-      });
     }
   }
 
@@ -945,8 +931,8 @@ export default function TaskDetailPage({
             approval={entry.item}
             focused={focused}
             busy={busy[entry.id] ?? null}
-            onApprove={() => void onDecide(entry.id, "approved")}
-            onDeny={() => void onDecide(entry.id, "denied")}
+            onApprove={() => void decide(entry.id, "approved")}
+            onDeny={() => void decide(entry.id, "denied")}
             onOpenPath={onOpenWorkspacePath}
           />
         ) : (
@@ -1409,10 +1395,12 @@ export default function TaskDetailPage({
         {/* `data-kin-bottom-chrome` is a contract with the shell's floating
             surfaces: this band is everything the page pins to the bottom
             (the waiting strip and the composer), so an overlay that has to
-            stay clear of it measures this instead of guessing a height.
-            See FloatingApproval. */}
+            stay clear of it measures this instead of guessing a height. Only
+            the pane on screen marks itself — the session host keeps cached
+            conversations mounted but hidden, and their bands have no box to
+            measure. See FloatingApproval. */}
         <div
-          data-kin-bottom-chrome=""
+          data-kin-bottom-chrome={active ? "" : undefined}
           className="flex-none px-4 sm:px-7 pb-3 sm:pb-3.5 pt-1.5"
         >
           <div className="max-w-conversation mx-auto space-y-1.5">

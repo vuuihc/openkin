@@ -81,6 +81,33 @@ describe("useApprovalDecision", () => {
     expect(resources.refreshPending).not.toHaveBeenCalled();
   });
 
+  it("sends one answer per approval, however many times it is asked", async () => {
+    // The inbox's keyboard model does not consult `busy`, so a held Enter key
+    // can ask twice. The second request would be a 409 — the first decided it —
+    // and its toast would report a failure for something that worked.
+    let answer: (value: Approval) => void = () => {};
+    client.decideApproval.mockReturnValue(
+      new Promise<Approval>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useApprovalDecision());
+
+    let first: Promise<void> = Promise.resolve();
+    await act(async () => {
+      first = result.current.decide("a1", "approved");
+      await result.current.decide("a1", "approved");
+    });
+
+    expect(client.decideApproval).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answer(approval("approved"));
+      await first;
+    });
+    expect(result.current.busy).toEqual({});
+  });
+
   it("says what went wrong and re-reads the list when the call fails", async () => {
     const pushToast = vi.fn();
     useAppStore.setState({ pushToast });

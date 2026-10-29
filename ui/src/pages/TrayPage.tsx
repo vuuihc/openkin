@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  decideApproval,
   formatCost,
   formatElapsed,
   isTerminal,
   parseApprovalPayload,
 } from "../api/client";
-import { liveResources } from "../api/liveResources";
 import { usePendingResources, useTaskList } from "../api/useLiveResources";
+import { useApprovalDecision } from "../hooks/useApprovalDecision";
 import { shortPath } from "../lib/paths";
 import { startOfDay } from "../lib/relativeTime";
 import { IconFile, IconKin } from "../components/icons";
@@ -23,7 +22,7 @@ export default function TrayPage() {
   const taskList = useTaskList({ limit: 40 });
   const approvals = pending.data.approvals;
   const tasks = taskList.data;
-  const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
+  const { busy, decide } = useApprovalDecision();
   const [now, setNow] = useState(Date.now());
   const wsStatus = useAppStore((s) => s.wsStatus);
 
@@ -38,22 +37,6 @@ export default function TrayPage() {
     const ms = startOfDay(Date.now());
     return tasks.filter((t) => isTerminal(t.status) && t.created_at >= ms).slice(0, 5);
   }, [tasks]);
-
-  async function onDecide(id: string, decision: "approved" | "denied") {
-    setBusy((b) => ({ ...b, [id]: decision }));
-    try {
-      const updated = await decideApproval(id, decision);
-      liveResources.applyMessage({ kind: "approval_update", data: updated });
-    } catch {
-      // keep card
-    } finally {
-      setBusy((b) => {
-        const next = { ...b };
-        delete next[id];
-        return next;
-      });
-    }
-  }
 
   function openMain(path: string) {
     // Prefer opener (Electron may set); else top-level navigate.
@@ -136,7 +119,7 @@ export default function TrayPage() {
                       <button
                         type="button"
                         disabled={!!busy[a.id]}
-                        onClick={() => void onDecide(a.id, "approved")}
+                        onClick={() => void decide(a.id, "approved")}
                         className="flex-1 py-1.5 rounded-lg bg-kin-orange text-kin-on-status text-body font-semibold disabled:opacity-50"
                       >
                         {busy[a.id] === "approved" ? "…" : "Approve"}
@@ -144,7 +127,7 @@ export default function TrayPage() {
                       <button
                         type="button"
                         disabled={!!busy[a.id]}
-                        onClick={() => void onDecide(a.id, "denied")}
+                        onClick={() => void decide(a.id, "denied")}
                         className="flex-1 py-1.5 rounded-lg border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] text-body font-semibold disabled:opacity-50"
                       >
                         {busy[a.id] === "denied" ? "…" : "Deny"}
