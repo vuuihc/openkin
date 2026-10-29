@@ -695,3 +695,66 @@ and preferring a window an adapter reports remains the follow-up once one does.
 The meter refreshes when the task row's totals change, i.e. once per completed
 turn, not mid-turn. Cost and context both key off the model name, so an agent
 that reports no model relies on the task's pin.
+
+#### D — a routine can run on the calendar, not only on a timer (landed)
+
+Lody's schedules are wall-clock rules: manual, every N minutes or hours, daily,
+weekdays, weekly on chosen days, monthly on chosen dates, or once at an instant,
+each with a time zone. Kin had `interval_secs` and nothing else, so "every
+weekday at 09:00" could not be expressed at all, and a 24-hour interval drifted
+by however long each run took.
+
+The interval stays. It is what every existing routine was created with, it is
+the fallback when a rule is cleared, and it is the pace the missed-run policy
+measures against when there is no rule. A routine may now also carry a
+`recurrence` — a small JSON rule (`daily`, `weekdays`, `weekly`, `monthly`,
+`once`) in an additive column. Only two things consult it: the next due instant
+and the "how late is too late" threshold for the skip policy. Claims, leases,
+the in-flight budget and the dispatch ledger are untouched, which is why this
+did not need a scheduler rewrite.
+
+Decisions inside it, and why:
+
+- **The rule carries its own time zone**, defaulted from the browser when the
+  form writes it. The daemon is usually a container running in UTC; a rule
+  without a zone would fire at the wrong hour for its user and look correct in
+  the database.
+- **A monthly day the month does not have means that month's last day.** A
+  "the 31st" routine runs on 28 February rather than skipping the month, because
+  silently not running is the failure a user cannot see.
+- **A `once` rule retires itself** (`enabled = false`) the moment it has been
+  dispatched. Left enabled it would sit in the due list forever, either firing
+  again or showing a next run that will never come.
+- **An unreadable stored rule does not fall back to the interval.** It records
+  `last_outcome = failed` with the parse error and refuses to fire. Falling back
+  would run a corrupt rule at an arbitrary time, and a `once` rule would repeat
+  forever.
+- **`interval_secs` is derived server-side** from the rule's own period when the
+  client does not send one, so the form never asks for a number the scheduler
+  ignores.
+- **The first run of a new rule is the rule's next occurrence**, not "as soon
+  as the scheduler looks": creating a weekday-morning routine on a Tuesday
+  afternoon must not run it on Tuesday afternoon.
+
+Coverage: eleven rule-table tests (strict-future comparison, weekends skipped,
+chosen days, monthly clamping into February and into a leap February, the
+earliest of several days, one-off semantics, the rule's zone rather than the
+caller's, wall-clock stability across a DST spring-forward, the period each kind
+reports, validation refusals, parse rules), four scheduler tests (due instant,
+once retirement, unreadable rule, skip threshold by the rule's own period), four
+store tests (round trip, empty default, set and clear, and an upgrade from a
+database whose `routines` table predates the column), three HTTP tests (create
+with a rule, refusal of an unfireable rule and of a past one-off, and a patch
+that moves the next run with the rule), and eight each on the client rule
+module and the schedule form.
+
+Eight mutations were red-verified: `>=` instead of strict `>`, the caller's zone
+instead of the rule's, no monthly clamp, no once retirement, no unreadable-rule
+guard, the interval threshold instead of the rule's period, serializing a
+half-written row, and dropping the last chosen weekday.
+
+The upgrade test found a real defect before it shipped: a database already at
+the current `user_version` but missing the new column was not repaired by the
+numbered migration alone, because the runner stops at "version is current". The
+column is now also reconciled on every open (`ensureRoutineRecurrenceSchema`),
+the same way `users.role` is.

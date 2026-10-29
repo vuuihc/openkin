@@ -1329,6 +1329,8 @@ export type Routine = {
   title: string;
   missed_run_policy: "coalesce" | "skip" | string;
   lane: string;
+  /** Wall-clock rule as JSON; empty or absent for an interval routine. */
+  recurrence?: string;
   claim_until_at?: number;
   last_outcome?: string;
   last_error?: string;
@@ -1348,11 +1350,13 @@ export type CreateRoutineBody = {
   agent?: string;
   permission_mode?: string;
   prompt: string;
-  interval_secs: number;
+  /** Required for an interval routine; the daemon derives it from a rule. */
+  interval_secs?: number;
   enabled?: boolean;
   next_due_at?: number;
   missed_run_policy?: "coalesce" | "skip";
   lane?: string;
+  recurrence?: string;
 };
 
 export type PatchRoutineBody = {
@@ -1367,6 +1371,8 @@ export type PatchRoutineBody = {
   next_due_at?: number;
   missed_run_policy?: "coalesce" | "skip";
   lane?: string;
+  /** "" clears the rule and hands the schedule back to interval_secs. */
+  recurrence?: string;
 };
 
 export function listRoutines(params?: {

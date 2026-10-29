@@ -29,9 +29,12 @@ type Routine struct {
 	Title           string `json:"title"`
 	MissedRunPolicy string `json:"missed_run_policy"`
 	Lane            string `json:"lane"`
-	ClaimUntilAt    int64  `json:"claim_until_at,omitempty"`
-	LastOutcome     string `json:"last_outcome,omitempty"`
-	LastError       string `json:"last_error,omitempty"`
+	// Recurrence is the wall-clock rule as JSON, empty when the routine runs
+	// on IntervalSecs. Opaque here: the scheduler owns what the rule means.
+	Recurrence   string `json:"recurrence,omitempty"`
+	ClaimUntilAt int64  `json:"claim_until_at,omitempty"`
+	LastOutcome  string `json:"last_outcome,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
 }
 
 // RoutinePatch is a partial update for routines.
@@ -50,6 +53,7 @@ type RoutinePatch struct {
 	ConsecFailures  *int
 	MissedRunPolicy *string
 	Lane            *string
+	Recurrence      *string
 	LastOutcome     *string
 	LastError       *string
 }
@@ -69,7 +73,7 @@ type RoutinePage struct {
 	HasMore    bool      `json:"has_more"`
 }
 
-const routineColumns = `id, project_id, cwd, agent, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, claim_until_at, last_outcome, last_error`
+const routineColumns = `id, project_id, cwd, agent, permission_mode, prompt, interval_secs, enabled, last_run_at, next_due_at, consec_failures, created_at, title, missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error`
 
 func scanRoutine(scanner interface {
 	Scan(dest ...any) error
@@ -77,12 +81,12 @@ func scanRoutine(scanner interface {
 	var r Routine
 	var projectID sql.NullString
 	var lastRun sql.NullInt64
-	var missedRunPolicy, lane, lastOutcome, lastError sql.NullString
+	var missedRunPolicy, lane, recurrence, lastOutcome, lastError sql.NullString
 	var enabled int
 	if err := scanner.Scan(
 		&r.ID, &projectID, &r.Cwd, &r.Agent, &r.PermissionMode, &r.Prompt,
 		&r.IntervalSecs, &enabled, &lastRun, &r.NextDueAt, &r.ConsecFailures,
-		&r.CreatedAt, &r.Title, &missedRunPolicy, &lane, &r.ClaimUntilAt,
+		&r.CreatedAt, &r.Title, &missedRunPolicy, &lane, &recurrence, &r.ClaimUntilAt,
 		&lastOutcome, &lastError,
 	); err != nil {
 		return Routine{}, err
@@ -106,6 +110,7 @@ func scanRoutine(scanner interface {
 	if r.Lane == "" {
 		r.Lane = "routine"
 	}
+	r.Recurrence = recurrence.String
 	r.LastOutcome = lastOutcome.String
 	r.LastError = lastError.String
 	return r, nil
@@ -159,11 +164,11 @@ func (s *Store) InsertRoutine(ctx context.Context, r Routine) error {
 		INSERT INTO routines (
 			id, project_id, cwd, agent, permission_mode, prompt, interval_secs,
 			enabled, last_run_at, next_due_at, consec_failures, created_at, title,
-			missed_run_policy, lane, claim_until_at, last_outcome, last_error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			missed_run_policy, lane, recurrence, claim_until_at, last_outcome, last_error
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, projectID, r.Cwd, r.Agent, r.PermissionMode, r.Prompt, r.IntervalSecs,
 		enabled, lastRun, r.NextDueAt, r.ConsecFailures, r.CreatedAt, r.Title,
-		r.MissedRunPolicy, r.Lane, r.ClaimUntilAt, r.LastOutcome, r.LastError,
+		r.MissedRunPolicy, r.Lane, r.Recurrence, r.ClaimUntilAt, r.LastOutcome, r.LastError,
 	)
 	if err != nil {
 		return fmt.Errorf("insert routine: %w", err)
@@ -499,6 +504,10 @@ func (s *Store) UpdateRoutine(ctx context.Context, id string, p RoutinePatch) er
 	if p.Lane != nil {
 		sets = append(sets, "lane = ?")
 		args = append(args, *p.Lane)
+	}
+	if p.Recurrence != nil {
+		sets = append(sets, "recurrence = ?")
+		args = append(args, *p.Recurrence)
 	}
 	if p.LastOutcome != nil {
 		sets = append(sets, "last_outcome = ?")

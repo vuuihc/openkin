@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/vuuihc/openkin/internal/routines"
 	"github.com/vuuihc/openkin/internal/store"
 	"github.com/vuuihc/openkin/internal/task"
 )
@@ -26,6 +27,8 @@ type createRoutineBody struct {
 	Enabled         *bool  `json:"enabled"`
 	MissedRunPolicy string `json:"missed_run_policy"`
 	Lane            string `json:"lane"`
+	// Recurrence is a wall-clock rule as JSON, empty for an interval routine.
+	Recurrence string `json:"recurrence"`
 	// NextDueAt optional; default = now (fires on next tick / run-now).
 	NextDueAt *int64 `json:"next_due_at"`
 }
@@ -42,6 +45,7 @@ type patchRoutineBody struct {
 	NextDueAt       *int64  `json:"next_due_at"`
 	MissedRunPolicy *string `json:"missed_run_policy"`
 	Lane            *string `json:"lane"`
+	Recurrence      *string `json:"recurrence"`
 }
 
 func (s *Server) handleListRoutines(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +115,18 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cwd and prompt are required"})
 		return
 	}
-	if body.IntervalSecs <= 0 {
+	recurrence, err := routines.ParseRecurrence(body.Recurrence)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	intervalSecs := body.IntervalSecs
+	if recurrence != nil && intervalSecs <= 0 {
+		// A wall-clock routine's pace is the rule's own period. Asking the
+		// user for an interval they will never see honoured would be noise.
+		intervalSecs = recurrence.NominalIntervalSeconds(time.Now())
+	}
+	if intervalSecs <= 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interval_secs must be > 0"})
 		return
 	}
@@ -123,6 +138,16 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 	next := now
 	if body.NextDueAt != nil && *body.NextDueAt > 0 {
 		next = *body.NextDueAt
+	} else if recurrence != nil {
+		// The first run is the rule's next occurrence, not "as soon as the
+		// scheduler looks": creating a weekday-morning routine on a Tuesday
+		// afternoon must not run it on Tuesday afternoon.
+		at, ok := recurrence.Next(time.UnixMilli(now))
+		if !ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence has no future occurrence"})
+			return
+		}
+		next = at.UnixMilli()
 	}
 	agent := strings.TrimSpace(body.Agent)
 	if agent == "" {
@@ -174,19 +199,37 @@ func (s *Server) handleCreateRoutine(w http.ResponseWriter, r *http.Request) {
 		Agent:           agent,
 		PermissionMode:  perm,
 		Prompt:          body.Prompt,
-		IntervalSecs:    body.IntervalSecs,
+		IntervalSecs:    intervalSecs,
 		Enabled:         enabled,
 		NextDueAt:       next,
 		CreatedAt:       now,
 		Title:           title,
 		MissedRunPolicy: policy,
 		Lane:            lane,
+		Recurrence:      body.Recurrence,
 	}
 	if err := s.Store.InsertRoutine(r.Context(), rec); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusCreated, rec)
+}
+
+// nextDueAfterRuleChange is when a routine should next run after its rule was
+// replaced — or after it was switched back to a plain interval, in which case
+// the interval takes over from now rather than from the old rule's instant.
+func nextDueAfterRuleChange(rule *routines.Recurrence, intervalSecs int64, now time.Time) (int64, bool) {
+	if rule != nil {
+		at, ok := rule.Next(now)
+		if !ok {
+			return 0, false
+		}
+		return at.UnixMilli(), true
+	}
+	if intervalSecs <= 0 {
+		intervalSecs = 60
+	}
+	return now.Add(time.Duration(intervalSecs) * time.Second).UnixMilli(), true
 }
 
 func (s *Server) handleGetRoutine(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +286,25 @@ func (s *Server) handlePatchRoutine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		patch.MissedRunPolicy = &policy
+	}
+	if body.Recurrence != nil {
+		rule, err := routines.ParseRecurrence(*body.Recurrence)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		patch.Recurrence = body.Recurrence
+		if body.NextDueAt == nil {
+			// Changing the rule changes when it next runs. Without this a
+			// routine switched to "weekdays at 09:00" would keep whatever
+			// instant the old schedule left behind.
+			at, ok := nextDueAfterRuleChange(rule, current.IntervalSecs, time.Now())
+			if !ok {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "recurrence has no future occurrence"})
+				return
+			}
+			patch.NextDueAt = &at
+		}
 	}
 	effectiveAgent := current.Agent
 	if body.Agent != nil {

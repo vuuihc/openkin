@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,5 +196,126 @@ func TestMarkRoutineRunReadClearsUnread(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &count)
 	if count.Count != 0 {
 		t.Fatalf("count after mark=%d want 0", count.Count)
+	}
+}
+
+// A routine can be given a wall-clock rule instead of an interval. What the
+// HTTP boundary has to get right is the three things a client relies on: the
+// rule is validated, the first run lands on the rule rather than on "now", and
+// the interval the column requires is derived instead of demanded.
+
+func postRoutine(t *testing.T, s *Server, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/routines", bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	return rr
+}
+
+func patchRoutine(t *testing.T, s *Server, id, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPatch, "/api/routines/"+id, bytes.NewReader([]byte(body)))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	return rr
+}
+
+func TestCreateRoutineWithAWallClockRule(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	rule := `{"kind":"daily","hour":9,"minute":30,"time_zone":"Asia/Shanghai"}`
+	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"standup","recurrence":`+strconv.Quote(rule)+`}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Recurrence != rule {
+		t.Fatalf("recurrence = %q, want the rule back", created.Recurrence)
+	}
+	// The interval column still needs a value; it is the rule's own pace.
+	if created.IntervalSecs != 86400 {
+		t.Fatalf("interval_secs = %d, want 86400", created.IntervalSecs)
+	}
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := time.UnixMilli(created.NextDueAt).In(shanghai)
+	if next.Hour() != 9 || next.Minute() != 30 {
+		t.Fatalf("next_due_at = %v, want 09:30 in the rule's zone", next)
+	}
+	// And it is genuinely in the future, not "as soon as the scheduler looks".
+	if !next.After(time.Now().Add(-time.Minute)) {
+		t.Fatalf("next_due_at = %v is not ahead of now", next)
+	}
+}
+
+func TestCreateRoutineRejectsAnUnfireableRule(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"standup","recurrence":"{\"kind\":\"weekly\"}"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "recurrence") {
+		t.Fatalf("error does not name the rule: %s", rr.Body.String())
+	}
+
+	// A once rule whose instant has already passed has nothing to schedule.
+	past := strconv.FormatInt(time.Now().Add(-time.Hour).UnixMilli(), 10)
+	rr = postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"x","recurrence":"{\"kind\":\"once\",\"at\":`+past+`}"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("past once status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestPatchRoutineMovesTheNextRunWithTheRule(t *testing.T) {
+	s, _ := newRoutinesTestServer(t)
+	rr := postRoutine(t, s, `{"cwd":"/tmp/p","prompt":"check","interval_secs":3600}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var created store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	// Switching to a rule moves the next run onto the rule.
+	rule := `{"kind":"weekly","hour":8,"minute":0,"weekdays":[1],"time_zone":"Asia/Shanghai"}`
+	rr = patchRoutine(t, s, created.ID, `{"recurrence":`+strconv.Quote(rule)+`}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("patch status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var patched store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &patched); err != nil {
+		t.Fatal(err)
+	}
+	shanghai, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := time.UnixMilli(patched.NextDueAt).In(shanghai)
+	if next.Weekday() != time.Monday || next.Hour() != 8 {
+		t.Fatalf("next_due_at = %v, want Monday 08:00", next)
+	}
+
+	// Switching back to nothing hands the schedule to the interval again.
+	rr = patchRoutine(t, s, created.ID, `{"recurrence":""}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("clear status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var cleared store.Routine
+	if err := json.Unmarshal(rr.Body.Bytes(), &cleared); err != nil {
+		t.Fatal(err)
+	}
+	if cleared.Recurrence != "" {
+		t.Fatalf("recurrence = %q, want empty", cleared.Recurrence)
+	}
+	if cleared.NextDueAt > time.Now().Add(2*time.Hour).UnixMilli() {
+		t.Fatalf("next_due_at = %v, want the interval to take over from now",
+			time.UnixMilli(cleared.NextDueAt))
 	}
 }

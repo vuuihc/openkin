@@ -157,7 +157,9 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		if err := s.dispatch(ctx, claimed, token, now); err != nil {
 			s.recordError(err)
 			s.logf("routines: dispatch %s: %v", r.ID, err)
+			continue
 		}
+		s.retireIfSpent(ctx, claimed)
 	}
 	return nil
 }
@@ -253,10 +255,36 @@ func (s *Scheduler) recoverManualDispatches(ctx context.Context, now time.Time, 
 	return used, nil
 }
 
+// retireIfSpent disables a routine whose rule has no further occurrence.
+//
+// Only a "once" rule can be spent, and only once it has been dispatched: left
+// enabled it would sit in the due list forever, either re-firing or showing a
+// next run that will never come. Disabling keeps the row and its history, so
+// the console can still show what happened and re-enabling it re-arms the
+// rule.
+func (s *Scheduler) retireIfSpent(ctx context.Context, r store.Routine) {
+	rule, err := ParseRecurrence(r.Recurrence)
+	if err != nil || rule == nil || rule.Kind != RecurrenceOnce {
+		return
+	}
+	if err := s.Store.SetRoutineEnabled(ctx, r.ID, false); err != nil {
+		s.logf("routines: retire once routine %s: %v", r.ID, err)
+	}
+}
+
 func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string, now time.Time) error {
-	next := s.nextDue(r, now)
+	rule, ruleErr := ParseRecurrence(r.Recurrence)
+	if ruleErr != nil {
+		// A rule this build cannot read must not quietly become an interval:
+		// a "once" routine would then repeat at the wrong time forever. Keep
+		// the routine, record why it did not run, and try again next tick.
+		next := now.Add(intervalDuration(r)).UnixMilli()
+		return s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next,
+			"failed", "recurrence is unreadable: "+ruleErr.Error())
+	}
+	next := nextDueOf(r, rule, now)
 	if strings.EqualFold(r.MissedRunPolicy, "skip") &&
-		now.UnixMilli()-r.NextDueAt > r.IntervalSecs*1000 {
+		now.UnixMilli()-r.NextDueAt > overdueThreshold(r, rule, now) {
 		if err := s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "skipped", "missed run coalesced by skip policy"); err != nil {
 			return err
 		}
@@ -310,14 +338,51 @@ func (s *Scheduler) dispatch(ctx context.Context, r store.Routine, token string,
 	return s.Store.CompleteRoutineClaim(ctx, r, token, now.UnixMilli(), next, "dispatched", "")
 }
 
-// nextDue applies explicit missed-run semantics. Both policies emit at most
-// one run after downtime; skip suppresses an overdue run, coalesce executes it.
-func (s *Scheduler) nextDue(r store.Routine, now time.Time) int64 {
-	nowMs := now.UnixMilli()
-	intervalMs := r.IntervalSecs * 1000
-	if intervalMs <= 0 {
-		intervalMs = 60_000
+// intervalDuration is the routine's fallback pace, with the scheduler's floor.
+func intervalDuration(r store.Routine) time.Duration {
+	secs := r.IntervalSecs
+	if secs <= 0 {
+		secs = 60
 	}
+	return time.Duration(secs) * time.Second
+}
+
+// nextDueOf is the next instant the routine should run.
+//
+// A routine with a wall-clock rule runs at that time on the calendar, with no
+// jitter: jitter exists to spread interval routines across a tick, and a user
+// who asked for 09:00 means 09:00.
+func nextDueOf(r store.Routine, rule *Recurrence, now time.Time) int64 {
+	if rule != nil {
+		if next, ok := rule.Next(now); ok {
+			return next.UnixMilli()
+		}
+		// A once rule that has already fired. The tick retires the routine
+		// right after this dispatch, so the value below only matters if that
+		// retirement fails.
+		return now.Add(intervalDuration(r)).UnixMilli()
+	}
+	return intervalNextDue(r, now)
+}
+
+// overdueThreshold is how late a run may be before the skip policy drops it.
+// A wall-clock rule is measured against its own calendar period: a weekly
+// routine is not "three hours late" by the standards of a daily one.
+func overdueThreshold(r store.Routine, rule *Recurrence, now time.Time) int64 {
+	if rule != nil {
+		if period := rule.period(now); period > 0 {
+			return period.Milliseconds()
+		}
+	}
+	return intervalDuration(r).Milliseconds()
+}
+
+// intervalNextDue applies explicit missed-run semantics. Both policies emit at
+// most one run after downtime; skip suppresses an overdue run, coalesce
+// executes it.
+func intervalNextDue(r store.Routine, now time.Time) int64 {
+	nowMs := now.UnixMilli()
+	intervalMs := intervalDuration(r).Milliseconds()
 	if strings.EqualFold(r.MissedRunPolicy, "coalesce") || strings.EqualFold(r.MissedRunPolicy, "skip") || r.MissedRunPolicy == "" {
 		return applyJitter(nowMs+intervalMs, intervalMs, JitterFraction)
 	}

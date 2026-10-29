@@ -29,6 +29,7 @@ import RoutineScheduleFields, {
   defaultNextRunLocal,
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
+import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import ProjectSummaryCard from "../components/project/ProjectSummaryCard";
 import { useT } from "../i18n/react";
 import { modelsForAgent } from "../lib/agentModels";
@@ -94,6 +95,7 @@ export default function NewChatPage() {
   const agentRoles = useAgentRoles();
 
   const [routineInterval, setRoutineInterval] = useState(86400);
+  const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
 
   const [selectedModel, setSelectedModel] = useState("");
@@ -347,15 +349,23 @@ export default function NewChatPage() {
         const nextMs = parseLocalDateTime(routineNextLocal);
         const titleRunes = Array.from(raw);
         const title = titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : raw;
+        // A wall-clock rule carries its own pace and first run, so an interval
+        // or a next_due_at sent alongside it would be a second, contradictory
+        // schedule the scheduler never reads.
+        const recurrence = serializeRoutineRule(routineRule, nextMs);
         const routine = await createRoutine({
           title,
           cwd: cwd.trim(),
           prompt: raw,
-          interval_secs: routineInterval,
+          ...(recurrence
+            ? { recurrence }
+            : {
+                interval_secs: routineInterval,
+                ...(nextMs != null ? { next_due_at: nextMs } : {}),
+              }),
           agent: mainAgentId || undefined,
           permission_mode: permissionMode,
           project_id: project?.id,
-          ...(nextMs != null ? { next_due_at: nextMs } : {}),
         });
         clearDraftPrompt();
         setAsRoutine(false);
@@ -865,6 +875,8 @@ export default function NewChatPage() {
                 onIntervalChange={setRoutineInterval}
                 nextRunLocal={routineNextLocal}
                 onNextRunLocalChange={setRoutineNextLocal}
+                rule={routineRule}
+                onRuleChange={setRoutineRule}
               />
             </div>
           )}

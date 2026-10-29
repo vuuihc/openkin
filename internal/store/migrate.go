@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 39
+const schemaVersion = 40
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -380,6 +380,7 @@ CREATE TABLE routines (
   title            TEXT NOT NULL DEFAULT '',
   missed_run_policy TEXT NOT NULL DEFAULT 'coalesce',
   lane             TEXT NOT NULL DEFAULT 'routine',
+  recurrence       TEXT NOT NULL DEFAULT '',
   claim_token      TEXT NOT NULL DEFAULT '',
   claim_until_at   INTEGER NOT NULL DEFAULT 0,
   last_outcome     TEXT NOT NULL DEFAULT '',
@@ -2324,6 +2325,39 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 39
 	}
 
+	if v == 39 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 040: %w", err)
+		}
+		// A routine's wall-clock rule, as JSON, empty when it runs on its
+		// interval. Additive: every existing routine keeps interval behaviour,
+		// which is exactly what it was created with.
+		var present int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = 'recurrence'`,
+		).Scan(&present); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("check recurrence column: %w", err)
+		}
+		if present == 0 {
+			if _, err := tx.Exec(
+				`ALTER TABLE routines ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''`,
+			); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("add recurrence column: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 40`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 040: %w", err)
+		}
+		v = 40
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2356,7 +2390,45 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureDeviceAgentSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureRoutineRecurrenceSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
+}
+
+// ensureRoutineRecurrenceSchema adds a routine's wall-clock rule to a
+// `routines` table written before the column existed.
+//
+// It is reconciled here as well as in the numbered migration because a version
+// number only says which migrations ran. A database that reached the current
+// version without the column — an older build that bumped the version, or a
+// restore of a dump taken between the two — would otherwise fail every routine
+// read with "no such column" at the scheduler's first tick. The column is
+// additive and empty by default, so a row that predates it reads as what it
+// was: an interval routine.
+func (s *Store) ensureRoutineRecurrenceSchema() error {
+	present, err := s.tableExists("routines")
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	var exists int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info('routines') WHERE name = 'recurrence'`,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("inspect routines.recurrence: %w", err)
+	}
+	if exists > 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(
+		`ALTER TABLE routines ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return fmt.Errorf("add routines.recurrence: %w", err)
+	}
+	return nil
 }
 
 // ensureDeviceAgentSchema adds the presentation and permission columns to a

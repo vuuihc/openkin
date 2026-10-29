@@ -26,6 +26,7 @@ import RoutineScheduleFields, {
   defaultNextRunLocal,
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
+import { serializeRoutineRule, type RoutineRule } from "../lib/routineRecurrence";
 import Markdown from "../components/Markdown";
 import Heatmap from "../components/project/Heatmap";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
@@ -76,6 +77,7 @@ export default function ProjectDetailPage() {
   const [routineTitle, setRoutineTitle] = useState("");
   const [routinePrompt, setRoutinePrompt] = useState("");
   const [routineInterval, setRoutineInterval] = useState(86400);
+  const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
   const [routineNextLocal, setRoutineNextLocal] = useState(() => defaultNextRunLocal());
   const [creatingRoutine, setCreatingRoutine] = useState(false);
 
@@ -220,14 +222,19 @@ export default function ProjectDetailPage() {
     setCreatingRoutine(true);
     try {
       const nextMs = parseLocalDateTime(routineNextLocal);
+      const recurrence = serializeRoutineRule(routineRule, nextMs);
       const r = await createRoutine({
         title: routineTitle.trim() || undefined,
         project_id: id,
         cwd,
         prompt,
-        interval_secs: routineInterval,
+        ...(recurrence
+          ? { recurrence }
+          : {
+              interval_secs: routineInterval,
+              ...(nextMs != null ? { next_due_at: nextMs } : {}),
+            }),
         agent: "kin",
-        ...(nextMs != null ? { next_due_at: nextMs } : {}),
       });
       setProjectRoutines((list) => [r, ...list]);
       setShowRoutineModal(false);
@@ -544,6 +551,8 @@ export default function ProjectDetailPage() {
                 onIntervalChange={setRoutineInterval}
                 nextRunLocal={routineNextLocal}
                 onNextRunLocalChange={setRoutineNextLocal}
+                rule={routineRule}
+                onRuleChange={setRoutineRule}
                 disabled={creatingRoutine}
               />
             </div>

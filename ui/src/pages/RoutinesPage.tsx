@@ -23,6 +23,12 @@ import RoutineScheduleFields, {
   defaultNextRunLocal,
   parseLocalDateTime,
 } from "../components/routine/RoutineScheduleFields";
+import {
+  describeRoutineRule,
+  parseRoutineRule,
+  serializeRoutineRule,
+  type RoutineRule,
+} from "../lib/routineRecurrence";
 import { SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
@@ -97,6 +103,7 @@ export default function RoutinesPage() {
     getDraftPermissionMode(),
   );
   const [intervalSecs, setIntervalSecs] = useState(86400);
+  const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
   const [nextRunLocal, setNextRunLocal] = useState(() => defaultNextRunLocal());
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentId, setAgentId] = useState("");
@@ -259,20 +266,30 @@ export default function RoutinesPage() {
       const titleRunes = Array.from(title.trim() || p);
       const resolvedTitle =
         titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : titleRunes.join("");
+      // With a wall-clock rule the daemon derives the pace and the first run
+      // from the rule itself, so neither interval_secs nor next_due_at is sent:
+      // a value the scheduler would ignore is a value that can drift out of
+      // step with what the form shows.
+      const recurrence = serializeRoutineRule(routineRule, nextMs);
       const r = await createRoutine({
         title: resolvedTitle,
         cwd: cwd.trim(),
         prompt: p,
-        interval_secs: intervalSecs,
+        ...(recurrence
+          ? { recurrence }
+          : {
+              interval_secs: intervalSecs,
+              ...(nextMs != null ? { next_due_at: nextMs } : {}),
+            }),
         agent: agentId || undefined,
         permission_mode: permissionMode,
-        ...(nextMs != null ? { next_due_at: nextMs } : {}),
       });
       setRoutines((list) => [r, ...list]);
       setShowCreate(false);
       setPrompt("");
       setTitle("");
       setNextRunLocal(defaultNextRunLocal());
+      setRoutineRule(null);
       pushToast(tr("routines.created"), "info");
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -379,6 +396,8 @@ export default function RoutinesPage() {
                 onIntervalChange={setIntervalSecs}
                 nextRunLocal={nextRunLocal}
                 onNextRunLocalChange={setNextRunLocal}
+                rule={routineRule}
+                onRuleChange={setRoutineRule}
                 disabled={creating}
               />
             </div>
@@ -509,7 +528,10 @@ export default function RoutinesPage() {
                             </span>
                           </div>
                           <div className="mt-1 truncate text-body text-kin-secondary">
-                            {r.agent} · {formatInterval(r.interval_secs)} · {r.cwd}
+                            {r.agent} ·{" "}
+                            {describeRoutineRule(parseRoutineRule(r.recurrence), tr) ??
+                              formatInterval(r.interval_secs)}{" "}
+                            · {r.cwd}
                           </div>
                           <div className="mt-0.5 text-caption text-kin-muted">
                             {tr("routines.nextDue")}
