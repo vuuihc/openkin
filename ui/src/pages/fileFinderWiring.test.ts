@@ -50,6 +50,18 @@ describe("the file finder's ways in", () => {
     expect(PAGE).toContain("openFileFinderAfterSheet.current = false");
   });
 
+  it("spends the open-file pulse when the panel closes", () => {
+    // The panel consumes the pulse once. A closed panel that kept it would
+    // replay the last "open this file" on the next open and land inside a file
+    // instead of on the list, which is what a fresh open of Files means. The
+    // hook runs before the page's loading return, so it reads "is this
+    // session's files panel open" from the store instead of from the panel.
+    expect(PAGE).toContain(
+      'const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";',
+    );
+    expect(PAGE).toContain("if (!filesPanelOpen) setWorkspaceOpenPath(null);");
+  });
+
   it("offers the panel's own trigger next to its two lenses", () => {
     expect(PANEL).toContain("onFindFile?: () => void;");
     expect(PANEL).toContain('aria-label={tr("workspace.find.action")}');

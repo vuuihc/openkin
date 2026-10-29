@@ -184,6 +184,9 @@ function renderEntries({
       <div key={entry.path}>
         <button
           type="button"
+          // The panel's back control finds the selected file to return focus
+          // to when the list comes back on a phone.
+          data-selected={isSelected || undefined}
           onClick={() => {
             if (isDir) {
               void onToggle(entry);

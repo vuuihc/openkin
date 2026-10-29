@@ -30,7 +30,7 @@ import {
 } from "../../lib/changedFiles";
 import WorkspaceGenerationPicker from "./WorkspaceGenerationPicker";
 import { projectLabel, shortPath, toWorkspaceRelativePath } from "../../lib/paths";
-import { IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
+import { IconBack, IconPanel, IconSearch, IconSend, IconSpinner, IconX } from "../icons";
 import ChangedFilesList from "./ChangedFilesList";
 import FileTree from "./FileTree";
 
@@ -218,6 +218,11 @@ export default function WorkspacePanel({
   );
   const viewedWorkspaceId = workspaceView.kind === "generation" ? workspaceView.workspaceId : null;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Below `md` the panel is one pane at a time: the list, then a full-height
+  // file. Stacking them left a diff with roughly half a phone screen while the
+  // list that led to it held the rest. On md+ both panes are shown side by side
+  // and this only remembers which one a phone would be looking at.
+  const [phoneView, setPhoneView] = useState<"list" | "file">("list");
   const [file, setFile] = useState<TaskWorkspaceFileResponse | WorkspaceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,6 +235,10 @@ export default function WorkspacePanel({
     truncated: boolean;
   } | null>(null);
   const requestRef = useRef(0);
+  // The pane the phone is looking at and the two elements focus follows when it
+  // changes: the way back, and the list the file was opened from.
+  const asideRef = useRef<HTMLElement | null>(null);
+  const backRef = useRef<HTMLButtonElement | null>(null);
 
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -398,6 +407,17 @@ export default function WorkspacePanel({
       // land on top of the refusal and draw a file the reader did not open.
       const reqID = ++requestRef.current;
       setSelectedPath(path);
+      // Every way into a file ends here — the change list, the tree, quick-open,
+      // the changed-files bar. A phone shows the file from now on, including
+      // the path this refuses: the refusal is the viewer's answer and belongs
+      // where the file would have been.
+      setPhoneView("file");
+      // The row or control that asked for the file is off the phone's screen
+      // now, so the browser would drop focus to <body> and the next Tab would
+      // start at the top of the page behind this panel. At md+ the back control
+      // is not drawn and `focus()` on a hidden element does nothing, which is
+      // right there: the list never left.
+      requestAnimationFrame(() => backRef.current?.focus());
       if (!readPath) {
         setFile(null);
         setLoading(false);
@@ -426,6 +446,9 @@ export default function WorkspacePanel({
   useEffect(() => {
     requestRef.current += 1;
     setSelectedPath(null);
+    // A different place is a different list: a phone that was reading a file
+    // from the old one starts from the list again.
+    setPhoneView("list");
     setFile(null);
     setLoading(false);
     setError(null);
@@ -433,8 +456,24 @@ export default function WorkspacePanel({
     setSourceChanges(null);
   }, [cwd, taskId, workspaceView.kind, workspaceView.workspaceId]);
 
+  // The parent's "open this file" is a one-shot command, not a condition, and
+  // the path plus the nonce the parent bumps is its identity. It has to be
+  // consumed once: `loadFile` takes a new identity whenever the workspace view
+  // does — a generation refresh hands back a fresh `generations` array while it
+  // loads — and re-running the command then would drag a reader who pressed
+  // Back straight into the file again, or reopen a file the new checkout does
+  // not have.
+  const handledPulseRef = useRef<{ path: string; nonce: number | undefined } | null>(null);
   useEffect(() => {
-    if (!openPath) return;
+    if (!openPath) {
+      // No pulse pending. Clearing here keeps the dedupe local to this ref
+      // rather than leaning on the panel unmounting when it closes.
+      handledPulseRef.current = null;
+      return;
+    }
+    const handled = handledPulseRef.current;
+    if (handled && handled.path === openPath && handled.nonce === openNonce) return;
+    handledPulseRef.current = { path: openPath, nonce: openNonce };
     void loadFile(openPath);
   }, [openPath, openNonce, loadFile]);
 
@@ -470,9 +509,42 @@ export default function WorkspacePanel({
     return diff;
   }, [diff, file]);
 
+  // Back to the list. The button that had focus leaves the screen with the
+  // pane, so focus goes to the row that opened the file — the place the reader
+  // left off — and that row is scrolled back into view, because hiding the pane
+  // also reset the list's scroll.
+  const goBackToFiles = () => {
+    setPhoneView("list");
+    requestAnimationFrame(() => {
+      const aside = asideRef.current;
+      if (!aside) return;
+      // The row that opened the file when the list still knows it; otherwise
+      // the lens tab, so focus lands inside the list rather than on <body>.
+      const target =
+        aside.querySelector<HTMLElement>('[data-selected="true"]') ??
+        aside.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      target?.focus();
+      target?.scrollIntoView({ block: "nearest" });
+    });
+  };
+
   return (
     <div className="h-full min-h-0 flex flex-col bg-[var(--kin-inspector)]">
       <div className="flex-none flex items-center gap-2 border-b border-[var(--kin-hairline)] px-3 py-2">
+        {/* The phone's way back to the list. md+ shows both panes at once, so
+            there is nothing to go back to and the control is not drawn. */}
+        {phoneView === "file" && (
+          <button
+            ref={backRef}
+            type="button"
+            onClick={goBackToFiles}
+            title={tr("workspace.backToFiles")}
+            aria-label={tr("workspace.backToFiles")}
+            className="flex-none -ml-1 rounded-md p-1 text-kin-muted hover:text-kin-text hover:bg-[var(--kin-fill-strong)] transition-colors md:hidden"
+          >
+            <IconBack size={16} />
+          </button>
+        )}
         <IconPanel size={14} className="text-kin-muted flex-none" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -532,9 +604,21 @@ export default function WorkspacePanel({
       </div>
 
       {/* Dual pane: sidebar (list/tree) | resizer | viewer. Always side-by-side on md+. */}
-      <div ref={panesRef} className="flex-1 min-h-0 flex flex-col md:flex-row">
+      <div
+        ref={panesRef}
+        data-phone-view={phoneView}
+        className="flex-1 min-h-0 flex flex-col md:flex-row"
+      >
         <aside
-          className="flex flex-col min-h-0 border-b border-[var(--kin-hairline)] h-[40%] max-h-[46%] w-full md:h-auto md:max-h-none md:w-[var(--ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]"
+          ref={asideRef}
+          className={[
+            // One pane at a time under md: the list gets the whole height until
+            // a file is opened, then it steps aside. `hidden md:flex` is the
+            // usual idiom — the responsive rule wins at md and up.
+            phoneView === "file" ? "hidden md:flex" : "flex",
+            "flex-col min-h-0 border-b border-[var(--kin-hairline)] h-full w-full",
+            "md:h-auto md:max-h-none md:w-[var(--ws-sidebar)] md:border-b-0 md:shrink-0 bg-[var(--kin-fill)]",
+          ].join(" ")}
           style={
             {
               // Not a `--kin-*` token: this one is a per-element measurement the
@@ -674,7 +758,13 @@ export default function WorkspacePanel({
           onDoubleClick={() => updateSidebarWidth(DEFAULT_SIDEBAR_WIDTH, true)}
         />
 
-        <div className="flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex flex-col">
+        <div
+          data-pane="viewer"
+          className={[
+            phoneView === "file" ? "flex" : "hidden md:flex",
+            "flex-1 min-w-0 min-h-0 bg-[var(--kin-bg)] flex-col",
+          ].join(" ")}
+        >
           {selectedPath ? (
             <Suspense fallback={<ViewerLoading />}>
               <CodeViewer

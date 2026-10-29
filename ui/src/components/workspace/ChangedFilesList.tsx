@@ -58,6 +58,9 @@ export default function ChangedFilesList({ files, selectedPath, onSelect }: Prop
               <button
                 type="button"
                 ref={active ? activeRef : undefined}
+                // The panel's back control finds this row to return focus to
+                // when the list comes back on a phone.
+                data-selected={active || undefined}
                 onClick={() => onSelect(f.path)}
                 title={f.path}
                 className={[

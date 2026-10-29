@@ -608,6 +608,7 @@ const zh = {
     title: "文件",
     toggle: "切换文件面板",
     close: "关闭文件面板",
+    backToFiles: "返回文件",
     outsideWorkspace: "路径不在此任务工作区内",
     openFile: "在文件面板中打开",
     sidebarTabs: "工作区侧栏",

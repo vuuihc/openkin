@@ -314,6 +314,17 @@ export default function TaskDetailPage({
   const showPanel = useAppStore((s) => s.showPanel);
   const hidePanel = useAppStore((s) => s.hidePanel);
   const togglePanel = useAppStore((s) => s.togglePanel);
+  // Closing the files panel spends the open-file pulse. The panel consumes the
+  // path once; keeping it would replay the last "open this file" on the next
+  // open and land inside a file instead of on the list, which is what a fresh
+  // open of Files means. Read from the store rather than from the rendered
+  // panel because this hook has to run in every render (the page returns early
+  // while the task loads), and the files panel is offered whenever there is a
+  // task, so the store's answer is the panel's.
+  const filesPanelOpen = shownPanel?.view === id && shownPanel.id === "files";
+  useEffect(() => {
+    if (!filesPanelOpen) setWorkspaceOpenPath(null);
+  }, [filesPanelOpen]);
   const slow = useSlowHint(loading);
 
   const loadUsage = useCallback(async () => {

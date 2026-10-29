@@ -630,6 +630,7 @@ const en: MessageTree = {
     title: "Files",
     toggle: "Toggle files panel",
     close: "Close files panel",
+    backToFiles: "Back to files",
     outsideWorkspace: "Path is outside this task workspace",
     openFile: "Open in files panel",
     sidebarTabs: "Workspace sidebar",
