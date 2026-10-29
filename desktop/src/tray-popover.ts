@@ -8,6 +8,7 @@ import {
   type BrowserWindowConstructorOptions,
 } from "electron";
 import { DAEMON_BASE, DAEMON_HOST, DAEMON_PORT } from "./config";
+import { popoverNeedsLoad, popoverTokenIsStale } from "./popover-load";
 
 const POPOVER_W = 360;
 const POPOVER_H = 480;
@@ -53,7 +54,16 @@ export class TrayPopover {
     if (!this.win) return;
     this.ignoreBlur = true;
     this.position(trayBounds);
-    this.navigate();
+    // The page is live — it holds a WebSocket to the daemon — so reopening the
+    // popover shows it rather than reloading it; see popover-load.ts. A window
+    // that was just created has no page yet, and loads here.
+    const url = this.win.webContents.getURL();
+    if (
+      popoverNeedsLoad(url, `${DAEMON_BASE}/tray`) ||
+      popoverTokenIsStale(url, this.handlers.getToken())
+    ) {
+      this.navigate();
+    }
     this.win.show();
     this.win.focus();
     setTimeout(() => {
@@ -130,6 +140,15 @@ export class TrayPopover {
     this.win.on("closed", () => {
       this.clearLoadRetry();
       this.win = null;
+    });
+
+    // Escape dismisses a popover; click-away already does, but the key is what
+    // a keyboard user reaches for.
+    this.win.webContents.on("before-input-event", (event, input) => {
+      if (input.type === "keyDown" && input.key === "Escape") {
+        event.preventDefault();
+        this.hide();
+      }
     });
 
     this.win.webContents.on(
