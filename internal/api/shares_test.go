@@ -178,6 +178,14 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 		"**done**\n\n```go\nfmt.Println(\"hi\")\n```\n\n- one\n- two",
 		`inline <script>alert(1)</script> and <img src=x onerror=alert(2)>`,
 		`[click](javascript:alert(3)) and [docs](https://kin.example.com/docs)`,
+		// A single newline is a line break, GFM tables work, and an image stays
+		// the markdown that asked for it rather than a request the reader's
+		// browser makes to a host the agent chose.
+		"first line\nsecond line",
+		"| case | result |\n| --- | --- |\n| one | pass |",
+		"![shot](https://attacker.example/p.gif)",
+		// Case is not a bypass: an upper-case scheme is still refused.
+		"[loud](JaVaScRiPt:alert(4))",
 	}
 	for _, text := range messages {
 		payload, err := json.Marshal(map[string]any{
@@ -197,11 +205,17 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("public page: %d", page.Code)
 	}
+	if csp := page.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'none'") {
+		t.Fatalf("page has no CSP: %q", csp)
+	}
 	html := page.Body.String()
 	for _, want := range []string{
 		"<strong>done</strong>",
 		"<pre><code",
 		"<li>one</li>",
+		"first line<br>",
+		"<table>",
+		"![shot](https://attacker.example/p.gif)",
 		// Raw HTML stays readable rather than vanishing behind a comment.
 		"&lt;script&gt;alert(1)&lt;/script&gt;",
 		"&lt;img src=x onerror=alert(2)&gt;",
@@ -214,23 +228,103 @@ func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
 	for _, unwanted := range []string{
 		"<script",
 		"<img",
-		`href="javascript:`,
 		"**done**",
 	} {
 		if strings.Contains(html, unwanted) {
 			t.Fatalf("page published %q", unwanted)
 		}
 	}
+	// No anchor may carry a script scheme, in any casing.
+	if strings.Contains(strings.ToLower(html), `href="javascript:`) {
+		t.Fatalf("page published a javascript: link: %s", html)
+	}
 
 	// The JSON endpoint stays a source feed: a caller that wants to render the
-	// conversation itself should not receive pre-rendered HTML.
+	// conversation itself should not receive pre-rendered HTML. Asserted on the
+	// wire shape, not on the struct — a new field with a tag would otherwise
+	// slip past, and the struct this package decodes into drops it silently.
+	rr := shareRequest(t, s, http.MethodGet, "/api/public/shares/"+link, "")
+	if strings.Contains(rr.Body.String(), "<strong>") || strings.Contains(rr.Body.String(), "&lt;strong&gt;") {
+		t.Fatalf("JSON carried rendered markup: %s", rr.Body.String())
+	}
+	var wire struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if len(wire.Messages) != len(messages) {
+		t.Fatalf("JSON messages = %d, want %d", len(wire.Messages), len(messages))
+	}
+	allowed := map[string]bool{"role": true, "text": true, "ts": true, "speaker": true}
+	for _, m := range wire.Messages {
+		for key := range m {
+			if !allowed[key] {
+				t.Fatalf("JSON message carries an unexpected field %q", key)
+			}
+		}
+	}
+	var first struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(wire.Messages[0]["text"], &first.Text); err != nil {
+		t.Fatal(err)
+	}
+	if first.Text != messages[0] {
+		t.Fatalf("JSON text = %q, want the source", first.Text)
+	}
+}
+
+// The third cap: a page costs CPU in proportion to the text it renders, and
+// this route answers anyone holding the link. The newest turns are the ones a
+// reader came for, so the budget is spent from the end.
+func TestShareKeepsTheNewestWithinItsByteBudget(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-big", Title: "big", Agent: "kin", Cwd: "/tmp",
+		Prompt: "p", Status: "finished", CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Each line is clamped to shareMessageBytes, so filling the budget takes a
+	// few dozen of them.
+	line := strings.Repeat("x", shareMessageBytes-1)
+	const count = 80
+	for i := 0; i < count; i++ {
+		payload, err := json.Marshal(map[string]any{
+			"role": "assistant", "partial": false,
+			"content": []map[string]string{{"type": "text", "text": line + strconv.Itoa(i%10)}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Store.AppendEvent(context.Background(), "task-big", "message", payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := createShare(t, s, "task-big", token)
+
 	rr := shareRequest(t, s, http.MethodGet, "/api/public/shares/"+link, "")
 	var view shareView
 	if err := json.Unmarshal(rr.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Messages) != len(messages) || view.Messages[0].Text != messages[0] {
-		t.Fatalf("JSON messages = %+v", view.Messages)
+	if len(view.Messages) >= count {
+		t.Fatalf("page kept %d messages, the budget bounded nothing", len(view.Messages))
+	}
+	if !view.Truncated {
+		t.Fatal("a cut transcript must say it was cut")
+	}
+	total := 0
+	for _, m := range view.Messages {
+		total += len(m.Text)
+	}
+	if total > shareTotalBytes+shareMessageBytes {
+		t.Fatalf("kept %d bytes, budget is %d", total, shareTotalBytes)
+	}
+	// The newest message survives; it is the one the link was shared for.
+	if !strings.HasSuffix(view.Messages[len(view.Messages)-1].Text, strconv.Itoa((count-1)%10)) {
+		t.Fatal("the newest message was dropped")
 	}
 }
 

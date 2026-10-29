@@ -43,6 +43,13 @@ const (
 	// agent can produce a single message of any size, and the cap above counts
 	// messages, not bytes.
 	shareMessageBytes = 12 * 1024
+	// shareTotalBytes bounds the whole page. The two caps above bound the count
+	// and each line, so 800 messages of 12KB can still mean 9.6MB — enough for
+	// an unauthenticated route to spend hundreds of milliseconds of CPU per
+	// request rendering a conversation nobody reads to the end. A reader who
+	// follows a link wants the recent turns: the budget is spent from the
+	// newest message backwards.
+	shareTotalBytes = 512 * 1024
 )
 
 // shareVisibility is the audience metadata the daemon stamps on an event: which
@@ -63,8 +70,9 @@ type shareMessage struct {
 	Speaker string `json:"speaker,omitempty"`
 	// HTML is Text rendered for the page, filled by the page handler only — the
 	// JSON endpoint publishes the source a caller can render however it likes.
-	// It is trusted markup in the template sense: goldmark escapes raw HTML and
-	// drops anything it does not recognise as markdown.
+	// It is trusted markup in the template sense: goldmark renders recognised
+	// markdown, and everything else — raw HTML, images, destinations it refuses
+	// — is written back as text by the renderers below.
 	HTML template.HTML `json:"-"`
 }
 
@@ -202,6 +210,10 @@ func (s *Server) buildShareView(ctx context.Context, taskID string) (shareView, 
 		// reached: a long session streams far more partials than messages.
 		truncated = true
 	}
+	messages, budgetCut := shareBudget(messages)
+	if budgetCut {
+		truncated = true
+	}
 	if len(messages) == 0 && strings.TrimSpace(task.Prompt) != "" {
 		// Sessions written before message events were recorded still have the
 		// prompt that created them, and a link that renders an empty page says
@@ -234,6 +246,29 @@ func shareWindow(events []store.Event) ([]store.Event, bool) {
 		return events, false
 	}
 	return events[len(events)-shareEventLimit:], true
+}
+
+// shareBudget keeps the newest messages that fit in shareTotalBytes.
+//
+// It is the third side of the same box as the message and line caps: without
+// it, a long session is a long page, and this page is rendered for whoever
+// holds the link. The newest message is always kept, even if it alone is over
+// budget — an empty page would answer the reader with nothing.
+func shareBudget(messages []shareMessage) ([]shareMessage, bool) {
+	total := 0
+	keep := len(messages)
+	for keep > 0 {
+		next := len(messages[keep-1].Text)
+		if total+next > shareTotalBytes && keep < len(messages) {
+			break
+		}
+		total += next
+		keep--
+	}
+	if keep == 0 {
+		return messages, false
+	}
+	return messages[keep:], true
 }
 
 // shareTranscript reduces raw events to what a reader came for: what the person
@@ -471,6 +506,11 @@ func (s *Server) handlePublicSharePage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	// The page is one inline stylesheet and nothing else. `default-src 'none'`
+	// says so out loud: whatever an agent managed to write into a message, the
+	// document cannot fetch, frame, submit or execute anything.
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	share, ok := s.resolveShare(r.Context(), chi.URLParam(r, "token"))
 	var view shareView
 	if ok {
@@ -525,6 +565,26 @@ func (shareRawHTML) Extend(m goldmark.Markdown) {
 func (shareRawHTML) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindHTMLBlock, shareEscapeRawHTML)
 	reg.Register(ast.KindRawHTML, shareEscapeRawHTML)
+	reg.Register(ast.KindImage, shareLiteralImage)
+}
+
+// shareLiteralImage shows an image as the markdown that asked for it.
+//
+// The console renders no images — an `![…](…)` in a message stays text there —
+// and a page that fetched every image an agent printed would make each reader's
+// browser call a host the agent chose: a read receipt at worst, a blind GET
+// into the reader's own network at best. The alt text and the URL stay
+// readable; nothing is requested.
+func shareLiteralImage(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		n := node.(*ast.Image)
+		_, _ = w.WriteString("![")
+		_, _ = w.Write(util.EscapeHTML(n.Text(source)))
+		_, _ = w.WriteString("](")
+		_, _ = w.Write(util.EscapeHTML(n.Destination))
+		_, _ = w.WriteString(")")
+	}
+	return ast.WalkSkipChildren, nil
 }
 
 func shareEscapeRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -555,9 +615,11 @@ func shareEscapeRawHTML(w util.BufWriter, source []byte, node ast.Node, entering
 
 // shareHTML renders one message for the public page.
 //
-// The trust boundary is goldmark's parser plus the escaping above: every byte
-// of agent output that is not recognised markdown ends up as text. The page
-// serves no script, so the only thing markup here can do is draw.
+// The trust boundary is goldmark's parser plus the renderers above: every byte
+// of agent output either becomes recognised markdown, gets written back as
+// text, or is a destination goldmark refuses to link. Nothing a message
+// contains can make the page fetch, frame or execute anything — the renderers
+// remove the fetches, and the page's own CSP says the rest.
 func shareHTML(text string) template.HTML {
 	var buf bytes.Buffer
 	if err := shareMarkdown.Convert([]byte(text), &buf); err != nil || buf.Len() == 0 {
