@@ -1460,15 +1460,25 @@ for `kin serve` in this repository would otherwise read as a daemon. The cost is
 that a daemon started through `sh -c` or `nohup` is not recognised: the old
 behaviour, not a new failure.
 
+The port is part of the question. Scratch daemons on other ports are part of
+this repository's own workflow, and one of those (`kin serve --port 7790`) holds
+nothing on :7777 — treating it as a rival would refuse to start the desktop
+daemon for as long as the scratch one lived. A command line with no `--port` is
+the daemon's default :7777, so it counts only when that is the port being asked
+about; a value that cannot be read stays a rival.
+
 **Tests.** The parser over a process table holding supervisors, servers, a
 one-shot `kin version`, a `Kin.app`, a `rg kin serve` and the shell's own pid;
-the wait outcomes (no process → no health probe at all; answers on the third
-poll → attach; process exits mid-wait → spawn; never answers → refuse at the
-deadline; unreadable `ps` → spawn). The sidecar cannot be loaded outside
+the port rule (flagless is :7777 and only :7777, both spellings Go accepts with
+a space or `=`, a scratch daemon on :7790 excluded, a word that only contains
+`port` ignored, an unreadable value kept, and the process list filtered by
+port); the wait outcomes (no process → no health probe at all; answers on the
+third poll → attach; process exits mid-wait → spawn; never answers → refuse at
+the deadline; unreadable `ps` → spawn). The sidecar cannot be loaded outside
 Electron, so a source test holds the wiring: the question is asked before
 `spawn`, and the "stuck" branch returns before it. Red-verified by mutation:
 dropping the no-rival early return (2 tests fail), sleeping past the deadline
-(1), and removing the wait block (3).
+(1), removing the wait block (3), and ignoring the port (the port suite).
 
 **Verified live.** After a rebuild exactly one process listens on :7777 — the
 installed node — and the shell logs `daemon already running … (external)`, then
@@ -1513,19 +1523,25 @@ fresh WebSocket handshake for a window that had only been hidden. The page is
 live — `TrayPage` reads through `useLiveResources` — so the hidden window was
 already up to date.
 
-**The fix.** A hidden popover is shown, not reloaded. It loads only when it has
-no page (just created), when it is showing something else (a failed load leaves
-Chromium's error page; a stray navigation leaves another route), or when the
-token in its URL is not the one in `~/.kin/token` — the one piece of state that
-can go stale behind a live page. Escape now closes it as well; click-away
-already did.
+**The fix.** A hidden popover is shown, not reloaded. Whether it has to load is
+decided from what the shell recorded when it loaded — never from the URL, which
+cannot answer either question. The console captures `?token=` at boot and strips
+it from the address bar, so a live page's URL carries no token and a URL-based
+token check calls every page stale; and a failed load leaves the URL it aimed at,
+so the URL cannot say "this page never arrived" either. The popover therefore
+keeps the token it loaded with and a flag set by `did-finish-load` (an error page
+finishes too, so `did-fail-load` clears it again), and reloads when it never
+finished, when the page is not exactly `/tray`, or when the token it holds is not
+the one in `~/.kin/token`. Escape now closes it as well; click-away already did.
 
-**Tests.** The load decision (empty URL, `about:blank`, the tray URL with its
-token query, a fragment, a longer path with the same prefix, another route, an
-error page) and the token comparison (current, replaced, missing, unparseable,
-and a machine with no token yet). Red-verified by mutation: always reload (1
-fails), prefix-only matching (1), inverting the token comparison (2), treating a
-missing token as stale (1).
+**Tests.** The load decision (a window that never finished, the live page whose
+URL no longer carries the token, a failed load whose URL still names the target,
+a replaced token, no token on either side, another route, a longer path with the
+same prefix, `/tray/settings`, an unparseable URL) and the route comparison
+(query, hash and one trailing slash ignored; prefix-only paths and other origins
+separated). Red-verified by mutation: dropping the "never finished" check (1
+fails), reading the token back out of the URL — the original bug (1), and
+prefix-only route matching (2).
 
 #### H4 — a banner only for the task you are not watching (landed)
 
@@ -1547,3 +1563,48 @@ garbage), and the announcement matrix (on screen in front → quiet; another tas
 in front → announce; on screen but not in front → announce; unfinished → never).
 Red-verified by mutation: never suppressing (1 fails), treating focus alone as
 enough (1), letting the id match across slashes (1), dropping the decode (1).
+
+#### H5 — what the review of the shell found (landed)
+
+A same-model review of H1–H4 read the console's token bootstrap and the Electron
+behaviour the changes rest on, and found that one of them rested on a false
+premise. Everything below is the correction, with the reasoning kept because the
+false version was plausible enough to have been written once already.
+
+- **H3's URL check was inverted by the console's own boot.** `captureTokenFromURL`
+  moves `?token=` into localStorage and rewrites the address bar, so
+  `webContents.getURL()` for a perfectly live page has no token — the old check
+  decided "stale" on every open and the popover kept reloading, which is the
+  bug H3 set out to remove. A failed load keeps the URL too, so the old check
+  also meant a popover stuck on Chromium's error page was never reloaded after
+  the retry budget ran out. The decision now reads the load record (token used,
+  finished or not) instead of the URL; the tests that encoded the false premise
+  were replaced, not adjusted.
+- **H1's rival matcher ignored the port.** `kin serve --port 7790` matched, so a
+  scratch daemon could make the shell refuse to start its own daemon for as long
+  as the scratch one lived. The matcher now reads `--port` in both spellings Go
+  accepts (space or `=`), treats a flagless daemon as :7777, and keeps an
+  unreadable value as a rival — refusing to spawn is the safer mistake.
+- **H1's "stuck" ending was silent at startup and never re-probed.** Only the
+  tray's Start showed the reason, and nothing asked again: if a supervisor
+  restart took longer than one 15 s wait, the window sat on a dead URL until the
+  person clicked Start. Startup now announces the reason like the tray does, and
+  `daemon-retry.ts` asks again every 15 s (bounded at 20 attempts) until a daemon
+  answers, wiring the WS, pending approvals and both windows when it does. An
+  explicit Stop or quit ends the retry instead of undoing it.
+- **The suppression branch skipped the dedupe key.** A finish watched on screen
+  now records its key too, so a later rebroadcast cannot turn it into a banner
+  after the reader looks away.
+- **A corrupt bounds file could still throw or produce an infinite window.**
+  `savedBoundsFrom` accepts only two finite positive sizes (`1e999` parses to
+  Infinity), and the size clamp treats non-finite as no size. The main window
+  now uses the same `MIN_WIDTH`/`MIN_HEIGHT` the restore path does.
+- **The desktop suite ran only locally.** CI's desktop job now runs `npm test`
+  as well as typecheck and bundle; the wiring test reads its source from
+  `desktop/` or the repository root rather than assuming the cwd.
+
+**Tests.** 49 across 12 suites. Red-verified by mutation: each of the six fixes
+above fails its suite when reverted (dropping the "never finished" check, reading
+the token from the URL, prefix-only route matching, ignoring `--port`, treating
+the first retry as success, dropping the resolved check, accepting Infinity in
+the bounds file, letting Infinity through the size clamp).
