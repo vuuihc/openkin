@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   kinDaemonPidsFromPS,
+  kinDaemonUsesPort,
   waitForRivalDaemon,
   type RivalOptions,
 } from "./daemon-rival.ts";
@@ -36,6 +37,59 @@ describe("recognising a kin daemon process", () => {
     ].join("\n");
 
     assert.deepEqual(kinDaemonPidsFromPS(ps, SELF), []);
+  });
+});
+
+describe("which port a kin daemon would hold", () => {
+  it("counts a daemon with no port flag as the default one", () => {
+    assert.equal(kinDaemonUsesPort("/x/kin serve", 7777), true);
+    assert.equal(
+      kinDaemonUsesPort("/x/kin supervise --hub https://kin.example.com", 7777),
+      true,
+    );
+    // And only the default: a flagless daemon is not on 7790.
+    assert.equal(kinDaemonUsesPort("/x/kin serve", 7790), false);
+  });
+
+  it("reads the flag in both spellings Go accepts", () => {
+    assert.equal(kinDaemonUsesPort("/x/kin serve --port 7777", 7777), true);
+    assert.equal(kinDaemonUsesPort("/x/kin serve --port=7777", 7777), true);
+    assert.equal(kinDaemonUsesPort("/x/kin serve -port 7777", 7777), true);
+    assert.equal(kinDaemonUsesPort("/x/kin serve -port=7777", 7777), true);
+  });
+
+  it("separates a scratch daemon on another port", () => {
+    assert.equal(kinDaemonUsesPort("/x/kin serve --port 7790", 7777), false);
+    assert.equal(kinDaemonUsesPort("/x/kin serve --port=7788", 7777), false);
+    assert.equal(
+      kinDaemonUsesPort("/x/kin supervise --hub https://kin.example.com --port 7790", 7777),
+      false,
+    );
+  });
+
+  it("is not fooled by a word that only contains the flag's name", () => {
+    // A URL or a path carrying "port" is not the flag.
+    assert.equal(
+      kinDaemonUsesPort("/x/kin serve --hub https://example.com/port/7777", 7777),
+      true,
+    );
+    assert.equal(kinDaemonUsesPort("/x/kin serve --report 7790", 7777), true);
+  });
+
+  it("keeps a daemon whose port cannot be read, rather than spawning blind", () => {
+    assert.equal(kinDaemonUsesPort("/x/kin serve --port", 7777), true);
+    assert.equal(kinDaemonUsesPort("/x/kin serve --port nope", 7777), true);
+  });
+
+  it("filters the process list by port", () => {
+    const ps = [
+      "  301 /x/kin serve",
+      "  302 /x/kin serve --port 7790",
+      "  303 /x/kin supervise --port 7777",
+    ].join("\n");
+
+    assert.deepEqual(kinDaemonPidsFromPS(ps, 4242, 7777), [301, 303]);
+    assert.deepEqual(kinDaemonPidsFromPS(ps, 4242, 7790), [302]);
   });
 });
 

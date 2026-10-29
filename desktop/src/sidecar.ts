@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { promisify } from "node:util";
 import {
   DAEMON_BASE,
+  DAEMON_PORT,
   TOKEN_PATH,
   kinBinaryPath,
   isDev,
@@ -30,6 +31,14 @@ export class Sidecar {
 
   get weOwnProcess(): boolean {
     return this.weStarted;
+  }
+
+  /**
+   * True when the last thing to touch the daemon was Stop (or quit), not a
+   * failed start. A background recovery must not undo that.
+   */
+  get isStopped(): boolean {
+    return this.stopping;
   }
 
   get current(): SidecarStatus {
@@ -116,7 +125,7 @@ export class Sidecar {
     // daemon-rival.ts. A cold machine has no such process and spawns at once.
     if (!healthy && !this.child) {
       const outcome = await waitForRivalDaemon({
-        listRivals: listKinDaemonPids,
+        listRivals: () => listKinDaemonPids(DAEMON_PORT),
         probeHealth: () => this.probeHealth(),
       });
       if (generation !== this.generation || this.stopping) return this.status;

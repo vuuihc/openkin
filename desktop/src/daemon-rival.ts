@@ -76,7 +76,8 @@ async function rivals(list: () => Promise<number[]>): Promise<number[]> {
 }
 
 /**
- * `ps -ww -axo pid=,command=` output → PIDs of `kin supervise` / `kin serve`.
+ * `ps -ww -axo pid=,command=` output → PIDs of `kin supervise` / `kin serve`
+ * processes that would use `port`.
  *
  * Matched on the shape of a real invocation — the word `kin` at the start of
  * the command or as the basename of a path, followed by the subcommand — so a
@@ -85,10 +86,16 @@ async function rivals(list: () => Promise<number[]>): Promise<number[]> {
  * (`sh -c "cd x && kin serve"`, `nohup kin serve`) is not recognised; those are
  * rarer here than a grep, and a missed rival costs the old behaviour rather
  * than a new failure.
+ *
+ * The port is part of the question. Scratch daemons on other ports are part of
+ * this repository's own workflow (`kin serve --port 7790`), and one of those is
+ * not holding :7777 — treating it as a rival would refuse to start the desktop
+ * daemon for as long as the scratch one lives.
  */
 export function kinDaemonPidsFromPS(
   stdout: string,
   selfPid: number = process.pid,
+  port: number = DEFAULT_DAEMON_PORT,
 ): number[] {
   const pids: number[] = [];
   for (const line of stdout.split("\n")) {
@@ -96,14 +103,37 @@ export function kinDaemonPidsFromPS(
     if (!match) continue;
     const pid = Number(match[1]);
     if (!Number.isInteger(pid) || pid === selfPid) continue;
-    if (/(?:^|\/)(?:kin|ok)\s+(?:supervise|serve)(?:\s|$)/.test(match[2] ?? "")) {
-      pids.push(pid);
+    const command = match[2] ?? "";
+    if (!/(?:^|\/)(?:kin|ok)\s+(?:supervise|serve)(?:\s|$)/.test(command)) {
+      continue;
     }
+    if (kinDaemonUsesPort(command, port)) pids.push(pid);
   }
   return pids;
 }
 
-export async function listKinDaemonPids(): Promise<number[]> {
+/** The daemon's own default port, used when a command line names none. */
+export const DEFAULT_DAEMON_PORT = 7777;
+
+/**
+ * Whether one command line's daemon would listen on `port`.
+ *
+ * No `--port` is the daemon's own default — `kin serve` and
+ * `kin supervise --hub …` both mean :7777 — so a flagless process is a rival
+ * only when the question is about 7777. A value that cannot be read stays a
+ * rival when the question is about the default, on the reasoning that refusing
+ * to spawn is the safer mistake.
+ */
+export function kinDaemonUsesPort(command: string, port: number): boolean {
+  // Go's flag package accepts one dash or two, a space or `=`.
+  const match = /(?:^|\s)--?port(?:=|\s+)(\d+)(?=\s|$)/.exec(command);
+  if (!match) return port === DEFAULT_DAEMON_PORT;
+  return Number(match[1]) === port;
+}
+
+export async function listKinDaemonPids(
+  port: number = DEFAULT_DAEMON_PORT,
+): Promise<number[]> {
   // `ps` is not a Windows tool, and the Windows shell is best-effort anyway.
   if (process.platform === "win32") return [];
   // -ww: long binary paths are otherwise truncated, and a truncated path no
@@ -111,5 +141,5 @@ export async function listKinDaemonPids(): Promise<number[]> {
   const { stdout } = await execFileAsync("ps", ["-ww", "-axo", "pid=,command="], {
     timeout: 2000,
   });
-  return kinDaemonPidsFromPS(stdout);
+  return kinDaemonPidsFromPS(stdout, process.pid, port);
 }

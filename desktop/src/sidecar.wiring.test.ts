@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 /**
  * The wiring no unit can hold.
@@ -10,13 +10,17 @@ import { readFileSync } from "node:fs";
  * it cannot be loaded outside the shell. What matters here is order: ask before
  * spawning, and refuse instead of spawning when the answer is "stuck".
  */
-// npm test runs from desktop/.
-const SOURCE = readFileSync("src/sidecar.ts", "utf8");
+// Read from desktop/ or from the repository root, so the suite does not
+// depend on where it was started.
+const SOURCE = readFileSync(
+  existsSync("src/sidecar.ts") ? "src/sidecar.ts" : "desktop/src/sidecar.ts",
+  "utf8",
+);
 
 describe("the sidecar starts at most one daemon", () => {
   it("waits for a kin process that is already on the machine", () => {
     assert.match(SOURCE, /waitForRivalDaemon\(\{/);
-    assert.match(SOURCE, /listRivals:\s*listKinDaemonPids/);
+    assert.match(SOURCE, /listRivals:\s*\(\)\s*=>\s*listKinDaemonPids\(DAEMON_PORT\)/);
     assert.match(SOURCE, /if \(!healthy && !this\.child\)/);
   });
 
