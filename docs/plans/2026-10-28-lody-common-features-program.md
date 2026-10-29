@@ -41,8 +41,8 @@ against the code, not against the row above it, and several had gone stale:
 in-conversation find, public share links, the floating approval card, the phone
 session switcher, the context meter and server-side search had all landed since
 the matrix was written, and the list rows carried stale S1s for pains that were
-already gone. What is left is S2 and S3 — no S1 remains, except attachments
-when the task runs on another machine, where the image is still lost.
+already gone. What is left is S2 and S3 — no S1 remains: the last one, an
+attachment lost when the task runs on another machine, closed with F4 below.
 
 ### 2.1 Conversation list
 
