@@ -50,7 +50,7 @@ import LimitCard from "../components/cards/LimitCard";
 import UserQuestionCard from "../components/cards/UserQuestionCard";
 import ChatStream from "../components/chat/ChatStream";
 import { findSpeakerModel, pendingRefSeqs } from "../components/chat/transcriptProjection";
-import Composer from "../components/chat/Composer";
+import Composer, { type SubmitFailure } from "../components/chat/Composer";
 import RunConfigControl from "../components/chat/RunConfigSheet";
 import BranchPicker from "../components/chat/BranchPicker";
 import RepoChip from "../components/chat/RepoChip";
@@ -81,7 +81,14 @@ import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { anchoredPendingIds, orderPending } from "../lib/needsYou";
-import { queuedMessageSeqs, startWithdrawal, withoutWithdrawn } from "../lib/queuedPrompts";
+import {
+  canRefillComposer,
+  editStillRunning,
+  queuedMessageSeqs,
+  startEdit,
+  startWithdrawal,
+  withoutWithdrawn,
+} from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
@@ -183,6 +190,21 @@ export default function TaskDetailPage({
   const [awaitingReply, setAwaitingReply] = useState(false);
   const [composerModel, setComposerModel] = useState("");
   const [composerPermission, setComposerPermission] = useState<PermissionMode>("default");
+  // Bumped when the composer's text is changed from outside it (a queued
+  // message being edited). The draft itself lives in localStorage; a render is
+  // what makes the composer read it again. The same number is handed to the
+  // composer as a focus signal, so the text lands under the caret.
+  //
+  // The task travels with the number: a composer mounted for another task must
+  // not read a leftover signal as a request to take the focus on mount, and a
+  // mount-time focus cannot be cancelled from here — React runs the child's
+  // effects before the parent's. Keying the signal by task makes the check a
+  // render, not a race.
+  const [refill, setRefill] = useState<{ taskID: string; n: number }>({ taskID: "", n: 0 });
+  // When the last edit request started, in ms, or 0 when none is in flight. A
+  // timestamp rather than a flag: a request that never answers would otherwise
+  // refuse every pencil tap for the life of the page.
+  const editStartedAtRef = useRef(0);
   // Latest follow-up draft fields for this task (localStorage is source of truth).
   const draftPromptRef = useRef("");
   const draftAttachmentsRef = useRef<Upload[]>([]);
@@ -354,7 +376,7 @@ export default function TaskDetailPage({
    * not a failure, so a 404 just means the poll is about to agree. Anything else
    * puts the badge back by re-reading the queue and says what went wrong.
    */
-  const onWithdrawQueued = useCallback(
+  const withdrawQueued = useCallback(
     (seq: number) => {
       // Read by the error path below, which runs a microtask later — after this
       // call has returned the row it is about.
@@ -399,6 +421,9 @@ export default function TaskDetailPage({
     },
     [id, pushToast, tr],
   );
+
+  /** The × in a queued message's badge: take it back and say nothing more. */
+  const onWithdrawQueued = useCallback((seq: number) => withdrawQueued(seq), [withdrawQueued]);
 
   useEffect(() => {
     if (!task) return;
@@ -731,12 +756,123 @@ export default function TaskDetailPage({
     draftAttachmentsRef.current = draft.attachments;
   }, [id]);
 
-  function persistFollowUpDraft(prompt: string, attachments = draftAttachmentsRef.current) {
-    if (!id) return;
-    draftPromptRef.current = prompt;
-    draftAttachmentsRef.current = attachments;
-    setFollowUpDraft(id, { prompt, attachments });
-  }
+  const persistFollowUpDraft = useCallback(
+    (prompt: string, attachments = draftAttachmentsRef.current) => {
+      if (!id) return;
+      draftPromptRef.current = prompt;
+      draftAttachmentsRef.current = attachments;
+      setFollowUpDraft(id, { prompt, attachments });
+    },
+    [id],
+  );
+
+  /**
+   * Edit a queued message: take it back, then put its text where it can be
+   * changed.
+   *
+   * The withdrawal itself is `startEdit`, which owns the rule that matters: the
+   * text is refilled only when the daemon says it deleted the row, because a
+   * 404 can mean the turn boundary already pulled the message into the running
+   * round, and a copy of a running message is a message sent twice. Every other
+   * ending says what happened and leaves the message in the transcript, where
+   * it can still be copied.
+   *
+   * The refill also waits for an empty composer, because replacing a draft
+   * somebody is already writing is not what tapping one message asks for. That
+   * is checked at the tap and again when the answer arrives: a round trip is
+   * long enough to type into.
+   *
+   * What it refills is the prompt exactly as it was sent, attachment block and
+   * all: the block is how the images travel, and the composer has no way to
+   * rebuild the uploads behind a summary line. The transcript hides the block
+   * for display; here it is the message.
+   */
+  const onEditQueued = useCallback(
+    (seq: number) => {
+      if (editStillRunning(editStartedAtRef.current, Date.now())) {
+        pushToast(tr("chat.editBusy"), "info");
+        return;
+      }
+      if (
+        !canRefillComposer({
+          prompt: draftPromptRef.current,
+          attachments: draftAttachmentsRef.current,
+        })
+      ) {
+        pushToast(tr("chat.editNeedsEmptyComposer"), "info");
+        return;
+      }
+      const row = queuedPromptsRef.current.find((prompt) => prompt.user_seq === seq);
+      if (!row) return;
+
+      // The badge goes at once, like the ×: both taps take a message out of the
+      // queue, and one of them waiting on a round trip would be a different
+      // gesture for the same thing.
+      const drop = (list: QueuedPrompt[]) => list.filter((prompt) => prompt.id !== row.id);
+      queuedPromptsRef.current = drop(queuedPromptsRef.current);
+      setQueuedPrompts(drop);
+      const startedAt = Date.now();
+      editStartedAtRef.current = startedAt;
+
+      /** Put the message where it can be changed, unless something got there first. */
+      const refillComposer = () => {
+        if (
+          !canRefillComposer({
+            prompt: draftPromptRef.current,
+            attachments: draftAttachmentsRef.current,
+          })
+        ) {
+          // Withdrawn already, so the message is not lost — it is in the
+          // transcript with its withdrawal notice — but the text is not put
+          // here, and the composer keeps what was typed meanwhile.
+          pushToast(tr("chat.editComposerTaken"), "info");
+          return;
+        }
+        persistFollowUpDraft(row.prompt, []);
+        // The draft lives in localStorage and the composer reads it once per
+        // render, so the render is what carries the text across; the same bump
+        // tells the composer to take the focus.
+        setRefill((prev) => ({ taskID: id, n: prev.n + 1 }));
+      };
+
+      startEdit({
+        row,
+        withdrawn: withdrawnRef.current,
+        request: (promptID) => withdrawQueuedPrompt(id, promptID),
+        relist: () => listQueuedPrompts(id),
+        onSettled: (outcome) => {
+          // Only this request's deadline is cleared: a stalled one can settle
+          // after a later tap has already taken the pencil, and zeroing then
+          // would let a third request run beside the second.
+          if (editStartedAtRef.current === startedAt) editStartedAtRef.current = 0;
+          switch (outcome.kind) {
+            case "withdrawn":
+              refillComposer();
+              return;
+            case "stillQueued":
+              // It is still waiting, so the badge belongs back on screen and
+              // the tap failed for a reason worth saying.
+              queuedPromptsRef.current = withoutWithdrawn(outcome.queue, withdrawnRef.current);
+              setQueuedPrompts(queuedPromptsRef.current);
+              pushToast(tr("chat.withdrawFailed"), "error");
+              return;
+            case "unknown":
+              pushToast(tr("chat.withdrawFailed"), "error");
+              setQueueReload((n) => n + 1);
+              return;
+            case "gone":
+              // Taken before the delete reached it, or withdrawn and the answer
+              // lost. Only one of those still runs, and they cannot be told
+              // apart from here — so nothing is refilled, and the message stays
+              // in the transcript where it can be copied.
+              pushToast(tr("chat.editAlreadyGone"), "info");
+              return;
+          }
+        },
+      });
+    },
+    [id, persistFollowUpDraft, pushToast, tr],
+  );
 
   // What the composer's @ menu searches. Stable per task so a keystroke does
   // not restart the debounce, and answered by the machine that holds the files
@@ -753,6 +889,9 @@ export default function TaskDetailPage({
     if (!task) return;
     setSending(true);
     setAwaitingReply(true);
+    // The draft as the composer left it when it submitted — normally empty,
+    // because the composer clears itself before calling in.
+    const submittedDraft = draftPromptRef.current;
     const requestRevision = liveResources.currentRevision();
     const wasRunning = !isTerminal(task.status);
     try {
@@ -768,9 +907,15 @@ export default function TaskDetailPage({
       if (opts?.interrupt) send.interrupt = true;
       const t = await followUpPrompt(task.id, text, Object.keys(send).length ? send : undefined);
       liveResources.applyTaskSnapshot(t, requestRevision);
-      clearFollowUpDraft(task.id);
-      draftPromptRef.current = "";
-      draftAttachmentsRef.current = [];
+      // The draft can change while the POST is in flight: editing a queued
+      // message refills the composer. Clearing then would delete text the
+      // person is about to send, so only the draft this send started from is
+      // cleared — which is the ordinary case.
+      if (draftPromptRef.current === submittedDraft) {
+        clearFollowUpDraft(task.id);
+        draftPromptRef.current = "";
+        draftAttachmentsRef.current = [];
+      }
       if (wasRunning) {
         // Say which of the two things happened. The queue is the default, so
         // claiming an interrupt here would be a lie the user only discovers when
@@ -778,8 +923,13 @@ export default function TaskDetailPage({
         pushToast(tr(opts?.interrupt ? "task.interruptedGuide" : "task.queuedGuide"), "info");
       }
     } catch (err) {
-      // Re-throw so Composer restores the cleared input + draft, and shows the toast.
-      throw err instanceof Error ? err : new Error(tr("task.sendFailed"));
+      const failure = err instanceof Error ? err : new Error(tr("task.sendFailed"));
+      // Re-throw so Composer restores the cleared input + draft, and shows the
+      // toast — unless the draft is no longer the one this send started from.
+      // Editing a queued message can refill the composer while the POST is in
+      // flight, and that text is not this failed send's to put back.
+      (failure as SubmitFailure).keepComposer = draftPromptRef.current !== submittedDraft;
+      throw failure;
     } finally {
       setSending(false);
     }
@@ -1428,6 +1578,7 @@ export default function TaskDetailPage({
             hostModel={task.model}
             queuedSeqs={queuedSeqs}
             onUnqueue={onWithdrawQueued}
+            onEditQueued={onEditQueued}
             pendingSlots={pendingSlots}
             showMessageActions={terminal}
             actionsBusy={actionBusy}
@@ -1516,6 +1667,7 @@ export default function TaskDetailPage({
               disabled={sending || stopping}
               initialValue={followUpDraft.prompt}
               initialAttachments={followUpDraft.attachments}
+              focusSignal={refill.taskID === task.id ? refill.n : 0}
               placeholder={
                 !terminal
                   ? tr("composer.queuedWhileRunning")

@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, type QueuedPrompt } from "../api/client";
 import {
+  canRefillComposer,
+  EDIT_IN_FLIGHT_MS,
+  editStillRunning,
   isMessageQueued,
   queuedMessageSeqs,
+  startEdit,
   startWithdrawal,
   withoutWithdrawn,
 } from "./queuedPrompts";
@@ -128,5 +132,142 @@ describe("startWithdrawal", () => {
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(withdrawn.has(7)).toBe(false);
+  });
+});
+
+describe("canRefillComposer", () => {
+  it("is true only when there is nothing in the composer to lose", () => {
+    expect(canRefillComposer({ prompt: "", attachments: [] })).toBe(true);
+    // Whitespace is not a draft worth protecting...
+    expect(canRefillComposer({ prompt: "  \n ", attachments: [] })).toBe(true);
+    // ...but typed words and an attached file both are.
+    expect(canRefillComposer({ prompt: "half a thought", attachments: [] })).toBe(false);
+    expect(canRefillComposer({ prompt: "", attachments: [{}] })).toBe(false);
+  });
+});
+
+describe("editStillRunning", () => {
+  it("holds the pencil only while a request is worth waiting for", () => {
+    // No request: nothing to wait for.
+    expect(editStillRunning(0, 1_000_000)).toBe(false);
+    // Just started: a second tap would withdraw a second message the composer
+    // cannot take yet.
+    expect(editStillRunning(1_000_000, 1_000_500)).toBe(true);
+    // Past the deadline the request is presumed lost — `apiFetch` has no
+    // timeout, so a flag would lock the pencil for the life of the page.
+    expect(editStillRunning(1_000_000, 1_000_000 + EDIT_IN_FLIGHT_MS)).toBe(false);
+    expect(editStillRunning(1_000_000, 1_000_000 + EDIT_IN_FLIGHT_MS - 1)).toBe(true);
+  });
+});
+
+describe("startEdit", () => {
+  const row = prompt(7, "hold that thought");
+  /** The promise chain runs a microtask after the call; let it. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("refills only when the daemon says it deleted the row", async () => {
+    const withdrawn = new Set<number>();
+    const onSettled = vi.fn();
+    const request = vi.fn().mockResolvedValue(undefined);
+    const relist = vi.fn();
+
+    startEdit({ row, withdrawn, request, relist, onSettled });
+    // Marked before the request goes out: the page drops the badge at once, and
+    // a poll answered before the delete landed must not put it back.
+    expect(withdrawn.has(row.id)).toBe(true);
+    expect(onSettled).not.toHaveBeenCalled();
+    await settle();
+
+    expect(request).toHaveBeenCalledWith(row.id);
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith({ kind: "withdrawn" });
+    // The queue was not in doubt, so it was not asked.
+    expect(relist).not.toHaveBeenCalled();
+  });
+
+  it("does not refill on the 404 that may mean the message is already running", async () => {
+    // The turn boundary and the delete race for the same row. If the boundary
+    // won, the message is in the round — and a copy in the composer would be a
+    // message sent twice.
+    const withdrawn = new Set<number>();
+    const onSettled = vi.fn();
+    const relist = vi.fn();
+
+    startEdit({
+      row,
+      withdrawn,
+      request: vi.fn().mockRejectedValue(new ApiError(404, "not queued")),
+      relist,
+      onSettled,
+    });
+    await settle();
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith({ kind: "gone" });
+    expect(relist).not.toHaveBeenCalled();
+    expect(withdrawn.has(row.id)).toBe(true);
+  });
+
+  it("puts the badge back when the row is still queued", async () => {
+    // The delete failed for a reason other than "gone", and the queue says the
+    // message is still waiting. The mark has to come off before the list is
+    // applied, or the badge would stay hidden on a message that will run.
+    const withdrawn = new Set<number>();
+    const onSettled = vi.fn();
+    let markedWhenAsked = true;
+
+    startEdit({
+      row,
+      withdrawn,
+      request: vi.fn().mockRejectedValue(new ApiError(500, "boom")),
+      relist: vi.fn(async () => {
+        markedWhenAsked = withdrawn.has(row.id);
+        return [row, prompt(9)];
+      }),
+      onSettled,
+    });
+    await settle();
+
+    expect(markedWhenAsked).toBe(false);
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith({ kind: "stillQueued", queue: [row, prompt(9)] });
+  });
+
+  it("reports a lost answer as gone, not as a withdrawal", async () => {
+    // The delete can land and only its answer be lost. The row is gone from the
+    // queue, but that does not prove the message was withdrawn rather than
+    // taken by the round — so it is reported as the uncertain case and nothing
+    // refills.
+    const withdrawn = new Set<number>();
+    const onSettled = vi.fn();
+
+    startEdit({
+      row,
+      withdrawn,
+      request: vi.fn().mockRejectedValue(new ApiError(502, "bad gateway")),
+      relist: vi.fn(async () => [prompt(9)]),
+      onSettled,
+    });
+    await settle();
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith({ kind: "gone" });
+    expect(withdrawn.has(row.id)).toBe(true);
+  });
+
+  it("says the outcome is unknown when the queue cannot be read either", async () => {
+    const onSettled = vi.fn();
+
+    startEdit({
+      row,
+      withdrawn: new Set<number>(),
+      request: vi.fn().mockRejectedValue(new ApiError(500, "boom")),
+      relist: vi.fn().mockRejectedValue(new ApiError(500, "nope")),
+      onSettled,
+    });
+    await settle();
+
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith({ kind: "unknown" });
   });
 });

@@ -256,14 +256,23 @@ previous-role removal in `selectRole` leaves both prefixes in the draft.
 
 Ordered by daily cost, not by column order. All are S2.
 
-- **F1 A queued message is editable and removable.** The daemon already holds
-  the queue (`task_pending_prompts`, `GET /prompts`); the console only badges
-  it. Add remove, and edit as remove-then-refill, so a typo in a queued send
-  does not have to be waited out or the whole round stopped. Acceptance: a
-  queued message can be deleted before it runs, and the transcript stops
-  badging it. **Remove landed** (`DELETE /api/tasks/{id}/prompts/{promptID}`,
+- **F1 A queued message is editable and removable.** (Landed.) The daemon
+  already held the queue (`task_pending_prompts`, `GET /prompts`); the console
+  only badged it. Acceptance: a queued message can be deleted before it runs,
+  and the transcript stops badging it — `DELETE /api/tasks/{id}/prompts/{id}`,
   the × in the badge, and the `prompt_withdrawn` notice that keeps the
-  transcript honest on every device); edit-as-refill remains.
+  transcript honest on every device. Edit is remove-then-refill: a pencil beside
+  the × withdraws the row and puts the prompt back in the composer exactly as it
+  was sent — attachment block included, because that block is how the images
+  travel and the composer cannot rebuild the uploads behind a summary line.
+  The refill happens only when the daemon answers that it deleted the row — a
+  404 can mean the turn boundary already took the message, and a copy of a
+  running message is a message sent twice — and only into an empty composer,
+  checked at the tap and again when the answer lands (replacing a draft
+  somebody is already writing is not what tapping one message asks for). Both
+  rules are unit-tested, the badge's two controls carry the message excerpt in
+  their accessible names so they can be told apart, and the composer takes the
+  focus when the text lands.
 - **F2 The workspace owns its own find.** (Landed.) Monaco already claims
   Cmd/Ctrl+F from inside its own textarea — checked in the running console, where
   the key opens the editor's find widget and focus never leaves it — so the
@@ -1480,12 +1489,106 @@ failed withdrawal: a delete can land and its answer be lost to a reset
 connection, so the page re-reads the queue and only reports a failure when the
 message is still waiting.
 
+**The edit half (landed).** A pencil beside the × withdraws the row and puts the
+prompt back in the composer exactly as it was sent — attachment block included,
+because that block is how the images travel and the composer cannot rebuild the
+uploads behind a summary line. The transcript hides the block for display; in
+the composer it is the message.
+
+The edit cannot reuse the × path, because it needs an answer the × does not:
+*whether the row was withdrawn or had already been taken by the turn boundary*.
+A 404 says only that the row was gone. If the boundary took it the message is
+running, and a refill would put a copy of it back in the composer — sent twice.
+So the text is refilled only on an answer that says the daemon deleted the row.
+The other outcomes say what happened and leave the message where it still can be
+copied from: a 404 toasts "no longer queued — it may already be running"; a
+failed request is first checked against the queue (the delete can land and only
+its answer be lost), and if the row is gone by then the same message is shown,
+because from here a lost answer and a boundary pop cannot be told apart.
+
+The rule lives in `startEdit` in `queuedPrompts.ts`, not in the page, because it
+is the part worth testing: it is the only place that decides whether a refill
+may happen. It reports one of four endings — `withdrawn` (the daemon deleted the
+row), `gone` (404, or missing from a re-list: possibly running), `stillQueued`
+(the queue says the message is still waiting, so the badge goes back), or
+`unknown` (the request failed and the queue could not be read either). The row
+is marked withdrawn *before* the request, exactly as the × does, so the badge
+that the page drops optimistically cannot be put back by a poll answered before
+the delete landed; only a real failure un-marks it, and a row that vanished from
+the re-list is marked again. The page refills on `withdrawn` and on nothing else.
+
+Two smaller rules, both because the refill replaces what is in the composer: it
+waits for an empty one, checked at the tap *and again* when the answer lands (a
+round trip is long enough to type into), and a second edit tap is refused while
+the first is in flight (`chat.editBusy`) rather than withdrawing a second message
+the composer cannot take yet. That refusal is a deadline, not a flag: `apiFetch`
+has no timeout, so a request the network dropped stops refusing taps after 20 s
+(`editStillRunning`) instead of for the life of the page. The settlement clears
+only its own deadline — a stalled request can answer after a later tap has
+already taken the pencil, and zeroing then would let a third run beside the
+second. When the text lands the composer takes the focus, so the next keystroke
+goes where the person is looking; setting a textarea's value leaves its caret at
+the end, so the edit starts where the message does. A phone may not raise its
+keyboard for it — the focus runs after a network answer, and iOS only opens the
+keyboard from a gesture — so the text is there and tapping it is one tap.
+
+The focus signal travels with the task id. A composer mounted for another task
+must not read a leftover number as a request to take the focus on mount, and a
+mount-time focus cannot be cancelled from the parent: React runs the child's
+passive effects first. Keying the signal by task makes it a render, not a race.
+
+**A send that resolves mid-refill must not delete the refill.** The composer
+clears itself as it submits and the page clears the draft when the POST returns.
+Between those two moments the edit can refill the composer — and the send's
+cleanup then blanks text the person is holding, with no toast. The page now
+clears only when the draft is still the one the send started from. The failure
+path has the same shape: the composer restores what it cleared, which is wrong
+once a refill has taken the box. It cannot tell from the textarea — the refill's
+write reaches the DOM a render later than the page's ref — so the submit handler
+says so: the re-thrown error carries `keepComposer`, and the composer restores
+only without it. Both halves have a test.
+
+**Tests.** `startEdit` (each of the four endings, each settling exactly once, the
+mark made before the request, the un-mark before the re-list, the re-mark for a
+row that vanished from it); `editStillRunning` (none, fresh, one millisecond
+short of the deadline, at it); `canRefillComposer` (whitespace is empty, typed
+text and an attached file are not); the composer shows an `initialValue` that
+arrives after the first render, focuses on a signal, leaves an ordinary
+deep-link prefill unfocused, and keeps a refill that landed while a send was
+failing while still restoring its own text when nothing else touched the box;
+the pencil appears beside the × only when the caller offers it, reports the seq,
+and the memo table redraws when it comes or goes. The page's wiring is held by a
+source test: the composer guard precedes the request and is checked twice, the
+deadline helper is used, a settlement clears only its own deadline, the refill
+is called in exactly one place — the `withdrawn` branch — and the send's draft
+check and `keepComposer` assignment are present. Red-verified by mutation:
+reporting a 404 as withdrawn, marking the row only after the request, leaving a
+failed delete marked, leaving a re-list-gone row unmarked, always clearing the
+draft after a send, refilling in the `gone` branch, dropping the in-flight
+deadline, letting a stalled settlement clear a newer deadline, never setting
+`keepComposer`, and letting the composer ignore it each fail the test that names
+them.
+
 Deferred, with reasons: the queue poll re-arms on `events.length`, so while an
 answer streams continuously the queue is not re-read (pre-existing; it only
 delays reconciling a failed withdrawal until the stream pauses). A queued row
 whose `user_seq` is 0 — the event write failed when it was accepted — has no
 bubble to put a badge on, so the console cannot offer to withdraw it even though
 the endpoint would accept it. Rare, and the fix is a queue view, not a badge.
+The refill writes through localStorage, which swallows quota and private-mode
+errors: a failed write leaves the draft ref holding text the composer never
+shows. That is the draft store's existing behaviour for every keystroke, so the
+fix belongs there, not in this feature. A refilled message that had attachments
+carries the raw block — absolute paths included — because the text *is* the
+message and the block is how the images travel; deleting the block drops the
+images, which is the honest result of editing that part away. The focus counter
+is not consumed: it stays non-zero, so a composer that remounts for the same
+task (not reachable through the current page host) would take the focus again —
+the draft is in the box either way. A settlement that arrives after the page
+unmounted still writes the draft and can raise one global toast, the same cost
+the × path already has. And when the withdraw wins a race with a failed send,
+the failed send's attachments are dropped with its text: the box belongs to the
+refill, and merging two messages has no honest answer.
 ### Round 7 — the desktop shell (2026-10-29)
 
 The console had been through six rounds; the Electron shell around it had been

@@ -25,4 +25,47 @@ describe("TaskDetailPage session rail breakpoints", () => {
     expect(source).toContain("const restored = liveResources.restoreTaskEvents(eventReset)");
     expect(source).toContain("if (!restored) void liveResources.refreshTask(task.id, true)");
   });
+
+  it("edits a queued message by withdrawing it first, into an empty composer", () => {
+    // The properties the wiring has to keep: the edit is offered next to the ×
+    // (so a queued message has both), and the text is put back in exactly one
+    // place — the branch where the daemon said it deleted the row. What each
+    // ending means, and that a 404 refills nothing, is `startEdit`'s own test.
+    expect(source).toContain("onEditQueued={onEditQueued}");
+    expect(source).toContain("onUnqueue={onWithdrawQueued}");
+
+    const start = source.indexOf("const onEditQueued");
+    expect(start).toBeGreaterThan(-1);
+    const edit = source.slice(start, source.indexOf("// What the composer's @ menu", start));
+
+    // The composer has to be free before anything is taken back, and again when
+    // the answer lands: a round trip is long enough to type into.
+    expect(edit.indexOf("canRefillComposer({")).toBeGreaterThan(-1);
+    expect(edit.indexOf("canRefillComposer({")).toBeLessThan(edit.indexOf("startEdit({"));
+    expect(edit.match(/canRefillComposer\(\{/g)).toHaveLength(2);
+    // A request that never answers must not refuse every tap for the session,
+    // and a stalled one that settles late must not clear a newer request's
+    // deadline and let a third run beside it.
+    expect(edit).toContain("editStillRunning(editStartedAtRef.current, Date.now())");
+    expect(edit).toContain("if (editStartedAtRef.current === startedAt) editStartedAtRef.current = 0;");
+
+    expect(edit).toMatch(/case "withdrawn":\s*refillComposer\(\);/);
+    expect(source.match(/refillComposer\(\);/g)).toHaveLength(1);
+  });
+
+  it("moves the caret into the composer a refill lands in", () => {
+    expect(source).toContain("focusSignal={refill.taskID === task.id ? refill.n : 0}");
+    expect(source).toContain("setRefill((prev) => ({ taskID: id, n: prev.n + 1 }))");
+  });
+
+  it("does not clear a draft that a send did not start from", () => {
+    // Editing a queued message can refill the composer while a send is in
+    // flight. The send's cleanup must not delete the text that landed there,
+    // and a failure must tell the composer the same thing.
+    expect(source).toContain("const submittedDraft = draftPromptRef.current");
+    expect(source).toContain("if (draftPromptRef.current === submittedDraft) {");
+    expect(source).toContain(
+      "(failure as SubmitFailure).keepComposer = draftPromptRef.current !== submittedDraft;",
+    );
+  });
 });

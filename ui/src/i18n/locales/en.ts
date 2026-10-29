@@ -310,6 +310,14 @@ const en: MessageTree = {
     withdrawNamed: "Withdraw “{text}”",
     withdrawFailed: "Could not withdraw the message",
     withdrawnNote: "A queued message was withdrawn before it was sent",
+    editQueued: "Edit queued message",
+    editQueuedNamed: "Edit “{text}”",
+    editNeedsEmptyComposer: "The composer already has a draft — clear it to edit a queued message",
+    editBusy: "Still taking the last message back — try again in a moment",
+    editComposerTaken:
+      "The message was withdrawn, but the composer has a draft now — it was left in the transcript",
+    editAlreadyGone:
+      "That message is no longer queued — it may already be running, so it was left in the transcript",
     canceled: "Canceled",
     timedOut: "Timed out",
     task: "task",

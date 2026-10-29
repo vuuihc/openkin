@@ -98,3 +98,56 @@ describe("withdrawing a queued message", () => {
     expect(withdrawButton()).toBeTruthy();
   });
 });
+
+describe("editing a queued message", () => {
+  const editButton = () =>
+    screen.queryByRole("button", {
+      name: t("chat.editQueuedNamed", { text: "hold that thought" }),
+    });
+
+  it("offers the control beside the withdraw control and passes the seq", () => {
+    const onEditQueued = vi.fn();
+    render(
+      <ChatStream
+        events={[waiting]}
+        hostSpeaker="kin"
+        queuedSeqs={new Set([1])}
+        onUnqueue={vi.fn()}
+        onEditQueued={onEditQueued}
+      />,
+    );
+
+    // Two controls with two names: a reader hears which one edits and which
+    // one throws the message away.
+    expect(
+      screen.getByRole("button", { name: t("chat.withdrawNamed", { text: "hold that thought" }) }),
+    ).toBeTruthy();
+    fireEvent.click(editButton()!);
+    expect(onEditQueued).toHaveBeenCalledWith(1);
+  });
+
+  it("is absent until the caller offers it", () => {
+    // Same presence rule as the ×: a transcript the caller only reads has
+    // neither control, and the memoized row has to notice one arriving.
+    const { rerender } = render(
+      <ChatStream
+        events={[waiting]}
+        hostSpeaker="kin"
+        queuedSeqs={new Set([1])}
+        onUnqueue={vi.fn()}
+      />,
+    );
+    expect(editButton()).toBeNull();
+
+    rerender(
+      <ChatStream
+        events={[waiting]}
+        hostSpeaker="kin"
+        queuedSeqs={new Set([1])}
+        onUnqueue={vi.fn()}
+        onEditQueued={vi.fn()}
+      />,
+    );
+    expect(editButton()).toBeTruthy();
+  });
+});

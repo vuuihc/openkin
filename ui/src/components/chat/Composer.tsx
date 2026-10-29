@@ -30,6 +30,14 @@ import {
   IconX,
 } from "../icons";
 
+/**
+ * An error a submit handler can reject with to say it has already dealt with
+ * the composer — so the failure path must not restore the text the send
+ * cleared. Editing a queued message refills the composer while a send is in
+ * flight, and that text belongs to the refill, not to the failed send.
+ */
+export type SubmitFailure = Error & { keepComposer?: boolean };
+
 type Props = {
   placeholder?: string;
   disabled?: boolean;
@@ -40,6 +48,18 @@ type Props = {
   onStop?: () => void | Promise<void>;
   /** Prefill once (e.g. deep-link /new?q=). */
   initialValue?: string;
+  /**
+   * Bumped when the caller moved text into the composer from somewhere else —
+   * editing a queued message, say. The textarea takes the focus, so the next
+   * keystroke lands where the person is looking. Setting a textarea's value
+   * leaves its caret at the end, so the edit starts at the end of the message.
+   * Zero is the initial render and focuses nothing.
+   *
+   * A phone may not raise its keyboard for this: the focus runs after a network
+   * answer, and iOS only opens the keyboard from a gesture. The text is there
+   * either way, and tapping it is one tap.
+   */
+  focusSignal?: number;
   /** Restore already-uploaded files when a draft composer remounts. */
   initialAttachments?: Upload[];
   /** Fired whenever the textarea value changes (for draft persistence). */
@@ -129,6 +149,7 @@ export default function Composer({
   onStop,
   initialValue = "",
   initialAttachments = [],
+  focusSignal = 0,
   onValueChange,
   onAttachmentsChange,
   agents = [],
@@ -167,6 +188,14 @@ export default function Composer({
     // otherwise.
     setValue(initialValue);
   }, [initialValue]);
+
+  // A focus signal asks for the caret to come here. The text that came with it
+  // arrives through `initialValue`, and setting a textarea's value puts its
+  // caret at the end by definition, so the focus is the whole job.
+  useEffect(() => {
+    if (!focusSignal) return;
+    textareaRef.current?.focus({ preventScroll: true });
+  }, [focusSignal]);
 
   /** Grow with content up to CSS max-height, then scroll. Shrinks when cleared. */
   function adjustTextareaHeight() {
@@ -366,13 +395,19 @@ export default function Composer({
     try {
       await onSubmit(payload, interrupt ? { interrupt: true } : undefined);
     } catch (err) {
-      // Restore text/attachments so the user does not lose a failed follow-up.
-      // Drop blob previews (already revoked); remote upload urls still work.
-      const restored = prevAttachments.map(({ previewUrl: _p, ...rest }) => rest);
-      setValue(prevValue);
-      onValueChange?.(prevValue);
-      setAttachments(restored);
-      onAttachmentsChange?.(restored);
+      // Restore text/attachments so the user does not lose a failed follow-up —
+      // unless the submit handler says it has taken the composer over. That is
+      // the edit-a-queued-message case: the refill lands while the POST is in
+      // flight, and putting this send's text back would delete the message the
+      // person is now holding.
+      if (!(err as SubmitFailure | undefined)?.keepComposer) {
+        // Drop blob previews (already revoked); remote upload urls still work.
+        const restored = prevAttachments.map(({ previewUrl: _p, ...rest }) => rest);
+        setValue(prevValue);
+        onValueChange?.(prevValue);
+        setAttachments(restored);
+        onAttachmentsChange?.(restored);
+      }
       // Parent handlers usually toast; never let an unhandled rejection
       // leave the composer in a cleared-but-failed state without feedback.
       useAppStore.getState().pushToast(err instanceof Error ? err.message : "Send failed", "error");

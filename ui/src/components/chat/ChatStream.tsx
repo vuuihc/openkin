@@ -91,6 +91,12 @@ type Props = {
    */
   onUnqueue?: (seq: number) => void;
   /**
+   * Take a queued message back out of the queue and put its text in the
+   * composer, given the seq of the message it belongs to. Undefined hides the
+   * control for the same reason `onUnqueue` does.
+   */
+  onEditQueued?: (seq: number) => void;
+  /**
    * Scopes the mobile message-actions reveal. Message keys are `t-<seq>`, and
    * seq restarts per task while several sessions stay mounted (the tab host),
    * so without a task id one revealed message would light up the same-named
@@ -138,6 +144,7 @@ export default function ChatStream({
   hostModel,
   queuedSeqs,
   onUnqueue,
+  onEditQueued,
   messageScope = "",
   pendingSlots,
   showMessageActions = false,
@@ -395,6 +402,7 @@ export default function ChatStream({
             // Whether the control may show at all is the row's call: it is the
             // one place that knows the message is still waiting.
             onUnqueue={onUnqueue && seq !== undefined ? () => onUnqueue(seq) : undefined}
+            onEditQueued={onEditQueued && seq !== undefined ? () => onEditQueued(seq) : undefined}
             selectionMode={sharing}
             selected={selectedKeys.has(turn.item.key)}
             onToggleSelection={() => toggleSelection(turn.item.key)}
@@ -1203,8 +1211,8 @@ const MessageBody = memo(function MessageBody({
 
 /** A short, single-line excerpt for an accessible name: long enough to tell two
  *  queued messages apart, short enough that a screen reader is not read a
- *  pasted stack trace. */
-function withdrawExcerpt(text: string): string {
+ *  pasted stack trace. Both controls on the badge name the message this way. */
+function messageExcerpt(text: string): string {
   const runes = Array.from(text.replace(/\s+/g, " ").trim());
   return runes.length > 24 ? `${runes.slice(0, 24).join("")}…` : runes.join("");
 }
@@ -1224,6 +1232,11 @@ export type MessageRowProps = {
    * waiting, and only where the console can send to this task at all.
    */
   onUnqueue?: () => void;
+  /**
+   * Take this message back and put its text in the composer. Offered under the
+   * same conditions as `onUnqueue`.
+   */
+  onEditQueued?: () => void;
   selectionMode?: boolean;
   selected?: boolean;
   onToggleSelection?: () => void;
@@ -1237,6 +1250,7 @@ const MessageRow = memo(function MessageRow({
   partial,
   queued = false,
   onUnqueue,
+  onEditQueued,
   selectionMode = false,
   selected = false,
   onToggleSelection,
@@ -1247,8 +1261,9 @@ const MessageRow = memo(function MessageRow({
   // Every queued message carries the same ×. Without the message in the name, a
   // screen reader's button list is N identical "Withdraw message" entries and
   // the reader cannot tell which one is which.
-  const excerpt = queued ? withdrawExcerpt(text) : "";
+  const excerpt = queued ? messageExcerpt(text) : "";
   const withdrawName = excerpt ? tr("chat.withdrawNamed", { text: excerpt }) : tr("chat.withdraw");
+  const editName = excerpt ? tr("chat.editQueuedNamed", { text: excerpt }) : tr("chat.editQueued");
 
   if (isUser) {
     return (
@@ -1277,6 +1292,29 @@ const MessageRow = memo(function MessageRow({
               <span className="inline-flex items-center gap-1 rounded-full bg-kin-blue/15 px-1.5 py-px text-caption font-medium text-kin-blue-ink">
                 <span className="w-1.5 h-1.5 rounded-full bg-kin-blue animate-breathe" />
                 {tr("chat.queued")}
+                {onEditQueued && (
+                  // Beside the ×, because it is the gentler half of the same
+                  // thought: take the message back, but keep what it says. Same
+                  // `touch-mini` treatment as the × it sits next to.
+                  <button
+                    type="button"
+                    onClick={onEditQueued}
+                    data-touch-mini
+                    title={tr("chat.editQueued")}
+                    aria-label={editName}
+                    className="touch-mini -my-1 ml-0.5 flex h-5 w-5 flex-none items-center justify-center rounded-full text-kin-blue-ink/80 transition-colors hover:bg-kin-blue/15 hover:text-kin-blue-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kin-focus-ring"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                      <path
+                        d="M1 9l.6-2.2 5.4-5.4 1.6 1.6-5.4 5.4L1 9z"
+                        stroke="currentColor"
+                        strokeWidth="1.1"
+                        strokeLinejoin="round"
+                        fill="none"
+                      />
+                    </svg>
+                  </button>
+                )}
                 {onUnqueue && (
                   // Inside the badge, because that is the state it undoes: the
                   // message is in the transcript and the badge is the only thing
@@ -1375,6 +1413,7 @@ export function sameRow(a: MessageRowProps, b: MessageRowProps): boolean {
     // closure a redraw would bring is not worth one. Same rule `sameMessage`
     // uses for the save button.
     !!a.onUnqueue === !!b.onUnqueue &&
+    !!a.onEditQueued === !!b.onEditQueued &&
     a.selectionMode === b.selectionMode &&
     a.selected === b.selected
   );
