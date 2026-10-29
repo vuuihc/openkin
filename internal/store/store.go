@@ -64,6 +64,13 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// The transcript index is derived, so a database written before it existed
+	// can be brought up to date from `events`. It is resumable and cheap when
+	// there is nothing to do — one indexed question, no scan.
+	if err := s.prepareTranscriptIndex(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -1306,6 +1313,11 @@ func (s *Store) AppendEvent(ctx context.Context, taskID, typ string, payload jso
 	); err != nil {
 		return Event{}, fmt.Errorf("insert event: %w", err)
 	}
+	// The derived transcript is written in the same transaction as the event it
+	// describes, so a search can never miss a message that committed.
+	if err := indexTranscriptMessageTx(ctx, tx, taskID, eventEpoch, int64(seq), ts, typ, payload); err != nil {
+		return Event{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET hub_seq = ? WHERE id = ?`, hubSeq, taskID); err != nil {
 		return Event{}, fmt.Errorf("advance task hub_seq: %w", err)
 	}
@@ -1362,6 +1374,11 @@ func (s *Store) AppendUsageEvent(ctx context.Context, taskID, typ string, payloa
 		taskID, seq, ts, typ, string(payload),
 	); err != nil {
 		return Event{}, Task{}, fmt.Errorf("insert usage event: %w", err)
+	}
+	// Usage events are not prose, but every writer of a message event goes
+	// through the index so no path can quietly leave the transcript unsearchable.
+	if err := indexTranscriptMessageTx(ctx, tx, taskID, record.EventEpoch, int64(seq), ts, typ, payload); err != nil {
+		return Event{}, Task{}, err
 	}
 	if err := insertUsageRecord(ctx, tx, record); err != nil {
 		return Event{}, Task{}, err
@@ -1629,6 +1646,13 @@ func (s *Store) TruncateEventsFrom(ctx context.Context, taskID string, fromSeq i
 	if err != nil {
 		return err
 	}
+	var epoch int64
+	if err := tx.QueryRowContext(ctx, `SELECT event_epoch FROM tasks WHERE id = ?`, taskID).Scan(&epoch); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("read task event epoch: %w", err)
+	}
 	result, err := tx.ExecContext(ctx,
 		`UPDATE tasks SET event_epoch = event_epoch + 1, hub_seq = ? WHERE id = ?`, hubSeq, taskID)
 	if err != nil {
@@ -1636,6 +1660,9 @@ func (s *Store) TruncateEventsFrom(ctx context.Context, taskID string, fromSeq i
 	}
 	if changed, _ := result.RowsAffected(); changed == 0 {
 		return ErrNotFound
+	}
+	if err := resetTranscriptIndexFromTx(ctx, tx, taskID, epoch+1); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit truncate events: %w", err)
@@ -1692,6 +1719,11 @@ func (s *Store) CopyEventsToTask(ctx context.Context, srcID, dstID string, maxSe
 			dstID, i+1, r.ts, r.typ, r.payload,
 		); err != nil {
 			return 0, fmt.Errorf("insert copied event: %w", err)
+		}
+		// The fork is a new task on its first epoch, so its transcript is
+		// searchable from the moment it exists.
+		if err := indexTranscriptMessageTx(ctx, tx, dstID, 0, int64(i+1), r.ts, r.typ, []byte(r.payload)); err != nil {
+			return 0, err
 		}
 	}
 	if len(batch) > 0 {

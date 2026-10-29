@@ -405,6 +405,11 @@ func applyRetryMutationTx(
 	if n, _ := res.RowsAffected(); n != 1 {
 		return RetryMutationResult{}, ErrConflict
 	}
+	// The retry deleted the tail and started a new timeline; the search index
+	// must not answer with the messages that used to be there.
+	if err := resetTranscriptIndexFromTx(ctx, tx, m.TaskID, m.ExpectedEventEpoch+1); err != nil {
+		return RetryMutationResult{}, err
+	}
 	// One touch covers the whole mutation: the workspace rebinding and the user
 	// event that follow are part of the same change to the same row, and the
 	// task read at the end has to carry the cursor this write produced.
@@ -483,6 +488,9 @@ func applyRetryMutationTx(
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO events (task_id, seq, ts, type, payload)
 		VALUES (?, ?, ?, 'message', ?)`, m.TaskID, seq, now, string(m.UserPayload)); err != nil {
+		return RetryMutationResult{}, err
+	}
+	if err := indexTranscriptMessageTx(ctx, tx, m.TaskID, m.ExpectedEventEpoch+1, int64(seq), now, "message", m.UserPayload); err != nil {
 		return RetryMutationResult{}, err
 	}
 	if m.WorkspaceID != "" {

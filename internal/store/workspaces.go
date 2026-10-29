@@ -807,6 +807,9 @@ func appendEventTx(ctx context.Context, tx *sql.Tx, taskID, eventType string, pa
 	`, taskID, nextSeq, now, eventType, string(payload)); err != nil {
 		return Event{}, fmt.Errorf("insert event: %w", err)
 	}
+	if err := indexTranscriptMessageTx(ctx, tx, taskID, eventEpoch, int64(nextSeq), now, eventType, payload); err != nil {
+		return Event{}, err
+	}
 	if err := touchTaskHubSeq(ctx, tx, taskID); err != nil {
 		return Event{}, err
 	}

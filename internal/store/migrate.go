@@ -2448,6 +2448,9 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensurePushSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureTranscriptIndexSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
 }
 

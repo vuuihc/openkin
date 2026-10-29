@@ -366,6 +366,7 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Put("/api/connectors/credentials/{ref}", s.handleSetConnectorCredential)
 		r.With(operatorOnly).Delete("/api/connectors/credentials/{ref}", s.handleDeleteConnectorCredential)
 		r.Get("/api/tasks", s.handleListTasks)
+		r.Get("/api/search/transcript", s.handleSearchTranscript)
 		r.Get("/api/sessions", s.handleListSessions)
 		r.Get("/api/sessions/cursor", s.handleSessionCursor)
 		r.Post("/api/tasks", s.handleCreateTask)
