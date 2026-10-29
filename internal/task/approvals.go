@@ -212,10 +212,13 @@ func (e *Engine) Decide(ctx context.Context, id, decision, via string) (store.Ap
 		pending, _ := e.store.ListPendingForTask(ctx, a.TaskID)
 		pendingQ, _ := e.store.ListPendingUserQuestionsForTask(ctx, a.TaskID)
 		if len(pending) == 0 && len(pendingQ) == 0 {
-			status := StatusRunning
-			_ = e.store.UpdateTask(ctx, a.TaskID, store.TaskPatch{Status: &status})
-			if t2, err := e.store.GetTask(ctx, a.TaskID); err == nil {
-				e.bus.PublishTask(t2)
+			// Guarded: the turn can finish between the read above and this write,
+			// and an unconditional update would move a finished row back to
+			// running with nothing left to finish it again.
+			if e.store.ResumeTaskFromWait(ctx, a.TaskID, StatusRunning, StatusWaitingApproval, StatusWaitingInput) == nil {
+				if t2, err := e.store.GetTask(ctx, a.TaskID); err == nil {
+					e.bus.PublishTask(t2)
+				}
 			}
 		}
 	}

@@ -378,6 +378,9 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/events", s.handleListEvents)
 			r.Post("/replay", s.handleReplayTask)
 			r.Get("/workers", s.handleListWorkerSteps)
+			// One worker, not the task: the phone's plan panel stops a subagent
+			// while the rest of the turn keeps running.
+			r.Post("/workers/{execution_id}/{step_index}/cancel", s.handleCancelWorkerStep)
 			r.Post("/browser/actions", s.handleBrowserAction)
 			r.Get("/limit-wait", s.handleTaskLimitWait)
 			r.Get("/prompts", s.handleListQueuedPrompts)

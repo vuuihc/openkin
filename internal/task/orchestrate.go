@@ -171,10 +171,11 @@ func (e *Engine) runOrchestrated(
 		}
 
 		type stepOut struct {
-			idx     int
-			text    string
-			err     bool
-			errText string
+			idx      int
+			text     string
+			err      bool
+			errText  string
+			canceled bool
 		}
 		outs := make([]stepOut, len(wave))
 		var wg sync.WaitGroup
@@ -199,7 +200,7 @@ func (e *Engine) runOrchestrated(
 				anyErr = true
 				continue
 			}
-			if !e.registerWorkerHandle(id, executionID, h) {
+			if !e.registerWorkerStepHandle(id, executionID, si, h) {
 				for _, started := range handles {
 					_ = started.Cancel()
 				}
@@ -239,9 +240,20 @@ func (e *Engine) runOrchestrated(
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
+				// Once this worker's stream ends it is no longer cancellable: a
+				// reader's cancel that arrives now must not rewrite a step that has
+				// already answered. The wave's terminal write still lands below.
+				defer e.unregisterWorkerStepHandle(id, executionID, gsi)
 				text, failed, failure := e.forwardWorkerEvents(
 					ctx, id, executionID, gagent, gmodel, gexec, gh,
 				)
+				// A person stopping this worker closes its stream just like a crash
+				// does. The mark is what tells the two apart; without it the retry
+				// paths below would start the very step they just stopped.
+				if e.workerStepCanceled(id, executionID, gsi) {
+					outs[gi] = stepOut{idx: gsi, canceled: true}
+					return
+				}
 				// Workers sometimes leak role/meta chatter and end_turn without findings.
 				// Retry once with a tighter brief; if still meta, mark failed so the
 				// orchestrator does not present it as a successful answer.
@@ -249,7 +261,7 @@ func (e *Engine) runOrchestrated(
 					e.mu.Lock()
 					canceled := e.canceled[id]
 					e.mu.Unlock()
-					if !canceled {
+					if !canceled && !e.workerStepCanceled(id, executionID, gsi) {
 						retryNote := fmt.Sprintf("%s returned meta-only output; retrying once with a tighter brief", e.agentDisplayName(gagent, gmodel))
 						e.emitSpeakerMessage(ctx, id, executionID, main, "assistant", retryNote, "orchestrator", "progress")
 						retryBrief := buildWorkerBriefMode(plan, gstep, gprior, gsi+1, len(plan.Steps), true)
@@ -291,7 +303,7 @@ func (e *Engine) runOrchestrated(
 								e.emitError(ctx, id, executionID, fmt.Sprintf("%s meta-retry failed to start: %v", gagent, err))
 								failed = true
 							} else {
-								if !e.registerWorkerHandle(id, executionID, h2) {
+								if !e.registerWorkerStepHandle(id, executionID, gsi, h2) {
 									failed = true
 									outs[gi] = stepOut{idx: gsi, text: text, err: true}
 									return
@@ -305,6 +317,10 @@ func (e *Engine) runOrchestrated(
 								text2, failed2, _ := e.forwardWorkerEvents(
 									ctx, id, executionID, gagent, gmodel, retryExec, h2,
 								)
+								if e.workerStepCanceled(id, executionID, gsi) {
+									outs[gi] = stepOut{idx: gsi, canceled: true}
+									return
+								}
 								text, failed = text2, failed2
 							}
 						}
@@ -321,7 +337,9 @@ func (e *Engine) runOrchestrated(
 				}
 				// Runtime fallback: if the worker failed with a quota/rate-limit/transient
 				// error and the step has routing metadata, retry with the next provider.
-				if failed && routing.IsFallbackSafe(failure.Class) && gstep.Phase != "" && gstep.Provider != "" && e.routingResolver != nil {
+				// A step the reader stopped is not a candidate: its failure is the
+				// cancel, and starting another provider would undo what they asked for.
+				if failed && !e.workerStepCanceled(id, executionID, gsi) && routing.IsFallbackSafe(failure.Class) && gstep.Phase != "" && gstep.Provider != "" && e.routingResolver != nil {
 					prev := routing.Decision{
 						Agent:           gstep.Agent,
 						Provider:        gstep.Provider,
@@ -345,7 +363,7 @@ func (e *Engine) runOrchestrated(
 							ctx, id, t, retryStep, gbrief, gsi, workerRunMeta(runMeta, retryStep),
 						)
 						if err2 == nil {
-							if !e.registerWorkerHandle(id, executionID, h2) {
+							if !e.registerWorkerStepHandle(id, executionID, gsi, h2) {
 								outs[gi] = stepOut{idx: gsi, text: text, err: true}
 								return
 							}
@@ -359,6 +377,10 @@ func (e *Engine) runOrchestrated(
 							text2, failed2, _ := e.forwardWorkerEvents(
 								ctx, id, executionID, gagent, exec2.Model, exec2, h2,
 							)
+							if e.workerStepCanceled(id, executionID, gsi) {
+								outs[gi] = stepOut{idx: gsi, canceled: true}
+								return
+							}
 							text, failed = text2, failed2
 						} else {
 							e.emitError(ctx, id, executionID, fmt.Sprintf("%s runtime fallback failed to start: %v", gagent, err2))
@@ -412,6 +434,13 @@ func (e *Engine) runOrchestrated(
 		}
 
 		for _, o := range outs {
+			// A step the reader stopped ended on purpose. Its cancel handler
+			// already wrote the canceled row, so the wave must not replace it with
+			// succeeded/failed, count a failure against the task, or hand a
+			// half-finished answer to the summary as findings.
+			if o.canceled || e.workerStepCanceled(id, executionID, o.idx) {
+				continue
+			}
 			if o.err {
 				anyErr = true
 				failedByStep[o.idx] = true
@@ -439,6 +468,18 @@ func (e *Engine) runOrchestrated(
 		}
 	}
 
+	// A plan whose every step the reader stopped has nothing to summarize, and
+	// calling that a success would tell the reader -- and any automation reading
+	// the status -- that work was delivered when the reader ended it.
+	lang := responseLanguageForPrompt(UserTurnPrompt(t.Prompt))
+	stopped := e.stoppedWorkerSteps(id, executionID, len(plan.Steps))
+	if len(plan.Steps) > 0 && stopped == len(plan.Steps) {
+		e.emitSpeakerMessage(ctx, id, executionID, main, "assistant",
+			stoppedEverythingNote(lang, stopped), "orchestrator", "summary")
+		e.finishOrchestratedCanceled(ctx, id, executionID)
+		return
+	}
+
 	// Build ordered prior list for summary (WorkerDigest — Policy C).
 	var priorResults []string
 	var priorFailed []bool
@@ -456,7 +497,6 @@ func (e *Engine) runOrchestrated(
 	// Optional host control-plane synthesis when the plugin declares orchestrate.
 	if e.hostHasOrchestrate(main) {
 		var synthPrompt strings.Builder
-		lang := responseLanguageForPrompt(UserTurnPrompt(t.Prompt))
 		synthPrompt.WriteString("Write the final answer to the user. Be concise and factual.\n")
 		synthPrompt.WriteString("Do not mention orchestration, workers, digests, prompts, handoffs, or internal task logs. Do not use headings such as Request, Worker, or Deliverable. State the result directly.\n\n")
 		synthPrompt.WriteString("User request:\n")
@@ -469,6 +509,9 @@ func (e *Engine) runOrchestrated(
 		}
 		if anyErr {
 			synthPrompt.WriteString("\nNote: at least one worker failed.\n")
+		}
+		if stopped > 0 {
+			synthPrompt.WriteString("\nNote: the user stopped at least one worker, so these results are partial.\n")
 		}
 		synthPrompt.WriteString("\n")
 		synthPrompt.WriteString(synthesisLanguageInstruction(lang))
@@ -483,6 +526,12 @@ func (e *Engine) runOrchestrated(
 			e.recordControllerUsage(ctx, id, executionID, main, "orchestration_synthesis", usage)
 			e.emitOrchestrationFallback(ctx, id, executionID, main, "synthesis unavailable or empty", "synthesis")
 		}
+	}
+	// The synthesis is told, but the note is appended here as well: a model
+	// answer that reads as complete would be the one thing the reader cannot
+	// check against a stopped worker.
+	if stopped > 0 {
+		summary = strings.TrimRight(summary, " \t\r\n") + "\n\n" + stoppedSomeNote(lang, stopped)
 	}
 	if !e.isActiveRun(id, executionID) {
 		e.finishOrchestrated(ctx, id, executionID, true)
@@ -562,6 +611,13 @@ func (e *Engine) updateWorkerStep(
 	patch store.WorkerStepPatch,
 ) {
 	if err := e.store.UpdateWorkerStep(ctx, taskID, executionID, stepIndex, patch, e.nowMilli()); err != nil {
+		// A step the reader stopped already has its terminal row. A retry path
+		// that was in flight when the cancel landed, or the wave's own final
+		// write, must not turn that into a persistence failure -- the store's
+		// planned/running guard is exactly what refuses the write.
+		if errors.Is(err, store.ErrNotFound) && e.workerStepCanceled(taskID, executionID, stepIndex) {
+			return
+		}
 		e.noteRunPersistFailure(taskID, executionID, "result", nil, err)
 	}
 }
@@ -648,6 +704,9 @@ func (e *Engine) clearHandleGroup(id, executionID string) {
 		delete(e.handles, id)
 		delete(e.handleGroups, id)
 	}
+	// Handles only: the wave loop still has to read which steps the reader
+	// stopped after wg.Wait, and that flag outlives the processes.
+	e.clearStepHandlesLocked(id, executionID)
 	e.mu.Unlock()
 }
 
@@ -658,30 +717,31 @@ func (e *Engine) runAcceptsWorker(taskID, executionID string) bool {
 	return e.activeRuns[taskID] == executionID && !e.canceled[taskID] && !hasFollowUp
 }
 
-func (e *Engine) registerWorkerHandle(
+// registerWorkerStepHandle records a plan step's process under its run and
+// step. It runs in the same critical section as the run's handle set: a
+// per-step cancel that read the step map a moment before this call would
+// otherwise report "not running" about a worker that had just started.
+func (e *Engine) registerWorkerStepHandle(
 	taskID, executionID string,
+	stepIndex int,
 	handle adapter.RunHandle,
 ) bool {
-	return e.registerWorkerHandles(taskID, executionID, []adapter.RunHandle{handle})
-}
-
-func (e *Engine) registerWorkerHandles(
-	taskID, executionID string,
-	handles []adapter.RunHandle,
-) bool {
+	key := workerStepKey{taskID: taskID, executionID: executionID, stepIndex: stepIndex}
 	e.mu.Lock()
 	_, hasFollowUp := e.pendingFollowUp[taskID]
+	// A step the reader stopped between two attempts must not start its retry:
+	// accepting the new process here would resurrect work the person just ended.
 	accepted := e.activeRuns[taskID] == executionID &&
 		!e.canceled[taskID] &&
-		!hasFollowUp
+		!hasFollowUp &&
+		!e.canceledSteps[key]
 	if accepted {
 		if e.handleGroups == nil {
 			e.handleGroups = make(map[string][]adapter.RunHandle)
 		}
-		e.handleGroups[taskID] = append(e.handleGroups[taskID], handles...)
-		if len(handles) > 0 {
-			e.handles[taskID] = handles[0]
-		}
+		e.handleGroups[taskID] = append(e.handleGroups[taskID], handle)
+		e.handles[taskID] = handle
+		e.stepHandles[key] = handle
 		// Registered here means the workers have the prompt, which is the same
 		// moment startOne clears it for a single-adapter run: the label exists only
 		// while nothing has been handed the message (see Engine.queuedMessage), and
@@ -690,14 +750,241 @@ func (e *Engine) registerWorkerHandles(
 	}
 	e.mu.Unlock()
 	if !accepted {
-		for _, handle := range handles {
-			_ = handle.Cancel()
-		}
+		_ = handle.Cancel()
 	}
 	return accepted
 }
 
+// clearStepRuntimeLocked drops step handles and cancel flags for a task (or
+// one of its runs, when executionID is non-empty). Callers hold e.mu.
+func (e *Engine) clearStepRuntimeLocked(taskID, executionID string) {
+	e.clearStepHandlesLocked(taskID, executionID)
+	for key := range e.canceledSteps {
+		if key.taskID == taskID && (executionID == "" || key.executionID == executionID) {
+			delete(e.canceledSteps, key)
+		}
+	}
+}
+
+// clearStepHandlesLocked drops only the processes, leaving the cancel marks
+// for whoever still has to read them. Callers hold e.mu.
+func (e *Engine) clearStepHandlesLocked(taskID, executionID string) {
+	for key := range e.stepHandles {
+		if key.taskID == taskID && (executionID == "" || key.executionID == executionID) {
+			delete(e.stepHandles, key)
+		}
+	}
+}
+
+// ErrWorkerStepNotRunning reports a per-step cancel that found nothing live to
+// stop: the step already ended, never started, or belongs to an older run.
+var ErrWorkerStepNotRunning = errors.New("worker step is not running")
+
+// CancelWorkerStep stops one delegated worker without ending its task.
+//
+// The step is marked canceled before the process is killed, because the worker
+// goroutine reads that mark to tell "the reader stopped me" from "I crashed":
+// only the first suppresses the meta-retry and provider fallback that would
+// otherwise start the same step again. The status write is the durable half,
+// and the same mark makes the wave's own terminal write stand down when it
+// arrives (see updateWorkerStep).
+//
+// Once the process is killed the mark is never dropped: a second cancel, a
+// cancelled HTTP request or a failed status write must not hand the same step
+// back to the retry paths, which would resurrect work the reader ended.
+func (e *Engine) CancelWorkerStep(
+	ctx context.Context,
+	taskID, executionID string,
+	stepIndex int,
+) error {
+	if taskID == "" || executionID == "" || stepIndex < 0 {
+		return ErrWorkerStepNotRunning
+	}
+	key := workerStepKey{taskID: taskID, executionID: executionID, stepIndex: stepIndex}
+
+	e.mu.Lock()
+	// A cancel for this step is already in flight or already done. The second
+	// ask is not an error and must not publish a second note; the mark is also
+	// what keeps the worker's retry path from restarting it, so it stays.
+	if e.canceledSteps[key] {
+		e.mu.Unlock()
+		return nil
+	}
+	handle, live := e.stepHandles[key]
+	if !live || e.activeRuns[taskID] != executionID || e.canceled[taskID] {
+		e.mu.Unlock()
+		return ErrWorkerStepNotRunning
+	}
+	e.canceledSteps[key] = true
+	e.mu.Unlock()
+
+	if err := handle.Cancel(); err != nil {
+		// Nothing was killed, so the step is still running and may be stopped
+		// again once the process is reachable.
+		e.mu.Lock()
+		delete(e.canceledSteps, key)
+		e.mu.Unlock()
+		return fmt.Errorf("stop worker step: %w", err)
+	}
+
+	status := StatusCanceled
+	now := e.nowMilli()
+	if err := e.store.UpdateWorkerStep(ctx, taskID, executionID, stepIndex, store.WorkerStepPatch{
+		Status: &status,
+	}, now); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// The row is already terminal — a concurrent cancel wrote it, or the
+			// wave got there first. The process is dead and the step is over,
+			// which is what the caller asked for; the mark stays.
+			return nil
+		}
+		// The process is dead but its row is not. Recording the failure would
+		// normally fail the run; the mark still keeps the step from restarting.
+		e.noteRunPersistFailure(taskID, executionID, "result", nil, err)
+		return err
+	}
+
+	e.announceWorkerStepCanceled(ctx, taskID, executionID, stepIndex)
+	e.resolvePendingForWorkerStep(ctx, taskID, stepIndex)
+	return nil
+}
+
+// announceWorkerStepCanceled writes the one transcript line that explains why
+// a worker's output stops mid-plan. The task keeps running, so without it the
+// summary would simply be missing a step the reader deliberately ended.
+func (e *Engine) announceWorkerStepCanceled(
+	ctx context.Context,
+	taskID, executionID string,
+	stepIndex int,
+) {
+	t, err := e.store.GetTask(ctx, taskID)
+	if err != nil {
+		return
+	}
+	name := ""
+	model := ""
+	if steps, listErr := e.store.ListWorkerSteps(ctx, taskID, executionID); listErr == nil {
+		for _, step := range steps {
+			if step.StepIndex == stepIndex {
+				name = step.Agent
+				model = step.Model
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	display := e.agentDisplayName(name, model)
+	var text string
+	if responseLanguageForPrompt(UserTurnPrompt(t.Prompt)) == responseLanguageChinese {
+		text = fmt.Sprintf("已停止 **%s**（步骤 %d）", display, stepIndex+1)
+	} else {
+		text = fmt.Sprintf("Stopped **%s** (step %d)", display, stepIndex+1)
+	}
+	e.emitSpeakerMessage(ctx, taskID, executionID, t.Agent, "assistant", text, "orchestrator", "progress")
+}
+
+// resolvePendingForWorkerStep answers the cards a stopped worker left behind.
+// The process that asked is gone, so an approval or question kept pending
+// would stay on screen as a decision nobody can act on and would keep the
+// task's "needs you" light on for work that no longer exists.
+//
+// Cards are matched by step number, because that is the field attributed with
+// the plan step (the execution id on the card is the adapter attempt, which
+// the engine does not map back to a turn). A card from an earlier turn with
+// the same number names a process that has already exited, so resolving it is
+// right as well.
+func (e *Engine) resolvePendingForWorkerStep(ctx context.Context, taskID string, stepIndex int) {
+	stepNumber := stepIndex + 1
+	if pending, err := e.store.ListPendingForTask(ctx, taskID); err == nil {
+		for _, a := range pending {
+			if a.ExecutionStep != nil && *a.ExecutionStep == stepNumber {
+				_, _ = e.Decide(ctx, a.ID, store.DecisionDenied, "interrupt")
+			}
+		}
+	}
+	if pending, err := e.store.ListPendingUserQuestionsForTask(ctx, taskID); err == nil {
+		for _, q := range pending {
+			if q.ExecutionStep != nil && *q.ExecutionStep == stepNumber {
+				_, _ = e.AnswerUserQuestion(ctx, q.ID, AnswerUserQuestionRequest{}, "interrupt")
+			}
+		}
+	}
+}
+
+// workerStepCanceled reports whether a person stopped this step of this run.
+func (e *Engine) workerStepCanceled(taskID, executionID string, stepIndex int) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.canceledSteps[workerStepKey{
+		taskID:      taskID,
+		executionID: executionID,
+		stepIndex:   stepIndex,
+	}]
+}
+
+// stoppedWorkerSteps counts the plan steps of this run a person ended. Only
+// CancelWorkerStep sets the mark, so this is not "failed" and not "never ran".
+func (e *Engine) stoppedWorkerSteps(taskID, executionID string, total int) int {
+	stopped := 0
+	for i := 0; i < total; i++ {
+		if e.workerStepCanceled(taskID, executionID, i) {
+			stopped++
+		}
+	}
+	return stopped
+}
+
+// stoppedSomeNote marks a partial answer: some workers finished, and the
+// reader ended at least one. It follows the turn's response language.
+func stoppedSomeNote(lang responseLanguage, n int) string {
+	if lang == responseLanguageChinese {
+		return fmt.Sprintf("（已停止 %d 个 worker，以上结果可能不完整。）", n)
+	}
+	if n == 1 {
+		return "(1 worker was stopped, so the result above may be incomplete.)"
+	}
+	return fmt.Sprintf("(%d workers were stopped, so the result above may be incomplete.)", n)
+}
+
+// stoppedEverythingNote is the whole answer when no worker was left to finish:
+// there is no result to present, only the fact that the work was ended.
+func stoppedEverythingNote(lang responseLanguage, n int) string {
+	if lang == responseLanguageChinese {
+		return fmt.Sprintf("已停止全部 %d 个 worker，本轮没有产出结果。", n)
+	}
+	if n == 1 {
+		return "The only worker was stopped, so this turn produced no result."
+	}
+	return fmt.Sprintf("All %d workers were stopped, so this turn produced no result.", n)
+}
+
+// unregisterWorkerStepHandle drops a step's handle when its worker goroutine
+// returns, so a cancel that arrives after the stream closed reports "not
+// running" instead of killing a process that had already answered.
+func (e *Engine) unregisterWorkerStepHandle(taskID, executionID string, stepIndex int) {
+	e.mu.Lock()
+	delete(e.stepHandles, workerStepKey{
+		taskID:      taskID,
+		executionID: executionID,
+		stepIndex:   stepIndex,
+	})
+	e.mu.Unlock()
+}
+
 func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string, failed bool) {
+	e.finishOrchestratedAs(ctx, id, executionID, failed, false)
+}
+
+// finishOrchestratedCanceled ends a turn someone stopped on purpose. Every
+// worker in the plan is gone, so there is no result to call delivered; the
+// task ends canceled, the same way a whole-task cancel reads.
+func (e *Engine) finishOrchestratedCanceled(ctx context.Context, id, executionID string) {
+	e.finishOrchestratedAs(ctx, id, executionID, false, true)
+}
+
+func (e *Engine) finishOrchestratedAs(ctx context.Context, id, executionID string, failed, canceled bool) {
 	e.mu.Lock()
 	currentRun := e.activeRuns[id] == executionID
 	if currentRun {
@@ -711,6 +998,8 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 		delete(e.canceled, id)
 		delete(e.pendingFollowUp, id)
 	}
+	// Scoped by run, so a stale turn ending cannot drop the live turn's steps.
+	e.clearStepRuntimeLocked(id, executionID)
 	e.active--
 	e.mu.Unlock()
 	if !currentRun {
@@ -778,6 +1067,11 @@ func (e *Engine) finishOrchestrated(ctx context.Context, id, executionID string,
 	final := StatusSucceeded
 	if failed || e.hasCriticalPersistFailure(id) {
 		final = StatusFailed
+	}
+	if canceled {
+		// The reader ended the work themselves; that is a cancel, not a failure
+		// and not a delivery.
+		final = StatusCanceled
 	}
 	if workspaceFinalized {
 		if workspaceErr != nil {
@@ -850,7 +1144,7 @@ func (e *Engine) forwardWorkerEvents(
 		if !e.isActiveRun(taskID, executionID) {
 			continue
 		}
-		payload := stampWorker(ev.Payload, agent, model, exec)
+		payload := stampWorker(ev.Payload, agent, model, exec, executionID)
 		semantic, semanticErr := adapter.DecodeEvent(ev)
 		// Same as runLoop: steer interrupt cancel errors must not land in the transcript.
 		skipPersist := false
@@ -1073,11 +1367,21 @@ func isUserRoleEcho(raw json.RawMessage) bool {
 }
 
 // stampWorker tags sub-agent events as task-only (hidden from main chat column).
-func stampWorker(raw json.RawMessage, agent, model string, exec adapter.ExecutionRef) json.RawMessage {
-	return stampAgent(raw, agent, model, true, exec)
+//
+// runExecutionID is the turn the step belongs to, which is the id the plan
+// table stores per step. `execution_id` alone is the concrete adapter attempt:
+// a meta-retry or provider fallback starts a new process under the same step,
+// so a plan row cannot be joined to its events (or its tokens summed across
+// attempts) by that field. The extra field makes the join exact and additive.
+func stampWorker(raw json.RawMessage, agent, model string, exec adapter.ExecutionRef, runExecutionID string) json.RawMessage {
+	return stampAgentRun(raw, agent, model, true, exec, runExecutionID)
 }
 
 func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec adapter.ExecutionRef) json.RawMessage {
+	return stampAgentRun(raw, agent, model, taskOnly, exec, "")
+}
+
+func stampAgentRun(raw json.RawMessage, agent, model string, taskOnly bool, exec adapter.ExecutionRef, runExecutionID string) json.RawMessage {
 	vis := VisibilityUserFacing()
 	if taskOnly {
 		vis = VisibilityTaskOnly()
@@ -1093,6 +1397,7 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec ad
 	if len(raw) == 0 {
 		m := map[string]any{}
 		ApplyAttribution(m, attr)
+		stampRunExecutionID(m, runExecutionID)
 		b, _ := json.Marshal(m)
 		return b
 	}
@@ -1119,11 +1424,18 @@ func stampAgent(raw json.RawMessage, agent, model string, taskOnly bool, exec ad
 	// Never overwrite an explicit visibility from the emitter (e.g. kinagent tools).
 	// ApplyAttribution preserves existing visibility and only fills source when unset.
 	ApplyAttribution(m, attr)
+	stampRunExecutionID(m, runExecutionID)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return raw
 	}
 	return out
+}
+
+func stampRunExecutionID(m map[string]any, runExecutionID string) {
+	if id := strings.TrimSpace(runExecutionID); id != "" {
+		m["run_execution_id"] = id
+	}
 }
 
 // applyExecutionMeta stamps immutable adapter-run identity onto event metadata.

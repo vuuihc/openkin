@@ -901,6 +901,31 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/WorkerStep"
+  /api/tasks/{taskId}/workers/{executionId}/{stepIndex}/cancel:
+    post:
+      operationId: cancelTaskWorkerStep
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+        - in: path
+          name: executionId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: stepIndex
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "204":
+          description: Worker stopped; the task and its other workers keep running
+        "400":
+          description: The step index is not a non-negative integer
+        "404":
+          description: The task does not exist
+        "409":
+          description: The step is no longer running
   /api/approvals:
     get:
       operationId: listApprovals

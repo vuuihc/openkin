@@ -380,7 +380,7 @@ func TestRequestApprovalCarriesExecution(t *testing.T) {
 
 func TestStampWorkerExecutionMeta(t *testing.T) {
 	got := stampWorker(json.RawMessage(`{"role":"assistant"}`), "codex", "gpt-x",
-		adapter.ExecutionRef{ID: "exec-9", Step: 3, Agent: "codex", Model: "gpt-x"})
+		adapter.ExecutionRef{ID: "exec-9", Step: 3, Agent: "codex", Model: "gpt-x"}, "")
 	var payload map[string]any
 	if err := json.Unmarshal(got, &payload); err != nil {
 		t.Fatal(err)

@@ -954,6 +954,36 @@ func (s *Store) UpdateTaskUnlessCanceled(ctx context.Context, id string, p TaskP
 	return s.updateTask(ctx, id, p, canceledStatus)
 }
 
+// ResumeTaskFromWait moves a task out of a wait state in one statement. The
+// caller has just decided the approval or answered the question that put it
+// there, and the run may end in the same moment: a read-then-write would let a
+// decision land on a row that has already finished and drag it back to running
+// for good. ErrConflict means the row has moved on, which is not an error for
+// this caller.
+func (s *Store) ResumeTaskFromWait(ctx context.Context, id, to string, from ...string) error {
+	if id == "" || to == "" || len(from) == 0 {
+		return fmt.Errorf("resume task: id, status and at least one wait state are required")
+	}
+	placeholders := make([]string, len(from))
+	args := make([]any, 0, len(from)+2)
+	args = append(args, to, id)
+	for i, state := range from {
+		placeholders[i] = "?"
+		args = append(args, state)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tasks SET status = ? WHERE id = ? AND status IN (`+strings.Join(placeholders, ", ")+`)`,
+		args...,
+	)
+	if err != nil {
+		return fmt.Errorf("resume task: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
 // updateTask applies a patch, refusing to touch a row whose status is
 // refuseStatus. Empty refuseStatus applies the patch to any row that exists.
 func (s *Store) updateTask(ctx context.Context, id string, p TaskPatch, refuseStatus string) error {

@@ -162,6 +162,16 @@ type EngineConfig struct {
 	ExpiryInterval        time.Duration
 }
 
+// workerStepKey identifies one delegated plan step within one task run. The
+// task alone is not enough: step indices restart at zero every turn, so a
+// follow-up's step 0 would otherwise inherit the previous turn's handle or
+// cancel flag.
+type workerStepKey struct {
+	taskID      string
+	executionID string
+	stepIndex   int
+}
+
 // Engine owns task lifecycle. Status transitions only happen here (spec §3).
 type Engine struct {
 	store     *store.Store
@@ -184,6 +194,17 @@ type Engine struct {
 	queue         []string // FIFO of task IDs waiting to run
 	handles       map[string]adapter.RunHandle
 	handleGroups  map[string][]adapter.RunHandle // parallel orchestration wave
+	// stepHandles is the live process behind one delegated plan step, so a
+	// single worker can be stopped without ending its task. Keyed by the run it
+	// belongs to as well as the task: step indices start at zero again on every
+	// follow-up turn, and a cancel must never land on the previous turn's row.
+	stepHandles map[workerStepKey]adapter.RunHandle
+	// canceledSteps remembers the steps a person stopped. The worker's own
+	// goroutine reads it after its event stream closes: the stream ending is
+	// indistinguishable from a crash, and only this flag says the difference
+	// between "killed on purpose" and "failed", which decides whether the
+	// orchestrator retries the step or the task reports a failure.
+	canceledSteps map[workerStepKey]bool
 	canceled      map[string]bool
 	activeRuns    map[string]string // task id -> current top-level execution id
 	// workspaceCommitting marks tasks past the last cancellable point before
@@ -208,7 +229,7 @@ type Engine struct {
 	// and read where a queued run is ended
 	// before it starts (cancelUnstarted, which reports it). Cleared where that
 	// stops being true -- the adapter has been handed the prompt (startOne and
-	// registerWorkerHandles, one for each way a run is started), the start failed
+	// registerWorkerStepHandle, one for each way a run is started), the start failed
 	// (failStartWithExecution), the cancel killed a live run instead
 	// (cancelTask's handle branch), or the task is gone (Delete). An entry
 	// therefore means exactly "a follow-up the user can see that no run has been
@@ -352,6 +373,8 @@ func newEngine(st *store.Store, agents *agent.Registry, bus *Bus, maxConcurrent 
 		events:              events,
 		maxConcurrent:       maxConcurrent,
 		handles:             make(map[string]adapter.RunHandle),
+		stepHandles:         make(map[workerStepKey]adapter.RunHandle),
+		canceledSteps:       make(map[workerStepKey]bool),
 		canceled:            make(map[string]bool),
 		activeRuns:          make(map[string]string),
 		workspaceCommitting: make(map[string]string),
@@ -2059,6 +2082,7 @@ func (e *Engine) cancelTask(ctx context.Context, id string) (store.Task, error) 
 			delete(e.handles, id)
 			delete(e.handleGroups, id)
 			delete(e.canceled, id)
+			e.clearStepRuntimeLocked(id, "")
 			// A live run is being killed, not a delivery being lost: the adapter was
 			// handed the prompt, so there is no unanswered message to report -- and
 			// the label has to go, or a later cancel that finds no run would report
@@ -2193,6 +2217,7 @@ func (e *Engine) Delete(ctx context.Context, id string) error {
 	delete(e.pendingFollowUp, id)
 	delete(e.activeRuns, id)
 	delete(e.queuedMessage, id)
+	e.clearStepRuntimeLocked(id, "")
 	e.mu.Unlock()
 
 	e.resetAgentSession(ctx, t.Agent, id)

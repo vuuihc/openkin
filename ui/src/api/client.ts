@@ -1013,6 +1013,23 @@ export function listWorkerSteps(id: string): Promise<WorkerStep[]> {
   );
 }
 
+/**
+ * Stop one worker step, leaving the rest of the turn running.
+ *
+ * 204 on success; a 409 means the step already settled, which is the caller's
+ * cue to refresh the panel rather than report a failure.
+ */
+export function cancelWorkerStep(
+  taskId: string,
+  executionId: string,
+  stepIndex: number,
+): Promise<void> {
+  return apiFetch<void>(
+    `/api/tasks/${encodeURIComponent(taskId)}/workers/${encodeURIComponent(executionId)}/${stepIndex}/cancel`,
+    { method: "POST" },
+  );
+}
+
 export async function getTaskLimitWait(id: string): Promise<TaskLimitWait | null> {
   try {
     return await apiFetch<TaskLimitWait>(`/api/tasks/${encodeURIComponent(id)}/limit-wait`);

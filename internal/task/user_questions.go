@@ -246,14 +246,14 @@ func (e *Engine) AnswerUserQuestion(ctx context.Context, id string, req AnswerUs
 		return q, fmt.Errorf("persist user_question_answered: %w", err)
 	}
 
-	// Resume task to running if no other pending approvals or questions.
-	t, err := e.store.GetTask(ctx, q.TaskID)
-	if err == nil && (t.Status == StatusWaitingInput || t.Status == StatusWaitingApproval) {
-		pendingA, _ := e.store.ListPendingForTask(ctx, q.TaskID)
-		pendingQ, _ := e.store.ListPendingUserQuestionsForTask(ctx, q.TaskID)
-		if len(pendingA) == 0 && len(pendingQ) == 0 {
-			status := StatusRunning
-			_ = e.store.UpdateTask(ctx, q.TaskID, store.TaskPatch{Status: &status})
+	// Resume task to running if no other pending approvals or questions. The
+	// transition is guarded in the UPDATE itself: the turn can finish between
+	// the pending read and the write, and an unconditional write would move a
+	// terminal task back to running with nothing left to drive it.
+	pendingA, _ := e.store.ListPendingForTask(ctx, q.TaskID)
+	pendingQ, _ := e.store.ListPendingUserQuestionsForTask(ctx, q.TaskID)
+	if len(pendingA) == 0 && len(pendingQ) == 0 {
+		if e.store.ResumeTaskFromWait(ctx, q.TaskID, StatusRunning, StatusWaitingInput, StatusWaitingApproval) == nil {
 			if t2, err := e.store.GetTask(ctx, q.TaskID); err == nil {
 				e.bus.PublishTask(t2)
 			}
