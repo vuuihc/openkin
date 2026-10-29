@@ -93,6 +93,9 @@ export class Notifier {
         viewingTaskId: this.cb.viewingTaskId?.() ?? null,
       })
     ) {
+      // Record it all the same: the task is over, and a later rebroadcast must
+      // not turn a finish the reader already watched on screen into a banner.
+      this.seenTerminal.add(`${t.id}:${t.status}`);
       console.log(
         `[kin-desktop] notification: task ${t.id} ended on screen — not announced`,
       );

@@ -14,7 +14,15 @@ export function isTerminalStatus(status: string): boolean {
   return TERMINAL.has(status);
 }
 
-/** The task a console URL points at: `/tasks/<id>`, or null for anything else. */
+/**
+ * The task a console URL points at: `/tasks/<id>`, or null for anything else.
+ *
+ * A deliberate duplicate of the console's `taskIdFromPathname`
+ * (ui/src/lib/sessionCache.ts): this runs in the main process and cannot import
+ * the SPA bundle. The one difference is a malformed escape — the console keeps
+ * the raw text, and a URL that cannot be decoded here names no task a window
+ * could open.
+ */
 export function taskIdFromURL(url: string): string | null {
   try {
     const match = /^\/tasks\/([^/]+)\/?$/.exec(new URL(url).pathname);

@@ -16,7 +16,10 @@ import {
   appIconPath,
 } from "./config";
 import {
+  MIN_HEIGHT,
+  MIN_WIDTH,
   restoreWindowBounds,
+  savedBoundsFrom,
   type Rect,
   type SavedBounds,
 } from "./window-bounds";
@@ -121,8 +124,8 @@ export class MainWindow {
       height: bounds.height,
       x: bounds.x,
       y: bounds.y,
-      minWidth: 720,
-      minHeight: 480,
+      minWidth: MIN_WIDTH,
+      minHeight: MIN_HEIGHT,
       title: WINDOW_TITLE,
       show: false,
       backgroundColor: WINDOW_BG,
@@ -358,7 +361,9 @@ function readSavedBounds(): SavedBounds {
   try {
     const p = boundsPath();
     if (!existsSync(p)) return { ...DEFAULT_BOUNDS };
-    return JSON.parse(readFileSync(p, "utf8")) as SavedBounds;
+    // Whatever the file holds, only two finite positive sizes are a window;
+    // anything else is the defaults, not an exception inside create().
+    return savedBoundsFrom(JSON.parse(readFileSync(p, "utf8"))) ?? { ...DEFAULT_BOUNDS };
   } catch {
     return { ...DEFAULT_BOUNDS };
   }

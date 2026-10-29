@@ -37,8 +37,8 @@ export function restoreWindowBounds(
   workAreas: Rect[],
   primary: Rect,
 ): Rect {
-  const width = Math.max(MIN_WIDTH, Math.round(saved.width) || 0);
-  const height = Math.max(MIN_HEIGHT, Math.round(saved.height) || 0);
+  const width = Math.max(MIN_WIDTH, rounded(saved.width) ?? 0);
+  const height = Math.max(MIN_HEIGHT, rounded(saved.height) ?? 0);
 
   const x =
     typeof saved.x === "number" && Number.isFinite(saved.x) ? saved.x : null;
@@ -64,6 +64,42 @@ export function restoreWindowBounds(
     width: fitWidth,
     height: fitHeight,
   };
+}
+
+/**
+ * A bounds file's contents, as far as they can be trusted.
+ *
+ * The file is written by this shell and edited by nobody, which is exactly why
+ * a corrupt one is possible: a crash mid-write, a hand edit, a field that was
+ * once a string. A size is the one part a window cannot do without, so a
+ * document without two usable numbers is no saved bounds at all — the caller
+ * falls back to its defaults rather than to a 720×480 window.
+ *
+ * `1e999` parses to Infinity, which `Math.round` keeps; finite is the test, not
+ * "is a number".
+ */
+export function savedBoundsFrom(value: unknown): SavedBounds | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const width = finite(raw.width);
+  const height = finite(raw.height);
+  if (width === null || height === null || width <= 0 || height <= 0) {
+    return null;
+  }
+  return {
+    width,
+    height,
+    x: finite(raw.x) ?? undefined,
+    y: finite(raw.y) ?? undefined,
+  };
+}
+
+function finite(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function rounded(value: number): number | null {
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
 }
 
 function overlap(start: number, areaStart: number, length: number, areaLength: number): number {

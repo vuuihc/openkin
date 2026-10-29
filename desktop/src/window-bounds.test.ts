@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { restoreWindowBounds } from "./window-bounds.ts";
+import { restoreWindowBounds, savedBoundsFrom } from "./window-bounds.ts";
 
 const LAPTOP = { x: 0, y: 25, width: 1440, height: 875 };
 const EXTERNAL = { x: 1440, y: 0, width: 2560, height: 1415 };
@@ -92,5 +92,55 @@ describe("restoring the main window's bounds", () => {
       ),
       { x: 170, y: 83, width: 1100, height: 760 },
     );
+  });
+
+  it("clamps a size that JSON can make infinite", () => {
+    // `{"width": 1e999}` is valid JSON and parses to Infinity, which
+    // Math.round keeps; a finite check is what repairs it.
+    assert.deepEqual(
+      restoreWindowBounds(
+        { width: Number.POSITIVE_INFINITY, height: 760 },
+        [LAPTOP],
+        LAPTOP,
+      ),
+      { x: 360, y: 83, width: 720, height: 760 },
+    );
+  });
+});
+
+describe("reading a bounds file", () => {
+  it("keeps a rect with two usable sizes", () => {
+    assert.deepEqual(savedBoundsFrom({ x: 120, y: 140, width: 1100, height: 760 }), {
+      x: 120,
+      y: 140,
+      width: 1100,
+      height: 760,
+    });
+  });
+
+  it("drops a position it cannot use but keeps the size", () => {
+    assert.deepEqual(
+      savedBoundsFrom({ x: "left", y: null, width: 1100, height: 760 }),
+      { x: undefined, y: undefined, width: 1100, height: 760 },
+    );
+  });
+
+  it("is nothing at all without two usable sizes", () => {
+    for (const value of [
+      null,
+      undefined,
+      "text",
+      42,
+      [],
+      {},
+      { width: 1100 },
+      { width: 1100, height: 0 },
+      { width: -1, height: 760 },
+      { width: "1100", height: "760" },
+      // JSON.parse gives Infinity here.
+      { width: 1e999, height: 760 },
+    ]) {
+      assert.equal(savedBoundsFrom(value), null, JSON.stringify(value));
+    }
   });
 });

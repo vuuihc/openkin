@@ -81,9 +81,10 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
-      - name: Desktop shell typecheck + bundle
+      - name: Desktop shell typecheck + tests + bundle
         working-directory: desktop
         run: |
           npm ci --ignore-scripts
           npm run typecheck
+          npm test
           npm run build
