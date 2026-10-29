@@ -151,10 +151,22 @@ func TestHubTLSConfigRequiresModernTLS(t *testing.T) {
 func TestHubListenFailsOnPrivilegedPortWithoutPermission(t *testing.T) {
 	// A Hub configured for a port already in use must report it clearly rather
 	// than starting half-bound.
-	busy := freePort(t)
-	blocker := &Hub{cfg: HubConfig{Domain: "kin.example.com", HTTPSPort: busy, HTTPPort: 1}}
-	if _, err := blocker.Listen(context.Background(), Config{}); err != nil {
-		t.Fatalf("listen on a free port: %v", err)
+	//
+	// The reservation cannot be handed over in one step — freePort closes its
+	// listener so the Hub can bind — and under a loaded `go test ./...` another
+	// process can slip into the gap. The assertion is about the second bind, so
+	// retry the setup instead of failing on the race.
+	var busy int
+	for attempt := 1; ; attempt++ {
+		busy = freePort(t)
+		blocker := &Hub{cfg: HubConfig{Domain: "kin.example.com", HTTPSPort: busy, HTTPPort: 1}}
+		if _, err := blocker.Listen(context.Background(), Config{}); err != nil {
+			if attempt == 5 {
+				t.Fatalf("listen on a free port after %d attempts: %v", attempt, err)
+			}
+			continue
+		}
+		break
 	}
 	second := &Hub{cfg: HubConfig{Domain: "kin.example.com", HTTPSPort: busy, HTTPPort: 1}}
 	if _, err := second.Listen(context.Background(), Config{}); err == nil {
@@ -163,10 +175,11 @@ func TestHubListenFailsOnPrivilegedPortWithoutPermission(t *testing.T) {
 }
 
 // freePort returns a port that was free a moment ago. Tests that need a real
-// bind use it to avoid colliding with a developer's running daemon.
+// bind use it to avoid colliding with a developer's running daemon. It reserves
+// on the wildcard address because that is what the server binds.
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
 	}

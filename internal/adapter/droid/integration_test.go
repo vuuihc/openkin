@@ -314,7 +314,11 @@ func TestAdapterCancelAndProcessExit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		waitForLog(t, logPath, "READY", time.Second)
+		// A spawn budget, not a latency assertion: under a loaded `go test ./...`
+		// (every package building and running at once) a shell fake can take
+		// longer than a second to write its first line, and a red suite that
+		// only failed because the machine was busy costs more than it catches.
+		waitForLog(t, logPath, "READY", 10*time.Second)
 		if err := h.Cancel(); err != nil {
 			t.Fatal(err)
 		}
