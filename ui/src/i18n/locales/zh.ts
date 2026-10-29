@@ -463,6 +463,10 @@ const zh = {
     workerActivity: "{n} 次调用",
     workerActivityMore: "还有 {n} 次更早的调用未显示",
     workerNoActivity: "还没有工具调用",
+    workerStop: "停止",
+    workerStopping: "正在停止…",
+    workerCancelFailed: "无法停止这个 worker。",
+    workerTokens: "{n} token",
   },
   projects: {
     title: "项目",

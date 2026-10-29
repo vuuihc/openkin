@@ -14,6 +14,7 @@ import type { ActionSheetButton } from "@ionic/core";
 import {
   ApiError,
   cancelTask,
+  cancelWorkerStep,
   deleteTask,
   createArtifact,
   answerUserQuestion,
@@ -78,7 +79,7 @@ import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
 import ShareDialog from "../components/task/ShareDialog";
-import { workerActivity } from "../components/task/workerActivity";
+import { workerActivity, type WorkerRow } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { anchoredPendingIds, orderPending } from "../lib/needsYou";
 import {
@@ -209,6 +210,10 @@ export default function TaskDetailPage({
   const draftPromptRef = useRef("");
   const draftAttachmentsRef = useRef<Upload[]>([]);
   const [stopping, setStopping] = useState(false);
+  /** The worker row whose stop request is in flight, keyed like the timeline. */
+  const [workerStoppingKey, setWorkerStoppingKey] = useState<string | null>(null);
+  /** The task the page is showing now; a late cancel answer must check it. */
+  const taskIdRef = useRef(id);
   const [deleting, setDeleting] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -299,6 +304,7 @@ export default function TaskDetailPage({
   }, [id]);
 
   useEffect(() => {
+    taskIdRef.current = id;
     lastObservedEventSeq.current = 0;
     setUsage(null);
     setLimitWait(null);
@@ -950,6 +956,33 @@ export default function TaskDetailPage({
     }
   }
 
+  async function onStopWorker(row: WorkerRow) {
+    if (!task || workerStoppingKey) return;
+    const key = `${row.executionId}-${row.stepIndex}`;
+    setWorkerStoppingKey(key);
+    try {
+      await cancelWorkerStep(task.id, row.executionId, row.stepIndex);
+    } catch (err) {
+      // 409 is the step having settled while the button was on screen. The
+      // refresh below is the honest answer; an error toast would blame the
+      // reader for a race they could not see.
+      if (!(err instanceof ApiError && err.status === 409)) {
+        pushToast(err instanceof Error ? err.message : tr("task.workerCancelFailed"), "error");
+      }
+    } finally {
+      setWorkerStoppingKey(null);
+      // The row's plan status is the poll's to report; ask now so the row
+      // reads canceled without waiting for the next event to nudge the poll.
+      // A reader who moved to another task in the meantime keeps that task's
+      // panel: this answer belongs to the task it was asked for.
+      void listWorkerSteps(task.id)
+        .then((steps) => {
+          if (taskIdRef.current === task.id) setWorkerSteps(steps);
+        })
+        .catch(() => {});
+    }
+  }
+
   async function onDelete() {
     if (!task) return;
     const title = (task.title || displayUserPrompt(task.prompt || "") || task.id).trim();
@@ -1566,7 +1599,14 @@ export default function TaskDetailPage({
               : "flex-1 overflow-y-auto kin-scroll py-5 min-h-0 invisible"
           }
         >
-          <WorkerTimeline rows={workerRows} onOpenPath={onOpenWorkspacePath} />
+          <WorkerTimeline
+            rows={workerRows}
+            onOpenPath={onOpenWorkspacePath}
+            // A settled task has nothing left to stop; a stale running row is
+            // the poll's problem, not a button the reader can use.
+            onStop={isTerminal(task.status) ? undefined : onStopWorker}
+            stoppingKey={workerStoppingKey}
+          />
           <ChatStream
             events={events}
             onOpenPath={onOpenWorkspacePath}

@@ -480,6 +480,10 @@ const en: MessageTree = {
     workerActivity: "{n} calls",
     workerActivityMore: "{n} earlier calls not shown",
     workerNoActivity: "No tool calls yet",
+    workerStop: "Stop",
+    workerStopping: "Stopping…",
+    workerCancelFailed: "Could not stop this worker.",
+    workerTokens: "{n} tokens",
   },
   projects: {
     title: "Projects",

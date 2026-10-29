@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useT } from "../../i18n/react";
+import { formatTokenCount } from "../../lib/usage";
 import ToolStepRow from "../chat/ToolStepRow";
 import { WORKER_STATUS_UNPLANNED, type WorkerRow } from "./workerActivity";
 
@@ -41,9 +42,18 @@ function statusKey(status: string): string {
 export default function WorkerTimeline({
   rows,
   onOpenPath,
+  onStop,
+  stoppingKey = null,
 }: {
   rows: WorkerRow[];
   onOpenPath?: (path: string) => void;
+  /**
+   * Stops one worker without touching the rest of the turn. Absent when the
+   * caller cannot cancel (the task is settled, or the surface is read-only).
+   */
+  onStop?: (row: WorkerRow) => void;
+  /** The row whose stop request is in flight, so its button can say so. */
+  stoppingKey?: string | null;
 }) {
   const tr = useT();
   // undefined = the reader has not touched the list, so the live row shows;
@@ -79,38 +89,65 @@ export default function WorkerTimeline({
             const hidden = Math.max(0, row.total - row.activity.length);
             return (
               <li key={key} className="rounded-md px-2 py-1.5 hover:bg-kin-fill">
-                <button
-                  type="button"
-                  onClick={() => setPinned(expanded ? null : key)}
-                  aria-expanded={expanded}
-                  className="grid w-full grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2 text-left text-body"
-                >
-                  <span className="text-center font-mono text-caption text-kin-muted">
-                    {row.stepIndex + 1}
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-medium text-[var(--kin-text)]">
-                        {row.agent || tr("task.workerUnnamed")}
-                      </span>
-                      {row.access && (
-                        <span className="shrink-0 text-micro uppercase tracking-label text-kin-muted">
-                          {row.access === "write"
-                            ? tr("task.workerAccessWrite")
-                            : tr("task.workerAccessRead")}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPinned(expanded ? null : key)}
+                    aria-expanded={expanded}
+                    className="grid min-w-0 flex-1 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-left text-body"
+                  >
+                    <span className="text-center font-mono text-caption text-kin-muted">
+                      {row.stepIndex + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-medium text-[var(--kin-text)]">
+                          {row.agent || tr("task.workerUnnamed")}
                         </span>
-                      )}
+                        {row.access && (
+                          <span className="shrink-0 text-micro uppercase tracking-label text-kin-muted">
+                            {row.access === "write"
+                              ? tr("task.workerAccessWrite")
+                              : tr("task.workerAccessRead")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="truncate text-caption text-kin-muted">
+                        {row.role ?? tr("task.workerUnplanned")}
+                        {row.resultSummary ? ` · ${row.resultSummary}` : ""}
+                      </div>
                     </div>
-                    <div className="truncate text-caption text-kin-muted">
-                      {row.role ?? tr("task.workerUnplanned")}
-                      {row.resultSummary ? ` · ${row.resultSummary}` : ""}
-                    </div>
-                  </div>
+                  </button>
                   <span className="flex shrink-0 items-center gap-2 text-caption text-kin-muted">
                     {row.total > 0 && tr("task.workerActivity", { n: row.total })}
+                    {row.tokensKnown && (
+                      <span className="tabular-nums">
+                        {tr("task.workerTokens", {
+                          n: formatTokenCount(row.tokensIn + row.tokensOut),
+                        })}
+                      </span>
+                    )}
                     <span className="tabular-nums">{tr(statusKey(row.status))}</span>
+                    {onStop && row.status === "running" && (
+                      // A sibling of the expand button, not a child: a button
+                      // inside a button is invalid, and the tap that stops a
+                      // worker must not also fold its row open.
+                      <button
+                        type="button"
+                        onClick={() => onStop(row)}
+                        // One stop at a time: the page ignores a second tap,
+                        // so every stop says so instead of silently doing
+                        // nothing while another request is in flight.
+                        disabled={stoppingKey !== null}
+                        className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-2.5 text-strong text-kin-secondary outline-none hover:bg-[var(--kin-fill-strong)] hover:text-kin-text focus-visible:ring-2 focus-visible:ring-kin-focus-ring disabled:opacity-50"
+                      >
+                        {stoppingKey === key
+                          ? tr("task.workerStopping")
+                          : tr("task.workerStop")}
+                      </button>
+                    )}
                   </span>
-                </button>
+                </div>
 
                 {expanded && (
                   <div className="mt-1 divide-y divide-[var(--kin-hairline)] border-t border-[var(--kin-hairline)]">

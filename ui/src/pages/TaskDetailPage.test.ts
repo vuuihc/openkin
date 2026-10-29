@@ -68,4 +68,20 @@ describe("TaskDetailPage session rail breakpoints", () => {
       "(failure as SubmitFailure).keepComposer = draftPromptRef.current !== submittedDraft;",
     );
   });
+
+  it("stops one worker by its plan identity and refreshes the panel", () => {
+    // The cancel endpoint is keyed by the plan row's execution id and step
+    // index -- not the event's attempt id, which the panel never shows as an
+    // identity. A row the reader can see but the API cannot name is a button
+    // that always fails.
+    expect(source).toContain("cancelWorkerStep(task.id, row.executionId, row.stepIndex)");
+    expect(source).toContain("void listWorkerSteps(task.id)");
+    expect(source).toContain("if (taskIdRef.current === task.id) setWorkerSteps(steps);");
+    // A 409 is the step having settled, not a failure worth a toast.
+    expect(source).toContain("err instanceof ApiError && err.status === 409");
+    // One stop in flight at a time, and no stop offered on a settled task.
+    expect(source).toContain("if (!task || workerStoppingKey) return;");
+    expect(source).toContain("stoppingKey={workerStoppingKey}");
+    expect(source).toContain("onStop={isTerminal(task.status) ? undefined : onStopWorker}");
+  });
 });

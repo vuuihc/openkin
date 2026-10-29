@@ -19,6 +19,14 @@ export type EventVisibility = {
 
 export type ExecutionAttribution = {
   id?: string;
+  /**
+   * The turn an adapter attempt belongs to.
+   *
+   * A worker's `id` is its attempt: a retry starts a new one under the same
+   * step, so it cannot join a plan row. The engine stamps the turn separately
+   * as `run_execution_id`, which is what the plan table stores.
+   */
+  runId?: string;
   agent?: string;
   step?: number;
   model?: string;
@@ -175,14 +183,15 @@ function legacyVisibilityFor(
  */
 export function readExecution(p: Record<string, unknown>): ExecutionAttribution | undefined {
   const id = typeof p.execution_id === "string" ? p.execution_id.trim() : undefined;
+  const runId = typeof p.run_execution_id === "string" ? p.run_execution_id.trim() : undefined;
   const agent = typeof p.execution_agent === "string" ? p.execution_agent.trim() : undefined;
   const model = typeof p.execution_model === "string" ? p.execution_model.trim() : undefined;
   let step: number | undefined;
   if (typeof p.execution_step === "number" && Number.isFinite(p.execution_step)) {
     step = p.execution_step;
   }
-  if (!id && !agent && step === undefined && !model) return undefined;
-  return { id: id || undefined, agent, step, model };
+  if (!id && !runId && !agent && step === undefined && !model) return undefined;
+  return { id: id || undefined, runId: runId || undefined, agent, step, model };
 }
 
 /**

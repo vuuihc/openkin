@@ -8,12 +8,20 @@
  * calls from the same SSE stream the chat is built from), so the panel subscribes
  * to nothing new.
  *
- * The join is `execution_step` → `step_index`, and the two are not the same
- * number. The engine stamps `execution_step` as `si + 1` (`orchestrate.go:261`,
- * the number a human reads) and writes `step_index` as `si` (`orchestrate.go:542`,
- * an index into `plan.Steps`). The offset is a named constant below rather than a
- * bare `- 1` in the comparison: a lone `- 1` next to another `- 1` is how this
- * turns into a silently empty panel the next time somebody edits it.
+ * The join is the run's execution id plus `execution_step` → `step_index`, and
+ * the two step numbers are not the same number. The engine stamps
+ * `execution_step` as `si + 1` (`orchestrate.go:261`, the number a human reads)
+ * and writes `step_index` as `si` (`orchestrate.go:542`, an index into
+ * `plan.Steps`). The offset is a named constant below rather than a bare `- 1`
+ * in the comparison: a lone `- 1` next to another `- 1` is how this turns into a
+ * silently empty panel the next time somebody edits it.
+ *
+ * The id in the join is `run_execution_id`, not `execution_id`. The plan table
+ * stores the turn's execution id; the worker events carry the *attempt's* id,
+ * and a retry starts a new attempt under the same step. Joining on the attempt
+ * id therefore never matched the plan, and the panel drew its rows with no
+ * activity under them. Events written before the run id was stamped fall back
+ * to their own id, which is what the old code did.
  *
  * An event with an `execution_id` but no `execution_step` is the *host* run —
  * `engine.go:2279` builds the host's ref with no step — so requiring a step is
@@ -55,6 +63,21 @@ export type WorkerRow = {
   /** Every tool call seen for this step, so a capped list can say so. */
   total: number;
   /**
+   * The step's own token use, as the adapters reported it.
+   *
+   * Each attempt's `usage` events are incremental and summed; that attempt's
+   * `result` tokens are used only when it emitted no `usage` event at all — the
+   * same rule the engine's ledger applies, because a result that repeated the
+   * totals after usage events would double every finished worker's count. The
+   * two rules are applied per attempt, so a retry that reports only a result
+   * still adds its tokens instead of being dropped. `tokensKnown` separates
+   * "reported zero" from "the adapter reports nothing", and the row prints
+   * nothing in the second case.
+   */
+  tokensIn: number;
+  tokensOut: number;
+  tokensKnown: boolean;
+  /**
    * True when the events named a step the plan table has no row for.
    *
    * Real, and not only a race: the panel's first poll lands 250ms after the page
@@ -77,10 +100,98 @@ type Group = {
   /** Who the events say is running this step, for a row the plan has no name in. */
   agent: string;
   model?: string;
+  /**
+   * Token accounting per adapter attempt, keyed by the attempt's execution id.
+   *
+   * Per attempt, not per step: the engine's own ledger resets its `sawUsage`
+   * flag for each process it starts, so a retry that reports only a `result`
+   * still counts even when the attempt before it sent `usage` events. Summing
+   * at the step level would silently drop the retry's tokens.
+   */
+  attempts: Map<string, AttemptTokens>;
+};
+
+type AttemptTokens = {
+  usageIn: number;
+  usageOut: number;
+  /** A usage event arrived, so this attempt's result is a repeat, not a source. */
+  sawUsage: boolean;
+  usageKnown: boolean;
+  resultIn: number;
+  resultOut: number;
+  resultKnown: boolean;
 };
 
 function groupKey(executionId: string, stepIndex: number): string {
   return `${executionId}\u0000${stepIndex}`;
+}
+
+/** One of the numbers, keyed the way the adapters and the engine's decoder key it. */
+function firstInt(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+/**
+ * The token pair on a usage or result payload, nested or flat.
+ *
+ * Mirrors `normalizeUsage` in `internal/adapter/events.go`: the nested `usage`
+ * object wins, and each adapter's spelling of the same field is accepted. No
+ * value means the event said nothing about tokens, not that it used zero.
+ */
+function usageTokens(p: Record<string, unknown>): { input: number; output: number } | undefined {
+  const nested =
+    p.usage && typeof p.usage === "object" ? (p.usage as Record<string, unknown>) : {};
+  const input = firstInt(
+    nested.input_tokens,
+    nested.prompt_tokens,
+    nested.tokens_in,
+    p.input_tokens,
+    p.prompt_tokens,
+    p.tokens_in,
+  );
+  const output = firstInt(
+    nested.output_tokens,
+    nested.completion_tokens,
+    nested.tokens_out,
+    p.output_tokens,
+    p.completion_tokens,
+    p.tokens_out,
+  );
+  if (input === undefined && output === undefined) return undefined;
+  return { input: input ?? 0, output: output ?? 0 };
+}
+
+/** What a row prints: per-attempt usage sums, else each attempt's result total. */
+function groupTokens(group: Group | undefined): {
+  tokensIn: number;
+  tokensOut: number;
+  tokensKnown: boolean;
+} {
+  if (!group) return { tokensIn: 0, tokensOut: 0, tokensKnown: false };
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let known = false;
+  for (const attempt of group.attempts.values()) {
+    if (attempt.sawUsage) {
+      // Usage events are incremental; a result from the same attempt would
+      // repeat what they already counted.
+      if (attempt.usageKnown) {
+        tokensIn += attempt.usageIn;
+        tokensOut += attempt.usageOut;
+        known = true;
+      }
+      continue;
+    }
+    if (attempt.resultKnown) {
+      tokensIn += attempt.resultIn;
+      tokensOut += attempt.resultOut;
+      known = true;
+    }
+  }
+  return known ? { tokensIn, tokensOut, tokensKnown: true } : { tokensIn: 0, tokensOut: 0, tokensKnown: false };
 }
 
 /**
@@ -139,24 +250,36 @@ export function workerActivity(
   const groups = new Map<string, Group>();
 
   for (const event of events) {
-    if (event.type !== "tool_use" && event.type !== "tool_result") continue;
+    if (
+      event.type !== "tool_use" &&
+      event.type !== "tool_result" &&
+      event.type !== "usage" &&
+      event.type !== "result"
+    ) {
+      continue;
+    }
     const p = (event.payload ?? {}) as Record<string, unknown>;
     const exec = readExecution(p);
     // No step means no worker: the host's own run carries an execution id too.
-    if (!exec?.id || exec.step === undefined) continue;
+    if (!exec || exec.step === undefined) continue;
+    // The plan row is keyed by the run's id; the event's own id is its attempt.
+    // A run id alone is enough to place the event when the attempt id is absent.
+    const runId = exec.runId || exec.id || "";
+    if (!runId) continue;
     const stepIndex = exec.step - WORKER_STEP_OFFSET;
     if (stepIndex < 0) continue;
 
-    const key = groupKey(exec.id, stepIndex);
+    const key = groupKey(runId, stepIndex);
     let group = groups.get(key);
     if (!group) {
       group = {
-        executionId: exec.id,
+        executionId: runId,
         stepIndex,
         activity: [],
         byKey: new Map(),
         agent: exec.agent ?? "",
         model: exec.model,
+        attempts: new Map(),
       };
       groups.set(key, group);
     } else {
@@ -164,6 +287,42 @@ export function workerActivity(
       // keep the newest non-empty answer rather than the first.
       if (exec.agent) group.agent = exec.agent;
       if (exec.model) group.model = exec.model;
+    }
+
+    if (event.type === "usage" || event.type === "result") {
+      // The attempt is what the engine accounts by: a retry is a new process
+      // with its own usage/result rule, so its tokens add to the step's total
+      // instead of being folded into the attempt that came before it.
+      const attemptKey = exec.id || runId;
+      let attempt = group.attempts.get(attemptKey);
+      if (!attempt) {
+        attempt = {
+          usageIn: 0,
+          usageOut: 0,
+          sawUsage: false,
+          usageKnown: false,
+          resultIn: 0,
+          resultOut: 0,
+          resultKnown: false,
+        };
+        group.attempts.set(attemptKey, attempt);
+      }
+      const tokens = usageTokens(p);
+      if (event.type === "usage") {
+        attempt.sawUsage = true;
+        if (tokens) {
+          attempt.usageIn += tokens.input;
+          attempt.usageOut += tokens.output;
+          attempt.usageKnown = true;
+        }
+      } else if (tokens) {
+        // Remembered, not added: only an attempt that never sent usage falls
+        // back to its result total.
+        attempt.resultIn = tokens.input;
+        attempt.resultOut = tokens.output;
+        attempt.resultKnown = true;
+      }
+      continue;
     }
 
     const nameHint = toolNameHint(p);
@@ -257,6 +416,7 @@ export function workerActivity(
       error: step.error,
       activity: capActivity(group?.activity ?? [], maxLines),
       total: group?.activity.length ?? 0,
+      ...groupTokens(group),
       unplanned: false,
     });
   }
@@ -280,6 +440,7 @@ export function workerActivity(
       status: last?.status === "error" ? "failed" : WORKER_STATUS_UNPLANNED,
       activity: capActivity(group.activity, maxLines),
       total: group.activity.length,
+      ...groupTokens(group),
       unplanned: true,
     });
   }

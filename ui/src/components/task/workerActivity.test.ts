@@ -225,4 +225,120 @@ describe("workerActivity", () => {
     expect(rows[0].total).toBe(1);
     expect(rows[0].activity[0]).toMatchObject({ name: "Read", summary: "Read /tmp/x" });
   });
+
+  // The plan row stores the turn; the events carry the attempt. Joining on the
+  // event's own id is the bug this whole field exists to fix: the rows still
+  // draw, they just sit empty while the worker is busy.
+  it("joins the plan row by the run id, not the adapter attempt", () => {
+    const events = [
+      toolUse(1, {
+        execution_id: "attempt-2",
+        run_execution_id: "turn-1",
+        execution_step: 1,
+        execution_agent: "claude",
+        tool_use_id: "a",
+        name: "bash",
+      }),
+    ];
+    const rows = workerActivity(events, [step(0, { execution_id: "turn-1" })]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ executionId: "turn-1", total: 1, unplanned: false });
+    expect(rows[0].activity[0].name).toBe("bash");
+  });
+
+  it("sums a step's usage events, across a retry's attempts", () => {
+    const usage = (seq: number, attempt: string, input: number, output: number) =>
+      other(seq, "usage", {
+        execution_id: attempt,
+        run_execution_id: "turn-1",
+        execution_step: 1,
+        input_tokens: input,
+        output_tokens: output,
+      });
+    const rows = workerActivity(
+      [usage(1, "attempt-1", 10, 2), usage(2, "attempt-2", 5, 3)],
+      [step(0, { execution_id: "turn-1" })],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ tokensIn: 15, tokensOut: 5, tokensKnown: true });
+  });
+
+  it("reads tokens from the nested usage object an adapter may send", () => {
+    const rows = workerActivity(
+      [
+        other(1, "usage", {
+          run_execution_id: "exec-1",
+          execution_step: 1,
+          usage: { prompt_tokens: 8, completion_tokens: 4 },
+        }),
+      ],
+      [step(0)],
+    );
+    expect(rows[0]).toMatchObject({ tokensIn: 8, tokensOut: 4, tokensKnown: true });
+  });
+
+  it("uses a result's tokens only when the step sent no usage event", () => {
+    const result = other(1, "result", {
+      run_execution_id: "exec-1",
+      execution_step: 1,
+      type: "result",
+      tokens_in: 7,
+      tokens_out: 1,
+    });
+    // No usage: the legacy adapter's result is the only accounting there is.
+    expect(workerActivity([result], [step(0)])[0]).toMatchObject({
+      tokensIn: 7,
+      tokensOut: 1,
+      tokensKnown: true,
+    });
+    // With usage, the result repeated totals that were already counted.
+    const rows = workerActivity(
+      [
+        other(0, "usage", {
+          run_execution_id: "exec-1",
+          execution_step: 1,
+          input_tokens: 10,
+          output_tokens: 2,
+        }),
+        result,
+      ],
+      [step(0)],
+    );
+    expect(rows[0]).toMatchObject({ tokensIn: 10, tokensOut: 2 });
+  });
+
+  // The usage/result rule is per attempt, the way the engine's ledger applies
+  // it. A retry that only reports a result still spent tokens, and dropping
+  // them would make a two-attempt worker look cheaper than the one-attempt run
+  // it replaced.
+  it("counts a retry's result tokens even when the first attempt sent usage", () => {
+    const rows = workerActivity(
+      [
+        other(0, "usage", {
+          execution_id: "attempt-1",
+          run_execution_id: "exec-1",
+          execution_step: 1,
+          input_tokens: 10,
+          output_tokens: 2,
+        }),
+        other(1, "result", {
+          execution_id: "attempt-2",
+          run_execution_id: "exec-1",
+          execution_step: 1,
+          tokens_in: 7,
+          tokens_out: 1,
+        }),
+      ],
+      [step(0)],
+    );
+    expect(rows[0]).toMatchObject({ tokensIn: 17, tokensOut: 3, tokensKnown: true });
+  });
+
+  it("says nothing about tokens when the adapter reported none", () => {
+    const rows = workerActivity(
+      [other(1, "usage", { run_execution_id: "exec-1", execution_step: 1 })],
+      [step(0)],
+    );
+    expect(rows[0]).toMatchObject({ tokensIn: 0, tokensOut: 0, tokensKnown: false });
+  });
 });
