@@ -7,6 +7,7 @@ import {
   kinBinaryPath,
   isDev,
 } from "./config";
+import { listKinDaemonPids, waitForRivalDaemon } from "./daemon-rival";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,7 +106,31 @@ export class Sidecar {
     const generation = ++this.generation;
     this.stopping = false;
     const expected = await this.binaryVersion();
-    const healthy = await this.probeHealth();
+    let healthy = await this.probeHealth();
+
+    // Nothing answers, but a kin process may be on its way back. On a machine
+    // set up as a node, launchd restarts the installed daemon seconds after a
+    // rebuild kills its listener — a window longer than one health probe. A
+    // second daemon spawned here would share the database with the first while
+    // keeping its own bus, and the console would watch the wrong one; see
+    // daemon-rival.ts. A cold machine has no such process and spawns at once.
+    if (!healthy && !this.child) {
+      const outcome = await waitForRivalDaemon({
+        listRivals: listKinDaemonPids,
+        probeHealth: () => this.probeHealth(),
+      });
+      if (generation !== this.generation || this.stopping) return this.status;
+      if (outcome === "stuck") {
+        this.status = {
+          state: "unavailable",
+          reason:
+            "a kin daemon process is running but not answering on :7777 — not starting a second one",
+        };
+        console.error(`[kin-desktop] ${this.status.reason}`);
+        return this.status;
+      }
+      healthy = outcome === "healthy";
+    }
 
     if (healthy) {
       if (generation !== this.generation) return this.status;

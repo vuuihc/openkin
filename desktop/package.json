@@ -10,6 +10,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\"",
     "dev": "node scripts/build.mjs && node scripts/run-electron.mjs",
     "dist": "node scripts/build.mjs && electron-builder --mac --arm64",
     "postinstall": "electron-builder install-app-deps"

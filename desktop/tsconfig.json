@@ -6,6 +6,11 @@
     "lib": ["ES2022"],
     "outDir": "dist",
     "rootDir": "src",
+    // Tests run straight from src with `node --test` (Node strips the types),
+    // and Node's resolver needs the real `.ts` extension. esbuild does the
+    // bundling, so this config never emits anything.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "strict": true,
     "noImplicitOverride": true,
     "noUnusedLocals": true,

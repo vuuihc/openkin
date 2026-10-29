@@ -37,6 +37,10 @@ test:
 	$(MAKE) devhub-build
 	cd ui && npm ci && npm run check:api && npx tsc --noEmit && npm test
 	cd relay && npm test && npm run build
+	# Node runs the desktop tests straight from src (type stripping), so they
+	# need no install; the typecheck does need the desktop dev tree.
+	cd desktop && npm test
+	@if [ -d desktop/node_modules ]; then cd desktop && npx tsc --noEmit; else echo "desktop: node_modules missing — typecheck skipped"; fi
 
 # The browser-check fixture (docs/plans/2026-10-26-p5-hosted.md §7.1) lives in
 # _devhub, which the leading underscore hides from `go build ./...` and

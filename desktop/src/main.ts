@@ -4,7 +4,7 @@
  * Responsibilities: tray + design popover, sidecar lifecycle, main window
  * (loads daemon UI), native notifications driven by the daemon WebSocket.
  */
-import { app, nativeImage } from "electron";
+import { app, nativeImage, Notification } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Sidecar } from "./sidecar";
@@ -242,7 +242,14 @@ function setupTray(): void {
     },
     startDaemon: () => {
       void (async () => {
-        await sidecar.startFromMenu();
+        const status = await sidecar.startFromMenu();
+        console.log("[kin-desktop] start daemon →", JSON.stringify(status));
+        // Start can now end in "unavailable" without a spawn: something is
+        // already on the port but not answering. The tray only says "stopped",
+        // so say why.
+        if (status.state === "unavailable" && Notification.isSupported()) {
+          new Notification({ title: "Kin daemon", body: status.reason }).show();
+        }
         connectWS();
         await refreshPending();
         // Recover any window that opened while the daemon was down.
