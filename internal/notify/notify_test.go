@@ -290,3 +290,70 @@ func TestNotifyQuestionAndQuotaUseActionableLinks(t *testing.T) {
 		}
 	}
 }
+
+type stubPusher struct {
+	got  []Payload
+	fail bool
+}
+
+func (p *stubPusher) Push(_ context.Context, payload Payload) []ChannelResult {
+	p.got = append(p.got, payload)
+	if p.fail {
+		return []ChannelResult{{Channel: "push", Error: "boom"}}
+	}
+	return []ChannelResult{{Channel: "push", OK: true, Status: "ok"}}
+}
+
+// Every channel sees the same event, and one channel's result does not speak
+// for another's: the settings page shows the list, and a reader debugging a
+// missing notification needs to know which door it failed at.
+func TestDeliverIncludesBrowserPush(t *testing.T) {
+	pusher := &stubPusher{}
+	s := &Sender{Store: memSettings{"notify.ntfy_topic": "http://ntfy.example.net/topic"}, Push: pusher}
+	results := s.Deliver(context.Background(), Payload{Title: "Approval needed", Body: "b", URL: "/inbox?focus=a1"})
+	if len(pusher.got) != 1 || pusher.got[0].Title != "Approval needed" {
+		t.Fatalf("pusher got %+v", pusher.got)
+	}
+	var sawPush bool
+	for _, res := range results {
+		if res.Channel == "push" {
+			sawPush = true
+			if !res.OK {
+				t.Fatalf("push result = %+v", res)
+			}
+		}
+	}
+	if !sawPush {
+		t.Fatalf("no push result in %+v", results)
+	}
+}
+
+func TestDeliverKeepsWebhooksWhenPushFails(t *testing.T) {
+	var clicks atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clicks.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	s := &Sender{
+		Store:  memSettings{"notify.ntfy_topic": srv.URL},
+		Client: &http.Client{Timeout: 2 * time.Second},
+		Push:   &stubPusher{fail: true},
+	}
+	results := s.Deliver(context.Background(), Payload{Title: "x"})
+	if clicks.Load() != 1 {
+		t.Fatalf("ntfy received %d requests", clicks.Load())
+	}
+	var okPush, okNtfy bool
+	for _, res := range results {
+		if res.Channel == "push" && !res.OK {
+			okPush = true
+		}
+		if res.Channel == "ntfy" && res.OK {
+			okNtfy = true
+		}
+	}
+	if !okPush || !okNtfy {
+		t.Fatalf("results = %+v", results)
+	}
+}

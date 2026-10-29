@@ -85,7 +85,7 @@ is scheduled — no version is pinned from memory.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Per-turn diff cards (`view.tsx:5502`) | Reconstructed from tool payloads (`diffPreview.ts:1`, `RoundEvidenceCard.tsx:14`) | Edits made outside file tools are missing from the card | **S1** (wrong evidence) | The daemon already stores `task_checkpoints` per `event_seq` with tree OIDs (`migrate.go:332`, `store/checkpoints.go:10`) — the truthful source is there and unused |
+| Per-turn diff cards (`view.tsx:5502`) | `round_changed` from the bracketing checkpoints (C1), payload reconstruction as fallback (`roundEvidence.ts`) | Previews for shell-only edits open to "nothing reconstructible" | S3 | — |
 | Changes sidebar with Code/Docs/Tests/Dev grouping (`session-changes-sidebar.tsx:366`) | `ChangedFilesBar` + `ChangedFilesList` | No grouping, no per-file review state | S2 | — |
 | Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | dual-pane workspace panel | Phone diff is cramped | S2 | — |
 | File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco) + `FileTree` | No find-in-file, no quick-open | S2 | monaco already has both; wire them |
@@ -131,7 +131,7 @@ is scheduled — no version is pinned from memory.
 |---|---|---|---|---|
 | Public share link + share management (`share-management-setting.tsx:482`) | copy text, download HTML (`shareExport.ts`) | Cannot send a link | S2 | — |
 | Share as image, themes, PNG (`chat-share-image-dialog.tsx:397`) | none | S3 | `html-to-image` or canvas |
-| Push permission, completion notifications, Live Activity (`mobile-general-settings.tsx:619`) | Bark/ntfy webhooks only (`internal/notify/notify.go:19`) | Phone only learns when a webhook fires | S2 | APNs is a real cost; schedule last |
+| Push permission, completion notifications, Live Activity (`mobile-general-settings.tsx:619`) | Bark/ntfy webhooks + Web Push with VAPID (E2); no Live Activity | iOS needs the console on the Home Screen; no native Live Activity | S3 | APNs remains the native path |
 | Unread dots in tabs (`session-tab-bar.tsx:531`) | badge = currently pending, not new (`App.tsx:52`) | S2 | — | — |
 
 ## 3. Plan
@@ -952,6 +952,92 @@ now carries markup in both the alt text and the destination.
 The console side got one fix from the same live pass — focusing the minted
 field selects the whole value and a selection that long scrolls the input to
 its end, so the dialog now scrolls back to the URL's scheme.
+
+#### E2 — a notification reaches a closed tab (landed)
+
+Lody pushes to the phone through its own mobile app. Kin's only out-of-app
+channel was Bark or ntfy — a third-party app the reader had to install and
+configure. G1 answers "an approval exists while you are looking"; E2 answers
+"while you are not".
+
+**The shape.** Web Push: RFC 8030 delivery, RFC 8291 payload encryption,
+RFC 8292 VAPID. The transport is `internal/webpush`, written against the
+standards rather than pulled in as a dependency, because the two primitives it
+needs — P-256 ECDH and HKDF — are in the standard library, and the RFC
+publishes a complete example that the test reproduces byte for byte. That
+vector is the reason to trust the package: a mistake in the KDF chain or the
+header layout shows up as a diff, not as "it worked in a browser once".
+
+**Where the pieces live.**
+
+- `push_subscriptions` (migration 42): endpoint unique, keys, created. One row
+  per browser; subscribing again updates in place, because a second row would
+  double every notification.
+- The VAPID key pair is a setting (`push.vapid_private`), minted on first use
+  and deliberately absent from the settings API's puttable set — a client that
+  could write it could sign notifications no browser subscribed to.
+- `internal/push` connects the registry to the existing fan-out: an approval
+  that reaches Bark or ntfy now also reaches every subscribed browser, from
+  the same `notify.Payload` and the same deep link
+  (`/inbox?focus=<id>`).
+- The console subscribes only on an explicit "Enable on this device".
+  Permission prompts raised by a passive settings page get denied out of
+  reflex, and a denial is sticky. Opening Settings does not call
+  `/api/push/config` either: that endpoint mints the key pair on first use,
+  and a view that mints key material just by being opened is the implicit
+  side effect the integration rules forbid.
+- `ui/public/sw.js` is a push-only worker, not a cache. It is served with
+  `no-cache`: a cached worker outlives the deploy that fixed it.
+
+**Decisions, and the reasons.**
+
+- *The endpoint is untrusted.* It arrives from the browser, and the daemon
+  posts to it on a timer with nobody watching. Subscribe validates https, a
+  real P-256 point and a 16-byte secret; the dialer refuses loopback, private
+  and link-local addresses, so a forged registration cannot turn the daemon
+  into a probe of its own network.
+- *404 and 410 are facts; 500 is weather.* A retired subscription is deleted;
+  a transient failure keeps the row and reports the error, because the next
+  notification should still try.
+- *The channel never blocks the event.* Delivery runs inside the existing
+  fire-and-forget send, sequentially across browsers, so a slow push service
+  delays the others by at most its timeout and never the approval that raised
+  it.
+- *Subscription is an operator action.* A notification carries task titles,
+  and the address the daemon posts to is worth protecting: every push route
+  sits behind the same operator gate as the settings page it lives on, not
+  merely "any valid token".
+- *The Hub does not proxy console HTTP to nodes.* A subscription belongs to
+  whichever daemon served the console the browser subscribed from. A phone on
+  the Hub's own console would be subscribing to the Hub while approvals live
+  on the node; that path needs the Hub to learn about approvals over the node
+  channel and is not in this slice. The relay and direct/LAN origins — the
+  routes the phone uses today — are covered.
+
+**Verification.** Unit: the RFC 8291 vector; a decrypt round-trip against a
+fresh subscription key; VAPID structure, audience and ES256 signature; key
+persistence across a restart; 410 prunes, 500 keeps, unusable keys drop;
+endpoint validation; the private-address refusal through the real dialer;
+store round-trip and one-row-per-endpoint; API auth, subscribe, refusal,
+unsubscribe and test; the notify fan-out and channel independence; the static
+cache policy. Console: key conversion from URL-safe and padded base64,
+serialization refusal, a declined permission never subscribing, disable
+unsubscribing and reporting the endpoint, the section's four states, and that
+mounting it fetches nothing. Red-verified by mutation: the 0x02 padding
+delimiter, the VAPID audience, the stored key, the validation call, the
+fan-out, and the no-fetch-on-mount rule each fail the test that names them.
+
+Live on a scratch daemon (:7790): `/api/push/config` returns an 87-character
+key and 0 subscribers; subscribe answers 201 and the count becomes 1;
+`/sw.js` is served `200 text/javascript` with `no-cache`; a test send reports
+the per-channel error and keeps the row; unsubscribe answers 204; a
+registration pointing at `https://127.0.0.1:9` is refused at dial time.
+
+**Not in this slice.** No delivery receipts and no per-device labels — the
+browser is the only identity. No expiring subscriptions. On iOS, Web Push
+requires the console to be added to the Home Screen; a plain Safari tab cannot
+subscribe, and a Capacitor shell would need APNs instead. The Hub-console path
+above is a separate design.
 
 #### G1 — an approval is answerable from any screen (landed)
 

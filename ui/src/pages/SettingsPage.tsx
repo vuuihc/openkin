@@ -39,6 +39,7 @@ import {
 } from "../components/settings/LocalAgentSettingsSection";
 import { ProviderSettingsSection } from "../components/settings/ProviderSettingsSection";
 import { AccountSection } from "../components/settings/AccountSection";
+import { PushSettingsSection } from "../components/settings/PushSettingsSection";
 import { PhoneSection } from "../components/settings/PhoneSection";
 import { relayPrimaryAction } from "../components/settings/RelayGuidance";
 import {
@@ -1458,6 +1459,7 @@ export default function SettingsPage() {
             {error && <span className="text-body leading-4 text-kin-red-ink">{error}</span>}
           </div>
         </section>
+        <PushSettingsSection />
       </SettingsTabPanel>
 
       {/* Price table (M4) — defaults from open LiteLLM price list */}

@@ -1121,6 +1121,27 @@ const en: MessageTree = {
       savedShort: "Saved",
       noChannels: "No notification channels configured",
     },
+    push: {
+      heading: "Browser push",
+      desc:
+        "Get an approval, a finished routine, or a task failure on this device even when the console is closed. Works wherever the browser supports Web Push — on iOS, add the console to the Home Screen first.",
+      unsupported: "This browser cannot receive push notifications.",
+      blocked:
+        "Notifications are blocked for this site. Allow them in the browser's site settings, then reload.",
+      on: "This device is subscribed.",
+      enable: "Enable on this device",
+      disable: "Turn off",
+      sendTest: "Send test",
+      enabled: "Push enabled on this device",
+      disabled: "Push disabled on this device",
+      testSent: "Test notification sent",
+      testFailed: "Could not send — check the subscription",
+      hint:
+        "The browser talks to its own push service; this node only sends the message. Tapping the notification opens the inbox item it is about.",
+      subscribeFailed: "The browser returned an incomplete subscription",
+      enableFailed: "Could not enable push",
+      disableFailed: "Could not disable push",
+    },
     price: {
       heading: "Price table",
       descA:

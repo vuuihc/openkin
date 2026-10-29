@@ -2200,6 +2200,44 @@ export function testNotify(): Promise<NotifyTestResponse> {
   });
 }
 
+/** Browser push: one VAPID key per node, one registration per browser. */
+export type PushConfig = {
+  public_key: string;
+  subscribed: number;
+};
+
+export type PushSubscriptionBody = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+};
+
+export function getPushConfig(): Promise<PushConfig> {
+  return apiFetch<PushConfig>("/api/push/config");
+}
+
+export function subscribePush(body: PushSubscriptionBody): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function unsubscribePush(endpoint: string): Promise<void> {
+  return apiFetch<void>("/api/push/subscribe", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint }),
+  });
+}
+
+/** POST /api/push/test — deliver one message to this node's registrations. */
+export function testPush(): Promise<NotifyTestResponse> {
+  return apiFetch<NotifyTestResponse>("/api/push/test", {
+    method: "POST",
+  });
+}
+
 export type UsageRow = {
   date: string;
   agent: string;

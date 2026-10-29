@@ -34,6 +34,7 @@ import (
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
+	pushsvc "github.com/vuuihc/openkin/internal/push"
 	"github.com/vuuihc/openkin/internal/remote"
 	remotetsnet "github.com/vuuihc/openkin/internal/remote/tsnet"
 	"github.com/vuuihc/openkin/internal/routines"
@@ -313,7 +314,18 @@ func ServeWith(version string, flags ServeFlags) error {
 		pref, err := st.GetSetting(c, "agent.default")
 		return strings.TrimSpace(pref), err
 	}
-	notifier := &notify.Sender{Store: st}
+	// Browser push shares the notification fan-out: an approval that reaches
+	// Bark or ntfy also reaches a subscribed browser, from the same event.
+	// The VAPID contact is the console's own origin when one is configured —
+	// a push service may use it to report a misbehaving sender.
+	pushSubject := "https://openkin.local"
+	if v, err := st.GetSetting(ctx, notify.KeyBaseURL); err == nil {
+		if base := strings.TrimRight(strings.TrimSpace(v), "/"); strings.HasPrefix(base, "https://") {
+			pushSubject = base
+		}
+	}
+	pushService := &pushsvc.Service{Store: st, Subject: pushSubject}
+	notifier := &notify.Sender{Store: st, Push: pushService}
 	workerRegistry := workers.NewRegistry(workers.DefaultLeaseTTL, func(record workers.Record) {
 		notifier.NotifyWorkerOffline(context.Background(), record.WorkerID, "", record.Label)
 	})
@@ -614,6 +626,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		Workers:      workerRegistry,
 		Nodes:        nodeConns,
 		Queries:      nodeQueries,
+		Push:         pushService,
 		// This daemon is a machine too, and its own console picks directories on
 		// it. The answer comes from the same code that answers a Hub, with the
 		// same list of directories the executor works in, so a directory this
@@ -1338,6 +1351,23 @@ func configureBrowserWorker(
 	})
 }
 
+// staticCacheControl is the cache policy for one embedded console file.
+//
+// Hashed Vite assets are content-addressed and can live forever. index.html
+// (and the SPA routes that serve it), the manifest, and the push worker must
+// revalidate: each is a small hand-written file whose cached copy would
+// outlive the deploy that fixed it, and a stale service worker is the classic
+// way a web app keeps running yesterday's code.
+func staticCacheControl(path string, serveIndex bool) string {
+	switch {
+	case strings.HasPrefix(path, "/assets/"):
+		return "public, max-age=31536000, immutable"
+	case serveIndex || path == "/manifest.webmanifest" || path == "/sw.js":
+		return "no-cache"
+	}
+	return ""
+}
+
 func uiHandler() (http.Handler, error) {
 	sub, err := fs.Sub(web.FS, "dist")
 	if err != nil {
@@ -1357,12 +1387,8 @@ func uiHandler() (http.Handler, error) {
 				serveIndex = true
 			}
 		}
-		// Hashed Vite assets are content-addressed → long-lived immutable cache.
-		// index.html (and SPA shell routes) must revalidate so clients pick up new hashes.
-		if strings.HasPrefix(path, "/assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else if serveIndex || path == "/manifest.webmanifest" {
-			w.Header().Set("Cache-Control", "no-cache")
+		if cc := staticCacheControl(path, serveIndex); cc != "" {
+			w.Header().Set("Cache-Control", cc)
 		}
 		if path == "/manifest.webmanifest" {
 			w.Header().Set("Content-Type", "application/manifest+json")

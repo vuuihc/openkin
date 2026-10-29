@@ -44,6 +44,16 @@ type ChannelResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// Pusher delivers to browser push subscriptions. Implemented by
+// internal/push, which owns the VAPID key pair and the registry.
+//
+// It is an interface declared here rather than a concrete dependency so the
+// webhook channels stay testable without a database, and so a build without
+// push support still compiles.
+type Pusher interface {
+	Push(ctx context.Context, p Payload) []ChannelResult
+}
+
 // Sender posts notifications to configured Bark / ntfy endpoints.
 // Fire-and-forget: 5s timeout, one retry (spec §8).
 type Sender struct {
@@ -51,6 +61,8 @@ type Sender struct {
 	Client *http.Client
 	// BaseURLOverride skips the store for ui.base_url (tests).
 	BaseURLOverride string
+	// Push is the browser channel; nil when the daemon has no push service.
+	Push Pusher
 }
 
 func (s *Sender) client() *http.Client {
@@ -249,6 +261,9 @@ func (s *Sender) Deliver(ctx context.Context, p Payload) []ChannelResult {
 		results = append(results, s.deliverOne(ctx, "ntfy", func() *http.Request {
 			return ntfyRequest(ctx, ntfy, p)
 		}))
+	}
+	if s.Push != nil {
+		results = append(results, s.Push.Push(ctx, p)...)
 	}
 	return results
 }

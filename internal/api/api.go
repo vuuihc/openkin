@@ -32,6 +32,7 @@ import (
 	"github.com/vuuihc/openkin/internal/node"
 	"github.com/vuuihc/openkin/internal/notify"
 	"github.com/vuuihc/openkin/internal/provider"
+	"github.com/vuuihc/openkin/internal/push"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/remote/worker"
 	"github.com/vuuihc/openkin/internal/store"
@@ -73,11 +74,13 @@ type AgentModelOption struct {
 
 // Server holds HTTP handlers and dependencies for the Kin API.
 type Server struct {
-	Store                *store.Store
-	Auth                 *remote.Auth
-	Engine               *task.Engine
-	MCP                  *mcp.Server
-	Connectors           *connectors.Manager
+	Store      *store.Store
+	Auth       *remote.Auth
+	Engine     *task.Engine
+	MCP        *mcp.Server
+	Connectors *connectors.Manager
+	// Push sends browser notifications. Nil disables the push endpoints.
+	Push                 *push.Service
 	Terminals            *terminal.Manager
 	Version              string
 	DesktopID            string
@@ -441,6 +444,14 @@ func (s *Server) Handler() http.Handler {
 		r.With(operatorOnly).Delete("/api/providers/{id}", s.handleDeleteProvider)
 		r.With(operatorOnly).Post("/api/providers/{id}/activate", s.handleActivateProvider)
 		r.With(operatorOnly).Post("/api/notify/test", s.handleNotifyTest)
+		// Browser push. All four are operator actions, like the settings page
+		// they live on: a notification carries task titles, and handing the
+		// daemon an address to post them to is not something a scoped device
+		// should be able to do for itself.
+		r.With(operatorOnly).Get("/api/push/config", s.handlePushConfig)
+		r.With(operatorOnly).Post("/api/push/subscribe", s.handlePushSubscribe)
+		r.With(operatorOnly).Delete("/api/push/subscribe", s.handlePushUnsubscribe)
+		r.With(operatorOnly).Post("/api/push/test", s.handlePushTest)
 		r.With(holderOnly).Get("/api/usage/summary", s.handleUsageSummary)
 		r.With(holderOnly).Get("/api/usage/limits", s.handleUsageLimits)
 		r.With(holderOnly).Get("/api/routing/options", s.handleGetRoutingOptions)
@@ -2112,7 +2123,7 @@ type notifyTestResponse struct {
 }
 
 func (s *Server) handleNotifyTest(w http.ResponseWriter, r *http.Request) {
-	sender := &notify.Sender{Store: s.Store}
+	sender := &notify.Sender{Store: s.Store, Push: s.Push}
 	payload := notify.Payload{
 		Title: "Kin test",
 		Body:  "Notification test from kin",

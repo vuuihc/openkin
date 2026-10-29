@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 41
+const schemaVersion = 42
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -573,7 +573,7 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts + SessionSharesDDL
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts + SessionSharesDDL + PushSubscriptionsDDL
 
 // The newest table is appended to the fresh-install schema rather than copied
 // into it: the same text has to apply on a brand-new database and on every
@@ -2386,6 +2386,27 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 41
 	}
 
+	if v == 41 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 042: %w", err)
+		}
+		// Browser push registrations. Additive: a daemon whose owner never
+		// enabled notifications simply has an empty table.
+		if _, err := tx.Exec(PushSubscriptionsDDL); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 042 push subscriptions: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 42`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 042: %w", err)
+		}
+		v = 42
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2424,6 +2445,9 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureSessionShareSchema(); err != nil {
 		return err
 	}
+	if err := s.ensurePushSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
 }
 
@@ -2437,6 +2461,18 @@ func (s *Store) ensureCurrentSchema() error {
 func (s *Store) ensureSessionShareSchema() error {
 	if _, err := s.db.Exec(SessionSharesDDL); err != nil {
 		return fmt.Errorf("ensure session shares: %w", err)
+	}
+	return nil
+}
+
+// ensurePushSchema creates the push registry on any database that lacks it.
+//
+// A notification is sent from a goroutine with nobody watching, so a missing
+// table would surface as a delivery that silently does nothing — exactly the
+// failure the settings page cannot distinguish from "no one subscribed".
+func (s *Store) ensurePushSchema() error {
+	if _, err := s.db.Exec(PushSubscriptionsDDL); err != nil {
+		return fmt.Errorf("ensure push subscriptions: %w", err)
 	}
 	return nil
 }
