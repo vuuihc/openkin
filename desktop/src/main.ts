@@ -13,6 +13,7 @@ import { AppTray } from "./tray";
 import { TrayPopover } from "./tray-popover";
 import { DaemonWS } from "./ws-client";
 import { Notifier } from "./notifications";
+import { taskIdFromURL } from "./task-notifications";
 import { registerIpcHandlers } from "./ipc";
 import { appIconPath, isDev } from "./config";
 import {
@@ -352,6 +353,11 @@ if (!gotLock) {
         onDecided: () => {
           void refreshPending();
         },
+        // The console URL says which task is on screen; the window says whether
+        // anyone is looking at it.
+        isFocused: () => mainWindow.browserWindow?.isFocused() ?? false,
+        viewingTaskId: () =>
+          taskIdFromURL(mainWindow.browserWindow?.webContents.getURL() ?? ""),
       });
 
       const status = await sidecar.ensureRunning();

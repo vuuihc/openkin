@@ -1,6 +1,7 @@
 import { Notification, type NotificationAction } from "electron";
 import type { Approval, Task } from "./daemon-api";
 import { parseToolSummary, decideApproval } from "./daemon-api";
+import { isTerminalStatus, shouldAnnounceTask } from "./task-notifications";
 
 /**
  * Native notification policy (macOS):
@@ -19,9 +20,11 @@ export type NotificationCallbacks = {
   openTask: (taskId: string) => void;
   getToken: () => string | null;
   onDecided?: (id: string, decision: "approved" | "denied") => void;
+  /** Whether the main window is the focused window. */
+  isFocused?: () => boolean;
+  /** The task the main window is showing, if any. */
+  viewingTaskId?: () => string | null;
 };
-
-const TERMINAL = new Set(["succeeded", "failed", "canceled"]);
 
 export class Notifier {
   private cb: NotificationCallbacks;
@@ -74,11 +77,25 @@ export class Notifier {
   }
 
   onTaskUpdate(t: Task): void {
-    if (!TERMINAL.has(t.status)) {
+    if (!isTerminalStatus(t.status)) {
       // Reset so a re-run of the same task id can notify again.
       if (t.status === "running" || t.status === "queued") {
         this.seenTerminal.delete(t.id);
       }
+      return;
+    }
+    // A task that ends on screen, in the focused window, needs no banner: the
+    // transcript is the announcement. Being in front is not enough on its own —
+    // a reader watching one task still wants to hear about another.
+    if (
+      !shouldAnnounceTask(t, {
+        focused: this.cb.isFocused?.() ?? false,
+        viewingTaskId: this.cb.viewingTaskId?.() ?? null,
+      })
+    ) {
+      console.log(
+        `[kin-desktop] notification: task ${t.id} ended on screen — not announced`,
+      );
       return;
     }
     const key = `${t.id}:${t.status}`;
