@@ -36,103 +36,110 @@ Severity: **S1** blocks a common task, **S2** costs taps or trust every day,
 **S3** polish. "Reuse" is the open-source lever, if any, checked when the item
 is scheduled — no version is pinned from memory.
 
+**Re-audited 2026-10-29 against `77f0ea51`.** Every row below was checked
+against the code, not against the row above it, and several had gone stale:
+in-conversation find, public share links, the floating approval card, the phone
+session switcher, the context meter and server-side search had all landed since
+the matrix was written, and the list rows carried stale S1s for pains that were
+already gone. What is left is S2 and S3 — no S1 remains, except attachments
+when the task runs on another machine, where the image is still lost.
+
 ### 2.1 Conversation list
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Project buckets over the first 100 tasks + 100 imported sessions; client substring filter (`SessionsPage.tsx:65,93,130`); pin/archive via localStorage (`taskPins.ts`) | Past 100 rows the UI cannot reach a conversation at all; no filter; no unread | **S1** | `@tanstack/react-virtual` for the list; the server already has `?q=` and a `before` cursor (`api.go:807`, `store.go:486`) |
-| Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe: pin / archive only (`SwipeReveal.tsx`) | No delete or restore from the row | S2 | — |
-| Multi-select: select all, delete (`mobile-chat-list.tsx:1018`) | Multi-select: pin / archive (`SessionsPage.tsx:208`) | No delete | S2 | — |
+| Server-backed list with filters (repo / project / status / PR / machine), mine-vs-team scope, archive screen, unread dots (`mobile-chat-list.tsx`, `mobile-filter-drawer.tsx:45`, `mobile-archive-screen.tsx:85`) | Search is server-side over the whole library (`sessionListParams.ts:12-20`), rows carry a status/unread dot (`sessionViewed.ts:111-119`); browsing is still project buckets capped at 100 rows with no filter control (`SessionsPage.tsx:397-422`) | No filter drawer, no archive screen, no cursor/load-more: a conversation older than the cap is reachable only by typing a search term | S2 | the server already has a `before` cursor (`store.go:486`) |
+| Swipe: pin / archive / restore / **delete**, long swipe auto-archives (`mobile-swipeable-row.tsx:341`) | Swipe reveals Pin and Archive only (`SessionsPage.tsx:734-757`, `SwipeReveal.tsx:78-124`); archive acts on the whole project (`SessionsPage.tsx:284-288`); delete lives inside a session (`TaskDetailPage.tsx:1087-1090`) | No delete or restore from the row, no long-swipe | S3 | — |
+| Multi-select: select all, delete (`mobile-chat-list.tsx:1018`) | Multi-select: select all, pin, archive (`SessionsPage.tsx:353-395`) | No batch delete | S3 | — |
 
 ### 2.2 Open conversation
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Find in conversation (`session-chat-interface.tsx:1722`) | none | Cannot search a long transcript | **S1** | browser `window.find` is unreliable; a small match index over the projected items is enough |
-| Turn duration ("Worked for"), turn info popover (`view.tsx:4955,4608`) | Round evidence card, no duration | Cannot tell how long a round took without reading timestamps | S2 | — |
-| Goal chip, plan chip, PR/branch/worktree chips (`session-info-chips.tsx:129,306,356`) | header chips on desktop; phone has project subtitle only | Phone loses branch/PR state | S2 | — |
-| Pinned-message banner (`session-pin.tsx:27`) | none | Cannot pin a message | S3 | — |
-| Subagent panel with tokens, background count, cancel (`subagent-task-panel.tsx:176`) | `WorkerTimeline` (read-only timeline) | Cannot cancel a worker from the panel | S2 | — |
-| Transcript renders progressively (Lody has virtualization in `ai-gui/view.tsx`) | `.map` over every item (`ChatStream.tsx:311`) | Long sessions jank; memory grows with the tab cache (8 mounted) | S2 | `@tanstack/react-virtual` |
+| Find in conversation (`session-chat-interface.tsx:1722`) | `ChatStream` owns the bar: Cmd/Ctrl+F, count, next/prev, scroll to hit, Escape (`ChatStream.tsx:167-272`) | Closed | — | — |
+| Turn duration ("Worked for"), turn info popover (`view.tsx:4955,4608`) | Round evidence card with file count and size, no duration (`RoundEvidenceCard.tsx:43-78`) | Cannot tell how long a round took | S3 | — |
+| Goal chip, plan chip, PR/branch/worktree chips (`session-info-chips.tsx:129,306,356`) | desktop header chips (`TaskDetailPage.tsx:1505-1554`); phone subtitle is project + status only; branch/PR one tap away in the sheet | No goal or plan chip anywhere; branch/PR not visible at a glance on the phone | S3 | — |
+| Pinned-message banner (`session-pin.tsx:27`) | none; message actions are Retry / Fork / Save-as-artifact | Cannot pin a message | S3 | — |
+| Subagent panel with tokens, background count, cancel (`subagent-task-panel.tsx:176`) | `WorkerTimeline` is read-only (`WorkerTimeline.tsx:38-120`); the only worker route is `GET /workers` | Cannot cancel a worker from the panel; no token count | S2 | — |
+| Transcript renders progressively (Lody has virtualization in `ai-gui/view.tsx`) | `.map` over every item (`ChatStream.tsx:524,623`); memoized redraw landed (`d275d3ba`) | No windowing: a long session plus 8 cached panes still builds the whole DOM | S2 | `@tanstack/react-virtual` |
 
 ### 2.3 Composer
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queue badge; no list, no edit (`ChatStream.tsx:71`) | A queued message cannot be fixed before it runs | **S1** | — |
-| Slash commands + prompt shortcuts (`mention-registry.ts:327`) | copy only (`Composer.tsx:366`) | No reusable prompts | S2 | — |
-| Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models only (`agentMention.ts:23`) | Cannot reference a file or another session | S2 | — |
-| Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:197`); only the built-in Kin agent converts them (`kinagent/attachments.go:29`) | A Claude/Codex task receives a path, not the image | **S1** (data loss) | — |
-| Paste-as-chip for long text (`session-chat-input-area.tsx:1364`) | raw textarea | — | S3 | — |
-
+| Queue rows: edit, drag-reorder, remove, steer (`message-queue-row.tsx:223`) | Queued messages are badged inline (`ChatStream.tsx:1243-1247`); the client can only list them (`client.ts:1012`) | A queued message cannot be edited or removed before it runs; stopping the round is the only way to discard it | S2 | the daemon already keeps the queue (`GET /prompts`) |
+| Slash commands + prompt shortcuts (`mention-registry.ts:327`) | the "/" menu is a static hint (`Composer.tsx:373-381`); roles are saved prompts but only on the new-chat page | No command menu in the composer; no way to insert a saved prompt mid-session | S3 | — |
+| Mentions: files, PRs, skills, commands, sessions, roles (`mention-registry.ts:53`) | agents + models only (`agentMention.ts:13-25`) | Cannot reference a file or another session | S2 | — |
+| Attachments as structured parts | Path strings appended to the prompt (`Composer.tsx:201-212`); only the Kin agent converts them (`kinagent/attachments.go:38-75`); remote nodes never receive the upload | A Claude/Codex task receives a path, not the image; on another machine the path does not exist | S2 (S1 remote) | — |
+| Paste-as-chip for long text (`session-chat-input-area.tsx:1364`) | pasted text lands in the textarea (`Composer.tsx:503-508`) | — | S3 | — |
 ### 2.4 Run config
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Role / Agent / Model / Interaction / Reasoning / Permission / Plan / Fast (`mobile-run-config-sheet.tsx:117`) | Agent / Model / Permission + location rows (`RunConfigSheet.tsx:271`) | Six rows missing; documented as absent from the protocol (`RunConfigSheet.tsx:33`) | S2 | Role presets need no protocol: they are a saved prompt prefix. Plan/Fast map to permission modes some CLIs already expose |
+| Role / Agent / Model / Interaction / Reasoning / Permission / Plan / Fast (`mobile-run-config-sheet.tsx:117`) | Role (prompt prefix, `NewChatPage.tsx:520-545`), Agent / Model / Permission (`RunConfigSheet.tsx:195`) | Interaction / Reasoning / Plan / Fast remain, and all four are protocol-limited: no adapter carries reasoning effort or a plan-mode rung | S3 | Plan/Fast map to permission modes some CLIs already expose |
 | Desktop consolidated menu (`desktop-run-config-menu.tsx:61`) | strip under the composer (`TaskDetailPage.tsx:1407`) | Equivalent | — | — |
-| Worktree setup/cleanup scripts per project | none | Cannot script worktree lifecycle | S3 | — |
+| Worktree setup/cleanup scripts per project | `git worktree add/remove` only; hooks are deliberately disabled (`workspace/checkpoint.go:130`) | Cannot script worktree lifecycle | S3 | — |
 
 ### 2.5 Approvals
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Floating permission card on every screen, with a queue strip (`floating-permission-request.tsx:430,758`) | `/inbox` page + inline cards in the owning task (`ApprovalsPage.tsx:22`, `TaskDetailPage.tsx:906`) | An approval raised in task A is invisible while reading task B | **S1** | — |
+| Floating permission card on every screen, with a queue strip (`floating-permission-request.tsx:430,758`) | `FloatingApproval` over every screen, oldest first, with focus recovery (`FloatingApproval.tsx`) | Closed by G1 | — | — |
 | Question card with multi-select, custom text, notes (`ask-user-question-card.tsx:793`) | `UserQuestionCard` | Verify parity before claiming a gap | — | — |
-| "Waiting for permission" marker in the tab sheet (`mobile-session-tab-sheet.tsx:249`) | none (phone has no tab sheet) | Folded into item 10 | S2 | — |
+| "Waiting for permission" marker in the tab sheet (`mobile-session-tab-sheet.tsx:249`) | phone session switcher sheet carries a "Needs you" pill (`SessionSwitcherSheet.tsx:95-100`) | Closed | — | — |
 
 ### 2.6 Files and diffs
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Per-turn diff cards (`view.tsx:5502`) | `round_changed` from the bracketing checkpoints (C1), payload reconstruction as fallback (`roundEvidence.ts`) | Previews for shell-only edits open to "nothing reconstructible" | S3 | — |
-| Changes sidebar with Code/Docs/Tests/Dev grouping (`session-changes-sidebar.tsx:366`) | `ChangedFilesBar` + `ChangedFilesList` | No grouping, no per-file review state | S2 | — |
-| Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | dual-pane workspace panel | Phone diff is cramped | S2 | — |
-| File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco) + `FileTree` | No find-in-file, no quick-open | S2 | monaco already has both; wire them |
-| Image/CSV/Office/binary preview | images only, UNVERIFIED for CSV/Office | S3 | — | — |
+| Per-turn diff cards (`view.tsx:5502`) | `round_changed` records shell edits with counts; previews come from tool payloads (`roundEvidence.ts:102-178`) | Shell-only edits open to "nothing reconstructible" | S3 | — |
+| Changes sidebar with Code/Docs/Tests/Dev grouping (`session-changes-sidebar.tsx:366`) | flat list sorted by seq (`ChangedFilesList.tsx:21-102`); Keep/Discard exist in the viewer header for terminal tasks | No grouping, no persisted per-file reviewed state | S3 | — |
+| Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | dual-pane panel, sidebar capped at 40-46% height on phone widths (`WorkspacePanel.tsx:511-513`) | Reviewing a diff on a phone gets roughly half the screen with no conversation-diff alternative | S2 | — |
+| File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco) registers only Cmd+S (`CodeViewer.tsx:164-169`); `FileTree` has no filter | No find-in-file and no quick-open; worse, `ChatStream`'s window-level Cmd/Ctrl+F handler opens conversation find while the editor is focused, so monaco's own find is stolen (`ChatStream.tsx:234-244`) | S2 | monaco ships find; the handler needs to defer to a focused editor |
+| Image/CSV/Office/binary preview | text and Markdown only; the file API refuses non-UTF-8 (`workspace/diff.go:158-160`) | Binary and Office files cannot be opened at all | S3 | — |
 
 ### 2.7 Schedules
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | fixed `interval_secs` (`RoutineScheduleFields.tsx:4`, `internal/routines/scheduler.go:27`) | Cannot say "weekdays at 9" | **S1** | `robfig/cron/v3` (Go) for parsing + next-run; keep `interval_secs` as a compatible row |
-| Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | partial — verify | S2 | — | — |
-| Run history | runs appear only as tasks | S2 | — | — |
+| Recurrence: daily / weekdays / weekly / monthly / hours / minutes / once, with next-run preview (`schedule-recurrence-editor.tsx:132`) | daily / weekdays / weekly / monthly / once (`recurrence.go:40`, `RoutineScheduleFields.tsx:142-155`), server-computed next due in the list (`RoutinesPage.tsx:535-537`) | No "every N hours/minutes" rule, no next-run preview inside the form, and no way to edit an existing routine's rule (only the enabled toggle) | S3 | — |
+| Agent/model/permission per schedule (`schedule-agent-controls.tsx:26`) | agent and permission are per-routine end to end (`scheduler.go:513-524`); no model field anywhere | Model per schedule is missing, and the new-chat picker stays visible in routine mode while the payload drops it (`NewChatPage.tsx:482-488,356-369`) — a silently ignored control | S3 | — |
+| Run history | a global routine-run feed with unread and mark-read (`RoutinesPage.tsx:114-117,442-485`) | No per-routine history: the feed is global and capped, and `/api/tasks` never passes `routine_id` though the store supports it | S3 | — |
 
 ### 2.8 Projects
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Project screen with conversations / files / settings tabs (`mobile-project-screen.tsx:934`) | one-pager + pulse + artifacts (`ProjectDetailPage.tsx:54`) | No conversations or files tab | S2 | — |
-| Per-project settings, skills, default MCP (`project-settings.tsx:103`) | none | S2 | — | — |
+| Project screen with conversations / files / settings tabs (`mobile-project-screen.tsx:934`) | one-pager + pulse + artifacts, no tabs (`ProjectDetailPage.tsx`) | No conversations or files tab; `GET /api/projects/{id}/tasks` exists and no page calls it (`client.ts:1339`) | S2 | the endpoint is already there |
+| Per-project settings, skills, default MCP (`project-settings.tsx:103`) | project mode is the only per-project setting (`projects.go:32-43`); skills are filesystem-scoped (`.kin/skills`); MCP is not configurable at all | No per-project settings, skills or MCP | S3 | — |
 
 ### 2.9 Search
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Home search + in-conversation find + file quick-open + filter search | Three shallow layers, none of them content search (`SessionsPage.tsx:130`, `CommandPalette.tsx:95`, `kinagent/tools.go:195`) | Cannot find an old conversation or a line inside one | **S1** | server `?q=` exists; SQLite FTS5 if the driver ships it (verify), else LIKE over an index |
+| Home search + in-conversation find + file quick-open + filter search | server `?q=` over titles/prompts/cwd/agent (`store.go:291-299,490-500`), in-conversation find (closed), ⌘K palette over the latest 80 tasks (`CommandPalette.tsx:95-99`) | Transcript and assistant output are never searched; no file quick-open (`FileTree.tsx` has no filter) | S2 | FTS5 ships with the driver (modernc sqlite 1.34.5); the repo has no FTS use yet |
 
 ### 2.10 Tabs / switching
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Tab bar + mobile tab sheet with unread and waiting-permission states, drag reorder (`session-tab-bar.tsx:571`, `mobile-session-tab-sheet.tsx:144`) | Desktop tab strip, 12 tabs / 8 mounted (`SessionTabs.tsx`, `sessionTabs.ts:19`); phone has nothing | On a phone every switch is back → list → open | **S1** | — |
+| Tab bar + mobile tab sheet with unread and waiting-permission states, drag reorder (`session-tab-bar.tsx:571`, `mobile-session-tab-sheet.tsx:144`) | phone switcher sheet with a "Needs you" pill and unread dots (`SessionSwitcherSheet.tsx:95-129`), ordered by status (`sessionSwitcher.ts:38-46`); desktop strip is keyboard-reorder only (`SessionTabs.tsx:81-84`) | No pointer drag reorder; the desktop strip shows no waiting/unread marks; the phone trigger carries no dot | S3 | — |
 
 ### 2.11 Usage and context
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Context usage + compacting, 5h/weekly windows, extra balance, reset forecast (`session-usage-popover.tsx:185,204,228,256`) | Tokens and cost only; no context-window field anywhere (`api/contract.ts`, OpenAPI) | Cannot see how close a round is to the window | S2 | the model catalog needs a `context_window`; adapters can report usage per turn |
-| Machine quota (`machine-quota-compact.tsx:37`) | per-agent daily caps (`store/agent_limits.go:17`) | Different concept, comparable use | S3 | — |
+| Context usage + compacting, 5h/weekly windows, extra balance, reset forecast (`session-usage-popover.tsx:185,204,228,256`) | context meter with 80/95% thresholds (`TaskUsageSummary.tsx:307-365`), limit card with reset time when a provider rejects (`LimitCard.tsx:79-104`) | No proactive 5h/weekly window figures, no extra balance, no manual compact | S3 | — |
+| Machine quota (`machine-quota-compact.tsx:37`) | per-agent daily caps (`agent_limits.go:17`) | Different concept, comparable use | S3 | — |
 
 ### 2.12 Sharing and notification
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Public share link + share management (`share-management-setting.tsx:482`) | copy text, download HTML (`shareExport.ts`) | Cannot send a link | S2 | — |
-| Share as image, themes, PNG (`chat-share-image-dialog.tsx:397`) | none | S3 | `html-to-image` or canvas |
-| Push permission, completion notifications, Live Activity (`mobile-general-settings.tsx:619`) | Bark/ntfy webhooks + Web Push with VAPID (E2); no Live Activity | iOS needs the console on the Home Screen; no native Live Activity | S3 | APNs remains the native path |
-| Unread dots in tabs (`session-tab-bar.tsx:531`) | badge = currently pending, not new (`App.tsx:52`) | S2 | — | — |
+| Public share link + share management (`share-management-setting.tsx:482`) | per-task share link, copy and revoke (`ShareDialog.tsx`, `/s/{token}`) | Closed (no expiry control or console-wide list) | — | — |
+| Share as image, themes, PNG (`chat-share-image-dialog.tsx:397`) | text and HTML export only (`shareExport.ts:15-20`) | No image export, no theme choice | S3 | `html-to-image` or canvas |
+| Push permission, completion notifications, Live Activity (`mobile-general-settings.tsx:619`) | Web Push with VAPID (E2), completion and approval notifications, iOS Home Screen PWA | No Live Activity; iOS needs the console on the Home Screen | S3 | APNs remains the native path |
+| Unread dots in tabs (`session-tab-bar.tsx:531`) | unread dots in the sidebar, the phone list and the switcher sheet (`sessionViewed.ts:111-120`) | Not on the desktop tab strip, and not on the phone's switcher trigger | S3 | — |
 
 ## 3. Plan
 
@@ -244,6 +251,30 @@ previous-role removal in `selectRole` leaves both prefixes in the draft.
 
 - **E1 Share link.** A server-issued, revocable, read-only transcript URL.
 - **E2 Push.** APNs/web-push after E1, because it needs the same server identity.
+
+### Batch F — what the re-audit leaves (round 6)
+
+Ordered by daily cost, not by column order. All are S2.
+
+- **F1 A queued message is editable and removable.** The daemon already holds
+  the queue (`task_pending_prompts`, `GET /prompts`); the console only badges
+  it. Add remove, and edit as remove-then-refill, so a typo in a queued send
+  does not have to be waited out or the whole round stopped. Acceptance: a
+  queued message can be deleted before it runs, and the transcript stops
+  badging it.
+- **F2 The workspace owns its own find.** Wire monaco's find action and make
+  the conversation's Cmd/Ctrl+F handler stand down while an editor has focus
+  (`ChatStream.tsx:234-244` currently preventDefaults it). Acceptance: Cmd+F in
+  the file viewer opens the editor's find, and everywhere else still opens the
+  conversation's.
+- **F3 `@file` mentions.** One mention source over the task workspace tree, so
+  a path can be referenced without typing it on a phone. Acceptance: typing
+  `@` in the composer offers workspace files and inserts the path.
+- **F4 An attachment survives the trip.** An upload lives under the Hub's state
+  dir; a task running on another machine receives a path that does not exist.
+  Ship the file to the executing node (or embed it for every adapter, not only
+  Kin's). Acceptance: an image attached on the phone is visible to a Claude
+  Code task running on a different machine.
 
 ### Global approval (round 1)
 
@@ -1007,12 +1038,19 @@ header layout shows up as a diff, not as "it worked in a browser once".
   and the address the daemon posts to is worth protecting: every push route
   sits behind the same operator gate as the settings page it lives on, not
   merely "any valid token".
-- *The Hub does not proxy console HTTP to nodes.* A subscription belongs to
-  whichever daemon served the console the browser subscribed from. A phone on
-  the Hub's own console would be subscribing to the Hub while approvals live
-  on the node; that path needs the Hub to learn about approvals over the node
-  channel and is not in this slice. The relay and direct/LAN origins — the
-  routes the phone uses today — are covered.
+- *A subscription belongs to the daemon that served the console.* The Hub does
+  not proxy console HTTP to nodes, so a phone on the Hub's origin subscribes to
+  the Hub and a phone on a node's origin subscribes to that node. Both are
+  served, because both daemons run the same wiring.
+- *The Hub already raises the approval, so it already pushes it.* A node's
+  `approval.request` frame is answered by `node.Approvals.ask`, which calls
+  `Engine.RequestApproval` on the Hub (`internal/server/server.go:496` passes
+  the same engine that carries the notifier). That call is what fires
+  `NotifyApproval`, so a phone subscribed from the Hub's console is woken by a
+  question an agent asked on some other machine — the phone-on-Hub route, which
+  is the one this reader actually uses. Checked by reading the wiring, not by
+  assumption: the earlier draft of this note claimed approvals "live on the
+  node" and was wrong.
 
 **Verification.** Unit: the RFC 8291 vector; a decrypt round-trip against a
 fresh subscription key; VAPID structure, audience and ES256 signature; key
@@ -1033,11 +1071,78 @@ key and 0 subscribers; subscribe answers 201 and the count becomes 1;
 the per-channel error and keeps the row; unsubscribe answers 204; a
 registration pointing at `https://127.0.0.1:9` is refused at dial time.
 
+**Fix pass after review.**
+
+- *A subscription is bound to the key it was made with.* `enablePush` used to
+  return whatever subscription the browser held. After a restored database
+  minted a new VAPID pair, that subscription was dead — the push service answers
+  403 to a token signed by a key it never saw — while the settings page still
+  said "on". Enabling now compares `options.applicationServerKey` with the
+  daemon's key and re-subscribes on a mismatch.
+- *`kin notify test` had no browser channel.* The command built a `Sender`
+  without a `Push`, so an operator whose only channel was a subscribed browser
+  was told "no notification channels configured". It now carries the same push
+  service the daemon does.
+- *Two notify tests raced.* `TestNotifyApprovalClickIsTheApprovalURL` and
+  `TestNotifyQuestionAndQuotaUseActionableLinks` read a slice the httptest
+  handler wrote from `Send`'s goroutine; `go test` passed because nothing ran
+  them under `-race`. A mutexed recorder fixed both, and `-race` is now part of
+  the check list for this slice.
+
+**Second review pass (same-model sub-agent, `77f0ea51`).** No blocker; six
+majors, all fixed here:
+
+- *Redirects.* The committed client followed them, so an endpoint could name
+  `http://` somewhere else and receive the VAPID header and the ciphertext in
+  clear. `CheckRedirect` now refuses; two tests drive a real redirect through
+  the policy and pin it on `defaultClient`.
+- *Browser push was starved.* `Deliver` ran Bark, then ntfy, then push inside
+  one 15 s budget, and each webhook can spend 10.2 s. A dead Bark URL meant the
+  push channel ran with an expired context and the only working channel dropped
+  the message silently. Channels now run side by side with fixed result slots,
+  and push outcomes are logged with the others. `TestDeliverDoesNotLetASlowWebhookStarvePush`
+  holds a webhook open past the deadline and asserts push still ran live.
+- *The permission prompt lost the gesture.* The section awaited
+  `GET /api/push/config` before asking, and WebKit drops the user activation at
+  the first await — on iOS, the platform the hint names, the button did nothing
+  or got the permission denied for good. `requestPushPermission()` is now the
+  first statement of the click handler; the config fetch waits until after it.
+- *Per-message randomness was untested.* A mutant with a constant salt and a
+  reused ephemeral key passed the whole package. `TestEncryptUsesFreshRandomnessPerMessage`
+  compares salt, key id and ciphertext across two calls and decrypts both.
+- *Payloads were unbounded.* The header advertises one 4096-byte record, but
+  the encoder emitted any length; a multi-kilobyte routine `tldr` produced an
+  invalid body that push services answer 413 to, which the sender retries
+  forever. `clampPayload` trims to `recordSize-17` on a rune boundary.
+- *The dialer's deny list was too short.* `IsPrivate()` misses 100.64/10 — the
+  CGNAT and Tailscale range, in a repo that ships `--tailscale` — plus
+  benchmarking, IETF, `0/8`, and NAT64-wrapped private IPv4; a literal that
+  would not parse was allowed through. `publicAddr` is deny-by-default and the
+  table test covers each range.
+
+Also fixed from the nit list: `disablePush` now reports a browser that refused
+to unsubscribe instead of claiming "off" and deleting the daemon row; a
+permission denial toasts the localized blocked message rather than English; the
+service worker tags notifications by target URL so a routine report cannot
+silently replace an unanswered approval; the settings hint no longer claims
+every tap opens an inbox item; `POST /api/push/subscribe` returns the id of the
+row it really stored, which on a re-subscribe is the original row's, not the
+freshly minted ULID it used to report.
+
+**Deferred with a reason.** `GET /api/push/config` still mints the VAPID pair
+on first read — the browser cannot subscribe without the key, and the console
+only calls it from the click; a prefetch would create node-local key material,
+which is harmless and never leaves the database. `/api/push/test` still posts
+to every subscription sequentially; with one or two browsers a settings button
+that waits a few seconds is acceptable, and the response already reports each
+result. A permanently rejected subscription (401/403) is still retried on every
+notification rather than backed off; the log line now makes it visible, and a
+backoff column is a schema change for a case one browser produces once.
+
 **Not in this slice.** No delivery receipts and no per-device labels — the
 browser is the only identity. No expiring subscriptions. On iOS, Web Push
 requires the console to be added to the Home Screen; a plain Safari tab cannot
-subscribe, and a Capacitor shell would need APNs instead. The Hub-console path
-above is a separate design.
+subscribe, and a Capacitor shell would need APNs instead.
 
 #### G1 — an approval is answerable from any screen (landed)
 
