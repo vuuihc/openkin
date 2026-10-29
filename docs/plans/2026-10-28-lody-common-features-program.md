@@ -2154,9 +2154,12 @@ the state directory"; `kill -9` of the holder left no stale lock, a new
 `kin serve` took the directory and listened, and the lock file then held the
 new pid.
 
-**Rollout note.** The invariant holds among daemons that run this code. The
-installed node's binary predates it, so a new daemon can still start beside the
-installed one until that service is refreshed with
-`scripts/install-node-service.sh` (re-running it with no flags copies the new
-`kin` into `~/.kin/node/`). The desktop rebuild ships the shell side of the
-exit-status message.
+**Rollout note.** The invariant holds among daemons that run this code, and
+nothing waits for a whole fleet to upgrade: a holder that predates the lock
+simply does not stop a new daemon, exactly as before. On this machine the
+rebuild's step 3 closes that gap — it copies `kin` into `~/.kin/node/` and
+kickstarts the launchd job — so after the rebuild at the end of this round the
+live node itself held `~/.kin/daemon.lock`: a `LOCK_EX|LOCK_NB` from outside
+blocks, and the pid in the file is the `:7777` listener. A machine that installs
+the node later gets this code from the start. The same rebuild ships the shell
+side of the exit-status message.
