@@ -61,7 +61,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Goal chip, plan chip, PR/branch/worktree chips (`session-info-chips.tsx:129,306,356`) | desktop header chips (`TaskDetailPage.tsx:1505-1554`); phone subtitle is project + status only; branch/PR one tap away in the sheet | No goal or plan chip anywhere; branch/PR not visible at a glance on the phone | S3 | — |
 | Pinned-message banner (`session-pin.tsx:27`) | none; message actions are Retry / Fork / Save-as-artifact | Cannot pin a message | S3 | — |
 | Subagent panel with tokens, background count, cancel (`subagent-task-panel.tsx:176`) | `WorkerTimeline` shows each worker's own tokens and stops one step without ending the turn (`POST /tasks/{id}/workers/{executionId}/{stepIndex}/cancel`, R12B); Kin's workers are turn-scoped, so there is no background count to show | Closed | — | — |
-| Transcript renders progressively (Lody has virtualization in `ai-gui/view.tsx`) | `.map` over every item (`ChatStream.tsx:524,623`); memoized redraw landed (`d275d3ba`) | No windowing: a long session plus 8 cached panes still builds the whole DOM | S2 | `@tanstack/react-virtual` |
+| Transcript renders progressively (Lody has virtualization in `ai-gui/view.tsx`) | one message redraws per token (B2, `d275d3ba`); windowing was prototyped, measured and dropped (B2 notes: scroll height, selection rings, find jumps) | Opening a very long session still parses and builds the whole transcript once (~300ms at 300 turns) | S3 | none — the B2 measurement is why |
 
 ### 2.3 Composer
 
@@ -94,7 +94,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 |---|---|---|---|---|
 | Per-turn diff cards (`view.tsx:5502`) | `round_changed` records shell edits with counts; previews come from tool payloads (`roundEvidence.ts:102-178`) | Shell-only edits open to "nothing reconstructible" | S3 | — |
 | Changes sidebar with Code/Docs/Tests/Dev grouping (`session-changes-sidebar.tsx:366`) | flat list sorted by seq (`ChangedFilesList.tsx:21-102`); Keep/Discard exist in the viewer header for terminal tasks | No grouping, no persisted per-file reviewed state | S3 | — |
-| Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | dual-pane panel, sidebar capped at 40-46% height on phone widths (`WorkspacePanel.tsx:511-513`) | Reviewing a diff on a phone gets roughly half the screen with no conversation-diff alternative | S2 | — |
+| Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | one pane at a time under `md`: the list, then a full-height file with a back control (R15, `WorkspacePanel.tsx`); md+ keeps both panes | Closed for the viewer; no separate conversation-diff pane, because the per-turn diff cards already live in the conversation one tap away | — | — |
 | File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco): wrap on, read-only unless the workspace is writable, Cmd+S save (`CodeViewer.tsx:54-57,164-169`); monaco's own find owns Ctrl/Cmd+F inside the editor; file quick-open over the checkout with ⌘P/Ctrl+P, the panel's search button and the phone sheet (R13, `FileQuickOpen.tsx`) | `FileTree` itself still has no name filter — quick-open is the way to a known file, the tree is for browsing; no image/CSV/binary preview (next row) | S3 | — |
 | Image/CSV/Office/binary preview | text and Markdown only; the file API refuses non-UTF-8 (`workspace/diff.go:158-160`) | Binary and Office files cannot be opened at all | S3 | — |
 
@@ -123,7 +123,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Tab bar + mobile tab sheet with unread and waiting-permission states, drag reorder (`session-tab-bar.tsx:571`, `mobile-session-tab-sheet.tsx:144`) | phone switcher sheet with a "Needs you" pill and unread dots (`SessionSwitcherSheet.tsx:95-129`), ordered by status (`sessionSwitcher.ts:38-46`); desktop strip is keyboard-reorder only (`SessionTabs.tsx:81-84`) | No pointer drag reorder; the desktop strip shows no waiting/unread marks; the phone trigger carries no dot | S3 | — |
+| Tab bar + mobile tab sheet with unread and waiting-permission states, drag reorder (`session-tab-bar.tsx:571`, `mobile-session-tab-sheet.tsx:144`) | phone switcher sheet with a "Needs you" pill and unread dots (`SessionSwitcherSheet.tsx:95-129`), ordered by status (`sessionSwitcher.ts:38-46`); the desktop strip dots waiting/failed/unread and names the state in the tab's accessible name (R16, `SessionTabs.tsx:36-45`, `SessionTabs.tsx:155-166`); the phone's switch control carries the strongest mark (`MobileHeader.tsx:96-121`) | No pointer drag reorder | S3 | — |
 
 ### 2.11 Usage and context
 
@@ -139,7 +139,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Public share link + share management (`share-management-setting.tsx:482`) | per-task share link, copy and revoke (`ShareDialog.tsx`, `/s/{token}`) | Closed (no expiry control or console-wide list) | — | — |
 | Share as image, themes, PNG (`chat-share-image-dialog.tsx:397`) | text and HTML export only (`shareExport.ts:15-20`) | No image export, no theme choice | S3 | `html-to-image` or canvas |
 | Push permission, completion notifications, Live Activity (`mobile-general-settings.tsx:619`) | Web Push with VAPID (E2), completion and approval notifications, iOS Home Screen PWA | No Live Activity; iOS needs the console on the Home Screen | S3 | APNs remains the native path |
-| Unread dots in tabs (`session-tab-bar.tsx:531`) | unread dots in the sidebar, the phone list and the switcher sheet (`sessionViewed.ts:111-120`) | Not on the desktop tab strip, and not on the phone's switcher trigger | S3 | — |
+| Unread dots in tabs (`session-tab-bar.tsx:531`) | unread dots in the sidebar, the phone list, the switcher sheet, the desktop tab strip and the phone's switch control (`sessionViewed.ts:111-120`; strip and control in R16) | Closed | — | — |
 
 ## 3. Plan
 
@@ -289,7 +289,7 @@ Ordered by daily cost, not by column order. All are S2.
   `absolute path not allowed` and drew the daemon's complaint. The panel now
   maps the path into the workspace first; a path outside it says the file cannot
   be read here instead of asking the daemon to phrase it.
-- **F3 `@file` mentions.** One mention source over the task workspace tree, so
+- **F3 `@file` mentions.** (Landed; see the F3 sections.) One mention source over the task workspace tree, so
   a path can be referenced without typing it on a phone. Acceptance: typing
   `@` in the composer offers workspace files and inserts the path.
   Plan: there is no flat file index — `source/tree` lists one directory at a
@@ -2776,3 +2776,113 @@ is not searchable — the decoder's tolerance is for unknown fields, not for
 mistyped ones; and SQLite's `lower()` folds ASCII only, so cross-session search
 and the find bar disagree on non-ASCII case. Both point at the same next step:
 match in Go over a cheaper prefilter, or let FTS5 do the folding.
+
+### Round 15 — a phone gives the whole screen to the diff (2026-10-30)
+
+Planned against `8f770c92`. Closes the §2.6 S2 row. On phone widths the files
+panel stacked the change list over the viewer (`WorkspacePanel.tsx` carried
+`h-[40%] max-h-[46%]` on the sidebar), so a diff was read through roughly half a
+screen while the list it came from held the other half. Lody's drawer is
+single-pane: a list, then a full-height diff with Back.
+
+**15A One pane at a time under `md`.** `phoneView` ("list" | "file") drives the
+panel below the breakpoint. Every way into a file — the change list, the tree,
+quick-open, the changed-files bar, a workspace `openPath` — goes through
+`loadFile`, which flips to the file pane, including the path it refuses: the
+refusal is the viewer's answer and belongs where the file would have been. The
+header draws a back control only while the file pane is up, and only under
+`md`; the pane that is behind carries `hidden md:flex`, so md+ still shows both
+side by side and the resizer stays a desktop control. Switching task,
+generation or checkout returns to the list; closing the panel unmounts it and
+spends the open-file pulse, so it opens on the list again. The phone loses
+nothing: the list had half a screen before, and now it has a whole one until
+the reader asks for a file.
+
+**15B Tests.** The panel's existing DOM harness (CodeViewer mocked, API stubbed)
+renders the list-only state, clicks a change row and asserts the list step
+aside, the back control appears and returns; a third case opens a file through
+`openPath` — the changed-files bar's route — and asserts the same flip, and a
+fourth opens a path outside the workspace and asserts the refusal is drawn in
+the file pane, not under a list still in front. The state assertions read a
+`data-phone-view` attribute rather than substring-matching classes; one token
+check per pane pins the class the CSS hangs on (`hidden` on the aside, `flex`
+on the viewer), so `overflow-hidden` cannot pass for `hidden`. The md+ two-pane
+layout is CSS and is not asserted in jsdom.
+
+**Review (second pass).** No blockers. Two majors, both real, both fixed and
+red-verified by mutation:
+
+- *The open-file pulse was a condition, not a command.* `loadFile` takes a new
+  identity whenever the workspace view does — a generation refresh hands back a
+  fresh `generations` array while it loads, which is a new `useMemo` result and
+  a new callback — and the pulse effect (`[openPath, openNonce, loadFile]`)
+  therefore re-ran, dragging a reader who had pressed Back straight into the
+  file again, or into a file the new checkout does not have. The same churn
+  made the reset effect's `setPhoneView("list")` lose the same commit. The
+  pulse is now consumed once per `(path, nonce)` in a ref: a view change cannot
+  replay it, and a genuinely new open bumps the nonce. A DOM case walks the
+  exact scenario (open via `openPath`, Back, rerender with a new
+  `currentWorkspaceId`) and asserts the list stays and the file is not read a
+  second time.
+- *Focus fell to `<body>` on both transitions.* Opening a file hides the row
+  that had focus, and Back unmounts the control that had it; the next Tab then
+  started at the top of the page behind the panel. `loadFile` now hands focus
+  to the back control (a no-op at md+, where it is not drawn and the list never
+  left), and Back hands it to the row that opened the file
+  (`data-selected` on change and tree rows), falling back to the lens tab, and
+scrolls it into view — hiding the pane had also reset the list's scroll.
+
+Nits fixed: the page now spends the open-file pulse when the panel closes, so
+reopening Files starts on the list as the section claims; the refusal and
+`openPath` cases gained the assertions they were missing; the label reads "Back
+to files" / "返回文件" (the aside can be the tree, not only the change list);
+and the §2.6 row is updated rather than left describing the 40–46% sidebar.
+
+**Not done.** No separate "conversation diff" pane is added: the per-turn diff
+cards already live in the conversation, one tap away on a phone. The list and
+the viewer keep their current scrolling; there is no swipe-between-panes
+gesture, because the back control is the one affordance a phone needs and a
+gesture would duplicate it.
+
+### Round 16 — the strip and the button say which session needs you (2026-10-30)
+
+Closes the §2.10 / §2.12 "unread dots in tabs" row. Lody's tab bar carries
+unread and waiting-permission states per tab, and the phone's tab-sheet trigger
+carries the same. Kin already had both models — `switcherStatus` and the
+switcher sheet — but neither control said anything until it was opened, so the
+only way to learn that a background session was blocked was to open the sheet.
+
+**16A The mark model is the sheet's.** `tabMark` reuses `switcherStatus` and
+drops the one state a dot cannot say: "running". A spinner on every busy tab
+would make the strip a row of noise, and most tabs are busy most of the time. A
+tab whose row has fallen off the loaded page still reports `waiting` from the
+pending lists, which are keyed by task id and need no row — the same fallback
+the sheet uses. The dot takes the sheet's colours (`kin-orange` waiting,
+`kin-red` failed, `kin-green` unread), and the state also rides in the tab's
+accessible name (`tabs.withState`), because a 6px circle is not an
+announcement. The session in front carries no dot: its state is the screen
+itself.
+
+**16B The phone's control carries the strongest reason, not every reason.**
+`attentionMark` reads the same rows the sheet will draw, so the control and the
+sheet share one status model. Waiting outranks unread; the active session never counts
+(the reader is looking at it); and a failure does not light the dot — a failed
+session stays failed until it is retried or closed, so a dot that only cleared
+when the tab went away would train the reader to stop seeing it. The failure is
+still in the sheet, with its red mark. When a dot is drawn the control's label
+becomes `switcher.titleMarked`, so the state is announced and not only painted.
+
+**16C Tests.** Table cases for both helpers (a missing row, a viewed result, a
+busy session, the active row, a failure), a DOM test that pins the strip's dot
+colour, its accessible name and that the dot does not swallow the click, a DOM
+test for the header control's dot and its unchanged name, and wiring pins for
+the host-to-strip and host-to-control seams — the two places a source test can
+reach that a unit cannot. After review the label rule moved next to the mark as
+`switcherTriggerLabel`, so the key and the `{state}` parameter are covered by
+unit cases; the page's pin only has to prove it passes the parameter through,
+because a title template with no params renders "Switch session — ".
+
+**Not done.** The strip still has no pointer drag reorder (keyboard only,
+unchanged). The phone's other session surfaces — the project Chats tab — keep
+the marks they already had. Running sessions are deliberately unmarked, so a
+long-running background job is visible in the sheet but not on the strip.
