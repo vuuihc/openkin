@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useT } from "../../i18n/react";
-import type { RoutineRule } from "../../lib/routineRecurrence";
+import { localTimeZone, type RoutineRule } from "../../lib/routineRecurrence";
 
 export const ROUTINE_INTERVAL_PRESETS = [
   { secs: 3600, key: "interval1h" as const },
@@ -48,6 +48,14 @@ type Props = {
    */
   rule: RoutineRule | null;
   onRuleChange: (rule: RoutineRule | null) => void;
+  /**
+   * The zone the rule's time is expressed in. Null/undefined means the
+   * browser's — the case for every new routine. A name is a rule written in
+   * that zone; "" is a rule stored with no zone, which the daemon fires on its
+   * own local clock. The hint names whichever it is, because the time input
+   * shows that zone's wall clock rather than the reader's.
+   */
+  ruleZone?: string | null;
   disabled?: boolean;
   /** Compact single-row layout for composer footer. */
   compact?: boolean;
@@ -75,6 +83,7 @@ export default function RoutineScheduleFields({
   onNextRunLocalChange,
   rule,
   onRuleChange,
+  ruleZone,
   disabled,
   compact,
 }: Props) {
@@ -87,9 +96,8 @@ export default function RoutineScheduleFields({
 
   const hint = useMemo(() => {
     if (rule && rule.kind !== "once") {
-      return tr("routines.ruleTimezone", {
-        zone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-      });
+      if (ruleZone === "") return tr("routines.ruleTimezoneDaemon");
+      return tr("routines.ruleTimezone", { zone: ruleZone || localTimeZone() });
     }
     const ms = parseLocalDateTime(nextRunLocal);
     if (ms == null) return tr("routines.nextRunAsap");
@@ -98,7 +106,7 @@ export default function RoutineScheduleFields({
     } catch {
       return tr("routines.nextRunAsap");
     }
-  }, [rule, nextRunLocal, tr]);
+  }, [rule, ruleZone, nextRunLocal, tr]);
 
   function choose(next: string) {
     if (next.startsWith("interval:")) {
@@ -128,7 +136,9 @@ export default function RoutineScheduleFields({
   const clockRule = rule && rule.kind !== "once" ? rule : null;
 
   return (
-    <div className={compact ? "flex flex-wrap items-end gap-x-3 gap-y-2" : "grid gap-3 sm:grid-cols-2"}>
+    <div
+      className={compact ? "flex flex-wrap items-end gap-x-3 gap-y-2" : "grid gap-3 sm:grid-cols-2"}
+    >
       <label className="block min-w-[8rem]">
         <span className="text-caption font-medium uppercase tracking-label text-kin-muted">
           {tr("routines.repeatLabel")}

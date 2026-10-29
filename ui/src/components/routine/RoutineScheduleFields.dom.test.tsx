@@ -2,7 +2,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { t } from "../../i18n";
-import type { RoutineRule } from "../../lib/routineRecurrence";
+import { localTimeZone, type RoutineRule } from "../../lib/routineRecurrence";
 import RoutineScheduleFields from "./RoutineScheduleFields";
 
 /**
@@ -11,7 +11,7 @@ import RoutineScheduleFields from "./RoutineScheduleFields";
  * choice clears the rule and sets the interval, and a clock choice sets the
  * rule and stops asking for a first run.
  */
-function setup(rule: RoutineRule | null = null) {
+function setup(rule: RoutineRule | null = null, ruleZone?: string | null) {
   const onRuleChange = vi.fn();
   const onIntervalChange = vi.fn();
   const onNextRunLocalChange = vi.fn();
@@ -23,6 +23,7 @@ function setup(rule: RoutineRule | null = null) {
       onNextRunLocalChange={onNextRunLocalChange}
       rule={rule}
       onRuleChange={onRuleChange}
+      ruleZone={ruleZone}
     />,
   );
   return { onRuleChange, onIntervalChange, onNextRunLocalChange };
@@ -105,5 +106,24 @@ describe("RoutineScheduleFields", () => {
     setup({ kind: "once" });
     expect(screen.getByLabelText(t("routines.onceLabel"))).toBeTruthy();
     expect(screen.queryByLabelText(t("routines.timeLabel"))).toBeNull();
+  });
+
+  it("names the zone the rule's time is in", () => {
+    // A rule written on a phone in another zone keeps that zone when it is
+    // edited here; claiming the times are the reader's would describe a firing
+    // time the routine does not have. The zone is chosen to differ from the
+    // test runner's, so the assertion cannot pass by coincidence.
+    const foreign = ["Asia/Shanghai", "America/New_York", "Europe/Berlin"].find(
+      (z) => z !== localTimeZone(),
+    )!;
+    setup({ kind: "daily", hour: 9, minute: 0 }, foreign);
+    expect(screen.getByText(t("routines.ruleTimezone", { zone: foreign }))).toBeTruthy();
+  });
+
+  it("says a zone-less rule runs on the machine's clock", () => {
+    // A stored rule with no zone is the daemon's local time, which the console
+    // cannot name; it must not claim the reader's zone instead.
+    setup({ kind: "daily", hour: 9, minute: 0 }, "");
+    expect(screen.getByText(t("routines.ruleTimezoneDaemon"))).toBeTruthy();
   });
 });

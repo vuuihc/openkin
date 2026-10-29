@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ApiError,
@@ -22,6 +22,7 @@ import PermissionModePicker from "../components/chat/PermissionModePicker";
 import RoutineScheduleFields, {
   defaultNextRunLocal,
   parseLocalDateTime,
+  toLocalInputValue,
 } from "../components/routine/RoutineScheduleFields";
 import {
   describeRoutineRule,
@@ -32,7 +33,12 @@ import {
 import { SlowConnectHint } from "../components/Skeleton";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useT } from "../i18n/react";
-import { getDraftPermissionMode, type PermissionMode } from "../lib/permissionMode";
+import {
+  getDraftPermissionMode,
+  normalizePermissionMode,
+  type PermissionMode,
+} from "../lib/permissionMode";
+import { routineForm, routinePatch, routineTitle } from "../lib/routineEdit";
 import { subscribeWS, useAppStore } from "../store/appStore";
 
 function formatWhen(ms?: number | null): string {
@@ -75,6 +81,22 @@ function statusLabel(
 }
 
 /**
+ * The form's fields as one value, so the create draft can be handed back
+ * untouched after an edit borrowed the form.
+ */
+type FormDraft = {
+  title: string;
+  prompt: string;
+  cwd: string;
+  agentId: string;
+  permissionMode: PermissionMode;
+  intervalSecs: number;
+  rule: RoutineRule | null;
+  ruleZone: string | null;
+  nextRunLocal: string;
+};
+
+/**
  * Global Routines inbox — create + reverse-chron runs feed + controls.
  * Create reuses New-chat controls (cwd / permission / schedule).
  */
@@ -104,10 +126,19 @@ export default function RoutinesPage() {
   );
   const [intervalSecs, setIntervalSecs] = useState(86400);
   const [routineRule, setRoutineRule] = useState<RoutineRule | null>(null);
+  // The zone the rule's time is expressed in; null = the browser's zone.
+  const [ruleZone, setRuleZone] = useState<string | null>(null);
   const [nextRunLocal, setNextRunLocal] = useState(() => defaultNextRunLocal());
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [agentId, setAgentId] = useState("");
   const [creating, setCreating] = useState(false);
+  // The routine the form is editing; null means it is creating a new one.
+  const [editing, setEditing] = useState<Routine | null>(null);
+  const formRef = useRef<HTMLElement | null>(null);
+  const titleRef = useRef<HTMLInputElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
+  // The create draft an edit temporarily took over (see `closeForm`).
+  const createDraftRef = useRef<FormDraft | null>(null);
 
   const load = useCallback(async () => {
     if (!isAuthenticated()) return;
@@ -206,6 +237,9 @@ export default function RoutinesPage() {
     try {
       await deleteRoutine(r.id);
       setRoutines((list) => list.filter((x) => x.id !== r.id));
+      // Deleting the routine the form is editing would leave Save pointed at a
+      // row that no longer exists.
+      if (editing?.id === r.id) closeForm();
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
     } finally {
@@ -250,7 +284,92 @@ export default function RoutinesPage() {
     }
   };
 
-  const onCreate = async () => {
+  const resetForm = () => {
+    setTitle("");
+    setPrompt("");
+    setRoutineRule(null);
+    setRuleZone(null);
+    setNextRunLocal(defaultNextRunLocal());
+  };
+
+  const formDraft = (): FormDraft => ({
+    title,
+    prompt,
+    cwd,
+    agentId,
+    permissionMode,
+    intervalSecs,
+    rule: routineRule,
+    ruleZone,
+    nextRunLocal,
+  });
+
+  const applyDraft = (draft: FormDraft) => {
+    setTitle(draft.title);
+    setPrompt(draft.prompt);
+    setCwd(draft.cwd);
+    setAgentId(draft.agentId);
+    setPermissionMode(draft.permissionMode);
+    setIntervalSecs(draft.intervalSecs);
+    setRoutineRule(draft.rule);
+    setRuleZone(draft.ruleZone);
+    setNextRunLocal(draft.nextRunLocal);
+  };
+
+  const closeForm = () => {
+    setShowCreate(false);
+    // The control that opened the form is still on the page; focus goes back to
+    // it rather than to <body>. (For an edit that is the disclosure, not the
+    // row: the row may be scrolled away by the time the save returns.)
+    requestAnimationFrame(() => toggleRef.current?.focus());
+    if (!editing) return;
+    // An edit borrowed the create form. Closing it puts back whatever the
+    // reader had typed there — otherwise the next new routine would inherit
+    // another routine's agent, directory, cadence and permissions.
+    const draft = createDraftRef.current;
+    createDraftRef.current = null;
+    setEditing(null);
+    if (draft) applyDraft(draft);
+  };
+
+  const openCreate = () => {
+    // Opening the create form from inside an edit first closes the edit, which
+    // restores the draft.
+    if (editing) closeForm();
+    setShowCreate(true);
+    requestAnimationFrame(() => titleRef.current?.focus());
+  };
+
+  const openEdit = (r: Routine) => {
+    // Keep the create draft the first time an edit takes the form over.
+    if (!editing) createDraftRef.current = formDraft();
+    const draft = routineForm(r);
+    setEditing(r);
+    setTitle(draft.title);
+    setPrompt(draft.prompt);
+    setCwd(draft.cwd);
+    setPermissionMode(normalizePermissionMode(draft.permissionMode));
+    setAgentId(draft.agent);
+    setIntervalSecs(draft.intervalSecs);
+    setRoutineRule(draft.rule);
+    setRuleZone(draft.ruleZone);
+    setNextRunLocal(
+      draft.nextRunMs != null
+        ? toLocalInputValue(new Date(draft.nextRunMs))
+        : defaultNextRunLocal(),
+    );
+    setShowCreate(true);
+    // The row that opened this is below the fold: bring the form into view and
+    // put the caret in it, rather than leaving focus on a button the reader can
+    // no longer see. A reader who asked for less motion gets the jump.
+    requestAnimationFrame(() => {
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      formRef.current?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+      titleRef.current?.focus();
+    });
+  };
+
+  const onSubmit = async () => {
     const p = prompt.trim();
     if (!p) {
       pushToast(tr("routines.needPrompt"), "error");
@@ -260,12 +379,46 @@ export default function RoutinesPage() {
       pushToast(tr("routines.needCwd"), "error");
       return;
     }
+    const nextMs = parseLocalDateTime(nextRunLocal);
+    if (routineRule?.kind === "once" && nextMs == null) {
+      pushToast(tr("routines.needNextRun"), "error");
+      return;
+    }
+    if (editing) {
+      const patch = routinePatch(editing, {
+        title,
+        prompt: p,
+        cwd,
+        agent: agentId,
+        permissionMode,
+        intervalSecs,
+        rule: routineRule,
+        nextRunMs: nextMs,
+        ruleZone,
+      });
+      // Nothing to send is a valid save — the reader opened the form and closed
+      // it again. It must not become an empty PATCH, and it must not touch the
+      // schedule as a side effect of saving.
+      if (!patch) {
+        closeForm();
+        return;
+      }
+      setCreating(true);
+      try {
+        const updated = await patchRoutine(editing.id, patch);
+        setRoutines((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+        closeForm();
+        pushToast(tr("routines.saved"), "info");
+      } catch (e) {
+        pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
     setCreating(true);
     try {
-      const nextMs = parseLocalDateTime(nextRunLocal);
-      const titleRunes = Array.from(title.trim() || p);
-      const resolvedTitle =
-        titleRunes.length > 48 ? titleRunes.slice(0, 48).join("") + "…" : titleRunes.join("");
+      const resolvedTitle = routineTitle(title, p);
       // With a wall-clock rule the daemon derives the pace and the first run
       // from the rule itself, so neither interval_secs nor next_due_at is sent:
       // a value the scheduler would ignore is a value that can drift out of
@@ -285,11 +438,8 @@ export default function RoutinesPage() {
         permission_mode: permissionMode,
       });
       setRoutines((list) => [r, ...list]);
-      setShowCreate(false);
-      setPrompt("");
-      setTitle("");
-      setNextRunLocal(defaultNextRunLocal());
-      setRoutineRule(null);
+      closeForm();
+      resetForm();
       pushToast(tr("routines.created"), "info");
     } catch (e) {
       pushToast(e instanceof Error ? e.message : tr("routines.actionFailed"), "error");
@@ -310,8 +460,12 @@ export default function RoutinesPage() {
           </div>
           <div className="flex w-full items-center gap-2 md:w-auto md:shrink-0">
             <button
+              ref={toggleRef}
               type="button"
-              onClick={() => setShowCreate((v) => !v)}
+              aria-expanded={showCreate}
+              aria-controls="routine-form"
+              disabled={creating}
+              onClick={() => (showCreate ? closeForm() : openCreate())}
               className={[
                 "min-h-11 flex-1 rounded-lg px-3 text-body font-medium md:flex-none",
                 showCreate
@@ -332,15 +486,23 @@ export default function RoutinesPage() {
         </div>
 
         {showCreate && (
-          <section className="mt-5 rounded-2xl border border-kin-blue/30 bg-kin-blue/5 p-4">
-            <div className="text-strong font-medium text-kin-text">
-              {tr("routines.createPanelTitle")}
-            </div>
-            <p className="mt-1 text-body text-kin-secondary">{tr("routines.createPanelHint")}</p>
+          <section
+            id="routine-form"
+            ref={formRef}
+            aria-label={editing ? tr("routines.editPanelTitle") : tr("routines.createPanelTitle")}
+            className="mt-5 scroll-mt-4 rounded-2xl border border-kin-blue/30 bg-kin-blue/5 p-4"
+          >
+            <h2 className="text-strong font-medium text-kin-text">
+              {editing ? tr("routines.editPanelTitle") : tr("routines.createPanelTitle")}
+            </h2>
+            <p className="mt-1 text-body text-kin-secondary">
+              {editing ? tr("routines.editPanelHint") : tr("routines.createPanelHint")}
+            </p>
 
             <label className="mt-4 block text-body text-kin-secondary">
               {tr("routines.titleLabel")}
               <input
+                ref={titleRef}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={tr("routines.titlePlaceholder")}
@@ -369,13 +531,20 @@ export default function RoutinesPage() {
               />
               {availableAgents.length > 0 && (
                 <label className="inline-flex items-center gap-2 text-body text-kin-secondary">
-                  <span className="text-kin-muted">agent</span>
+                  <span className="text-kin-muted">{tr("routines.agentLabel")}</span>
                   <select
                     value={agentId}
                     disabled={creating}
                     onChange={(e) => setAgentId(e.target.value)}
                     className="rounded-lg border border-[var(--kin-hairline)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-text"
                   >
+                    {/* A routine keeps the agent it was created with, even if
+                        that agent is offline right now. Without this row the
+                        select would show the first available agent while the
+                        state still held the missing id. */}
+                    {agentId && availableAgents.every((a) => a.id !== agentId) && (
+                      <option value={agentId}>{agentId}</option>
+                    )}
                     {availableAgents.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
@@ -398,6 +567,7 @@ export default function RoutinesPage() {
                 onNextRunLocalChange={setNextRunLocal}
                 rule={routineRule}
                 onRuleChange={setRoutineRule}
+                ruleZone={ruleZone}
                 disabled={creating}
               />
             </div>
@@ -406,17 +576,21 @@ export default function RoutinesPage() {
               <button
                 type="button"
                 className="rounded-lg px-3 py-1.5 text-strong text-kin-secondary"
-                onClick={() => setShowCreate(false)}
+                onClick={closeForm}
               >
                 {tr("routines.cancel")}
               </button>
               <button
                 type="button"
+                // A one-off with no date-time is refused on submit with a
+                // message, not by a disabled button: the schedule field beside
+                // it still says "runs on the next tick", so a dead Save would
+                // be the only thing telling the reader otherwise.
                 disabled={creating || !prompt.trim() || !cwd.trim()}
                 className="rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand disabled:opacity-50"
-                onClick={() => void onCreate()}
+                onClick={() => void onSubmit()}
               >
-                {tr("routines.createAndOpen")}
+                {editing ? tr("routines.save") : tr("routines.createAndOpen")}
               </button>
             </div>
           </section>
@@ -453,7 +627,7 @@ export default function RoutinesPage() {
                     <button
                       type="button"
                       className="mt-4 rounded-lg bg-kin-blue px-3 py-1.5 text-strong font-medium text-kin-on-brand"
-                      onClick={() => setShowCreate(true)}
+                      onClick={() => openCreate()}
                     >
                       {tr("routines.createEntry")}
                     </button>
@@ -545,7 +719,7 @@ export default function RoutinesPage() {
                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            disabled={!!busy[r.id]}
+                            disabled={!!busy[r.id] || creating}
                             onClick={() => void onRunNow(r)}
                             className="min-h-11 rounded-lg bg-kin-blue px-3 py-1 text-body font-medium text-kin-on-brand disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                           >
@@ -553,7 +727,18 @@ export default function RoutinesPage() {
                           </button>
                           <button
                             type="button"
-                            disabled={!!busy[r.id]}
+                            disabled={!!busy[r.id] || creating}
+                            onClick={() => openEdit(r)}
+                            aria-label={tr("routines.editRoutine", {
+                              title: r.title || r.prompt.slice(0, 48),
+                            })}
+                            className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
+                          >
+                            {tr("routines.edit")}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!!busy[r.id] || creating}
                             onClick={() => void onToggle(r)}
                             className="min-h-11 rounded-lg border border-[var(--kin-hairline)] px-3 py-1 text-body text-kin-secondary disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                           >
@@ -561,7 +746,7 @@ export default function RoutinesPage() {
                           </button>
                           <button
                             type="button"
-                            disabled={!!busy[r.id]}
+                            disabled={!!busy[r.id] || creating}
                             onClick={() => void onDelete(r)}
                             className="min-h-11 rounded-lg px-3 py-1 text-body text-kin-red-ink/90 disabled:opacity-50 sm:min-h-8 sm:px-2.5"
                           >
