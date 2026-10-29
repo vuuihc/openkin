@@ -33,9 +33,13 @@ describe("the phone's way into find-in-conversation", () => {
     expect(SOURCE).toContain("openFindAfterSheet.current = false");
   });
 
-  it("lets only the active pane claim the shortcut", () => {
-    // Sessions stay mounted behind the tab strip; a pane that keeps claiming
-    // Cmd+F would open a bar the reader cannot see.
-    expect(SOURCE).toContain("findShortcut={active}");
+  it("lets only an uncovered active pane claim the shortcut", () => {
+    // Sessions stay mounted behind the tab strip, so a pane that is not the
+    // active one must not claim Cmd+F. A panel is not a second pane either: it
+    // is a full-surface overlay, so while one is open the conversation's bar is
+    // behind it — the shortcut took focus into a field the reader cannot see
+    // and sent their typing there. Monaco keeps its own find; everything else
+    // falls through to the browser.
+    expect(SOURCE).toContain("findShortcut={active && panel === null}");
   });
 });

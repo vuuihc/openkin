@@ -1424,7 +1424,7 @@ export default function TaskDetailPage({
             onSaveArtifact={(text) => void onSaveArtifact(text)}
             findOpen={findOpen}
             onFindOpenChange={setFindOpen}
-            findShortcut={active}
+            findShortcut={active && panel === null}
             trailing={
               <>
                 {unanchored.map((entry) => (

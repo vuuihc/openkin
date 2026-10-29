@@ -264,11 +264,15 @@ Ordered by daily cost, not by column order. All are S2.
   badging it. **Remove landed** (`DELETE /api/tasks/{id}/prompts/{promptID}`,
   the × in the badge, and the `prompt_withdrawn` notice that keeps the
   transcript honest on every device); edit-as-refill remains.
-- **F2 The workspace owns its own find.** Wire monaco's find action and make
-  the conversation's Cmd/Ctrl+F handler stand down while an editor has focus
-  (`ChatStream.tsx:234-244` currently preventDefaults it). Acceptance: Cmd+F in
-  the file viewer opens the editor's find, and everywhere else still opens the
-  conversation's.
+- **F2 The workspace owns its own find.** (Landed.) Monaco already claims
+  Cmd/Ctrl+F from inside its own textarea — checked in the running console, where
+  the key opens the editor's find widget and focus never leaves it — so the
+  editor half needed no wiring. The half that did: a panel is a full-surface
+  overlay, and the conversation kept claiming the chord while one was open, so
+  Cmd+F over the file list opened a find bar *behind* the overlay and typed into
+  it (`elementFromPoint` at its centre landed on the editor). The page now passes
+  `findShortcut={active && panel === null}`: an editor still owns the chord, and
+  everywhere uncovered still opens the conversation's.
 - **F3 `@file` mentions.** One mention source over the task workspace tree, so
   a path can be referenced without typing it on a phone. Acceptance: typing
   `@` in the composer offers workspace files and inserts the path.
