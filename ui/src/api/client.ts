@@ -871,6 +871,41 @@ export function deleteTask(id: string): Promise<void> {
 }
 
 /**
+ * A public read-only link to one conversation.
+ *
+ * The token is the credential and the daemon keeps only its digest, so it comes
+ * back exactly once, from `createSessionShare`. Everything else can say only
+ * whether a link is live.
+ */
+export type SessionShareState = {
+  active: boolean;
+  created_at?: number;
+  expires_at?: number;
+};
+
+export type SessionShareCreated = {
+  token: string;
+  created_at: number;
+  expires_at: number;
+};
+
+export function getSessionShare(id: string): Promise<SessionShareState> {
+  return apiFetch<SessionShareState>(`/api/tasks/${encodeURIComponent(id)}/share`);
+}
+
+export function createSessionShare(id: string): Promise<SessionShareCreated> {
+  return apiFetch<SessionShareCreated>(`/api/tasks/${encodeURIComponent(id)}/share`, {
+    method: "POST",
+  });
+}
+
+export function revokeSessionShare(id: string): Promise<{ revoked: number }> {
+  return apiFetch<{ revoked: number }>(`/api/tasks/${encodeURIComponent(id)}/share`, {
+    method: "DELETE",
+  });
+}
+
+/**
  * Send a message to a running or finished task.
  *
  * A running task keeps the message in its queue and answers it when the current

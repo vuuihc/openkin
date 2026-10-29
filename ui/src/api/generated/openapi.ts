@@ -862,6 +862,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tasks/{taskId}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Whether this conversation currently has a readable link, and until when. It never returns the link itself: the daemon stores only a digest of the token, so the URL exists solely in the response that minted it. A link that was lost is replaced by creating another one, which closes the old. */
+        get: operations["getTaskShare"];
+        put?: never;
+        /** @description Mint a read-only link to this conversation and close any link it had. The response is the only time the token is returned; the page it opens carries the conversation's text messages and nothing else. */
+        post: operations["createTaskShare"];
+        /** @description Close this conversation's link now. Revoking a task with no link is not an error: the answer is zero links closed. */
+        delete: operations["revokeTaskShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evals/suites": {
         parameters: {
             query?: never;
@@ -1048,6 +1067,40 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["a2aFollowUpTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/shares/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The shared conversation, read by someone who has the link and nothing else. There is no credential on this route and no way to enumerate it: the token is the whole of the authority, and a token that is revoked, expired, or was never issued all answer the same 404. */
+        get: operations["getPublicShare"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/s/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The same conversation as a standalone HTML page, so the link opens in a browser with no console, no sign-in and no JavaScript. It is the URL the console hands out; the JSON form above exists for anything that would rather read the conversation than render it. */
+        get: operations["getPublicSharePage"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1729,6 +1782,35 @@ export interface components {
             blocked?: "not_a_checkout" | "no_github_remote" | "detached_head" | "default_branch" | "uncommitted_changes" | "no_gh";
             /** @description The machine's own sentence, shown to the person as it stands. */
             reason?: string;
+        };
+        SessionShareState: {
+            active: boolean;
+            /** @description Unix milliseconds the live link was minted. Absent when none is. */
+            created_at?: number;
+            /** @description Unix milliseconds it stops working; 0 or absent means until revoked. */
+            expires_at?: number;
+        };
+        SessionShareCreated: {
+            /** @description The link's secret. Returned exactly once, at creation; the daemon keeps only its digest. */
+            token: string;
+            created_at: number;
+            expires_at?: number;
+        };
+        PublicShareView: {
+            title: string;
+            agent?: string;
+            status?: string;
+            created_at?: number;
+            /** @description The conversation is longer than the share carries; only the most recent messages are present. */
+            truncated?: boolean;
+            messages: {
+                /** @enum {string} */
+                role: "user" | "assistant";
+                text: string;
+                /** @description Who answered, when it was not the task's own agent — a worker in a team session. Absent means the agent named at the top. */
+                speaker?: string;
+                ts?: number;
+            }[];
         };
     };
     responses: never;
@@ -3454,6 +3536,109 @@ export interface operations {
             };
         };
     };
+    getTaskShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Share state, carrying no secret */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionShareState"];
+                };
+            };
+            /** @description No such task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createTaskShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The minted link's token, shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionShareCreated"];
+                };
+            };
+            /** @description The caller does not hold this machine — a task owner without the node's own credential cannot publish or withdraw its link */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revokeTaskShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                taskId: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many links were closed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revoked: number;
+                    };
+                };
+            };
+            /** @description The caller does not hold this machine — a task owner without the node's own credential cannot publish or withdraw its link */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such task */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listEvalSuites: {
         parameters: {
             query?: never;
@@ -3752,6 +3937,64 @@ export interface operations {
                         [key: string]: unknown;
                     };
                 };
+            };
+        };
+    };
+    getPublicShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation as published */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicShareView"];
+                };
+            };
+            /** @description No readable share for this token */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPublicSharePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A self-contained page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description No readable share for this token */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -270,6 +270,11 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/version", s.handleVersion)
 	r.Get("/api/cloudflare/oauth/callback", s.handleCloudflareOAuthCallback)
 	r.Post("/api/pairing/exchange", s.handlePairingExchange)
+	// A share link is read by people who do not have an account here, so both
+	// the page and the JSON behind it sit outside the authenticated group. The
+	// URL is the credential.
+	r.Get("/api/public/shares/{token}", s.handlePublicShareJSON)
+	r.Get("/s/{token}", s.handlePublicSharePage)
 	// Account endpoints are unauthenticated by necessity: they are how a client
 	// obtains a session in the first place. Each applies its own attempt limit.
 	r.Get("/api/auth/status", s.handleAuthStatus)
@@ -401,6 +406,14 @@ func (s *Server) Handler() http.Handler {
 			r.Post("/retry", s.handleRetry)
 			r.Post("/limit/continue", s.handleLimitContinue)
 			r.Post("/fork", s.handleFork)
+			// Publishing a conversation to a URL anyone can open is a decision
+			// about this daemon's data leaving the building, so it is the
+			// holder's to make — the same call /pr/publish makes about a branch.
+			// Reading the state back is not: the console only needs to know
+			// whether its own link is still live.
+			r.Get("/share", s.handleGetSessionShare)
+			r.With(holderOnly).Post("/share", s.handleCreateSessionShare)
+			r.With(holderOnly).Delete("/share", s.handleRevokeSessionShare)
 		})
 		r.Get("/api/approvals", s.handleListApprovals)
 		r.With(s.approvalInScope).Post("/api/approvals/{id}/decision", s.handleDecision)

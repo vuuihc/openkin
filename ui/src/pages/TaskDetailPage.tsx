@@ -64,6 +64,7 @@ import {
   IconPanel,
   IconPullRequest,
   IconSessions,
+  IconShare,
   IconTrash,
 } from "../components/icons";
 import { SkeletonLine, SlowConnectHint } from "../components/Skeleton";
@@ -75,6 +76,7 @@ import ChangedFilesBar from "../components/workspace/ChangedFilesBar";
 import WorkspacePanel from "../components/workspace/WorkspacePanel";
 import TaskUsageSummary from "../components/usage/TaskUsageSummary";
 import WorkerTimeline from "../components/task/WorkerTimeline";
+import ShareDialog from "../components/task/ShareDialog";
 import { workerActivity } from "../components/task/workerActivity";
 import { extractChangedFiles } from "../lib/changedFiles";
 import { anchoredPendingIds, orderPending } from "../lib/needsYou";
@@ -170,6 +172,11 @@ export default function TaskDetailPage({
   const [deleting, setDeleting] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
   const [actionsOpen, setActionsOpen] = useState(false);
+  /** The public-link dialog, reachable from the sheet and from the chip row. */
+  const [shareOpen, setShareOpen] = useState(false);
+  /** Open the share dialog once the phone's action sheet has gone; see
+   *  `openFindAfterSheet` for why it cannot open underneath it. */
+  const openShareAfterSheet = useRef(false);
   /**
    * Find-in-conversation, owned here rather than in ChatStream so the phone's
    * sheet can open it — the phone has no Cmd+F. The hidden panes behind the tab
@@ -1077,6 +1084,7 @@ export default function TaskDetailPage({
    */
   const sessionActions: ActionSheetButton[] = [
     { text: tr("chat.find.menu"), handler: () => (openFindAfterSheet.current = true) },
+    { text: tr("task.share"), handler: () => (openShareAfterSheet.current = true) },
     { text: tr("workspace.title"), handler: () => togglePanel(id, "files") },
     { text: tr("pr.title"), handler: () => togglePrPanel() },
     ...(!terminal
@@ -1215,6 +1223,15 @@ export default function TaskDetailPage({
             </button>
             <button
               type="button"
+              onClick={() => setShareOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary transition-colors hover:text-kin-text"
+              title={tr("task.shareTitle")}
+            >
+              <IconShare size={13} />
+              <span>{tr("task.share")}</span>
+            </button>
+            <button
+              type="button"
               onClick={() => void onDelete()}
               disabled={deleting}
               className="inline-flex items-center gap-1 rounded-md border border-[var(--kin-hairline-strong)] bg-[var(--kin-fill)] px-2 py-1 text-body text-kin-secondary hover:text-kin-red-ink hover:border-kin-red/35 disabled:opacity-40"
@@ -1264,6 +1281,10 @@ export default function TaskDetailPage({
               openFindAfterSheet.current = false;
               setFindOpen(true);
             }
+            if (openShareAfterSheet.current) {
+              openShareAfterSheet.current = false;
+              setShareOpen(true);
+            }
           }}
           header={tr("task.sessionActions")}
           // Which machine is about to be acted on. The footer strip that named
@@ -1279,6 +1300,7 @@ export default function TaskDetailPage({
           cssClass="kin-sheet"
           buttons={sessionActions}
         />
+        <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} taskId={task.id} />
 
         {error && (
           <div

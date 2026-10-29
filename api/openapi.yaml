@@ -1233,6 +1233,70 @@ paths:
             cannot place it. The body carries a code — "session_runs_here" for
             the first — because the console draws its own sentence for that one
             and must not draw it for the other.
+  /api/tasks/{taskId}/share:
+    get:
+      operationId: getTaskShare
+      description: >-
+        Whether this conversation currently has a readable link, and until when.
+        It never returns the link itself: the daemon stores only a digest of the
+        token, so the URL exists solely in the response that minted it. A link
+        that was lost is replaced by creating another one, which closes the old.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Share state, carrying no secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionShareState"
+        "404":
+          description: No such task
+    post:
+      operationId: createTaskShare
+      description: >-
+        Mint a read-only link to this conversation and close any link it had.
+        The response is the only time the token is returned; the page it opens
+        carries the conversation's text messages and nothing else.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "201":
+          description: The minted link's token, shown once
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionShareCreated"
+        "403":
+          description: >-
+            The caller does not hold this machine — a task owner without the
+            node's own credential cannot publish or withdraw its link
+        "404":
+          description: No such task
+    delete:
+      operationId: revokeTaskShare
+      description: >-
+        Close this conversation's link now. Revoking a task with no link is not
+        an error: the answer is zero links closed.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: How many links were closed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked:
+                    type: integer
+        "403":
+          description: >-
+            The caller does not hold this machine — a task owner without the
+            node's own credential cannot publish or withdraw its link
+        "404":
+          description: No such task
   /api/evals/suites:
     get:
       operationId: listEvalSuites
@@ -1430,6 +1494,52 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /api/public/shares/{token}:
+    get:
+      operationId: getPublicShare
+      description: >-
+        The shared conversation, read by someone who has the link and nothing
+        else. There is no credential on this route and no way to enumerate it:
+        the token is the whole of the authority, and a token that is revoked,
+        expired, or was never issued all answer the same 404.
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The conversation as published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicShareView"
+        "404":
+          description: No readable share for this token
+  /s/{token}:
+    get:
+      operationId: getPublicSharePage
+      description: >-
+        The same conversation as a standalone HTML page, so the link opens in a
+        browser with no console, no sign-in and no JavaScript. It is the URL the
+        console hands out; the JSON form above exists for anything that would
+        rather read the conversation than render it.
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A self-contained page
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: No readable share for this token
 components:
   parameters:
     TaskId:
@@ -3029,3 +3139,63 @@ components:
         reason:
           type: string
           description: The machine's own sentence, shown to the person as it stands.
+    SessionShareState:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: boolean
+        created_at:
+          type: integer
+          description: Unix milliseconds the live link was minted. Absent when none is.
+        expires_at:
+          type: integer
+          description: Unix milliseconds it stops working; 0 or absent means until revoked.
+    SessionShareCreated:
+      type: object
+      required: [token, created_at]
+      properties:
+        token:
+          type: string
+          description: >-
+            The link's secret. Returned exactly once, at creation; the daemon
+            keeps only its digest.
+        created_at:
+          type: integer
+        expires_at:
+          type: integer
+    PublicShareView:
+      type: object
+      required: [title, messages]
+      properties:
+        title:
+          type: string
+        agent:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: integer
+        truncated:
+          type: boolean
+          description: >-
+            The conversation is longer than the share carries; only the most
+            recent messages are present.
+        messages:
+          type: array
+          items:
+            type: object
+            required: [role, text]
+            properties:
+              role:
+                type: string
+                enum: [user, assistant]
+              text:
+                type: string
+              speaker:
+                type: string
+                description: >-
+                  Who answered, when it was not the task's own agent — a worker
+                  in a team session. Absent means the agent named at the top.
+              ts:
+                type: integer

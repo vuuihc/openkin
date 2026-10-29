@@ -7,7 +7,7 @@ import (
 )
 
 // Current schema version (PRAGMA user_version).
-const schemaVersion = 40
+const schemaVersion = 41
 
 // migrationTaskTombstones records deleted tasks in the sync cursor's own terms.
 //
@@ -573,7 +573,14 @@ CREATE TABLE IF NOT EXISTS mcp_task_origins (
 ALTER TABLE tasks ADD COLUMN workspace_policy TEXT NOT NULL DEFAULT 'auto';
 ALTER TABLE tasks ADD COLUMN current_workspace_id TEXT NOT NULL DEFAULT '';
 
-` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts
+` + migrationEvalTables + migrationA2ATables + migrationA2AOperations + migrationSessionTables + migrationIdentityTables + migrationDeviceRegistry + migrationTaskTombstones + migrationPRObservations + migrationPendingPrompts + SessionSharesDDL
+
+// The newest table is appended to the fresh-install schema rather than copied
+// into it: the same text has to apply on a brand-new database and on every
+// later open, and a second literal would be a second thing to keep in step.
+// It is deliberately not folded into one of the named blocks above — an old
+// migration still executes those verbatim, and a migration must not quietly
+// create a table from a later version.
 
 const migrationEvalTables = `
 CREATE TABLE IF NOT EXISTS eval_runs (
@@ -2358,6 +2365,27 @@ ON eval_results(run_id, case_id, rep_idx);
 		v = 40
 	}
 
+	if v == 40 {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration 041: %w", err)
+		}
+		// Public share links. Additive: a daemon that has never shared anything
+		// simply has an empty table.
+		if _, err := tx.Exec(SessionSharesDDL); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration 041 session shares: %w", err)
+		}
+		if _, err := tx.Exec(`PRAGMA user_version = 41`); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("set user_version: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration 041: %w", err)
+		}
+		v = 41
+	}
+
 	// Every path out of here has to reach the same shape, so the assertion runs
 	// on the upgraded path too rather than only on the already-current one.
 	return s.ensureCurrentSchema()
@@ -2393,7 +2421,24 @@ func (s *Store) ensureCurrentSchema() error {
 	if err := s.ensureRoutineRecurrenceSchema(); err != nil {
 		return err
 	}
+	if err := s.ensureSessionShareSchema(); err != nil {
+		return err
+	}
 	return s.ensurePendingPromptSchema()
+}
+
+// ensureSessionShareSchema creates the public-share table on any database that
+// lacks it, whatever version it reports.
+//
+// A share read happens on an unauthenticated path, where a missing table would
+// surface as a 500 to a stranger rather than as anything the owner could act
+// on. The DDL is the same text the migration applies, so this is a no-op on
+// every path that already ran it.
+func (s *Store) ensureSessionShareSchema() error {
+	if _, err := s.db.Exec(SessionSharesDDL); err != nil {
+		return fmt.Errorf("ensure session shares: %w", err)
+	}
+	return nil
 }
 
 // ensureRoutineRecurrenceSchema adds a routine's wall-clock rule to a
