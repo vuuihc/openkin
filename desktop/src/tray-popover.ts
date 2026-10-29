@@ -8,7 +8,7 @@ import {
   type BrowserWindowConstructorOptions,
 } from "electron";
 import { DAEMON_BASE, DAEMON_HOST, DAEMON_PORT } from "./config";
-import { popoverNeedsLoad, popoverTokenIsStale } from "./popover-load";
+import { popoverNeedsLoad } from "./popover-load";
 
 const POPOVER_W = 360;
 const POPOVER_H = 480;
@@ -29,6 +29,12 @@ export class TrayPopover {
   private ignoreBlur = false;
   private loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private loadAttempts = 0;
+  /** True once the page in this window finished loading. */
+  private loaded = false;
+  /** The token the last load was started with; see popover-load.ts. */
+  private loadedToken: string | null = null;
+  /** A failure since the last load started — the page that is up is an error. */
+  private loadFailed = false;
 
   constructor(handlers: TrayPopoverHandlers) {
     this.handlers = handlers;
@@ -55,12 +61,16 @@ export class TrayPopover {
     this.ignoreBlur = true;
     this.position(trayBounds);
     // The page is live — it holds a WebSocket to the daemon — so reopening the
-    // popover shows it rather than reloading it; see popover-load.ts. A window
-    // that was just created has no page yet, and loads here.
-    const url = this.win.webContents.getURL();
+    // popover shows it rather than reloading it; see popover-load.ts. What the
+    // page was loaded with is remembered here, because the console strips the
+    // token out of its own URL and a failed load keeps the URL it aimed at.
     if (
-      popoverNeedsLoad(url, `${DAEMON_BASE}/tray`) ||
-      popoverTokenIsStale(url, this.handlers.getToken())
+      popoverNeedsLoad(`${DAEMON_BASE}/tray`, {
+        currentURL: this.win.webContents.getURL(),
+        loaded: this.loaded,
+        loadedToken: this.loadedToken,
+        token: this.handlers.getToken(),
+      })
     ) {
       this.navigate();
     }
@@ -131,6 +141,12 @@ export class TrayPopover {
 
     this.win = new BrowserWindow(opts);
 
+    // A fresh window has no page: whatever the last one loaded says nothing
+    // about this one.
+    this.loaded = false;
+    this.loadedToken = null;
+    this.loadFailed = false;
+
     this.win.on("blur", () => {
       // Click-away closes popover (design language).
       if (this.ignoreBlur) return;
@@ -163,11 +179,18 @@ export class TrayPopover {
           "attempt=",
           this.loadAttempts + 1,
         );
+        // The URL still names what was asked for, so only this flag can say the
+        // page on screen is Chromium's error page.
+        this.loadFailed = true;
+        this.loaded = false;
         this.scheduleLoadRetry();
       },
     );
 
     this.win.webContents.on("did-finish-load", () => {
+      // An error page finishes too. Only a load that did not fail is a page.
+      if (this.loadFailed) return;
+      this.loaded = true;
       this.loadAttempts = 0;
       this.clearLoadRetry();
     });
@@ -221,6 +244,11 @@ export class TrayPopover {
     const url = token
       ? `${base}/tray?token=${encodeURIComponent(token)}`
       : `${base}/tray`;
+    // Remember what this load is being made with: the page will strip the
+    // token from its URL, and nothing else will know it was there.
+    this.loadedToken = token;
+    this.loadFailed = false;
+    this.loaded = false;
     void this.win.loadURL(url);
   }
 
