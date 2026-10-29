@@ -6,10 +6,36 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// clicks is the far end of Send, which is a goroutine by design, so every test
+// that reads what arrived has to synchronise with the handler that wrote it.
+type clicks struct {
+	mu    sync.Mutex
+	items []string
+}
+
+func (c *clicks) add(v string) {
+	c.mu.Lock()
+	c.items = append(c.items, v)
+	c.mu.Unlock()
+}
+
+func (c *clicks) all() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.items...)
+}
+
+func (c *clicks) len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.items)
+}
 
 type memSettings map[string]string
 
@@ -221,9 +247,9 @@ func TestNotifyApprovalNamesTheApproval(t *testing.T) {
 // TestNotifyApprovalClickIsTheApprovalURL drives the real send path, so the link
 // asserted above is the link that leaves the machine.
 func TestNotifyApprovalClickIsTheApprovalURL(t *testing.T) {
-	var click string
+	var got clicks
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		click = r.Header.Get("Click")
+		got.add(r.Header.Get("Click"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -238,20 +264,20 @@ func TestNotifyApprovalClickIsTheApprovalURL(t *testing.T) {
 	s.NotifyApproval(context.Background(), "appr1", "task1", "Approval needed")
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if click != "" {
+		if got.len() > 0 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if click != "http://host:7777/inbox?focus=appr1" {
-		t.Fatalf("click = %q", click)
+	if all := got.all(); len(all) != 1 || all[0] != "http://host:7777/inbox?focus=appr1" {
+		t.Fatalf("click = %v", all)
 	}
 }
 
 func TestNotifyQuestionAndQuotaUseActionableLinks(t *testing.T) {
-	var clicks []string
+	var got clicks
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clicks = append(clicks, r.Header.Get("Click"))
+		got.add(r.Header.Get("Click"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -271,14 +297,15 @@ func TestNotifyQuestionAndQuotaUseActionableLinks(t *testing.T) {
 	s.NotifyUserQuestion(context.Background(), "q1", "task1", "Choose")
 	s.NotifyQuota(context.Background(), "task1", "Build", "waiting", time.Now().Add(time.Minute).Unix())
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && len(clicks) < 3 {
+	for time.Now().Before(deadline) && got.len() < 3 {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if len(clicks) < 3 {
-		t.Fatalf("notification clicks = %v", clicks)
+	all := got.all()
+	if len(all) < 3 {
+		t.Fatalf("notification clicks = %v", all)
 	}
 	seen := map[string]bool{}
-	for _, click := range clicks {
+	for _, click := range all {
 		seen[click] = true
 	}
 	for _, want := range []string{
@@ -286,7 +313,7 @@ func TestNotifyQuestionAndQuotaUseActionableLinks(t *testing.T) {
 		"http://host:7777/tasks/task1",
 	} {
 		if !seen[want] {
-			t.Fatalf("missing click %q in %v", want, clicks)
+			t.Fatalf("missing click %q in %v", want, all)
 		}
 	}
 }
@@ -325,6 +352,74 @@ func TestDeliverIncludesBrowserPush(t *testing.T) {
 	}
 	if !sawPush {
 		t.Fatalf("no push result in %+v", results)
+	}
+}
+
+// ctxPusher records the context it was called with. A push that runs behind a
+// hanging webhook sees an expired one — and reports success to nobody.
+type ctxPusher struct {
+	mu     sync.Mutex
+	err    error
+	called bool
+}
+
+func (p *ctxPusher) Push(ctx context.Context, _ Payload) []ChannelResult {
+	p.mu.Lock()
+	p.err = ctx.Err()
+	p.called = true
+	p.mu.Unlock()
+	return []ChannelResult{{Channel: "push", OK: true, Status: "ok"}}
+}
+
+func (p *ctxPusher) outcome() (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.called, p.err
+}
+
+// A webhook that never answers must not spend the notification's whole budget.
+// Browser push is the channel a person enabled so their phone rings while the
+// console is closed; running it behind two Bark retries made a dead Bark URL
+// silently disable it.
+func TestDeliverDoesNotLetASlowWebhookStarvePush(t *testing.T) {
+	// The handler holds the request open until the test is done with it, so
+	// Bark is still "thinking" while the deadline passes. `release` is closed
+	// before the server is, or Close would wait on the handler forever.
+	release := make(chan struct{})
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer hang.Close()
+	defer close(release)
+
+	pusher := &ctxPusher{}
+	s := &Sender{
+		Store:  memSettings{"notify.bark_url": hang.URL + "/key"},
+		Client: &http.Client{}, // only the caller's deadline ends the request
+		Push:   pusher,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	results := s.Deliver(ctx, Payload{Title: "x"})
+	called, errAtCall := pusher.outcome()
+	if !called {
+		t.Fatal("push never ran")
+	}
+	if errAtCall != nil {
+		t.Fatalf("push ran with an expired context: %v", errAtCall)
+	}
+	var okPush bool
+	for _, r := range results {
+		if r.Channel == "push" && r.OK {
+			okPush = true
+		}
+	}
+	if !okPush {
+		t.Fatalf("results = %+v", results)
 	}
 }
 

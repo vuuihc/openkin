@@ -15,6 +15,7 @@ import { PushSettingsSection } from "./PushSettingsSection";
 const mocks = vi.hoisted(() => ({
   pushSupported: vi.fn(() => true),
   pushPermission: vi.fn<() => NotificationPermission | "unsupported">(() => "default"),
+  requestPushPermission: vi.fn<() => Promise<NotificationPermission>>(async () => "granted"),
   currentPushSubscription: vi.fn(async (): Promise<unknown> => null),
   enablePush: vi.fn(),
   disablePush: vi.fn(),
@@ -23,16 +24,20 @@ const mocks = vi.hoisted(() => ({
   subscribePush: vi.fn(),
   unsubscribePush: vi.fn(),
   testPush: vi.fn(),
+  PushPermissionError: class PushPermissionError extends Error {},
+  PushUnsubscribeError: class PushUnsubscribeError extends Error {},
 }));
 
 vi.mock("../../lib/push", () => ({
   pushSupported: mocks.pushSupported,
   pushPermission: mocks.pushPermission,
+  requestPushPermission: mocks.requestPushPermission,
   currentPushSubscription: mocks.currentPushSubscription,
   enablePush: mocks.enablePush,
   disablePush: mocks.disablePush,
   serializeSubscription: mocks.serializeSubscription,
-  PushPermissionError: class PushPermissionError extends Error {},
+  PushPermissionError: mocks.PushPermissionError,
+  PushUnsubscribeError: mocks.PushUnsubscribeError,
 }));
 
 vi.mock("../../api/client", () => ({
@@ -47,6 +52,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.pushSupported.mockReturnValue(true);
   mocks.pushPermission.mockReturnValue("default");
+  mocks.requestPushPermission.mockResolvedValue("granted");
   mocks.currentPushSubscription.mockResolvedValue(null);
 });
 
@@ -115,6 +121,51 @@ describe("PushSettingsSection", () => {
       expect(mocks.unsubscribePush).toHaveBeenCalledWith("https://push.example.net/a"),
     );
     expect(await screen.findByRole("button", { name: /enable on this device/i })).toBeTruthy();
+  });
+
+  it("asks for the permission before it fetches the key", async () => {
+    // WebKit drops the user activation at the first await. Asking after the
+    // config round trip means the prompt is ignored on iOS, which is the one
+    // platform the section's own hint tells people to use.
+    mocks.getPushConfig.mockResolvedValue({ public_key: "AQID", subscribed: 0 });
+    mocks.enablePush.mockResolvedValue({ endpoint: "https://push.example.net/a" });
+    mocks.serializeSubscription.mockReturnValue({
+      endpoint: "https://push.example.net/a",
+      keys: { p256dh: "p", auth: "a" },
+    });
+    mocks.subscribePush.mockResolvedValue({ id: "row-1" });
+
+    render(<PushSettingsSection />);
+    await userEvent.click(await screen.findByRole("button", { name: /enable on this device/i }));
+
+    await waitFor(() => expect(mocks.getPushConfig).toHaveBeenCalledTimes(1));
+    expect(mocks.requestPushPermission.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getPushConfig.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not fetch the key when the permission is refused", async () => {
+    mocks.requestPushPermission.mockResolvedValue("denied");
+
+    render(<PushSettingsSection />);
+    await userEvent.click(await screen.findByRole("button", { name: /enable on this device/i }));
+
+    expect(await screen.findByText(/blocked for this site/i)).toBeTruthy();
+    expect(mocks.getPushConfig).not.toHaveBeenCalled();
+    expect(mocks.enablePush).not.toHaveBeenCalled();
+  });
+
+  it("keeps the device on when the browser refuses to unsubscribe", async () => {
+    mocks.currentPushSubscription.mockResolvedValue({ endpoint: "https://push.example.net/a" });
+    mocks.disablePush.mockRejectedValue(new mocks.PushUnsubscribeError());
+
+    render(<PushSettingsSection />);
+    await userEvent.click(await screen.findByRole("button", { name: /turn off/i }));
+
+    await waitFor(() => expect(mocks.disablePush).toHaveBeenCalledTimes(1));
+    expect(mocks.unsubscribePush).not.toHaveBeenCalled();
+    // Still on, because it still is.
+    expect(screen.getByRole("button", { name: /turn off/i })).toBeTruthy();
   });
 
   it("sends the test through the push endpoint, not the webhook one", async () => {

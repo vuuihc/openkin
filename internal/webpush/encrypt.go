@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"unicode/utf8"
 )
 
 const (
@@ -22,6 +23,15 @@ const (
 	// record is all a notification needs, and every push service accepts it.
 	recordSize = 4096
 	saltLen    = 16
+	// maxPayload is the largest plaintext one record can carry: the record
+	// size minus the 0x02 delimiter and the 16-byte GCM tag.
+	//
+	// Exceeding it does not produce a longer message, it produces an invalid
+	// one: RFC 8188 has one record here, so the receiver parses the tail as a
+	// second record header and the push service answers 413 — which the sender
+	// treats as retryable, so an oversized routine report would be retried
+	// forever and never arrive.
+	maxPayload = recordSize - 1 - 16
 )
 
 // Encrypt builds the aes128gcm body for one push message (RFC 8291 §4).
@@ -96,6 +106,7 @@ func encryptWith(salt []byte, sender *ecdh.PrivateKey, uaPublic, authSecret, pay
 	}
 	// The last record carries the 0x02 padding delimiter; without it the
 	// receiver cannot tell where the payload ends.
+	payload = clampPayload(payload)
 	record := make([]byte, 0, len(payload)+1)
 	record = append(record, payload...)
 	record = append(record, 0x02)
@@ -107,4 +118,17 @@ func encryptWith(salt []byte, sender *ecdh.PrivateKey, uaPublic, authSecret, pay
 	header = append(header, byte(len(asPublic)))
 	header = append(header, asPublic...)
 	return append(header, sealed...), nil
+}
+
+// clampPayload trims p to one record, on a rune boundary so a truncated body
+// does not end in half a character.
+func clampPayload(p []byte) []byte {
+	if len(p) <= maxPayload {
+		return p
+	}
+	cut := maxPayload
+	for cut > 0 && !utf8.RuneStart(p[cut]) {
+		cut--
+	}
+	return p[:cut]
 }

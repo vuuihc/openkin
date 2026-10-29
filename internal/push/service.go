@@ -99,6 +99,16 @@ func (s *Service) Push(ctx context.Context, p notify.Payload) []notify.ChannelRe
 	if s == nil || s.Store == nil {
 		return nil
 	}
+	// Ask whether anyone is listening before touching the key pair. Minting a
+	// VAPID key for a node with no subscriptions would write key material as a
+	// side effect of an unrelated notification — and `kin notify test` runs
+	// against a live database from a second process.
+	n, err := s.Store.CountPushSubscriptions(ctx)
+	if err != nil || n == 0 {
+		// No subscriptions: the channel is simply not configured, and an empty
+		// result would read as a channel that failed.
+		return nil
+	}
 	keys, err := s.vapidKeys(ctx)
 	if err != nil {
 		return []notify.ChannelResult{{Channel: "push", Error: err.Error()}}

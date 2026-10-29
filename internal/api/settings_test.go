@@ -145,14 +145,20 @@ func TestSettingsGetPut(t *testing.T) {
 		t.Fatalf("base = %q", got["ui.base_url"])
 	}
 
-	// Reject unknown key
-	rr = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(`{"evil":"1"}`)))
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("unknown key: %d", rr.Code)
+	// Reject unknown key, and specifically the VAPID private key: a client
+	// that could write it could sign notifications no browser subscribed to.
+	for _, body := range []string{
+		`{"evil":"1"}`,
+		`{"push.vapid_private":"AAAA"}`,
+	} {
+		rr = httptest.NewRecorder()
+		req = httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("unknown key in %s: %d", body, rr.Code)
+		}
 	}
 
 	// Auth required

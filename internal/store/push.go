@@ -35,14 +35,16 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_created ON push_subscriptions(created_at);`
 
 // SavePushSubscription records a registration, replacing the keys of an
-// endpoint that is already known.
+// endpoint that is already known, and returns the id the row really carries.
 //
 // Browsers hand back the same endpoint when the same installation subscribes
 // again after a key rotation, so the conflict target is the endpoint: a second
-// row for one browser would double every notification it receives.
-func (s *Store) SavePushSubscription(ctx context.Context, sub PushSubscription) error {
+// row for one browser would double every notification it receives. That also
+// means the id the caller proposed is not necessarily the stored one — a
+// re-subscribe keeps the original row — and the caller is told which it is.
+func (s *Store) SavePushSubscription(ctx context.Context, sub PushSubscription) (string, error) {
 	if sub.ID == "" || sub.Endpoint == "" || sub.P256DH == "" || sub.Auth == "" || sub.CreatedAt <= 0 {
-		return errors.New("save push subscription: missing required field")
+		return "", errors.New("save push subscription: missing required field")
 	}
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, created_at)
@@ -52,9 +54,14 @@ func (s *Store) SavePushSubscription(ctx context.Context, sub PushSubscription) 
 			auth = excluded.auth`,
 		sub.ID, sub.Endpoint, sub.P256DH, sub.Auth, sub.CreatedAt,
 	); err != nil {
-		return fmt.Errorf("save push subscription: %w", err)
+		return "", fmt.Errorf("save push subscription: %w", err)
 	}
-	return nil
+	var id string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM push_subscriptions WHERE endpoint = ?`, sub.Endpoint).Scan(&id); err != nil {
+		return "", fmt.Errorf("save push subscription: read id: %w", err)
+	}
+	return id, nil
 }
 
 // ListPushSubscriptions returns every registration, oldest first.

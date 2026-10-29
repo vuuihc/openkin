@@ -1137,7 +1137,7 @@ const en: MessageTree = {
       testSent: "Test notification sent",
       testFailed: "Could not send — check the subscription",
       hint:
-        "The browser talks to its own push service; this node only sends the message. Tapping the notification opens the inbox item it is about.",
+        "The browser talks to its own push service; this node only sends the message. Tapping the notification opens what it is about — an approval or a question lands on its item in the inbox.",
       subscribeFailed: "The browser returned an incomplete subscription",
       enableFailed: "Could not enable push",
       disableFailed: "Could not disable push",

@@ -227,3 +227,56 @@ func TestPushTestWithoutSubscribersIsAnEmptySuccessShape(t *testing.T) {
 		t.Fatalf("results = %+v", got)
 	}
 }
+
+// Registering an endpoint is asking this daemon to make requests on the
+// caller's behalf, so it belongs to the operator. A guest account on somebody
+// else's Hub must not be able to aim the machine's notifications, nor read the
+// VAPID key it would subscribe with.
+func TestPushRoutesAreNotForGuests(t *testing.T) {
+	s, _ := newPushTestServer(t)
+	guestSession(t, s)
+	h := s.Handler()
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/push/config"},
+		{http.MethodPost, "/api/push/subscribe"},
+		{http.MethodDelete, "/api/push/subscribe"},
+		{http.MethodPost, "/api/push/test"},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte("{}")))
+		req.AddCookie(guestCookie())
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s %s as a guest: %d, want 403", tc.method, tc.path, rec.Code)
+		}
+	}
+}
+
+// A build without a push service says so, rather than minting a key or
+// pretending a registration was stored.
+func TestPushRoutesSayUnavailableWithoutAService(t *testing.T) {
+	s, token := newTestServer(t)
+	h := s.Handler()
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/push/config"},
+		{http.MethodPost, "/api/push/subscribe"},
+		{http.MethodDelete, "/api/push/subscribe"},
+		{http.MethodPost, "/api/push/test"},
+	}
+	for _, tc := range cases {
+		rr := doJSON(t, h, tc.method, tc.path, token, map[string]any{})
+		if rr.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s %s without a push service: %d, want 503", tc.method, tc.path, rr.Code)
+		}
+	}
+}

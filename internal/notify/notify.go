@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -242,6 +243,12 @@ func (s *Sender) Send(ctx context.Context, p Payload) {
 
 // Deliver posts synchronously to every configured channel and returns per-channel results.
 // Each attempt is logged (channel + outcome). Empty settings yield an empty slice.
+//
+// Channels run side by side. They are independent — one webhook being down says
+// nothing about the others — and running them in series let a hanging Bark URL
+// spend the whole notification budget on two retries, leaving browser push with
+// an expired context: the one channel that was working would silently drop the
+// message, which is exactly the case a person enables push for.
 func (s *Sender) Deliver(ctx context.Context, p Payload) []ChannelResult {
 	if s == nil || s.Store == nil {
 		return nil
@@ -251,19 +258,55 @@ func (s *Sender) Deliver(ctx context.Context, p Payload) []ChannelResult {
 	bark = strings.TrimSpace(bark)
 	ntfy = strings.TrimSpace(ntfy)
 
-	var results []ChannelResult
+	type job func(ctx context.Context) []ChannelResult
+	var jobs []job
 	if bark != "" {
-		results = append(results, s.deliverOne(ctx, "bark", func() *http.Request {
-			return barkRequest(ctx, bark, p)
-		}))
+		jobs = append(jobs, func(ctx context.Context) []ChannelResult {
+			return []ChannelResult{s.deliverOne(ctx, "bark", func() *http.Request {
+				return barkRequest(ctx, bark, p)
+			})}
+		})
 	}
 	if ntfy != "" {
-		results = append(results, s.deliverOne(ctx, "ntfy", func() *http.Request {
-			return ntfyRequest(ctx, ntfy, p)
-		}))
+		jobs = append(jobs, func(ctx context.Context) []ChannelResult {
+			return []ChannelResult{s.deliverOne(ctx, "ntfy", func() *http.Request {
+				return ntfyRequest(ctx, ntfy, p)
+			})}
+		})
 	}
 	if s.Push != nil {
-		results = append(results, s.Push.Push(ctx, p)...)
+		jobs = append(jobs, func(ctx context.Context) []ChannelResult {
+			results := s.Push.Push(ctx, p)
+			// The other channels log inside deliverOne; push results arrive as
+			// data, and a fire-and-forget caller looks at none of them.
+			for _, r := range results {
+				if r.OK {
+					log.Printf("notify: push ok")
+				} else {
+					log.Printf("notify: push failed: %s", r.Error)
+				}
+			}
+			return results
+		})
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	// Fixed slots keep the result order stable no matter which channel answers
+	// first: the settings page and `kin notify test` print the list as given.
+	out := make([][]ChannelResult, len(jobs))
+	var wg sync.WaitGroup
+	for i, run := range jobs {
+		wg.Add(1)
+		go func(i int, run job) {
+			defer wg.Done()
+			out[i] = run(ctx)
+		}(i, run)
+	}
+	wg.Wait()
+	var results []ChannelResult
+	for _, r := range out {
+		results = append(results, r...)
 	}
 	return results
 }

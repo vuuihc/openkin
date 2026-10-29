@@ -87,11 +87,14 @@ func (s *Server) handlePushSubscribe(w http.ResponseWriter, r *http.Request) {
 		Auth:      body.Keys.Auth,
 		CreatedAt: time.Now().UnixMilli(),
 	}
-	if err := svc.Store.SavePushSubscription(r.Context(), sub); err != nil {
+	id, err := svc.Store.SavePushSubscription(r.Context(), sub)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"id": sub.ID})
+	// The id is the stored row's, which for a re-subscribe is the original one:
+	// handing back the freshly minted ULID would name a row that does not exist.
+	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
 // pushUnsubscribeRequest is DELETE /api/push/subscribe.

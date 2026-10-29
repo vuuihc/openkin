@@ -9,7 +9,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // RFC 8291 §5 and Appendix A, verbatim. The vector is the only thing that
@@ -156,5 +158,127 @@ func TestEncryptRejectsBadInput(t *testing.T) {
 				t.Fatal("expected an error")
 			}
 		})
+	}
+}
+
+// open decrypts a body the way a browser does, so a test can prove that what
+// it is comparing is a real message and not just different bytes.
+func open(t *testing.T, ua *ecdh.PrivateKey, authSecret, body []byte) []byte {
+	t.Helper()
+	salt := body[:saltLen]
+	idLen := int(body[saltLen+4])
+	asPublic := body[saltLen+5 : saltLen+5+idLen]
+	sealed := body[saltLen+5+idLen:]
+	as, err := ecdh.P256().NewPublicKey(asPublic)
+	if err != nil {
+		t.Fatalf("sender key: %v", err)
+	}
+	shared, err := ua.ECDH(as)
+	if err != nil {
+		t.Fatalf("ecdh: %v", err)
+	}
+	prkKey, _ := hkdf.Extract(sha256.New, shared, authSecret)
+	ikm, _ := hkdf.Expand(sha256.New, prkKey, "WebPush: info\x00"+string(ua.PublicKey().Bytes())+string(asPublic), 32)
+	prk, _ := hkdf.Extract(sha256.New, ikm, salt)
+	cek, _ := hkdf.Expand(sha256.New, prk, "Content-Encoding: aes128gcm\x00", 16)
+	nonce, _ := hkdf.Expand(sha256.New, prk, "Content-Encoding: nonce\x00", 12)
+	block, err := aes.NewCipher(cek)
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("gcm: %v", err)
+	}
+	plain, err := gcm.Open(nil, nonce, sealed, nil)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	return plain
+}
+
+// Every message must carry its own salt and its own ephemeral key. Reusing
+// either across two messages to the same subscription repeats a nonce under
+// the same key, which breaks AES-GCM's confidentiality outright -- and the
+// rest of this file cannot see it, because the RFC vector supplies both values
+// and a single round trip only decrypts itself.
+func TestEncryptUsesFreshRandomnessPerMessage(t *testing.T) {
+	ua, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ua key: %v", err)
+	}
+	authSecret := make([]byte, 16)
+	for i := range authSecret {
+		authSecret[i] = byte(i)
+	}
+	payload := []byte(`{"title":"Approval needed"}`)
+
+	first, err := Encrypt(ua.PublicKey().Bytes(), authSecret, payload)
+	if err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	second, err := Encrypt(ua.PublicKey().Bytes(), authSecret, payload)
+	if err != nil {
+		t.Fatalf("second: %v", err)
+	}
+	if string(first[:saltLen]) == string(second[:saltLen]) {
+		t.Fatal("two messages share a salt")
+	}
+	firstKey := first[saltLen+5 : saltLen+5+65]
+	secondKey := second[saltLen+5 : saltLen+5+65]
+	if string(firstKey) == string(secondKey) {
+		t.Fatal("two messages share an ephemeral key")
+	}
+	if string(first[saltLen+5+65:]) == string(second[saltLen+5+65:]) {
+		t.Fatal("two messages have identical ciphertext")
+	}
+	// And both are genuine messages, not merely different bytes.
+	for i, body := range [][]byte{first, second} {
+		if got := open(t, ua, authSecret, body); string(got) != string(payload)+"\x02" {
+			t.Fatalf("message %d opens to %q", i, got)
+		}
+	}
+}
+
+// A body larger than one record is not a longer message: RFC 8188 would read
+// the tail as another record header, and the push service answers 413 to a
+// body it cannot parse. The body is clamped to what one record holds.
+func TestEncryptFitsThePayloadIntoOneRecord(t *testing.T) {
+	ua, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ua key: %v", err)
+	}
+	authSecret := make([]byte, 16)
+	huge := make([]byte, 5000)
+	for i := range huge {
+		huge[i] = 'a'
+	}
+	body, err := Encrypt(ua.PublicKey().Bytes(), authSecret, huge)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	sealed := body[saltLen+5+65:]
+	if want := maxPayload + 1 + 16; len(sealed) != want {
+		t.Fatalf("ciphertext is %d bytes, want %d", len(sealed), want)
+	}
+	if got := open(t, ua, authSecret, body); len(got) != maxPayload+1 {
+		t.Fatalf("opened %d bytes, want %d", len(got), maxPayload+1)
+	}
+}
+
+// Truncation must not leave half a character behind: the body is JSON, and a
+// split rune makes it invalid UTF-8 for every receiver.
+func TestClampPayloadEndsOnARuneBoundary(t *testing.T) {
+	// A three-byte rune straddles the limit.
+	long := strings.Repeat("a", maxPayload-1) + "世" + "tail"
+	got := clampPayload([]byte(long))
+	if len(got) > maxPayload {
+		t.Fatalf("clamped payload is %d bytes", len(got))
+	}
+	if !utf8.Valid(got) {
+		t.Fatalf("clamped payload is not valid UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(string(got), "a") {
+		t.Fatalf("clamped payload = %q", got)
 	}
 }

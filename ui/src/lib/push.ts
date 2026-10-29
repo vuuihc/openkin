@@ -59,6 +59,51 @@ export class PushPermissionError extends Error {
   }
 }
 
+/** Thrown when the browser refused to drop a subscription. */
+export class PushUnsubscribeError extends Error {
+  constructor() {
+    super("the browser kept the push subscription");
+    this.name = "PushUnsubscribeError";
+  }
+}
+
+/**
+ * Ask for the notification permission.
+ *
+ * Exported separately from `enablePush` so the settings button can call it as
+ * the first statement of its click handler. WebKit — which on iOS is every
+ * browser — drops the user activation at the first `await`, and a prompt
+ * requested after a network round trip is ignored or auto-denied, permanently.
+ * Everything the daemon needs can wait until after the prompt.
+ */
+export function requestPushPermission(): Promise<NotificationPermission> {
+  return Notification.requestPermission();
+}
+
+/**
+ * Whether an existing subscription was created with this key.
+ *
+ * A browser keeps its subscription across a daemon that minted a new key pair —
+ * a restored database, a re-keyed node — and the push service then answers 403
+ * to every message while the settings page still says "on". Re-subscribing is
+ * how enabling repairs that instead of leaving a dead registration behind.
+ */
+function matchesKey(subscription: PushSubscription, key: Uint8Array<ArrayBuffer>): boolean {
+  // The lib types say ArrayBuffer; browsers that predate the spec settled on
+  // handing back a typed array, so both are accepted here rather than assumed.
+  const current = subscription.options?.applicationServerKey as
+    | ArrayBuffer
+    | ArrayBufferView
+    | null
+    | undefined;
+  if (!current) return false;
+  const bytes = ArrayBuffer.isView(current)
+    ? new Uint8Array(current.buffer, current.byteOffset, current.byteLength)
+    : new Uint8Array(current);
+  if (bytes.length !== key.length) return false;
+  return bytes.every((byte, i) => byte === key[i]);
+}
+
 /**
  * Ask for permission, register the worker, and subscribe.
  *
@@ -66,15 +111,19 @@ export class PushPermissionError extends Error {
  * prompt and, on some platforms, the subscription otherwise.
  */
 export async function enablePush(publicKey: string): Promise<PushSubscription> {
-  const permission = await Notification.requestPermission();
+  const permission = await requestPushPermission();
   if (permission !== "granted") throw new PushPermissionError(permission);
   const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   await navigator.serviceWorker.ready;
+  const key = applicationServerKey(publicKey);
   const existing = await registration.pushManager.getSubscription();
-  if (existing) return existing;
+  if (existing && matchesKey(existing, key)) return existing;
+  // A subscription is bound to the key it was created with; reusing one made
+  // for another key would register an endpoint the push service refuses.
+  if (existing) await existing.unsubscribe();
   return registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: applicationServerKey(publicKey),
+    applicationServerKey: key,
   });
 }
 
@@ -83,7 +132,10 @@ export async function disablePush(): Promise<string | null> {
   const subscription = await currentPushSubscription();
   if (!subscription) return null;
   const endpoint = subscription.endpoint;
-  await subscription.unsubscribe();
+  // A browser that keeps its subscription keeps ringing. Forgetting the daemon
+  // row anyway would make the settings page say "off" while the device still
+  // receives messages, with no way back except enabling again.
+  if (!(await subscription.unsubscribe())) throw new PushUnsubscribeError();
   return endpoint;
 }
 

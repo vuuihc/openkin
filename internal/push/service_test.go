@@ -5,6 +5,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -72,7 +73,7 @@ func TestPushDeliversAndPrunes(t *testing.T) {
 	defer ts.Close()
 	svc.Client = ts.Client()
 
-	if err := st.SavePushSubscription(ctx, store.PushSubscription{
+	if _, err := st.SavePushSubscription(ctx, store.PushSubscription{
 		ID: "s1", Endpoint: ts.URL + "/send/1", P256DH: p256dh, Auth: auth, CreatedAt: 1000,
 	}); err != nil {
 		t.Fatal(err)
@@ -95,9 +96,14 @@ func TestPushDeliversAndPrunes(t *testing.T) {
 }
 
 func TestPushWithNoSubscriptionsSaysNothing(t *testing.T) {
-	svc, _ := openService(t)
+	svc, st := openService(t)
 	if results := svc.Push(context.Background(), notify.Payload{Title: "x"}); results != nil {
 		t.Fatalf("results = %+v", results)
+	}
+	// And it leaves no key material behind: a notification for nobody is not
+	// a reason to mint a VAPID pair in a database another process may be using.
+	if _, err := st.GetSetting(context.Background(), KeyVAPIDPrivate); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a key was minted for a node with no subscriptions: %v", err)
 	}
 }
 

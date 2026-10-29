@@ -7,10 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -162,6 +164,47 @@ func TestSendPostsAnEncryptedMessage(t *testing.T) {
 	}
 }
 
+// A push service accepts the POST where it published the endpoint. Following a
+// redirect would let a stored endpoint aim this daemon's request somewhere it
+// never agreed to send to.
+func TestSendDoesNotFollowARedirect(t *testing.T) {
+	p256dh, auth := subscriptionKeys(t)
+	var followed atomic.Bool
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/elsewhere" {
+			followed.Store(true)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+
+	client := srv.Client()
+	client.CheckRedirect = refuseRedirect
+	store := &memStore{subs: []Subscription{{ID: "s1", Endpoint: srv.URL + "/send/1", P256DH: p256dh, Auth: auth}}}
+	svc := &Service{Store: store, Keys: mustKeys(t), Client: client}
+
+	results := svc.Send(context.Background(), Payload{Title: "x"})
+	if len(results) != 1 || results[0].OK {
+		t.Fatalf("results = %+v", results)
+	}
+	if followed.Load() {
+		t.Fatal("the redirect was followed")
+	}
+	if len(store.gone) != 0 {
+		t.Fatalf("a redirect deleted the subscription: %v", store.gone)
+	}
+}
+
+// The test above injects the policy to reach a local server; this one pins it
+// to the client the daemon actually uses.
+func TestDefaultClientCarriesTheRedirectPolicy(t *testing.T) {
+	if defaultClient.CheckRedirect == nil {
+		t.Fatal("the default client would follow a redirect")
+	}
+}
+
 func TestSendDropsASubscriptionThePushServiceRetired(t *testing.T) {
 	p256dh, auth := subscriptionKeys(t)
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +264,49 @@ func TestSendRefusesAPrivateEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(results[0].Error, "refusing") {
 		t.Fatalf("expected the dialer's refusal, got %q", results[0].Error)
+	}
+}
+
+// The dialer's guard is deny-by-default. Each row below is an address a forged
+// or careless subscription must not be able to aim this daemon at -- including
+// the carrier-grade NAT range, which is also what a Tailscale name resolves to.
+func TestPublicAddr(t *testing.T) {
+	cases := []struct {
+		ip     string
+		public bool
+	}{
+		{"8.8.8.8", true},
+		{"2606:4700:4700::1111", true},
+		{"100.128.0.1", true}, // just past the CGNAT range
+		{"127.0.0.1", false},
+		{"10.1.2.3", false},
+		{"172.16.0.1", false},
+		{"192.168.1.42", false},
+		{"169.254.1.1", false},
+		{"100.64.0.1", false}, // CGNAT / Tailscale
+		{"100.127.255.255", false},
+		{"198.18.0.1", false}, // benchmarking
+		{"198.19.255.255", false},
+		{"192.0.0.1", false}, // IETF protocol assignments
+		{"0.1.2.3", false},
+		{"0.0.0.0", false},
+		{"255.255.255.255", false},
+		{"224.0.0.1", false},
+		{"fe80::1", false},
+		{"fc00::1", false},
+		{"::1", false},
+		{"::", false},
+		{"64:ff9b::7f00:1", false}, // NAT64 wrapping 127.0.0.1
+		{"::ffff:10.0.0.1", false}, // IPv4-mapped private address
+	}
+	for _, tc := range cases {
+		ip := net.ParseIP(tc.ip)
+		if ip == nil {
+			t.Fatalf("bad test address %q", tc.ip)
+		}
+		if got := publicAddr(ip); got != tc.public {
+			t.Errorf("publicAddr(%s) = %v, want %v", tc.ip, got, tc.public)
+		}
 	}
 }
 

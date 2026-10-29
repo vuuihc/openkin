@@ -23,9 +23,11 @@ self.addEventListener("push", (event) => {
       body: data.body || "",
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      // One tag collapses repeated notifications for the same kind of event
-      // into the newest, which is what a queue of approvals wants.
-      tag: "kin-notification",
+      // Repeated notifications for the same target collapse into the newest
+      // one; different targets stay side by side. A single shared tag would
+      // let a routine report silently replace an approval nobody has answered
+      // yet, which is the one notification that must not go missing.
+      tag: data.url || "kin-notification",
       renotify: true,
       data: { url: data.url || "/" },
     }),

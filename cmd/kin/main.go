@@ -13,6 +13,7 @@ import (
 	"github.com/vuuihc/openkin/internal/approvemcp"
 	"github.com/vuuihc/openkin/internal/mcp"
 	"github.com/vuuihc/openkin/internal/notify"
+	pushsvc "github.com/vuuihc/openkin/internal/push"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/server"
 	"github.com/vuuihc/openkin/internal/store"
@@ -190,7 +191,14 @@ func runNotify(args []string) error {
 	}
 	defer st.Close()
 
-	sender := &notify.Sender{Store: st}
+	// Browser push is a channel the daemon owns, not a setting this command
+	// reads: the registrations and the VAPID key are already in this database,
+	// and a test run that skipped them would report "no channels" to an
+	// operator whose phone is in fact subscribed.
+	sender := &notify.Sender{
+		Store: st,
+		Push:  &pushsvc.Service{Store: st, Subject: "https://openkin.local"},
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -201,7 +209,7 @@ func runNotify(args []string) error {
 	}
 	results := sender.Deliver(ctx, payload)
 	if len(results) == 0 {
-		fmt.Println("no notification channels configured (set notify.bark_url and/or notify.ntfy_topic)")
+		fmt.Println("no notification channels configured (set notify.bark_url and/or notify.ntfy_topic, or enable browser push in the console's settings)")
 		return fmt.Errorf("no channels configured")
 	}
 
@@ -227,7 +235,7 @@ Usage:
   kin serve [flags]   start the daemon
   kin supervise       run the daemon with bounded crash recovery
   kin token rotate    regenerate ~/.kin/token
-  kin notify test     send a test notification via configured Bark/ntfy
+  kin notify test     send a test notification via Bark/ntfy/browser push
   kin export --output <path.zip>
   kin approve-mcp     stdio MCP server for Claude Code permission prompts
   kin mcp              public MCP client bridge for local hosts

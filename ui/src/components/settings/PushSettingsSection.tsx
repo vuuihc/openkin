@@ -8,11 +8,13 @@ import {
 import { useT } from "../../i18n/react";
 import {
   PushPermissionError,
+  PushUnsubscribeError,
   currentPushSubscription,
   disablePush,
   enablePush,
   pushPermission,
   pushSupported,
+  requestPushPermission,
   serializeSubscription,
   type PushState,
 } from "../../lib/push";
@@ -54,6 +56,16 @@ export function PushSettingsSection() {
   const enable = async () => {
     setBusy(true);
     try {
+      // Ask for the permission before anything else. WebKit drops the user
+      // activation at the first await, and a prompt issued after the config
+      // round trip is ignored or auto-denied — on iOS, which is the platform
+      // the hint names.
+      const permission = await requestPushPermission();
+      if (permission !== "granted") {
+        setState("blocked");
+        pushToast(tr("settings.push.blocked"), "error");
+        return;
+      }
       const config = await getPushConfig();
       const subscription = await enablePush(config.public_key);
       const body = serializeSubscription(subscription);
@@ -62,8 +74,12 @@ export function PushSettingsSection() {
       setState("on");
       pushToast(tr("settings.push.enabled"), "info");
     } catch (e) {
-      if (e instanceof PushPermissionError) setState("blocked");
-      pushToast(e instanceof Error ? e.message : tr("settings.push.enableFailed"));
+      if (e instanceof PushPermissionError) {
+        setState("blocked");
+        pushToast(tr("settings.push.blocked"), "error");
+      } else {
+        pushToast(e instanceof Error ? e.message : tr("settings.push.enableFailed"), "error");
+      }
     } finally {
       setBusy(false);
     }
@@ -77,7 +93,11 @@ export function PushSettingsSection() {
       setState("off");
       pushToast(tr("settings.push.disabled"), "info");
     } catch (e) {
-      pushToast(e instanceof Error ? e.message : tr("settings.push.disableFailed"));
+      if (e instanceof PushUnsubscribeError) {
+        pushToast(tr("settings.push.disableFailed"), "error");
+        return;
+      }
+      pushToast(e instanceof Error ? e.message : tr("settings.push.disableFailed"), "error");
     } finally {
       setBusy(false);
     }

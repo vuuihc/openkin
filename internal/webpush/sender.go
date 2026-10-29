@@ -82,6 +82,11 @@ func (s *Service) now() time.Time {
 // into a probe of the machine's own network.
 var defaultClient = &http.Client{
 	Timeout: 10 * time.Second,
+	// A push service accepts the POST at the endpoint it published. Following
+	// a redirect would let an endpoint name somewhere else to send to — the
+	// body is ciphertext, but the request is still this daemon's, from its
+	// address, on somebody else's instruction.
+	CheckRedirect: refuseRedirect,
 	Transport: &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: 5 * time.Second,
@@ -92,15 +97,57 @@ var defaultClient = &http.Client{
 				}
 				ip := net.ParseIP(host)
 				if ip == nil {
-					return nil
+					// A literal the standard library will not parse (a scoped
+					// IPv6 address, say) is not an address this daemon can
+					// judge; refusing is the only safe answer.
+					return fmt.Errorf("webpush: refusing to connect to %q", host)
 				}
-				if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+				if !publicAddr(ip) {
 					return fmt.Errorf("webpush: refusing to connect to %s", ip)
 				}
 				return nil
 			},
 		}).DialContext,
 	},
+}
+
+// publicAddr reports whether ip is an address the public internet could hold.
+//
+// Deny by default: the set of ranges that are "not the internet" keeps
+// growing, and a missed one is a request this daemon makes into somebody's
+// private network. Beyond what the standard library already knows (loopback,
+// multicast, link-local, unspecified, RFC 1918, fc00::/7) that includes the
+// carrier-grade NAT range — which is also the Tailscale range, in a repo that
+// ships --tailscale — benchmarking space, IETF protocol assignments, "this
+// network", and the NAT64 prefix that can wrap a private IPv4 address.
+func publicAddr(ip net.IP) bool {
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		switch {
+		case v4[0] == 100 && v4[1]&0xc0 == 64: // 100.64.0.0/10 CGNAT / Tailscale
+			return false
+		case v4[0] == 198 && v4[1]&0xfe == 18: // 198.18.0.0/15 benchmarking
+			return false
+		case v4[0] == 192 && v4[1] == 0 && v4[2] == 0: // 192.0.0.0/24 IETF
+			return false
+		case v4[0] == 0: // 0.0.0.0/8 "this network"
+			return false
+		}
+		return true
+	}
+	// 64:ff9b::/96 wraps an IPv4 address; do not let it smuggle a private one.
+	if len(ip) == net.IPv6len && ip[0] == 0x00 && ip[1] == 0x64 && ip[2] == 0xff && ip[3] == 0x9b {
+		return false
+	}
+	return true
+}
+
+// refuseRedirect is the redirect policy above, named so a test can drive it
+// through a real request without the private-address dialer in the way.
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return errors.New("webpush: push services do not redirect")
 }
 
 // Send delivers p to every subscription and reports one result per endpoint.

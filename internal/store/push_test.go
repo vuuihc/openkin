@@ -23,7 +23,7 @@ func openPushStore(t *testing.T) *Store {
 func TestPushSubscriptionRoundTrip(t *testing.T) {
 	s := openPushStore(t)
 	ctx := context.Background()
-	if err := s.SavePushSubscription(ctx, PushSubscription{
+	if _, err := s.SavePushSubscription(ctx, PushSubscription{
 		ID: "p1", Endpoint: "https://push.example.net/a", P256DH: "key-a", Auth: "auth-a", CreatedAt: 1000,
 	}); err != nil {
 		t.Fatal(err)
@@ -43,16 +43,20 @@ func TestPushSubscriptionRoundTrip(t *testing.T) {
 func TestPushSubscriptionIsUniquePerEndpoint(t *testing.T) {
 	s := openPushStore(t)
 	ctx := context.Background()
-	if err := s.SavePushSubscription(ctx, PushSubscription{
+	if _, err := s.SavePushSubscription(ctx, PushSubscription{
 		ID: "p1", Endpoint: "https://push.example.net/a", P256DH: "key-a", Auth: "auth-a", CreatedAt: 1000,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// The same browser subscribing again after a key rotation.
-	if err := s.SavePushSubscription(ctx, PushSubscription{
+	id, err := s.SavePushSubscription(ctx, PushSubscription{
 		ID: "p2", Endpoint: "https://push.example.net/a", P256DH: "key-b", Auth: "auth-b", CreatedAt: 2000,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if id != "p1" {
+		t.Fatalf("re-subscribe reported id %q, want the stored row's p1", id)
 	}
 	subs, err := s.ListPushSubscriptions(ctx)
 	if err != nil {
@@ -76,7 +80,7 @@ func TestPushSubscriptionDelete(t *testing.T) {
 		{ID: "p1", Endpoint: "https://push.example.net/a", P256DH: "k", Auth: "a", CreatedAt: 1000},
 		{ID: "p2", Endpoint: "https://push.example.net/b", P256DH: "k", Auth: "a", CreatedAt: 2000},
 	} {
-		if err := s.SavePushSubscription(ctx, sub); err != nil {
+		if _, err := s.SavePushSubscription(ctx, sub); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -107,7 +111,7 @@ func TestPushSubscriptionRequiresEveryField(t *testing.T) {
 		{ID: "p1", Endpoint: "https://push.example.net/a", P256DH: "k", Auth: "a"},
 	}
 	for i, sub := range cases {
-		if err := s.SavePushSubscription(ctx, sub); err == nil {
+		if _, err := s.SavePushSubscription(ctx, sub); err == nil {
 			t.Errorf("case %d: expected an error", i)
 		}
 	}

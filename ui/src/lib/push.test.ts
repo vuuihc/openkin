@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PushPermissionError,
+  PushUnsubscribeError,
   applicationServerKey,
   currentPushSubscription,
   disablePush,
@@ -128,9 +129,10 @@ describe("enablePush", () => {
     expect(subscribe).not.toHaveBeenCalled();
   });
 
-  it("reuses a subscription this browser already holds", async () => {
+  it("reuses a subscription made with the same key", async () => {
     const existing = {
       endpoint: "https://push.example.net/old",
+      options: { applicationServerKey: new Uint8Array([1, 2, 3]).buffer },
       unsubscribe: vi.fn(async () => true),
     };
     const { subscribe } = installBrowser({
@@ -140,6 +142,25 @@ describe("enablePush", () => {
     const sub = await enablePush("AQID");
     expect(sub.endpoint).toBe("https://push.example.net/old");
     expect(subscribe).not.toHaveBeenCalled();
+    expect(existing.unsubscribe).not.toHaveBeenCalled();
+  });
+
+  it("replaces a subscription made with a key the daemon no longer has", async () => {
+    // A restored database mints a new VAPID pair; the old subscription is
+    // bound to the old one and every message to it would be refused.
+    const existing = {
+      endpoint: "https://push.example.net/old",
+      options: { applicationServerKey: new Uint8Array([9, 9, 9]).buffer },
+      unsubscribe: vi.fn(async () => true),
+    };
+    const { subscribe } = installBrowser({
+      permission: "granted",
+      existing: existing as never,
+    });
+    const sub = await enablePush("AQID");
+    expect(existing.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(sub.endpoint).toBe("https://push.example.net/new");
+    expect(subscribe).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -152,6 +173,18 @@ describe("disablePush", () => {
     });
     await expect(disablePush()).resolves.toBe("https://push.example.net/old");
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failure instead of claiming off when the browser keeps it", async () => {
+    // `unsubscribe()` resolves false when the push service could not be told.
+    // Returning the endpoint anyway would delete the daemon row and leave a
+    // browser that still rings, with the settings page saying otherwise.
+    const unsubscribe = vi.fn(async () => false);
+    installBrowser({
+      permission: "granted",
+      existing: { endpoint: "https://push.example.net/old", unsubscribe } as never,
+    });
+    await expect(disablePush()).rejects.toBeInstanceOf(PushUnsubscribeError);
   });
 });
 
