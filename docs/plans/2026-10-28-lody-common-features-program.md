@@ -1970,3 +1970,56 @@ presumably why this went unnoticed. That is the next round, not this one.
 
 Deferred, with reasons: the same as H2 — no single-writer lock on `~/.kin`, no
 dock badge, no global shortcut.
+
+### Round 9 — the quit that did not quit (2026-10-29)
+
+#### H7 — a Quit that actually quits (landed)
+
+**What was wrong.** Quitting from the app menu — Cmd-Q, the Dock's Quit, or an
+Apple Event — closed the window and left the process running. The tray's Quit
+worked, which is why it went unnoticed: that path called `quitApp()` directly,
+so `will-quit` found `quitting` already true and let the quit proceed. Every
+other path reached `will-quit` with `quitting` false, and the handler did this:
+
+    e.preventDefault();
+    void quitApp();
+
+`quitApp()` calls `app.quit()`, but Electron 33's `Browser::Quit` returns
+immediately while `is_quitting_` is set — and `will-quit` is emitted before that
+flag is cleared. The second request was dropped, the default had already been
+prevented, and the process stayed alive with its window closed, its tray
+destroyed and its socket disconnected: invisible, and killable only from
+Activity Monitor.
+
+**The fix.** Cleanup moved into `beginQuit()`, called from `before-quit`;
+nothing is prevented; the `will-quit` handler is gone. The tray's Quit calls
+`quitApp()` = `beginQuit()` + `app.quit()`, and the menu path reaches the same
+cleanup through `before-quit` and then proceeds on its own — one quit in flight,
+whichever asked for it. The `quitting` latch makes the cleanup run once.
+`app.exit()` skips the lifecycle events by design and is used only for the
+single-instance loser, before there is a window or tray to clean up.
+
+**Tests.** A source-shape test (`quit.wiring.test.ts`), because the lifecycle
+events cannot be loaded under `node --test`. Comments are stripped before
+anything is asserted, so a commented-out call is not a call; registrations are
+found through `app.(on|once|addListener)` with either quote and an optional
+space, so a second handler cannot hide behind spelling; the before-quit body
+comes from a brace walk and must be exactly `beginQuit();`; `beginQuit` must
+guard before it latches and before every cleanup call; `app.quit()` must appear
+exactly once in the whole file; the tray's Quit must be a whole-line
+`quitApp();`.
+
+Red-verified by mutation: the eight mutants the first review used to show the
+earlier version was too literal — commented-out call, dead branch, `once` and
+single-quoted and spaced `will-quit`, a second cancelling `before-quit`,
+`app.quit()` in the handler, `app.quit()` in `beginQuit`, and the re-entry guard
+dropped — plus the guard moved after the latch, all fail the suite now.
+
+**Verified live.** On the rebuilt shell,
+`osascript -e 'tell application id "dev.kin.app" to quit'` — the Apple Event
+path, the same one Cmd-Q takes — ended the process before the first 250 ms poll,
+and the daemon kept listening on :7777: the shell left, the node stayed. The
+same request before the change left the process alive indefinitely and had to
+be killed. The full-screen quit guard was verified in H6, before this change;
+`prepareQuit` still runs in `before-quit`, before any window closes, so that
+ordering is unchanged.
