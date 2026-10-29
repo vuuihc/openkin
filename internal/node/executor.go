@@ -42,6 +42,11 @@ type Executor struct {
 	// the Hub can run arbitrary commands here with nobody asked, which would
 	// make the roots boundary above decorative.
 	AllowYOLO bool
+	// Attachments brings the files a dispatch refers to onto this machine
+	// before the agent starts. Nil means this machine cannot fetch them, and a
+	// prompt keeps the Hub's paths — which, for a prompt that names any, is
+	// the same as saying the agent cannot open them.
+	Attachments *AttachmentFetcher
 	// Warn receives problems that have nowhere else to go. Nil means quiet.
 	Warn func(format string, args ...any)
 
@@ -149,13 +154,28 @@ func (e *Executor) run(parent context.Context, entry *execution, dispatch worker
 		return
 	}
 
+	// The prompt is the Hub's until the files it names are here. Fetching
+	// happens after the refusals above: a turn this machine will not run is not
+	// worth downloading for.
+	prompt := dispatch.Prompt
+	if e.Attachments != nil {
+		e.Attachments.Sweep()
+	}
+	if len(dispatch.Attachments) > 0 {
+		if e.Attachments == nil {
+			e.warn("turn %s: prompt names %d attachments this machine cannot fetch", dispatch.TurnID, len(dispatch.Attachments))
+		} else {
+			prompt = e.Attachments.Rewrite(ctx, dispatch.TaskID, prompt, dispatch.Attachments)
+		}
+	}
+
 	// No ProviderCfg, no API keys: this machine runs with its own agent logins,
 	// and nothing about them crossed the wire to get here (ADR 0022 D7).
 	handle, err := runner.Start(ctx, adapter.TaskSpec{
 		ID:             dispatch.TaskID,
 		Agent:          dispatch.Agent,
 		Cwd:            dispatch.Cwd,
-		Prompt:         dispatch.Prompt,
+		Prompt:         prompt,
 		Model:          dispatch.Model,
 		SessionRef:     dispatch.SessionRef,
 		PermissionMode: mode,

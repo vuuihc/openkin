@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,43 @@ func TestADispatchAfterAReconnectBindsToTheNewConnection(t *testing.T) {
 	}
 	if got := drain(t, handle.(*Handle)); len(got) != 1 || got[0].Type != "message" {
 		t.Fatalf("events = %+v", got)
+	}
+}
+
+// TestDispatchNamesTheFilesTheNodeHasToFetch is the Hub half of the transfer:
+// a prompt that refers to an upload leaves with the file's stored name beside
+// it, so the machine that runs the turn can ask for it.
+func TestDispatchNamesTheFilesTheNodeHasToFetch(t *testing.T) {
+	uploads := uploadsFor(t, "ab12.png")
+	sender := newTestConn("device-1")
+	conns := NewConnections(nil)
+	conns.Attach(sender)
+	ad := &Adapter{Conns: conns, Turns: NewTurns(), DeviceID: "device-1", UploadsDir: uploads}
+	hubPath := filepath.Join(uploads, "ab12.png")
+	handle, err := ad.Start(context.Background(), adapter.TaskSpec{
+		ID:        "task-1",
+		Agent:     "claude-code",
+		Cwd:       "/code/kin",
+		Prompt:    "look\n\nAttached image:\n- shot.png: " + hubPath + "\n- typed.png: /home/someone/typed.png",
+		Execution: adapter.ExecutionRef{ID: "turn-1", Agent: "claude-code"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = handle.Cancel() }()
+
+	frames := sender.sent()
+	if len(frames) != 1 {
+		t.Fatalf("frames = %+v", frames)
+	}
+	dispatch, err := Decode[worker.Dispatch](frames[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dispatch.Attachments) != 1 {
+		t.Fatalf("attachments = %#v, want only the file this hub holds", dispatch.Attachments)
+	}
+	if dispatch.Attachments[0] != (worker.Attachment{Path: hubPath, Stored: "ab12.png"}) {
+		t.Fatalf("attachments[0] = %#v", dispatch.Attachments[0])
 	}
 }

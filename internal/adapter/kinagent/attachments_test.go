@@ -79,13 +79,29 @@ func TestExpandUserMessageMissingFileKeepsPath(t *testing.T) {
 	}
 }
 
-func TestSplitAttachmentBlock(t *testing.T) {
-	text, paths := splitAttachmentBlock("hi\n\nAttached files:\n- a.txt: /tmp/a.txt\n- b.png: /tmp/b.png\n")
-	if text != "hi" {
-		t.Fatalf("text = %q", text)
+func TestExpandUserMessageKeepsAFailedAttachmentVisible(t *testing.T) {
+	// A file another machine could not fetch leaves a note in the block, and
+	// that note has to reach the model inside the text part: once one image
+	// embeds, the provider sends Parts and ignores Content.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ok.png")
+	if err := os.WriteFile(path, onePixelPNG, 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if len(paths) != 2 || paths[0].path != "/tmp/a.txt" || paths[1].label != "b.png" {
-		t.Fatalf("paths = %#v", paths)
+	note := "(not transferred to this computer: the hub answered 404 Not Found — attach it again)"
+	prompt := "which one is broken?\n\nAttached image:\n- gone.png: " + note + "\n- ok.png: " + path
+	msg := expandUserMessage(prompt)
+	if len(msg.Parts) < 2 {
+		t.Fatalf("the readable image was not embedded: %#v", msg.Parts)
+	}
+	if msg.Parts[0].Type != "text" {
+		t.Fatalf("first part = %#v", msg.Parts[0])
+	}
+	if !strings.Contains(msg.Parts[0].Text, note) {
+		t.Fatalf("the model is not told which file is missing: %q", msg.Parts[0].Text)
+	}
+	if !strings.Contains(msg.Parts[0].Text, "which one is broken?") {
+		t.Fatalf("the question was lost: %q", msg.Parts[0].Text)
 	}
 }
 

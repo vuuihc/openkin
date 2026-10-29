@@ -104,3 +104,90 @@ func TestTurnFinishValidation(t *testing.T) {
 		t.Fatal("a finish with no turn was accepted")
 	}
 }
+
+// A dispatch can name the files its prompt refers to without carrying them:
+// the Node fetches those from the Hub it already has a credential for.
+func TestDispatchAttachments(t *testing.T) {
+	prompt := "look\n\nAttached image:\n- shot.png: /state/uploads/ab12.png"
+	good := Attachment{Path: "/state/uploads/ab12.png", Stored: "ab12.png"}
+
+	dispatch := validDispatch()
+	dispatch.Prompt = prompt
+	dispatch.Attachments = []Attachment{good}
+	if err := dispatch.Validate(); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	// The frame has to carry it, not just the struct.
+	frame, err := NewFrame("turn.dispatch", dispatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := Dispatch{}
+	if err := json.Unmarshal(frame.Data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Attachments) != 1 || back.Attachments[0] != good {
+		t.Fatalf("attachments after the wire = %#v", back.Attachments)
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*Dispatch)
+		wantErr string
+	}{
+		{
+			name:    "path is not in the prompt",
+			mutate:  func(d *Dispatch) { d.Attachments[0].Path = "/state/uploads/other.png" },
+			wantErr: "does not appear in the prompt",
+		},
+		{
+			name: "same path twice",
+			mutate: func(d *Dispatch) {
+				d.Attachments = append(d.Attachments, d.Attachments[0])
+			},
+			wantErr: "listed twice",
+		},
+		{
+			name:    "name with a separator",
+			mutate:  func(d *Dispatch) { d.Attachments[0].Stored = "../../kin.db" },
+			wantErr: "single safe path element",
+		},
+		{
+			name:    "empty path",
+			mutate:  func(d *Dispatch) { d.Attachments[0].Path = "" },
+			wantErr: "path is required",
+		},
+		{
+			name:    "control character in path",
+			mutate:  func(d *Dispatch) { d.Attachments[0].Path = "/state/uploads/a\nb.png" },
+			wantErr: "control character",
+		},
+		{
+			name:    "path past the bound",
+			mutate:  func(d *Dispatch) { d.Attachments[0].Path = "/" + strings.Repeat("a", MaxAttachmentPath) },
+			wantErr: "exceeds",
+		},
+		{
+			name: "more than a dispatch can carry",
+			mutate: func(d *Dispatch) {
+				d.Attachments = make([]Attachment, MaxAttachments+1)
+				for i := range d.Attachments {
+					d.Attachments[i] = Attachment{Path: "/state/uploads/f.png", Stored: "f.png"}
+				}
+			},
+			wantErr: "more than",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := validDispatch()
+			d.Prompt = prompt
+			d.Attachments = []Attachment{good}
+			tc.mutate(&d)
+			err := d.Validate()
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}

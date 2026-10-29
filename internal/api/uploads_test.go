@@ -2,12 +2,18 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vuuihc/openkin/internal/node"
+	"github.com/vuuihc/openkin/internal/remote/worker"
 )
 
 // tiny valid 1x1 PNG.
@@ -151,5 +157,56 @@ func TestUploadRejectsTooLarge(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusRequestEntityTooLarge && rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 413/400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestAMachineCanFetchAnUploadThroughTheHubsOwnRoute closes the loop the
+// transfer exists for: the upload lands here, the turn runs on another
+// machine, and that machine gets the bytes over the credential it already
+// paired with — no new route, no new secret.
+func TestAMachineCanFetchAnUploadThroughTheHubsOwnRoute(t *testing.T) {
+	s, master := newTestServer(t)
+	s.UploadsDir = t.TempDir()
+	h := s.Handler()
+	hub := httptest.NewServer(h)
+	defer hub.Close()
+
+	body, ctype := multipartFile(t, "file", "shot.png", "image/png", onePixelPNG)
+	req := httptest.NewRequest(http.MethodPost, "/api/uploads", body)
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set("Authorization", "Bearer "+master)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("upload status %d: %s", rr.Code, rr.Body.String())
+	}
+	var uploaded uploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &uploaded); err != nil {
+		t.Fatal(err)
+	}
+
+	// A separate machine, paired the way a node is, with a directory of its
+	// own: the file is on this side and nowhere else.
+	deviceToken, _ := pairDevice(t, h, master)
+	machineDir := t.TempDir()
+	fetcher, err := node.NewAttachmentFetcher(hub.URL, deviceToken, machineDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := "what is this?\n\nAttached image:\n- shot.png: " + uploaded.Path
+	got := fetcher.Rewrite(context.Background(), "01J8ZQ6Q2K7YV0J9W1X2Y3Z4AB", prompt, []worker.Attachment{
+		{Path: uploaded.Path, Stored: uploaded.ID},
+	})
+
+	local := filepath.Join(machineDir, "01J8ZQ6Q2K7YV0J9W1X2Y3Z4AB", uploaded.ID)
+	if !strings.Contains(got, local) || strings.Contains(got, uploaded.Path) {
+		t.Fatalf("prompt = %q, want the local copy %q and not the hub's path", got, local)
+	}
+	data, err := os.ReadFile(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, onePixelPNG) {
+		t.Fatalf("stored %d bytes, want the uploaded %d", len(data), len(onePixelPNG))
 	}
 }

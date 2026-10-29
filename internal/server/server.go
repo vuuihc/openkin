@@ -498,11 +498,17 @@ func ServeWith(version string, flags ServeFlags) error {
 		Engine: eng,
 		Warn:   warnToStderr,
 	}
+	// Where uploads live, said once: the route that stores them and the
+	// dispatch that ships them to another machine have to agree on the
+	// directory, or a prompt names a file the adapter cannot recognize as one
+	// of the Hub's own.
+	uploadsDir := filepath.Join(stateDir, "uploads")
 	eng.SetRemoteRunner(identity.ID, func(t store.Task, executionID string) (adapter.Adapter, error) {
 		return &node.Adapter{
 			Conns: nodeConns, Turns: nodeTurns,
 			DeviceID:    t.ExecutingDeviceID,
 			DeviceLabel: deviceLabel(st, t.ExecutingDeviceID),
+			UploadsDir:  uploadsDir,
 		}, nil
 	})
 
@@ -620,7 +626,7 @@ func ServeWith(version string, flags ServeFlags) error {
 		DesktopID:    identity.ID,
 		DesktopName:  identity.Name,
 		Static:       static,
-		UploadsDir:   filepath.Join(stateDir, "uploads"),
+		UploadsDir:   uploadsDir,
 		ArtifactsDir: filepath.Join(stateDir, "artifacts"),
 		ProjectsDir:  filepath.Join(stateDir, "projects"),
 		Workers:      workerRegistry,

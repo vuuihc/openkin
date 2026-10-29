@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/vuuihc/openkin/internal/attach"
 	"github.com/vuuihc/openkin/internal/provider"
 )
 
@@ -18,21 +18,17 @@ import (
 // Larger images still keep a path pointer so tools can open them.
 const maxVisionImageBytes = 8 << 20 // 8 MiB
 
-// Matches the Composer-injected attachment block and looser "Attached …:" lines.
-// Example:
-//
-//	Attached image:
-//	- shot.png: /Users/me/.kin/uploads/abc.png
-var attachedBlockRe = regexp.MustCompile(`(?is)(?:^|\n)Attached (?:image|file|files):\n((?:[ \t]*-[ \t].+\n?)*)`)
-var attachedLineRe = regexp.MustCompile(`(?m)^[ \t]*-[ \t]+(.+?):\s+(\S+)\s*$`)
-
 // expandUserMessage turns a plain user prompt (optionally ending with an
 // "Attached image/file(s):" path list) into a provider.Message. Image paths are
 // read from disk and embedded as data-URI image_url parts when possible so
 // vision-capable models can see them without an OCR detour. Non-image files and
 // oversized/unreadable images keep a path pointer in the text part.
+//
+// The block itself is parsed by internal/attach, which the Hub uses for the
+// same prompt: the files this reads are exactly the files a remote machine has
+// to be sent, and two parsers would eventually disagree about which.
 func expandUserMessage(userPrompt string) provider.Message {
-	text, paths := splitAttachmentBlock(userPrompt)
+	text, paths := attach.Split(userPrompt)
 	if len(paths) == 0 {
 		return provider.Message{Role: provider.RoleUser, Content: userPrompt}
 	}
@@ -46,26 +42,26 @@ func expandUserMessage(userPrompt string) provider.Message {
 	var imageNotes []string
 	var fileNotes []string
 	for _, p := range paths {
-		label := p.label
+		label := p.Label
 		if label == "" {
-			label = filepath.Base(p.path)
+			label = filepath.Base(p.Path)
 		}
-		if isLikelyImagePath(p.path) {
-			part, note, ok := loadImagePart(p.path, label)
+		if isLikelyImagePath(p.Path) {
+			part, note, ok := loadImagePart(p.Path, label)
 			if ok {
 				parts = append(parts, part)
-				imageNotes = append(imageNotes, fmt.Sprintf("- %s (embedded for vision; path: %s)", label, p.path))
+				imageNotes = append(imageNotes, fmt.Sprintf("- %s (embedded for vision; path: %s)", label, p.Path))
 				continue
 			}
 			// Fall through to path-only note when embed fails.
 			if note != "" {
-				fileNotes = append(fileNotes, fmt.Sprintf("- %s: %s (%s)", label, p.path, note))
+				fileNotes = append(fileNotes, fmt.Sprintf("- %s: %s (%s)", label, p.Path, note))
 			} else {
-				fileNotes = append(fileNotes, fmt.Sprintf("- %s: %s", label, p.path))
+				fileNotes = append(fileNotes, fmt.Sprintf("- %s: %s", label, p.Path))
 			}
 			continue
 		}
-		fileNotes = append(fileNotes, fmt.Sprintf("- %s: %s", label, p.path))
+		fileNotes = append(fileNotes, fmt.Sprintf("- %s: %s", label, p.Path))
 	}
 
 	if len(imageNotes) > 0 {
@@ -97,37 +93,6 @@ func expandUserMessage(userPrompt string) provider.Message {
 		Content: userPrompt, // original prompt for persistence / re-expand on resume
 		Parts:   outParts,
 	}
-}
-
-type attachPath struct {
-	label string
-	path  string
-}
-
-// splitAttachmentBlock peels Composer-style attachment lines from the prompt.
-// Returns the user-facing text (attachment block removed) and the path list.
-func splitAttachmentBlock(prompt string) (text string, paths []attachPath) {
-	loc := attachedBlockRe.FindStringSubmatchIndex(prompt)
-	if loc == nil {
-		// Also accept a lone trailing path list without the header (defensive).
-		return prompt, nil
-	}
-	block := prompt[loc[2]:loc[3]]
-	// Text is everything outside the matched block (header + lines).
-	// loc[0]:loc[1] covers the full match including optional leading newline.
-	text = strings.TrimSpace(prompt[:loc[0]] + prompt[loc[1]:])
-	for _, m := range attachedLineRe.FindAllStringSubmatch(block, -1) {
-		if len(m) < 3 {
-			continue
-		}
-		label := strings.TrimSpace(m[1])
-		path := strings.TrimSpace(m[2])
-		if path == "" {
-			continue
-		}
-		paths = append(paths, attachPath{label: label, path: path})
-	}
-	return text, paths
 }
 
 func isLikelyImagePath(path string) bool {

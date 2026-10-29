@@ -430,6 +430,19 @@ func runNode(ctx context.Context, version string, flags ServeFlags, st *store.St
 	warn := func(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, "kin: node: "+format+"\n", args...)
 	}
+
+	// Attachments are fetched, not pushed: this machine dialled out, so it is
+	// the one that can reach the Hub's upload route. The credential is the same
+	// device token this connection authenticates with, and the files land in
+	// this machine's own state directory — the one place the daemon is already
+	// entitled to write.
+	attachments, err := node.NewAttachmentFetcher(flags.HubURL, token, filepath.Join(stateDir, "attachments"))
+	if err != nil {
+		return fmt.Errorf("cannot fetch attachments from the hub: %w", err)
+	}
+	attachments.Warn = warn
+	executor.Attachments = attachments
+
 	fmt.Fprintf(os.Stderr, "kin: node %s → %s (%d agents, %d roots)\n",
 		hello.Label, flags.HubURL, len(hello.Agents), len(roots))
 	if len(roots) == 0 {

@@ -23,6 +23,11 @@ type Adapter struct {
 	// DeviceLabel is the machine as a person knows it ("studio"), used in the
 	// lines a turn writes into a transcript. Empty falls back to DeviceID.
 	DeviceLabel string
+	// UploadsDir is where this Hub stores uploaded attachments. A prompt that
+	// names a file in it names a file only this Hub has, so the dispatch says
+	// which ones to fetch (see hubAttachments). Empty disables that: the paths
+	// then travel as plain text, as they did before the transfer existed.
+	UploadsDir string
 }
 
 // Start dispatches a turn and returns the handle its events will arrive on.
@@ -44,6 +49,7 @@ func (a *Adapter) Start(ctx context.Context, spec adapter.TaskSpec) (adapter.Run
 		Prompt:         spec.Prompt,
 		SessionRef:     spec.SessionRef,
 		PermissionMode: spec.PermissionMode,
+		Attachments:    hubAttachments(spec.Prompt, a.UploadsDir),
 	}
 	if err := dispatch.Validate(); err != nil {
 		return nil, err

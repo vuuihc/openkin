@@ -642,3 +642,66 @@ func TestExecutorWithoutAConnectionSaysSo(t *testing.T) {
 		t.Fatal("a dispatch with no connection blocked")
 	}
 }
+
+// TestExecutorBringsAttachmentsBeforeTheAgentStarts is the acceptance case in
+// miniature: a prompt that names a file the Hub holds, a machine that does not
+// hold it, and an agent that must be handed a path it can open.
+func TestExecutorBringsAttachmentsBeforeTheAgentStarts(t *testing.T) {
+	up := newUploadServer(t, "device-token")
+	up.put("ab12.png", []byte("png-bytes"))
+	work := t.TempDir()
+	agent := &fakeAgent{}
+	exec := &Executor{
+		Runners:     runners{agents: map[string]*fakeAgent{"claude-code": agent}},
+		Roots:       []string{work},
+		Attachments: newFetcher(t, up),
+	}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	dispatch := testDispatch(work)
+	dispatch.Prompt = "what is this?\n\nAttached image:\n- shot.png: /hub/uploads/ab12.png"
+	dispatch.Attachments = []worker.Attachment{{Path: "/hub/uploads/ab12.png", Stored: "ab12.png"}}
+	if err := exec.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v", finish)
+	}
+
+	spec := agent.lastSpec(t)
+	local := filepath.Join(exec.Attachments.dir, "task-1", "ab12.png")
+	if !strings.Contains(spec.Prompt, local) {
+		t.Fatalf("the agent was handed %q, which does not name %q", spec.Prompt, local)
+	}
+	if strings.Contains(spec.Prompt, "/hub/uploads/ab12.png") {
+		t.Fatalf("the agent was handed the hub's path: %q", spec.Prompt)
+	}
+}
+
+// TestExecutorWithoutAFetcherStillRunsTheTurn keeps the degradation honest: a
+// node built without a fetcher is a node that cannot bring the file, not one
+// that refuses the work.
+func TestExecutorWithoutAFetcherStillRunsTheTurn(t *testing.T) {
+	work := t.TempDir()
+	agent := &fakeAgent{}
+	exec := &Executor{
+		Runners: runners{agents: map[string]*fakeAgent{"claude-code": agent}},
+		Roots:   []string{work},
+	}
+	rec := &recorder{}
+	exec.SetSender(rec.send)
+
+	dispatch := testDispatch(work)
+	dispatch.Prompt = "see\n\nAttached image:\n- shot.png: /hub/uploads/ab12.png"
+	dispatch.Attachments = []worker.Attachment{{Path: "/hub/uploads/ab12.png", Stored: "ab12.png"}}
+	if err := exec.Handle(context.Background(), dispatchFrame(t, dispatch)); err != nil {
+		t.Fatal(err)
+	}
+	if finish := rec.awaitFinish(t, "turn-1"); finish.Status != worker.TurnOK {
+		t.Fatalf("finish = %+v", finish)
+	}
+	if got := agent.lastSpec(t).Prompt; got != dispatch.Prompt {
+		t.Fatalf("prompt = %q, want it unchanged", got)
+	}
+}

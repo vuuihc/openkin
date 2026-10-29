@@ -233,6 +233,24 @@ place to enforce workspace and terminal policy instead of relying on each
 vendor's sandbox flags. Existing adapters continue to work; convergence is
 evidence-driven and out of scope here.
 
+11. **Files follow the turn, and the Node fetches them.** A prompt may refer to
+    an uploaded attachment, and an upload lives on the Hub. The Hub cannot push
+    it: a Node is the side that dialled out, and the direction of that
+    connection is the boundary. So a dispatch names the files
+    (`worker.Dispatch.Attachments`, a path and a stored name, never the bytes)
+    and the Node downloads them over the Hub's own upload route with the device
+    credential it already holds, then rewrites the prompt to the local copies
+    before the agent starts. The Hub's path is an address on a filesystem the
+    Node cannot see, so a file that cannot be fetched is replaced by an explicit
+    note rather than left in place: prose that says what happened and cannot be
+    mistaken for an attachment line, so a reader still learns about the file it
+    cannot open even when the rest of the block arrived. A name from the Hub is
+    treated as untrusted input on the Node: one path element, checked before
+    anything is written. What a Node keeps is bounded per turn (64 MiB) and by
+    age (fourteen days of disuse), not per task — the Hub never tells a Node
+    that a task was deleted, so age is the honest bound, and the Hub's own
+    uploads directory has the same posture.
+
 ## Consequences
 
 Conversations survive device changes, and the agent that produced any given

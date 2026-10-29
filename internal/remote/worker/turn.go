@@ -27,6 +27,14 @@ const (
 	MaxCwd        = 4096
 	MaxPrompt     = 256 << 10
 	MaxTurnSeq    = 1 << 20
+
+	// MaxAttachments bounds the files one dispatch may carry. A prompt is
+	// already bounded; this bounds the list beside it, which is what a frame
+	// carries in addition.
+	MaxAttachments = 16
+	// MaxAttachmentPath is the same ceiling as a working directory: both are
+	// addresses on the Hub's filesystem, and the longer one is not more useful.
+	MaxAttachmentPath = MaxCwd
 )
 
 // Turn statuses reported by turn.finish.
@@ -52,6 +60,38 @@ type Dispatch struct {
 	Prompt         string `json:"prompt"`
 	SessionRef     string `json:"session_ref,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
+	// Attachments are the files the prompt refers to that live on the Hub, so
+	// the machine that runs the turn can fetch them before the agent starts.
+	// They are not carried in the frame: a photo is far past what a frame is
+	// for, and the Hub cannot dial a Node to push one anyway.
+	Attachments []Attachment `json:"attachments,omitempty"`
+}
+
+// Attachment names one file twice: by the path the prompt already contains,
+// and by the name the Hub stores it under.
+//
+// The path is an address on the Hub's machine and means nothing on any other,
+// so it travels only to be rewritten. Stored is what the Node asks for, and it
+// is one path element by construction — see SafeAttachmentName.
+type Attachment struct {
+	Path   string `json:"path"`
+	Stored string `json:"stored"`
+}
+
+func (a Attachment) Validate() error {
+	if strings.TrimSpace(a.Path) == "" {
+		return errors.New("attachment path is required")
+	}
+	if len(a.Path) > MaxAttachmentPath {
+		return fmt.Errorf("attachment path exceeds %d bytes", MaxAttachmentPath)
+	}
+	if strings.ContainsAny(a.Path, "\x00\n\r") {
+		return fmt.Errorf("attachment path %q contains a control character", a.Path)
+	}
+	if !SafeAttachmentName(a.Stored) {
+		return fmt.Errorf("attachment name %q is not a single safe path element", a.Stored)
+	}
+	return nil
 }
 
 // TurnEvent is one adapter event on its way up. Seq is local to the turn and
@@ -116,6 +156,25 @@ func (d Dispatch) Validate() error {
 	}
 	if len(d.Cwd) > MaxCwd {
 		return fmt.Errorf("dispatch cwd exceeds %d bytes", MaxCwd)
+	}
+	if len(d.Attachments) > MaxAttachments {
+		return fmt.Errorf("dispatch carries %d attachments, more than %d", len(d.Attachments), MaxAttachments)
+	}
+	seen := make(map[string]bool, len(d.Attachments))
+	for i, a := range d.Attachments {
+		if err := a.Validate(); err != nil {
+			return fmt.Errorf("attachments[%d]: %w", i, err)
+		}
+		// An attachment the prompt does not contain is one the Node would
+		// download and then have nowhere to put: the whole contract is that
+		// Path is the text to replace.
+		if !strings.Contains(d.Prompt, a.Path) {
+			return fmt.Errorf("attachments[%d].path %q does not appear in the prompt", i, a.Path)
+		}
+		if seen[a.Path] {
+			return fmt.Errorf("attachments[%d].path %q is listed twice", i, a.Path)
+		}
+		seen[a.Path] = true
 	}
 	return nil
 }

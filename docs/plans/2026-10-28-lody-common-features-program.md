@@ -294,21 +294,83 @@ Ordered by daily cost, not by column order. All are S2.
   `parseAgentDirective` only treats tokens that name a known agent as mentions,
   so a path stays text. Offer no file section where the listing is unavailable
   rather than an empty one.
-- **F4 An attachment survives the trip.** An upload lives under the Hub's state
-  dir; a task running on another machine receives a path that does not exist.
-  Ship the file to the executing node (or embed it for every adapter, not only
-  Kin's). Acceptance: an image attached on the phone is visible to a Claude
-  Code task running on a different machine.
-  Design (not yet built): the Hub cannot reach a node — the node dialled out —
-  so the node fetches. A dispatched turn carries each upload's stored name,
-  size and MIME beside the prompt; before the agent starts, the node downloads
-  them over an HTTP route authenticated by the device token it already holds,
-  writes them under its own state dir per task, and replaces the Hub-absolute
-  paths the prompt carries with the local ones. Bounds: the upload ceiling per
-  file, a per-turn count and total, a timeout, and a turn that cannot fetch
-  degrading to a prompt note naming what is missing rather than failing. The
-  directory goes when the task does. The alternative — chunking 20 MiB through
-  the 256 KiB query protocol — is eighty round trips for one photo.
+- **F4 An attachment survives the trip.** (Landed 2026-10-29.) An upload lives
+  under the Hub's state dir; a task running on another machine received a path
+  that does not exist. Acceptance: an image attached on the phone is visible to
+  a Claude Code task running on a different machine.
+  Design: the Hub cannot reach a node — the node dialled out — so the node
+  fetches. The alternative, chunking 20 MiB through the 256 KiB query protocol,
+  is eighty round trips for one photo.
+
+  What shipped:
+  - **One parser for the block.** `internal/attach` now owns the
+    `Attached …:` grammar the composer writes; the Kin adapter reads it there
+    too, so "the files the adapter would open" and "the files the Hub ships" are
+    the same set by construction rather than by two regexes agreeing. It peels
+    a block line by line, so a bullet that is not `label: path` stays in the
+    text instead of leaving with the block — which is what lets a failure note
+    reach the model at all.
+  - **The dispatch names the files, never carries them.**
+    `worker.Dispatch.Attachments` is `{path, stored}`: the text the prompt
+    already contains, and the name the Hub stores it under. `hubAttachments`
+    only claims paths directly inside the uploads directory, that are there
+    now, and that are regular files; anything else in the block (a path a person
+    typed) is left alone, because the Hub is not its source of truth.
+  - **The node fetches over the route that already exists.** `GET
+    /api/uploads/{name}` is `holderOnly`, so a paired device already passes; the
+    fetcher uses the device credential the control channel dialled with, keeps
+    the Hub's path prefix, and writes to `<state>/attachments/<task>/` through a
+    temp file and a rename.
+  - **The prompt is rewritten before the agent starts**, after the executor's
+    refusals: a turn this machine will not run is not worth downloading for.
+    `notTransferred(…)` replaces a failed file's path. A line parses as an
+    attachment only when the text after its last colon is one token, and the
+    note always closes with "— attach it again)", so it never does: the agent
+    reads a sentence, and the adapter does not try to open prose as a path. The
+    reason is cut without splitting a character.
+  - **Bounds.** 16 files per dispatch, 4 KiB per path, 20 MiB per file (the
+    Hub's own upload ceiling), 64 MiB per turn, 60 s per file; `MaxFrameBytes`
+    and `Dispatch.Validate` hold the list to the prompt it describes (each path
+    must appear in the prompt and be listed once). `SafeAttachmentName` and
+    `SafeTaskID` live in `worker`, beside the fields they validate, because both
+    ends must agree and the protocol package may import nothing else
+    (ADR 0025 D5).
+  - **Cleanup is age, not deletion.** The Hub never tells a node a task was
+    deleted, so the honest bound is time: directories unused for 14 days go, and
+    every dispatched turn runs the (hourly-throttled) sweep. A task that has not
+    run in two weeks will not run a follow-up that reads its photo. There is no
+    per-task cap — a task that keeps running with new files grows — which is the
+    same posture as the Hub's own uploads directory.
+  - **Known bound, deliberately.** A message with more than 16 attachments
+    leaves the rest with the Hub's path — exactly what every attachment did
+    before this slice, so no regression, and no framebusting retry loop.
+  - **Known rough edge.** A prompt that quotes an older attachment block gives
+    the parser one body rather than two, so a second `Attached …:` header can
+    be left in the text without its list under it. Cosmetic, and better than
+    before this slice, when the whole tail was dropped; removing a header whose
+    lines all became entries is the follow-up that would tidy it.
+
+  Tests. 28 guards, each red-verified by mutation (deleted, test seen to fail,
+  file restored and compared): uploads-dir containment, regular-file check,
+  dispatch bound, raw-text quoting, `SafeAttachmentName` at both ends,
+  `SafeTaskID`, the protocol package staying a leaf, copy reuse, byte bound
+  (with and without `Content-Length`), turn budget, sweep TTL, use-marking
+  `Chtimes`, `ws`/`wss` mapping, executor rewrite hook, adapter naming the
+  files, four `Dispatch.Validate` rules, `holderOnly` on the upload route, the
+  fetch's `Authorization` header, a block line that is not a file staying in
+  the text, the paragraph join, a note not parsing as a path, and rune-safe
+  truncation. Package totals: 2 attach (seven table cases), 3 worker (one with
+  eight cases), 21 node (five hub-side, thirteen fetcher, two executor, one
+  adapter), and one api end to end; the moved parser keeps the Kin adapter's
+  own tests green. One seam is covered piecewise rather than end to end — the
+  api test drives the upload route and the fetcher, the adapter test covers the
+  dispatch naming — because a harness running Hub adapter → frame → node
+  executor would mostly re-test those two halves through a third copy of them.
+  Demonstration: `TestAMachineCanFetchAnUploadThroughTheHubsOwnRoute` uploads a
+  PNG through the real route with the master token, pairs a device, and has
+  `node.AttachmentFetcher` pull it with only that device token — bytes equal,
+  prompt rewritten. No UI surface changed: the composer already writes the
+  block, and the transcript already strips it.
 
 ### Global approval (round 1)
 
