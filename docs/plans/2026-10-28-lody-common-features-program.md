@@ -1,6 +1,6 @@
 # Common-feature parity program — inventory, gaps, plan
 
-Status: rounds 1–12 landed; round 13 in progress. This is the living ledger for
+Status: rounds 1–13 landed; round 14 in progress. This is the living ledger for
 the open-ended "beat Lody on the features I actually use" program: inventory →
 gap matrix → plan → implement → evaluate → repeat.
 
@@ -95,7 +95,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 | Per-turn diff cards (`view.tsx:5502`) | `round_changed` records shell edits with counts; previews come from tool payloads (`roundEvidence.ts:102-178`) | Shell-only edits open to "nothing reconstructible" | S3 | — |
 | Changes sidebar with Code/Docs/Tests/Dev grouping (`session-changes-sidebar.tsx:366`) | flat list sorted by seq (`ChangedFilesList.tsx:21-102`); Keep/Discard exist in the viewer header for terminal tasks | No grouping, no persisted per-file reviewed state | S3 | — |
 | Mobile diff drawer (Changes vs Conversation diff) (`session-mobile-diff-drawer.tsx:75`) | dual-pane panel, sidebar capped at 40-46% height on phone widths (`WorkspacePanel.tsx:511-513`) | Reviewing a diff on a phone gets roughly half the screen with no conversation-diff alternative | S2 | — |
-| File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco) registers only Cmd+S (`CodeViewer.tsx:164-169`); `FileTree` has no filter | No find-in-file and no quick-open; worse, `ChatStream`'s window-level Cmd/Ctrl+F handler opens conversation find while the editor is focused, so monaco's own find is stolen (`ChatStream.tsx:234-244`) | S2 | monaco ships find; the handler needs to defer to a focused editor |
+| File viewer: preview, wrap, find, save, quick-open (`session-file-content-view.tsx:126`, `session-file-quick-open.tsx:235`) | `CodeViewer` (monaco): wrap on, read-only unless the workspace is writable, Cmd+S save (`CodeViewer.tsx:54-57,164-169`); monaco's own find owns Ctrl/Cmd+F inside the editor; file quick-open over the checkout with ⌘P/Ctrl+P, the panel's search button and the phone sheet (R13, `FileQuickOpen.tsx`) | `FileTree` itself still has no name filter — quick-open is the way to a known file, the tree is for browsing; no image/CSV/binary preview (next row) | S3 | — |
 | Image/CSV/Office/binary preview | text and Markdown only; the file API refuses non-UTF-8 (`workspace/diff.go:158-160`) | Binary and Office files cannot be opened at all | S3 | — |
 
 ### 2.7 Schedules
@@ -117,7 +117,7 @@ attachment lost when the task runs on another machine, closed with F4 below.
 
 | Lody | Kin today | Gap | Sev | Reuse |
 |---|---|---|---|---|
-| Home search + in-conversation find + file quick-open + filter search | server `?q=` over titles/prompts/cwd/agent (`store.go:291-299,490-500`), in-conversation find (closed), ⌘K palette over the latest 80 tasks (`CommandPalette.tsx:95-99`) | Transcript and assistant output are never searched; no file quick-open (`FileTree.tsx` has no filter) | S2 | FTS5 ships with the driver (modernc sqlite 1.34.5); the repo has no FTS use yet |
+| Home search + in-conversation find + file quick-open + filter search | server `?q=` over titles/prompts/cwd/agent (`store.go:291-299,490-500`), in-conversation find (closed), ⌘K palette over the latest 80 tasks (`CommandPalette.tsx:95-99`), file quick-open over the checkout (R13, `FileQuickOpen.tsx`) | Transcript and assistant output are never searched | S2 | FTS5 ships with the driver (modernc sqlite 1.34.5); the repo has no FTS use yet |
 
 ### 2.10 Tabs / switching
 
@@ -2515,3 +2515,104 @@ resume, the retry refusal, per-attempt token accounting, the result/usage rule,
 the chats loader's bad-row outcome, and the loading-flag `finally` — each
 failed its test and the suite passed after the byte-for-byte restore.
 `./scripts/check.sh --all` is green.
+
+
+### Round 13 — jump to a file; the editor keeps its own ⌘F (2026-10-30)
+
+Planned against `c417691a`. Both items close gaps the §2.6/§2.9 rows had
+recorded, and the second one corrects a claim in that row rather than a
+behaviour in the console.
+
+**13A Quick-open over the checkout (§2.6, §2.9).** The files panel could browse
+to a file but not go to one: the tree is lazy (500 entries per directory) and
+has no filter, so a person who knows the name still walks folders. The daemon
+already answers the right question — `GET /api/tasks/{id}/source/files?q=` is
+what the composer's @ menu searches with (`searchTaskSourceFiles`,
+`client.ts:808`; handler at `workspace_generations.go:615`). It requires a
+non-empty query, caps it at 200 bytes and the answer at 50 names, reports
+`truncated`, refuses control characters, asks the machine that holds the
+checkout when the task runs elsewhere, and 400s when the cwd is not a git
+repository.
+
+The finder is page state, not panel state: ⌘P/Ctrl+P works with the files panel
+closed, and choosing a row is what opens the panel — the reverse would make the
+shortcut need the very surface it exists to skip. The search covers the source
+checkout, so choosing a row also clears the selected workspace generation
+(`onQuickOpenPath` → `setSelectedWorkspaceId(null)` → `onOpenWorkspacePath`):
+opening a file found in the checkout inside a generation snapshot would either
+miss or read a different version of it.
+
+What the overlay says about itself: a name is required before anything is asked;
+the answer is keyed by the query it answers, both in state and at render, so a
+late response for a query typed past cannot replace the rows on screen; a
+refusal shows the daemon's own sentence with a retry, because "not a git
+repository" is the actual answer and an empty list would be a lie; a truncated
+answer says it stopped early. A query past the daemon's byte cap is refused in
+the overlay's own words instead of asking and painting a server complaint with a
+retry that could only fail again — the field caps characters, the daemon caps
+bytes, and CJK reaches the second limit first. Keyboard: the field is a combobox
+with `aria-activedescendant` over a listbox (focus never leaves the input),
+arrows move, Enter opens the highlighted row, Escape and Tab belong to the
+front layer — see 13C for what "front" means — and opening restores focus to
+whatever had it when the finder closes.
+
+Ways in, because a shortcut is not a way in on a phone: the page shortcut, a
+search button beside the panel's two lenses, and a "Find file" row in the
+phone's action sheet. The sheet row follows the find-in-conversation rule
+(`openFileFinderAfterSheet`) — Ionic keeps keyboard focus inside the sheet until it
+is removed, so opening from the row's handler would focus a field that never
+raises a keyboard. ⌘P is not claimed while focus is inside another
+`role="dialog"`/`role="alertdialog"`; the finder marks its own dialog
+(`data-file-quick-open`) so pressing the key again is still its own. It is also
+claimed only by the pane in front: sessions stay mounted behind the tab strip,
+so without the `active` gate one keypress would open a finder in every open
+session, and switching tabs closes the one left open rather than saving a modal
+for the return.
+
+**13B The editor's ⌘F is not stolen (§2.6).** The matrix said
+`ChatStream`'s window-level Cmd/Ctrl+F handler opened conversation find while
+the editor was focused. It did not: monaco 0.52.2's standalone keybinding
+service listens on the editor container and calls `preventDefault` **and**
+`stopPropagation` when it dispatches a binding
+(`standaloneServices.js:258-266`), so the window listener never saw the key.
+The row was corrected, and the handler now also returns early on
+`event.defaultPrevented` — belt and braces, and the same courtesy to any dialog
+that claims the key before the window does (the Escape branch keeps its
+deferred check, because the palette registers *after* this listener).
+
+**Tests.** `FileQuickOpen.dom.test.tsx`: debounced single request for a burst,
+nothing asked before a name, nothing asked past the byte cap, keyboard and tap
+selection, Escape scoped to the dialog, no-match/truncated states, daemon
+refusal + retry, a superseded answer never replacing current rows, a clean slate
+on reopen, and `splitFilePath`.
+`ChatStream.find.dom.test.tsx`: a key claimed closer to the target does not open
+the bar. `fileFinderWiring.test.ts` pins the four ways in and the
+dialog-marker/source-view rules that no unit can hold; `findWiring.test.ts`
+updated for the finder-aware `findShortcut`.
+
+**13C Review fixes (same-model sub-agent, 0 blockers / 2 majors).** Escape was
+scoped to the event target, which is the wrong proxy for "which layer is in
+front": the command palette paints above the finder without restoring focus when
+it closes, and a click on the dialog's own chrome blurs the field — either left
+a visible modal that ignored its only exit. Escape and Tab are now bound in the
+capture phase and the front layer is decided by the focused element's containing
+dialog: another dialog holding focus keeps the key, nothing above means the
+finder closes. The second major was the missing focus containment — `aria-modal`
+claimed inertness the DOM did not have, so Tab walked into the page behind it,
+where the needs-you handler would approve or deny a card the reader could not
+see. The `Sheet`/`ShareDialog` Tab trap is ported (outside → first, last →
+first, first → last) with the dialog root as the no-controls fallback. Nits in
+the same pass: the needs-you single letters now ignore keys from inside a
+dialog; the failure sentence joined the `role="status"` region; the error message
+no longer re-parses JSON that `apiFetch` already unwrapped (the test throws the
+real `ApiError` shape); the generation is cleared only after the path is known to
+open; `openFinderAfterSheet` became `openFileFinderAfterSheet`; phone rows got
+room. Left as is: the panel's find button is 21px, in line with its 24px tab
+neighbours and under the 44px touch rule — the phone's real entry is the action
+sheet row.
+
+Tests added for each fix: Escape closes from `<body>` and stays with a focused
+sheet above; a claimed `defaultPrevented` is respected; Tab lands inside from
+outside and wraps at both ends; focus returns to the opener; `queryTooLong` at
+exactly 200 and 201 bytes; the refusal is announced; the panel's find button
+lives outside `role="tablist"`. Red-verified with 23 mutants, one per claim.
