@@ -1687,13 +1687,13 @@ mutation: zeroing either threshold and dropping the size clamp each fail their
 case.
 
 **Deferred, with reasons.** The restored size was the one gap this left, and it
-is H6 below. The daemon itself still has no single-writer lock on `~/.kin` —
-the desktop no longer creates a second daemon, but a `kin supervise` started
-elsewhere can, and the real invariant belongs in `kin serve`, which is a wider
-change than this round. The shell holds no dock badge for pending approvals and
-has no global shortcut; neither has produced a dogfooding complaint yet, and the
-dock icon is hidden while the app is idle, so a badge there would be invisible
-exactly when it is wanted — the tray title already carries the count.
+is H6 below. The daemon itself had no single-writer lock on `~/.kin` — the
+desktop no longer creates a second daemon, but a `kin supervise` started
+elsewhere can; that invariant is H8 in Round 10. The shell holds no dock badge
+for pending approvals and has no global shortcut; neither has produced a
+dogfooding complaint yet, and the dock icon is hidden while the app is idle, so
+a badge there would be invisible exactly when it is wanted — the tray title
+already carries the count.
 
 #### H3 — the popover opens instead of reloading (landed)
 
@@ -1968,8 +1968,8 @@ quit is still in progress, and the nested quit is ignored. The tray's Quit calls
 `quitApp` directly and never passes through the prevented handler, which is
 presumably why this went unnoticed. That is the next round, not this one.
 
-Deferred, with reasons: the same as H2 — no single-writer lock on `~/.kin`, no
-dock badge, no global shortcut.
+Deferred, with reasons: the same as H2 — the state-directory lock is H8 in
+Round 10; no dock badge, no global shortcut.
 
 ### Round 9 — the quit that did not quit (2026-10-29)
 
@@ -2023,3 +2023,140 @@ same request before the change left the process alive indefinitely and had to
 be killed. The full-screen quit guard was verified in H6, before this change;
 `prepareQuit` still runs in `before-quit`, before any window closes, so that
 ordering is unchanged.
+
+### Round 10 — one engine per state directory (2026-10-29)
+
+#### H8 — `kin serve` refuses a second daemon (landed)
+
+**What was wrong.** Nothing stopped two daemons from sharing `~/.kin`. H1 made
+the desktop stop spawning a rival, but that is a shell heuristic in
+`daemon-rival.ts`: a `kin supervise` started elsewhere, or the repo's own
+`kin serve --port 7790`, still opened the same database. Two daemons on one
+state directory do not fail — a node started with `--lan` binds the wildcard
+while a second daemon binds `127.0.0.1`, so both can listen on one port — and
+each keeps its own in-memory bus, approval flags, and relay state while both
+run the same periodic loops over one database: pull-request reconcile (`runPRReconcile`), the
+worker-lease reaper (`runWorkerLeaseSweep`, every `DefaultLeaseTTL / 2`) and
+the approval ticker (`internal/task/approvals.go`). The visible symptom is the
+one `daemon-rival.ts` documents: the console watches a daemon the phone never
+talks to, and events published by the other one are simply lost.
+
+**The fix.** `internal/daemonlock` takes an exclusive `flock` on
+`<state dir>/daemon.lock`, and `ServeWith` takes it as soon as the state
+directory exists — before `remote.EnsureToken` and before `store.Open`. A
+refused second daemon therefore touches nothing: no database, no token, no
+loops. The holder writes its pid into the file for diagnostics only; the lock
+is the source of truth, so a file left behind by a killed daemon does not block
+anyone, and `Close` deliberately does not unlink it — unlinking a lock file
+that another process may be about to open lets two processes lock different
+inodes with the same name. The kernel drops the lock when the process exits,
+including SIGKILL.
+
+The exit status carries the refusal across processes: `kin serve` exits 75
+(EX_TEMPFAIL), `kin supervise` recognizes that status instead of restarting
+into it three times and exits 75 itself, and the desktop sidecar turns
+`code === 75` into "another kin daemon already owns this machine's state
+directory" rather than "daemon exited (code=75)", and does not schedule a
+restart for it — the same choice the Go supervisor makes. launchd's
+`SuccessfulExit=false` does the rest: while another daemon holds the directory,
+the installed node's restart fails fast and launchd retries at its 10-second
+default throttle (two log lines per attempt in the node log); when that daemon
+stops, the next retry takes the directory and the node comes back on its own.
+
+**Why the state directory and not the port.** The port is not what two daemons
+corrupt — the database and the loops over it are — and a daemon on another port
+does exactly the same damage. The supported way to run a second instance is its
+own `KIN_STATE_DIR`, which the error message names:
+
+    kin serve: another kin daemon (pid <pid>) is already using <state>; stop it
+    first, or set KIN_STATE_DIR to a separate directory
+
+**No opt-out environment variable, and dev.sh learns to wait.**
+`scripts/dev.sh` starts its scratch daemon on the default state directory on
+purpose, because the dev UI needs real tasks and approvals. It does not need an
+escape hatch, but the first version of this round left it with a real race, and
+the review caught it: it killed the `:7777` listener and started the new
+backend 150 ms later, while the daemon it killed holds its lock until the
+process exits — after the listener closes and the relay stops. So the new
+backend could lose the directory to the daemon that was still shutting down,
+exit 75, and send dev.sh into a rebuild loop. `kill_port_listeners` now waits
+for the PIDs to disappear (SIGTERM, up to two seconds, then SIGKILL),
+`start_backend` uses it, and a backend that exits 75 is started again after one
+second — five once three retries in a row have failed — instead of triggering a
+rebuild, so a launchd node that grabs the directory in between costs one retry,
+not a loop. The signal handlers now clean up and exit; a handler that only
+cleans up resumes the interrupted command, which during the retry sleep would
+start a daemon right after "shutting down". An opt-out would reintroduce the
+split brain for exactly the workflow most likely to hit it.
+Operator commands (`kin token`, `kin export`, `kin mcp`) do not take the lock;
+they stay short-lived readers and writers that rely on the store's existing
+`busy_timeout`. A state directory on a filesystem that cannot flock fails to
+start with the flock error; SQLite on such a mount was already unsafe.
+
+**Tests.** In `internal/daemonlock`: acquire/release/re-acquire, the file
+staying after release, a stale pid file from a dead daemon not blocking, a
+second *process* being refused with the holder's pid and the directory in the
+message, SIGKILL freeing the lock — the holder is a re-executed test binary, so
+this is a real second process, not a second descriptor in one — and the message
+pinned to `remote.StateDirEnv`, the variable it tells a person to set. In
+`internal/server`: `ServeWith` returns `ErrHeld` and has not created `kin.db`
+or the token, and the test occupies the port so that a daemon which ignores the
+lock fails to bind in about three seconds instead of starting and blocking the
+package for ten minutes (which is what the first version of this test did); a
+second test drives the one path that takes the lock and returns — a port that
+cannot be bound — and asks for the lock afterwards, so dropping
+`defer lock.Close()` fails; that test also forced a small lifetime fix, because
+a startup that fails after `store.Open` used to leave the routine scheduler
+ticking on a `context.Background()` against a closed store — everything
+`ServeWith` starts now shares a `serveCtx` that is cancelled on return. In
+`cmd/kin`: the exit-code mapping with the
+literal 75 pinned on the Go side (the shell reads the number), `exitsWith`
+against a real child, and a source-shape check that the `serve` and `supervise`
+cases report the mapped status, that no other case does, and that the
+supervisor checks for the refusal — unnegated — before its restart decision. In
+the desktop: `sidecar.wiring.test.ts` pins the exit-75 reason and that a
+refusal is not scheduled for a restart.
+
+**What the review found.** One major: the `dev.sh` race described above. Nits,
+all fixed here: the launchd retry cadence was overstated; the sidecar scheduled
+a restart for a refusal it cannot change; the 75 literal was pinned only on the
+TypeScript side; nothing tested that `ServeWith` releases the lock; the Go
+source-shape check counted call sites instead of slicing per subcommand and
+would have accepted a negated check; "IPv6 wildcard" is not what a `--lan` node
+binds; the Round 8 deferral still said "next round"; and the refuser's message
+was not pinned to `remote.StateDirEnv`.
+
+A second pass over those fixes found no blocker or major and five nits, all
+fixed here: the busy retry ran at 1 Hz forever, so it now backs off to five
+seconds once three consecutive attempts have failed and resets when a backend
+survives; a Ctrl-C during the retry sleep cleaned up and then resumed into
+`start_backend`, so the handlers now exit 130 after cleaning up; the sidecar
+comment promised "the next Start" as the recovery, which is more than the code
+guarantees; the pinned restart assertion would have failed on a formatter wrap;
+and the routine-scheduler lifetime above.
+
+Red-verified by mutation, each mutant checked with `cmp` before and after:
+removing the `flock`, inventing the holder pid instead of reading it,
+`HeldError.Unwrap` returning nil, `Close` unlinking the file, `kin serve`
+ignoring the held lock, the lock moved after `store.Open`, `os.Exit(1)` instead
+of the mapped status, the supervisor's busy branch deleted, that branch moved
+after the restart decision, the sidecar mapping exit 75 to an ordinary crash,
+and — after the review — dropping `defer lock.Close()`, changing the 75 literal
+to 74, removing the sidecar's no-restart guard, misspelling the variable in
+the refuser's message, and, for the last nit, reverting `dev.sh` to the single
+`trap cleanup EXIT INT TERM`, which the live check catches by starting a daemon
+after the shutdown banner. All fifteen fail their check.
+
+**Verified live** on a scratch `KIN_STATE_DIR` and two free ports: the holder
+listened; a second `kin serve` exited 75 in about 150 ms and named the holder's
+pid and the directory; `kin supervise` exited 75 with "another kin daemon owns
+the state directory"; `kill -9` of the holder left no stale lock, a new
+`kin serve` took the directory and listened, and the lock file then held the
+new pid.
+
+**Rollout note.** The invariant holds among daemons that run this code. The
+installed node's binary predates it, so a new daemon can still start beside the
+installed one until that service is refreshed with
+`scripts/install-node-service.sh` (re-running it with no flags copies the new
+`kin` into `~/.kin/node/`). The desktop rebuild ships the shell side of the
+exit-status message.
