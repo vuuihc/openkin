@@ -308,7 +308,7 @@ function setupTray(): void {
       })();
     },
     quit: () => {
-      void quitApp();
+      quitApp();
     },
     getDaemonRunning: () => {
       const s = sidecar.current.state;
@@ -319,7 +319,19 @@ function setupTray(): void {
   tray.create();
 }
 
-async function quitApp(): Promise<void> {
+/**
+ * Everything that has to happen before the process goes away, for every quit
+ * Electron announces — the app menu (Cmd-Q, an Apple Event), the dock, or the
+ * tray. `app.exit()` skips the lifecycle events by design and is used only
+ * before there is a window to clean up after.
+ *
+ * This ran from `will-quit` once, which prevented the default and then called
+ * `app.quit()` again. That second request is made while the first quit is still
+ * unwinding, and Electron ignores it: Cmd-Q closed the window and left the
+ * process running. Doing the work in `before-quit` and preventing nothing
+ * leaves exactly one quit in flight.
+ */
+function beginQuit(): void {
   if (quitting) return;
   quitting = true;
   mainWindow.prepareQuit();
@@ -329,6 +341,10 @@ async function quitApp(): Promise<void> {
   sidecar.detach();
   popover?.destroy();
   tray?.destroy();
+}
+
+function quitApp(): void {
+  beginQuit();
   app.quit();
 }
 
@@ -448,13 +464,10 @@ if (!gotLock) {
   });
 
   app.on("before-quit", () => {
-    mainWindow.prepareQuit();
-  });
-
-  app.on("will-quit", (e) => {
-    if (quitting) return;
-    e.preventDefault();
-    void quitApp();
+    // The one place cleanup runs, whatever asked for the quit. `will-quit` must
+    // not prevent the default: a second `app.quit()` from inside that handler
+    // is ignored, which is how Cmd-Q used to leave the process alive.
+    beginQuit();
   });
 }
 
