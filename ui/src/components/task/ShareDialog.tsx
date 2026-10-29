@@ -145,7 +145,14 @@ export default function ShareDialog({
       // The button that was just pressed is gone (it became "Revoke link"), and
       // a keyboard user would otherwise be dropped to the body. The field
       // selects on focus, so the copy is one keystroke away.
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      window.setTimeout(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        // Selecting scrolls a long value to its end, leaving a wall of hex with
+        // no visible scheme or host — the part that says "this is a link".
+        el.scrollLeft = 0;
+      }, 0);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
