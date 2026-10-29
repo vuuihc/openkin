@@ -162,6 +162,78 @@ func TestSharePageEscapesMessageText(t *testing.T) {
 	}
 }
 
+// A shared link is read by a person, not parsed. An answer written in markdown
+// has to arrive as an answer — bold, code, lists — while the agent's own HTML
+// arrives as the characters it typed: visible, never executed, never silently
+// dropped.
+func TestSharePageRendersMarkdownButNeverMarkup(t *testing.T) {
+	s, token := newTestServer(t)
+	if err := s.Store.InsertTask(context.Background(), store.Task{
+		ID: "task-md", Title: "md", Agent: "kin", Cwd: "/tmp",
+		Prompt: "p", Status: "finished", CreatedAt: store.NowMilli(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	messages := []string{
+		"**done**\n\n```go\nfmt.Println(\"hi\")\n```\n\n- one\n- two",
+		`inline <script>alert(1)</script> and <img src=x onerror=alert(2)>`,
+		`[click](javascript:alert(3)) and [docs](https://kin.example.com/docs)`,
+	}
+	for _, text := range messages {
+		payload, err := json.Marshal(map[string]any{
+			"role": "assistant", "partial": false,
+			"content": []map[string]string{{"type": "text", "text": text}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Store.AppendEvent(context.Background(), "task-md", "message", payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := createShare(t, s, "task-md", token)
+
+	page := shareRequest(t, s, http.MethodGet, "/s/"+link, "")
+	if page.Code != http.StatusOK {
+		t.Fatalf("public page: %d", page.Code)
+	}
+	html := page.Body.String()
+	for _, want := range []string{
+		"<strong>done</strong>",
+		"<pre><code",
+		"<li>one</li>",
+		// Raw HTML stays readable rather than vanishing behind a comment.
+		"&lt;script&gt;alert(1)&lt;/script&gt;",
+		"&lt;img src=x onerror=alert(2)&gt;",
+		`href="https://kin.example.com/docs"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("page is missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"<script",
+		"<img",
+		`href="javascript:`,
+		"**done**",
+	} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("page published %q", unwanted)
+		}
+	}
+
+	// The JSON endpoint stays a source feed: a caller that wants to render the
+	// conversation itself should not receive pre-rendered HTML.
+	rr := shareRequest(t, s, http.MethodGet, "/api/public/shares/"+link, "")
+	var view shareView
+	if err := json.Unmarshal(rr.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Messages) != len(messages) || view.Messages[0].Text != messages[0] {
+		t.Fatalf("JSON messages = %+v", view.Messages)
+	}
+}
+
 func TestRevokingAShareClosesTheLink(t *testing.T) {
 	s, token := newTestServer(t)
 	shareTestTask(t, s, "task-rev")

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/vuuihc/openkin/internal/remote"
 	"github.com/vuuihc/openkin/internal/store"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer"
+	gmhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/util"
 )
 
 // A share link is a public, revocable, read-only view of one conversation.
@@ -54,6 +61,11 @@ type shareMessage struct {
 	// Speaker names who answered, when it was not the task's own agent — a
 	// worker in a team session. Empty means the agent named in the header.
 	Speaker string `json:"speaker,omitempty"`
+	// HTML is Text rendered for the page, filled by the page handler only — the
+	// JSON endpoint publishes the source a caller can render however it likes.
+	// It is trusted markup in the template sense: goldmark escapes raw HTML and
+	// drops anything it does not recognise as markdown.
+	HTML template.HTML `json:"-"`
 }
 
 // shareView is what a link renders: the conversation, and just enough about the
@@ -478,7 +490,82 @@ func (s *Server) handlePublicSharePage(w http.ResponseWriter, r *http.Request) {
 		_ = sharePageTemplate.Execute(w, sharePageData{S: words, Missing: true})
 		return
 	}
+	for i := range view.Messages {
+		view.Messages[i].HTML = shareHTML(view.Messages[i].Text)
+	}
 	_ = sharePageTemplate.Execute(w, sharePageData{S: words, View: view, When: shareWhen(view.CreatedAt)})
+}
+
+// shareMarkdown renders a message the way the console showed it. Without it a
+// shared link reads as source: `**done**`, a wall of triple backticks, and
+// tables as pipe characters — the reader sees the markup, not the answer.
+var shareMarkdown = goldmark.New(
+	goldmark.WithExtensions(extension.GFM, shareRawHTML{}),
+	// A shared transcript is prose someone typed, not a document: one newline
+	// is a line break. This matches the console, whose paragraphs keep their
+	// newlines, so the link reads the way the conversation did.
+	goldmark.WithRendererOptions(gmhtml.WithHardWraps()),
+)
+
+// shareRawHTML shows raw HTML as text instead of dropping it.
+//
+// goldmark's default is to leave a `<!-- raw HTML omitted -->` comment, which
+// is safe but silently eats content — and a coding agent writes `<div>` and
+// `<script>` for a living, so the reader would see a sentence with a hole in
+// it. The console escapes these too: what the agent wrote is what the reader
+// reads, drawn as characters and never as markup.
+type shareRawHTML struct{}
+
+func (shareRawHTML) Extend(m goldmark.Markdown) {
+	m.Renderer().AddOptions(renderer.WithNodeRenderers(
+		util.Prioritized(shareRawHTML{}, 100),
+	))
+}
+
+func (shareRawHTML) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(ast.KindHTMLBlock, shareEscapeRawHTML)
+	reg.Register(ast.KindRawHTML, shareEscapeRawHTML)
+}
+
+func shareEscapeRawHTML(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	write := func(b []byte) {
+		_, _ = w.WriteString(template.HTMLEscapeString(string(b)))
+	}
+	switch n := node.(type) {
+	case *ast.HTMLBlock:
+		for i := 0; i < n.Lines().Len(); i++ {
+			seg := n.Lines().At(i)
+			write(seg.Value(source))
+		}
+		if n.HasClosure() {
+			seg := n.ClosureLine
+			write(seg.Value(source))
+		}
+	case *ast.RawHTML:
+		for i := 0; i < n.Segments.Len(); i++ {
+			seg := n.Segments.At(i)
+			write(seg.Value(source))
+		}
+	}
+	return ast.WalkContinue, nil
+}
+
+// shareHTML renders one message for the public page.
+//
+// The trust boundary is goldmark's parser plus the escaping above: every byte
+// of agent output that is not recognised markdown ends up as text. The page
+// serves no script, so the only thing markup here can do is draw.
+func shareHTML(text string) template.HTML {
+	var buf bytes.Buffer
+	if err := shareMarkdown.Convert([]byte(text), &buf); err != nil || buf.Len() == 0 {
+		// Rendering is best-effort: an empty or failed conversion must not eat
+		// the message the owner meant to publish.
+		return template.HTML(template.HTMLEscapeString(text))
+	}
+	return template.HTML(buf.String())
 }
 
 // shareStrings are the words around a shared conversation. The conversation is
@@ -585,7 +672,24 @@ var sharePageTemplate = template.Must(template.New("share").Parse(`<!doctype htm
   .turn { margin: 0 0 22px; }
   .who { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: #8a919b; margin-bottom: 4px; }
   .turn.user .who { color: #7aa2f7; }
-  .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .body { overflow-wrap: anywhere; }
+  .body > :first-child { margin-top: 0; }
+  .body > :last-child { margin-bottom: 0; }
+  .body p { margin: 0 0 10px; }
+  .body h1, .body h2, .body h3, .body h4 { font-size: 16px; margin: 16px 0 8px; font-weight: 600; }
+  .body ul, .body ol { margin: 8px 0; padding-left: 22px; }
+  .body li { margin: 2px 0; }
+  .body blockquote { margin: 10px 0; padding-left: 12px; border-left: 2px solid #2f3540; color: #b6bcc5; }
+  .body code { background: #11151b; border-radius: 4px; padding: 1px 5px;
+               font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .body pre { background: #11151b; border: 1px solid #24282e; border-radius: 8px;
+              padding: 10px 12px; margin: 10px 0; overflow-x: auto; }
+  .body pre code { background: none; padding: 0; }
+  .body a { color: #7aa2f7; }
+  .body hr { border: 0; border-top: 1px solid #24282e; margin: 14px 0; }
+  .body table { display: block; overflow-x: auto; border-collapse: collapse; margin: 10px 0; }
+  .body th, .body td { border: 1px solid #24282e; padding: 5px 8px; text-align: left; }
+  .body img { max-width: 100%; }
   .turn.user .body { padding: 10px 14px; border-radius: 10px; background: #161a20; }
   footer { margin-top: 40px; color: #6b727c; font-size: 12px; border-top: 1px solid #24282e; padding-top: 16px; }
   .empty { color: #8a919b; }
@@ -604,7 +708,7 @@ var sharePageTemplate = template.Must(template.New("share").Parse(`<!doctype htm
   {{range .View.Messages}}
   <div class="turn {{.Role}}">
     <div class="who">{{if eq .Role "user"}}{{$.S.You}}{{else}}{{if .Speaker}}{{.Speaker}}{{else}}{{$.View.Agent}}{{end}}{{end}}</div>
-    <div class="body">{{.Text}}</div>
+    <div class="body">{{.HTML}}</div>
   </div>
   {{end}}
   {{if .View.Truncated}}<p class="empty">{{.S.Truncated}}</p>{{end}}
