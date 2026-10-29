@@ -157,6 +157,19 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
   const [deleting, setDeleting] = useState(false);
   /** Phone-only overflow sheet; the same actions stay as chips from `md` up. */
   const [actionsOpen, setActionsOpen] = useState(false);
+  /**
+   * Find-in-conversation, owned here rather than in ChatStream so the phone's
+   * sheet can open it — the phone has no Cmd+F. The hidden panes behind the tab
+   * strip pass `findShortcut={false}` so one shortcut cannot open every bar.
+   */
+  const [findOpen, setFindOpen] = useState(false);
+  /**
+   * Set by the sheet's 查找 row. The bar opens on dismissal, not on the tap:
+   * Ionic keeps keyboard focus inside the action sheet until it is removed from
+   * the DOM, so focusing the field while the sheet is still up shows a bar with
+   * no keyboard, and the removal then drops focus to `<body>`.
+   */
+  const openFindAfterSheet = useRef(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [busy, setBusy] = useState<Record<string, "approved" | "denied">>({});
   const [answerBusy, setAnswerBusy] = useState<Record<string, boolean>>({});
@@ -1050,6 +1063,7 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
    * and the sheet is not rendered as a second way to reach them.
    */
   const sessionActions: ActionSheetButton[] = [
+    { text: tr("chat.find.menu"), handler: () => (openFindAfterSheet.current = true) },
     { text: tr("workspace.title"), handler: () => togglePanel(id, "files") },
     { text: tr("pr.title"), handler: () => togglePrPanel() },
     ...(!terminal
@@ -1214,7 +1228,15 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
 
         <IonActionSheet
           isOpen={actionsOpen}
-          onDidDismiss={() => setActionsOpen(false)}
+          onDidDismiss={() => {
+            setActionsOpen(false);
+            // The bar can only take focus once the sheet is gone; see
+            // `openFindAfterSheet`.
+            if (openFindAfterSheet.current) {
+              openFindAfterSheet.current = false;
+              setFindOpen(true);
+            }
+          }}
           header={tr("task.sessionActions")}
           // Which machine is about to be acted on. The footer strip that named
           // it is below `md` too, and "stop this session" on an unnamed remote
@@ -1285,6 +1307,9 @@ export default function TaskDetailPage({ taskId, active = true }: TaskDetailPage
             onRetry={(seq) => void onRetry(seq)}
             onFork={(seq) => void onFork(seq)}
             onSaveArtifact={(text) => void onSaveArtifact(text)}
+            findOpen={findOpen}
+            onFindOpenChange={setFindOpen}
+            findShortcut={active}
             trailing={
               <>
                 {unanchored.map((entry) => (

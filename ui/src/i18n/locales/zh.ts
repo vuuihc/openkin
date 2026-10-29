@@ -273,6 +273,16 @@ const zh = {
     denying: "拒绝中…",
   },
   chat: {
+    find: {
+      label: "在会话中查找",
+      menu: "查找",
+      placeholder: "查找消息内容",
+      prev: "上一处",
+      next: "下一处",
+      close: "关闭查找",
+      count: "{index}/{total}",
+      noMatches: "无匹配",
+    },
     thinking: "思考中…",
     streaming: "生成中",
     queued: "排队中",

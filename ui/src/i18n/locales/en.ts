@@ -284,6 +284,16 @@ const en: MessageTree = {
     denying: "Denying…",
   },
   chat: {
+    find: {
+      label: "Find in conversation",
+      menu: "Find",
+      placeholder: "Find in messages",
+      prev: "Previous match",
+      next: "Next match",
+      close: "Close find",
+      count: "{index}/{total}",
+      noMatches: "No matches",
+    },
     thinking: "thinking…",
     streaming: "streaming",
     queued: "Queued",

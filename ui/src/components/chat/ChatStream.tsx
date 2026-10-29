@@ -3,8 +3,18 @@
  * One user message → one agent reply column (single left avatar). Intermediate
  * multi-agent / tool steps remain as a complete, ordered execution record.
  */
-import { Fragment, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import type { TaskEvent } from "../../api/client";
+import { findMatches, stepMatch } from "../../lib/findInTranscript";
 import { friendlyErrorLabel } from "../../lib/friendlyError";
 import { useLocale, useT } from "../../i18n/react";
 import { isMessageQueued } from "../../lib/queuedPrompts";
@@ -15,7 +25,7 @@ import {
   useMobileMessageActionsRevealed,
 } from "../../lib/mobileMessageActions";
 import { useAppStore } from "../../store/appStore";
-import { IconCopy, IconDownload, IconShare } from "../icons";
+import { IconChevron, IconCopy, IconDownload, IconSearch, IconShare, IconX } from "../icons";
 import Markdown from "../Markdown";
 import RoundEvidenceCard from "./RoundEvidenceCard";
 import ToolStepRow from "./ToolStepRow";
@@ -42,6 +52,9 @@ import {
 
 /** One empty set, shared: the default for a stream that has no queue to show. */
 const EMPTY_QUEUED: Set<number> = new Set();
+
+/** One empty result, shared: a closed find bar has nothing to point at. */
+const NO_FIND_HITS: readonly string[] = [];
 
 type Props = {
   events: TaskEvent[];
@@ -92,6 +105,19 @@ type Props = {
   onSaveArtifact?: (text: string) => void;
   /** Open a workspace path in the Files panel (from tool rows). */
   onOpenPath?: (path: string) => void;
+  /**
+   * Find bar, controlled. The phone has no Cmd+F, so its session menu has to be
+   * able to open the bar; leaving this undefined keeps the state internal and
+   * the keyboard shortcut is the only way in (the desktop answer).
+   */
+  findOpen?: boolean;
+  onFindOpenChange?: (open: boolean) => void;
+  /**
+   * Whether this instance may claim Cmd/Ctrl+F. Sessions stay mounted behind
+   * the tab strip (display:none), so without this every hidden pane would open
+   * its own bar on one shortcut.
+   */
+  findShortcut?: boolean;
 };
 
 export default function ChatStream({
@@ -111,6 +137,9 @@ export default function ChatStream({
   onFork,
   onSaveArtifact,
   onOpenPath,
+  findOpen: findOpenProp,
+  onFindOpenChange,
+  findShortcut = true,
 }: Props) {
   const { locale } = useLocale();
   const tr = useT();
@@ -133,6 +162,114 @@ export default function ChatStream({
   // What each round changed, keyed by the turn it ends on — the one the card is
   // drawn under. The join itself is a projection rule and lives with the others.
   const evidenceByTurn = useMemo(() => roundEvidenceByTurn(events, turns), [turns, events]);
+
+  // --- Find in conversation -------------------------------------------------
+  const [findOpenSelf, setFindOpenSelf] = useState(false);
+  const findOpen = findOpenProp ?? findOpenSelf;
+  const [findQuery, setFindQuery] = useState("");
+  const [findIndex, setFindIndex] = useState(0);
+  // Bumped by every step, so a next/prev that lands on the only hit still
+  // re-centres after the reader has scrolled away from it.
+  const [findNav, setFindNav] = useState(0);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const findReturnFocusRef = useRef<HTMLElement | null>(null);
+
+  const setFindOpen = useCallback(
+    (open: boolean) => {
+      setFindOpenSelf(open);
+      onFindOpenChange?.(open);
+    },
+    [onFindOpenChange],
+  );
+
+  // Nothing to count while the bar is shut, and a closed bar must leave no ring
+  // behind: the hits, and with them the active key, exist only while it is open.
+  const findHits = useMemo(() => {
+    if (!findOpen) return NO_FIND_HITS;
+    // Only message bubbles carry text a reader would search for; progress cards
+    // and error rows are labels, not content. Partial messages stream, so they
+    // are matched as they stand rather than being frozen out until they finish.
+    const messages = items.filter(
+      (item): item is Extract<ChatItem, { kind: "message" }> =>
+        item.kind === "message" && item.text.trim().length > 0,
+    );
+    return findMatches(messages, findQuery);
+  }, [findOpen, items, findQuery]);
+  // `stepMatch` normalises, so a query that loses hits under a streaming edit
+  // cannot leave the bar pointing past the end of its own result set.
+  const findActiveIndex = stepMatch(findIndex, 0, findHits.length);
+  const activeFindKey = findActiveIndex >= 0 ? findHits[findActiveIndex] : null;
+
+  useEffect(() => {
+    if (findOpen) {
+      const previous = document.activeElement;
+      findReturnFocusRef.current =
+        previous instanceof HTMLElement && previous !== document.body ? previous : null;
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+      return;
+    }
+    // Closing hands focus back where it was; left alone it lands on <body>, and
+    // a keyboard user has to Tab in from the top of the page again.
+    const previous = findReturnFocusRef.current;
+    findReturnFocusRef.current = null;
+    previous?.focus?.();
+  }, [findOpen]);
+
+  useEffect(() => {
+    if (!findOpen || !activeFindKey) return;
+    const root = rootRef.current;
+    if (!root) return;
+    // Attribute compared against attribute rather than built into a selector:
+    // our keys need no escaping today, and this cannot start needing it.
+    const target = Array.from(root.querySelectorAll<HTMLElement>("[data-message-key]")).find(
+      (element) => element.getAttribute("data-message-key") === activeFindKey,
+    );
+    target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [findOpen, activeFindKey, findNav]);
+
+  useEffect(() => {
+    if (!findShortcut) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Escape during IME composition cancels the composition, not the bar.
+      if (event.isComposing) return;
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setFindOpen(true);
+        findInputRef.current?.focus();
+        findInputRef.current?.select();
+        return;
+      }
+      if (!findOpen || event.key !== "Escape") return;
+      // "One Escape, one layer." A mention menu, the command palette or a sheet
+      // claims the key with `preventDefault`, and the palette's listener is also
+      // on window and registered after this one — so the claim only exists once
+      // the dispatch is over. Hence the task boundary rather than a check here.
+      window.setTimeout(() => {
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        setFindOpen(false);
+      }, 0);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [findOpen, findShortcut, setFindOpen]);
+
+  const stepFind = (delta: number) => {
+    // Enter in an empty result set is not "go to match -1": a negative ordinal
+    // would land on the last match as soon as one streams in.
+    if (findHits.length === 0) return;
+    setFindIndex((index) => stepMatch(index, delta, findHits.length));
+    setFindNav((nav) => nav + 1);
+  };
+
+  const findStatus = !findQuery.trim()
+    ? ""
+    : findHits.length > 0
+      ? tr("chat.find.count", { index: findActiveIndex + 1, total: findHits.length })
+      : tr("chat.find.noMatches");
+
   const hasUserMsg = items.some((i) => i.kind === "message" && i.speaker === "user");
   const selectableMessages = useMemo(
     () =>
@@ -238,6 +375,8 @@ export default function ChatStream({
         return (
           <MessageRow
             key={turn.item.key}
+            messageKey={turn.item.key}
+            activeFindKey={activeFindKey}
             speaker={turn.item.speaker}
             text={turn.item.text}
             partial={turn.item.partial}
@@ -278,6 +417,7 @@ export default function ChatStream({
             onFork={onFork}
             onSaveArtifact={onSaveArtifact}
             onOpenPath={onOpenPath}
+            activeFindKey={activeFindKey}
             selectionMode={sharing}
             selectedKeys={selectedKeys}
             onToggleSelection={toggleSelection}
@@ -291,7 +431,80 @@ export default function ChatStream({
   }
 
   return (
-    <div className="max-w-conversation w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4">
+    <div
+      ref={rootRef}
+      className="max-w-conversation w-full min-w-0 mx-auto px-4 sm:px-7 flex flex-col gap-4"
+    >
+      {findOpen && (
+        <div
+          role="search"
+          aria-label={tr("chat.find.label")}
+          className="sticky top-0 z-20 -mx-4 -mt-1 flex items-center gap-1.5 border-b border-[var(--kin-hairline)] bg-[var(--kin-page)] px-4 py-2 sm:-mx-7 sm:px-7"
+        >
+          <div className="flex min-h-9 min-w-0 flex-1 items-center gap-1.5 rounded-full bg-[var(--kin-fill)] pl-2.5 pr-1 focus-within:ring-2 focus-within:ring-kin-focus-ring">
+            <IconSearch size={14} className="flex-none text-kin-muted" />
+            <input
+              ref={findInputRef}
+              value={findQuery}
+              onChange={(event) => {
+                setFindQuery(event.target.value);
+                // A new query starts its walk at the first hit, including when
+                // it narrows an old one: keeping the ordinal would land
+                // mid-list on an unrelated match.
+                setFindIndex(0);
+              }}
+              onKeyDown={(event) => {
+                // Enter that confirms an IME candidate is not "next match".
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  stepFind(event.shiftKey ? -1 : 1);
+                }
+              }}
+              placeholder={tr("chat.find.placeholder")}
+              aria-label={tr("chat.find.label")}
+              type="text"
+              enterKeyHint="search"
+              className="min-h-9 min-w-0 flex-1 appearance-none bg-transparent text-body text-kin-text outline-none placeholder:text-kin-muted"
+            />
+          </div>
+          <span
+            className="flex-none whitespace-nowrap text-caption tabular-nums text-kin-muted"
+            aria-live="polite"
+          >
+            {findStatus}
+          </span>
+          <button
+            type="button"
+            onClick={() => stepFind(-1)}
+            disabled={findHits.length === 0}
+            aria-label={tr("chat.find.prev")}
+            title={tr("chat.find.prev")}
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text disabled:opacity-40"
+          >
+            <IconChevron size={15} className="-rotate-90" />
+          </button>
+          <button
+            type="button"
+            onClick={() => stepFind(1)}
+            disabled={findHits.length === 0}
+            aria-label={tr("chat.find.next")}
+            title={tr("chat.find.next")}
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text disabled:opacity-40"
+          >
+            <IconChevron size={15} className="rotate-90" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setFindOpen(false)}
+            aria-label={tr("chat.find.close")}
+            title={tr("chat.find.close")}
+            className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-kin-muted hover:bg-[var(--kin-fill)] hover:text-kin-text"
+          >
+            <IconX size={15} />
+          </button>
+        </div>
+      )}
       {sharing && (
         <ShareSelectionBar
           count={selectedMessages.length}
@@ -345,6 +558,7 @@ function AgentTurn({
   onFork,
   onSaveArtifact,
   onOpenPath,
+  activeFindKey,
   selectionMode = false,
   selectedKeys,
   onToggleSelection,
@@ -369,6 +583,8 @@ function AgentTurn({
   onFork?: (fromSeq: number) => void;
   onSaveArtifact?: (text: string) => void;
   onOpenPath?: (path: string) => void;
+  /** The message the find bar is pointing at, if any. */
+  activeFindKey?: string | null;
   selectionMode?: boolean;
   selectedKeys: Set<string>;
   onToggleSelection: (key: string) => void;
@@ -416,6 +632,7 @@ function AgentTurn({
                   onRetry={onRetry}
                   onFork={onFork}
                   onSaveArtifact={onSaveArtifact}
+                  activeFindKey={activeFindKey}
                   selectionMode={selectionMode}
                   selected={selectedKeys.has(item.key)}
                   onToggleSelection={() => onToggleSelection(item.key)}
@@ -478,6 +695,7 @@ function AssistantMessageItem({
   onRetry,
   onFork,
   onSaveArtifact,
+  activeFindKey,
   selectionMode,
   selected,
   onToggleSelection,
@@ -491,6 +709,8 @@ function AssistantMessageItem({
   onRetry?: (fromSeq: number) => void;
   onFork?: (fromSeq: number) => void;
   onSaveArtifact?: (text: string) => void;
+  /** See ChatStream's find bar; the active hit is the one drawn with a ring. */
+  activeFindKey?: string | null;
   selectionMode: boolean;
   selected: boolean;
   onToggleSelection: () => void;
@@ -507,8 +727,11 @@ function AssistantMessageItem({
   const revealed = useMobileMessageActionsRevealed(storeKey);
   return (
     <div
+      data-message-key={item.key}
+      data-find-active={item.key === activeFindKey ? "true" : undefined}
       className={[
         "group/msg space-y-1 rounded-lg",
+        item.key === activeFindKey ? "ring-2 ring-kin-blue/45" : "",
         selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2" : "",
       ].join(" ")}
       {...((canRetryFork || canSave || canCopy) && !selectionMode
@@ -915,6 +1138,8 @@ function MessageBody({ text, partial }: { text: string; partial?: boolean }) {
 }
 
 function MessageRow({
+  messageKey,
+  activeFindKey,
   speaker,
   text,
   partial,
@@ -923,6 +1148,10 @@ function MessageRow({
   selected = false,
   onToggleSelection,
 }: {
+  /** The transcript item this bubble renders; the find bar scrolls to it. */
+  messageKey?: string;
+  /** Set when the find bar is pointing at this message. */
+  activeFindKey?: string | null;
   speaker: string;
   text: string;
   partial?: boolean;
@@ -939,10 +1168,13 @@ function MessageRow({
   if (isUser) {
     return (
       <div
+        data-message-key={messageKey}
+        data-find-active={messageKey && messageKey === activeFindKey ? "true" : undefined}
         className={[
           // min-w-0: let this row shrink inside the chat column so max-w on
           // the bubble can actually constrain long unbroken paths/URLs.
           "flex min-w-0 w-full justify-end gap-2.5 items-start rounded-lg",
+          messageKey && messageKey === activeFindKey ? "ring-2 ring-kin-blue/45" : "",
           selectionMode && selected ? "ring-1 ring-kin-blue/40 bg-kin-blue/15 p-2 -m-2" : "",
         ].join(" ")}
       >
@@ -988,7 +1220,14 @@ function MessageRow({
 
   // Fallback single-row assistant render (not used via AgentTurn path).
   return (
-    <div className="flex gap-2.5 items-start">
+    <div
+      data-message-key={messageKey}
+      data-find-active={messageKey && messageKey === activeFindKey ? "true" : undefined}
+      className={[
+        "flex gap-2.5 items-start rounded-lg",
+        messageKey && messageKey === activeFindKey ? "ring-2 ring-kin-blue/45" : "",
+      ].join(" ")}
+    >
       <div
         className={`w-[28px] h-[28px] flex-none rounded-lg flex items-center justify-center text-caption font-bold ${meta.className}`}
         title={meta.label}

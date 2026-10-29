@@ -268,4 +268,81 @@ token is deliberately not copied into a tool call. Layout of the mark is
 covered by classes that already exist (`truncate`, `text-inherit`), but the
 first real look will be on the deployed Hub during release.
 
-Still open in batch A: A2 (find in conversation).
+#### A2 — find reaches every message in the conversation (landed)
+
+What changed:
+
+- `ChatStream` grew a find bar: Ctrl/Cmd+F opens it, Escape closes, Enter and
+  Shift+Enter step, next/previous wrap, an `n/total` count and a "no matches"
+  state, and the active bubble is ringed and scrolled to centre. The matcher
+  and the wrap-around step are pure functions in `lib/findInTranscript.ts`.
+- The index is over the projected messages, not the DOM. `window.find` cannot
+  say how many matches there are, cannot wrap, and in the Electron shell it
+  scrolls the host page rather than the transcript column.
+- The phone's session sheet gained 查找, because a phone has no Cmd+F. It opens
+  the bar on `onDidDismiss` rather than on the tap: Ionic keeps keyboard focus
+  inside an action sheet until it is removed, so focusing the field from the
+  row's handler shows a bar that never raises a keyboard, and the removal then
+  drops focus to `<body>`.
+- Only the active pane may claim the shortcut (`findShortcut`). Sessions stay
+  mounted behind the tab strip, so without it one Cmd+F opened a bar in every
+  hidden pane.
+- Closing cannot leave a mark behind: the hit list only exists while the bar is
+  open, and a shut bar points at nothing. Escape defers one task boundary so a
+  surface that already claimed the key — the mention menu, the command palette,
+  a sheet — keeps it ("one Escape, one layer").
+
+Acceptance: a phrase from the middle of a long session is reachable on a phone
+in two taps (⋯ → 查找) and on a desktop with Cmd+F, with the count visible and
+the match centred. Verified by 8 unit cases over the matcher/stepper, 14 jsdom
+cases over the bar, and source guards over the sheet wiring. Six guards were
+red-verified by mutation: the hidden-pane shortcut gate, the query reset, the
+message anchors the scroll reads, the inner-Escape claim, the close-clears-mark
+rule, and the step counter that re-centres a single match.
+
+Review (same model) found **no blocker and four majors**, all real and all fixed
+in the same slice:
+
+- **Escape closed two layers at once.** The mention menu and the command palette
+  answer the same key with `preventDefault` only, so the bar closed underneath
+  them. The close now waits for the dispatch to finish and yields when the key
+  was claimed.
+- **The ring outlived the bar.** Typing a query, then pressing Escape, left the
+  matched bubble ringed for the rest of the session. The hit list is now gated
+  on `findOpen`, which clears the mark on the same render that removes the bar.
+- **The phone entry fought the sheet for focus.** Opening from the row's own
+  handler focused a field inside an overlay that still trapped focus. The row
+  now leaves a note and `onDidDismiss` opens the bar.
+- **This document still said A2 was unbuilt.** Corrected by this entry.
+
+Nits fixed in the same pass: the fixed-width count cell clipped "No matches" in
+English (natural width now, `tabular-nums` kept); the three bar buttons opted
+out of the 44px touch floor the rest of the phone shell keeps; a query change
+could paint the old ordinal for one frame; Enter on an empty result set left a
+negative ordinal that would land on the *last* match once one streamed in;
+closing dropped focus to `<body>` instead of restoring it; a single match could
+not be re-centred after the reader scrolled away; and the match index was
+recomputed on every streamed token while the bar was shut.
+
+Deferred nit: opening the bar inserts ~44px at the top of the flow and shifts
+the transcript down. The bar is sticky and in flow on purpose — an overlay
+would need a positioned ancestor this page does not have — and B2's
+virtualization is the natural place to revisit it.
+
+Residual risk: the phone focus path could not be exercised in this environment
+(no authenticated phone build here). The deferral follows Ionic's documented
+dismissal order, but the keyboard actually raising on iOS still needs a device
+check on the deployed Hub.
+
+#### A3 — message actions while a round runs (verified; no change needed)
+
+The plan asked to split the `showMessageActions={terminal}` gate. Reading the
+render path first was the whole job: only retry/fork are gated on
+`showMessageActions` (`canRetryFork`), while copy and save-artifact are gated
+only on the message being complete (`canCopy`, `canSave`). The intended end
+state — copy mid-round, retry/fork at the end — already holds, so A3 is a
+verification rather than a change. Its old wording ("copy/share exactly when a
+result is worth copying") described a bug that is not in the tree.
+
+**Batch A is closed.** Next: batch B (phone session switcher, transcript
+virtualization).
