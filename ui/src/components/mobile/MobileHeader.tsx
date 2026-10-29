@@ -85,12 +85,19 @@ export function MobileHeaderButton({
   onClick,
   children,
   tone = "accent",
+  dot = null,
   className = "",
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
   tone?: "accent" | "muted";
+  /**
+   * A small state dot in the corner, for a control that says what is behind it.
+   * Decoration only: a dot cannot be read out, so the control's `label` is where
+   * the state has to be said.
+   */
+  dot?: "waiting" | "unread" | null;
   className?: string;
 }) {
   return (
@@ -100,12 +107,20 @@ export function MobileHeaderButton({
       aria-label={label}
       title={label}
       className={[
-        "inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors active:bg-[var(--kin-fill)]",
+        "relative inline-flex h-11 w-11 items-center justify-center rounded-full transition-colors active:bg-[var(--kin-fill)]",
         tone === "accent" ? "text-kin-blue-ink" : "text-kin-muted",
         className,
       ].join(" ")}
     >
       {children}
+      {dot && (
+        <span
+          aria-hidden
+          className={`absolute right-2 top-2 h-2 w-2 rounded-full ${
+            dot === "waiting" ? "bg-kin-orange" : "bg-kin-green"
+          }`}
+        />
+      )}
     </button>
   );
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../api/client";
-import { buildSwitcherRows, switcherStatus, waitingTaskIds } from "./sessionSwitcher";
+import {
+  attentionMark,
+  buildSwitcherRows,
+  switcherStatus,
+  switcherTriggerLabel,
+  tabMark,
+  waitingTaskIds,
+} from "./sessionSwitcher";
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
   return {
@@ -154,5 +161,84 @@ describe("waitingTaskIds", () => {
       [{ task_id: "b" }, { task_id: "c" }],
     );
     expect([...ids].sort()).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("tabMark", () => {
+  it("puts the block on the tab from either the lists or the status", () => {
+    expect(tabMark(task("a", { status: "running" }), false, true)).toBe("waiting");
+    expect(tabMark(task("a", { status: "waiting_approval" }), false, false)).toBe("waiting");
+  });
+
+  it("says a session is waiting even when its row is outside the loaded page", () => {
+    // A tab outlives the page; the pending lists do not need the row.
+    expect(tabMark(undefined, false, true)).toBe("waiting");
+    expect(tabMark(undefined, false, false)).toBeNull();
+  });
+
+  it("keeps a failure visible after the session has been opened", () => {
+    expect(tabMark(task("a", { status: "failed" }), false, false)).toBe("failed");
+    expect(tabMark(task("a", { status: "failed" }), true, false)).toBe("failed");
+  });
+
+  it("marks a finished session unread until it has been opened", () => {
+    expect(tabMark(task("a", { status: "succeeded" }), false, false)).toBe("unread");
+    expect(tabMark(task("a", { status: "succeeded" }), true, false)).toBeNull();
+  });
+
+  it("draws nothing on a session that is merely busy", () => {
+    // A spinner on every running tab is a strip of noise; the sheet has room
+    // for the word, the strip does not.
+    expect(tabMark(task("a", { status: "running" }), false, false)).toBeNull();
+    expect(tabMark(task("a", { status: "queued" }), false, false)).toBeNull();
+    expect(tabMark(task("a", { status: "canceled" }), false, false)).toBeNull();
+  });
+});
+
+describe("attentionMark", () => {
+  const row = (status: "waiting" | "running" | "failed" | "unread" | "idle", active = false) =>
+    ({ status, active }) as const;
+
+  it("prefers the session that cannot move without the reader", () => {
+    expect(attentionMark([row("unread"), row("waiting")])).toBe("waiting");
+  });
+
+  it("ignores the session in front: the reader is already looking at it", () => {
+    expect(attentionMark([row("waiting", true), row("running")])).toBeNull();
+    expect(attentionMark([row("unread", true), row("idle")])).toBeNull();
+  });
+
+  it("still lights for another session when the active one is waiting", () => {
+    expect(attentionMark([row("waiting", true), row("unread")])).toBe("unread");
+  });
+
+  it("does not count a failure, which stays failed until the tab is retried or closed", () => {
+    // A dot that only clears when the tab goes away teaches the reader to stop
+    // seeing the dot. The strip still shows the failure itself.
+    expect(attentionMark([row("failed"), row("idle")])).toBeNull();
+  });
+
+  it("says nothing when every session is busy or idle", () => {
+    expect(attentionMark([])).toBeNull();
+    expect(attentionMark([row("running"), row("idle")])).toBeNull();
+  });
+});
+
+describe("switcherTriggerLabel", () => {
+  it("leaves the plain title alone when there is no dot", () => {
+    // No `stateKey`: the call site then passes no params, and `t()` returns the
+    // plain title rather than a template with an empty hole in it.
+    expect(switcherTriggerLabel(null)).toEqual({ key: "switcher.title" });
+  });
+
+  it("names the state in the title when a dot is drawn", () => {
+    expect(switcherTriggerLabel("waiting")).toEqual({
+      key: "switcher.titleMarked",
+      stateKey: "switcher.waiting",
+    });
+    expect(switcherTriggerLabel("unread")).toEqual({
+      key: "switcher.titleMarked",
+      stateKey: "switcher.unread",
+    });
   });
 });

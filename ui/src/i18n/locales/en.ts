@@ -1489,6 +1489,7 @@ const en: MessageTree = {
   },
   switcher: {
     title: "Switch session",
+    titleMarked: "Switch session — {state}",
     open: "Open",
     recent: "Recent",
     waiting: "Needs you",
@@ -1499,6 +1500,7 @@ const en: MessageTree = {
   tabs: {
     label: "Open sessions",
     close: "Close {name}",
+    withState: "{name}, {state}",
     reorderHint: "Alt+←/→ moves this tab",
     untitled: "Session",
   },

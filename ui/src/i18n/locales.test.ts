@@ -47,6 +47,31 @@ describe("locale catalogs", () => {
     }
   });
 
+  it("use the same placeholders in both languages", () => {
+    // Key parity cannot see this one: a template translated with a renamed
+    // placeholder (`{stat}`) has a row in both catalogs and renders the braces
+    // literally, because `t()` only replaces the names it is given.
+    const leaves = (tree: unknown, prefix = ""): Array<[string, string]> => {
+      if (typeof tree === "string") return [[prefix, tree]];
+      if (tree === null || typeof tree !== "object") return [];
+      return Object.entries(tree as Record<string, unknown>).flatMap(([key, value]) =>
+        leaves(value, prefix ? `${prefix}.${key}` : key),
+      );
+    };
+    const tokens = (value: string) =>
+      [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
+    const zhLeaves = new Map(leaves(zh));
+    const mismatched = leaves(en)
+      .filter(([path, value]) => {
+        const other = zhLeaves.get(path);
+        // A key missing from zh is the test above's finding, not this one's.
+        if (other === undefined) return false;
+        return tokens(value).join(",") !== tokens(other).join(",");
+      })
+      .map(([path]) => path);
+    expect(mismatched).toEqual([]);
+  });
+
   it("translate every auth error code the Hub can send", () => {
     // The key-parity tests above only compare the two catalogs to each other, so
     // a code that is in neither -- because Go learned a new one and the console

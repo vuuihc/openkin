@@ -45,6 +45,79 @@ export function switcherStatus(task: Task, viewed: boolean, waiting: boolean): S
   return "idle";
 }
 
+/** The states a tab has room to show: one dot, no words. */
+export type TabMark = "waiting" | "failed" | "unread";
+
+/**
+ * The dot an open tab carries, if any.
+ *
+ * A tab is a session the reader already has open, so it carries the state a
+ * switcher row carries and nothing else: a spinner on every busy tab would turn
+ * the strip into a row of noise, and "idle" is what most tabs are most of the
+ * time. `waiting` reads the pending lists as well as the status, like the sheet,
+ * because the lists answer a moment earlier than the task row does.
+ */
+export function tabMark(task: Task | undefined, viewed: boolean, waiting: boolean): TabMark | null {
+  // A tab can outlive the loaded page. Its row is gone but its block state is
+  // not: the pending lists are keyed by task id and need no row.
+  if (!task) return waiting ? "waiting" : null;
+  const status = switcherStatus(task, viewed, waiting);
+  return status === "waiting" || status === "failed" || status === "unread" ? status : null;
+}
+
+/** What the sessions control itself says: the strongest reason to open it. */
+export type AttentionMark = "waiting" | "unread";
+
+/**
+ * The dot the sessions control carries on the phone.
+ *
+ * Two differences from a tab's dot, both deliberate. The session in front never
+ * counts — the reader is looking at it, and a dot on the control that opens the
+ * list you are already in says nothing. And a failure does not light it: a
+ * failed session stays failed until it is retried or closed, so a dot that only
+ * clears when the tab goes away would train the reader to stop seeing it. What
+ * is left is work that arrived while the reader was elsewhere — blocked on a
+ * person, or finished unseen — which is exactly what the sheet's first row is
+ * for.
+ */
+export function attentionMark(
+  rows: readonly Pick<SwitcherRow, "status" | "active">[],
+): AttentionMark | null {
+  let unread = false;
+  for (const row of rows) {
+    if (row.active) continue;
+    if (row.status === "waiting") return "waiting";
+    if (row.status === "unread") unread = true;
+  }
+  return unread ? "unread" : null;
+}
+
+/**
+ * The words the sessions control takes, as locale keys rather than as text:
+ * the page translates both it and the state it names.
+ *
+ * The dot alone cannot carry the state — it is `aria-hidden`, and a control
+ * whose whole meaning is its accessible name must not depend on a colour — so
+ * the state is part of the label whenever one is drawn. Kept here, next to the
+ * rule that decides the mark, so the two cannot drift: a new mark cannot be
+ * added without answering what the control says about it.
+ */
+/** The state each mark names in the control's label. A record, not a ternary:
+ * adding an `AttentionMark` without a word for it is a type error, which is
+ * what the comment above promises. */
+const MARK_STATE_KEY: Record<AttentionMark, string> = {
+  waiting: "switcher.waiting",
+  unread: "switcher.unread",
+};
+
+export function switcherTriggerLabel(mark: AttentionMark | null): {
+  key: string;
+  stateKey?: string;
+} {
+  if (!mark) return { key: "switcher.title" };
+  return { key: "switcher.titleMarked", stateKey: MARK_STATE_KEY[mark] };
+}
+
 export function buildSwitcherRows(input: {
   /** Tab order: what the reader already has open, in strip order. */
   tabIds: readonly string[];

@@ -93,6 +93,8 @@ import {
   withoutWithdrawn,
 } from "../lib/queuedPrompts";
 import { publishDraftFrom } from "../lib/publishDraft";
+import type { AttentionMark } from "../lib/sessionSwitcher";
+import { switcherTriggerLabel } from "../lib/sessionSwitcher";
 import { useSlowHint } from "../hooks/useSlowHint";
 import { useMachines } from "../hooks/useMachines";
 import { useApprovalDecision } from "../hooks/useApprovalDecision";
@@ -129,12 +131,22 @@ type TaskDetailPageProps = {
    * only when it is there.
    */
   onOpenSessionSwitcher?: () => void;
+  /**
+   * What the switcher's dot says, when one is owed: a session other than the
+   * one in front is blocked on a person or has a result nobody has read. The
+   * host computes it from the same rows the sheet draws — which include the
+   * recent sessions behind the tabs, not only open tabs, because on a phone
+   * there is usually no tab to mark and a result that landed in another
+   * session is exactly what the dot is for.
+   */
+  switcherMark?: AttentionMark | null;
 };
 
 export default function TaskDetailPage({
   taskId,
   active = true,
   onOpenSessionSwitcher,
+  switcherMark = null,
 }: TaskDetailPageProps) {
   const { id: paramId = "" } = useParams();
   const id = taskId || paramId;
@@ -1350,6 +1362,7 @@ export default function TaskDetailPage({
   };
   const panel = resolvePanel(panelForView(shownPanel, id), panelCtx);
   const filesOpen = panel === "files";
+  const switcherLabel = switcherTriggerLabel(switcherMark);
   const prOpen = panel === "pr";
   const publishOpen = panel === "publish";
   const project = projectLabel(task.cwd);
@@ -1497,9 +1510,15 @@ export default function TaskDetailPage({
                   action on this session. */}
               {onOpenSessionSwitcher && (
                 <MobileHeaderButton
-                  label={tr("switcher.title")}
+                  // The dot is unreadable to a screen reader and the label is
+                  // the only thing announced, so the state rides in the name.
+                  label={tr(
+                    switcherLabel.key,
+                    switcherLabel.stateKey ? { state: tr(switcherLabel.stateKey) } : undefined,
+                  )}
                   onClick={onOpenSessionSwitcher}
                   tone="muted"
+                  dot={switcherMark}
                 >
                   <IconSessions size={19} />
                 </MobileHeaderButton>

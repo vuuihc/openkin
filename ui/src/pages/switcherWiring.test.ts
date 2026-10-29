@@ -25,11 +25,33 @@ describe("the phone's session switcher", () => {
     // The tab strip above the chat is desktop-only, so this button is the
     // phone's only way between two live sessions.
     expect(DETAIL).toContain("onOpenSessionSwitcher");
-    expect(DETAIL).toContain('label={tr("switcher.title")}');
+    // The words come from the helper beside the mark (`switcherTriggerLabel`),
+    // so a new mark cannot be drawn without the control saying what it is; the
+    // helper's own branches are covered in `sessionSwitcher.test.ts`. What is
+    // pinned here is that the page passes the state through as a parameter —
+    // a title template with no params renders "Switch session — ".
+    expect(DETAIL).toContain("const switcherLabel = switcherTriggerLabel(switcherMark);");
+    expect(DETAIL).toContain(
+      "switcherLabel.stateKey ? { state: tr(switcherLabel.stateKey) } : undefined",
+    );
     // It must be offered only where the host can actually open it: a header
     // button that swallows taps is worse than no button.
     expect(DETAIL).toContain("onOpenSessionSwitcher &&");
     expect(HOST).toContain("onOpenSessionSwitcher={openSwitcher}");
+  });
+
+  it("carries the state the sheet would show, without being opened", () => {
+    // A dot on the control and a name that says it, both fed from the rows the
+    // sheet draws: control and sheet share one status model.
+    expect(HOST).toContain("attentionMark(switcherRows)");
+    expect(HOST).toContain("switcherMark={switcherMark}");
+    expect(DETAIL).toContain("dot={switcherMark}");
+    // The tab strip above the chat reads the same per-session state, and only
+    // for sessions that are not in front — the one you are looking at needs no
+    // dot to say so. Two pins, not one whole line: an extraction or a reflow
+    // must not fail a test that asserts nothing user-visible.
+    expect(HOST).toContain("id === activeId ? null");
+    expect(HOST).toContain("tabMark(tasksById.get(id), viewedIds.has(id), pendingIds.has(id))");
   });
 
   it("draws the sheet the host assembled", () => {

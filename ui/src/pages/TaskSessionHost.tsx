@@ -5,7 +5,7 @@ import { usePendingResources, useTaskList, useTaskResource } from "../api/useLiv
 import { useT } from "../i18n/react";
 import { dropSessionCache, taskIdFromPathname, touchSessionCache } from "../lib/sessionCache";
 import { getViewedSessionIds, markSessionViewed, subscribeSessionViewed } from "../lib/sessionViewed";
-import { buildSwitcherRows, waitingTaskIds } from "../lib/sessionSwitcher";
+import { attentionMark, buildSwitcherRows, tabMark, waitingTaskIds } from "../lib/sessionSwitcher";
 import {
   closeSessionTab,
   moveSessionTab,
@@ -160,6 +160,10 @@ export default function TaskSessionHost() {
   const tabs: SessionTab[] = tabOrder.map((id) => ({
     id,
     label: taskDisplayTitle(tasksById.get(id)) || tr("tabs.untitled"),
+    // The session in front carries no dot: its state is the screen itself, and
+    // a mark there would label what the reader is already looking at.
+    mark:
+      id === activeId ? null : tabMark(tasksById.get(id), viewedIds.has(id), pendingIds.has(id)),
   }));
 
   // The active row is drawn from the same list as the rest; if it fell off the
@@ -182,6 +186,10 @@ export default function TaskSessionHost() {
       }),
     [tabOrder, switcherTasks, activeId, viewedIds, pendingIds, tr],
   );
+
+  // The same rows the sheet will draw, read for the one thing the phone's
+  // control can say without being opened.
+  const switcherMark = useMemo(() => attentionMark(switcherRows), [switcherRows]);
 
   const show = Boolean(activeId);
 
@@ -222,6 +230,7 @@ export default function TaskSessionHost() {
                   taskId={taskId}
                   active={active && show}
                   onOpenSessionSwitcher={openSwitcher}
+                  switcherMark={switcherMark}
                 />
               </ErrorBoundary>
             </div>

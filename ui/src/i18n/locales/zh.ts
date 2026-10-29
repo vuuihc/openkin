@@ -1423,6 +1423,7 @@ const zh = {
   },
   switcher: {
     title: "切换会话",
+    titleMarked: "切换会话（{state}）",
     open: "已打开",
     recent: "最近",
     waiting: "待处理",
@@ -1433,6 +1434,7 @@ const zh = {
   tabs: {
     label: "打开的会话",
     close: "关闭 {name}",
+    withState: "{name}，{state}",
     reorderHint: "Alt+←/→ 移动此标签",
     untitled: "会话",
   },

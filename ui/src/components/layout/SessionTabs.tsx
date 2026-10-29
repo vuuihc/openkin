@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useT } from "../../i18n/react";
+import type { TabMark } from "../../lib/sessionSwitcher";
 import { neighbourTab, tabStopId } from "../../lib/sessionTabs";
 import { IconX } from "../icons";
 
@@ -28,6 +29,20 @@ import { IconX } from "../icons";
 export type SessionTab = {
   id: string;
   label: string;
+  /** The state a dot carries, when there is one. The active tab has none. */
+  mark?: TabMark | null;
+};
+
+/** The dot's colour and the words a screen reader hears, per state. */
+const MARK_CLASS: Record<TabMark, string> = {
+  waiting: "bg-kin-orange",
+  failed: "bg-kin-red",
+  unread: "bg-kin-green",
+};
+const MARK_KEY: Record<TabMark, string> = {
+  waiting: "switcher.waiting",
+  failed: "switcher.failed",
+  unread: "switcher.unread",
 };
 
 type Props = {
@@ -127,11 +142,27 @@ export default function SessionTabs({ tabs, activeId, onSelect, onClose, onMove 
               }`}
               role="tab"
               aria-selected={isActive}
+              aria-label={
+                tab.mark
+                  ? tr("tabs.withState", { name: tab.label, state: tr(MARK_KEY[tab.mark]) })
+                  : undefined
+              }
               tabIndex={tab.id === stopId ? 0 : -1}
               title={tr("tabs.reorderHint")}
               onKeyDown={(event) => handleKeyDown(event, tab.id)}
               onClick={() => onSelect(tab.id)}
             >
+              {/*
+                The dot is decoration; the state is in the tab's accessible name
+                above. A screen reader that cannot see a 6px circle still has to
+                learn that this session is the one waiting.
+              */}
+              {tab.mark && (
+                <span
+                  aria-hidden
+                  className={`mr-1.5 h-1.5 w-1.5 flex-none rounded-full ${MARK_CLASS[tab.mark]}`}
+                />
+              )}
               <span className="truncate">{tab.label}</span>
             </button>
             <button
